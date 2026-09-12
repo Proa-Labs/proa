@@ -1,0 +1,5 @@
+error: `class` requires a value. write class="..." or class={expr} (HTML §2.3.2)
+ --> tests/ui/fail/invalid_attribute_syntax.rs:7:14
+  |
+7 |         <div class>
+  |              ^^^^^

@@ -1,0 +1,201 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# This is the reviewed bootstrap policy, not a complete WebIDL database.
+schema|5
+#
+# target|Rust marker|browser interface
+# Event targets that are not DOM elements. These markers deliberately do not
+# implement NodeMarker, ElementMarker, or any element capability.
+target|Document|Document
+target|Window|Window
+#
+# capability|Rust trait|documentation
+capability|HasElementApi|Common Element properties, geometry, attributes, classes, scrolling, and pointer operations.
+capability|HasHtmlElementApi|Common HTMLElement focus, click, style, and popover operations.
+capability|HasValue|Elements exposing a string value property.
+capability|HasChecked|Elements exposing a boolean checked property.
+capability|HasConstraintValidation|Elements exposing checkValidity and reportValidity.
+capability|HasValidationState|Form controls exposing validation state and custom validity.
+capability|HasTextSelection|Text controls exposing selection offsets and selection methods.
+capability|HasFiles|File inputs exposing their selected FileList summary.
+capability|HasFormActions|Forms exposing requestSubmit and reset.
+capability|HasDialogActions|Dialogs exposing showModal and close.
+#
+# element|Rust marker|browser interface|kind|aliases|capabilities
+# `kind` is one of: any, element, html-base, html.
+# `capabilities` is a comma-separated list of capability trait names above.
+element|Any|*|any||HasElementApi
+element|Element|Element|element||HasElementApi
+element|HtmlElement|HTMLElement|html-base|HTMLElement|HasElementApi,HasHtmlElementApi
+element|HtmlButtonElement|HTMLButtonElement|html|Button,HTMLButtonElement|HasElementApi,HasHtmlElementApi,HasValue,HasConstraintValidation,HasValidationState
+element|HtmlInputElement|HTMLInputElement|html|Input,HTMLInputElement|HasElementApi,HasHtmlElementApi,HasValue,HasChecked,HasConstraintValidation,HasValidationState,HasTextSelection,HasFiles
+element|HtmlTextAreaElement|HTMLTextAreaElement|html|Textarea,HTMLTextAreaElement|HasElementApi,HasHtmlElementApi,HasValue,HasConstraintValidation,HasValidationState,HasTextSelection
+element|HtmlSelectElement|HTMLSelectElement|html|Select,HTMLSelectElement|HasElementApi,HasHtmlElementApi,HasValue,HasConstraintValidation,HasValidationState
+element|HtmlFormElement|HTMLFormElement|html|Form,HTMLFormElement|HasElementApi,HasHtmlElementApi,HasConstraintValidation,HasFormActions
+element|HtmlAnchorElement|HTMLAnchorElement|html|Anchor,HTMLAnchorElement|HasElementApi,HasHtmlElementApi
+element|HtmlDivElement|HTMLDivElement|html|Div,HTMLDivElement|HasElementApi,HasHtmlElementApi
+element|HtmlSpanElement|HTMLSpanElement|html|Span,HTMLSpanElement|HasElementApi,HasHtmlElementApi
+element|HtmlLabelElement|HTMLLabelElement|html|Label,HTMLLabelElement|HasElementApi,HasHtmlElementApi
+element|HtmlOptionElement|HTMLOptionElement|html|OptionElement,HTMLOptionElement|HasElementApi,HasHtmlElementApi,HasValue
+element|HtmlDialogElement|HTMLDialogElement|html|Dialog,HTMLDialogElement|HasElementApi,HasHtmlElementApi,HasDialogActions
+
+# tag|markup tag|exact generated element marker
+# Unlisted HTML/custom tags use HtmlElement.
+tag|button|HtmlButtonElement
+tag|input|HtmlInputElement
+tag|textarea|HtmlTextAreaElement
+tag|select|HtmlSelectElement
+tag|form|HtmlFormElement
+tag|a|HtmlAnchorElement
+tag|div|HtmlDivElement
+tag|span|HtmlSpanElement
+tag|label|HtmlLabelElement
+tag|option|HtmlOptionElement
+tag|dialog|HtmlDialogElement
+tag|svg|Element
+tag|animate|Element
+tag|animateMotion|Element
+tag|animateTransform|Element
+tag|circle|Element
+tag|clipPath|Element
+tag|defs|Element
+tag|desc|Element
+tag|ellipse|Element
+tag|feBlend|Element
+tag|feColorMatrix|Element
+tag|feComponentTransfer|Element
+tag|feComposite|Element
+tag|feConvolveMatrix|Element
+tag|feDiffuseLighting|Element
+tag|feDisplacementMap|Element
+tag|feDistantLight|Element
+tag|feDropShadow|Element
+tag|feFlood|Element
+tag|feFuncA|Element
+tag|feFuncB|Element
+tag|feFuncG|Element
+tag|feFuncR|Element
+tag|feGaussianBlur|Element
+tag|feImage|Element
+tag|feMerge|Element
+tag|feMergeNode|Element
+tag|feMorphology|Element
+tag|feOffset|Element
+tag|fePointLight|Element
+tag|feSpecularLighting|Element
+tag|feSpotLight|Element
+tag|feTile|Element
+tag|feTurbulence|Element
+tag|filter|Element
+tag|foreignObject|Element
+tag|g|Element
+tag|image|Element
+tag|line|Element
+tag|linearGradient|Element
+tag|marker|Element
+tag|mask|Element
+tag|metadata|Element
+tag|mpath|Element
+tag|path|Element
+tag|pattern|Element
+tag|polygon|Element
+tag|polyline|Element
+tag|radialGradient|Element
+tag|rect|Element
+tag|set|Element
+tag|stop|Element
+tag|switch|Element
+tag|symbol|Element
+tag|text|Element
+tag|textPath|Element
+tag|tspan|Element
+tag|use|Element
+tag|view|Element
+
+# operation|Rust variant|method|kind|capability|arguments|fallback|origins|aliases
+# `kind` is read or effect. Arguments are `kind:name` pairs where kind is
+# reactive, static_attribute, or static_style_property. Origins are node_ref,
+# current_target, or element_ref.
+operation|Id|id|read|HasElementApi||string_empty|node_ref,current_target,element_ref|
+operation|TextContent|text_content|read|HasElementApi||string_empty|node_ref,current_target,element_ref|
+operation|Attribute|get_attribute|read|HasElementApi|static_attribute:name|string_empty|node_ref,current_target,element_ref|
+operation|HasAttribute|has_attribute|read|HasElementApi|static_attribute:name|bool_false|node_ref,current_target,element_ref|
+operation|ScrollTop|scroll_top|read|HasElementApi||f64_zero|node_ref,current_target,element_ref|
+operation|ScrollLeft|scroll_left|read|HasElementApi||f64_zero|node_ref,current_target,element_ref|
+operation|ClientWidth|client_width|read|HasElementApi||i32_zero|node_ref,current_target,element_ref|
+operation|ClientHeight|client_height|read|HasElementApi||i32_zero|node_ref,current_target,element_ref|
+operation|ScrollWidth|scroll_width|read|HasElementApi||i32_zero|node_ref,current_target,element_ref|
+operation|ScrollHeight|scroll_height|read|HasElementApi||i32_zero|node_ref,current_target,element_ref|
+operation|OffsetWidth|offset_width|read|HasHtmlElementApi||i32_zero|node_ref,current_target,element_ref|
+operation|OffsetHeight|offset_height|read|HasHtmlElementApi||i32_zero|node_ref,current_target,element_ref|
+operation|RectX|rect_x|read|HasElementApi||f64_zero|node_ref,current_target,element_ref|
+operation|RectY|rect_y|read|HasElementApi||f64_zero|node_ref,current_target,element_ref|
+operation|RectTop|rect_top|read|HasElementApi||f64_zero|node_ref,current_target,element_ref|
+operation|RectRight|rect_right|read|HasElementApi||f64_zero|node_ref,current_target,element_ref|
+operation|RectBottom|rect_bottom|read|HasElementApi||f64_zero|node_ref,current_target,element_ref|
+operation|RectLeft|rect_left|read|HasElementApi||f64_zero|node_ref,current_target,element_ref|
+operation|RectWidth|rect_width|read|HasElementApi||f64_zero|node_ref,current_target,element_ref|
+operation|RectHeight|rect_height|read|HasElementApi||f64_zero|node_ref,current_target,element_ref|
+operation|Value|value|read|HasValue||string_empty|node_ref,current_target,element_ref|
+operation|Checked|checked|read|HasChecked||bool_false|node_ref,current_target,element_ref|
+operation|CheckValidity|check_validity|read|HasConstraintValidation||bool_true|node_ref,current_target,element_ref|
+operation|ValidationMessage|validation_message|read|HasValidationState||string_empty|node_ref,current_target,element_ref|
+operation|ValidityValid|validity_valid|read|HasValidationState||bool_true|node_ref,current_target,element_ref|
+operation|WillValidate|will_validate|read|HasValidationState||bool_false|node_ref,current_target,element_ref|
+operation|SelectionStart|selection_start|read|HasTextSelection||u32_zero|node_ref,current_target,element_ref|
+operation|SelectionEnd|selection_end|read|HasTextSelection||u32_zero|node_ref,current_target,element_ref|
+operation|FileCount|file_count|read|HasFiles||u32_zero|node_ref,current_target,element_ref|
+operation|FirstFileName|first_file_name|read|HasFiles||string_empty|node_ref,current_target,element_ref|
+operation|FirstFileType|first_file_type|read|HasFiles||string_empty|node_ref,current_target,element_ref|
+operation|FirstFileSize|first_file_size|read|HasFiles||f64_zero|node_ref,current_target,element_ref|
+operation|SetTextContent|set_text_content|effect|HasElementApi|reactive:value|unit|node_ref,element_ref|
+operation|AddClass|add_class|effect|HasElementApi|reactive:class|unit|node_ref,element_ref|
+operation|RemoveClass|remove_class|effect|HasElementApi|reactive:class|unit|node_ref,element_ref|
+operation|ToggleClass|toggle_class|effect|HasElementApi|reactive:class|unit|node_ref,element_ref|
+operation|SetAttribute|set_attribute|effect|HasElementApi|static_attribute:name,reactive:value|unit|node_ref,element_ref|
+operation|RemoveAttribute|remove_attribute|effect|HasElementApi|static_attribute:name|unit|node_ref,element_ref|
+operation|ScrollTo|scroll_to|effect|HasElementApi|reactive:x,reactive:y|unit|node_ref,element_ref|
+operation|ScrollBy|scroll_by|effect|HasElementApi|reactive:x,reactive:y|unit|node_ref,element_ref|
+operation|SetPointerCapture|set_pointer_capture|effect|HasElementApi|reactive:pointer_id|unit|node_ref,element_ref|
+operation|ReleasePointerCapture|release_pointer_capture|effect|HasElementApi|reactive:pointer_id|unit|node_ref,element_ref|
+operation|Click|click|effect|HasHtmlElementApi||unit|node_ref,element_ref|
+operation|Focus|focus|effect|HasHtmlElementApi||unit|node_ref,element_ref|
+operation|Blur|blur|effect|HasHtmlElementApi||unit|node_ref,element_ref|
+operation|ScrollIntoView|scroll_into_view|effect|HasHtmlElementApi||unit|node_ref,element_ref|
+operation|SetStyleProperty|set_style_property|effect|HasHtmlElementApi|static_style_property:property,reactive:value|unit|node_ref,element_ref|
+operation|ShowPopover|show_popover|effect|HasHtmlElementApi||unit|node_ref,element_ref|
+operation|HidePopover|hide_popover|effect|HasHtmlElementApi||unit|node_ref,element_ref|
+operation|TogglePopover|toggle_popover|effect|HasHtmlElementApi||unit|node_ref,element_ref|
+operation|SetValue|set_value|effect|HasValue|reactive:value|unit|node_ref,element_ref|
+operation|SetChecked|set_checked|effect|HasChecked|reactive:value|unit|node_ref,element_ref|
+operation|ReportValidity|report_validity|effect|HasConstraintValidation||unit|node_ref,element_ref|
+operation|SetCustomValidity|set_custom_validity|effect|HasValidationState|reactive:message|unit|node_ref,element_ref|
+operation|Select|select|effect|HasTextSelection||unit|node_ref,element_ref|select_all
+operation|SetSelectionRange|set_selection_range|effect|HasTextSelection|reactive:start,reactive:end|unit|node_ref,element_ref|
+operation|RequestSubmit|request_submit|effect|HasFormActions||unit|node_ref,element_ref|
+operation|Reset|reset|effect|HasFormActions||unit|node_ref,element_ref|
+operation|ShowModal|show_modal|effect|HasDialogActions||unit|node_ref,element_ref|
+operation|Close|close|effect|HasDialogActions||unit|node_ref,element_ref|
+
+# event|interface-family marker implemented by rsjs event handles|documentation
+# These are RSJS compatibility families. Some names, notably ChangeEvent, are
+# policy-level families rather than literal WebIDL interfaces.
+event|Event|Base DOM event handle and broad compatibility escape hatch.
+event|MouseEvent|Mouse-event handle.
+event|InputEvent|Input-event handle.
+event|ChangeEvent|RSJS change-event compatibility handle.
+event|ClipboardEvent|Clipboard-event handle.
+event|KeyboardEvent|Keyboard-event handle.
+event|WheelEvent|Wheel-event handle.
+event|CompositionEvent|IME composition-event handle.
+event|DragEvent|Drag-and-drop event handle.
+event|ToggleEvent|Toggle and beforetoggle event handle.
+event|AnimationEvent|CSS animation-event handle.
+event|TransitionEvent|CSS transition-event handle.
+event|PointerEvent|Pointer-event handle.
+event|TouchEvent|Touch-event handle.
+event|PopStateEvent|History popstate-event handle.
+event|HashChangeEvent|Location hashchange-event handle.
+event|StorageEvent|Cross-document storage-event handle.
+event|SubmitEvent|Form submit-event handle.

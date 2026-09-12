@@ -1,0 +1,5 @@
+error: <div> cannot be a child of <span> — <span> only allows phrasing (inline) content. wrap the <div> in a container that accepts flow content, or replace the <span> with a <div> (HTML §3.2.5)
+ --> tests/ui/fail/nesting_div_in_span.rs:5:25
+  |
+5 |     html_sync! { <span><div>"bad"</div></span> };
+  |                         ^^^

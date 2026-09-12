@@ -1,0 +1,5 @@
+error: `#[rsjs]` expects an event-handler attribute to receive a closure (e.g. `on_click={|_| count.update(|c| c + 1)}`) or a direct call to a local `rsjs::handler(...)` / `rsjs::event_handler(...)` ref (e.g. `on_click={on_save(())}`)
+  --> tests/ui/fail/10_event_non_closure.rs:25:36
+   |
+25 |             <div><button on_click={count}>"x"</button></div>
+   |                                    ^^^^^

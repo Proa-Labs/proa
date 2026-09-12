@@ -1,0 +1,5 @@
+error: rsjs/shared-state-unrecognized-acquire: `rsjs::shared::<WorkbenchState>()` must be the entire initializer of its own `let`. Here it is nested inside another expression (a block, an `if`/`match` arm, or a call argument), so the analyzer has no named store handle to bind the acquisition to, and the call would be replayed into the generated server render where `rsjs::shared` is a stub that panics on every request. Write `let workbench = rsjs::shared::<WorkbenchState>();` as a top-level prelude statement, then read fields from that local, e.g. `let field = workbench.field();`
+  --> tests/ui/fail/57_shared_state_unrecognized_acquire.rs:22:27
+   |
+22 |         let workbench = { rsjs::shared::<WorkbenchState>() };
+   |                           ^^^^

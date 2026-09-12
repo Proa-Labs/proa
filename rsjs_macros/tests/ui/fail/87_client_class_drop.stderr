@@ -1,0 +1,7 @@
+error: rsjs: client value objects cannot have trait impls
+         help: move trait behavior outside the client object module and expose explicit inherent methods
+         note: JavaScript class emission cannot preserve implicit trait dispatch or `Drop` cleanup
+  --> tests/ui/fail/87_client_class_drop.rs:13:5
+   |
+13 |     impl Drop for Counter {
+   |     ^^^^

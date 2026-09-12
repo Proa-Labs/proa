@@ -1,0 +1,5 @@
+error: `children_builder` only supports a direct #[component(children)] field; `map` and `via` accessors require a handwritten builder
+ --> tests/proa_component_fail/children_builder_mapped.rs:7:5
+  |
+7 |     children: Option<C>,
+  |     ^^^^^^^^

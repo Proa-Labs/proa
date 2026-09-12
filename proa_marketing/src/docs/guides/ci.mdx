@@ -1,0 +1,265 @@
+---
+title: CI / GitHub Actions
+description: Gate pull requests with proa check, then deploy from the same pipeline.
+---
+
+Use `proa check` as the default pull-request gate. It runs `proa fmt --check --verify` and `proa lint`, then fails on formatting differences, errors, or warnings. With explicit paths or Git-selected files it stays source-only; a whole-project `proa check` with no paths also runs the linked RSJS Cargo check.
+
+Install a checksum-verified CLI binary before running the gate. There are two
+download flows. The current prebuilt target is 64-bit Ubuntu 24.04+
+(`x86_64-unknown-linux-gnu`); use a source build with repository access on
+other runners.
+
+### Latest CLI From `main`
+
+Inspect the exact commit-qualified snapshot and its available archives:
+
+```bash
+curl -fsSL https://proa.so/downloads/cli/main/latest.json | \
+  jq '{version, commit, assets}'
+```
+
+Install whatever that JSON document currently names. Leave `PROA_VERSION`
+unset so the installer resolves it from the main channel:
+
+```bash
+curl -fsSL https://proa.so/install.sh | \
+  PROA_DOWNLOAD_BASE=https://proa.so/downloads/cli/main \
+  PROA_PREBUILT_ONLY=1 \
+  PROA_YES=1 sh
+```
+
+### A Specific Published CLI Version
+
+The stable metadata names the current published version and every archive that
+is available for it:
+
+```bash
+curl -fsSL https://proa.so/downloads/cli/latest.json | \
+  jq '{version, assets}'
+```
+
+Choose a published version from that metadata or your release policy, then pin
+it. Versioned stable routes remain available after `latest.json` advances:
+
+```bash
+PROA_CLI_VERSION="<published-version>"
+curl -fsSL https://proa.so/install.sh | \
+  PROA_VERSION="$PROA_CLI_VERSION" \
+  PROA_PREBUILT_ONLY=1 \
+  PROA_YES=1 sh
+```
+
+`PROA_PREBUILT_ONLY=1` makes missing metadata or archives fail immediately
+instead of silently recompiling the workspace. Add
+`$HOME/.proa/bin` to `PATH`, or set `PROA_INSTALL_DIR` in CI as shown below.
+
+To build it from source instead:
+
+```bash
+CARGO_REGISTRIES_PROA_INDEX="sparse+https://registry.proa.so/sparse/" \
+CARGO_NET_GIT_FETCH_WITH_CLI=true \
+  cargo install --git https://github.com/proa-labs/proa --locked proa-cli
+```
+
+Then confirm CI can resolve the binary:
+
+```bash
+proa --help
+```
+
+## Minimal Gate
+
+```bash
+cargo fmt --all --check
+cargo test --workspace
+proa check src
+```
+
+`cargo fmt` keeps Rust syntax stable. `proa check` keeps template macro bodies canonical and catches Proa-specific render, accessibility, composition, performance, and RSJS issues.
+
+## GitHub Actions
+
+Start with a full gate on every pull request. Create a repository or
+organization variable named `PROA_CLI_VERSION` and set it to an already
+published stable CLI version:
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Proa CLI
+        env:
+          PROA_VERSION: ${{ vars.PROA_CLI_VERSION }}
+          PROA_INSTALL_DIR: ${{ runner.temp }}/proa-bin
+          PROA_NO_MODIFY_PATH: "1"
+          PROA_PREBUILT_ONLY: "1"
+          PROA_TAILWIND: skip
+          PROA_YES: "1"
+        run: |
+          set -euo pipefail
+          : "${PROA_VERSION:?set the PROA_CLI_VERSION repository variable to a published CLI version}"
+          curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL https://proa.so/install.sh | sh
+          echo "$PROA_INSTALL_DIR" >> "$GITHUB_PATH"
+
+      - name: Rust checks
+        run: |
+          cargo fmt --all --check
+          cargo test --workspace
+
+      - name: Proa checks
+        run: proa check src
+```
+
+While the Proa source repository is private, the Cargo steps need GitHub access to it (a token with read access) to fetch the git dependencies. [Installation](/docs) covers the access requirements.
+
+## Changed Files
+
+For faster pull-request checks, run against changed files:
+
+```bash
+proa check --changed --base origin/main
+```
+
+For pre-commit hooks, run against staged files:
+
+```bash
+proa check --staged
+```
+
+If no changed Rust files are selected, `check` succeeds without scanning. Do not combine explicit paths with `--changed`, `--staged`, or `--base`; Git-selected mode owns the file list.
+
+In GitHub Actions, changed-file mode needs enough history to diff against the base ref:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+
+- name: Proa changed-file check
+  run: proa check --changed --base origin/main
+```
+
+## GitHub Annotations
+
+`proa check` is intentionally concise. Use `proa lint --github` when you want inline GitHub Actions annotations:
+
+```bash
+proa fmt --check --verify src
+proa lint --github --deny-warnings src
+```
+
+For a changed-file workflow:
+
+```bash
+proa fmt --check --verify src
+proa lint --github --deny-warnings --changed --base origin/main
+```
+
+`lint --github` emits `error`, `warning`, and `notice` annotations. JSON and GitHub output include info-level diagnostics by default. Use this mode when reviewers need inline file comments; use `proa check` when you want a shorter pass/fail log.
+
+## JSON Diagnostics
+
+Use JSON when integrating with editor tooling or custom CI summaries:
+
+```bash
+proa lint --json --min-severity info src > proa-lint.json
+proa chunks --json src > proa-chunks.json
+proa site check --json > proa-site-check.json
+```
+
+The JSON shape includes the path, line, column, severity, diagnostic code, message, and optional help text. That makes it stable enough for custom PR summaries or agent workflows.
+
+## Monorepos
+
+Run Proa checks close to the Rust render code. For a workspace with multiple apps, prefer explicit paths:
+
+```bash
+proa check apps/marketing/src apps/admin/src crates/ui/src
+```
+
+If each app owns its own generated docs or static routes, include `site check` for each app root:
+
+```bash
+proa site check --root apps/marketing
+proa site check --root apps/docs
+```
+
+## Failure Triage
+
+When CI fails, use the narrow command first:
+
+| Failure | Local command |
+| --- | --- |
+| Macro formatting differs | `proa fmt src` |
+| Verify mode says formatting changed structure | `proa fmt --check --verify src` |
+| Lint failed without enough detail | `proa lint --min-severity info src` |
+| GitHub annotations are noisy | `proa lint --github --min-severity warning src` |
+| Site structure failed | `proa site check --json` |
+
+Keep the full gate on the branch that deploys. Use changed-file mode for fast feedback, not as the only production release check.
+
+## Docker
+
+For Docker builds, pass the GitHub token as a build secret so Cargo can fetch Proa's git dependencies:
+
+```dockerfile
+# syntax=docker/dockerfile:1.7
+
+FROM rust:1.93 AS builder
+
+WORKDIR /app
+COPY . .
+
+# Fetch Proa git dependencies through the git CLI. While the Proa repository
+# is private, pass a GitHub token with read access as Docker secret
+# `github_token`; drop the secret once the repository is public.
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+RUN --mount=type=secret,id=github_token \
+    if [ -s /run/secrets/github_token ]; then \
+        git config --global \
+            url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf \
+            "https://github.com/"; \
+    fi \
+    && cargo build --release
+```
+
+Build with:
+
+```bash
+docker build --secret id=github_token,env=GITHUB_TOKEN .
+```
+
+> **Security:** `--mount=type=secret` keeps the token out of image layers, and multi-stage builds keep build tooling and sources out of the final image. The example above uses `AS builder`, add a second `FROM` stage that copies only the compiled binary. [Docker](/docs/framework/docker) shows the full multi-stage build.
+
+## Other CI Systems
+
+The pattern is the same for any CI:
+
+1. Install a checksum-verified CLI binary (or build it from source) as shown above
+2. While the Proa repository is private, store a GitHub token with read access as a secret, set `CARGO_NET_GIT_FETCH_WITH_CLI=true`, and configure git to authenticate with it for all cargo commands
+3. Run the gate: `cargo fmt --all --check`, `cargo test --workspace`, `proa check src`
+
+## Next steps
+
+- [proa fmt / lint / check](/docs/cli/format-lint-check)
+  - Format macro bodies, run lints, and gate CI.
+- [Deploy](/docs/framework/deployment)
+  - Pick a deployment target, then follow the guide for it.
+- [Testing](/docs/guides/testing)
+  - Test Proa components with unit, snapshot, accessibility, and benchmark suites.
+- [Docker](/docs/framework/docker)
+  - Run the Proa image yourself, and own everything a platform would have done.

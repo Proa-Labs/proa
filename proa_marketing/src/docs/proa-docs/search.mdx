@@ -1,0 +1,210 @@
+---
+title: Search
+description: Generate static search manifests and serve search documents from the Docs registry.
+---
+
+`proa_docs_build` emits static search artifacts for each docs source, and `proa_docs::render_static` serves them as JSON. This page covers [enabling search](#enabling-search), [the generated artifacts](#reading-the-generated-artifacts), and [serving them to a client](#serving-artifacts-to-a-client).
+
+## Enabling search
+
+`DocsSource::new(...)` defaults to `SearchConfig::orama_client()`, and the generated runtime registry stores the artifacts on `Docs.search`:
+
+```rust filename="build.rs"
+let docs = proa_docs_build::DocsSource::new("src/docs")
+    .base_path("/docs")
+    .search(proa_docs_build::SearchConfig::orama_client());
+```
+
+Turn search on for a client search box, a server-side search endpoint, or a custom indexer that never walks Markdown at runtime. Disable search for a source that must not publish index data:
+
+```rust filename="build.rs"
+let internal = proa_docs_build::DocsSource::new("src/internal")
+    .base_path("/internal")
+    .search(proa_docs_build::SearchConfig::disabled());
+```
+
+The current compiler treats every non-disabled mode as "emit the JSON artifacts":
+
+| Mode | Behavior |
+|------|----------|
+| `SearchConfig::disabled()` | Do not emit search artifacts. |
+| `SearchConfig::orama_client()` | Emit Orama-shaped client data. This is the default. |
+| `SearchConfig::static_client()` | Emit the same data for any static client indexer. |
+| `SearchConfig::Server` | Emit the same data and let the app build a server index. |
+| `SearchConfig::Custom(String)` | Emit the same data and let the app bind it to a custom search layer. |
+
+### Excluding a page from the index
+
+Pages are searchable by default. Add `search: false` to frontmatter to render a page and keep it out of the search index:
+
+```markdown filename="src/docs/internal/notes.mdx"
+---
+title: Internal Notes
+search: false
+---
+```
+
+Use this for pages that contain generated noise, internal operations notes, or placeholder docs. Everything else lands in the two artifacts the compiler writes.
+
+## Reading the generated artifacts
+
+With search enabled, the compiler writes these files under `$OUT_DIR/proa_docs/<out_dir_name>/`:
+
+```text filename="$OUT_DIR/proa_docs/docs"
+search/manifest.json
+search/documents.json
+```
+
+The generated Rust embeds both with `include_str!` and exposes public paths based on the source `base_path`:
+
+```rust filename="src/pages/docs.rs"
+let search = DOCS.search.expect("search enabled");
+
+assert_eq!(search.manifest_path, "/docs/_search/manifest.json");
+assert_eq!(search.documents_path, "/docs/_search/documents.json");
+```
+
+### Manifest shape
+
+The manifest is the small file a browser fetches first:
+
+```json filename="/docs/_search/manifest.json"
+{
+  "version": 1,
+  "engine": "orama",
+  "basePath": "/docs",
+  "hash": "sha256-...",
+  "documents": "/docs/_search/documents.json"
+}
+```
+
+Use `hash` to decide whether to rebuild a cached client index. It is a SHA-256 hash of the generated `documents.json` payload.
+
+### Document shape
+
+`documents.json` contains every searchable page:
+
+```json filename="/docs/_search/documents.json"
+{
+  "version": 1,
+  "documents": [
+    {
+      "id": "guides/quickstart",
+      "url": "/docs/guides/quickstart",
+      "title": "Getting Started",
+      "description": "Install Proa and render your first page.",
+      "section": "Start here",
+      "content": "Getting Started Install Proa ...",
+      "breadcrumbs": ["Getting Started"],
+      "headings": [
+        { "id": "install", "depth": 2, "title": "Install" }
+      ],
+      "keywords": ["html_sync", "html!"],
+      "rank": 100
+    }
+  ]
+}
+```
+
+The compiler extracts `content` while rendering Markdown. It includes heading text, paragraph text, inline code, and fenced code block text. `description` is the frontmatter description, or `null` when the page has none. `section` is the title of the nearest `meta.json` separator above the page in the navigation, or `null` for pages outside a separator. `keywords` is the frontmatter `keywords` list: identifiers and API names the page canonically documents, which a client should boost above body text. The `headings` array mirrors the page table of contents, including heading depth and generated anchor ids. Your app decides how those two files reach the browser.
+
+## Serving artifacts to a client
+
+Route requests through `render_static` before normal page rendering. It handles search JSON and Markdown source routes:
+
+```rust filename="src/pages/docs.rs"
+pub fn docs_response(path: &str) -> axum::response::Response {
+    if let Some(response) = proa_docs::render_static(&DOCS, path) {
+        return docs_response_to_axum(response);
+    }
+
+    let page = DOCS.page_for_path(path).unwrap_or_else(|| DOCS.first_page().unwrap());
+    docs_html_response(page)
+}
+```
+
+> **Good to know**: `proa_docs::render(&DOCS, path)` calls `render_static` first, so a page handler built on `render` already serves these routes.
+
+### Loading in the browser
+
+Load the manifest, compare the hash, then fetch the documents file only when the index changed:
+
+```ts filename="src/client/search.ts"
+type SearchManifest = {
+  version: 1;
+  engine: "orama";
+  basePath: string;
+  hash: string;
+  documents: string;
+};
+
+type SearchDocuments = {
+  version: 1;
+  documents: Array<{
+    id: string;
+    url: string;
+    title: string;
+    content: string;
+    headings: Array<{ id: string; depth: number; title: string }>;
+    rank: number;
+  }>;
+};
+
+async function loadSearchData(): Promise<SearchDocuments> {
+  const manifest: SearchManifest = await fetch("/docs/_search/manifest.json")
+    .then((response) => response.json());
+
+  const cachedHash = localStorage.getItem("proa-docs-search-hash");
+  if (cachedHash !== manifest.hash) {
+    localStorage.setItem("proa-docs-search-hash", manifest.hash);
+  }
+
+  return fetch(manifest.documents).then((response) => response.json());
+}
+```
+
+After that, feed `documents` into Orama, Fuse, Minisearch, or your own server endpoint. Proa Docs owns the extraction and stable URLs; the app owns ranking and UI. A site with several sources gets one set of artifacts per source.
+
+## Splitting search across sources
+
+Each source owns its own artifacts:
+
+```rust filename="build.rs"
+let docs = proa_docs_build::DocsSource::new("src/docs")
+    .out_dir_name("docs")
+    .base_path("/docs");
+
+let blog = proa_docs_build::DocsSource::new("src/blog")
+    .out_dir_name("blog")
+    .base_path("/blog");
+```
+
+Those sources publish separate search paths:
+
+```text filename="published search routes"
+/docs/_search/manifest.json
+/docs/_search/documents.json
+/blog/_search/manifest.json
+/blog/_search/documents.json
+```
+
+Keep them separate if the UI has scoped search. Merge their `documents` arrays at app startup when the UI searches across the whole site. One more pass before launch keeps the served JSON honest.
+
+## Shipping to production
+
+- Serve both JSON routes with `application/json; charset=utf-8`.
+- Cache `documents.json` by content hash, not by path alone.
+- Keep `search: false` on draft-like or generated pages.
+- Test one real query against the rendered site, not just the generated JSON.
+- Rebuild the index whenever the docs build runs.
+
+## Next steps
+
+- [Runtime](/docs/proa-docs/runtime)
+  - Include generated Docs registries, serve static artifacts, and render docs pages.
+- [Configuration](/docs/proa-docs/configuration)
+  - Configure sources, Markdown processing, schemas, search, and output paths.
+- [Config reference](/docs/proa-docs/configuration)
+  - Every option for sources, schemas, Markdown, search, link validation, and plugins.
+- [Authoring](/docs/proa-docs/pages-and-routes)
+  - Structure files with Markdown, frontmatter, and meta.json navigation.

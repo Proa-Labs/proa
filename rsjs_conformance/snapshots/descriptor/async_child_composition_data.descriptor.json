@@ -1,0 +1,358 @@
+{
+  "asset_id": "<asset_id>",
+  "bindings": {
+    "attrs": [
+      {
+        "expr": 6,
+        "kind": "value",
+        "name": "data-currency",
+        "node": 1
+      },
+      {
+        "expr": 9,
+        "kind": "boolean",
+        "name": "hidden",
+        "node": 3
+      }
+    ],
+    "conditionals": [],
+    "events": [
+      {
+        "event": "click",
+        "handler": 0,
+        "node": 4
+      }
+    ],
+    "inputs": [],
+    "refs": [],
+    "text": [
+      {
+        "expr": 7,
+        "node": 1
+      },
+      {
+        "expr": 8,
+        "node": 2
+      }
+    ]
+  },
+  "callback_slots": [],
+  "client_ir_version": 3,
+  "client_origin_permission": "origin_capable",
+  "counts": {
+    "callback_slots": 0,
+    "crossings": 0,
+    "exprs": 10,
+    "fields": 0,
+    "handlers": 1,
+    "node_ref_fields": 0,
+    "node_refs": 0,
+    "nodes": 6,
+    "projection_fields": 0,
+    "prop_sites": 0,
+    "shared_state_provider_sites": 0,
+    "signals": 0,
+    "values": 0
+  },
+  "descriptor_hash": "sha256:<hash>",
+  "exprs": [
+    {
+      "expr": {
+        "kind": "literal",
+        "value": {
+          "kind": "null",
+          "value": null
+        }
+      },
+      "id": 0
+    },
+    {
+      "expr": {
+        "kind": "literal",
+        "value": {
+          "kind": "null",
+          "value": null
+        }
+      },
+      "id": 1
+    },
+    {
+      "expr": {
+        "kind": "literal",
+        "value": {
+          "kind": "string",
+          "value": "{\"credentials\":\"same-origin\",\"method\":\"GET\",\"response\":\"json\",\"url\":\"/api/child-stocks/AAPL\"}"
+        }
+      },
+      "id": 2
+    },
+    {
+      "expr": {
+        "kind": "literal",
+        "value": {
+          "kind": "null",
+          "value": null
+        }
+      },
+      "id": 3
+    },
+    {
+      "expr": {
+        "kind": "literal",
+        "value": {
+          "kind": "null",
+          "value": null
+        }
+      },
+      "id": 4
+    },
+    {
+      "expr": {
+        "kind": "literal",
+        "value": {
+          "kind": "string",
+          "value": "{\"credentials\":\"same-origin\",\"headers\":[[\"X-Mutate\",\"1\"]],\"method\":\"PATCH\",\"response\":\"empty\",\"url\":\"/api/child-cart\"}"
+        }
+      },
+      "id": 5
+    },
+    {
+      "expr": {
+        "kind": "project",
+        "path": "/currency",
+        "target": {
+          "accessor": "data",
+          "kind": "query_read",
+          "query": 0
+        }
+      },
+      "id": 6
+    },
+    {
+      "expr": {
+        "kind": "project",
+        "path": "/value",
+        "target": {
+          "accessor": "data",
+          "kind": "query_read",
+          "query": 0
+        }
+      },
+      "id": 7
+    },
+    {
+      "expr": {
+        "accessor": "status",
+        "kind": "mutation_read",
+        "mutation": 0
+      },
+      "id": 8
+    },
+    {
+      "expr": {
+        "kind": "binary",
+        "left": {
+          "accessor": "is_pending",
+          "kind": "mutation_read",
+          "mutation": 0
+        },
+        "op": "eq",
+        "right": {
+          "kind": "literal",
+          "value": {
+            "kind": "bool",
+            "value": false
+          }
+        }
+      },
+      "id": 9
+    }
+  ],
+  "fields": [],
+  "format": "rsjs.component_descriptor",
+  "handlers": [
+    {
+      "body_ir": {
+        "kind": "block",
+        "stmts": [
+          {
+            "args": [
+              {
+                "kind": "literal",
+                "value": {
+                  "kind": "string",
+                  "value": "AAPL"
+                }
+              }
+            ],
+            "kind": "run_mutation",
+            "mutation": 0
+          },
+          {
+            "kind": "query_refetch",
+            "query": 0
+          }
+        ]
+      },
+      "body_ir_version": 3,
+      "id": 0,
+      "source_anchor": {
+        "start_column": 35,
+        "start_line": 34
+      },
+      "source_name": "on_click"
+    }
+  ],
+  "inbound_inputs": {
+    "crossings": [],
+    "node_ref_fields": [],
+    "projection_fields": [],
+    "prop_sites": [],
+    "values": []
+  },
+  "is_async": true,
+  "js_hash": "sha256:<hash>",
+  "mutation_initializers": [
+    {
+      "id": 0,
+      "invalidates_expr": "((\"child_stock\", String :: from(\"AAPL\").as_str()),)",
+      "key_expr": "(\"child_update_cart\", String :: from(\"AAPL\").as_str())"
+    }
+  ],
+  "mutations": [
+    {
+      "client_runner": 5,
+      "id": 0,
+      "invalidates": [],
+      "key_expr": 3,
+      "options": {
+        "on_success_invalidate_strategy": "refetch",
+        "retry_count": 1
+      },
+      "server_runner": 4,
+      "source_anchor": {
+        "start_column": 24,
+        "start_line": 11
+      },
+      "source_name": "save"
+    }
+  ],
+  "node_refs": [],
+  "queries": [
+    {
+      "client_fetcher": 2,
+      "data_ty": {
+        "kind": "struct",
+        "name": "AsyncChildCompositionStockPrice"
+      },
+      "id": 0,
+      "key_expr": 0,
+      "options": {
+        "download_progress": false,
+        "interval_ms": null,
+        "refetch_on_focus": false,
+        "retry_count": 0,
+        "stale_time_ms": 0,
+        "stream_text": false
+      },
+      "server_initial": 1,
+      "source_anchor": {
+        "start_column": 71,
+        "start_line": 1
+      },
+      "source_name": "price"
+    }
+  ],
+  "query_initializers": [
+    {
+      "expr": "{\n    let initial_price : AsyncChildCompositionStockPrice =\n    cx.load_json(:: proa_core :: LoadKey ::\n    named(\"stock\", String :: from(\"AAPL\").as_str())).await ? ; initial_price\n}",
+      "id": 0,
+      "key_expr": "(\"child_stock\", String :: from(\"AAPL\").as_str())"
+    }
+  ],
+  "schema_version": 9,
+  "self_ty": "AsyncChildCompositionDataChildSnapshot",
+  "shared_state_provider_sites": [],
+  "shared_stores": [],
+  "signals": [],
+  "struct_name": "AsyncChildCompositionDataChildSnapshot",
+  "view_tree": {
+    "nodes": [
+      {
+        "id": 0,
+        "node": {
+          "children": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "kind": "element",
+          "payload_attrs": [],
+          "server_attrs": [],
+          "static_attrs": [],
+          "tag": "article"
+        }
+      },
+      {
+        "id": 1,
+        "node": {
+          "children": [],
+          "kind": "element",
+          "payload_attrs": [],
+          "server_attrs": [],
+          "static_attrs": [],
+          "tag": "span"
+        }
+      },
+      {
+        "id": 2,
+        "node": {
+          "children": [],
+          "kind": "element",
+          "payload_attrs": [],
+          "server_attrs": [],
+          "static_attrs": [],
+          "tag": "span"
+        }
+      },
+      {
+        "id": 3,
+        "node": {
+          "children": [],
+          "kind": "element",
+          "payload_attrs": [],
+          "server_attrs": [],
+          "static_attrs": [],
+          "tag": "span"
+        }
+      },
+      {
+        "id": 4,
+        "node": {
+          "children": [
+            5
+          ],
+          "kind": "element",
+          "payload_attrs": [],
+          "server_attrs": [],
+          "static_attrs": [
+            {
+              "name": "type",
+              "value": "button"
+            }
+          ],
+          "tag": "button"
+        }
+      },
+      {
+        "id": 5,
+        "node": {
+          "kind": "static_text",
+          "text": "Save"
+        }
+      }
+    ],
+    "root": 0
+  }
+}

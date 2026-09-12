@@ -1,0 +1,57 @@
+---
+title: Files
+description: Draw a project tree with folder and file icons.
+---
+
+<Callout>
+Opt-in. Enable it in `build.rs` before use — see [Enabling](#enabling) below.
+</Callout>
+
+```mdx filename="content/structure.mdx"
+<Files>
+<Folder name="src">
+<Folder name="pages">
+<File name="home.rs" />
+</Folder>
+<File name="main.rs" />
+</Folder>
+<File name="Cargo.toml" />
+</Files>
+```
+
+## Attributes
+
+| Tag | Attribute | Required | Meaning |
+|---|---|---|---|
+| `<Folder>` | `name` | **yes** | Folder label. Missing name fails the build |
+| `<File>` | `name` | **yes** | File label. Missing name fails the build |
+
+Both render with `data-kind="folder"` or `data-kind="file"`, which is what the stylesheet uses to pick an icon.
+
+## Enabling
+
+The `MdxConfig::proa()` preset enables this along with the other opt-in components. To turn on just this one:
+
+`Files` is off by default. Turn it on in the MDX config:
+
+```rust filename="build.rs"
+use proa_docs_build::{Config, DocsSource, MarkdownPipeline, MdxConfig};
+
+let markdown = MarkdownPipeline::default().mdx(MdxConfig::new().files(true));
+let config = Config::new().source(DocsSource::new("src/docs").markdown(markdown));
+```
+
+Without it, the tags are dropped from the rendered HTML, which is the usual cause of "my file tree renders as nothing."
+
+## Files or a filetree fence?
+
+| Use | When |
+|---|---|
+| `<Files>` | You want icons, nesting, and a real tree |
+| ```` ```proa-filetree ```` | You want a quick indented listing inside a code block |
+
+The fence is faster to write and needs no config. The component looks like a file browser.
+
+## Related
+
+[Code block](/docs/proa-docs/code-block) · [Cards](/docs/proa-docs/cards)

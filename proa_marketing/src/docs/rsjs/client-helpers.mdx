@@ -1,0 +1,174 @@
+---
+title: Client helpers
+description: Compile small pure Rust functions into the RSJS browser graph.
+---
+
+RSJS evaluates a `#[rsjs::client]` function during the server render, then reruns it in the browser when its result depends on live data. This page covers [annotating a helper](#annotating-a-helper), [path resolution](#calling-helpers-through-ordinary-rust-paths), [purity limits](#keeping-helpers-pure-and-portable), and [the data that crosses](#crossing-data-into-a-helper).
+
+## Annotating a helper
+
+Use `#[rsjs::client]` when a small, portable calculation must produce the same result during SSR and rerun after a browser-visible input changes. Annotate the function definition once. A reachable call creates a symbolic helper edge automatically; the consuming component declares no allowlist.
+
+```rust filename="src/islands/results.rs"
+mod labels {
+    #[rsjs::client]
+    pub fn result_label(count: i64) -> String {
+        if count == 1_i64 {
+            "result".to_string()
+        } else {
+            "results".to_string()
+        }
+    }
+}
+
+use labels::result_label as label_for_count;
+```
+
+Call the helper through an ordinary Rust path inside an analyzed component:
+
+```rust filename="src/islands/results.rs"
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+use rsjs::{event_handler, rsjs, signal};
+
+pub struct Results;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for Results {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let count = signal(1_i64);
+        let increment = event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+            count.update(|value| value + 1_i64);
+        });
+
+        html_sync! {
+            <button type="button" on_click={increment()}>"Add"</button>
+            <p>{count.get()}" "{label_for_count(count.get())}</p>
+        }
+        .render(cx)
+    }
+}
+```
+
+The helper evaluates for the server render and becomes part of the browser owner because its result depends on `count`. The semantic linker resolves `label_for_count` to its real Rust definition, follows the helper dependency closure, and emits only reachable helpers. The next section covers which path spellings that resolution accepts.
+
+## Calling helpers through ordinary Rust paths
+
+Helper calls may use:
+
+- A same-module function name.
+- A normal `use` import.
+- A renamed import such as `use labels::result_label as label_for_count`.
+- A re-export from a public module.
+- A qualified path.
+- A helper published by another crate with compatible linked metadata.
+
+Path spelling is not helper identity. Rustc-selected relocation targets give the linker the resolved definition. Authors do not need to replace imported names with canonical paths.
+
+Because the linker resolves identity this way, RSJS removed the component-level `clients(...)` list:
+
+```rust filename="src/islands/results.rs"
+// Rejected:
+#[rsjs(component, client, clients(crate::labels))]
+```
+
+The supported form is the annotation alone:
+
+```rust filename="src/pricing.rs"
+#[rsjs::client]
+pub fn subtotal(price: i64, quantity: i64) -> i64 {
+    price * quantity
+}
+```
+
+Then call `subtotal(...)` through any ordinary resolved Rust path. If that call is unreachable from the final browser graph, neither the function nor its helper dependencies ship. Modules group helpers without changing that rule, as the next section shows.
+
+## Grouping helpers in a module
+
+`#[rsjs::client_module]` remains available for bundling or namespace-level validation. It is optional, and it does not make every function eligible. Each portable helper still carries its own `#[rsjs::client]` annotation.
+
+```rust filename="src/pricing.rs"
+#[rsjs::client_module]
+pub mod pricing {
+    #[rsjs::client]
+    pub fn subtotal(price: i64, quantity: i64) -> i64 {
+        price * quantity
+    }
+
+    #[rsjs::client]
+    pub fn discounted(total: i64, enabled: bool) -> i64 {
+        if enabled { total - 10_i64 } else { total }
+    }
+}
+```
+
+Grouping changes organization and bundle metadata, not reachability: unused helpers in the module still do not become browser code. Every helper in a module obeys the purity limits below.
+
+## Keeping helpers pure and portable
+
+A **client helper** is an origin-free calculation over its parameters and local values. It may use the Rust expressions, control flow, primitive types, collections, and string operations that the RSJS client IR supports.
+
+It cannot:
+
+- Capture surrounding local state.
+- Declare or acquire signals, SharedState, queries, mutations, or node refs.
+- Access `WebContext`, loaders, files, environment variables, or server-only
+  capabilities.
+- Perform network or browser effects.
+- Hide unsupported browser globals behind ordinary Rust calls.
+- Call an unannotated helper from a browser-reachable path.
+
+Use compiler-known handlers, browser capabilities, queries, and mutations for effects. Unsupported helper syntax fails during analysis or linking instead of silently running only on one side. The values you pass into a pure helper carry their own constraints.
+
+## Crossing data into a helper
+
+Arguments that reach a client helper are browser-visible and must have a supported client representation. Runtime values that cross through a signal, live component prop, or payload use the `rsjs::ClientEncode` contract. Prefer small client-shaped inputs such as fixed-width numbers, booleans, short strings, enum tags, ISO timestamps, or explicit projections.
+
+If a helper needs a server-loaded component field, first make the intended crossing explicit:
+
+```rust filename="src/islands/price.rs"
+let cents = signal(self.cents);
+
+html_sync! {
+    <output>{money::format_cents(cents.get())}</output>
+}
+```
+
+Do not pass secrets or a large server object to format one label. Keep server-only calculations in ordinary Rust prelude code and render their result through SSR. Some results never need to cross at all.
+
+## When not to use a client helper?
+
+If a result never changes in the browser, use a normal Rust function:
+
+```rust filename="src/islands/record_row.rs"
+let label = format_server_label(self.record);
+
+html_sync! {
+    <span>{label}</span>
+}
+```
+
+That value remains opaque SSR and adds no helper edge or JavaScript. Reach for `#[rsjs::client]` only when the calculation must rerun from live browser data. The table below collects every rule on this page.
+
+## Rules
+
+| Rule | Why |
+| --- | --- |
+| Annotate each portable function once with `#[rsjs::client]` | Eligibility belongs to the definition, not every caller. |
+| Use ordinary imports, aliases, re-exports, and paths | The linker uses rustc-resolved identity. |
+| Do not add `clients(...)` to a component | RSJS removed component allowlists. |
+| Keep helpers pure and origin-free | Effects require explicit compiler-known capabilities. |
+| Treat arguments as public browser data | RSJS delivers reachable values to client code. |
+| Keep server-only formatting as ordinary Rust | Static results do not need a browser helper. |
+| Let reachability decide emission | Uncalled and unreachable helpers do not ship. |
+
+## Next steps
+
+- [Browser APIs](/docs/rsjs/browser-apis)
+  - Reach events, node refs, storage, and network through the analyzed surface.
+- [Server-rendered content](/docs/rsjs/server-only)
+  - Keep ordinary Rust values and renderables outside the client graph.
+- [Signals](/docs/rsjs/signals)
+  - Model the live browser state a helper reads from.
+- [Queries and mutations](/docs/rsjs/queries-mutations)
+  - Run browser network work through typed capabilities instead of raw `fetch`.

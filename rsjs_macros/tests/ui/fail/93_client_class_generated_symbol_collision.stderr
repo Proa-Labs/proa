@@ -1,0 +1,7 @@
+error: rsjs: generated client class symbols collide
+         help: rename one of the class structs or methods so their snake-case generated names are distinct
+         note: class modules require a one-to-one mapping from Rust methods to private JavaScript functions
+  --> tests/ui/fail/93_client_class_generated_symbol_collision.rs:21:16
+   |
+21 |     pub struct Foo_Bar {
+   |                ^^^^^^^

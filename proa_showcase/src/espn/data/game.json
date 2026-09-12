@@ -1,0 +1,689 @@
+{
+  "league": "MLB",
+  "game_status": "Final",
+  "game_date": "May 31, 2025",
+  "short_date": "May 31",
+  "start_time": "7:15 PM",
+  "venue": "Dodger Stadium · Los Angeles, CA",
+  "winning_pitcher": "L. Knack (3-2)",
+  "losing_pitcher": "W. Warren (3-3)",
+  "game_information": [
+    { "label": "Venue", "value": "Dodger Stadium" },
+    { "label": "Location", "value": "Los Angeles, California" },
+    { "label": "Attendance", "value": "51,746" },
+    { "label": "Game Time", "value": "3:04" }
+  ],
+  "recap": {
+    "image": "/images/espn/muncy-recap.jpg",
+    "image_alt": "Max Muncy celebrates a home run",
+    "category": "MLB",
+    "headline": "Muncy powers Dodgers with 7 RBIs in 18-2 rout of Yankees",
+    "description": "Max Muncy hit two three-run homers and tied his career high with seven RBI, helping Los Angeles post its most runs ever against New York.",
+    "link_label": "Watch highlights"
+  },
+  "top_performers": [
+    { "logo": "/images/espn/lad.png", "name": "Max Muncy", "position": "LAD · 3B", "line": "3-6", "note": "2 HR, 7 RBI" },
+    { "logo": "/images/espn/nyy.png", "name": "Aaron Judge", "position": "NYY · RF", "line": "3-4", "note": "2 HR, 2 RBI" }
+  ],
+  "away": {
+    "abbreviation": "NYY",
+    "location": "New York",
+    "name": "Yankees",
+    "record": "35-22",
+    "logo": "/images/espn/nyy.png",
+    "score": "2",
+    "linescore": [
+      "0",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0",
+      "0",
+      "1",
+      "0"
+    ],
+    "hits": "7",
+    "errors": "0"
+  },
+  "home": {
+    "abbreviation": "LAD",
+    "location": "Los Angeles",
+    "name": "Dodgers",
+    "record": "36-22",
+    "logo": "/images/espn/lad.png",
+    "score": "18",
+    "linescore": [
+      "4",
+      "6",
+      "0",
+      "0",
+      "4",
+      "0",
+      "1",
+      "3",
+      "—"
+    ],
+    "hits": "21",
+    "errors": "0"
+  },
+  "away_batting": [
+    {
+      "name": "T. Grisham",
+      "position": "CF",
+      "stats": [
+        "0-3",
+        "3",
+        "0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "A. Judge",
+      "position": "RF",
+      "stats": [
+        "3-4",
+        "4",
+        "2",
+        "3",
+        "2",
+        "2",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "name": "C. Bellinger",
+      "position": "LF",
+      "stats": [
+        "1-4",
+        "4",
+        "0",
+        "1",
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "name": "P. Goldschmidt",
+      "position": "1B",
+      "stats": [
+        "0-3",
+        "3",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "name": "J.C. Escarra",
+      "position": "C",
+      "stats": [
+        "0-1",
+        "1",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "name": "J. Domínguez",
+      "position": "RF",
+      "stats": [
+        "1-4",
+        "4",
+        "0",
+        "1",
+        "0",
+        "0",
+        "0",
+        "3"
+      ]
+    },
+    {
+      "name": "A. Volpe",
+      "position": "SS",
+      "stats": [
+        "0-2",
+        "2",
+        "0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "1"
+      ]
+    },
+    {
+      "name": "O. Peraza",
+      "position": "2B",
+      "stats": [
+        "0-1",
+        "1",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "name": "A. Wells",
+      "position": "C",
+      "stats": [
+        "1-4",
+        "4",
+        "0",
+        "1",
+        "0",
+        "0",
+        "0",
+        "2"
+      ]
+    },
+    {
+      "name": "D. LeMahieu",
+      "position": "2B",
+      "stats": [
+        "0-2",
+        "2",
+        "0",
+        "0",
+        "0",
+        "0",
+        "2",
+        "1"
+      ]
+    },
+    {
+      "name": "J. Vivas",
+      "position": "3B",
+      "stats": [
+        "1-3",
+        "3",
+        "0",
+        "1",
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    }
+  ],
+  "home_batting": [
+    {
+      "name": "S. Ohtani",
+      "position": "DH",
+      "stats": [
+        "2-4",
+        "4",
+        "2",
+        "2",
+        "0",
+        "0",
+        "0",
+        "2"
+      ]
+    },
+    {
+      "name": "D. Rushing",
+      "position": "C",
+      "stats": [
+        "1-2",
+        "2",
+        "1",
+        "1",
+        "3",
+        "1",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "name": "T. Hernández",
+      "position": "LF",
+      "stats": [
+        "0-3",
+        "3",
+        "1",
+        "0",
+        "0",
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    {
+      "name": "E. Hernández",
+      "position": "1B",
+      "stats": [
+        "2-2",
+        "2",
+        "0",
+        "2",
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "name": "F. Freeman",
+      "position": "1B",
+      "stats": [
+        "2-3",
+        "3",
+        "2",
+        "2",
+        "1",
+        "0",
+        "1",
+        "0"
+      ]
+    },
+    {
+      "name": "M. Rojas",
+      "position": "SS",
+      "stats": [
+        "0-2",
+        "2",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "name": "W. Smith",
+      "position": "C",
+      "stats": [
+        "2-6",
+        "6",
+        "2",
+        "2",
+        "1",
+        "0",
+        "0",
+        "1"
+      ]
+    },
+    {
+      "name": "M. Muncy",
+      "position": "3B",
+      "stats": [
+        "3-6",
+        "6",
+        "3",
+        "3",
+        "7",
+        "2",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "name": "A. Pages",
+      "position": "CF",
+      "stats": [
+        "1-4",
+        "4",
+        "1",
+        "1",
+        "1",
+        "1",
+        "2",
+        "0"
+      ]
+    },
+    {
+      "name": "M. Conforto",
+      "position": "DH",
+      "stats": [
+        "0-2",
+        "2",
+        "1",
+        "0",
+        "1",
+        "0",
+        "2",
+        "0"
+      ]
+    },
+    {
+      "name": "T. Edman",
+      "position": "LF",
+      "stats": [
+        "4-5",
+        "5",
+        "2",
+        "4",
+        "2",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "name": "H. Kim",
+      "position": "SS",
+      "stats": [
+        "4-4",
+        "4",
+        "3",
+        "4",
+        "2",
+        "1",
+        "1",
+        "0"
+      ]
+    }
+  ],
+  "away_pitching": [
+    {
+      "name": "W. Warren",
+      "note": "L, 3-3",
+      "stats": [
+        "1.1",
+        "6",
+        "7",
+        "7",
+        "4",
+        "2",
+        "1",
+        "57-29",
+        "5.19"
+      ]
+    },
+    {
+      "name": "B. Headrick",
+      "note": "",
+      "stats": [
+        "0.2",
+        "2",
+        "3",
+        "3",
+        "1",
+        "1",
+        "1",
+        "20-14",
+        "3.24"
+      ]
+    },
+    {
+      "name": "I. Hamilton",
+      "note": "",
+      "stats": [
+        "2.0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "1",
+        "0",
+        "30-20",
+        "4.50"
+      ]
+    },
+    {
+      "name": "M. Leiter Jr.",
+      "note": "",
+      "stats": [
+        "0.2",
+        "4",
+        "4",
+        "4",
+        "0",
+        "0",
+        "1",
+        "19-13",
+        "3.70"
+      ]
+    },
+    {
+      "name": "Y. De los Santos",
+      "note": "",
+      "stats": [
+        "0.2",
+        "3",
+        "0",
+        "0",
+        "1",
+        "0",
+        "0",
+        "23-14",
+        "3.00"
+      ]
+    },
+    {
+      "name": "D. Williams",
+      "note": "",
+      "stats": [
+        "0.2",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "6-3",
+        "6.53"
+      ]
+    },
+    {
+      "name": "L. Weaver",
+      "note": "",
+      "stats": [
+        "1.0",
+        "1",
+        "1",
+        "1",
+        "0",
+        "1",
+        "1",
+        "14-9",
+        "1.05"
+      ]
+    },
+    {
+      "name": "P. Reyes",
+      "note": "",
+      "stats": [
+        "1.0",
+        "5",
+        "3",
+        "3",
+        "0",
+        "0",
+        "1",
+        "18-12",
+        "27.00"
+      ]
+    }
+  ],
+  "home_pitching": [
+    {
+      "name": "L. Knack",
+      "note": "W, 3-2",
+      "stats": [
+        "6.0",
+        "5",
+        "1",
+        "1",
+        "3",
+        "6",
+        "1",
+        "102-63",
+        "4.58"
+      ]
+    },
+    {
+      "name": "A. Banda",
+      "note": "",
+      "stats": [
+        "1.0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "2",
+        "0",
+        "19-11",
+        "3.86"
+      ]
+    },
+    {
+      "name": "C. Stratton",
+      "note": "",
+      "stats": [
+        "1.0",
+        "1",
+        "1",
+        "1",
+        "0",
+        "1",
+        "1",
+        "18-13",
+        "8.00"
+      ]
+    },
+    {
+      "name": "E. Hernández",
+      "note": "",
+      "stats": [
+        "1.0",
+        "1",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "7-5",
+        "0.00"
+      ]
+    }
+  ],
+  "plays": [
+    {
+      "inning": "1st Inning",
+      "text": "Smith singled to right, Ohtani scored, Smith to second, Freeman to third.",
+      "score": "NYY 0, LAD 1",
+      "scoring": true
+    },
+    {
+      "inning": "1st Inning",
+      "text": "Muncy singled to center, Freeman scored, Smith to third.",
+      "score": "NYY 0, LAD 2",
+      "scoring": true
+    },
+    {
+      "inning": "1st Inning",
+      "text": "Conforto hit sacrifice fly to right, Smith scored, Muncy to third.",
+      "score": "NYY 0, LAD 3",
+      "scoring": true
+    },
+    {
+      "inning": "1st Inning",
+      "text": "Edman doubled to left, Muncy scored, Pages to third.",
+      "score": "NYY 0, LAD 4",
+      "scoring": true
+    },
+    {
+      "inning": "2nd Inning",
+      "text": "Muncy homered to center (400 feet), T. Hernández scored and Smith scored.",
+      "score": "NYY 0, LAD 7",
+      "scoring": true
+    },
+    {
+      "inning": "2nd Inning",
+      "text": "Edman doubled to left, Conforto scored.",
+      "score": "NYY 0, LAD 8",
+      "scoring": true
+    },
+    {
+      "inning": "2nd Inning",
+      "text": "Kim homered to right center (412 feet), Edman scored.",
+      "score": "NYY 0, LAD 10",
+      "scoring": true
+    },
+    {
+      "inning": "4th Inning",
+      "text": "Judge homered to center (446 feet).",
+      "score": "NYY 1, LAD 10",
+      "scoring": true
+    },
+    {
+      "inning": "5th Inning",
+      "text": "Muncy homered to right, Freeman and Smith scored.",
+      "score": "NYY 1, LAD 14",
+      "scoring": true
+    },
+    {
+      "inning": "7th Inning",
+      "text": "Pages homered to left center (390 feet).",
+      "score": "NYY 1, LAD 15",
+      "scoring": true
+    },
+    {
+      "inning": "8th Inning",
+      "text": "Rushing homered to left, Edman and Kim scored.",
+      "score": "NYY 1, LAD 18",
+      "scoring": true
+    },
+    {
+      "inning": "9th Inning",
+      "text": "Judge homered to left center (395 feet).",
+      "score": "NYY 2, LAD 18",
+      "scoring": true
+    },
+    {
+      "inning": "9th Inning",
+      "text": "Peraza grounded out to third.",
+      "score": "NYY 2, LAD 18",
+      "scoring": false
+    },
+    {
+      "inning": "9th Inning",
+      "text": "Wells grounded out to shortstop, Domínguez to third.",
+      "score": "NYY 2, LAD 18",
+      "scoring": false
+    },
+    {
+      "inning": "9th Inning",
+      "text": "LeMahieu flied out to center.",
+      "score": "Final",
+      "scoring": false
+    }
+  ],
+  "news": [
+    {
+      "image": "/images/espn/wetherholt.jpg",
+      "headline": "Rookie JJ Wetherholt, Cardinals agree to 8-year deal, sources say",
+      "description": "Infielder JJ Wetherholt and the Cardinals are in agreement on an eight-year extension, sources told ESPN."
+    },
+    {
+      "image": "/images/espn/ohtani-news.jpg",
+      "headline": "Shohei Ohtani dealing with knee irritation, to miss All-Star Game",
+      "description": "Ohtani was scratched from his scheduled pitching start due to continued irritation in his left knee."
+    },
+    {
+      "image": "/images/espn/nance-news.jpg",
+      "headline": "Twins acquire reliever Tommy Nance from Blue Jays",
+      "description": "Minnesota added the right-handed reliever in a trade with Toronto."
+    }
+  ]
+}

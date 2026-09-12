@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" role="img" aria-label="Synthetic playground console">
+  <rect width="1440" height="900" fill="#151515"/><rect x="70" y="65" width="1300" height="770" rx="28" fill="#202124"/>
+  <circle cx="120" cy="112" r="13" fill="#e16b62"/><circle cx="160" cy="112" r="13" fill="#e4b650"/><circle cx="200" cy="112" r="13" fill="#58b77b"/>
+  <g fill="#8dd5ff"><rect x="125" y="190" width="390" height="24" rx="8"/><rect x="165" y="242" width="620" height="24" rx="8"/><rect x="165" y="294" width="480" height="24" rx="8"/></g>
+  <g fill="#e7d589"><rect x="125" y="398" width="540" height="24" rx="8"/><rect x="165" y="450" width="700" height="24" rx="8"/><rect x="165" y="502" width="450" height="24" rx="8"/></g>
+</svg>

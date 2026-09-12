@@ -1,0 +1,62 @@
+---
+title: Upgrading
+description: Move between Proa versions and find what broke.
+---
+
+Proa is pre-1.0. Minor versions carry breaking changes, and every one is listed in [`CHANGELOG.md`](https://github.com/proa-labs/proa/blob/main/CHANGELOG.md) under a **Breaking** marker.
+
+Read the changelog first, then upgrade one minor version at a time:
+
+```bash
+cargo update -p proa_core -p proa_framework_axum -p proa_macros
+cargo proa check
+```
+
+`cargo proa check` runs the template lints and the RSJS linker together, which is where most upgrade breakage surfaces. A plain `cargo check` will miss link-time errors.
+
+## Upgrading to 0.3
+
+0.3 was a consolidation release. Six surfaces were removed and one buffer became the standard.
+
+| Change | What to do |
+|---|---|
+| Standard render buffer | Replace bespoke writers with `RenderBuffer`. See [WriteBuf](/docs/core/write-buf) |
+| Component-tree ownership moved | Components take ownership of children rather than borrowing |
+| Native-mobile surface removed | No replacement. The crate no longer targets it |
+| Runtime-template and `Vm*` surface removed | Templates are compile-time only. Move dynamic templates to data-driven components |
+| Documentation-build adapters removed | Use `proa_docs_build`. See [Proa Docs](/docs/proa-docs) |
+| Product-specific route codegen removed | Author routes directly. See [Routes and layouts](/docs/framework/routing) |
+
+## Upgrading past 0.3
+
+The most recent breaking changes affect how components are authored and linked, and how fonts are declared:
+
+- **`#[proa_component]` is gone**, along with the inherent `#[rsjs(component)]` shorthand and RSJS `async fn render` sugar. Author `WebRenderSync` or the canonical `WebRender` signature directly, then apply `#[rsjs(component)]` for composition or `#[rsjs(component, client)]` when the component originates browser work. See [HTML rendering](/docs/core/html-rendering).
+- **Component-level `clients(...)` allowlists are gone.** A reachable call to a `#[rsjs::client]` helper now creates a linker edge automatically. `#[rsjs::client_module]` remains as optional grouping. See [Client helpers](/docs/rsjs/client-helpers).
+- **Deployable RSJS binaries require the linked `cargo proa` pipeline.** `cargo check` and rust-analyzer still give provisional type checking, but `cargo build` on an RSJS application now fails at link time with an actionable diagnostic instead of quietly producing a provisional binary.
+- **`cargo proa font add` / `font remove` and `proa-fonts.toml` are gone.** Declare fonts in code with `google_font!` / `local_font!`; a `build.rs` collector vendors them and records `proa-fonts.lock`. `cargo proa font sync` runs the same collector outside a build. See [Fonts](/docs/framework/fonts).
+
+> **Good to know**: The linked-pipeline change is the one most likely to surprise CI. If your pipeline runs `cargo build`, switch it to `cargo proa build`. See [CI / GitHub Actions](/docs/guides/ci).
+
+## When an upgrade breaks the build
+
+Work in this order, because each step rules out the next:
+
+1. **Read the changelog entry** for every version you crossed. Breaking changes are marked.
+2. **Run `cargo proa check`**, not `cargo check`. Template lints and linker errors only appear in the former.
+3. **Check the RSJS boundary.** Most post-0.3 breakage is a component that used to be implicitly analysed and now needs an explicit `#[rsjs(component)]` or `#[rsjs(component, client)]`.
+4. **Check your buffer.** If a custom writer stopped compiling, move to `RenderBuffer`.
+5. **Search [Troubleshooting](/docs/guides/troubleshooting)** for the exact diagnostic text.
+
+## Next steps
+
+- [Troubleshooting](/docs/guides/troubleshooting)
+  - Fix the most common Proa setup, registry, template, component, island, routing, and CI failures.
+- [CI / GitHub Actions](/docs/guides/ci)
+  - Gate pull requests with proa check, then deploy from the same pipeline.
+- [HTML rendering](/docs/core/html-rendering)
+  - Render typed Rust values to HTML with render traits and the html! macros.
+- [WriteBuf](/docs/core/write-buf)
+  - Pick the buffer a route renders into.
+- [proa fmt / lint / check](/docs/cli/format-lint-check)
+  - Format macro bodies, run lints, and gate CI.

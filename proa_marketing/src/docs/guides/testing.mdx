@@ -1,0 +1,402 @@
+---
+title: Testing
+description: Test Proa components with unit, snapshot, accessibility, and benchmark suites.
+---
+
+A Proa component is a plain Rust struct that implements `WebRenderSync` or `WebRender`. This page covers [unit tests](#writing-unit-tests), [snapshot tests](#writing-snapshot-tests), [browser checks with axe-core](#testing-in-a-browser), [benchmarks](#catching-performance-regressions), and [where the files live](#organizing-tests-and-ci).
+
+## Writing unit tests
+
+Render the component into a buffer, turn the buffer into a string, and assert on the HTML.
+
+```rust filename="src/components/badge/badge.rs"
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proa_core::text::text;
+    use proa_core::WebContext;
+
+    #[test]
+    fn badge_renders_label() {
+        let mut cx = WebContext::new();
+
+        Badge {
+            variant: BadgeVariant::Default,
+            class: None,
+            children: Some(text("New")),
+        }
+        .render(&mut cx)
+        .unwrap();
+
+        let html = cx.into_output().into_string();
+        assert!(html.contains("data-badge"));
+        assert!(html.contains("data-variant=\"default\""));
+        assert!(html.contains("New"));
+    }
+}
+```
+
+`RenderBuffer` matches the standard production buffered writer pattern and still keeps unit tests small.
+
+### Testing variants
+
+Iterate over all variants to ensure each one renders:
+
+```rust filename="src/components/badge/badge.rs"
+#[test]
+fn badge_renders_all_variants() {
+    for variant in [
+        BadgeVariant::Default,
+        BadgeVariant::Secondary,
+        BadgeVariant::Destructive,
+        BadgeVariant::Outline,
+    ] {
+        let mut cx = WebContext::new();
+
+        Badge {
+            variant,
+            class: None,
+            children: Some(text("Test")),
+        }
+        .render(&mut cx)
+        .unwrap();
+
+        let html = cx.into_output().into_string();
+        assert!(html.contains("data-badge"));
+        assert!(
+            html.contains(&format!("data-variant=\"{}\"", variant.as_str())),
+            "variant {:?} did not render data-variant attribute",
+            variant,
+        );
+    }
+}
+```
+
+### Testing dynamic content
+
+Assert that Proa escapes dynamic values:
+
+```rust filename="src/components/badge/badge.rs"
+#[test]
+fn badge_escapes_xss_in_label() {
+    let mut cx = WebContext::new();
+
+    Badge {
+        variant: BadgeVariant::Default,
+        class: None,
+        children: Some(text("<script>alert('xss')</script>")),
+    }
+    .render(&mut cx)
+    .unwrap();
+
+    let html = cx.into_output().into_string();
+    // Must be escaped, not raw script tag
+    assert!(html.contains("&lt;script&gt;"));
+    assert!(!html.contains("<script>alert"));
+}
+```
+
+### Testing optional fields
+
+Cover both the present and the absent case for every `Option` field:
+
+```rust filename="src/components/card/card.rs"
+#[test]
+fn card_without_optional_class() {
+    let mut cx = WebContext::new();
+
+    Card {
+        class: None,
+        children: Some(text("Test")),
+    }
+    .render(&mut cx)
+    .unwrap();
+
+    let html = cx.into_output().into_string();
+    assert!(html.contains("data-card"));
+}
+
+#[test]
+fn card_with_custom_class() {
+    let mut cx = WebContext::new();
+
+    Card {
+        class: Some("my-custom-class"),
+        children: Some(text("Test")),
+    }
+    .render(&mut cx)
+    .unwrap();
+
+    let html = cx.into_output().into_string();
+    assert!(html.contains("my-custom-class"));
+}
+```
+
+One `assert!` per attribute stops scaling once a component renders a full page. Snapshots take over there.
+
+## Writing snapshot tests
+
+For larger components or full pages, snapshot the HTML output to catch unexpected changes.
+
+### With insta
+
+[insta](https://crates.io/crates/insta) is the standard Rust snapshot testing library:
+
+```toml filename="Cargo.toml"
+# Cargo.toml
+[dev-dependencies]
+insta = "1"
+```
+
+```rust filename="src/components/listing_card/listing_card.rs"
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proa_core::WebContext;
+
+    #[test]
+    fn listing_card_snapshot() {
+        let mut cx = WebContext::new();
+
+        ListingCard {
+            title: "Cozy Mountain Cabin",
+            location: "Lake Tahoe, CA",
+            price: 185,
+            image_url: "/images/cabin.jpg",
+        }
+        .render(&mut cx)
+        .unwrap();
+
+        let html = cx.into_output().into_string();
+        insta::assert_snapshot!(html);
+    }
+}
+```
+
+Run `cargo test`. On the first run, insta writes a `.snap` file into a `snapshots/` directory next to the test file. On later runs, it compares against that snapshot and fails when the output changes.
+
+Review and update snapshots with:
+
+```bash filename="Terminal"
+cargo install cargo-insta
+cargo insta review   # interactive review of changed snapshots
+```
+
+### Full page snapshots
+
+Snapshot an entire page render to catch layout regressions:
+
+```rust filename="tests/pages.rs"
+#[test]
+fn home_page_snapshot() {
+    let mut cx = WebContext::new();
+
+    HomePage {
+        user: &test_user(),
+        listings: &test_listings(),
+        filters: &default_filters(),
+    }
+    .render(&mut cx)
+    .unwrap();
+
+    let html = cx.into_output().into_string();
+    insta::assert_snapshot!(html);
+}
+```
+
+Snapshots pin the bytes you emit. They say nothing about how a browser treats them.
+
+## Testing in a browser
+
+For end-to-end accessibility and rendering verification, use [Playwright](https://playwright.dev/) with [axe-core](https://github.com/dequelabs/axe-core).
+
+### Setup
+
+```bash filename="Terminal"
+npm install -D @playwright/test @axe-core/playwright
+npx playwright install
+```
+
+### Accessibility checks
+
+```typescript filename="tests/a11y.spec.ts"
+// tests/a11y.spec.ts
+import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+
+test("home page has no accessibility violations", async ({ page }) => {
+  await page.goto("http://localhost:3000/");
+
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])  // WCAG 2 Level A + AA
+    .analyze();
+
+  expect(results.violations).toEqual([]);
+});
+
+test("listing page has no accessibility violations", async ({ page }) => {
+  await page.goto("http://localhost:3000/rooms/12345");
+
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .analyze();
+
+  expect(results.violations).toEqual([]);
+});
+```
+
+### Visual regression
+
+```typescript filename="tests/visual.spec.ts"
+// tests/visual.spec.ts
+import { test, expect } from "@playwright/test";
+
+test("listing card matches screenshot", async ({ page }) => {
+  await page.goto("http://localhost:3000/rooms/12345");
+
+  const card = page.locator("[data-listing-card]").first();
+  await expect(card).toHaveScreenshot("listing-card.png");
+});
+```
+
+### Running the browser suite
+
+```bash filename="Terminal"
+# Start Proa server
+cargo run -p my_app &
+
+# Run Playwright tests
+npx playwright test
+```
+
+Correct output is one half of the contract. Render cost is the other half.
+
+## Catching performance regressions
+
+Use `cargo bench` with [criterion](https://crates.io/crates/criterion) to catch render performance regressions.
+
+```toml filename="Cargo.toml"
+# Cargo.toml
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "render_bench"
+harness = false
+```
+
+```rust filename="benches/render_bench.rs"
+// benches/render_bench.rs
+use criterion::{criterion_group, criterion_main, Criterion};
+use proa_core::RenderBuffer;
+
+fn bench_listing_card(c: &mut Criterion) {
+    let mut buf = RenderBuffer::new();
+    c.bench_function("listing_card", |b| {
+        b.iter(|| {
+            buf.render_into(ListingCard {
+                title: "Cozy Mountain Cabin",
+                location: "Lake Tahoe, CA",
+                price: 185,
+                image_url: "/images/cabin.jpg",
+            });
+        });
+    });
+}
+
+fn bench_full_page(c: &mut Criterion) {
+    let listings = generate_test_listings(20);
+    let mut buf = RenderBuffer::new();
+
+    c.bench_function("home_page_20_listings", |b| {
+        b.iter(|| {
+            buf.render_into(HomePage {
+                listings: &listings,
+                ..Default::default()
+            });
+        });
+    });
+}
+
+criterion_group!(benches, bench_listing_card, bench_full_page);
+criterion_main!(benches);
+```
+
+Run benchmarks:
+
+```bash filename="Terminal"
+cargo bench                    # run all benchmarks
+cargo bench -- listing_card    # run one benchmark
+```
+
+Criterion generates HTML reports in `target/criterion/` with charts showing performance over time. Use these in CI to catch regressions:
+
+```bash filename="Terminal"
+# In CI: record benchmark output to compare against a stored baseline
+cargo bench -- --output-format bencher | tee bench_results.txt
+```
+
+Four suites need four homes in the repository.
+
+## Organizing tests and CI
+
+Use this structure:
+
+```text filename="my_app/"
+my_app/
+├── src/
+│   └── components/
+│       └── listing_card/
+│           ├── mod.rs
+│           ├── listing_card.rs    # component + #[cfg(test)] mod tests
+│           └── recipe.rs
+├── benches/
+│   └── render_bench.rs            # criterion benchmarks
+├── tests/
+│   └── pages.rs                   # full page render tests
+└── playwright/
+    └── tests/
+        ├── a11y.spec.ts           # axe-core accessibility
+        └── visual.spec.ts         # screenshot comparison
+```
+
+Unit tests live next to the component, in the same file under `#[cfg(test)]`. Integration tests live in `tests/`. Playwright tests live in their own directory.
+
+On a crate that contains RSJS islands, run integration-test targets through the linked pipeline, `proa test -p my_app --test pages`: a plain `cargo test` integration binary links the island code without its compiled JavaScript modules and fails at link time by design. Lib tests under `#[cfg(test)]` are unaffected.
+
+### CI pipeline
+
+```yaml filename=".github/workflows/test.yml"
+# .github/workflows/test.yml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unit tests
+        run: cargo test --workspace --lib
+
+      # Island-bearing crates run integration targets through the linked
+      # pipeline instead: cargo proa test -p my_app --test pages
+
+      - name: Benchmarks (check for regressions)
+        run: cargo bench --no-run  # compile only in CI; run nightly
+
+      - name: Start server
+        run: cargo run -p my_app &
+
+      - name: Playwright a11y + visual
+        run: npx playwright test
+```
+
+## Next steps
+
+- [CI / GitHub Actions](/docs/guides/ci)
+  - Wire the full check, lint, and test pipeline into GitHub Actions.
+- [Accessibility](/docs/guides/accessibility)
+  - Fix the violations axe-core reports.
+- [Writing performant pages](/docs/guides/performance)
+  - Read the benchmark numbers and remove the allocations behind them.
+- [HTML rendering](/docs/core/html-rendering)
+  - Review the render traits these tests call.

@@ -1,0 +1,35 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "signal_set",
+      "signal": 0,
+      "value": {
+        "kind": "event_read",
+        "value": "target_value"
+      }
+    },
+    {
+      "closure": {
+        "body": {
+          "kind": "binary",
+          "left": {
+            "kind": "signal_read",
+            "signal": 1
+          },
+          "op": "checked_i64_add",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "bigint",
+              "value": "1"
+            }
+          }
+        },
+        "param": "c"
+      },
+      "kind": "signal_update",
+      "signal": 1
+    }
+  ]
+}

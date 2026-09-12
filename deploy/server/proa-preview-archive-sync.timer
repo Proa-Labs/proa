@@ -1,0 +1,12 @@
+[Unit]
+Description=Reconcile immutable Proa preview deployments
+
+[Timer]
+OnActiveSec=30s
+OnUnitInactiveSec=30s
+AccuracySec=5s
+RandomizedDelaySec=5s
+Unit=proa-preview-archive-sync.service
+
+[Install]
+WantedBy=timers.target

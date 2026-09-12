@@ -1,0 +1,22 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_ir"
+version = "0.1.2"
+edition = "2021"
+rust-version.workspace = true
+publish.workspace = true
+description = "Intermediate representation for client-side interactivity in Proa"
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

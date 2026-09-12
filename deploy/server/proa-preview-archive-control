@@ -1,0 +1,966 @@
+#!/usr/bin/env python3
+"""Authenticated localhost control plane for immutable preview archives."""
+
+from __future__ import annotations
+
+import fcntl
+import hashlib
+import hmac
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import json
+import os
+from pathlib import Path
+import re
+import socket
+import stat
+import subprocess
+import tempfile
+import time
+from typing import Any
+
+
+CONTROL_PATH = "/_proa/origin/preview-archive"
+EXPECTED_KEYS = {
+    "v",
+    "operation",
+    "application_uuid",
+    "pr_number",
+    "expected_commit",
+    "deployment_uuid",
+    "run_id",
+    "run_attempt",
+    "issued_at",
+}
+APPLICATION_RE = re.compile(r"[a-z0-9]{8,64}\Z")
+DEPLOYMENT_RE = re.compile(r"[a-z0-9]{24}\Z")
+REVISION_RE = re.compile(r"[0-9a-f]{40}\Z")
+IMAGE_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+DNS_LABEL_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
+DOMAIN_RE = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z"
+)
+DOCKER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+SECRET_RE = re.compile(r"[0-9a-f]{64}\Z")
+SIGNATURE_RE = re.compile(r"sha256=([0-9a-f]{64})\Z")
+ENV_KEY_RE = re.compile(r"[A-Z][A-Z0-9_]*\Z")
+PATH_ENV_RE = re.compile(r"/[A-Za-z0-9._+/-]+(?::/[A-Za-z0-9._+/-]+)*\Z")
+RUST_LOG_RE = re.compile(r"[A-Za-z0-9_=,.:/-]+\Z")
+STATIC_PATH_RE = re.compile(r"/[A-Za-z0-9._/-]+\Z")
+ARCHIVE_ENV_KEYS = frozenset(
+    {
+        "HOST",
+        "PATH",
+        "PORT",
+        "PROA_BUILD_REVISION",
+        "PROA_CONSOLE_LOAD_TESTS",
+        "RUST_LOG",
+        "SHOWCASE_PUBLIC_DIR",
+        "SITE_URL",
+        "SOURCE_COMMIT",
+        "STATIC_DIR",
+    }
+)
+MAX_BODY_BYTES = 4096
+
+
+class RequestError(Exception):
+    def __init__(self, status: int, code: str) -> None:
+        super().__init__(code)
+        self.status = status
+        self.code = code
+
+
+class DuplicateKey(ValueError):
+    pass
+
+
+def env_uint(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.environ.get(name, str(default))
+    if not raw.isascii() or not raw.isdecimal():
+        raise SystemExit(f"{name} must be an unsigned integer")
+    value = int(raw)
+    if not minimum <= value <= maximum:
+        raise SystemExit(f"{name} is out of range")
+    return value
+
+
+def env_path(name: str, default: str) -> Path:
+    value = os.environ.get(name, default)
+    path = Path(value)
+    if not path.is_absolute():
+        raise SystemExit(f"{name} must be an absolute path")
+    return path
+
+
+def ensure_private_directory(path: Path) -> None:
+    try:
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        info = path.lstat()
+    except OSError as error:
+        raise SystemExit(f"archive state directory is unavailable: {path}") from error
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or stat.S_IMODE(info.st_mode) != 0o700
+    ):
+        raise SystemExit(f"archive state directory ownership or mode is unsafe: {path}")
+
+
+def ensure_route_directory(path: Path) -> None:
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise SystemExit(f"archive route directory is unavailable: {path}") from error
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or stat.S_IMODE(info.st_mode) != 0o755
+    ):
+        raise SystemExit(f"archive route directory ownership or mode is unsafe: {path}")
+
+
+class Config:
+    def __init__(self) -> None:
+        self.application_uuid = os.environ.get("PROA_ARCHIVE_APPLICATION_UUID", "")
+        if not APPLICATION_RE.fullmatch(self.application_uuid):
+            raise SystemExit("PROA_ARCHIVE_APPLICATION_UUID is invalid")
+
+        self.application_name = os.environ.get(
+            "PROA_ARCHIVE_APPLICATION_NAME", "proa-marketing"
+        )
+        if not DNS_LABEL_RE.fullmatch(self.application_name):
+            raise SystemExit("PROA_ARCHIVE_APPLICATION_NAME is invalid")
+
+        self.preview_domain = os.environ.get(
+            "PROA_ARCHIVE_PREVIEW_DOMAIN", "proa.cool"
+        )
+        if len(self.preview_domain) > 253 or not DOMAIN_RE.fullmatch(
+            self.preview_domain
+        ):
+            raise SystemExit("PROA_ARCHIVE_PREVIEW_DOMAIN is invalid")
+
+        self.state_dir = env_path(
+            "PROA_ARCHIVE_STATE_DIR", "/var/lib/proa-preview-archive"
+        )
+        self.route_dir = env_path(
+            "PROA_ARCHIVE_ROUTER_CONFIG_DIR", str(self.state_dir / "routes")
+        )
+        if len(str(self.route_dir)) > 4096 or ".." in self.route_dir.parts:
+            raise SystemExit("PROA_ARCHIVE_ROUTER_CONFIG_DIR is unsafe")
+        self.archive_network = os.environ.get(
+            "PROA_ARCHIVE_DOCKER_NETWORK", "proa-preview-archive"
+        )
+        if not DOCKER_NAME_RE.fullmatch(self.archive_network):
+            raise SystemExit("PROA_ARCHIVE_DOCKER_NETWORK is invalid")
+        self.container_port = env_uint(
+            "PROA_ARCHIVE_CONTAINER_PORT", 5555, 1, 65535
+        )
+        self.secret_file = env_path(
+            "PROA_ARCHIVE_CONTROL_SECRET_FILE",
+            "/etc/proa/preview-archive-control.secret",
+        )
+        self.docker_bin = env_path("PROA_ARCHIVE_DOCKER_BIN", "/usr/bin/docker")
+        if not self.docker_bin.is_file() or not os.access(self.docker_bin, os.X_OK):
+            raise SystemExit("PROA_ARCHIVE_DOCKER_BIN is not executable")
+
+        self.port = env_uint("PROA_ARCHIVE_CONTROL_PORT", 8788, 1, 65535)
+        self.lock_timeout_seconds = env_uint(
+            "PROA_ARCHIVE_CONTROL_LOCK_TIMEOUT_SECONDS", 10, 1, 60
+        )
+        self.docker_timeout_seconds = env_uint(
+            "PROA_ARCHIVE_CONTROL_DOCKER_TIMEOUT_SECONDS", 15, 1, 60
+        )
+        self.provisional_ttl_seconds = env_uint(
+            "PROA_ARCHIVE_PROVISIONAL_TTL_SECONDS", 900, 60, 3600
+        )
+        self.now_override = os.environ.get("PROA_ARCHIVE_CONTROL_NOW_EPOCH")
+        if self.now_override is not None:
+            if not self.now_override.isascii() or not self.now_override.isdecimal():
+                raise SystemExit("PROA_ARCHIVE_CONTROL_NOW_EPOCH must be an integer")
+            self.now_override_value: int | None = int(self.now_override)
+        else:
+            self.now_override_value = None
+
+        for directory in (
+            self.state_dir,
+            self.state_dir / "approved",
+            self.state_dir / "deployments",
+            self.state_dir / "hostname-claims",
+            self.state_dir / "retired",
+        ):
+            ensure_private_directory(directory)
+        ensure_route_directory(self.route_dir)
+
+        # Validate the shared secret at startup as well as on every request.
+        self.read_control_secret()
+
+    def now(self) -> int:
+        if self.now_override_value is not None:
+            return self.now_override_value
+        return int(time.time())
+
+    def read_control_secret(self) -> bytes:
+        try:
+            info = self.secret_file.lstat()
+        except OSError as error:
+            raise RuntimeError("control authentication file is unavailable") from error
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise RuntimeError("control authentication file must be a regular file")
+        if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) & 0o077:
+            raise RuntimeError("control authentication file ownership or mode is unsafe")
+        try:
+            secret_bytes = self.secret_file.read_bytes()
+        except OSError as error:
+            raise RuntimeError("control authentication file is unreadable") from error
+        if secret_bytes.endswith(b"\n"):
+            secret_bytes = secret_bytes[:-1]
+        try:
+            secret = secret_bytes.decode("ascii")
+        except UnicodeError as error:
+            raise RuntimeError("control authentication secret is malformed") from error
+        if not SECRET_RE.fullmatch(secret):
+            raise RuntimeError("control authentication secret is malformed")
+        return secret.encode("ascii")
+
+
+def exact_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateKey(key)
+        result[key] = value
+    return result
+
+
+def parse_request(body: bytes, config: Config) -> dict[str, Any]:
+    try:
+        payload = json.loads(body.decode("utf-8"), object_pairs_hook=exact_object)
+    except (UnicodeDecodeError, json.JSONDecodeError, DuplicateKey) as error:
+        raise RequestError(400, "invalid_json") from error
+    if not isinstance(payload, dict) or set(payload) != EXPECTED_KEYS:
+        raise RequestError(400, "invalid_request_shape")
+    if type(payload["v"]) is not int or payload["v"] != 1:
+        raise RequestError(400, "unsupported_schema")
+    if not isinstance(payload["operation"], str) or payload["operation"] not in {
+        "promote",
+        "revoke",
+    }:
+        raise RequestError(400, "invalid_operation")
+    if payload["application_uuid"] != config.application_uuid:
+        raise RequestError(409, "application_mismatch")
+    if (
+        type(payload["pr_number"]) is not int
+        or not 1 <= payload["pr_number"] <= 999999
+    ):
+        raise RequestError(400, "invalid_pr_number")
+    if not isinstance(payload["deployment_uuid"], str) or not DEPLOYMENT_RE.fullmatch(
+        payload["deployment_uuid"]
+    ):
+        raise RequestError(400, "invalid_deployment_uuid")
+    if not isinstance(payload["expected_commit"], str) or not REVISION_RE.fullmatch(
+        payload["expected_commit"]
+    ):
+        raise RequestError(400, "invalid_expected_commit")
+    if type(payload["run_id"]) is not int or not 1 <= payload["run_id"] <= 2**63 - 1:
+        raise RequestError(400, "invalid_run_id")
+    if (
+        type(payload["run_attempt"]) is not int
+        or not 1 <= payload["run_attempt"] <= 9999
+    ):
+        raise RequestError(400, "invalid_run_attempt")
+    if type(payload["issued_at"]) is not int or not 1 <= payload["issued_at"] <= 2**63 - 1:
+        raise RequestError(400, "invalid_issued_at")
+    return payload
+
+
+def read_marker(path: Path, fields: int) -> list[str] | None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise RequestError(503, "state_unavailable") from error
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise RequestError(409, "state_identity_conflict")
+    try:
+        parts = path.read_text(encoding="ascii").split()
+    except (OSError, UnicodeError) as error:
+        raise RequestError(503, "state_unavailable") from error
+    if len(parts) != fields:
+        raise RequestError(409, "state_identity_conflict")
+    return parts
+
+
+def write_atomic(path: Path, content: str) -> None:
+    temporary_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="ascii",
+            dir=path.parent,
+            prefix=".write.",
+            delete=False,
+        ) as temporary:
+            temporary_name = temporary.name
+            os.fchmod(temporary.fileno(), 0o600)
+            temporary.write(content + "\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_name, path)
+        temporary_name = None
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except OSError as error:
+        raise RequestError(503, "state_unavailable") from error
+    finally:
+        if temporary_name is not None:
+            try:
+                os.unlink(temporary_name)
+            except FileNotFoundError:
+                pass
+
+
+def unlink_marker(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise RequestError(503, "state_unavailable") from error
+    try:
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except OSError as error:
+        raise RequestError(503, "state_unavailable") from error
+
+
+def open_route_directory(config: Config) -> int:
+    try:
+        before = config.route_dir.lstat()
+    except OSError as error:
+        raise RequestError(503, "route_state_unavailable") from error
+    if (
+        stat.S_ISLNK(before.st_mode)
+        or not stat.S_ISDIR(before.st_mode)
+        or before.st_uid != os.geteuid()
+        or stat.S_IMODE(before.st_mode) != 0o755
+    ):
+        raise RequestError(503, "route_state_unavailable")
+
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(config.route_dir, flags)
+    except OSError as error:
+        raise RequestError(503, "route_state_unavailable") from error
+    try:
+        after = os.fstat(descriptor)
+    except OSError as error:
+        os.close(descriptor)
+        raise RequestError(503, "route_state_unavailable") from error
+    if (
+        not stat.S_ISDIR(after.st_mode)
+        or after.st_uid != os.geteuid()
+        or stat.S_IMODE(after.st_mode) != 0o755
+        or (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino)
+    ):
+        os.close(descriptor)
+        raise RequestError(503, "route_state_unavailable")
+    return descriptor
+
+
+def unlink_archive_route(config: Config, deployment: str) -> None:
+    if not DEPLOYMENT_RE.fullmatch(deployment):
+        raise RequestError(409, "archive_identity_mismatch")
+    descriptor = open_route_directory(config)
+    try:
+        # Traefik discovers the canonical JSON bytes through the supported
+        # .yml suffix. Also remove the pre-migration .json artifact so a
+        # destructive request cleans up stale state before reconciliation.
+        for suffix in (".yml", ".json"):
+            try:
+                os.unlink(f"{deployment}{suffix}", dir_fd=descriptor)
+            except FileNotFoundError:
+                pass
+        os.fsync(descriptor)
+    except OSError as error:
+        raise RequestError(503, "route_state_unavailable") from error
+    finally:
+        os.close(descriptor)
+
+
+def reserve_hostname(config: Config, deployment: str) -> None:
+    claim_path = config.state_dir / "hostname-claims" / deployment[:12]
+    claim = read_marker(claim_path, 1)
+    if claim is None:
+        # Requests and the reconciler share sync.lock, so the read followed by
+        # an atomic replace is serialized against every other prefix claim.
+        write_atomic(claim_path, deployment)
+        return
+    if claim[0] != deployment:
+        raise RequestError(409, "hostname_claim_conflict")
+
+
+def run_docker(config: Config, *args: str) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [str(config.docker_bin), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=config.docker_timeout_seconds,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RequestError(503, "docker_unavailable") from error
+
+
+def inspect_archive(config: Config, deployment: str) -> dict[str, Any] | None:
+    name = f"proa-preview-archive-{deployment}"
+    result = run_docker(config, "inspect", name)
+    if result.returncode != 0:
+        diagnostic = (result.stdout + "\n" + result.stderr).lower()
+        if any(
+            marker in diagnostic
+            for marker in ("no such object", "no such container", "container not found")
+        ):
+            return None
+        raise RequestError(503, "docker_unavailable")
+    try:
+        parsed = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise RequestError(503, "docker_invalid_response") from error
+    if not isinstance(parsed, list) or len(parsed) != 1 or not isinstance(parsed[0], dict):
+        raise RequestError(503, "docker_invalid_response")
+    return parsed[0]
+
+
+def exact_environment(environment: Any) -> dict[str, str] | None:
+    if not isinstance(environment, list) or len(environment) != len(
+        ARCHIVE_ENV_KEYS
+    ):
+        return None
+    values: dict[str, str] = {}
+    for item in environment:
+        if not isinstance(item, str) or "=" not in item:
+            return None
+        key, value = item.split("=", 1)
+        if not ENV_KEY_RE.fullmatch(key) or key in values:
+            return None
+        values[key] = value
+    if values.keys() != ARCHIVE_ENV_KEYS:
+        return None
+    return values
+
+
+def selected_environment_is_valid(environment: dict[str, str]) -> bool:
+    path = environment["PATH"]
+    rust_log = environment["RUST_LOG"]
+    static_dir = environment["STATIC_DIR"]
+    showcase_dir = environment["SHOWCASE_PUBLIC_DIR"]
+    return (
+        len(path) <= 2048
+        and PATH_ENV_RE.fullmatch(path) is not None
+        and len(rust_log) <= 512
+        and RUST_LOG_RE.fullmatch(rust_log) is not None
+        and len(static_dir) <= 512
+        and STATIC_PATH_RE.fullmatch(static_dir) is not None
+        and len(showcase_dir) <= 512
+        and STATIC_PATH_RE.fullmatch(showcase_dir) is not None
+        and environment["PROA_CONSOLE_LOAD_TESTS"] in {"0", "1"}
+    )
+
+
+def is_protected_label(key: Any) -> bool:
+    if not isinstance(key, str):
+        return False
+    normalized = key.lower()
+    return (
+        normalized.startswith("traefik.")
+        or normalized.startswith("coolify.")
+        or normalized == "proa.preview.archive"
+        or normalized.startswith("proa.preview.archive.")
+    )
+
+
+def validate_archive(
+    config: Config, payload: dict[str, Any], archive: dict[str, Any]
+) -> tuple[int, str]:
+    deployment = payload["deployment_uuid"]
+    revision = payload["expected_commit"]
+    pr = str(payload["pr_number"])
+    expected_name = f"proa-preview-archive-{deployment}"
+    name = archive.get("Name")
+    if isinstance(name, str):
+        name = name.removeprefix("/")
+    image_id = archive.get("Image")
+    config_json = archive.get("Config")
+    host_config = archive.get("HostConfig")
+    mounts = archive.get("Mounts")
+    network_settings = archive.get("NetworkSettings")
+    state = archive.get("State")
+    if (
+        name != expected_name
+        or not isinstance(image_id, str)
+        or not IMAGE_RE.fullmatch(image_id)
+        or not isinstance(config_json, dict)
+        or not isinstance(host_config, dict)
+        or not isinstance(network_settings, dict)
+        or not isinstance(state, dict)
+    ):
+        raise RequestError(409, "archive_identity_mismatch")
+    labels = config_json.get("Labels")
+    environment = exact_environment(config_json.get("Env"))
+    hostname = f"{config.application_name}-{deployment[:12]}.{config.preview_domain}"
+    created_text = labels.get("proa.preview.archive.created") if isinstance(labels, dict) else None
+    expected_labels = {
+        "proa.preview.archive": "true",
+        "proa.preview.archive.application": config.application_uuid,
+        "proa.preview.archive.pr": pr,
+        "proa.preview.archive.deployment": deployment,
+        "proa.preview.archive.revision": revision,
+        "proa.preview.archive.hostname": hostname,
+        "proa.preview.archive.created": created_text,
+    }
+    if not isinstance(labels, dict):
+        raise RequestError(409, "archive_identity_mismatch")
+    protected_labels = {
+        key: value
+        for key, value in labels.items()
+        if is_protected_label(key)
+    }
+    if protected_labels != expected_labels:
+        raise RequestError(409, "archive_identity_mismatch")
+    if (
+        not isinstance(created_text, str)
+        or not created_text.isascii()
+        or not created_text.isdecimal()
+        or environment is None
+        or environment["HOST"] != "0.0.0.0"
+        or environment["PORT"] != str(config.container_port)
+        or environment["SITE_URL"] != f"https://{hostname}"
+        or environment["SOURCE_COMMIT"] != revision
+        or environment["PROA_BUILD_REVISION"] != revision
+        or not selected_environment_is_valid(environment)
+    ):
+        raise RequestError(409, "archive_identity_mismatch")
+    created = int(created_text)
+    if created > config.now():
+        raise RequestError(409, "archive_identity_mismatch")
+
+    healthcheck = config_json.get("Healthcheck")
+    restart_policy = host_config.get("RestartPolicy")
+    networks = network_settings.get("Networks")
+    expected_health_test = [
+        "CMD-SHELL",
+        f"curl -fsS http://127.0.0.1:{config.container_port}/healthz || exit 1",
+    ]
+    exact_integer_fields = {
+        "PidsLimit": 256,
+        "Memory": 1_073_741_824,
+        "MemorySwap": 1_073_741_824,
+        "MemoryReservation": 268_435_456,
+        "NanoCpus": 2_000_000_000,
+        "CpuShares": 1024,
+    }
+    runtime_matches = (
+        config_json.get("User") == "10001:10001"
+        and type(config_json.get("StopTimeout")) is int
+        and config_json["StopTimeout"] == 10
+        and isinstance(healthcheck, dict)
+        and healthcheck.get("Test") == expected_health_test
+        and type(healthcheck.get("Interval")) is int
+        and healthcheck["Interval"] == 10_000_000_000
+        and type(healthcheck.get("Timeout")) is int
+        and healthcheck["Timeout"] == 5_000_000_000
+        and type(healthcheck.get("Retries")) is int
+        and healthcheck["Retries"] == 10
+        and type(healthcheck.get("StartPeriod")) is int
+        and healthcheck["StartPeriod"] == 30_000_000_000
+        and isinstance(restart_policy, dict)
+        and restart_policy.get("Name") == "unless-stopped"
+        and host_config.get("Privileged") is False
+        and host_config.get("PublishAllPorts") is False
+        and host_config.get("ReadonlyRootfs") is True
+        and host_config.get("CapAdd") in (None, [])
+        and host_config.get("CapDrop") == ["ALL"]
+        and host_config.get("SecurityOpt") == ["no-new-privileges:true"]
+        and all(
+            type(host_config.get(key)) is int and host_config[key] == expected
+            for key, expected in exact_integer_fields.items()
+        )
+        and host_config.get("PortBindings") in (None, {})
+        and host_config.get("NetworkMode") == config.archive_network
+        and host_config.get("Tmpfs")
+        == {"/tmp": "rw,noexec,nosuid,nodev,size=64m"}
+        and host_config.get("LogConfig")
+        == {
+            "Type": "local",
+            "Config": {"max-size": "10m", "max-file": "3"},
+        }
+        and config_json.get("Volumes") in (None, {})
+        and mounts in (None, [])
+        and isinstance(networks, dict)
+        and set(networks) == {config.archive_network}
+    )
+    if not runtime_matches:
+        raise RequestError(409, "archive_runtime_mismatch")
+    return created, image_id
+
+
+def validate_metadata(
+    config: Config,
+    payload: dict[str, Any],
+    *,
+    expected_created: int | None = None,
+    expected_image: str | None = None,
+) -> tuple[int, str]:
+    path = config.state_dir / "deployments" / payload["deployment_uuid"]
+    marker = read_marker(path, 4)
+    if marker is None:
+        raise RequestError(409, "archive_metadata_missing")
+    stored_pr, stored_revision, stored_created, stored_image = marker
+    if (
+        stored_pr != str(payload["pr_number"])
+        or stored_revision != payload["expected_commit"]
+        or not stored_created.isascii()
+        or not stored_created.isdecimal()
+        or not IMAGE_RE.fullmatch(stored_image)
+    ):
+        raise RequestError(409, "archive_metadata_mismatch")
+    created = int(stored_created)
+    if expected_created is not None and created != expected_created:
+        raise RequestError(409, "archive_metadata_mismatch")
+    if expected_image is not None and stored_image != expected_image:
+        raise RequestError(409, "archive_metadata_mismatch")
+    return created, stored_image
+
+
+def marker_identity(
+    marker: list[str], payload: dict[str, Any], *, image: str | None = None
+) -> bool:
+    if marker[0] != str(payload["pr_number"]) or marker[1] != payload["expected_commit"]:
+        return False
+    if len(marker) >= 3 and (not marker[2].isascii() or not marker[2].isdecimal()):
+        return False
+    if image is not None and (len(marker) != 4 or marker[3] != image):
+        return False
+    return True
+
+
+def remove_exact_archive(config: Config, deployment: str) -> None:
+    name = f"proa-preview-archive-{deployment}"
+    result = run_docker(config, "rm", "-fv", name)
+    if result.returncode != 0:
+        raise RequestError(503, "archive_removal_failed")
+
+
+def promote(config: Config, payload: dict[str, Any]) -> str:
+    deployment = payload["deployment_uuid"]
+    retired = read_marker(config.state_dir / "retired" / deployment, 3)
+    if retired is not None:
+        if not marker_identity(retired, payload):
+            raise RequestError(409, "retired_identity_mismatch")
+        raise RequestError(409, "archive_retired")
+
+    archive = inspect_archive(config, deployment)
+    if archive is None:
+        raise RequestError(409, "archive_not_found")
+    created, image_id = validate_archive(config, payload, archive)
+    validate_metadata(
+        config,
+        payload,
+        expected_created=created,
+        expected_image=image_id,
+    )
+    state = archive["State"]
+    if (
+        state.get("Running") is not True
+        or not isinstance(state.get("Health"), dict)
+        or state["Health"].get("Status") != "healthy"
+    ):
+        raise RequestError(409, "archive_not_healthy")
+
+    approved_path = config.state_dir / "approved" / deployment
+    approved = read_marker(approved_path, 4)
+    if approved is not None:
+        if not marker_identity(approved, payload, image=image_id):
+            raise RequestError(409, "approved_identity_mismatch")
+    reserve_hostname(config, deployment)
+    if approved is not None:
+        return "already_promoted"
+
+    now = config.now()
+    if now - created >= config.provisional_ttl_seconds:
+        write_atomic(
+            config.state_dir / "retired" / deployment,
+            f"{payload['pr_number']} {payload['expected_commit']} {now}",
+        )
+        unlink_marker(approved_path)
+        unlink_archive_route(config, deployment)
+        remove_exact_archive(config, deployment)
+        raise RequestError(409, "provisional_expired")
+
+    write_atomic(
+        approved_path,
+        f"{payload['pr_number']} {payload['expected_commit']} {now} {image_id}",
+    )
+    return "promoted"
+
+
+def revoke(config: Config, payload: dict[str, Any]) -> str:
+    deployment = payload["deployment_uuid"]
+    retired_path = config.state_dir / "retired" / deployment
+    approved_path = config.state_dir / "approved" / deployment
+    retired = read_marker(retired_path, 3)
+    if retired is not None and not marker_identity(retired, payload):
+        raise RequestError(409, "retired_identity_mismatch")
+
+    approved = read_marker(approved_path, 4)
+    if approved is not None:
+        if not marker_identity(approved, payload) or not IMAGE_RE.fullmatch(approved[3]):
+            raise RequestError(409, "approved_identity_mismatch")
+        raise RequestError(409, "archive_already_approved")
+
+    archive = inspect_archive(config, deployment)
+    if archive is not None:
+        created, image_id = validate_archive(config, payload, archive)
+        validate_metadata(
+            config,
+            payload,
+            expected_created=created,
+            expected_image=image_id,
+        )
+        reserve_hostname(config, deployment)
+        if retired is None:
+            now = config.now()
+            write_atomic(
+                retired_path,
+                f"{payload['pr_number']} {payload['expected_commit']} {now}",
+            )
+        unlink_marker(approved_path)
+        unlink_archive_route(config, deployment)
+        remove_exact_archive(config, deployment)
+        return "revoked"
+
+    if retired is not None:
+        reserve_hostname(config, deployment)
+        unlink_marker(approved_path)
+        unlink_archive_route(config, deployment)
+        return "already_revoked"
+
+    # The Worker authorizes this deployment UUID against Coolify's history
+    # before signing the command. A rejection may arrive before the periodic
+    # snapshotter has created local metadata; tombstone it now so that failed
+    # code can never become publicly routed on a later reconciliation tick.
+    reserve_hostname(config, deployment)
+    now = config.now()
+    write_atomic(
+        retired_path,
+        f"{payload['pr_number']} {payload['expected_commit']} {now}",
+    )
+    unlink_marker(approved_path)
+    unlink_archive_route(config, deployment)
+    return "revoked"
+
+
+def acquire_lock(config: Config):
+    lock_path = config.state_dir / "sync.lock"
+    lock_file = lock_path.open("a+")
+    deadline = time.monotonic() + config.lock_timeout_seconds
+    while True:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return lock_file
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                lock_file.close()
+                raise RequestError(503, "archive_lock_timeout")
+            time.sleep(0.05)
+
+
+class ControlHandler(BaseHTTPRequestHandler):
+    server_version = "ProaArchiveControl"
+    sys_version = ""
+    protocol_version = "HTTP/1.1"
+
+    def setup(self) -> None:
+        super().setup()
+        self.connection.settimeout(10)
+
+    @property
+    def config(self) -> Config:
+        return self.server.config  # type: ignore[attr-defined,no-any-return]
+
+    def send_json(self, status: int, payload: dict[str, Any]) -> None:
+        body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+        self.close_connection = True
+
+    def authenticate(self, body: bytes) -> int:
+        timestamp_values = self.headers.get_all(
+            "X-Proa-Archive-Timestamp", failobj=[]
+        )
+        signature_values = self.headers.get_all(
+            "X-Proa-Archive-Signature", failobj=[]
+        )
+        if len(timestamp_values) != 1 or len(signature_values) != 1:
+            raise RequestError(401, "unauthorized")
+        timestamp_text = timestamp_values[0]
+        signature_match = SIGNATURE_RE.fullmatch(signature_values[0])
+        if (
+            not timestamp_text.isascii()
+            or not timestamp_text.isdecimal()
+            or str(int(timestamp_text)) != timestamp_text
+            or signature_match is None
+        ):
+            raise RequestError(401, "unauthorized")
+        timestamp = int(timestamp_text)
+        if abs(self.config.now() - timestamp) > 60:
+            raise RequestError(401, "stale_signature")
+        try:
+            secret = self.config.read_control_secret()
+        except RuntimeError as error:
+            raise RequestError(503, "authentication_unavailable") from error
+        canonical = (
+            f"v1\nPOST\n{CONTROL_PATH}\n{timestamp_text}\n".encode("ascii") + body
+        )
+        expected = hmac.new(secret, canonical, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature_match.group(1), expected):
+            raise RequestError(401, "unauthorized")
+        return timestamp
+
+    def read_body(self) -> bytes:
+        if self.headers.get("Transfer-Encoding") is not None:
+            raise RequestError(400, "unsupported_transfer_encoding")
+        lengths = self.headers.get_all("Content-Length", failobj=[])
+        if len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdecimal():
+            raise RequestError(400, "invalid_content_length")
+        length = int(lengths[0])
+        if not 1 <= length <= MAX_BODY_BYTES:
+            raise RequestError(413, "request_too_large")
+        content_type = (
+            self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        )
+        if content_type != "application/json":
+            raise RequestError(415, "unsupported_media_type")
+        body = self.rfile.read(length)
+        if len(body) != length:
+            raise RequestError(400, "incomplete_request_body")
+        return body
+
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        operation = "unknown"
+        pr = "unknown"
+        deployment = "unknown"
+        run_id = "unknown"
+        try:
+            if self.path != CONTROL_PATH:
+                raise RequestError(404, "not_found")
+            body = self.read_body()
+            signed_timestamp = self.authenticate(body)
+            payload = parse_request(body, self.config)
+            if payload["issued_at"] != signed_timestamp:
+                raise RequestError(400, "issued_at_mismatch")
+            operation = payload["operation"]
+            pr = str(payload["pr_number"])
+            deployment = payload["deployment_uuid"]
+            run_id = str(payload["run_id"])
+            lock_file = acquire_lock(self.config)
+            try:
+                if operation == "promote":
+                    outcome = promote(self.config, payload)
+                else:
+                    outcome = revoke(self.config, payload)
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            print(
+                f"preview_archive_control event=accepted operation={operation} pr={pr} deployment={deployment} run_id={run_id} outcome={outcome}",
+                flush=True,
+            )
+            self.send_json(
+                200,
+                {
+                    "ok": True,
+                    "operation": operation,
+                    "deployment_uuid": deployment,
+                    "result": "promoted" if operation == "promote" else "revoked",
+                },
+            )
+        except (TimeoutError, socket.timeout):
+            self.send_json(408, {"ok": False, "error": "request_timeout"})
+        except RequestError as error:
+            print(
+                f"preview_archive_control event=rejected operation={operation} pr={pr} deployment={deployment} run_id={run_id} code={error.code}",
+                flush=True,
+            )
+            self.send_json(error.status, {"ok": False, "error": error.code})
+        except Exception:
+            print(
+                f"preview_archive_control event=error operation={operation} pr={pr} deployment={deployment} run_id={run_id} code=internal_error",
+                flush=True,
+            )
+            self.send_json(500, {"ok": False, "error": "internal_error"})
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if self.path == "/healthz":
+            self.send_json(200, {"ok": True})
+            return
+        self.send_json(404, {"ok": False, "error": "not_found"})
+
+    def do_PUT(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        self.send_json(405, {"ok": False, "error": "method_not_allowed"})
+
+    def do_DELETE(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        self.send_json(405, {"ok": False, "error": "method_not_allowed"})
+
+    def log_message(self, _format: str, *_args: Any) -> None:
+        # Never include headers or request bodies in process logs.
+        return
+
+
+class ControlServer(HTTPServer):
+    allow_reuse_address = True
+
+    def __init__(self, config: Config) -> None:
+        self.config = config
+        super().__init__(("127.0.0.1", config.port), ControlHandler)
+
+
+def main() -> int:
+    os.umask(0o077)
+    try:
+        config = Config()
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from error
+    server = ControlServer(config)
+    print(
+        f"preview_archive_control event=listening address=127.0.0.1 port={config.port}",
+        flush=True,
+    )
+    try:
+        server.serve_forever(poll_interval=0.25)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

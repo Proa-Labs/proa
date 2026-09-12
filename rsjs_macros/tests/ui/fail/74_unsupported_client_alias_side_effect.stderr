@@ -1,0 +1,11 @@
+error: `let _display = ...` depends on rsjs client state `count` but does not lower to supported Client IR
+  --> tests/ui/fail/74_unsupported_client_alias_side_effect.rs:14:27
+   |
+14 |             format!("{}", count.get())
+   |                           ^^^^^
+
+error: move this logic into a standalone helper annotated once with `#[rsjs::client]`, render the supported client expression directly, or keep it in a server-only position before touching rsjs client primitives
+  --> tests/ui/fail/74_unsupported_client_alias_side_effect.rs:14:27
+   |
+14 |             format!("{}", count.get())
+   |                           ^^^^^

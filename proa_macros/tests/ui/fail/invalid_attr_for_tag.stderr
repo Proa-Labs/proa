@@ -1,0 +1,5 @@
+error: `href` is not valid on <div>. use <a href="..."> for links, or move the URL into a data-* attribute (HTML §4.5.1, §4.8.3)
+ --> tests/ui/fail/invalid_attr_for_tag.rs:7:14
+  |
+7 |         <div href="/test">"This should fail"</div>
+  |              ^^^^

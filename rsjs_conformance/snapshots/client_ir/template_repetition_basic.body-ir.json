@@ -1,0 +1,35 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "let",
+      "local": 0,
+      "name": "selected",
+      "ty": {
+        "kind": "unknown"
+      },
+      "value": {
+          "attr": "data-rsjs-payload-p1",
+        "kind": "event_payload"
+      }
+    },
+    {
+      "args": [
+        {
+          "kind": "local",
+          "local": 0
+        }
+      ],
+      "kind": "console",
+      "level": "log"
+    },
+    {
+      "callback": 0,
+      "kind": "callback_invoke",
+      "payload": {
+        "kind": "local",
+        "local": 0
+      }
+    }
+  ]
+}

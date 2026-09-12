@@ -1,0 +1,157 @@
+[
+  {
+    "condition": {
+      "kind": "event_value",
+      "span": {
+        "end": {
+          "column": 28,
+          "line": 1
+        },
+        "start": {
+          "column": 23,
+          "line": 1
+        }
+      },
+      "value": "ShiftKey"
+    },
+    "else": [
+      {
+        "kind": "signal_set",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 32,
+            "line": 8
+          },
+          "start": {
+            "column": 24,
+            "line": 8
+          }
+        },
+        "value": {
+          "kind": "literal",
+          "span": {
+            "end": {
+              "column": 44,
+              "line": 8
+            },
+            "start": {
+              "column": 37,
+              "line": 8
+            }
+          },
+          "value": {
+            "kind": "string",
+            "value": "plain"
+          }
+        }
+      }
+    ],
+    "kind": "if",
+    "span": {
+      "end": {
+        "column": 22,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    },
+    "then": [
+      {
+        "condition": {
+          "kind": "event_value",
+          "span": {
+            "end": {
+              "column": 32,
+              "line": 2
+            },
+            "start": {
+              "column": 27,
+              "line": 2
+            }
+          },
+          "value": "CtrlKey"
+        },
+        "else": [
+          {
+            "kind": "signal_set",
+            "signal": 0,
+            "span": {
+              "end": {
+                "column": 36,
+                "line": 5
+              },
+              "start": {
+                "column": 28,
+                "line": 5
+              }
+            },
+            "value": {
+              "kind": "literal",
+              "span": {
+                "end": {
+                  "column": 48,
+                  "line": 5
+                },
+                "start": {
+                  "column": 41,
+                  "line": 5
+                }
+              },
+              "value": {
+                "kind": "string",
+                "value": "shift"
+              }
+            }
+          }
+        ],
+        "kind": "if",
+        "span": {
+          "end": {
+            "column": 26,
+            "line": 2
+          },
+          "start": {
+            "column": 24,
+            "line": 2
+          }
+        },
+        "then": [
+          {
+            "kind": "signal_set",
+            "signal": 0,
+            "span": {
+              "end": {
+                "column": 36,
+                "line": 3
+              },
+              "start": {
+                "column": 28,
+                "line": 3
+              }
+            },
+            "value": {
+              "kind": "literal",
+              "span": {
+                "end": {
+                  "column": 47,
+                  "line": 3
+                },
+                "start": {
+                  "column": 41,
+                  "line": 3
+                }
+              },
+              "value": {
+                "kind": "string",
+                "value": "both"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

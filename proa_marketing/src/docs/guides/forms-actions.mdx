@@ -1,0 +1,326 @@
+---
+title: Forms and actions
+description: Build and validate HTML forms, handle submissions with Axum, and attach typed actions.
+keywords: [Action, form, CSRF token]
+---
+
+Proa keeps server mutations explicit: the browser submits a native HTML form, and an Axum handler validates and writes the data. This page covers [rendering the form](#rendering-a-native-form), [validation with Wellformed](#validating-with-wellformed), [typed client actions](#adding-typed-client-actions), and [choosing a boundary](#choosing-a-boundary).
+
+## Rendering a native form
+
+Use real form controls whenever a browser submit is enough:
+
+```rust filename="src/pages/contact.rs"
+use proa_macros::html_sync;
+
+html_sync! {
+    <form method="post" action="/contact" class="grid gap-4">
+        <label for="email">"Email"</label>
+        <input id="email" name="email" type="email" required autocomplete="email" />
+
+        <label for="message">"Message"</label>
+        <textarea id="message" name="message" required minlength="10"></textarea>
+
+        <button type="submit">"Send"</button>
+    </form>
+}
+```
+
+This renders useful HTML before any JavaScript loads. The browser owns focus, keyboard submission, autofill, and constraint validation. Those constraints improve the experience, but the server must still validate every submission.
+
+### Form controls
+
+Start with native controls:
+
+| Component | Native element |
+|-----------|----------------|
+| Text input | `<input type="text">`, `<input type="email">`, `<input type="password">` |
+| Text area | `<textarea>` |
+| Select | `<select>` |
+| Checkbox | `<input type="checkbox">` |
+| Radio group | `<input type="radio">` |
+| Button | `<button>` |
+| Field structure | `<label>`, `<fieldset>`, `<legend>`, help text, error text |
+
+Prefer native names and values for any data that must reach the server. That keeps the submission inspectable and works without JavaScript.
+
+Markup is half the story. The POST needs a server-side validation boundary.
+
+## Validating with Wellformed
+
+Use [Wellformed](https://github.com/hariria/wellformed) to keep normalization, validation rules, generated Rust values, and field errors in one schema:
+
+```bash filename="Terminal"
+cargo add wellformed wellformed-macros wellformed-validate serde_json
+cargo add serde --features derive
+```
+
+Check the serialized schema into the application. This example trims both fields, normalizes the email, and gives every failure a stable code and message:
+
+```json filename="schemas/contact.json"
+{
+  "version": "1.0.0",
+  "id": "contact",
+  "title": "Contact",
+  "root": {
+    "type": "object",
+    "unknown_keys": "strict",
+    "properties": {
+      "email": {
+        "type": "string",
+        "label": "Email",
+        "required": true,
+        "transforms": [{ "fn": "trim" }, { "fn": "lower" }],
+        "constraints": [
+          {
+            "pred": { "type": "call", "name": "is_email" },
+            "error": {
+              "code": "INVALID_EMAIL",
+              "message": "Enter a valid email address"
+            }
+          }
+        ]
+      },
+      "message": {
+        "type": "string",
+        "label": "Message",
+        "required": true,
+        "transforms": [{ "fn": "trim" }],
+        "constraints": [
+          {
+            "pred": { "type": "min_len", "len": 10 },
+            "error": {
+              "code": "MESSAGE_TOO_SHORT",
+              "message": "Use at least 10 characters"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+Generate the typed form facade at compile time:
+
+```rust filename="src/forms/contact.rs"
+use wellformed_macros::form_schema;
+
+form_schema!(pub mod contact = "schemas/contact.json");
+```
+
+Extract the native form into an untyped map so Wellformed sees the untrusted payload before Serde constructs the generated Rust type:
+
+```rust filename="src/routes/contact.rs"
+use std::collections::HashMap;
+
+use axum::{
+    extract::Form,
+    http::StatusCode,
+    response::{IntoResponse, Redirect, Response},
+};
+use proa_framework_axum::RouteResponse;
+
+use crate::{forms::contact, pages::contact::ContactPage};
+
+pub async fn submit_contact(Form(fields): Form<HashMap<String, String>>) -> Response {
+    let submitted = serde_json::to_value(fields)
+        .expect("string form fields serialize to JSON");
+
+    let values = match contact::validate_form(submitted) {
+        Ok(values) => values,
+        Err(errors) => {
+            let mut response = RouteResponse::ssr(ContactPage {
+                form: contact::state_with_errors(errors),
+            })
+            .into_response();
+            *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
+            return response;
+        }
+    };
+
+    save_contact(values).await;
+
+    Redirect::to("/contact/thanks").into_response()
+}
+```
+
+`values` is `contact::Values`, generated from the schema after transforms and validation succeed. The redirect follows the post/redirect/get pattern so refreshing the success page does not resubmit the mutation.
+
+Register the route beside the page route:
+
+```rust filename="src/main.rs"
+use axum::routing::{get, post};
+use proa_framework_axum::Route;
+
+Route::page("/", "Contact", get(contact_page));
+Route::endpoint("/contact", post(submit_contact));
+```
+
+Use `Route::endpoint` for non-page POST handlers unless the endpoint also needs page metadata. [Route handlers](/docs/framework/route-handlers) covers JSON endpoints, body limits, shared state, webhooks, and endpoint tests.
+
+### Re-rendering field errors
+
+The generated form state keeps the submitted values and maps validation paths to field accessors:
+
+```rust filename="src/pages/contact.rs"
+use crate::forms::contact;
+
+pub struct ContactPage {
+    pub form: contact::State,
+}
+```
+
+Use those accessors to restore values and connect each error to its control:
+
+```rust filename="src/pages/contact.rs"
+let email = contact::field_email(&self.form);
+
+html_sync! {
+    <input
+        id="email"
+        name="email"
+        type="email"
+        required
+        autocomplete="email"
+        value={email.value_str()}
+        aria-invalid={email.invalid()}
+        aria-describedby={email.invalid().then_some(email.error_id())}
+    />
+    {if let Some(error) = email.error_message() {
+        html_sync! {
+            <p id={email.error_id()} role="alert">{error}</p>
+        }
+    }}
+}
+```
+
+Use the same pattern for the message field. `contact::state_with_errors` preserves all submitted values, while `field_email` supplies the stable error id, invalid state, and message needed by accessible HTML.
+
+### Server mutation checklist
+
+Before shipping a form:
+
+- Use `method="post"` for mutations.
+- Validate the untyped payload before constructing trusted application values.
+- Do not trust hidden inputs for authorization.
+- Redirect after successful mutation to avoid duplicate browser resubmits.
+- Re-render with field errors on validation failure.
+- Keep CSRF and origin policy explicit for browser-issued unsafe methods.
+- Use `type="submit"` for submit buttons and `type="button"` for client-only actions.
+
+`FrameworkBuilder` enables cross-origin protection for unsafe browser requests by default. Keep it enabled unless you have a specific trusted-origin deployment requirement. [Deployment](/docs/framework/deployment) covers production hardening.
+
+That covers everything the server owns. Browser-only behavior needs a different mechanism.
+
+## Adding typed client actions
+
+Actions are not a hidden RPC layer. They annotate rendered HTML so client code can dispatch typed handlers. Server writes still happen through normal HTTP routes.
+
+Use `#[derive(Action)]` when client-side code needs stable, typed action names:
+
+```rust filename="src/actions/product.rs"
+use proa_actions::{Action, ActionHandler};
+
+#[derive(Debug, Clone, Action)]
+#[action(scope = "product_card")]
+pub enum ProductAction {
+    Favorite,
+    AddToCart { sku: String },
+}
+```
+
+The derive emits constants and conversion helpers:
+
+```rust filename="src/actions/product.rs"
+assert_eq!(
+    ProductAction::FAVORITE,
+    "product_card.ProductAction.Favorite",
+);
+
+let data = ProductAction::AddToCart {
+    sku: "sku_1".to_string(),
+}
+.to_action_data();
+
+let restored = ProductAction::from_action_data(data)?;
+```
+
+Use a unique `scope` per page, island, or component family. The scope prevents action-name collisions in generated client code.
+
+### Attaching actions to elements
+
+Render static action identifiers as data attributes:
+
+```rust filename="src/components/product_card.rs"
+html_sync! {
+    <button type="button" data-onclick={ProductAction::FAVORITE}>
+        "Favorite"
+    </button>
+}
+```
+
+This renders a `data-onclick` attribute holding the action name. The generated action runtime can delegate browser events from those attributes.
+
+When the handler needs parameters, render explicit `data-param-*` attributes near the action:
+
+```rust filename="src/components/product_card.rs"
+html_sync! {
+    <button
+        type="button"
+        data-onclick={ProductAction::ADD_TO_CART}
+        data-param-sku={self.sku}
+    >
+        "Add to cart"
+    </button>
+}
+```
+
+Parameter names **must** be safe attribute-name suffixes: ASCII letters, digits, underscores, and hyphens.
+
+### Generating the client runtime
+
+`proa_actions::codegen` can generate three TypeScript artifacts from action metadata:
+
+| Artifact | Purpose |
+|----------|---------|
+| Contract | action constants, parameter types, and handler interfaces |
+| Runtime | delegated event listeners for `data-onclick`, `data-onblur`, `data-onfocus`, and related event attributes |
+| Handler stub | user-owned file where you implement browser behavior |
+
+The runtime parses `data-param-*` attributes as strings and passes them to the registered handler. Convert or validate types in the handler when needed.
+
+Server routes and client actions overlap, so pick the boundary deliberately.
+
+## Choosing a boundary
+
+Start from the need:
+
+| Need | Use |
+|------|-----|
+| Submit data to the server | Native `<form method="post">` plus an Axum handler. |
+| Validate and persist data | Validate with a Wellformed schema, then persist the generated values. |
+| Trigger client-only behavior | `proa_actions` identifiers and `data-on*` attributes. |
+| Keep form UI reactive | `rsjs` controlled components or `ReactiveAttr` bindings. |
+
+Then match the specific situation:
+
+| Situation | Recommended boundary |
+|-----------|----------------------|
+| Contact form, checkout, account update | Native form plus Axum POST handler. |
+| Opening a dialog or toggling local UI | Client action binding or small controller. |
+| Field value drives live browser UI | Controlled `rsjs` component. |
+| Data changes server state | Server route, not a client-only action. |
+| Static button action with no params | `data-onclick={...}` on a button. |
+| Dynamic action params | Explicit `data-param-*` attributes or a native form field. |
+
+## Next steps
+
+- [Route handlers](/docs/framework/route-handlers)
+  - Write the POST endpoints, body limits, and endpoint tests.
+- [Cross-origin and CSRF](/docs/framework/cross-origin)
+  - Configure origin policy for browser-issued unsafe methods.
+- [Islands: when and why](/docs/guides/islands)
+  - Decide when a form field needs a hydrated component.
+- [Accessibility](/docs/guides/accessibility)
+  - Label fields and announce validation errors correctly.

@@ -1,0 +1,303 @@
+---
+title: Markdown rendering
+description: Compose Markdown from typed components, as a first-class interface for humans and agents.
+---
+
+For an agent, context is the scarce resource, and most of a web page is scaffolding. A real HTML document averages [over 80K tokens, of which more than 90% are CSS, JavaScript, comments, and other tokens carrying no content](https://arxiv.org/abs/2411.02959). Converting that page to Markdown drops about 90% of its tokens, roughly 10× fewer. Generating the Markdown from structured content instead of scraping it back out of the DOM does better still: Sanity measured one lesson page at 392 KB of HTML, about 100K tokens, against 13 KB of Markdown, [about 3,300](https://www.sanity.io/blog/how-to-serve-content-to-agents-a-field-guide).
+
+That ratio decides how much of your site an agent holds before it has to compact, and every compaction is an extra model call that drops detail it will not get back.
+
+Proa's goal is to bring the latency of the web as close to zero as possible, for everyone. An agent that spawns a browser to read a page, or compacts because the page was mostly markup, is paying latency you can delete.
+
+Markdown interfaces have been an afterthought until now: scraped, converted from HTML, or hand-maintained beside the real templates. Proa makes rendering a trait rather than a fixed output format, so one component implements `WebRender` for HTML and `MdRender` for Markdown. One typed tree, two outputs, neither derived from the other.
+
+```rust filename="src/components/product_summary.rs"
+use proa_core::{md::MdContext, MdRenderSync, WriteBuf, WriteError};
+use proa_macros::md_sync;
+
+pub struct ProductSummary {
+    pub title: &'static str,
+    pub description: &'static str,
+}
+
+impl<B: WriteBuf> MdRenderSync<B> for ProductSummary {
+    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            ## {self.title}
+
+            {self.description}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+```
+
+That makes Markdown composable. Components nest, loop, and take children, so a `SearchPage` builds a document out of fifty `Listing` components and none of them concatenates a string. Change `Listing` and every document containing one changes.
+
+## Writing a template
+
+Reach for this when a route serves docs source, an agent-readable representation, a feed, or any dense text output that is not HTML.
+
+Follow [Editor setup](/docs/guides/editor-setup) for go-to-definition, hover,
+completion, and rename inside `r###"..."###` templates in VS Code, Neovim,
+and other LSP editors.
+
+> **Good to know**: `cargo proa fmt` re-anchors a template to its macro's indentation and `cargo proa lint` reports one that has drifted, but both tools only see brace-delimited invocations. Write `md_sync! { ... }`, not `md_sync!( ... )`.
+
+## Choosing a trait and a macro
+
+| Trait | Template macro | Use it when |
+|-------|----------------|-------------|
+| `MdRenderSync<B>` | `md_sync!` | The component writes Markdown without `.await`. |
+| `MdRender<B>` | `md!` | The component may await, or composes async Markdown children. |
+
+Use `md_sync!` by default:
+
+```rust filename="src/pages/summary.rs"
+use proa_macros::md_sync;
+
+let summary = md_sync! { r###"
+    # {title}
+
+    {description}
+    "###
+};
+```
+
+Use `md!` when an interpolated child awaits:
+
+```rust filename="src/pages/report.rs"
+use proa_core::render_md_to_string_async;
+use proa_macros::md;
+
+let output = render_md_to_string_async(
+    md! { r###"
+        # Report
+
+        {proa_core::await_md_component(load_report_body())}
+        "###
+    },
+)
+.await;
+```
+
+Strings and numbers work directly in both macros. Lift a custom sync-only child into an async tree with `to_md_async(...)`, and use `await_md_component(...)` when a future resolves to a Markdown child.
+
+The canonical form is one multiline raw Markdown template. Use three hashes by default: `md_sync! { r###"..."### }` or `md! { r###"..."### }`. Source newlines render directly, so ordinary paragraphs, sections, and lists do not need `"\n"` or `"\n\n"`. Common Rust source indentation is stripped while deeper relative Markdown indentation is preserved.
+
+Each `{expression}` is a typed render child. Template `for` and `if` blocks compose the same way, while braces inside fenced code blocks and inline code spans remain literal Markdown. Outside code, write `{{` or `}}` for a literal brace. Three hashes let ordinary quotes and Rust raw strings with fewer hashes appear without escaping; increase the delimiter only when the document itself contains the exact closing sequence `"###`.
+
+The expression-visible token form, `md_sync! { "# " { title } }`, remains available for generated templates and tooling that needs interpolations represented as Rust tokens.
+
+An async child cannot appear inside `md_sync!`. Move the boundary to `MdRender` and `md!`.
+
+## Loops and branches
+
+Control flow is written inside the template, not as Rust blocks between nodes. `{for ...}` and `{if ...}` take a Markdown body and repeat or gate it:
+
+```rust filename="src/pages/summary.rs"
+let summary = md_sync! { r###"
+    # {title}
+
+    ## Features
+
+    {for feature in features.iter() {
+    - {feature}
+    }}
+    {if in_stock {In stock} else {Backordered}}
+    "###
+};
+```
+
+The body of a loop or branch is Markdown, not a quoted string, so `- {feature}` is a literal list item with one interpolated value. Both macros share this grammar; in `md!` the interpolated children may await.
+
+> **Good to know**: Interpolation, slots, and children follow the same rules as the HTML macros. See [Components](/docs/core/components) for the composition model; the difference here is that a Markdown template is one string literal, so control flow lives inside it.
+
+## Composing documents from components
+
+A slot holds a component, not a string. Give the child an `MdRenderSync` impl:
+
+```rust filename="src/components/listing.rs"
+impl<B: WriteBuf> MdRenderSync<B> for &Listing {
+    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            ### {self.title}
+
+            **${self.price}/night** · ★{self.rating}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+```
+
+Then interpolate it. The `{listing}` slot dispatches into that impl, the same way an `html_sync!` slot dispatches into a `WebRenderSync` child:
+
+```rust filename="src/pages/search.rs"
+impl<B: WriteBuf> MdRenderSync<B> for &SearchPage {
+    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            # {self.title}
+
+            {self.listings.len()} stays
+
+            ---
+
+            {for listing in self.listings.iter() {
+            {listing}
+            }}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+```
+
+```md filename="output"
+# Malibu stays
+
+2 stays
+
+---
+
+### Cliffside cottage
+
+**$420/night** · ★4\.9
+
+### Surf shack
+
+**$180/night** · ★4\.7
+```
+
+The page never learns that a listing renders as an `h3`, and never allocates a `String` for one.
+
+Note the `4\.9`: interpolated values are escaped, so data cannot inject structure. A title of `# Free money` arrives as text, not a heading.
+
+## One component, two representations
+
+The same struct implements both traits. The HTML impl emits chrome; the Markdown impl emits meaning:
+
+```rust filename="src/components/callout.rs"
+impl<L: DataLoader> WebRenderSync<L> for &Callout {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <aside data-callout role="note">
+                <strong>{self.label}</strong>
+                <p>{self.body}</p>
+            </aside>
+        }
+        .render(cx)
+    }
+}
+
+impl<B: WriteBuf> MdRenderSync<B> for &Callout {
+    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            > **{self.label}:** {self.body}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+```
+
+One value, rendered two ways:
+
+```html filename="Accept: text/html"
+<aside data-callout role="note"><strong>Note</strong><p>Cross-origin writes return 403.</p></aside>
+```
+
+```md filename="Accept: text/markdown"
+> **Note:** Cross\-origin writes return 403\.
+```
+
+A component with no text form renders its content instead: a button becomes its label, a tab strip becomes its panels. The component decides, because it is the only thing that knows. See [Content negotiation](/docs/framework/content-negotiation) for serving both from one URL.
+
+## Block boundaries: the contract that makes nesting safe
+
+Markdown is whitespace-sensitive, which is what usually makes it uncomposable. A heading is only a heading at the start of a line, and a component cannot know what its previous sibling wrote.
+
+So a component that emits block-level Markdown calls `block_boundary()` before its first block byte and after its last:
+
+```rust filename="src/components/section.rs"
+impl<B: WriteBuf> MdRenderSync<B> for Heading {
+    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+        cx.block_boundary()?;
+        md_sync! { r###"## {self.0}"### }.render_md(cx)?;
+        cx.block_boundary()
+    }
+}
+```
+
+It writes only the newlines that are missing: two of these back to back produce one blank line, not four, and the first one in a document writes nothing.
+
+```md filename="output"
+Intro line.
+
+## First
+
+## Second
+```
+
+That is what lets any block component sit next to any other, in any order.
+
+Inline context is the other half. A newline would break a table cell or a link label, so a parent marks the span inline and boundaries become no-ops:
+
+```rust filename="src/components/button/md.rs"
+let prev = cx.set_inline(true);
+self.children.render_md(cx)?;
+cx.set_inline(prev);
+```
+
+The same `Heading` that emits `\n\n## Inline\n\n` at block level emits `## Inline` there. Components degrade instead of corrupting the document. `set_inline` returns the previous value, so a nested span restores what it found rather than assuming it started at block level.
+
+## Embedded HTML
+
+Markdown permits inline HTML, but keep it on the typed HTML path instead of mixing an HTML parser into the Markdown macro:
+
+```rust filename="src/components/callout.rs"
+use proa_macros::html_sync;
+
+cx.render_web(html_sync! {
+    <aside data-callout>
+        <strong>{self.title}</strong>
+    </aside>
+})?;
+```
+
+`MdContext::render_web(...)` preserves the Markdown writer state while `html_sync!` applies the normal compile-time HTML validation and escaping rules.
+
+> **Good to know**: Slots, children, and branching behave identically to the HTML macros. See [Components](/docs/core/components); everything there applies with `md_sync!` in place of `html_sync!`.
+
+## Streaming Markdown
+
+Async Markdown roots can use the in-order stream driver from `proa_stream`:
+
+```rust filename="src/pages/report.rs"
+use std::rc::Rc;
+
+use proa_core::StreamChunkFlusher;
+use proa_stream::render_md_in_order_to_flusher;
+
+let flusher: Rc<dyn StreamChunkFlusher> = Rc::new(MyMarkdownFlusher::new());
+
+render_md_in_order_to_flusher(PageMd, flusher).await?;
+```
+
+The driver renders into the standard `RenderBuffer`, flushes through `StreamChunkFlusher`, and preserves Markdown-local state across `Suspense` boundaries.
+
+Use it for `text/markdown` responses where a generated document should stream top to bottom instead of buffering the whole body first.
+
+## Next steps
+
+- [HTML rendering](/docs/core/html-rendering)
+  - Render typed Rust values to HTML with render traits and the html! macros.
+- [Components](/docs/core/components)
+  - Nest components, pass children, and branch inside a render tree.
+- [Streaming SSR](/docs/core/streaming-ssr)
+  - Flush the page shell first and stream slow sections as they resolve.
+- [Sink](/docs/core/sink)
+  - Render streamed output into recycled pages instead of fresh allocations.
+- [Content negotiation](/docs/framework/content-negotiation)
+  - Serve one resource as HTML for humans and Markdown for agents.

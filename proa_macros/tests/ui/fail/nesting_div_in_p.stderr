@@ -1,0 +1,5 @@
+error: <div> cannot be a child of <p> — <p> only allows phrasing (inline) content. wrap the <div> in a container that accepts flow content, or replace the <p> with a <div> (HTML §3.2.5)
+ --> tests/ui/fail/nesting_div_in_p.rs:5:22
+  |
+5 |     html_sync! { <p><div>"bad"</div></p> };
+  |                      ^^^

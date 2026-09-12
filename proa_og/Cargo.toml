@@ -1,0 +1,27 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_og"
+version = "0.1.2"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "OG image generation using WPE WebKit headless rendering"
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[features]
+default = []
+wpe = []  # Use WPE WebKit instead of WebKitGTK
+
+[dependencies]
+libc = { workspace = true }
+png = { version = "0.17" }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[build-dependencies]
+bindgen = { version = "0.71" }
+pkg-config = { version = "0.3" }

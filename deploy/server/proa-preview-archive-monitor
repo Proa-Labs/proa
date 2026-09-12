@@ -1,0 +1,475 @@
+#!/usr/bin/env python3
+"""Record and monitor immutable-preview reconciliation health."""
+
+from __future__ import annotations
+
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+from http.client import HTTPConnection, HTTPException
+from ipaddress import AddressValueError, IPv4Address
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import tempfile
+import time
+
+
+HEARTBEAT_NAME = "last-success"
+MAX_ROUTES = 30
+MAX_ROUTE_PROBE_WORKERS = 8
+# The router is reachable only over the host-local internal Docker bridge. Four
+# waves of 500 ms cover the maximum route count while leaving ample room for
+# the two existing two-second service probes inside the monitor unit's
+# ten-second deadline.
+ROUTE_PROBE_TIMEOUT_SECONDS = 0.5
+UNIT_RE = re.compile(
+    r"proa-preview-archive-(?:control|monitor|router|sync)\.service\Z"
+)
+
+
+class MonitorError(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def env_uint(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.environ.get(name, str(default))
+    if not raw.isascii() or not raw.isdecimal():
+        raise MonitorError("configuration_invalid")
+    value = int(raw)
+    if not minimum <= value <= maximum:
+        raise MonitorError("configuration_invalid")
+    return value
+
+
+def env_ipv4(name: str, default: str) -> str:
+    raw = os.environ.get(name, default)
+    try:
+        address = IPv4Address(raw)
+    except AddressValueError as error:
+        raise MonitorError("configuration_invalid") from error
+    canonical = str(address)
+    if raw != canonical:
+        raise MonitorError("configuration_invalid")
+    return canonical
+
+
+def now_epoch() -> int:
+    override = os.environ.get("PROA_ARCHIVE_NOW_EPOCH")
+    if override is None:
+        return int(time.time())
+    if not override.isascii() or not override.isdecimal():
+        raise MonitorError("configuration_invalid")
+    return int(override)
+
+
+def state_dir() -> Path:
+    path = Path(
+        os.environ.get("PROA_ARCHIVE_STATE_DIR", "/var/lib/proa-preview-archive")
+    )
+    if not path.is_absolute():
+        raise MonitorError("configuration_invalid")
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise MonitorError("state_unavailable") from error
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or stat.S_IMODE(info.st_mode) & 0o077
+    ):
+        raise MonitorError("state_unsafe")
+    return path
+
+
+def emit_alert(event: str, **fields: int | str) -> None:
+    suffix = "".join(f" {name}={value}" for name, value in sorted(fields.items()))
+    # systemd recognizes the syslog priority prefix and records PRIORITY=1.
+    # Keep the payload fixed-field and secret-free so journal forwarding is safe.
+    print(f"<1>preview_archive_alert event={event}{suffix}", file=os.sys.stderr, flush=True)
+
+
+def write_heartbeat(path: Path, epoch: int) -> None:
+    temporary_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="ascii",
+            dir=path.parent,
+            prefix=".heartbeat.",
+            delete=False,
+        ) as temporary:
+            temporary_name = temporary.name
+            os.fchmod(temporary.fileno(), 0o600)
+            temporary.write(f"{epoch}\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_name, path)
+        temporary_name = None
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except OSError as error:
+        raise MonitorError("heartbeat_write_failed") from error
+    finally:
+        if temporary_name is not None:
+            try:
+                os.unlink(temporary_name)
+            except FileNotFoundError:
+                pass
+
+
+def read_heartbeat(path: Path) -> int:
+    try:
+        info = path.lstat()
+    except FileNotFoundError as error:
+        raise MonitorError("heartbeat_missing") from error
+    except OSError as error:
+        raise MonitorError("heartbeat_unavailable") from error
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISREG(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or stat.S_IMODE(info.st_mode) & 0o077
+        or info.st_size > 32
+    ):
+        raise MonitorError("heartbeat_unsafe")
+    try:
+        value = path.read_text(encoding="ascii")
+    except (OSError, UnicodeError) as error:
+        raise MonitorError("heartbeat_unavailable") from error
+    if value.endswith("\n"):
+        value = value[:-1]
+    if not value.isascii() or not value.isdecimal():
+        raise MonitorError("heartbeat_malformed")
+    return int(value)
+
+
+def check_control(port: int) -> None:
+    connection = HTTPConnection("127.0.0.1", port, timeout=2)
+    try:
+        connection.request("GET", "/healthz", headers={"Connection": "close"})
+        response = connection.getresponse()
+        raw = response.read(513)
+        if response.status != 200 or len(raw) > 512:
+            raise MonitorError("control_unhealthy")
+        try:
+            payload = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise MonitorError("control_unhealthy") from error
+        if payload != {"ok": True}:
+            raise MonitorError("control_unhealthy")
+    except (HTTPException, OSError, TimeoutError) as error:
+        raise MonitorError("control_unhealthy") from error
+    finally:
+        connection.close()
+
+
+def check_router(host: str, port: int) -> None:
+    connection = HTTPConnection(host, port, timeout=2)
+    try:
+        connection.request("GET", "/ping", headers={"Connection": "close"})
+        response = connection.getresponse()
+        raw = response.read(17)
+        if response.status != 200 or raw not in (b"OK", b"OK\n"):
+            raise MonitorError("router_unhealthy")
+    except (HTTPException, OSError, TimeoutError) as error:
+        raise MonitorError("router_unhealthy") from error
+    finally:
+        connection.close()
+
+
+def checked_directory(path: Path) -> None:
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise MonitorError("route_state_unavailable") from error
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or stat.S_IMODE(info.st_mode) != 0o755
+    ):
+        raise MonitorError("route_state_unsafe")
+
+
+def checked_file(path: Path, *, private: bool, maximum_size: int) -> bytes:
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise MonitorError("route_state_unavailable") from error
+    expected_mode = 0o600 if private else 0o644
+    if (
+        stat.S_ISLNK(info.st_mode)
+        or not stat.S_ISREG(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or stat.S_IMODE(info.st_mode) != expected_mode
+        or info.st_size > maximum_size
+    ):
+        raise MonitorError("route_state_unsafe")
+    try:
+        return path.read_bytes()
+    except OSError as error:
+        raise MonitorError("route_state_unavailable") from error
+
+
+def route_attestations() -> list[tuple[str, str]]:
+    route_dir = Path(
+        os.environ.get(
+            "PROA_ARCHIVE_ROUTER_CONFIG_DIR",
+            "/var/lib/proa-preview-archive/routes",
+        )
+    )
+    if not route_dir.is_absolute():
+        raise MonitorError("configuration_invalid")
+    checked_directory(route_dir)
+    try:
+        candidates = sorted(route_dir.iterdir(), key=lambda path: path.name)
+    except OSError as error:
+        raise MonitorError("route_state_unavailable") from error
+    for path in candidates:
+        if re.fullmatch(r"[a-z0-9]{24}\.yml", path.name) is None:
+            raise MonitorError("route_state_unsafe")
+    if len(candidates) > MAX_ROUTES:
+        raise MonitorError("route_limit_exceeded")
+
+    application = os.environ.get("PROA_ARCHIVE_APPLICATION_NAME", "proa-marketing")
+    domain = os.environ.get("PROA_ARCHIVE_PREVIEW_DOMAIN", "proa.cool")
+    port = env_uint("PROA_ARCHIVE_CONTAINER_PORT", 5555, 1, 65535)
+    metadata_dir = state_dir() / "deployments"
+    attestations: list[tuple[str, str]] = []
+    seen_hostnames: set[str] = set()
+
+    for route_path in candidates:
+        deployment = route_path.name[:-4]
+        if re.fullmatch(r"[a-z0-9]{24}", deployment) is None:
+            raise MonitorError("route_state_malformed")
+        raw = checked_file(route_path, private=False, maximum_size=65_536)
+        try:
+            route = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise MonitorError("route_state_malformed") from error
+        try:
+            if set(route) != {"http"} or set(route["http"]) != {
+                "middlewares",
+                "routers",
+                "services",
+            }:
+                raise ValueError
+            routers = route["http"]["routers"]
+            middlewares = route["http"]["middlewares"]
+            services = route["http"]["services"]
+            if not isinstance(routers, dict) or len(routers) != 1:
+                raise ValueError
+            if not isinstance(services, dict) or len(services) != 1:
+                raise ValueError
+            router_name, router = next(iter(routers.items()))
+            service_name, service = next(iter(services.items()))
+            expected_router = f"proa-preview-archive-{deployment[:12]}"
+            if router_name != expected_router or service_name != expected_router:
+                raise ValueError
+            expected_middleware = f"{expected_router}-gzip"
+            if middlewares != {expected_middleware: {"compress": {}}}:
+                raise ValueError
+            if (
+                router.get("entryPoints") != ["archive"]
+                or router.get("middlewares") != [expected_middleware]
+                or router.get("service") != service_name
+            ):
+                raise ValueError
+            hostname_pattern = (
+                rf"Host\(`({re.escape(application)}-[a-z0-9]{{12}}\."
+                rf"{re.escape(domain)})`\) && PathPrefix\(`/`\)"
+            )
+            hostname_match = re.fullmatch(hostname_pattern, router.get("rule", ""))
+            if hostname_match is None or hostname_match.group(1) != (
+                f"{application}-{deployment[:12]}.{domain}"
+            ):
+                raise ValueError
+            expected_url = f"http://proa-preview-archive-{deployment}:{port}"
+            if service != {"loadBalancer": {"servers": [{"url": expected_url}]}}:
+                raise ValueError
+        except (AttributeError, KeyError, TypeError, ValueError) as error:
+            raise MonitorError("route_state_malformed") from error
+
+        hostname = hostname_match.group(1)
+        if hostname in seen_hostnames:
+            raise MonitorError("route_state_malformed")
+        seen_hostnames.add(hostname)
+
+        metadata_raw = checked_file(
+            metadata_dir / deployment,
+            private=True,
+            maximum_size=256,
+        )
+        try:
+            metadata_text = metadata_raw.decode("ascii")
+        except UnicodeDecodeError as error:
+            raise MonitorError("route_state_malformed") from error
+        if not metadata_text.endswith("\n") or metadata_text.count("\n") != 1:
+            raise MonitorError("route_state_malformed")
+        metadata_line = metadata_text[:-1]
+        if metadata_line != metadata_line.strip() or "  " in metadata_line:
+            raise MonitorError("route_state_malformed")
+        metadata = metadata_line.split(" ")
+        if (
+            len(metadata) != 4
+            or re.fullmatch(r"[1-9][0-9]{0,5}", metadata[0]) is None
+            or re.fullmatch(r"[0-9a-f]{40}", metadata[1]) is None
+            or re.fullmatch(r"(?:0|[1-9][0-9]{0,18})", metadata[2]) is None
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", metadata[3]) is None
+            or int(metadata[2]) > now_epoch()
+        ):
+            raise MonitorError("route_state_malformed")
+        attestations.append((hostname, metadata[1]))
+
+    return attestations
+
+
+def check_real_route(
+    router_host: str,
+    port: int,
+    hostname: str,
+    revision: str,
+) -> None:
+    connection = HTTPConnection(
+        router_host,
+        port,
+        timeout=ROUTE_PROBE_TIMEOUT_SECONDS,
+    )
+    try:
+        connection.request(
+            "GET",
+            "/readyz",
+            headers={"Connection": "close", "Host": hostname},
+        )
+        response = connection.getresponse()
+        body = response.read(513)
+        if (
+            response.status != 200
+            or body not in (b"ready", b"ready\n")
+            or response.getheader("x-proa-revision") != revision
+            or response.getheader("cache-control") != "no-store"
+        ):
+            raise MonitorError("route_unhealthy")
+    except (HTTPException, OSError, TimeoutError) as error:
+        raise MonitorError("route_unhealthy") from error
+    finally:
+        connection.close()
+
+
+def check_real_routes(
+    router_host: str,
+    port: int,
+    attestations: list[tuple[str, str]],
+) -> None:
+    if not attestations:
+        return
+    failures: list[Exception] = []
+    with ThreadPoolExecutor(
+        max_workers=min(MAX_ROUTE_PROBE_WORKERS, len(attestations)),
+        thread_name_prefix="route-probe",
+    ) as executor:
+        futures = [
+            executor.submit(
+                check_real_route,
+                router_host,
+                port,
+                hostname,
+                revision,
+            )
+            for hostname, revision in attestations
+        ]
+        # Await every submitted route even after a failure. This keeps a healthy
+        # first route from masking a dead route later in lexical order and makes
+        # each monitor run a complete active attestation of published state.
+        for future in futures:
+            try:
+                future.result()
+            except Exception as error:
+                failures.append(error)
+    if failures:
+        raise failures[0]
+
+
+def record_success() -> int:
+    epoch = now_epoch()
+    write_heartbeat(state_dir() / HEARTBEAT_NAME, epoch)
+    print(f"preview_archive_monitor event=heartbeat_recorded epoch={epoch}", flush=True)
+    return 0
+
+
+def check() -> int:
+    now = now_epoch()
+    maximum_age = env_uint(
+        "PROA_ARCHIVE_HEARTBEAT_MAX_AGE_SECONDS", 1200, 120, 3600
+    )
+    heartbeat = read_heartbeat(state_dir() / HEARTBEAT_NAME)
+    if heartbeat > now + 30:
+        raise MonitorError("heartbeat_from_future")
+    age = max(0, now - heartbeat)
+    if age > maximum_age:
+        emit_alert("heartbeat_stale", age_seconds=age, max_age_seconds=maximum_age)
+        return 1
+    port = env_uint("PROA_ARCHIVE_CONTROL_PORT", 8788, 1, 65535)
+    router_host = env_ipv4("PROA_ARCHIVE_ROUTER_IP", "172.31.252.2")
+    router_port = env_uint("PROA_ARCHIVE_ROUTER_HEALTH_PORT", 8083, 1, 65535)
+    check_control(port)
+    check_router(router_host, router_port)
+    attestations = route_attestations()
+    route_checked = "false"
+    if attestations:
+        traffic_port = env_uint("PROA_ARCHIVE_ROUTER_PORT", 8082, 1, 65535)
+        check_real_routes(router_host, traffic_port, attestations)
+        route_checked = "true"
+    print(
+        "preview_archive_monitor "
+        f"event=healthy heartbeat_age_seconds={age} control_port={port} "
+        f"router_port={router_port} route_checked={route_checked} "
+        f"routes_checked={len(attestations)}",
+        flush=True,
+    )
+    return 0
+
+
+def unit_failure(unit: str) -> int:
+    if not UNIT_RE.fullmatch(unit):
+        raise MonitorError("unit_identity_invalid")
+    emit_alert("unit_failed", unit=unit)
+    return 0
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("record-success")
+    subparsers.add_parser("check")
+    failure = subparsers.add_parser("unit-failure")
+    failure.add_argument("unit")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        if args.command == "record-success":
+            return record_success()
+        if args.command == "check":
+            return check()
+        return unit_failure(args.unit)
+    except MonitorError as error:
+        emit_alert(error.code)
+        return 1
+    except Exception:
+        emit_alert("internal_error")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

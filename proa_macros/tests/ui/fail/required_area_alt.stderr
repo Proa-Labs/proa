@@ -1,0 +1,5 @@
+error: <area> with `href` is missing the `alt` attribute. add alt="description of the linked area" (HTML §4.8.15, WCAG 1.1.1)
+ --> tests/ui/fail/required_area_alt.rs:5:19
+  |
+5 |     html_sync! { <area href="/page" /> };
+  |                   ^^^^

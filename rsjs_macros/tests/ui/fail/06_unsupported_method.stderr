@@ -1,0 +1,5 @@
+error: `#[rsjs]` does not recognise the method `.frobnicate` in a reactive expression; v0.1 supports `.get()`, `.is_non_empty()`, `.is_empty()`, `.to_lowercase()`, `.to_uppercase()`, `.trim()`, `.contains(...)`, `.starts_with(...)`, and `.ends_with(...)`
+  --> tests/ui/fail/06_unsupported_method.rs:24:31
+   |
+24 |             <div><span>{count.frobnicate()}</span></div>
+   |                               ^^^^^^^^^^

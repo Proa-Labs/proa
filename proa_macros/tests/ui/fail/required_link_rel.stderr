@@ -1,0 +1,5 @@
+error: <link> is missing `rel` attribute. add rel="stylesheet", rel="icon", rel="preload", etc. (HTML §4.2.4)
+ --> tests/ui/fail/required_link_rel.rs:5:19
+  |
+5 |     html_sync! { <link href="/style.css" /> };
+  |                   ^^^^

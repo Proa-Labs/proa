@@ -1,0 +1,5 @@
+error: rsjs/shared-state-use-before-acquire: `workbench` is used before its `rsjs::shared::<T>()` declaration; move the shared-state acquisition above this field binding
+  --> tests/ui/fail/55_shared_state_use_before_acquire.rs:19:9
+   |
+19 |         let button_bg = workbench.button_bg();
+   |         ^^^

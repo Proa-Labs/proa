@@ -1,0 +1,5 @@
+error: rsjs/integer-domain-unproven: cannot lower this fixed-width integer arithmetic: page-shared state does not expose its Rust integer width to this macro. Add an explicit supported type (`i32`, `u32`, `i64`, or `u64`) to the signal/local, or move the operation to server Rust
+  --> tests/ui/fail/58_shared_state_division_width.rs:26:22
+   |
+26 |             <output>{total.get() / count.get()}</output>
+   |                      ^^^^^

@@ -1,0 +1,22 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "tailwind-merge-macro"
+version = "0.1.2"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Compile-time Tailwind CSS class merging for const contexts."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true, features = ["full"] }
+tailwind-merge = { workspace = true }

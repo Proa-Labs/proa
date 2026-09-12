@@ -1,0 +1,8 @@
+error: `#[rsjs]` handler-local `let ... else` bindings are not supported
+  --> tests/ui/conformance/fail/11_handler_let_else.rs:20:52
+   |
+20 |                       let value = event.value() else {
+   |  ____________________________________________________^
+21 | |                         return;
+22 | |                     };
+   | |_____________________^

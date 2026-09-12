@@ -1,0 +1,194 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # Only the latest revision can merge or deploy. Cancel stale main validation
+  # as well as stale PR validation instead of queueing every superseded SHA.
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  workflow-lint:
+    name: GitHub Actions syntax and shell safety
+    # Hosted Actions are unavailable when the organization spending limit is
+    # blocked. Keep PR lint on the untrusted pool and trusted events on the
+    # configured runner instead of making CI depend on account billing state.
+    runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Lint workflows and embedded shell
+        uses: ./.github/actions/workflow-lint
+
+  changes:
+    # The linked acceptance shards build proa-cli, the RSJS pipeline, and the
+    # example applications. A pull request that touches only documentation,
+    # marketing, or deployment content cannot change what they build or
+    # assert, so it skips them. Anything unclassifiable runs them.
+    name: Changed paths
+    runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      linked: ${{ steps.classify.outputs.linked }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Decide whether the linked acceptance suite applies
+        id: classify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 scripts/linked_acceptance_paths.py
+
+  rust:
+    name: Rust lint and tests
+    # Pull-request code can execute arbitrary build.rs logic. Keep it off the
+    # GCP runner identity that can write the cache consumed by trusted main
+    # deployment jobs; only main/workflow_dispatch uses the private runner.
+    # Fail closed: untrusted PR code must never fall through to CI_RUNNER when
+    # a repository variable is absent or misspelled.
+    runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
+    timeout-minutes: 45
+    env:
+      # Incremental artifacts are not reusable through sccache. CI starts from
+      # an empty target directory and benefits more from cacheable codegen.
+      CARGO_INCREMENTAL: "0"
+      # Debug info made the proa-cli test/wrapper executables disproportionately
+      # large and expensive to link, snapshot, and fingerprint in CI.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      # Keep the server alive until the explicit stats step. Its default
+      # ten-minute idle timeout previously made the final report look empty.
+      SCCACHE_IDLE_TIMEOUT: "0"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Run Rust validation
+        uses: ./.github/actions/rust-ci
+        with:
+          cache-backend: ${{ github.event_name == 'pull_request' && 'gha' || startsWith(vars.CI_RUNNER, 'gcp') && 'gcs' || 'gha' }}
+
+  linked-acceptance:
+    name: Linked acceptance (${{ matrix.mode }})
+    needs: changes
+    # Documentation-only pull requests skip the suite; the ci gate below
+    # accepts the skip only when this same output says so.
+    if: needs.changes.outputs.linked != 'false'
+    runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every linked `proa test` invocation is a cold descriptor plus final
+        # build of a few hundred crates and shares nothing with the next one,
+        # so the work is cut along invocation boundaries. PRs run one job,
+        # `pr`, whose script runs the helper acceptance suite and each example
+        # concurrently on the same runner: one visible check instead of three.
+        # The trusted GCP fleet fans main's proa-cli targets out four ways and
+        # gives the examples a fifth shard; the single-runner VPS rollback
+        # path gets one complete suite. Keeping every event in one matrix
+        # avoids a visible skipped job.
+        mode: ${{ fromJSON(github.event_name == 'pull_request' && '["pr"]' || startsWith(vars.CI_RUNNER, 'gcp') && '["main-5","main-1","main-2","main-3","main-4"]' || '["main-all"]') }}
+    env:
+      # cargo-proa rejects RUSTC_WRAPPER by design: descriptor/final cache
+      # identity and compilation side effects must never be bypassed by a
+      # compiler cache. These jobs therefore start without sccache configured.
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_TEST_THREADS: "2"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Run linked acceptance
+        uses: ./.github/actions/linked-acceptance
+        with:
+          mode: ${{ matrix.mode }}
+
+  deployment-tests:
+    name: Deployment tooling tests
+    runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Test deployment tooling
+        uses: ./.github/actions/deployment-tests
+
+  ci:
+    # Preserve the existing required-check name while the expensive suites run
+    # independently. Any non-success result in a dependency fails this gate.
+    name: lint, clippy, build, test
+    if: always()
+    needs:
+      - workflow-lint
+      - changes
+      - rust
+      - linked-acceptance
+      - deployment-tests
+    # Use the existing pools for the aggregate gate as well: GitHub-hosted
+    # runners may be unavailable independently of repository correctness.
+    runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
+    timeout-minutes: 2
+    steps:
+      - name: Require every applicable CI job
+        env:
+          WORKFLOW_LINT_RESULT: ${{ needs.workflow-lint.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUST_RESULT: ${{ needs.rust.result }}
+          LINKED_ACCEPTANCE_RESULT: ${{ needs.linked-acceptance.result }}
+          LINKED_ACCEPTANCE_SKIPPABLE: ${{ needs.changes.outputs.linked == 'false' }}
+          DEPLOYMENT_RESULT: ${{ needs.deployment-tests.result }}
+        run: |
+          # A skipped linked suite passes only when the changed-paths job
+          # decided the pull request did not need it; any other skip or
+          # cancellation fails the gate like a failure would.
+          if [[ "$LINKED_ACCEPTANCE_RESULT" == "skipped" && "$LINKED_ACCEPTANCE_SKIPPABLE" == "true" ]]; then
+            echo "linked acceptance skipped: the pull request changes only documentation, marketing, or deployment content"
+            LINKED_ACCEPTANCE_RESULT=success
+          fi
+          for result in \
+            "$WORKFLOW_LINT_RESULT" \
+            "$CHANGES_RESULT" \
+            "$RUST_RESULT" \
+            "$LINKED_ACCEPTANCE_RESULT" \
+            "$DEPLOYMENT_RESULT"
+          do
+            case "$result" in
+              success) ;;
+              *)
+                echo "required CI dependency finished with result: $result" >&2
+                exit 1
+                ;;
+            esac
+          done

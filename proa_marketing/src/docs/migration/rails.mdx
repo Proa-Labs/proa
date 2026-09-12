@@ -1,0 +1,316 @@
+---
+title: From Rails (ERB)
+description: Migrate from Rails ERB templates to Proa, run Proa as a rendering service alongside your Rails app.
+---
+
+This guide walks through adding Proa to an existing Rails app. Proa runs as a separate service that renders HTML for specific routes, your Rails app continues handling routing, auth, database queries, and everything else.
+
+## Architecture
+
+```
+                    ┌─────────────┐
+                    │   Nginx /   │
+                    │  CDN / LB   │
+                    └──────┬──────┘
+                           │
+              ┌────────────┴────────────┐
+              │                         │
+     /rooms/* │                         │ everything else
+              ▼                         ▼
+     ┌────────────────┐       ┌────────────────┐
+     │  Proa (Axum)   │       │  Rails (Puma)  │
+     │  :4000         │       │  :3000         │
+     └────────┬───────┘       └────────┬───────┘
+              │                         │
+              └────────────┬────────────┘
+                           │
+                    ┌──────┴──────┐
+                    │  Database   │
+                    └─────────────┘
+```
+
+Both services can connect to the same database or service layer. Proa reads the same data Rails does, then renders the moved route from the Rust service.
+
+## Step 1: Route One Page to Proa
+
+**Nginx:**
+```nginx
+upstream rails {
+    server 127.0.0.1:3000;
+}
+
+upstream proa {
+    server 127.0.0.1:4000;
+}
+
+server {
+    listen 80;
+
+    location /rooms/ {
+        proxy_pass http://proa;
+        proxy_set_header Host $host;
+        proxy_set_header X-Request-Id $request_id;
+        proxy_set_header Cookie $http_cookie;  # pass auth cookies
+    }
+
+    location / {
+        proxy_pass http://rails;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+## Step 2: Convert the Template
+
+### ERB to html_sync!
+
+**Rails (ERB):**
+```erb
+<%# app/views/listings/show.html.erb %>
+<div class="flex gap-4 rounded-xl border p-4">
+  <%= image_tag listing.image_url,
+      alt: listing.title,
+      class: "h-48 w-48 rounded-lg object-cover" %>
+  <div class="flex flex-col">
+    <h2 class="text-lg font-semibold"><%= listing.title %></h2>
+    <p class="text-muted-foreground"><%= listing.location %></p>
+    <p class="mt-auto font-semibold">
+      $<%= listing.price %> <span class="font-normal">/ night</span>
+    </p>
+  </div>
+</div>
+```
+
+**Proa (`html_sync!`):**
+```rust
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+
+pub struct ListingDetail<'a> {
+    pub title: &'a str,
+    pub location: &'a str,
+    pub price: u32,
+    pub image_url: &'a str,
+}
+
+impl<'a, L: DataLoader> WebRenderSync<L> for ListingDetail<'a> {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <div class="flex gap-4 rounded-xl border p-4">
+                <img
+                    src={self.image_url}
+                    alt={self.title}
+                    class="h-48 w-48 rounded-lg object-cover"
+                />
+                <div class="flex flex-col">
+                    <h2 class="text-lg font-semibold">{self.title}</h2>
+                    <p class="text-muted-foreground">{self.location}</p>
+                    <p class="mt-auto font-semibold">
+                        "$"{self.price}" "
+                        <span class="font-normal">"/ night"</span>
+                    </p>
+                </div>
+            </div>
+        }.render(cx)
+    }
+}
+```
+
+### Quick Reference
+
+| Rails ERB | Proa | Notes |
+|-----------|------|-------|
+| `<%= variable %>` | `{variable}` | Auto-escaped in both |
+| `<%== raw_html %>` | `{UnsafeRaw(html)}` | Unescaped, same risk |
+| `<%= link_to "text", path %>` | `<a href={path}>"text"</a>` | Direct HTML |
+| `<%= image_tag src, alt: "..." %>` | `<img src={src} alt="..." />` | Direct HTML |
+| `<% if condition %>` | `{if condition { html_sync! { ... } }}` | DOM branches return renderable fragments |
+| `<% items.each do \|item\| %>` | `{for item in &items { html_sync! { ... } }}` | Rust for loop |
+| `<%= render partial: "card" %>` | `{Card { ... }}` | Component struct |
+| `<%= content_for :head %>` | Layout composition | Handled at the Axum handler level |
+| `<%= csrf_meta_tags %>` | App-owned Axum middleware | Configure token issuance and validation explicitly; Proa's default cross-origin protection is not a CSRF-token service |
+
+### Partials → Components
+
+Rails partials map to Proa structs:
+
+```erb
+<%# Rails: app/views/listings/_card.html.erb %>
+<div class="card">
+  <h3><%= card.title %></h3>
+  <p><%= card.description %></p>
+</div>
+
+<%# Usage: %>
+<%= render partial: "card", locals: { card: @listing } %>
+```
+
+```rust
+// Proa: src/components/card.rs
+pub struct Card<'a> {
+    pub title: &'a str,
+    pub description: &'a str,
+}
+
+impl<'a, L: DataLoader> WebRenderSync<L> for Card<'a> {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <div class="card">
+                <h3>{self.title}</h3>
+                <p>{self.description}</p>
+            </div>
+        }.render(cx)
+    }
+}
+
+// Usage in another template:
+html_sync! {
+    {Card { title: listing.title, description: listing.description }}
+}
+```
+
+### Layouts
+
+Rails layouts (`application.html.erb`) become Proa layout components:
+
+```rust
+pub struct AppLayout<C> {
+    pub title: &'static str,
+    pub children: C,
+}
+
+impl<L, C> WebRenderSync<L> for AppLayout<C>
+where
+    L: DataLoader,
+    C: WebRenderSync<L>,
+{
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <!DOCTYPE html>
+            <html lang="en">
+                <head>
+                    <meta charset="utf-8" />
+                    <title>{self.title}" - MyApp"</title>
+                    <link rel="stylesheet" href="/assets/application.css" />
+                </head>
+                <body>
+                    <header class="navbar">
+                        "shared navigation"
+                    </header>
+                    <main>
+                        {self.children}
+                    </main>
+                    <footer>
+                        "shared footer"
+                    </footer>
+                </body>
+            </html>
+        }.render(cx)
+    }
+}
+```
+
+## Step 3: Data Loading
+
+In Rails, the controller loads data and passes it to the view. In Proa, the Axum handler does the same thing.
+
+**Rails:**
+```ruby
+class ListingsController < ApplicationController
+  def show
+    @listing = Listing.find(params[:id])
+  end
+end
+```
+
+**Proa (Axum):**
+```rust
+async fn listing_show(
+    Path(id): Path<i64>,
+    State(pool): State<PgPool>,
+) -> impl IntoResponse {
+    let listing = sqlx::query_as!(Listing, "SELECT * FROM listings WHERE id = $1", id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    let mut cx = WebContext::new();
+
+    AppLayout {
+        title: &listing.title,
+        children: ListingDetail {
+            title: &listing.title,
+            location: &listing.location,
+            price: listing.price,
+            image_url: &listing.image_url,
+        },
+    }
+    .render(&mut cx)
+    .unwrap();
+
+    Html(cx.into_output().into_string())
+}
+```
+
+## Step 4: Auth / Sessions
+
+Rails sessions are typically cookie-based. Pass the cookie through the proxy and validate it in Proa:
+
+```rust
+async fn listing_show(
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, StatusCode> {
+    // Extract and validate the Rails session cookie
+    let cookie = headers.get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let user = validate_rails_session(cookie, &state.secret_key_base)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let listing = state.db.get_listing(id).await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    // Render with user context
+    let mut cx = WebContext::new();
+    ListingPage { user: &user, listing: &listing }.render(&mut cx).unwrap();
+
+    Ok(Html(cx.into_output().into_string()))
+}
+```
+
+Alternatively, use a shared auth service (Redis session store, JWT) that both Rails and Proa can validate.
+
+## Step 5: Shared CSS
+
+If you use Tailwind or another utility CSS framework, keep the same class strings in the Proa templates. The moved route can keep using the existing stylesheet.
+
+If you use the Rails asset pipeline with custom CSS:
+
+1. Build your CSS with the asset pipeline as usual
+2. Serve the compiled CSS from a shared path (`/assets/application.css`)
+3. Reference the same path in Proa's `<link>` tag
+
+Both services serve the same stylesheet, users see no visual difference.
+
+## Step 6: Compare in Production
+
+```bash
+# Load test Rails
+wrk -t4 -c100 -d30s http://localhost:3000/rooms/12345
+
+# Load test Proa
+wrk -t4 -c100 -d30s http://localhost:4000/rooms/12345
+```
+
+Measure the same route under the same cache policy before deciding whether to move more paths:
+
+| Metric | Why it matters |
+|--------|----------------|
+| p50 / p95 / p99 latency | Shows whether render time and tail latency improved. |
+| CPU per response | Captures whether native SSR reduces Puma/Ruby work. |
+| Resident memory | Shows how much capacity each instance keeps idle. |
+| Error rate under load | Prevents throughput wins from hiding overload failures. |
+| TTFB | Confirms users see the server-side improvement. |

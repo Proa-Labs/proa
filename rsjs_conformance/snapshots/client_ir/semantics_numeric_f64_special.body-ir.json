@@ -1,0 +1,21 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "signal_set",
+      "signal": 2,
+      "value": {
+        "kind": "binary",
+        "left": {
+          "kind": "signal_read",
+          "signal": 0
+        },
+        "op": "div",
+        "right": {
+          "kind": "signal_read",
+          "signal": 0
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,190 @@
+---
+title: Styling contract
+description: Every hook the components emit, and what your CSS must do with it.
+---
+
+`proa_docs_build` lowers authored components into HTML carrying stable class and `data-` hooks. `proa_docs` ships a default theme for all of them, so you do not have to write any of this to get a working site.
+
+```rust filename="src/layouts/docs.rs"
+use proa_docs::DocsAssets;
+
+html_sync! {
+    <head>
+        {DocsAssets::new()}
+    </head>
+}
+```
+
+Read on when you want to change how it looks.
+
+## Theming without replacing anything
+
+Every colour in the default theme comes from 15 custom properties scoped to `.proa-docs-body`, the class `DocsShell` puts on its root. Override them and every component follows:
+
+```css filename="app.css"
+.proa-docs-body {
+  --docs-bg: #fbfbfa;
+  --docs-fg: #18181b;
+  --docs-accent: #ff6a13;
+  --docs-line: rgba(24, 24, 27, 0.12);
+}
+
+.dark .proa-docs-body {
+  --docs-bg: #0b0b0d;
+  --docs-fg: #f4f4f5;
+}
+```
+
+That is the whole theming API. Reach for the hooks below only when you need to change layout or structure, not colour.
+
+## Replacing the theme
+
+Ship your own CSS instead of `DEFAULT_STYLESHEET` and target the hooks in this page. They are part of the public API: they will not change without a major version.
+
+Two rules make a replacement theme work:
+
+- **Tabs and the code explorer are CSS-only.** They are radio groups — `input[name="proa-docs-tabs-N"]` plus sibling panels. There is no JavaScript fallback, so if your CSS does not implement the `:checked` sibling selectors, every panel renders stacked. Copy that section from the default stylesheet before changing anything else.
+- **`data-` attributes carry state, classes carry identity.** Style `[data-copied="true"]`, `[data-highlighted-line]`, and `[data-kind="folder"]`; do not depend on element order.
+
+## What needs JavaScript
+
+Almost nothing. `DEFAULT_SCRIPT` wires two things and both degrade cleanly:
+
+| Hook | Behaviour | Without the script |
+|---|---|---|
+| `[data-code-copy]` | Copies the enclosing `[data-code-block]` | Button renders, does nothing |
+| `[data-docs-copy-markdown]` | Fetches `[data-docs-markdown-src]` and copies it | Button renders, does nothing |
+
+Everything else — tabs, accordions, the code explorer, steps, callouts, file trees — is CSS-only and works with JavaScript disabled.
+
+## Syntax highlighting
+
+Highlighted tokens carry semantic `hl-*` classes rather than inline colours, so your stylesheet owns the palette:
+
+```css filename="app.css"
+.proa-docs-body .hl-keyword { color: #c678dd; }
+.proa-docs-body .hl-string  { color: #98c379; }
+.proa-docs-body .hl-comment { color: #7f848e; font-style: italic; }
+```
+
+A block that failed to highlight still renders as escaped source text with no `hl-*` classes, so unknown languages degrade to plain code.
+
+## The hooks
+
+Generated from the component sources. Each is stable within a major version.
+
+### Accordions
+
+| Hook | Kind |
+|---|---|
+| `.proa-docs-accordion` | class |
+| `.proa-docs-accordion-body` | class |
+| `.proa-docs-accordion-title` | class |
+| `.proa-docs-accordions` | class |
+
+### Callout
+
+| Hook | Kind |
+|---|---|
+| `.proa-docs-callout` | class |
+| `.proa-docs-callout-body` | class |
+| `.proa-docs-callout-icon` | class |
+| `[data-type]` | attribute |
+
+### Code Block
+
+| Hook | Kind |
+|---|---|
+| `.proa-docs-code-block` | class |
+| `.proa-docs-code-file-icon` | class |
+| `.proa-docs-code-filename` | class |
+| `.proa-docs-code-header` | class |
+| `[data-code-block]` | attribute |
+| `[data-code-copy]` | attribute |
+| `[data-code-file-icon]` | attribute |
+| `[data-code-filename]` | attribute |
+| `[data-code-header]` | attribute |
+| `[data-code-highlight]` | attribute |
+| `[data-code-icon]` | attribute |
+| `[data-code-line]` | attribute |
+| `[data-code-lines]` | attribute |
+| `[data-filename]` | attribute |
+| `[data-highlighted-line]` | attribute |
+| `[data-lang]` | attribute |
+| `[data-proa-docs-mermaid]` | attribute |
+| `[data-proa-docs-mermaid-output]` | attribute |
+| `[data-proa-docs-mermaid-source]` | attribute |
+
+### Code Explorer
+
+| Hook | Kind |
+|---|---|
+| `.proa-docs-code-file-icon` | class |
+| `.proa-docs-explorer` | class |
+| `.proa-docs-explorer-file` | class |
+| `.proa-docs-explorer-file-name` | class |
+| `.proa-docs-explorer-path` | class |
+| `.proa-docs-explorer-path-segment` | class |
+| `.proa-docs-explorer-path-separator` | class |
+| `.proa-docs-explorer-paths` | class |
+| `.proa-docs-tabs` | class |
+| `.proa-docs-tabs-list` | class |
+| `.proa-docs-tabs-panel` | class |
+| `.proa-docs-tabs-panels` | class |
+| `.proa-docs-tabs-radio` | class |
+| `.proa-docs-tabs-tab` | class |
+| `[data-code-file-icon]` | attribute |
+| `[data-code-icon]` | attribute |
+| `[data-index]` | attribute |
+| `[data-proa-docs-explorer]` | attribute |
+
+### Demo
+
+| Hook | Kind |
+|---|---|
+| `.proa-docs-demo` | class |
+| `.proa-docs-demo-frame` | class |
+| `.proa-docs-demo-link` | class |
+| `[data-proa-docs-demo]` | attribute |
+
+### Files
+
+| Hook | Kind |
+|---|---|
+| `.proa-docs-filetree` | class |
+| `.proa-docs-filetree-icon` | class |
+| `.proa-docs-filetree-indent` | class |
+| `.proa-docs-filetree-row` | class |
+| `[data-kind]` | attribute |
+| `[data-proa-docs-filetree]` | attribute |
+
+### Steps
+
+| Hook | Kind |
+|---|---|
+| `.proa-docs-step` | class |
+| `.proa-docs-steps` | class |
+
+### Tabs
+
+| Hook | Kind |
+|---|---|
+| `.proa-docs-tabs` | class |
+| `.proa-docs-tabs-list` | class |
+| `.proa-docs-tabs-panel` | class |
+| `.proa-docs-tabs-panels` | class |
+| `.proa-docs-tabs-radio` | class |
+| `.proa-docs-tabs-tab` | class |
+| `[data-index]` | attribute |
+| `[data-proa-docs-tabs]` | attribute |
+
+### Type Table
+
+| Hook | Kind |
+|---|---|
+| `.proa-docs-type-table-pending` | class |
+| `[data-proa-docs-type-table-pending]` | attribute |
+
+## Related
+
+[Proa Docs](/docs/proa-docs) · [Customizing the layout](/docs/proa-docs/customizing) · [Configuration](/docs/proa-docs/configuration)

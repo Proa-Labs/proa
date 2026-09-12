@@ -1,0 +1,14 @@
+{
+  "title": "Core APIs",
+  "icon": "Cpu",
+  "pages": [
+    "html-rendering",
+    "components",
+    "class-composition",
+    "escaping",
+    "streaming-ssr",
+    "write-buf",
+    "sink",
+    "markdown"
+  ]
+}

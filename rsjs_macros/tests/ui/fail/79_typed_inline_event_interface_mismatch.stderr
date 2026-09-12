@@ -1,0 +1,25 @@
+error[E0277]: the trait bound `rsjs::InputEvent<rsjs::web::dom::HtmlButtonElement>: EventFor<rsjs::web::event_interface::MouseEvent>` is not satisfied
+  --> tests/ui/fail/79_typed_inline_event_interface_mismatch.rs:10:35
+   |
+10 |             <button on_click={|_: rsjs::InputEvent<rsjs::elem::Button>| {}}>
+   |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `EventFor<rsjs::web::event_interface::MouseEvent>` is not implemented for `rsjs::InputEvent<rsjs::web::dom::HtmlButtonElement>`
+   |
+help: the trait `EventFor<rsjs::web::event_interface::MouseEvent>` is not implemented for `rsjs::InputEvent<rsjs::web::dom::HtmlButtonElement>`
+      but trait `EventFor<rsjs::web::event_interface::InputEvent>` is implemented for it
+  --> $WORKSPACE/rsjs/src/lib.rs
+   |
+   |             impl<E> EventFor<$interface> for $event where E: crate::web::dom::DomTargetMarker {}
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+   |     impl_event_for!(crate::InputEvent<E> => event_interface::InputEvent);
+   |     -------------------------------------------------------------------- in this macro invocation
+   = help: for that trait implementation, expected `rsjs::web::event_interface::InputEvent`, found `rsjs::web::event_interface::MouseEvent`
+note: required by a bound in `rsjs::__private::assert_event_type`
+  --> $WORKSPACE/rsjs/src/lib.rs
+   |
+   |     pub fn assert_event_type<Target, Interface, E>()
+   |            ----------------- required by a bound in this function
+...
+   |         E: EventFor<Interface>,
+   |            ^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_event_type`
+   = note: this error originates in the macro `impl_event_for` (in Nightly builds, run with -Z macro-backtrace for more info)

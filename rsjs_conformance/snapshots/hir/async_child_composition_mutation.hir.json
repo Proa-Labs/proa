@@ -1,0 +1,49 @@
+[
+  {
+    "args": [
+      {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 39,
+            "line": 1
+          },
+          "start": {
+            "column": 33,
+            "line": 1
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "AAPL"
+        }
+      }
+    ],
+    "kind": "run_mutation",
+    "mutation": 0,
+    "span": {
+      "end": {
+        "column": 28,
+        "line": 1
+      },
+      "start": {
+        "column": 24,
+        "line": 1
+      }
+    }
+  },
+  {
+    "kind": "query_refetch",
+    "query": 0,
+    "span": {
+      "end": {
+        "column": 29,
+        "line": 2
+      },
+      "start": {
+        "column": 24,
+        "line": 2
+      }
+    }
+  }
+]

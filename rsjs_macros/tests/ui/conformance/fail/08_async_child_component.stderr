@@ -1,0 +1,25 @@
+error[E0277]: `AsyncChild` is not renderable in a synchronous Proa template
+  --> tests/ui/conformance/fail/08_async_child_component.rs:41:18
+   |
+34 | #[rsjs(component, client)]
+   | -------------------------- required by a bound introduced by this call
+...
+41 |                 {AsyncChild {}}
+   |                  ^^^^^^^^^^^^^ missing `WebRenderSync<_, _>` for this child
+   |
+help: the trait `WebRenderSync<_, _>` is not implemented for `AsyncChild`
+  --> tests/ui/conformance/fail/08_async_child_component.rs:10:1
+   |
+10 | pub struct AsyncChild;
+   | ^^^^^^^^^^^^^^^^^^^^^
+   = note: async children require `html!`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type
+   = help: the following other types implement trait `WebRenderSync<L, B>`:
+             `&str` implements `WebRenderSync<L, B>`
+             `()` implements `WebRenderSync<L, B>`
+             `BoxedWebRenderSync<L, B>` implements `WebRenderSync<L, B>`
+             `ClassList<N>` implements `WebRenderSync<L, B>`
+             `ConstHtml` implements `WebRenderSync<proa_core::NoLoader, Vec<u8>>`
+             `Elem<'a, Void, N, B, F, L>` implements `WebRenderSync<L, B>`
+             `Elem<'a, proa_core::Normal, N, B, F, L>` implements `WebRenderSync<L, B>`
+             `ErrorBoundary<C, Ef>` implements `WebRenderSync<L, B>`
+           and $N others

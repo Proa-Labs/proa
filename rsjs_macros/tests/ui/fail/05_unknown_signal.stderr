@@ -1,0 +1,5 @@
+error: `#[rsjs]` could not find a signal named `missing`; declare it with `let missing = signal(<initial>);` before the `html_sync!` body
+  --> tests/ui/fail/05_unknown_signal.rs:23:25
+   |
+23 |             <div><span>{missing.get()}</span></div>
+   |                         ^^^^^^^

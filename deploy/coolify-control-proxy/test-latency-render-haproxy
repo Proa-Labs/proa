@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+RENDERER=$SCRIPT_DIR/latency-render-haproxy
+TEST_DIR=$(mktemp -d)
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+fail() {
+  echo "test-latency-render-haproxy: $1" >&2
+  exit 1
+}
+
+prepare_root() {
+  local root=$1
+  mkdir -p "$root/etc/haproxy/previews"
+  printf '%s\n' 'origin_auth_token_abcdefghijklmnopqrstuvwxyz012345' > "$root/origin.token"
+}
+
+render_valid() {
+  local root=$1
+  prepare_root "$root"
+  cat > "$root/etc/haproxy/previews/coolify.env" <<ENV
+PREVIEW=coolify
+FQDN=coolify.proa.cool
+PORT=8000
+HEALTH_PATH=/api/health
+REALTIME_PORT=6001
+TERMINAL_PORT=6002
+AUTH_HEADER_FILE=$root/origin.token
+REDIRECT_HOST=coolify.proa.so
+PUBLIC_PATH=
+ARCHIVE_CONTROL_PATH=/_proa/origin/preview-archive
+ARCHIVE_CONTROL_PORT=8788
+ARCHIVE_ROUTER_APPLICATION=proa-marketing
+ARCHIVE_ROUTER_DOMAIN=proa.cool
+ARCHIVE_ROUTER_HOST=172.31.252.2
+ARCHIVE_ROUTER_PORT=8082
+ARCHIVE_ROUTER_HEALTH_PORT=8083
+ROUTER_SUFFIX=proa.cool
+ROUTER_PORT=8081
+ENV
+  PROA_HAPROXY_TEST_ROOT=$root "$RENDERER"
+}
+
+assert_contains() {
+  local file=$1 expected=$2
+  grep -Fq -- "$expected" "$file" || fail "missing generated line: $expected"
+}
+
+root=$TEST_DIR/valid
+render_valid "$root"
+cfg=$root/etc/haproxy/haproxy.cfg
+assert_contains "$cfg" \
+  'acl host_coolify_archive_control_path path -i /_proa/origin/preview-archive'
+assert_contains "$cfg" \
+  'use_backend preview_coolify_archive_control if host_coolify host_coolify_control_auth host_coolify_archive_control_path'
+assert_contains "$cfg" 'backend preview_coolify_archive_control'
+assert_contains "$cfg" 'server app 127.0.0.1:8788 check'
+assert_contains "$cfg" 'http-request del-header X-Proa-Control-Plane'
+assert_contains "$cfg" \
+  'acl host_coolify_archive_router_host hdr_reg(host) -i ^proa-marketing-[a-z0-9]{12}\.proa\.cool(:[0-9]+)?$'
+assert_contains "$cfg" \
+  'use_backend preview_coolify_archive_router if host_coolify_archive_router_host'
+assert_contains "$cfg" 'backend preview_coolify_archive_router'
+assert_contains "$cfg" 'server router 172.31.252.2:8082 check port 8083'
+
+control_line=$(grep -Fn \
+  'use_backend preview_coolify_archive_control if host_coolify host_coolify_control_auth host_coolify_archive_control_path' \
+  "$cfg" | cut -d: -f1)
+generic_line=$(grep -Fn \
+  'use_backend preview_coolify if host_coolify host_coolify_control_auth' \
+  "$cfg" | cut -d: -f1)
+redirect_line=$(grep -Fn \
+  'http-request redirect prefix https://coolify.proa.so code 308 if host_coolify !host_coolify_control_auth' \
+  "$cfg" | cut -d: -f1)
+archive_router_line=$(grep -Fn \
+  'use_backend preview_coolify_archive_router if host_coolify_archive_router_host' \
+  "$cfg" | cut -d: -f1)
+generic_router_line=$(grep -Fn \
+  'use_backend preview_coolify_router if host_coolify_router_host' \
+  "$cfg" | cut -d: -f1)
+[[ "$redirect_line" -lt "$control_line" && "$control_line" -lt "$generic_line" ]] ||
+  fail "archive routing must follow unauthenticated redirect and precede generic Coolify routing"
+[[ "$archive_router_line" -lt "$generic_router_line" ]] ||
+  fail "exact archive routing must precede the generic wildcard Coolify router"
+
+if grep -Fq \
+  'acl host_coolify_archive_router_host hdr_reg(host) -i ^[a-z0-9]' \
+  "$cfg"; then
+  fail "archive router ACL widened beyond the application-specific exact hostname"
+fi
+
+validate_with_haproxy() {
+  local source_cfg=$1 root=$2 validation_cfg cert key bundle output user group
+  if ! command -v haproxy >/dev/null 2>&1; then
+    echo "test-latency-render-haproxy: haproxy unavailable; grammar check skipped"
+    return
+  fi
+  command -v openssl >/dev/null 2>&1 ||
+    fail "openssl is required when haproxy is available"
+  mkdir -p "$root/certs" "$root/var/lib/haproxy"
+  cert=$root/cert.pem
+  key=$root/key.pem
+  bundle=$root/certs/test.pem
+  output=$root/haproxy-check.log
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+    -subj '/CN=preview-config.test' \
+    -keyout "$key" -out "$cert" >/dev/null 2>&1
+  cat "$cert" "$key" > "$bundle"
+  validation_cfg=$root/haproxy-validation.cfg
+  user=$(id -un)
+  group=$(id -gn)
+  sed \
+    -e "s|chroot /var/lib/haproxy|chroot $root/var/lib/haproxy|" \
+    -e "s|/etc/haproxy/certs|$root/certs|g" \
+    -e "s|^    user haproxy$|    user $user|" \
+    -e "s|^    group haproxy$|    group $group|" \
+    "$source_cfg" > "$validation_cfg"
+  if ! haproxy -c -f "$validation_cfg" > "$output" 2>&1; then
+    cat "$output" >&2
+    fail "haproxy rejected the rendered configuration"
+  fi
+}
+
+validate_with_haproxy "$cfg" "$root"
+
+expect_invalid() {
+  local name=$1 expected=$2 body=$3 root output
+  root=$TEST_DIR/$name
+  prepare_root "$root"
+  printf '%s\n' "$body" > "$root/etc/haproxy/previews/coolify.env"
+  output=$root/error.log
+  if PROA_HAPROXY_TEST_ROOT=$root "$RENDERER" > /dev/null 2> "$output"; then
+    fail "$name unexpectedly rendered"
+  fi
+  grep -Fq -- "$expected" "$output" || fail "$name did not emit its bounded diagnostic"
+}
+
+base_env() {
+  local root=$1
+  cat <<ENV
+PREVIEW=coolify
+FQDN=coolify.proa.cool
+PORT=8000
+AUTH_HEADER_FILE=$root/origin.token
+REDIRECT_HOST=coolify.proa.so
+PUBLIC_PATH=
+ENV
+}
+
+invalid_root=$TEST_DIR/missing-port
+expect_invalid missing-port \
+  'ARCHIVE_CONTROL_PATH and ARCHIVE_CONTROL_PORT must be configured together' \
+  "$(base_env "$invalid_root")
+ARCHIVE_CONTROL_PATH=/_proa/origin/preview-archive"
+
+invalid_root=$TEST_DIR/wrong-path
+expect_invalid wrong-path 'invalid ARCHIVE_CONTROL_PATH' \
+  "$(base_env "$invalid_root")
+ARCHIVE_CONTROL_PATH=/_proa/origin/other
+ARCHIVE_CONTROL_PORT=8788"
+
+invalid_root=$TEST_DIR/bad-port
+expect_invalid bad-port 'invalid ARCHIVE_CONTROL_PORT' \
+  "$(base_env "$invalid_root")
+ARCHIVE_CONTROL_PATH=/_proa/origin/preview-archive
+ARCHIVE_CONTROL_PORT=65536"
+
+invalid_root=$TEST_DIR/no-origin-auth
+expect_invalid no-origin-auth 'archive control requires AUTH_HEADER_FILE and REDIRECT_HOST' \
+  'PREVIEW=coolify
+FQDN=coolify.proa.cool
+PORT=8000
+ARCHIVE_CONTROL_PATH=/_proa/origin/preview-archive
+ARCHIVE_CONTROL_PORT=8788'
+
+invalid_root=$TEST_DIR/archive-router-partial
+expect_invalid archive-router-partial \
+  'ARCHIVE_ROUTER_APPLICATION, ARCHIVE_ROUTER_DOMAIN, ARCHIVE_ROUTER_HOST, ARCHIVE_ROUTER_PORT, and ARCHIVE_ROUTER_HEALTH_PORT must be configured together' \
+  "$(base_env "$invalid_root")
+ARCHIVE_ROUTER_APPLICATION=proa-marketing
+ARCHIVE_ROUTER_PORT=8082"
+
+invalid_root=$TEST_DIR/archive-router-host-missing
+expect_invalid archive-router-host-missing \
+  'ARCHIVE_ROUTER_APPLICATION, ARCHIVE_ROUTER_DOMAIN, ARCHIVE_ROUTER_HOST, ARCHIVE_ROUTER_PORT, and ARCHIVE_ROUTER_HEALTH_PORT must be configured together' \
+  "$(base_env "$invalid_root")
+ARCHIVE_ROUTER_APPLICATION=proa-marketing
+ARCHIVE_ROUTER_DOMAIN=proa.cool
+ARCHIVE_ROUTER_PORT=8082
+ARCHIVE_ROUTER_HEALTH_PORT=8083"
+
+invalid_root=$TEST_DIR/archive-router-application
+expect_invalid archive-router-application 'invalid ARCHIVE_ROUTER_APPLICATION' \
+  "$(base_env "$invalid_root")
+ARCHIVE_ROUTER_APPLICATION=Proa.*
+ARCHIVE_ROUTER_DOMAIN=proa.cool
+ARCHIVE_ROUTER_HOST=172.31.252.2
+ARCHIVE_ROUTER_PORT=8082
+ARCHIVE_ROUTER_HEALTH_PORT=8083"
+
+invalid_root=$TEST_DIR/archive-router-domain
+expect_invalid archive-router-domain 'invalid ARCHIVE_ROUTER_DOMAIN' \
+  "$(base_env "$invalid_root")
+ARCHIVE_ROUTER_APPLICATION=proa-marketing
+ARCHIVE_ROUTER_DOMAIN=*.proa.cool
+ARCHIVE_ROUTER_HOST=172.31.252.2
+ARCHIVE_ROUTER_PORT=8082
+ARCHIVE_ROUTER_HEALTH_PORT=8083"
+
+invalid_root=$TEST_DIR/archive-router-host-injection
+expect_invalid archive-router-host-injection 'invalid ARCHIVE_ROUTER_HOST' \
+  "$(base_env "$invalid_root")
+ARCHIVE_ROUTER_APPLICATION=proa-marketing
+ARCHIVE_ROUTER_DOMAIN=proa.cool
+ARCHIVE_ROUTER_HOST='172.31.252.2 check inter 1ms'
+ARCHIVE_ROUTER_PORT=8082
+ARCHIVE_ROUTER_HEALTH_PORT=8083"
+
+invalid_root=$TEST_DIR/archive-router-host-leading-zero
+expect_invalid archive-router-host-leading-zero 'invalid ARCHIVE_ROUTER_HOST' \
+  "$(base_env "$invalid_root")
+ARCHIVE_ROUTER_APPLICATION=proa-marketing
+ARCHIVE_ROUTER_DOMAIN=proa.cool
+ARCHIVE_ROUTER_HOST=172.031.252.2
+ARCHIVE_ROUTER_PORT=8082
+ARCHIVE_ROUTER_HEALTH_PORT=8083"
+
+invalid_root=$TEST_DIR/archive-router-host-range
+expect_invalid archive-router-host-range 'invalid ARCHIVE_ROUTER_HOST' \
+  "$(base_env "$invalid_root")
+ARCHIVE_ROUTER_APPLICATION=proa-marketing
+ARCHIVE_ROUTER_DOMAIN=proa.cool
+ARCHIVE_ROUTER_HOST=172.31.252.256
+ARCHIVE_ROUTER_PORT=8082
+ARCHIVE_ROUTER_HEALTH_PORT=8083"
+
+invalid_root=$TEST_DIR/archive-router-port
+expect_invalid archive-router-port 'invalid ARCHIVE_ROUTER_PORT' \
+  "$(base_env "$invalid_root")
+ARCHIVE_ROUTER_APPLICATION=proa-marketing
+ARCHIVE_ROUTER_DOMAIN=proa.cool
+ARCHIVE_ROUTER_HOST=172.31.252.2
+ARCHIVE_ROUTER_PORT=65536
+ARCHIVE_ROUTER_HEALTH_PORT=8083"
+
+invalid_root=$TEST_DIR/archive-router-health-port
+expect_invalid archive-router-health-port 'invalid ARCHIVE_ROUTER_HEALTH_PORT' \
+  "$(base_env "$invalid_root")
+ARCHIVE_ROUTER_APPLICATION=proa-marketing
+ARCHIVE_ROUTER_DOMAIN=proa.cool
+ARCHIVE_ROUTER_HOST=172.31.252.2
+ARCHIVE_ROUTER_PORT=8082
+ARCHIVE_ROUTER_HEALTH_PORT=8082"
+
+duplicate_root=$TEST_DIR/archive-router-duplicate
+render_valid "$duplicate_root"
+cat > "$duplicate_root/etc/haproxy/previews/duplicate.env" <<ENV
+PREVIEW=duplicate
+FQDN=duplicate-origin.proa.cool
+PORT=9000
+ARCHIVE_ROUTER_APPLICATION=proa-marketing
+ARCHIVE_ROUTER_DOMAIN=proa.cool
+ARCHIVE_ROUTER_HOST=172.31.252.2
+ARCHIVE_ROUTER_PORT=8182
+ARCHIVE_ROUTER_HEALTH_PORT=8183
+ENV
+if PROA_HAPROXY_TEST_ROOT=$duplicate_root "$RENDERER" > /dev/null 2> "$duplicate_root/error.log"; then
+  fail "duplicate archive namespace unexpectedly rendered"
+fi
+grep -Fq 'duplicate archive router namespace' "$duplicate_root/error.log" ||
+  fail "duplicate archive namespace did not fail closed"
+
+duplicate_port_root=$TEST_DIR/archive-router-duplicate-port
+render_valid "$duplicate_port_root"
+cat > "$duplicate_port_root/etc/haproxy/previews/duplicate.env" <<ENV
+PREVIEW=duplicate
+FQDN=duplicate-origin.proa.cool
+PORT=9000
+ARCHIVE_ROUTER_APPLICATION=another-app
+ARCHIVE_ROUTER_DOMAIN=proa.cool
+ARCHIVE_ROUTER_HOST=172.31.252.2
+ARCHIVE_ROUTER_PORT=8082
+ARCHIVE_ROUTER_HEALTH_PORT=8183
+ENV
+if PROA_HAPROXY_TEST_ROOT=$duplicate_port_root "$RENDERER" > /dev/null 2> "$duplicate_port_root/error.log"; then
+  fail "duplicate archive traffic port unexpectedly rendered"
+fi
+grep -Fq 'duplicate archive router port' "$duplicate_port_root/error.log" ||
+  fail "duplicate archive traffic port did not fail closed"
+
+echo "test-latency-render-haproxy: ok"

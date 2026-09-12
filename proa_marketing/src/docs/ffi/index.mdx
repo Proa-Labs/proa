@@ -1,0 +1,393 @@
+---
+title: FFI guide
+description: Call Proa's SSR engine from Python, Ruby, Go, or any language with C FFI support
+---
+
+import { File, Files, Folder } from "fumadocs-ui/components/files";
+
+Proa compiles HTML templates into optimized byte sequences at build time. The playground FFI library exposes selected showcase renders as plain C functions so Python, Ruby, Go, C, and other host runtimes can call them without embedding a JavaScript SSR server.
+
+## What's in the package
+
+<Files>
+  <Folder name="proa-playground-<target>" defaultOpen>
+    <File name="proa-playground" />
+    <File name="run.sh" />
+    <Folder name="ffi" defaultOpen>
+      <File name="libproa_demo.dylib" />
+      <File name="proa.h" />
+    </Folder>
+  </Folder>
+</Files>
+
+| File | Description |
+|------|-------------|
+| `proa-playground` | Interactive demo server |
+| `run.sh` | Launch script (`run.bat` on Windows) |
+| `libproa_demo.dylib` | FFI shared library (`.so` on Linux, `.dll` on Windows) |
+| `proa.h` | C header |
+| `Dockerfile` | Build a self-contained Docker image |
+
+## Docker
+
+No Node, Bun, or runtime setup needed, everything runs inside the container:
+
+```bash
+# From inside the extracted package directory:
+docker build -t proa/playground .
+docker run -p 3001:3001 proa/playground
+```
+
+Then open [http://localhost:3001](http://localhost:3001). The image includes Node 22 and Bun,
+so all three engines (Proa, React/Node, React/Bun) work out of the box.
+
+## API at a glance
+
+Every render function follows one of two patterns.
+
+### Allocating
+
+The library allocates the output buffer. You must free it with `proa_free`.
+
+```c
+int32_t render_airbnb_home(uint8_t **out_ptr, uintptr_t *out_len);
+void proa_free(uint8_t *ptr, uintptr_t len);
+```
+
+Returns `0` on success. The HTML is UTF-8 encoded at `*out_ptr` with length `*out_len`.
+
+### Caller-provided buffer
+
+You provide a pre-allocated output buffer and the library copies the rendered HTML into it.
+
+```c
+int32_t render_airbnb_home_into(uint8_t *buf_ptr, uintptr_t buf_cap, uintptr_t *out_len);
+```
+
+Returns `0` on success, `-1` if the buffer is too small. When the buffer is too small, `*out_len` receives the required size.
+
+The current demo `_into` functions avoid returning a new FFI-owned allocation, which is useful for host memory management. They are not a guarantee that the demo implementation performs no internal Rust allocation.
+
+### JSON props
+
+Some functions accept custom data as a JSON string:
+
+```c
+int32_t render_airbnb_listing_json(
+    const uint8_t *json_ptr, uintptr_t json_len,
+    uint8_t **out_ptr, uintptr_t *out_len
+);
+```
+
+Returns `0` on success, `-2` if the JSON is invalid.
+
+### Available functions
+
+| Function | Description |
+|----------|-------------|
+| `render_airbnb_home` | Airbnb home page (~159 KB) |
+| `render_airbnb_search` | Airbnb search results (~49 KB) |
+| `render_airbnb_listing` | Airbnb listing detail (~92 KB) |
+| `render_airbnb_listing_json` | Airbnb listing with custom props |
+| `render_nike_catalog` | Fictional footwear catalog (~125 KB) |
+| `render_nike_catalog_json` | Footwear catalog with custom props |
+| `render_nike_pdp` | Fictional footwear product detail (~58 KB) |
+| `render_nike_pdp_json` | Footwear product detail with custom props |
+| `render_*_into` | Caller-provided-buffer variants for default-prop pages |
+| `proa_free` | Free a buffer from any allocating render |
+
+## Contract Pages
+
+- [Playground](/docs/ffi/playground) covers the interactive demo, load testing UI, package contents, and API endpoints.
+- [ABI contract](/docs/ffi/abi) documents exact signatures, return codes, and WASM helpers.
+- [Memory ownership](/docs/ffi/memory) explains when to call `proa_free`, how to size buffers, and what the host owns.
+- [Deployment](/docs/ffi/packaging) covers shared-library loading, Docker packaging, and build outputs.
+
+## Python
+
+### Minimal example
+
+```python
+import ctypes
+import time
+
+lib = ctypes.CDLL("./ffi/libproa_demo.dylib")  # .so on Linux, .dll on Windows
+
+lib.render_airbnb_home.restype = ctypes.c_int32
+lib.render_airbnb_home.argtypes = [
+    ctypes.POINTER(ctypes.POINTER(ctypes.c_uint8)),
+    ctypes.POINTER(ctypes.c_size_t),
+]
+lib.proa_free.restype = None
+lib.proa_free.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
+
+ptr = ctypes.POINTER(ctypes.c_uint8)()
+length = ctypes.c_size_t(0)
+
+start = time.perf_counter_ns()
+lib.render_airbnb_home(ctypes.byref(ptr), ctypes.byref(length))
+elapsed_us = (time.perf_counter_ns() - start) / 1000
+
+html = ctypes.string_at(ptr, length.value).decode("utf-8")
+lib.proa_free(ptr, length)
+
+print(f"Rendered {len(html):,} bytes in {elapsed_us:.1f} µs")
+# → Rendered 162,746 bytes in 24.2 µs
+```
+
+### Reusable wrapper
+
+```python
+import ctypes
+import json as json_mod
+
+class Proa:
+    """Thin wrapper around the Proa FFI library."""
+
+    def __init__(self, lib_path="./ffi/libproa_demo.dylib"):
+        self._lib = ctypes.CDLL(lib_path)
+        self._lib.proa_free.restype = None
+        self._lib.proa_free.argtypes = [
+            ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t
+        ]
+
+        # Register allocating render functions
+        for name in [
+            "render_airbnb_home", "render_airbnb_search",
+            "render_airbnb_listing", "render_nike_catalog", "render_nike_pdp",
+        ]:
+            fn = getattr(self._lib, name)
+            fn.restype = ctypes.c_int32
+            fn.argtypes = [
+                ctypes.POINTER(ctypes.POINTER(ctypes.c_uint8)),
+                ctypes.POINTER(ctypes.c_size_t),
+            ]
+
+        # Register JSON render functions
+        for name in [
+            "render_airbnb_listing_json",
+            "render_nike_pdp_json",
+            "render_nike_catalog_json",
+        ]:
+            fn = getattr(self._lib, name)
+            fn.restype = ctypes.c_int32
+            fn.argtypes = [
+                ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t,
+                ctypes.POINTER(ctypes.POINTER(ctypes.c_uint8)),
+                ctypes.POINTER(ctypes.c_size_t),
+            ]
+
+    def _render(self, func_name):
+        fn = getattr(self._lib, func_name)
+        ptr = ctypes.POINTER(ctypes.c_uint8)()
+        length = ctypes.c_size_t(0)
+        rc = fn(ctypes.byref(ptr), ctypes.byref(length))
+        if rc != 0:
+            raise RuntimeError(f"{func_name} failed: {rc}")
+        html = ctypes.string_at(ptr, length.value).decode("utf-8")
+        self._lib.proa_free(ptr, length)
+        return html
+
+    def _render_json(self, func_name, json_str):
+        fn = getattr(self._lib, func_name)
+        json_bytes = json_str.encode("utf-8")
+        json_ptr = (ctypes.c_uint8 * len(json_bytes))(*json_bytes)
+        ptr = ctypes.POINTER(ctypes.c_uint8)()
+        length = ctypes.c_size_t(0)
+        rc = fn(json_ptr, len(json_bytes), ctypes.byref(ptr), ctypes.byref(length))
+        if rc == -2:
+            raise ValueError("Invalid JSON")
+        if rc != 0:
+            raise RuntimeError(f"{func_name} failed: {rc}")
+        html = ctypes.string_at(ptr, length.value).decode("utf-8")
+        self._lib.proa_free(ptr, length)
+        return html
+
+    def airbnb_home(self):
+        return self._render("render_airbnb_home")
+
+    def airbnb_search(self):
+        return self._render("render_airbnb_search")
+
+    def airbnb_listing(self, json=None):
+        if json:
+            return self._render_json("render_airbnb_listing_json", json)
+        return self._render("render_airbnb_listing")
+
+    def nike_catalog(self, json=None):
+        if json:
+            return self._render_json("render_nike_catalog_json", json)
+        return self._render("render_nike_catalog")
+
+    def nike_pdp(self, json=None):
+        if json:
+            return self._render_json("render_nike_pdp_json", json)
+        return self._render("render_nike_pdp")
+```
+
+Usage:
+
+```python
+proa = Proa()
+
+# Static render — default props
+html = proa.airbnb_home()
+
+# Custom props via JSON
+html = proa.airbnb_listing(json_mod.dumps({
+    "title": "My Beach House",
+    "location": "Malibu, California",
+    "price_per_night": 350,
+    "rating": "4.92",
+}))
+```
+
+### Caller-provided buffer from Python
+
+To avoid accepting an FFI-owned output allocation, pre-allocate a buffer and reuse it across renders:
+
+```python
+buf = (ctypes.c_uint8 * (256 * 1024))()  # 256 KB covers any default page
+written = ctypes.c_size_t(0)
+
+lib.render_airbnb_home_into.restype = ctypes.c_int32
+lib.render_airbnb_home_into.argtypes = [
+    ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)
+]
+
+rc = lib.render_airbnb_home_into(buf, len(buf), ctypes.byref(written))
+if rc == 0:
+    html = bytes(buf[:written.value]).decode("utf-8")
+elif rc == -1:
+    print(f"Buffer too small, need {written.value} bytes")
+```
+
+## Ruby
+
+```ruby
+require 'fiddle'
+require 'fiddle/import'
+
+module Proa
+  extend Fiddle::Importer
+  dlload './ffi/libproa_demo.dylib'  # .so on Linux
+
+  extern 'int render_airbnb_home(void**, size_t*)'
+  extern 'void proa_free(void*, size_t)'
+end
+
+ptr = Fiddle::Pointer.new(0)
+len = [0].pack('Q')
+
+ptr_ref = Fiddle::Pointer[ptr.ref]
+len_ref = Fiddle::Pointer[len]
+
+start = Process.clock_gettime(Process::CLOCK_MONOTONIC, :microsecond)
+Proa.render_airbnb_home(ptr_ref, len_ref)
+elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC, :microsecond) - start
+
+size = len.unpack1('Q')
+html = Fiddle::Pointer.new(ptr_ref.ptr.to_i).to_str(size)
+Proa.proa_free(Fiddle::Pointer.new(ptr_ref.ptr.to_i), size)
+
+puts "Rendered #{html.bytesize} bytes in #{elapsed} µs"
+```
+
+## C
+
+```c
+#include <stdio.h>
+#include "ffi/proa.h"
+
+int main(void) {
+    uint8_t *ptr;
+    size_t len;
+
+    // Allocating variant
+    if (render_airbnb_home(&ptr, &len) == 0) {
+        printf("Rendered %zu bytes\n", len);
+        proa_free(ptr, len);
+    }
+
+    // Caller-provided buffer variant: reuse a host buffer across requests
+    uint8_t buf[256 * 1024];
+    size_t written;
+    if (render_airbnb_home_into(buf, sizeof(buf), &written) == 0) {
+        printf("Rendered %zu bytes into caller buffer\n", written);
+    }
+
+    return 0;
+}
+```
+
+Compile and run:
+
+```bash
+# macOS
+cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,./ffi
+
+# Linux
+cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,'$ORIGIN/ffi'
+```
+
+## Go
+
+```go
+package main
+
+/*
+#cgo LDFLAGS: -L./ffi -lproa_demo
+#include "ffi/proa.h"
+#include <stdlib.h>
+*/
+import "C"
+import (
+    "fmt"
+    "time"
+    "unsafe"
+)
+
+func renderAirbnbHome() string {
+    var ptr *C.uint8_t
+    var length C.size_t
+
+    C.render_airbnb_home(&ptr, &length)
+    defer C.proa_free(ptr, length)
+
+    return C.GoStringN((*C.char)(unsafe.Pointer(ptr)), C.int(length))
+}
+
+func main() {
+    start := time.Now()
+    html := renderAirbnbHome()
+    elapsed := time.Since(start)
+
+    fmt.Printf("Rendered %d bytes in %v\n", len(html), elapsed)
+}
+```
+
+## Benchmark results
+
+Measured on Apple M-series, single-threaded, using `CLOCK_THREAD_CPUTIME_ID`:
+
+| Page | HTML size | Rust render | Python (ctypes) |
+|------|-----------|-------------|-----------------|
+| Airbnb Home | 159 KB | ~8 µs | ~24 µs |
+| Airbnb Search | 49 KB | ~4 µs | ~8 µs |
+| Airbnb Listing | 92 KB | ~6 µs | ~35 µs |
+| Footwear Catalog | 125 KB | ~10 µs | ~33 µs |
+| Footwear Product Detail | 58 KB | ~5 µs | ~10 µs |
+
+The "Rust render" column is pure CPU time inside the render function. The "Python" column includes FFI boundary overhead, memory copy, and `perf_counter_ns` measurement, still well under 50 µs for a full page.
+
+## JSON prop schemas
+
+The `_json` variants accept JSON matching the structures in `showcase-props.json` (included in the playground download). Full default props for each page:
+
+<Cards>
+  <Card title="Airbnb Home" description="render_airbnb_home" href="/docs/ffi/home" />
+  <Card title="Airbnb Search" description="render_airbnb_search" href="/docs/ffi/search" />
+  <Card title="Airbnb Listing" description="render_airbnb_listing_json" href="/docs/ffi/listing" />
+  <Card title="Footwear Catalog" description="render_nike_catalog_json" href="/docs/ffi/nike-catalog" />
+  <Card title="Footwear Product Detail" description="render_nike_pdp_json" href="/docs/ffi/nike-pdp" />
+</Cards>

@@ -1,0 +1,5 @@
+error: malformed text! placeholder: missing closing `}`
+ --> tests/ui/fail/text_malformed_braces.rs:4:19
+  |
+4 |     let _ = text!("{", "arg");
+  |                   ^^^

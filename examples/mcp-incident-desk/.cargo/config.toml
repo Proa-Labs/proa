@@ -1,0 +1,8 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[registries.proa]
+index = "sparse+https://registry.proa.so/sparse/"
+
+[registry]
+global-credential-providers = ["cargo:token"]

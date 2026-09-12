@@ -1,0 +1,4 @@
+test/fixture/Cargo.lock
+test/fixture/target/
+*.vsix
+src/core/

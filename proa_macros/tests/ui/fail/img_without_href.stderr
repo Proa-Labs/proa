@@ -1,0 +1,5 @@
+error: `href` is not valid on <img>. use <a href="..."> for links, or move the URL into a data-* attribute (HTML §4.5.1, §4.8.3)
+ --> tests/ui/fail/img_without_href.rs:7:30
+  |
+7 |         <img src="/test.jpg" href="/link" />
+  |                              ^^^^

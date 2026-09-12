@@ -1,0 +1,16 @@
+error: rsjs boundary: `rsjs::server_only(...)` cannot declare or read `computed(...)`
+
+       Why:
+         Opaque server-only boundaries render static SSR content and are not lowered into Client IR. A client primitive declared there would either be dropped or would never hydrate.
+
+       Use one of:
+         - Declare client primitives before the template and render their reachable uses normally.
+         - Keep `rsjs::server_only(...)` and `rsjs::server_attr(...)` limited to plain server-rendered content.
+         - Move browser behavior into a handler, binding, client helper, or descriptor prop that rsjs can lower.
+
+       Tracked feature:
+         server_boundary.client_primitive
+  --> tests/ui/fail/51_server_only_client_primitive.rs:16:43
+   |
+16 |             <div>{rsjs::server_only(rsjs::computed(|| 1_i64))}</div>
+   |                                           ^^^^^^^^

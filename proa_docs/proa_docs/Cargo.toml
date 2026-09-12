@@ -1,0 +1,27 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_docs"
+version = "0.2.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Runtime navigation and rendering primitives for Proa documentation sites."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+include = ["src/**/*", "assets/**/*", "LICENSE"]
+
+[features]
+default = []
+axum = ["dep:axum", "dep:http"]
+
+[dependencies]
+axum = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+proa_core = { workspace = true }
+proa_macros = { workspace = true }
+
+[lints]
+workspace = true

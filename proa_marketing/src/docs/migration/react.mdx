@@ -1,0 +1,376 @@
+---
+title: From React / Next.js
+description: Migrate from React SSR or Next.js to Proa one route at a time while keeping your existing CSS and DOM contract.
+---
+
+This guide walks through migrating a single Next.js page to Proa. The approach works with any React SSR setup (Remix, Gatsby SSR, custom Express + React).
+
+## Step 1: Convert the Template
+
+### TSX to html_sync!
+
+The surface syntax is intentionally close to HTML. Main differences: static text is quoted, Rust expressions live in `{...}`, and Rust field names use underscores when you create component structs.
+
+This card covers most of what a migration runs into: required and optional
+props, a conditionally rendered element, a list, an either/or, and children.
+
+**React (TSX):**
+```tsx filename="components/ListingCard.tsx"
+type Badge = "superhost" | "guest-favorite";
+
+interface ListingCardProps {
+  imageUrl: string;
+  title: string;
+  location: string;
+  price: number;
+  amenities: string[];
+  rating?: number;
+  badge?: Badge;
+  children?: React.ReactNode;
+}
+
+export function ListingCard({
+  imageUrl,
+  title,
+  location,
+  price,
+  amenities,
+  rating,
+  badge,
+  children,
+}: ListingCardProps) {
+  return (
+    <div className="flex gap-4 rounded-xl border p-4">
+      <img
+        src={imageUrl}
+        alt={title}
+        className="h-48 w-48 rounded-lg object-cover"
+      />
+      <div className="flex flex-col">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        {badge && (
+          <span className="w-fit rounded bg-accent px-2 py-1 text-xs">
+            {badge === "superhost" ? "Superhost" : "Guest favorite"}
+          </span>
+        )}
+        <p className="text-muted-foreground">{location}</p>
+        <ul className="flex gap-2 text-sm">
+          {amenities.map((amenity) => (
+            <li key={amenity}>{amenity}</li>
+          ))}
+        </ul>
+        <p className="text-sm">{rating ? `★ ${rating}` : "New listing"}</p>
+        <p className="mt-auto font-semibold">
+          ${price} <span className="font-normal">/ night</span>
+        </p>
+        {children}
+      </div>
+    </div>
+  );
+}
+```
+
+**Proa (`html_sync!`):**
+```rust
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+
+#[derive(Clone, Copy)]
+pub enum Badge {
+    Superhost,
+    GuestFavorite,
+}
+
+impl Badge {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Superhost => "Superhost",
+            Self::GuestFavorite => "Guest favorite",
+        }
+    }
+}
+
+// Props become struct fields. Optional props are `Option<T>`, and children
+// ride on a generic parameter defaulting to `()` for the childless case.
+pub struct ListingCard<C = ()> {
+    pub image_url: &'static str,
+    pub title: &'static str,
+    pub location: &'static str,
+    pub price: u32,
+    pub amenities: &'static [&'static str],
+    pub rating: Option<f32>,
+    pub badge: Option<Badge>,
+    pub children: Option<C>,
+}
+
+impl<L, C> WebRenderSync<L> for ListingCard<C>
+where
+    L: DataLoader,
+    C: WebRenderSync<L>,
+{
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <div class="flex gap-4 rounded-xl border p-4">
+                <img
+                    src={self.image_url}
+                    alt={self.title}
+                    class="h-48 w-48 rounded-lg object-cover"
+                />
+                <div class="flex flex-col">
+                    <h2 class="text-lg font-semibold">{self.title}</h2>
+                    // `{badge && ...}` becomes an `if` with no `else` branch
+                    {if let Some(badge) = self.badge {
+                        html_sync! {
+                            <span class="w-fit rounded bg-accent px-2 py-1 text-xs">
+                                {badge.label()}
+                            </span>
+                        }
+                    }}
+                    <p class="text-muted-foreground">{self.location}</p>
+                    // `.map(...)` becomes a `for` loop, and no `key` is needed
+                    // because there is no virtual DOM to diff
+                    <ul class="flex gap-2 text-sm">
+                        {for amenity in self.amenities {
+                            html_sync! { <li>{*amenity}</li> }
+                        }}
+                    </ul>
+                    // a ternary becomes an ordinary `if`/`else`
+                    <p class="text-sm">
+                        {if let Some(rating) = self.rating {
+                            html_sync! { "★ "{rating} }
+                        } else {
+                            html_sync! { "New listing" }
+                        }}
+                    </p>
+                    <p class="mt-auto font-semibold">
+                        "$"{self.price}" "
+                        <span class="font-normal">"/ night"</span>
+                    </p>
+                    {self.children}
+                </div>
+            </div>
+        }.render(cx)
+    }
+}
+```
+
+Rendering it from a parent is a struct literal in a slot. Add
+`#[derive(Default)]` to the struct if you would rather set a few fields and
+finish with `..Default::default()`:
+
+```rust
+{ListingCard {
+    image_url: listing.image_url,
+    title: listing.title,
+    location: listing.location,
+    price: listing.price,
+    amenities: &["Wifi", "Kitchen"],
+    rating: listing.rating,
+    badge: Some(Badge::Superhost),
+    children: Some(text("Book now")),
+}}
+```
+
+## Step 2: Data Loading
+
+In Next.js, you fetch data in `getServerSideProps` or Server Components. In Proa, you fetch data in your Axum handler before rendering.
+
+**Next.js:**
+```typescript filename="pages/listings/[id].tsx"
+import type { GetServerSideProps } from "next";
+
+export const getServerSideProps: GetServerSideProps = async ({ params }) => {
+  const listing = await db.listings.findById(params!.id as string);
+  return { props: { listing } };
+};
+
+interface ListingPageProps {
+  listing: Listing;
+}
+
+export default function ListingPage({ listing }: ListingPageProps) {
+  return <ListingDetail listing={listing} />;
+}
+```
+
+**Proa (Axum):**
+```rust
+async fn listing_page(
+    Path(id): Path<String>,
+    State(db): State<DbPool>,
+) -> impl IntoResponse {
+    let listing = db.listings.find_by_id(&id).await.unwrap();
+
+    let mut cx = WebContext::new();
+
+    ListingDetail {
+        title: &listing.title,
+        location: &listing.location,
+        price: listing.price,
+        image_url: &listing.image_url,
+    }
+    .render(&mut cx)
+    .unwrap();
+
+    Html(cx.into_output().into_string())
+}
+```
+
+## Step 3: Interactive Islands
+
+React components that need client-side interactivity become Proa islands. The HTML is rendered server-side by Proa; the JavaScript hydrates only the interactive parts.
+
+**Next.js (entire page hydrated):**
+```tsx filename="components/SearchFilters.tsx"
+"use client";
+
+import { useState } from "react";
+
+interface Filter {
+  id: string;
+  label: string;
+}
+
+interface SearchFiltersProps {
+  filters: Filter[];
+}
+
+export default function SearchFilters({ filters }: SearchFiltersProps) {
+  const [selected, setSelected] = useState<Filter>(filters[0]);
+  return (
+    <div>
+      {filters.map((f) => (
+        <button key={f.id} onClick={() => setSelected(f)}>
+          {f.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+```
+
+**Proa (only the interactive part ships JS):**
+```rust
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+use rsjs::{event_handler, signal};
+use rsjs_macros::rsjs;
+
+pub struct SearchFilters<'a> {
+    pub filters: &'a [&'a str],
+}
+
+#[rsjs(component, client)]
+impl<'a, L: DataLoader> WebRenderSync<L> for SearchFilters<'a> {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let selected = signal(0_i64);
+        let pick = event_handler(|_: rsjs::Event, index: i64| selected.set(index));
+
+        html_sync! {
+            <div class="search-filters">
+                {for (index, filter) in self.filters.iter().enumerate() {
+                    html_sync! {
+                        <button
+                            type="button"
+                            class={if selected.get() == index as i64 { "filter-btn active" } else { "filter-btn" }}
+                            on_click={pick(index as i64)}
+                        >
+                            {filter}
+                        </button>
+                    }
+                }}
+            </div>
+        }
+        .render(cx)
+    }
+}
+```
+
+The `#[rsjs(component, client)]` attribute analyzes the authored render-trait
+implementation, records its signals and event handlers, and emits the island
+JavaScript that the runtime hydrates in the browser. Static parts of the page
+do not hydrate. See [RSJS](/docs/guides/islands) for the runtime wiring and supported
+patterns.
+
+
+## Step 4: Route One Page to Proa
+
+Set up your reverse proxy to route one path to Proa while keeping everything else on Next.js.
+
+**Nginx example:**
+
+```nginx
+upstream nextjs {
+    server 127.0.0.1:3000;
+}
+
+upstream proa {
+    server 127.0.0.1:4000;
+}
+
+server {
+    listen 80;
+
+    # One route goes to Proa
+    location /rooms/ {
+        proxy_pass http://proa;
+        proxy_set_header Host $host;
+        proxy_set_header X-Request-Id $request_id;
+    }
+
+    # Everything else stays on Next.js
+    location / {
+        proxy_pass http://nextjs;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+**Cloudflare Workers / Vercel Edge:**
+
+```typescript
+export default {
+  async fetch(request: Request) {
+    const url = new URL(request.url);
+
+    if (url.pathname.startsWith("/rooms/")) {
+      return fetch(`https://proa-origin.example${url.pathname}`, {
+        headers: request.headers,
+      });
+    }
+
+    // Everything else to Next.js
+    return fetch(request);
+  },
+};
+```
+
+
+## Step 5: Compare in Production
+
+After deploying the Proa version of one route behind the proxy, compare the route against the existing implementation under the same cache policy and data-loading path:
+
+| Metric | How to measure | What to look for |
+|--------|---------------|------------------|
+| p50 / p95 / p99 latency | Your APM or load test | Lower server render time and flatter tail latency |
+| Throughput | `wrk`, `k6`, or production traffic replay | More completed requests per core at the same error rate |
+| CPU usage | Container or host metrics | Lower CPU per rendered response |
+| Memory | Container or host metrics | Smaller resident set and less GC pressure on the old service |
+| Time to First Byte | WebPageTest, Lighthouse, or RUM | Faster uncached server responses |
+| Bundle size | Browser DevTools Network tab | Smaller JS on routes that no longer hydrate a React tree |
+
+```bash
+# Same route, same data, same cache policy
+wrk -t4 -c100 -d30s http://localhost:3000/rooms/12345
+wrk -t4 -c100 -d30s http://localhost:4000/rooms/12345
+```
+
+## Shared Layout During Transition
+
+During migration, both stacks need to render the same header/footer. Options:
+
+1. **Port the layout first**, migrate the layout to Proa, then render the moved route inside it.
+2. **Shared HTML contract**, keep the same class names, IDs, and data attributes so existing CSS and small scripts continue to work.
+3. **Proxy-owned shell**, let the edge or load balancer choose which app handles each path while each app renders its own complete document.
+
+Porting the layout first is usually the cleanest path for high-traffic SSR pages because headers, footers, and navigation often contain long static runs that Proa can consolidate at compile time.

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://proa.so/schema/ui-component-manifest-v1.json",
+  "title": "Proa UI component manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "name", "version", "registry", "tier", "license", "dependencies", "files"],
+  "properties": {
+    "$schema": { "const": "https://proa.so/schema/ui-component-manifest-v1.json" },
+    "schemaVersion": { "const": 1 },
+    "name": { "$ref": "#/$defs/slug" },
+    "version": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "registry": { "type": "string", "pattern": "^@[a-z0-9][a-z0-9_-]*$" },
+    "kind": { "enum": ["component", "block"], "default": "component" },
+    "tier": { "enum": ["free", "pro"] },
+    "license": { "type": "string", "minLength": 1 },
+    "dependencies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/slug" },
+          { "type": "string", "pattern": "^@[a-z0-9][a-z0-9_-]*/[a-z0-9](?:[a-z0-9_-]{0,126}[a-z0-9])?$" }
+        ]
+      }
+    },
+    "cargoDependencies": {
+      "type": "array",
+      "default": [],
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "oneOf": [
+          { "required": ["path"], "not": { "required": ["version"] } },
+          { "required": ["version"], "not": { "required": ["path"] } }
+        ],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$" },
+          "path": { "$ref": "#/$defs/aliasPath" },
+          "version": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "registry": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$" },
+          "features": {
+            "type": "array",
+            "default": [],
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_+/-]*$" }
+          },
+          "defaultFeatures": { "type": "boolean" }
+        }
+      }
+    },
+    "rustModules": {
+      "type": "array",
+      "default": [],
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target", "modules"],
+        "properties": {
+          "target": { "$ref": "#/$defs/aliasPath" },
+          "modules": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/rustIdentifier" }
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "target", "sha256"],
+        "properties": {
+          "source": { "$ref": "#/$defs/relativePath" },
+          "target": { "$ref": "#/$defs/aliasPath" },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9](?:[a-z0-9_-]{0,126}[a-z0-9])?$"
+    },
+    "rustIdentifier": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*$" },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))[^\\u0000]+$"
+    },
+    "aliasPath": {
+      "type": "string",
+      "pattern": "^(?!.*(?:^|/)\\.\\.?(?:/|$))(?:@(components|assets)/[^\\\\\\u0000]+|@lib/proa_ui(?:/[^\\\\\\u0000]+)?)$"
+    }
+  }
+}

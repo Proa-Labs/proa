@@ -1,0 +1,76 @@
+error[E0277]: event current-target marker `rsjs::elem::Any` does not match binding target `Document`
+  --> tests/ui/fail/92_global_event_owner_target.rs:11:49
+   |
+11 |                 <div on_document_click={|event: rsjs::MouseEvent| {
+   |                                                 ^^^^^^^^^^^^^^^^ this event target marker is incompatible with the `on_*` binding
+   |
+   = help: the trait `EventCurrentTargetFor<Document>` is not implemented for `rsjs::elem::Any`
+   = note: parameterize the event type with `rsjs::web::dom::Document` for `on_document_*`, `rsjs::web::dom::Window` for `on_window_*`, or the bound element marker for a local handler; `dom::Any` is element-local only
+   = help: the following other types implement trait `EventCurrentTargetFor<Target>`:
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<HTMLElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::Element>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlDialogElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlFormElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlInputElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlSelectElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlTextAreaElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::elem::Any>`
+           and $N others
+note: required by a bound in `rsjs::__private::assert_event_type`
+  --> $WORKSPACE/rsjs/src/lib.rs
+   |
+   |     pub fn assert_event_type<Target, Interface, E>()
+   |            ----------------- required by a bound in this function
+...
+   |         <E as crate::EventParamStub>::CurrentTarget: EventCurrentTargetFor<Target>,
+   |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_event_type`
+
+error[E0277]: event current-target marker `rsjs::web::dom::HtmlDivElement` does not match binding target `Document`
+  --> tests/ui/fail/92_global_event_owner_target.rs:16:45
+   |
+16 |                 <div on_document_click={|_: rsjs::MouseEvent<rsjs::web::dom::HtmlDivElement>| {}}>
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this event target marker is incompatible with the `on_*` binding
+   |
+   = note: parameterize the event type with `rsjs::web::dom::Document` for `on_document_*`, `rsjs::web::dom::Window` for `on_window_*`, or the bound element marker for a local handler; `dom::Any` is element-local only
+help: the trait `EventCurrentTargetFor<Document>` is not implemented for `rsjs::web::dom::HtmlDivElement`
+      but trait `EventCurrentTargetFor<rsjs::web::dom::HtmlDivElement>` is implemented for it
+  --> $WORKSPACE/rsjs_web/src/generated.rs
+   |
+   | impl EventCurrentTargetFor<dom::HtmlDivElement> for dom::HtmlDivElement {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `rsjs::web::dom::HtmlDivElement`, found `Document`
+note: required by a bound in `rsjs::__private::assert_event_type`
+  --> $WORKSPACE/rsjs/src/lib.rs
+   |
+   |     pub fn assert_event_type<Target, Interface, E>()
+   |            ----------------- required by a bound in this function
+...
+   |         <E as crate::EventParamStub>::CurrentTarget: EventCurrentTargetFor<Target>,
+   |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_event_type`
+
+error[E0277]: event current-target marker `rsjs::elem::Any` does not match binding target `Window`
+  --> tests/ui/fail/92_global_event_owner_target.rs:19:48
+   |
+19 |                 <div on_window_resize={|event: rsjs::Event| {
+   |                                                ^^^^^^^^^^^ this event target marker is incompatible with the `on_*` binding
+   |
+   = help: the trait `EventCurrentTargetFor<Window>` is not implemented for `rsjs::elem::Any`
+   = note: parameterize the event type with `rsjs::web::dom::Document` for `on_document_*`, `rsjs::web::dom::Window` for `on_window_*`, or the bound element marker for a local handler; `dom::Any` is element-local only
+   = help: the following other types implement trait `EventCurrentTargetFor<Target>`:
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<HTMLElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::Element>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlDialogElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlFormElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlInputElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlSelectElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlTextAreaElement>`
+             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::elem::Any>`
+           and $N others
+note: required by a bound in `rsjs::__private::assert_event_type`
+  --> $WORKSPACE/rsjs/src/lib.rs
+   |
+   |     pub fn assert_event_type<Target, Interface, E>()
+   |            ----------------- required by a bound in this function
+...
+   |         <E as crate::EventParamStub>::CurrentTarget: EventCurrentTargetFor<Target>,
+   |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_event_type`

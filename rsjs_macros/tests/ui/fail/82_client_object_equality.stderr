@@ -1,0 +1,7 @@
+error: rsjs: direct client value-object equality is not supported
+         help: compare the scalar fields that define the value's meaning
+         note: JavaScript object equality is identity-based and would not preserve Rust structural equality
+  --> tests/ui/fail/82_client_object_equality.rs:11:14
+   |
+11 |         left == right
+   |              ^

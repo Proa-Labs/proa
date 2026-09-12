@@ -1,0 +1,164 @@
+---
+title: Coolify
+description: Deploy a Proa app to Coolify on your own VPS.
+---
+
+A Proa app runs on Coolify as an ordinary Dockerized Rust HTTP server, and Coolify handles TLS, routing, rollbacks, and preview URLs. This page covers [scaffolding the project](#scaffolding-for-coolify), [passing build secrets](#passing-build-secrets), [setting runtime variables](#setting-runtime-variables), and [previewing pull requests](#previewing-pull-requests).
+
+## Scaffolding for Coolify
+
+Generate a site with the Coolify deployment preset:
+
+```bash filename="Terminal"
+proa new site my-site --template marketing --server axum --deploy coolify --tailwind --yes
+cd my-site
+```
+
+The preset writes:
+
+```proa-filetree filename="my-site/"
+Dockerfile
+.dockerignore
+coolify.env.example
+COOLIFY.md
+README.md
+src/main.rs
+public/
+```
+
+The generated server reads `HOST`, `PORT`, `STATIC_DIR`, and `RUST_LOG`. The Dockerfile sets `HOST=0.0.0.0`, exposes port `3000`, copies `public/`, and keeps the GitHub token that fetches Proa's git dependencies in the build stage only.
+
+Coolify needs matching application settings before it can build that image.
+
+## Setting up the application
+
+1. Push the generated project to GitHub.
+2. In Coolify, create an Application from the repository.
+3. Choose the Dockerfile build pack or Dockerfile deployment type.
+4. Set the exposed port to `3000`.
+5. While the Proa repository is private, add a GitHub token with read access to `Proa-Labs/proa` as Docker build secret `github_token`.
+6. Add runtime variables from `coolify.env.example`.
+7. Set the health check path to `/healthz`.
+8. Deploy.
+
+Proa dependencies are fetched from the Proa git repository at build time, so keep the token scoped to the build. The runtime container does not need `GITHUB_TOKEN`, and once the repository is public the build needs no credentials at all.
+
+Docker BuildKit secrets keep that token out of the final image.
+
+## Passing build secrets
+
+The generated Dockerfile expects Docker BuildKit secrets:
+
+```dockerfile filename="Dockerfile"
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+RUN --mount=type=secret,id=github_token \
+    if [ -s /run/secrets/github_token ]; then \
+        git config --global \
+            url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf \
+            "https://github.com/"; \
+    fi \
+    && cargo build --release --bin my-site
+```
+
+If your Coolify setup cannot pass Docker build secrets directly, use a GitHub Actions image pipeline instead:
+
+1. Build the image in GitHub Actions with the `github_token` build secret.
+2. Push the image to GHCR or another Docker registry.
+3. Point Coolify at the prebuilt image.
+
+This is the cleanest production shape because the VPS only needs permission to pull the final image.
+
+Either path produces the same container, and that container reads its configuration from runtime variables.
+
+## Setting runtime variables
+
+Use these runtime variables in Coolify:
+
+```dotenv filename="coolify.env.example"
+HOST=0.0.0.0
+PORT=3000
+STATIC_DIR=/app/public
+RUST_LOG=info
+
+# Build-only secret while the Proa git repository is private.
+# GITHUB_TOKEN=ghp_...
+```
+
+Do not set `GITHUB_TOKEN` as a runtime variable. Set it only when you build from source inside Coolify and cannot use build secrets.
+
+Preview deployments read their own copy of these variables, so scope the sensitive ones before you turn previews on.
+
+## Previewing pull requests
+
+Coolify supports pull request preview deployments for GitHub repositories. Previews can:
+
+- deploy automatically for new pull requests
+- use a unique preview URL template
+- post deployment status comments
+- keep preview secrets separate from production secrets
+- clean up after you merge or close the pull request
+
+Use the GitHub App setup when possible. Automated comments require the GitHub App, and Coolify offers automated preview deployments only for GitHub App based repositories.
+
+For preview domains:
+
+1. Add a wildcard DNS record pointing to the Coolify server, such as `*.preview.example.com`.
+2. In Coolify, enable Preview Deployments for the application.
+3. Use a URL template such as `{{pr_id}}.preview.example.com`.
+4. Keep production secrets in production-only variables.
+5. Use preview-scoped variables for disposable databases, API sandboxes, and limited tokens.
+
+Coolify's docs describe the full setup in [GitHub Preview Deploy](https://coolify.io/docs/applications/ci-cd/github/preview-deploy) and the general [Applications](https://coolify.io/docs/applications) settings page.
+
+Every environment, preview or production, needs a route Coolify can poll for liveness.
+
+## Checking health
+
+Generated Axum sites include a cheap liveness route:
+
+```bash filename="Terminal"
+curl -fsS https://example.com/healthz
+```
+
+Use `/healthz` for Coolify's container health check. If the app needs database readiness, add a separate `/readyz` route and keep `/healthz` cheap.
+
+Where that container gets built, on the VPS or in a pipeline, is the remaining decision.
+
+## When to use prebuilt images?
+
+Use a prebuilt image pipeline when:
+
+- You do not want the GitHub token on the VPS.
+- Builds are too heavy for the production server.
+- You need reproducible image promotion from staging to production.
+- You want the same image digest in production and preview environments.
+
+Use Coolify source builds when:
+
+- The VPS has enough CPU and memory for Rust release builds.
+- You can pass the GitHub token safely as a build secret.
+- You prefer the simplest single-system workflow.
+
+Either way, run the image locally once before you point Coolify at it.
+
+## Verifying before you deploy
+
+Before you deploy:
+
+- `proa build`
+- `docker build --secret id=github_token,env=GITHUB_TOKEN -t my-site .`
+- `docker run --rm -p 3000:3000 -e PORT=3000 my-site`
+- `curl -fsS http://127.0.0.1:3000/healthz`
+- Verify `/static/styles.css` loads.
+- Verify the running container environment holds no `GITHUB_TOKEN`.
+
+## Next steps
+
+- [Deploy](/docs/framework/deployment)
+  - Pick a deployment target, then follow the guide for it.
+- [Environment variables](/docs/framework/environment)
+  - Load runtime configuration, secrets, bind addresses, and static paths.
+- [Docker](/docs/framework/docker)
+  - Run the Proa image yourself, and own everything a platform would have done.
+- [CI / GitHub Actions](/docs/guides/ci)
+  - Gate pull requests with `proa check`, then deploy from the same pipeline.

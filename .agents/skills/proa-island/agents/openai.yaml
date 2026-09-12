@@ -1,0 +1,7 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+interface:
+  display_name: "Proa Island"
+  short_description: "Author lint-guided rsjs islands"
+  default_prompt: "Use $proa-island to add a hydrated #[rsjs(component, client)] render-trait impl with typed events and client-side validation."

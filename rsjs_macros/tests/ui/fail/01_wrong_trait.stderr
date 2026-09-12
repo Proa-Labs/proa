@@ -1,0 +1,15 @@
+error[E0576]: cannot find method or associated constant `__PROA_RENDER_TRAIT_WITNESS` in trait `SomeOtherTrait`
+  --> tests/ui/fail/01_wrong_trait.rs:13:1
+   |
+ 8 |     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError>;
+   |     --------------------------------------------------------------------- associated function `render` defined here
+...
+13 | #[rsjs(component)]
+   | ^^^^^^^^^^^^^^^^^^ not found in `SomeOtherTrait`
+   |
+   = note: this error originates in the attribute macro `rsjs` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: maybe you meant this associated function
+   |
+13 - #[rsjs(component)]
+13 + render
+   |

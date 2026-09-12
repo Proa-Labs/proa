@@ -1,0 +1,53 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: coolify-proxy
+
+networks:
+  coolify:
+    external: true
+
+services:
+  traefik:
+    container_name: coolify-proxy
+    image: "traefik:v3.6"
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - coolify
+    ports:
+      # HAProxy terminates public TLS and forwards Coolify-managed hosts here.
+      - "127.0.0.1:8081:80/tcp"
+    healthcheck:
+      test: "wget -qO- http://localhost:80/ping || exit 1"
+      interval: 4s
+      timeout: 2s
+      retries: 5
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "/data/coolify/proxy/:/traefik"
+    command:
+      - "--ping=true"
+      - "--ping.entrypoint=http"
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      - "--entrypoints.http.address=:80"
+      - "--entrypoints.https.address=:443"
+      - "--entrypoints.http.forwardedheaders.trustedips=127.0.0.1/32,10.200.1.1/32"
+      - "--entrypoints.https.forwardedheaders.trustedips=127.0.0.1/32,10.200.1.1/32"
+      - "--entrypoints.http.http.encodequerysemicolons=true"
+      - "--entryPoints.http.http2.maxConcurrentStreams=250"
+      - "--entrypoints.https.http.encodequerysemicolons=true"
+      - "--entryPoints.https.http2.maxConcurrentStreams=250"
+      - "--providers.file.directory=/traefik/dynamic/"
+      - "--providers.file.watch=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.entrypoints=http"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+      - "coolify.managed=true"
+      - "coolify.proxy=true"

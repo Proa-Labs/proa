@@ -1,0 +1,5 @@
+error: optional builder method `with_value` is already generated for field `low`; every builder method name must be unique
+ --> tests/proa_component_fail/optional_builder_duplicate_name.rs:8:36
+  |
+8 |     #[component(optional_builder = "with_value")]
+  |                                    ^^^^^^^^^^^^

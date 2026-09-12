@@ -1,0 +1,7 @@
+/* Copyright Proa Labs, Inc. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+@layer theme, base, proa-compat, components, utilities;
+@import "tailwindcss";
+@import "../public/proa/proa-ui/proa-free.css";
+@source "../src/**/*.rs";

@@ -1,0 +1,245 @@
+---
+title: Components
+description: How Proa components are plain structs, how props and children flow, and how the recipe system styles them.
+keywords: [WebRenderSync, WebRender, to_async, await_component, ProaComponent]
+---
+
+A Proa component is a struct plus a render impl. There is no component macro, no virtual DOM, and no runtime registry: the struct is the props, the impl is the template, and the compiler is the type check.
+
+<Callout>
+You do not have to write the common ones yourself. [proa-ui](https://ui.proa.so/docs) is a shadcn-style catalog of Proa components, and `proa ui add button` vendors the source into `src/components/button/` in your project. You own the files and edit them exactly like the ones on this page.
+</Callout>
+
+```rust filename="src/components/button/button.rs"
+pub struct Button<C = ()> {
+    pub variant: ButtonVariant,
+    pub size: ButtonSize,
+    pub disabled: bool,
+    pub class: Option<&'static str>,
+    pub children: Option<C>,
+}
+```
+
+That declaration is the component's public API. Every field is a prop, `rustdoc` documents it for free, and passing an unknown one is a compile error rather than a silently ignored attribute.
+
+## Rendering a component
+
+Put a struct literal in braces inside a template and it renders in place:
+
+```rust filename="src/pages/home.rs"
+html_sync! {
+    <div class="flex gap-2">
+        {Button { children: Some("Save"), ..Button::default() }}
+        {Button {
+            variant: ButtonVariant::Outline,
+            children: Some("Cancel"),
+            ..Button::default()
+        }}
+    </div>
+}
+```
+
+Struct-literal syntax is doing real work here. `..Button::default()` is Rust's functional update, so a component with twelve props stays readable when a caller sets two, and the defaults live in one `Default` impl instead of being scattered across call sites.
+
+There is no separate props type to keep in sync, and nothing is boxed: the literal is constructed on the stack and consumed by `render`.
+
+## Writing the render impl
+
+The impl decides which trait the component supports. Use `WebRenderSync` unless the component genuinely awaits:
+
+```rust filename="src/components/button/button.rs"
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+
+impl<L, C> WebRenderSync<L> for Button<C>
+where
+    L: DataLoader,
+    C: WebRenderSync<L>,
+{
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <button
+                data-button
+                data-variant={self.variant.as_str()}
+                data-size={self.size.as_str()}
+                type="button"
+                class={button_classes(self.variant, self.size, self.class)}
+                disabled={self.disabled}
+            >
+                {self.children}
+            </button>
+        }
+        .render(cx)
+    }
+}
+```
+
+`render` takes `self` by value, so props move into the template with no clone and no borrow to satisfy.
+
+## Children
+
+A component that wraps caller content is generic over its children, and the bound is the same render trait the parent implements:
+
+```rust
+impl<L, C> WebRenderSync<L> for Button<C>
+where
+    C: WebRenderSync<L>,
+```
+
+`C = ()` in the struct definition supplies the default, so `Button::default()` works without a turbofish for a button with no children. The render bound constrains only the child type; other generics on the struct stay unconstrained.
+
+Children are `Option<C>` because `Option<T>` renders nothing when `None`. Optional content needs no branch in the template:
+
+```rust filename="src/components/panel.rs"
+html_sync! {
+    <section data-panel>
+        {self.subtitle}
+        {self.children}
+    </section>
+}
+```
+
+## Styling: recipes, not class strings
+
+Proa is opinionated about where classes live. A component does not build a class string at render time; it selects between static fragments that were resolved at compile time. The convention, borrowed from shadcn/ui's variant vocabulary and Panda CSS's recipe model, splits every component into two files.
+
+`recipe.rs` owns the styling. Each variant axis is an enum whose `classes()` maps a semantic name to a class fragment:
+
+```rust filename="src/components/button/recipe.rs"
+mod base {
+    pub const BUTTON_BASE: &str =
+        "inline-flex items-center justify-center rounded-md text-sm font-medium";
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonVariant {
+    #[default]
+    Solid,
+    Outline,
+    Ghost,
+}
+
+impl ButtonVariant {
+    pub const fn classes(self) -> &'static str {
+        match self {
+            Self::Solid => "bg-primary text-primary-foreground hover:bg-primary/90",
+            Self::Outline => "border border-input bg-background hover:bg-accent",
+            Self::Ghost => "hover:bg-accent hover:text-accent-foreground",
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Solid => "solid",
+            Self::Outline => "outline",
+            Self::Ghost => "ghost",
+        }
+    }
+}
+```
+
+Both methods are `const fn`, so a variant is a compile-time selection between `&'static str` fragments. The paired `as_str` is what the component renders into `data-variant`.
+
+One function composes the axes, returning a stack-allocated [`ClassList`](/docs/core/class-composition) rather than a `String`:
+
+```rust filename="src/components/button/recipe.rs"
+pub fn button_classes(
+    variant: ButtonVariant,
+    size: ButtonSize,
+    class: Option<&'static str>,
+) -> ClassList<4> {
+    ClassList::new()
+        .add(base::BUTTON_BASE)
+        .add(variant.classes())
+        .add(size.classes())
+        .add_opt(class)
+}
+```
+
+`add_opt` is the escape hatch: callers extend a component with `class: Some("w-full")` without the component owning every combination.
+
+Rendering `Button { children: Some("Save"), ..Button::default() }` produces:
+
+```html
+<button data-button data-variant="solid" data-size="md" type="button"
+        class="inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4">Save</button>
+```
+
+Two conventions show up in that output and both are deliberate:
+
+- **`data-button`** marks the component root. Every component renders a bare `data-<name>` attribute so tests and browser automation can select it without depending on class strings.
+- **`data-variant` / `data-size`** publish the resolved variant. Styling reads from `class`, but assertions, visual regression tooling, and CSS overrides read the semantic value.
+
+## One component, two output targets
+
+A component is not tied to HTML. Implement `MdRenderSync` on the same struct and it renders into a Markdown response as well, which is how a route serves HTML to browsers and Markdown to agents from a single component tree.
+
+Most interactive chrome has no Markdown equivalent, so the Markdown impl usually renders the meaning rather than the widget. A button is its label:
+
+```rust filename="src/components/button/md.rs"
+use proa_core::md::MdContext;
+use proa_core::{MdRenderSync, WriteBuf, WriteError};
+
+/// Button renders as just its label text; the visual chrome is meaningless in Markdown.
+impl<B: WriteBuf, C: MdRenderSync<B>> MdRenderSync<B> for Button<C> {
+    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+        let prev = cx.set_inline(true);
+        self.children.render_md(cx)?;
+        cx.set_inline(prev);
+        Ok(())
+    }
+}
+```
+
+`set_inline(true)` marks the span as inline so nested block components degrade instead of injecting newlines into a table cell or a link label. It returns the previous value, which the impl restores rather than assuming the context started inline.
+
+A component that emits block-level Markdown (a heading, a table, a list) has the opposite obligation: call `cx.block_boundary()` before its first block byte and after its last, because it cannot know what its previous sibling wrote. `block_boundary` is a no-op in inline context, so the same impl stays correct in both.
+
+> **Good to know**: The two impls are independent. A component can implement `WebRenderSync` only, both, or add `WebRender` when it needs to `.await`. See [HTML rendering](/docs/core/html-rendering) for the sync and async split, and [Markdown rendering](/docs/core/markdown) for the Markdown macros.
+
+## Crossing the sync and async boundary
+
+A sync-only component composes into an async tree through `to_async(...)`:
+
+```rust filename="src/pages/dashboard.rs"
+html! {
+    <main>
+        {proa_core::to_async(Button { children: Some("Save"), ..Button::default() })}
+    </main>
+}
+```
+
+When a future resolves to a renderable child, use `await_component(...)` instead. An async child cannot appear inside `html_sync!` at all: move the boundary up to `WebRender` and `html!`, or await the data before rendering.
+
+## How proa-ui scales this
+
+The [proa-ui](https://ui.proa.so/docs) component library runs the same model with two additions that matter once a component has several independent style axes.
+
+**A resolver instead of a helper function.** Props arrive as `Option`, and a const recipe resolves them against defaults into one `Copy` style value:
+
+```rust filename="proa_ui/src/components/button/recipe.rs"
+pub const BUTTON_RECIPE: ButtonRecipe = ButtonRecipe {
+    base: base::BUTTON_BASE,
+    size_default: Some(ButtonSize::Md),
+    color_default: Some(ButtonColor::Primary),
+    variant_default: Some(ButtonVariant::Solid),
+    radius_default: Some(ButtonRadius::Md),
+};
+```
+
+`BUTTON_RECIPE.resolve(props)` returns a `ButtonStyle` that implements `AttrValue`, so it streams its class fragments straight into the response buffer with no intermediate `ClassList` or `String`. It also carries the effective values, which is what feeds `data-size`, `data-color`, `data-variant`, and `data-radius`.
+
+**Compound variants.** Independent axes concatenate, but `color x variant` does not: an outline destructive button is not "destructive classes plus outline classes". proa-ui resolves that pair in one place, `color.classes_for(variant)`, rather than layering two fragments and hoping the cascade agrees.
+
+The library also derives `#[derive(ProaVariant)]` on its variant enums to publish variant metadata (labels, values, classes) for its catalog and TypeScript codegen. That derive expands to an impl of proa-ui's own `VariantSpec` trait, so it belongs to the library's infrastructure rather than to application components; a component in your app uses plain enums exactly as shown above.
+
+## Next steps
+
+- [HTML rendering](/docs/core/html-rendering)
+  - Elements, attributes, control flow, and the sync and async render traits.
+- [Class composition](/docs/core/class-composition)
+  - `ClassList`, capacity, and the allocation to avoid in a render path.
+- [Markdown rendering](/docs/core/markdown)
+  - The `md_sync!` and `md!` template macros behind an `MdRenderSync` impl.
+- [Islands: when and why](/docs/guides/islands)
+  - Add browser behavior to a component with RSJS.

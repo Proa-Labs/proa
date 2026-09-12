@@ -1,0 +1,11 @@
+error: <button> cannot be nested inside another <button>. extract the inner button to be a sibling, or restructure the UI (HTML §4.10.6)
+ --> tests/ui/fail/nesting_button_in_button.rs:5:27
+  |
+5 |     html_sync! { <button><button>"bad"</button></button> };
+  |                           ^^^^^^
+
+error: <button> cannot appear inside <button> — interactive content cannot be nested. move the <button> outside the <button>, or restructure the UI (HTML §3.2.5.2.7)
+ --> tests/ui/fail/nesting_button_in_button.rs:5:27
+  |
+5 |     html_sync! { <button><button>"bad"</button></button> };
+  |                           ^^^^^^

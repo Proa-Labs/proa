@@ -1,0 +1,5 @@
+error: rsjs/integer-domain-mismatch: typed handler-local initializer mixes `i32` and `i64`; use one exact Rust integer type
+  --> tests/ui/fail/65_typed_local_conditional_integer_mismatch.rs:15:34
+   |
+15 |                 let value: i64 = (if flag.get() { 1_i32 } else { 2 });
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

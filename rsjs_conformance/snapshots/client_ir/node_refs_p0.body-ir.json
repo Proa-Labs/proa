@@ -1,0 +1,217 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "effect": {
+        "kind": "focus"
+      },
+      "kind": "node_ref_effect",
+      "ref": 0
+    },
+    {
+      "effect": {
+        "kind": "click"
+      },
+      "kind": "node_ref_effect",
+      "ref": 0
+    },
+    {
+      "effect": {
+        "kind": "request_submit"
+      },
+      "kind": "node_ref_effect",
+      "ref": 1
+    },
+    {
+      "effect": {
+        "kind": "reset"
+      },
+      "kind": "node_ref_effect",
+      "ref": 1
+    },
+    {
+      "effect": {
+        "kind": "show_modal"
+      },
+      "kind": "node_ref_effect",
+      "ref": 2
+    },
+    {
+      "effect": {
+        "kind": "close"
+      },
+      "kind": "node_ref_effect",
+      "ref": 2
+    },
+    {
+      "effect": {
+        "kind": "show_popover"
+      },
+      "kind": "node_ref_effect",
+      "ref": 3
+    },
+    {
+      "effect": {
+        "kind": "hide_popover"
+      },
+      "kind": "node_ref_effect",
+      "ref": 3
+    },
+    {
+      "effect": {
+        "kind": "toggle_popover"
+      },
+      "kind": "node_ref_effect",
+      "ref": 3
+    },
+    {
+      "effect": {
+        "kind": "scroll_to",
+        "x": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 0
+          }
+        },
+        "y": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 32
+          }
+        }
+      },
+      "kind": "node_ref_effect",
+      "ref": 0
+    },
+    {
+      "effect": {
+        "kind": "scroll_by",
+        "x": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 0
+          }
+        },
+        "y": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 8
+          }
+        }
+      },
+      "kind": "node_ref_effect",
+      "ref": 0
+    },
+    {
+      "effect": {
+        "kind": "select"
+      },
+      "kind": "node_ref_effect",
+      "ref": 0
+    },
+    {
+      "effect": {
+        "kind": "set_value",
+        "value": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": ""
+          }
+        }
+      },
+      "kind": "node_ref_effect",
+      "ref": 0
+    },
+    {
+      "effect": {
+        "end": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 0
+          }
+        },
+        "kind": "set_selection_range",
+        "start": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 0
+          }
+        }
+      },
+      "kind": "node_ref_effect",
+      "ref": 0
+    },
+    {
+      "effect": {
+        "kind": "set_attribute",
+        "name": "aria-expanded",
+        "value": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "false"
+          }
+        }
+      },
+      "kind": "node_ref_effect",
+      "ref": 0
+    },
+    {
+      "effect": {
+        "kind": "remove_attribute",
+        "name": "hidden"
+      },
+      "kind": "node_ref_effect",
+      "ref": 0
+    },
+    {
+      "effect": {
+        "kind": "set_style_property",
+        "name": "outline-color",
+        "value": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "transparent"
+          }
+        }
+      },
+      "kind": "node_ref_effect",
+      "ref": 0
+    },
+    {
+      "args": [
+        {
+          "accessor": "attribute",
+          "kind": "node_ref_read",
+          "name": "data-kind",
+          "ref": 0
+        },
+        {
+          "accessor": "has_attribute",
+          "kind": "node_ref_read",
+          "name": "hidden",
+          "ref": 0
+        }
+      ],
+      "kind": "console",
+      "level": "log"
+    },
+    {
+      "kind": "signal_set",
+      "signal": 0,
+      "value": {
+        "accessor": "value",
+        "kind": "node_ref_read",
+        "ref": 0
+      }
+    }
+  ]
+}

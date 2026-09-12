@@ -1,0 +1,46 @@
+{
+  "name": "proa",
+  "displayName": "Proa",
+  "description": "Proa editor support, including Rust highlighting and navigation inside Markdown templates using your existing rust-analyzer.",
+  "publisher": "proa-labs",
+  "version": "0.2.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Proa-Labs/proa.git",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./extension.cjs",
+  "activationEvents": [
+    "onLanguage:rust"
+  ],
+  "extensionDependencies": [
+    "rust-lang.rust-analyzer"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "prepare": "node scripts/sync-core.mjs",
+    "pretest": "node scripts/sync-core.mjs",
+    "vscode:prepublish": "node scripts/sync-core.mjs"
+  },
+  "files": [
+    "extension.cjs",
+    "src",
+    "README.md",
+    "LICENSE"
+  ]
+}

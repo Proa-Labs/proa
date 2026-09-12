@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic deck illustration</title>
+  <desc id="desc">A geometric outdoor deck and hills, created for Proa fixtures.</desc>
+  <rect width="1200" height="800" fill="#dcebed"/>
+  <circle cx="180" cy="150" r="72" fill="#fff1bf"/>
+  <path d="M0 390l250-170 250 160 235-125 465 225v320H0z" fill="#688d79"/>
+  <path d="M0 500l330-155 300 130 260-115 310 130v310H0z" fill="#476d63"/>
+  <path d="M0 585h1200v215H0z" fill="#b88256"/>
+  <path d="M0 635h1200M0 700h1200M120 585v215m140-215v215m140-215v215m140-215v215m140-215v215m140-215v215m140-215v215m140-215v215" stroke="#8a5d3f" stroke-width="8"/>
+  <circle cx="585" cy="590" r="82" fill="#273a38"/>
+  <circle cx="585" cy="590" r="42" fill="#ef8c4f"/>
+  <path d="M170 570h230v20H170zm24 20h18v120h-18zm165 0h18v120h-18z" fill="#f0e5d4"/>
+</svg>

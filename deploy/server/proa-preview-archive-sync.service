@@ -1,0 +1,44 @@
+[Unit]
+Description=Retain immutable Proa preview deployments
+After=docker.service network-online.target proa-preview-archive-router.service
+Wants=network-online.target
+Requires=docker.service proa-preview-archive-router.service
+ConditionPathExists=/var/run/docker.sock
+OnFailure=proa-preview-archive-alert@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/proa/preview-archive.env
+Environment=PROA_ARCHIVE_STATE_DIR=/var/lib/proa-preview-archive
+Environment=DOCKER_CONFIG=/run/proa-preview-archive-sync
+ExecStart=/usr/local/sbin/proa-preview-archive-sync
+ExecStartPost=/usr/local/sbin/proa-preview-archive-monitor record-success
+TimeoutStartSec=15min
+RuntimeDirectory=proa-preview-archive-sync
+RuntimeDirectoryMode=0700
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectProc=invisible
+ProtectSystem=strict
+ReadWritePaths=/var/lib/proa-preview-archive
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources

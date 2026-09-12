@@ -1,0 +1,41 @@
+---
+title: Agent terminal
+description: Insert the stock agent-fetch block on a page.
+---
+
+<Callout>
+Opt-in. Enable it in `build.rs` before use.
+</Callout>
+
+Lowers to a fixed text block illustrating how an agent consumes a Proa docs page: fetch the page, receive server-rendered HTML, extract the content with no client JavaScript.
+
+```mdx filename="content/quickstart.mdx"
+<AgentTerminal />
+```
+
+The tag takes no attributes and is self-closing. Its content is fixed; it is a shorthand for the agent-fetch illustration, not a container for your own transcript. It emits:
+
+```text
+Agent fetches page -> receives server-rendered HTML -> extracts content without client JavaScript
+```
+
+## Enabling
+
+The `MdxConfig::proa()` preset enables this along with the other opt-in components. To turn on just this one:
+
+```rust filename="build.rs"
+use proa_docs_build::{Config, MarkdownPipeline, MdxConfig};
+
+let markdown = MarkdownPipeline::default().mdx(MdxConfig::new().agent_terminal(true));
+let config = Config::new().source(source.markdown(markdown));
+```
+
+Like [Cards](/docs/proa-docs/cards) and [Files](/docs/proa-docs/files), it is off by default. Left off, the tag is not lowered, and the Markdown renderer drops it like any other block-level raw HTML.
+
+## When to reach for it
+
+The block earns its place where you are making the agent-readability point itself: a quickstart or an agents page, next to the claim that a Proa page needs no client JavaScript to be read. For an actual command session, use a plain `bash` [code block](/docs/proa-docs/code-block) with a copy button: readers copy commands far more often than they watch them.
+
+## Related
+
+[Code block](/docs/proa-docs/code-block) · [Demo](/docs/proa-docs/demo) · [Quickstart](/docs/proa-docs/quickstart)

@@ -1,0 +1,5 @@
+error: `rsjs::server_fetcher(...)` is no longer supported; load through the render `cx` before declaring the query and pass that value to `rsjs::query_with_initial(...)`
+  --> tests/ui/conformance/fail/42_query_server_fetcher.rs:23:17
+   |
+23 |                 rsjs::server_fetcher(|_cx| async move {
+   |                 ^^^^

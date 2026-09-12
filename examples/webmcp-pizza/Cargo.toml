@@ -1,0 +1,34 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_webmcp_pizza"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+license-file.workspace = true
+description = "End-to-end Proa, Wellformed, RSJS, and WebMCP pizza-order demo"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+proa_core = { workspace = true }
+proa_macros = { workspace = true }
+regex = { workspace = true }
+rsjs = { workspace = true }
+rsjs_macros = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+wellformed = { version = "0.1.1" }
+wellformed-macros = { version = "0.1.0" }
+wellformed-validate = { version = "0.1.0" }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+
+[lints]
+workspace = true

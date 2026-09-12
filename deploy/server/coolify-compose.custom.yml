@@ -1,0 +1,17 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  coolify:
+    # Keep the management plane private; HAProxy is the only public TLS edge.
+    ports: !override
+      - "127.0.0.1:8000:8080"
+    # Docker's default bridge is intentionally unused on this host, so point
+    # Coolify at the gateway of its persistent management network instead.
+    extra_hosts: !override
+      - "host.docker.internal:10.200.1.1"
+
+  soketi:
+    ports: !override
+      - "127.0.0.1:6001:6001"
+      - "127.0.0.1:6002:6002"

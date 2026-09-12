@@ -1,0 +1,35 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "let",
+      "local": 0,
+      "name": "next",
+      "ty": {
+        "kind": "string"
+      },
+      "value": {
+        "kind": "event_read",
+        "value": "target_value"
+      }
+    },
+    {
+      "args": [
+        {
+          "kind": "local",
+          "local": 0
+        }
+      ],
+      "kind": "console",
+      "level": "log"
+    },
+    {
+      "callback": 0,
+      "kind": "callback_invoke",
+      "payload": {
+        "kind": "local",
+        "local": 0
+      }
+    }
+  ]
+}

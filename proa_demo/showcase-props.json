@@ -1,0 +1,2257 @@
+{
+  "home": {
+    "listings": [
+      {
+        "title": "Malibu Beach House",
+        "location": "Malibu, California",
+        "price_per_night": 350,
+        "rating": "4.92",
+        "property_type": "Entire home",
+        "image": "/images/airbnb/bedroom.jpg"
+      },
+      {
+        "title": "Santa Monica Studio",
+        "location": "Santa Monica, California",
+        "price_per_night": 185,
+        "rating": "4.87",
+        "property_type": "Entire guest suite",
+        "image": "/images/airbnb/deck-wine.jpg"
+      },
+      {
+        "title": "Pacific Palisades Villa",
+        "location": "Pacific Palisades, California",
+        "price_per_night": 520,
+        "rating": "4.95",
+        "property_type": "Entire villa",
+        "image": "/images/airbnb/exterior.jpg"
+      },
+      {
+        "title": "Topanga Canyon Cabin",
+        "location": "Topanga, California",
+        "price_per_night": 210,
+        "rating": "4.89",
+        "property_type": "Entire cabin",
+        "image": "/images/airbnb/ocean-view.jpg"
+      },
+      {
+        "title": "Venice Beach Loft",
+        "location": "Venice, California",
+        "price_per_night": 275,
+        "rating": "4.78",
+        "property_type": "Entire loft",
+        "image": "/images/airbnb/deck.jpg"
+      },
+      {
+        "title": "Malibu Airstream Suite",
+        "location": "Malibu, California",
+        "price_per_night": 295,
+        "rating": "4.80",
+        "property_type": "Tiny home",
+        "image": "/images/airbnb/bedroom.jpg"
+      }
+    ],
+    "homes_sections": [
+      {
+        "title": "Popular homes in Los Angeles",
+        "subtitle": "",
+        "listing_indexes": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          0
+        ]
+      },
+      {
+        "title": "Featured hotels in Los Angeles",
+        "subtitle": "A collection of independent and handpicked hotels",
+        "listing_indexes": [
+          2,
+          4,
+          1,
+          5,
+          3,
+          0,
+          2
+        ]
+      },
+      {
+        "title": "Stay by the beach in Malibu",
+        "subtitle": "Ocean-facing stays with relaxed design details",
+        "listing_indexes": [
+          5,
+          0,
+          1,
+          4,
+          2,
+          3,
+          5
+        ]
+      }
+    ],
+    "experiences_sections": [
+      {
+        "title": "Book experiences led by locals",
+        "subtitle": "Design-minded activities around Los Angeles",
+        "listing_indexes": [
+          1,
+          3,
+          5,
+          0,
+          2,
+          4,
+          1
+        ]
+      },
+      {
+        "title": "Food, movement, and culture",
+        "subtitle": "Small-group experiences with polished presentation",
+        "listing_indexes": [
+          4,
+          2,
+          0,
+          5,
+          1,
+          3,
+          4
+        ]
+      }
+    ],
+    "services_sections": [
+      {
+        "title": "Services for your stay",
+        "subtitle": "Private chefs, photography, and wellness add-ons",
+        "listing_indexes": [
+          2,
+          5,
+          3,
+          1,
+          4,
+          0,
+          2
+        ]
+      },
+      {
+        "title": "Top-rated service pros nearby",
+        "subtitle": "Curated services that feel native to the Airbnb flow",
+        "listing_indexes": [
+          3,
+          0,
+          4,
+          1,
+          5,
+          2,
+          3
+        ]
+      }
+    ]
+  },
+  "search": {
+    "title": "Malibu \u2014 Vacation Rentals",
+    "subtitle": "Entire homes and unique stays",
+    "stay_info": "Feb 15\u201322 \u00b7 2 guests",
+    "filters": [
+      "Price",
+      "Type of place",
+      "Rooms and beds",
+      "Amenities",
+      "Book instantly"
+    ],
+    "listings": [
+      {
+        "title": "Malibu Beach House",
+        "location": "Malibu, California",
+        "price_per_night": 350,
+        "rating": "4.92",
+        "reviews_count": 128,
+        "property_type": "Entire home",
+        "beds": 3,
+        "baths": 2,
+        "image": "/images/airbnb/bedroom.jpg"
+      },
+      {
+        "title": "Santa Monica Studio",
+        "location": "Santa Monica, California",
+        "price_per_night": 185,
+        "rating": "4.87",
+        "reviews_count": 94,
+        "property_type": "Entire guest suite",
+        "beds": 1,
+        "baths": 1,
+        "image": "/images/airbnb/deck-wine.jpg"
+      },
+      {
+        "title": "Pacific Palisades Villa",
+        "location": "Pacific Palisades, California",
+        "price_per_night": 520,
+        "rating": "4.95",
+        "reviews_count": 67,
+        "property_type": "Entire villa",
+        "beds": 5,
+        "baths": 4,
+        "image": "/images/airbnb/exterior.jpg"
+      },
+      {
+        "title": "Topanga Canyon Cabin",
+        "location": "Topanga, California",
+        "price_per_night": 210,
+        "rating": "4.89",
+        "reviews_count": 156,
+        "property_type": "Entire cabin",
+        "beds": 2,
+        "baths": 1,
+        "image": "/images/airbnb/ocean-view.jpg"
+      },
+      {
+        "title": "Venice Beach Loft",
+        "location": "Venice, California",
+        "price_per_night": 275,
+        "rating": "4.78",
+        "reviews_count": 203,
+        "property_type": "Entire loft",
+        "beds": 2,
+        "baths": 2,
+        "image": "/images/airbnb/deck.jpg"
+      },
+      {
+        "title": "Malibu Airstream Suite",
+        "location": "Malibu, California",
+        "price_per_night": 295,
+        "rating": "4.80",
+        "reviews_count": 247,
+        "property_type": "Tiny home",
+        "beds": 1,
+        "baths": 1,
+        "image": "/images/airbnb/bedroom.jpg"
+      }
+    ]
+  },
+  "listing": {
+    "title": "Breathtaking Malibu Ocean View Sanctuary",
+    "location": "Malibu, California, United States",
+    "location_short": "Malibu",
+    "property_line": "Entire home in Malibu, California",
+    "rating": "4.92",
+    "review_count": 75,
+    "overview_summary": "6 guests \u00b7 3 bedrooms \u00b7 3 beds \u00b7 3.5 baths",
+    "description": "Experience panoramic ocean and canyon views at this one-of-a-kind Malibu home, overlooking one of the most pristine canyons in Malibu.\n\nThis stunning 3 BD / 3.5 BA home was recently renovated into a modern sanctuary to reset in nature while staying close to the coast. The architecture frames sunrise, marine layer, and sunset with the kind of calm that makes you slow down immediately.\n\nFurniture may differ slightly from older photos, but the overall atmosphere remains a warm modern retreat with strong indoor-outdoor flow.",
+    "nightly_rate": 1042,
+    "cleaning_fee": 375,
+    "service_fee": 545,
+    "total_amenity_count": 46,
+    "photos": [
+      {
+        "src": "/images/airbnb/external/8db0ac0c-2124-4588-8331-e3d7b619bc0d.jpeg",
+        "alt": "Main living room with glass walls and ocean view"
+      },
+      {
+        "src": "/images/airbnb/external/10e86c22-a721-4299-82fd-b1787f71ea22.jpeg",
+        "alt": "Terrace overlooking canyon and ocean"
+      },
+      {
+        "src": "/images/airbnb/external/cd18a7b0-de22-453b-a61a-0a641a44833f.jpeg",
+        "alt": "Warm-toned sitting area with canyon light"
+      },
+      {
+        "src": "/images/airbnb/external/52635eec-5de9-443c-acf9-04a4177061b0.jpeg",
+        "alt": "Bedroom with sliding doors to the deck"
+      },
+      {
+        "src": "/images/airbnb/external/d09a38d0-28a7-4c4f-a142-55c93a0047ee.jpeg",
+        "alt": "Kitchen and dining area framed by large windows"
+      }
+    ],
+    "highlights": [
+      {
+        "title": "Exceptional check-in experience",
+        "description": "Recent guests gave the check-in process a 5-star rating."
+      },
+      {
+        "title": "Beautiful area",
+        "description": "Guests love this home's scenic location and sense of privacy."
+      },
+      {
+        "title": "Ocean and mountain views",
+        "description": "Guests consistently call out the canyon light and coastal panorama."
+      }
+    ],
+    "amenities": [
+      "Ocean view",
+      "Valley view",
+      "Shared beach access",
+      "Kitchen",
+      "Wifi",
+      "Free parking on premises",
+      "HDTV with premium cable, Chromecast",
+      "Free washer - In unit",
+      "Free dryer - In unit",
+      "Air conditioning"
+    ],
+    "review_distribution": [
+      [
+        "5",
+        96
+      ],
+      [
+        "4",
+        1
+      ],
+      [
+        "3",
+        1
+      ],
+      [
+        "2",
+        1
+      ],
+      [
+        "1",
+        0
+      ]
+    ],
+    "review_scores": {
+      "cleanliness": "4.9",
+      "accuracy": "4.9",
+      "check_in": "5.0",
+      "communication": "5.0",
+      "location": "4.9",
+      "value": "4.8"
+    },
+    "reviews": [
+      {
+        "name": "Jessy",
+        "location": "San Francisco, California",
+        "date": "DATE",
+        "duration": "Stayed a few nights",
+        "body": "Thanks so much for a lovely visit. We so enjoyed the gorgeous view, the fire pit at sunset and the great views from inside too.",
+        "avatar": "/images/airbnb/external/avatar-jessy.jpg"
+      },
+      {
+        "name": "Calvin",
+        "location": "New York, New York",
+        "date": "DATE",
+        "duration": "Stayed about a week",
+        "body": "Incredible views. Really pleasant and helpful owner. The house is something out of the ordinary, stepping down from the cliff with cozy balconies.",
+        "avatar": "/images/airbnb/external/avatar-calvin.jpeg"
+      }
+    ],
+    "house_rules": [
+      "Check-in after 4:00 PM",
+      "Checkout before 11:00 AM",
+      "6 guests maximum",
+      "No parties or events"
+    ],
+    "safety_items": [
+      "Exterior security cameras on property",
+      "Smoke alarm",
+      "Carbon monoxide alarm"
+    ],
+    "cancellation_items": [
+      "Free cancellation before March 13.",
+      "Cancel before check-in on March 18 for a partial refund."
+    ],
+    "nearby_links": [
+      "Southern California vacation rentals",
+      "Los Angeles vacation rentals",
+      "Malibu monthly stays"
+    ],
+    "host": {
+      "name": "Darya",
+      "photo": "/images/airbnb/external/host-darya.jpg",
+      "review_count": 76,
+      "years_hosting": 7,
+      "response_rate": "100%",
+      "response_time": "1 hr",
+      "bio": "Superhosts are experienced, highly rated hosts who are committed to providing great stays for guests."
+    },
+    "cohost": {
+      "name": "Matt",
+      "photo": "/images/airbnb/external/cohost-matt.jpg"
+    },
+    "booking": {
+      "check_in": "DATE",
+      "checkout": "DATE",
+      "check_in_display": "DATE",
+      "checkout_display": "DATE",
+      "range_label": "DATE - DATE",
+      "guests": "2 guests",
+      "free_cancel_date": "March 13",
+      "nights": 7
+    }
+  },
+  "nike-catalog": {
+    "title": "Men's Shoes & Sneakers",
+    "products": [
+      {
+        "title": "Air Jordan 14 Retro",
+        "subtitle": "Men's Shoes",
+        "price": "$205",
+        "messaging": "Coming Soon",
+        "image": "/images/nike/AIR+JORDAN+14+RETRO.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Mind 002",
+        "subtitle": "Men's Shoes",
+        "price": "$145",
+        "messaging": "Just In",
+        "image": "/images/nike/NIKE+MIND+002.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#808080",
+          "background-color:#6C5627"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike Pegasus Premium",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$220",
+        "messaging": "Best Seller",
+        "image": "/images/nike/NIKE+PEGASUS+PREMIUM+CM.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Vomero Plus",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$190",
+        "messaging": "",
+        "image": "/images/nike/NIKE+VOMERO+PLUS.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#1F4090",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Ava X",
+        "subtitle": "Men's Shoes",
+        "price": "$125",
+        "messaging": "",
+        "image": "/images/nike/NIKE+AVA+X.png",
+        "colors": [
+          "background-color:#EFBF4D",
+          "background-color:#808080"
+        ],
+        "color_count": "2 Colors"
+      },
+      {
+        "title": "Nike Air Max Plus VII",
+        "subtitle": "Men's Shoes",
+        "price": "$190",
+        "messaging": "",
+        "image": "/images/nike/NIKE+AIR+MAX+PLUS+VII.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#E1533D",
+          "background-color:#EFBF4D",
+          "background-color:#B40033",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Air Max Dn8",
+        "subtitle": "Men's Shoes",
+        "price": "$220",
+        "messaging": "",
+        "image": "/images/nike/AIR+MAX+DN8+NRG.png",
+        "colors": [
+          "background-color:#FF00FF",
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#1F4090"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Air Max Dn8 Leather",
+        "subtitle": "Men's Shoes",
+        "price": "$210",
+        "messaging": "",
+        "image": "/images/nike/AIR+MAX+DN8+LTHR.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#26292B",
+          "background-color:#808080",
+          "background-color:#6C5627"
+        ],
+        "color_count": "4 Colors"
+      },
+      {
+        "title": "Nike Mercurial Vapor 16 Elite",
+        "subtitle": "Firm-Ground Low-Top Soccer Cleats",
+        "price": "$280",
+        "messaging": "",
+        "image": "/images/nike/ZM+VAPOR+16+ELITE+KM+FG.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#FF00FF",
+          "background-color:#007A44",
+          "background-color:#26292B",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Mercurial Superfly 10 Elite",
+        "subtitle": "FG High-Top Soccer Cleats",
+        "price": "$305",
+        "messaging": "",
+        "image": "/images/nike/ZM+SUPERFLY+10+ELITE+FG+KM.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#FF00FF",
+          "background-color:#26292B",
+          "background-color:#007A44",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Book 2 \"Spiridon\"",
+        "subtitle": "Basketball Shoes",
+        "price": "$145",
+        "messaging": "Best Seller",
+        "image": "/images/nike/BOOK+2+SP.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#FFFFFF",
+          "background-color:#26292B"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike Air Max Uptempo '95",
+        "subtitle": "Men's Shoes",
+        "price": "$170",
+        "messaging": "Just In",
+        "image": "/images/nike/AIR+MAX+UPTEMPO+'95.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Giannis Freak 7",
+        "subtitle": "Basketball Shoes",
+        "price": "$115",
+        "messaging": "",
+        "image": "/images/nike/GIANNIS+FREAK+7.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#B40033",
+          "background-color:#EEF3FF",
+          "background-color:#472B7E"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Sabrina 3 \"Oregon\"",
+        "subtitle": "Basketball Shoes",
+        "price": "$135",
+        "messaging": "Just In",
+        "image": "/images/nike/SABRINA+3+OR.png",
+        "colors": [
+          "background-color:#EFBF4D",
+          "background-color:#EEF3FF",
+          "background-color:#007A44",
+          "background-color:#E1533D",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Air Jordan Skyline Low",
+        "subtitle": "Men's Shoes",
+        "price": "$100",
+        "messaging": "Best Seller",
+        "image": "/images/nike/AIR+JORDAN+SKYLINE+LOW.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "4 Colors"
+      },
+      {
+        "title": "Jordan Trunner O/S",
+        "subtitle": "Men's Shoes",
+        "price": "$115",
+        "messaging": "Best Seller",
+        "image": "/images/nike/JORDAN+TRUNNER+O_S.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#6C5627",
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#B40033"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Air Max Plus",
+        "subtitle": "Men's Shoes",
+        "price": "$190",
+        "messaging": "",
+        "image": "/images/nike/NIKE+AIR+MAX+PLUS.png",
+        "colors": [
+          "background-color:#EEF3FF",
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#26292B",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Air Force 1 Low Protro",
+        "subtitle": "Men's Shoes",
+        "price": "$150",
+        "messaging": "",
+        "image": "/images/nike/AIR+FORCE+1+LOW+PROTRO.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike G.T. Cut 4 CNY",
+        "subtitle": "Basketball Shoes",
+        "price": "$220",
+        "messaging": "",
+        "image": "/images/nike/G.T.+CUT+4+CNY.png",
+        "colors": [
+          "background-color:#EEF3FF",
+          "background-color:#26292B",
+          "background-color:#B40033",
+          "background-color:#EFBF4D",
+          "background-color:#1F4090"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "LeBron XXIII",
+        "subtitle": "Basketball Shoes",
+        "price": "$210",
+        "messaging": "Best Seller",
+        "image": "/images/nike/LEBRON+XXIII.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#EEF3FF",
+          "background-color:#26292B",
+          "background-color:#B40033",
+          "background-color:#1F4090"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Air Max Moto 2K",
+        "subtitle": "Men's Shoes",
+        "price": "$145",
+        "messaging": "",
+        "image": "/images/nike/AIR+MAX+MOTO+2K.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#808080",
+          "background-color:#808080",
+          "background-color:#808080",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Air Max 95 Big Bubble Leather",
+        "subtitle": "Men's Shoes",
+        "price": "$210",
+        "messaging": "",
+        "image": "/images/nike/AIR+MAX+95+BIG+BBL+LTR+QS.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Kiger 10",
+        "subtitle": "Trail Running Shoes",
+        "price": "$170",
+        "messaging": "",
+        "image": "/images/nike/NIKE+TERRA+KIGER+10.png",
+        "colors": [
+          "background-color:#FF00FF",
+          "background-color:#1F4090",
+          "background-color:#808080",
+          "background-color:#007A44",
+          "background-color:#6C5627"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike ACG Ultrafly Trail",
+        "subtitle": "Trail Racing Shoes",
+        "price": "$260",
+        "messaging": "",
+        "image": "/images/nike/NIKE+ACG+ULTRAFLY+TRAIL.png",
+        "colors": [
+          "background-color:#EFBF4D",
+          "background-color:#E1533D",
+          "background-color:#007A44"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Air Jordan 4 RM",
+        "subtitle": "Men's Shoes",
+        "price": "$155",
+        "messaging": "",
+        "image": "/images/nike/AIR+JORDAN+4+RM.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#B40033",
+          "background-color:#6C5627"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Air Jordan 1 Low SE",
+        "subtitle": "Men's Shoes",
+        "price": "$130",
+        "messaging": "Best Seller",
+        "image": "/images/nike/AIR+JORDAN+1+LOW+SE.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Zoom Fly 6 Glam",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$190",
+        "messaging": "",
+        "image": "/images/nike/ZOOM+FLY+6+GLAM.png",
+        "colors": [
+          "background-color:#1F4090",
+          "background-color:#1F4090",
+          "background-color:#26292B",
+          "background-color:#FF00FF",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Structure Plus",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$170",
+        "messaging": "",
+        "image": "/images/nike/NIKE+STRUCTURE+PLUS.png",
+        "colors": [
+          "background-color:#472B7E",
+          "background-color:#EEF3FF",
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Air Jordan 40",
+        "subtitle": "Basketball Shoes",
+        "price": "$205",
+        "messaging": "",
+        "image": "/images/nike/AIR+JORDAN+40+SL.png",
+        "colors": [
+          "background-color:#E1533D",
+          "background-color:#808080",
+          "background-color:#007A44"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Luka 5",
+        "subtitle": "Basketball Shoes",
+        "price": "$135",
+        "messaging": "Best Seller",
+        "image": "/images/nike/JORDAN+LUKA+5.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#007A44"
+        ],
+        "color_count": "2 Colors"
+      },
+      {
+        "title": "Nike Vapor Edge 360",
+        "subtitle": "Football Cleats",
+        "price": "$190",
+        "messaging": "",
+        "image": "/images/nike/VAPOR+EDGE+360+UT.png",
+        "colors": [
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#26292B"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike Vapor Pro 1",
+        "subtitle": "Football Cleats",
+        "price": "$145",
+        "messaging": "",
+        "image": "/images/nike/NIKE+ZOOM+AIR+VAPOR+PRO+1.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Vaporfly 4",
+        "subtitle": "Men's Road Racing Shoes",
+        "price": "$270",
+        "messaging": "",
+        "image": "/images/nike/ZOOMX+VAPORFLY+NEXT%+4.png",
+        "colors": [
+          "background-color:#EFBF4D",
+          "background-color:#EEF3FF",
+          "background-color:#E1533D",
+          "background-color:#FF00FF",
+          "background-color:#1F4090"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Alphafly 3",
+        "subtitle": "Men's Road Racing Shoes",
+        "price": "$295",
+        "messaging": "",
+        "image": "/images/nike/AIR+ZOOM+ALPHAFLY+NEXT%+3.png",
+        "colors": [
+          "background-color:#E1533D",
+          "background-color:#EEF3FF",
+          "background-color:#1F4090",
+          "background-color:#E1533D",
+          "background-color:#FFFFFF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike T90 SP",
+        "subtitle": "Men's Shoes",
+        "price": "$115",
+        "messaging": "",
+        "image": "/images/nike/T90+SP.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Air Force 1 '07 LV8",
+        "subtitle": "Men's Shoes",
+        "price": "$125",
+        "messaging": "",
+        "image": "/images/nike/AIR+FORCE+1+'07+LV8.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#808080",
+          "background-color:#B40033",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike P-6000",
+        "subtitle": "Men's Shoes",
+        "price": "$115",
+        "messaging": "",
+        "image": "/images/nike/NIKE+P-6000.png",
+        "colors": [
+          "background-color:#1F4090",
+          "background-color:#007A44",
+          "background-color:#808080",
+          "background-color:#808080",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Zoom Vomero 5",
+        "subtitle": "Men's Shoes",
+        "price": "$170",
+        "messaging": "",
+        "image": "/images/nike/NIKE+ZOOM+VOMERO+5.png",
+        "colors": [
+          "background-color:#1F4090",
+          "background-color:#808080",
+          "background-color:#808080",
+          "background-color:#808080",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Tatum 4",
+        "subtitle": "Basketball Shoes",
+        "price": "$130",
+        "messaging": "",
+        "image": "/images/nike/JORDAN+TATUM+4+LEA.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#EFBF4D"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Jordan Heir Series 2",
+        "subtitle": "Basketball Shoes",
+        "price": "$115",
+        "messaging": "",
+        "image": "/images/nike/WMNS+JORDAN+HEIR+SERIES+2+DUR.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "2 Colors"
+      },
+      {
+        "title": "Nike Vomero 18",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$165",
+        "messaging": "",
+        "image": "/images/nike/NIKE+VOMERO+18+CM.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#808080",
+          "background-color:#EEF3FF",
+          "background-color:#6C5627"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Pegasus 41",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$155",
+        "messaging": "",
+        "image": "/images/nike/AIR+ZOOM+PEGASUS+41+CM.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#6C5627",
+          "background-color:#472B7E",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike ReactX Rejuven8",
+        "subtitle": "Men's Shoes",
+        "price": "$75",
+        "messaging": "Best Seller",
+        "image": "/images/nike/NIKE+REACTX+REJUVEN8.png",
+        "colors": [
+          "background-color:#EFBF4D",
+          "background-color:#1F4090",
+          "background-color:#6C5627",
+          "background-color:#007A44",
+          "background-color:#1F4090"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Metcon 10",
+        "subtitle": "Men's Workout Shoes",
+        "price": "$155",
+        "messaging": "Best Seller",
+        "image": "/images/nike/M+NIKE+METCON+10.png",
+        "colors": [
+          "background-color:#007A44",
+          "background-color:#EEF3FF",
+          "background-color:#26292B",
+          "background-color:#B40033",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Free Metcon 6",
+        "subtitle": "Men's Workout Shoes",
+        "price": "$125",
+        "messaging": "Best Seller",
+        "image": "/images/nike/NIKE+FREE+METCON+6.png",
+        "colors": [
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#007A44",
+          "background-color:#007A44"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Gato",
+        "subtitle": "Men's Shoes",
+        "price": "$115",
+        "messaging": "",
+        "image": "/images/nike/NIKE+GATO.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#007A44",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#6C5627"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Dunk Low SE",
+        "subtitle": "Men's Shoes",
+        "price": "$130",
+        "messaging": "Best Seller",
+        "image": "/images/nike/NIKE+DUNK+LOW.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#808080",
+          "background-color:#808080",
+          "background-color:#007A44",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike LD-1000 SE",
+        "subtitle": "Men's Shoes",
+        "price": "$115",
+        "messaging": "",
+        "image": "/images/nike/LD-1000.png",
+        "colors": [
+          "background-color:#B40033",
+          "background-color:#26292B",
+          "background-color:#007A44",
+          "background-color:#6C5627",
+          "background-color:#007A44"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Shox R4",
+        "subtitle": "Men's Shoes",
+        "price": "$155",
+        "messaging": "",
+        "image": "/images/nike/NIKE+SHOX+R4.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#808080",
+          "background-color:#EEF3FF",
+          "background-color:#808080",
+          "background-color:#6C5627"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Shox NZ",
+        "subtitle": "Men's Shoes",
+        "price": "$135",
+        "messaging": "",
+        "image": "/images/nike/NIKE+SHOX+NZ.png",
+        "colors": [
+          "background-color:#EEF3FF",
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#1F4090"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Pegasus Trail 5",
+        "subtitle": "Men's Trail Running Shoes",
+        "price": "$155",
+        "messaging": "",
+        "image": "/images/nike/NIKE+REACTX+PEGASUS+TRAIL+5.png",
+        "colors": [
+          "background-color:#1F4090",
+          "background-color:#26292B",
+          "background-color:#FF00FF",
+          "background-color:#26292B",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Pegasus Trail 5 GORE-TEX",
+        "subtitle": "Men's Waterproof Trail Running Shoes",
+        "price": "$180",
+        "messaging": "",
+        "image": "/images/nike/NIKE+PEGASUS+TRAIL+5+GTX.png",
+        "colors": [
+          "background-color:#1F4090",
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#6C5627"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Air Jordan 1 Low G",
+        "subtitle": "Golf Shoes",
+        "price": "$155",
+        "messaging": "Best Seller",
+        "image": "/images/nike/AIR+JORDAN+1+LOW+G.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Air Jordan 1 Low G Spiked",
+        "subtitle": "Golf Shoes",
+        "price": "$175",
+        "messaging": "Best Seller",
+        "image": "/images/nike/AIR+JORDAN+1+LOW+G+SPK.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#808080"
+        ],
+        "color_count": "2 Colors"
+      },
+      {
+        "title": "Nike Phantom 6 Low Elite",
+        "subtitle": "Firm-Ground Soccer Cleats",
+        "price": "$270",
+        "messaging": "",
+        "image": "/images/nike/PHANTOM+6+LOW+ELITE+FG.png",
+        "colors": [
+          "background-color:#1F4090",
+          "background-color:#1F4090",
+          "background-color:#E1533D",
+          "background-color:#E1533D",
+          "background-color:#007A44"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Phantom 6 High Elite",
+        "subtitle": "Firm-Ground Soccer Cleats",
+        "price": "$295",
+        "messaging": "",
+        "image": "/images/nike/PHANTOM+6+HIGH+ELITE+FG.png",
+        "colors": [
+          "background-color:#1F4090",
+          "background-color:#007A44",
+          "background-color:#1F4090",
+          "background-color:#6C5627",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Air VaporMax Plus",
+        "subtitle": "Men's Shoes",
+        "price": "$220",
+        "messaging": "",
+        "image": "/images/nike/AIR+VAPORMAX+PLUS.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#1F4090",
+          "background-color:#26292B",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Shox TL",
+        "subtitle": "Men's Shoes",
+        "price": "$180",
+        "messaging": "",
+        "image": "/images/nike/NIKE+SHOX+TL.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#808080",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike C1TY Premium",
+        "subtitle": "Men's Shoes",
+        "price": "$115",
+        "messaging": "",
+        "image": "/images/nike/NIKE+C1TY+PRM.png",
+        "colors": [
+          "background-color:#472B7E",
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#6C5627",
+          "background-color:#6C5627"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Air Force 1 '07 Premium",
+        "subtitle": "Men's Shoes",
+        "price": "$130",
+        "messaging": "",
+        "image": "/images/nike/AIR+FORCE+1+'07+PRM.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#6C5627",
+          "background-color:#6C5627",
+          "background-color:#007A44",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Waffle Racer",
+        "subtitle": "Men's Shoes",
+        "price": "$95",
+        "messaging": "",
+        "image": "/images/nike/WAFFLE+RACER.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#6C5627"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Jordan Flight Court",
+        "subtitle": "Men's Shoes",
+        "price": "$105",
+        "messaging": "",
+        "image": "/images/nike/JORDAN+FLIGHT+COURT.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#007A44",
+          "background-color:#EEF3FF",
+          "background-color:#1F4090",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Air Jordan MVP 92",
+        "subtitle": "Men's Shoes",
+        "price": "$145",
+        "messaging": "Best Seller",
+        "image": "/images/nike/JORDAN+MVP+92.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#B40033",
+          "background-color:#808080",
+          "background-color:#007A44"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Air Jordan 4 Retro",
+        "subtitle": "Men's Shoes",
+        "price": "$220",
+        "messaging": "",
+        "image": "/images/nike/AIR+JORDAN+4+RETRO+OG+FC.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Air Jordan 1 Mid",
+        "subtitle": "Men's Shoes",
+        "price": "$130",
+        "messaging": "",
+        "image": "/images/nike/AIR+JORDAN+1+MID.png",
+        "colors": [
+          "background-color:#EEF3FF",
+          "background-color:#808080",
+          "background-color:#1F4090",
+          "background-color:#26292B",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Diamond Standout MTL",
+        "subtitle": "Baseball Cleats",
+        "price": "$140",
+        "messaging": "",
+        "image": "/images/nike/NIKE+DIAMOND+STANDOUT+MTL.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#EEF3FF",
+          "background-color:#26292B"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike Diamond Showcase MCS",
+        "subtitle": "Baseball Cleats",
+        "price": "$110",
+        "messaging": "",
+        "image": "/images/nike/NIKE+DIAMOND+SHOWCASE+MCS.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#FF00FF",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike ACG Phassad",
+        "subtitle": "Men's Shoes",
+        "price": "$145",
+        "messaging": "",
+        "image": "/images/nike/ACG+PHASSAD.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#472B7E"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike Air Max Dn Roam",
+        "subtitle": "Men's Shoes",
+        "price": "$190",
+        "messaging": "",
+        "image": "/images/nike/AIR+MAX+DN+ROAM.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#808080",
+          "background-color:#1F4090",
+          "background-color:#EEF3FF",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Zoom Vomero Roam",
+        "subtitle": "Men's Winterized Shoes",
+        "price": "$190",
+        "messaging": "",
+        "image": "/images/nike/NIKE+ZOOM+VOMERO+ROAM.png",
+        "colors": [
+          "background-color:#007A44",
+          "background-color:#808080",
+          "background-color:#6C5627",
+          "background-color:#26292B",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Mercurial Vapor 16 Pro",
+        "subtitle": "Artificial-Grass Soccer Cleats",
+        "price": "$160",
+        "messaging": "",
+        "image": "/images/nike/ZM+VAPOR+16+PRO+AG-PRO.png",
+        "colors": [
+          "background-color:#1F4090",
+          "background-color:#26292B"
+        ],
+        "color_count": "2 Colors"
+      },
+      {
+        "title": "Nike Mercurial Superfly 10 Elite",
+        "subtitle": "AG High-Top Soccer Cleats",
+        "price": "$295",
+        "messaging": "",
+        "image": "/images/nike/ZM+SUPERFLY+10+ELITE+AG-PRO.png",
+        "colors": [
+          "background-color:#1F4090",
+          "background-color:#007A44",
+          "background-color:#26292B"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike Dunk Low GORE-TEX",
+        "subtitle": "Men's Shoes",
+        "price": "$155",
+        "messaging": "",
+        "image": "/images/nike/NIKE+DUNK+LOW+GTX.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#6C5627"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike Calm Mule",
+        "subtitle": "Men's Mules",
+        "price": "$75",
+        "messaging": "",
+        "image": "/images/nike/NIKE+CALM+MULE+-+REALTREE+W+NA.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#007A44",
+          "background-color:#EEF3FF",
+          "background-color:#1F4090",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Calm Slide",
+        "subtitle": "Men's Slides",
+        "price": "$65",
+        "messaging": "",
+        "image": "/images/nike/NIKE+CALM+SLIDE+-+REALTREE.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Air Force 1 '07",
+        "subtitle": "Men's Shoes",
+        "price": "$125",
+        "messaging": "",
+        "image": "/images/nike/AIR+FORCE+1+'07.png",
+        "colors": [
+          "background-color:#FFFFFF",
+          "background-color:#6C5627",
+          "background-color:#26292B"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike Lunar Force 1 Duckboot",
+        "subtitle": "Men's Winterized Shoes",
+        "price": "$170",
+        "messaging": "",
+        "image": "/images/nike/LUNAR+FORCE+1+DUCKBOOT.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Air Force 1 '07",
+        "subtitle": "Men's Shoes",
+        "price": "$115",
+        "messaging": "Best Seller",
+        "image": "/images/nike/AIR+FORCE+1+'07(1).png",
+        "colors": [
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#26292B",
+          "background-color:#26292B"
+        ],
+        "color_count": "4 Colors"
+      },
+      {
+        "title": "Nike Dunk High Retro",
+        "subtitle": "Men's Shoes",
+        "price": "$155",
+        "messaging": "",
+        "image": "/images/nike/NIKE+DUNK+HI+RETRO.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Gato LV8",
+        "subtitle": "Men's Shoes",
+        "price": "$115",
+        "messaging": "",
+        "image": "/images/nike/NIKE+GATO+LV8.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#B40033",
+          "background-color:#6C5627",
+          "background-color:#FF00FF",
+          "background-color:#808080"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Killshot 2 PRM",
+        "subtitle": "Men's Shoes",
+        "price": "$105",
+        "messaging": "",
+        "image": "/images/nike/KILLSHOT+2+PRM.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#26292B"
+        ],
+        "color_count": "2 Colors"
+      },
+      {
+        "title": "KD18",
+        "subtitle": "Basketball Shoes",
+        "price": "$155",
+        "messaging": "",
+        "image": "/images/nike/KD18+GI.png",
+        "colors": [
+          "background-color:#007A44",
+          "background-color:#EEF3FF",
+          "background-color:#472B7E",
+          "background-color:#6C5627",
+          "background-color:#1F4090"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Air Jordan 1 Retro High OG",
+        "subtitle": "Men's Shoes",
+        "price": "$185",
+        "messaging": "",
+        "image": "/images/nike/AIR+JORDAN+1+RETRO+HIGH+OG.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Calm 2.0",
+        "subtitle": "Men's Slides",
+        "price": "$55",
+        "messaging": "Best Seller",
+        "image": "/images/nike/NIKE+CALM+SLIDE+2.0.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#1F4090",
+          "background-color:#6C5627"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike V5 RNR",
+        "subtitle": "Men's Shoes",
+        "price": "$95",
+        "messaging": "Best Seller",
+        "image": "/images/nike/NIKE+V5+RNR.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#808080",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Air Max 270",
+        "subtitle": "Men's Shoes",
+        "price": "$170",
+        "messaging": "Best Seller",
+        "image": "/images/nike/AIR+MAX+270.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#26292B",
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Ava Rover",
+        "subtitle": "Shoes with Reflective Accents",
+        "price": "$145",
+        "messaging": "",
+        "image": "/images/nike/NIKE+AVA+ROVER.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#6C5627",
+          "background-color:#26292B",
+          "background-color:#007A44",
+          "background-color:#1F4090"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Mind 001",
+        "subtitle": "Men's Pregame Mules",
+        "price": "$95",
+        "messaging": "Just In",
+        "image": "/images/nike/NIKE+MIND+001.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike x Hyperice Hyperboot",
+        "subtitle": "Shoes",
+        "price": "$799",
+        "messaging": "",
+        "image": "/images/nike/Hyperboot+by+Nike+x+Hyperice.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Air Diamond Turf",
+        "subtitle": "Men's Shoes",
+        "price": "$155",
+        "messaging": "",
+        "image": "/images/nike/NIKE+AIR+DIAMOND+TURF.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Air Force 1 '07 EasyOn",
+        "subtitle": "Shoes",
+        "price": "$115",
+        "messaging": "",
+        "image": "/images/nike/AIR+FORCE+1+'07+FLYEASE.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Air Max Uptempo '95",
+        "subtitle": "Men's Shoes",
+        "price": "$170",
+        "messaging": "",
+        "image": "/images/nike/AIR+MAX+UPTEMPO+'95(1).png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike SB Air Max 95",
+        "subtitle": "Skate Shoes",
+        "price": "$185",
+        "messaging": "",
+        "image": "/images/nike/SB+AIR+MAX+95.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Killshot 2 Leather",
+        "subtitle": "Men's Shoes",
+        "price": "$100",
+        "messaging": "Best Seller",
+        "image": "/images/nike/KILLSHOT+2+LEATHER.png",
+        "colors": [
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#808080",
+          "background-color:#26292B",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike Structure 26",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$145",
+        "messaging": "",
+        "image": "/images/nike/NIKE+STRUCTURE+26+WIDE.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "2 Colors"
+      },
+      {
+        "title": "Air Jordan 1 Mid SE Edge",
+        "subtitle": "Women's Shoes",
+        "price": "$140",
+        "messaging": "Best Seller",
+        "image": "/images/nike/WMNS+AIR+JORDAN+1+MID+SE+EDG.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Jordan Spizike Low SE",
+        "subtitle": "Men's Shoes",
+        "price": "$165",
+        "messaging": "",
+        "image": "/images/nike/JORDAN+SPIZIKE+LOW+SE.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Air Zoom Spiridon SP",
+        "subtitle": "Men's Shoes",
+        "price": "$160",
+        "messaging": "",
+        "image": "/images/nike/AIR+ZOOM+SPIRIDON+SP.png",
+        "colors": [
+          "background-color:#808080",
+          "background-color:#1F4090",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "4 Colors"
+      },
+      {
+        "title": "LeBron Witness 9",
+        "subtitle": "Basketball Shoes",
+        "price": "$105",
+        "messaging": "",
+        "image": "/images/nike/LEBRON+WITNESS+IX.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#1F4090",
+          "background-color:#EEF3FF",
+          "background-color:#FF00FF",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Jordan Trunner LX",
+        "subtitle": "Women's Shoes",
+        "price": "$135",
+        "messaging": "Best Seller",
+        "image": "/images/nike/WMNS+JORDAN+TRUNNER+LX.png",
+        "colors": [
+          "background-color:#007A44",
+          "background-color:#FF00FF",
+          "background-color:#FFFFFF",
+          "background-color:#808080",
+          "background-color:#26292B"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Air Jordan 1 Mid SE",
+        "subtitle": "Women's Shoes",
+        "price": "$140",
+        "messaging": "",
+        "image": "/images/nike/WMNS+AIR+JORDAN+1+MID+SE.png",
+        "colors": [
+          "background-color:#6C5627",
+          "background-color:#26292B",
+          "background-color:#EEF3FF",
+          "background-color:#EEF3FF",
+          "background-color:#007A44"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Jordan 11 Mid TD",
+        "subtitle": "Men's Football Cleats",
+        "price": "$225",
+        "messaging": "Best Seller",
+        "image": "/images/nike/JORDAN+11+MID+TD.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Tawa SE",
+        "subtitle": "Men's Wrestling Shoes",
+        "price": "$155",
+        "messaging": "",
+        "image": "/images/nike/NIKE+TAWA+SE.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Jordan 1 Retro Low Metal",
+        "subtitle": "Baseball Cleats",
+        "price": "$145",
+        "messaging": "Best Seller",
+        "image": "/images/nike/JORDAN+1+RETRO+LOW+METAL.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Air Max Torch 4",
+        "subtitle": "Men's Shoes",
+        "price": "$100",
+        "messaging": "",
+        "image": "/images/nike/AIR+MAX+TORCH+4.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#808080",
+          "background-color:#EEF3FF"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike Pegasus 41 Wide",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$145",
+        "messaging": "",
+        "image": "/images/nike/AIR+ZOOM+PEGASUS+41+WIDE.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Zoom Mamba 5 BTC",
+        "subtitle": "Running Shoes",
+        "price": "$125",
+        "messaging": "",
+        "image": "/images/nike/NIKE+ZOOM+MAMBA+V+BTC.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Flex Experience Run 12",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$80",
+        "messaging": "",
+        "image": "/images/nike/FLEX+EXPERIENCE+RN+12+WIDE.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Tennessee Pegasus 41",
+        "subtitle": "Men's College Road Running Shoes",
+        "price": "$155",
+        "messaging": "",
+        "image": "/images/nike/NIKE+ZOOM+PEGASUS+41+TENNESSEE.png",
+        "colors": [
+          "background-color:#E1533D",
+          "background-color:#B40033",
+          "background-color:#007A44",
+          "background-color:#B40033",
+          "background-color:#007A44"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike SB Malor TE",
+        "subtitle": "Skate Shoes",
+        "price": "$80",
+        "messaging": "",
+        "image": "/images/nike/NIKE+SB+MALOR+TE.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Phantom 6 High Academy",
+        "subtitle": "Turf Soccer Shoes",
+        "price": "$100",
+        "messaging": "",
+        "image": "/images/nike/PHANTOM+6+HIGH+ACAD+TF.png",
+        "colors": [
+          "background-color:#E1533D",
+          "background-color:#26292B",
+          "background-color:#1F4090"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike Field General",
+        "subtitle": "Men's Shoes",
+        "price": "$105",
+        "messaging": "",
+        "image": "/images/nike/NIKE+FIELD+GENERAL.png",
+        "colors": [
+          "background-color:#26292B",
+          "background-color:#808080",
+          "background-color:#808080",
+          "background-color:#6C5627",
+          "background-color:#6C5627"
+        ],
+        "color_count": "5 Colors"
+      },
+      {
+        "title": "Nike SFB Air Field Ukiah 8\"",
+        "subtitle": "Tactical Boots",
+        "price": "$185",
+        "messaging": "",
+        "image": "/images/nike/NIKE+SFB+AIR+FIELD+UKIAH+8_.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Dragonfly 2",
+        "subtitle": "Track & Field Distance Spikes",
+        "price": "$170",
+        "messaging": "",
+        "image": "/images/nike/ZOOMX+DRAGONFLY+2.png",
+        "colors": [
+          "background-color:#EEF3FF",
+          "background-color:#EFBF4D",
+          "background-color:#472B7E"
+        ],
+        "color_count": "3 Colors"
+      },
+      {
+        "title": "Nike College Air Max Verse (UNC)",
+        "subtitle": "Men's Shoes",
+        "price": "$125",
+        "messaging": "",
+        "image": "/images/nike/AIR+MAX+VERSE+NORTH+CAROLINA.png",
+        "colors": [],
+        "color_count": ""
+      },
+      {
+        "title": "Nike Phantom 6 High Academy",
+        "subtitle": "Multi-Ground Soccer Cleats",
+        "price": "$100",
+        "messaging": "",
+        "image": "/images/nike/PHANTOM+6+HIGH+ACAD+FG_MG.png",
+        "colors": [
+          "background-color:#E1533D",
+          "background-color:#1F4090",
+          "background-color:#26292B",
+          "background-color:#1F4090"
+        ],
+        "color_count": "4 Colors"
+      },
+      {
+        "title": "Nike College Air Max Verse (Tennessee)",
+        "subtitle": "Men's Shoes",
+        "price": "$125",
+        "messaging": "",
+        "image": "/images/nike/AIR+MAX+VERSE+TENNESSEE.png",
+        "colors": [],
+        "color_count": ""
+      }
+    ]
+  },
+  "nike-pdp": {
+    "title": "Nike Alphafly 3",
+    "subtitle": "Men's Road Racing Shoes",
+    "current_price": "$250.97",
+    "original_price": "$295",
+    "discount_pct": "15% off",
+    "color_name": "White/Soft Pearl/Hyper Crimson/Black",
+    "style_code": "IM6673-100",
+    "description": "Fine-tuned for marathon speed, the Alphafly 3 helps you push beyond what you thought possible with three innovative technologies. A double dose of Air Zoom units works with a full-length carbon fiber plate to help launch you into your next step. The ZoomX foam midsole helps keep you fresh from mile 1 to 26.2. Time to leave your old personal records in the dust.",
+    "reason_to_buy": "Pinnacle tech creates a propulsive ride fine-tuned for marathon speed.",
+    "weight": "Approx. 218g/7.7oz (Men's US 10)",
+    "drop": "8mm",
+    "avg_rating": "4.5",
+    "review_count": "50",
+    "benefits": [
+      {
+        "title": "Propulsive Air Zoom Units",
+        "description": "Two Zoom Air units in the forefoot store and return energy back to you, helping power your every step."
+      },
+      {
+        "title": "ZoomX Foam Cushioning",
+        "description": "The ultralight ZoomX foam midsole is fully connected to the outsole, providing you with a smooth transition and optimized responsiveness throughout your race."
+      },
+      {
+        "title": "Full-Length Carbon Fiber Plate",
+        "description": "A slightly wider carbon fiber Flyplate gives you a propulsive and stable feel with each step and turn."
+      }
+    ],
+    "whats_new": [
+      "Lightest Alphafly ever",
+      "Wider carbon fiber plate for increased stability",
+      "Improved multidirectional containment and breathability",
+      "Fully connected ZoomX foam midsole for smoother transitions",
+      "Notched laces offer a secure but soft lace-up",
+      "Integrated knit tongue with lofted padding helps alleviate lace pressure"
+    ],
+    "sizes": [
+      {
+        "label": "M 4",
+        "available": false
+      },
+      {
+        "label": "M 4.5",
+        "available": false
+      },
+      {
+        "label": "M 5",
+        "available": false
+      },
+      {
+        "label": "M 5.5",
+        "available": false
+      },
+      {
+        "label": "M 6",
+        "available": false
+      },
+      {
+        "label": "M 6.5",
+        "available": false
+      },
+      {
+        "label": "M 7",
+        "available": true
+      },
+      {
+        "label": "M 7.5",
+        "available": true
+      },
+      {
+        "label": "M 8",
+        "available": true
+      },
+      {
+        "label": "M 8.5",
+        "available": true
+      },
+      {
+        "label": "M 9",
+        "available": true
+      },
+      {
+        "label": "M 9.5",
+        "available": true
+      },
+      {
+        "label": "M 10",
+        "available": true
+      },
+      {
+        "label": "M 10.5",
+        "available": true
+      },
+      {
+        "label": "M 11",
+        "available": true
+      },
+      {
+        "label": "M 11.5",
+        "available": true
+      },
+      {
+        "label": "M 12",
+        "available": true
+      },
+      {
+        "label": "M 12.5",
+        "available": true
+      },
+      {
+        "label": "M 13",
+        "available": true
+      },
+      {
+        "label": "M 14",
+        "available": true
+      },
+      {
+        "label": "M 15",
+        "available": true
+      }
+    ],
+    "colorways": [
+      {
+        "style_code": "/images/nike/AIR+ZOOM+ALPHAFLY+NEXT%+3(1).png",
+        "selected": false
+      },
+      {
+        "style_code": "/images/nike/AIR+ZOOM+ALPHAFLY+NEXT%+3(2).png",
+        "selected": false
+      },
+      {
+        "style_code": "/images/nike/AIR+ZOOM+ALPHAFLY+NEXT%+3(3).png",
+        "selected": false
+      },
+      {
+        "style_code": "/images/nike/AIR+ZOOM+ALPHAFLY+NEXT%+3.png",
+        "selected": true
+      },
+      {
+        "style_code": "/images/nike/AIR+ZOOM+ALPHAFLY+NEXT%+3(4).png",
+        "selected": false
+      },
+      {
+        "style_code": "/images/nike/AIR+ZOOM+ALPHAFLY+NEXT%+3(5).png",
+        "selected": false
+      },
+      {
+        "style_code": "/images/nike/AIR+ZOOM+ALPHAFLY+NEXT%+3+EK.png",
+        "selected": false
+      }
+    ],
+    "reviews": [
+      {
+        "author": "Maxi",
+        "date": "DATE",
+        "title": "Great fast shoes!",
+        "body": "Such a good shoe, especially if you can find it discounted. It's not very pleasant at slow paces, but as soon as you pick up the pace (marathon pace and faster), it feels extremely good.",
+        "rating": 5
+      },
+      {
+        "author": "todd342037895",
+        "date": "DATE",
+        "title": "Absolutely amazing!",
+        "body": "A well deserved 5 out of 5 stars for the Alphafly 3. They perform incredibly well for different types of runs on a multitude of surfaces and terrain. The best fitting shoes I have ever worn.",
+        "rating": 5
+      },
+      {
+        "author": "KOV81",
+        "date": "DATE",
+        "title": "Great Shoe, Great Performance",
+        "body": "Purchased two weeks ago. Very Satisfied, Great Performance, Adds Speed and comfort to run.",
+        "rating": 5
+      },
+      {
+        "author": "RunnerX",
+        "date": "DATE",
+        "title": "Questionable durability",
+        "body": "Great shoe, but after 100 miles, I have lost part of the bottom of the shoe. Not sure I can run in it anymore.",
+        "rating": 3
+      },
+      {
+        "author": "VanceMan",
+        "date": "DATE",
+        "title": "Vance Man Approves",
+        "body": "Love mine! Best running shoes I've ever owned. The carbon fiber plate makes a huge difference.",
+        "rating": 5
+      },
+      {
+        "author": "MarathonMike",
+        "date": "DATE",
+        "title": "Best running shoes yet",
+        "body": "These are the best running shoes I've ever worn. The cushioning is incredible and the energy return is noticeable.",
+        "rating": 5
+      },
+      {
+        "author": "SpeedDemon",
+        "date": "DATE",
+        "title": "Great shoes for running",
+        "body": "Excellent for tempo runs and race day. Very lightweight and responsive.",
+        "rating": 5
+      },
+      {
+        "author": "TrackStar",
+        "date": "DATE",
+        "title": "Great Racing Shoes!",
+        "body": "Perfect for marathon racing. The Air Zoom units provide incredible bounce.",
+        "rating": 5
+      },
+      {
+        "author": "JoggerJoe",
+        "date": "DATE",
+        "title": "Light and responsive",
+        "body": "These shoes are incredibly light. You can feel the carbon fiber plate working with every stride.",
+        "rating": 5
+      },
+      {
+        "author": "PaceSetter",
+        "date": "DATE",
+        "title": "Real good",
+        "body": "Solid shoe. Great for fast-paced runs. Highly recommend for serious runners.",
+        "rating": 5
+      }
+    ],
+    "recommended": [
+      {
+        "title": "Nike Zoom Fly 6",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$190",
+        "image": "/images/nike/ZOOM+FLY+6+GLAM.png"
+      },
+      {
+        "title": "Nike Zoom Vomero 5",
+        "subtitle": "Men's Shoes",
+        "price": "$170",
+        "image": "/images/nike/NIKE+ZOOM+VOMERO+5.png"
+      },
+      {
+        "title": "Nike Pegasus Plus",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$180",
+        "image": "/images/nike/NIKE+PEGASUS+PREMIUM+CM.png"
+      },
+      {
+        "title": "Nike Alphafly 3 Glam",
+        "subtitle": "Men's Road Racing Shoes",
+        "price": "$295",
+        "image": "/images/nike/alphafly-3-glam-mens-road-racing-shoes-5gZBgL.png"
+      },
+      {
+        "title": "Nike Pegasus Premium",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$220",
+        "image": "/images/nike/NIKE+PEGASUS+PREMIUM+CM.png"
+      },
+      {
+        "title": "Nike Vaporfly 4",
+        "subtitle": "Men's Road Racing Shoes",
+        "price": "$270",
+        "image": "/images/nike/ZOOMX+VAPORFLY+NEXT%+4.png"
+      },
+      {
+        "title": "Nike Vomero 18",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$165",
+        "image": "/images/nike/NIKE+VOMERO+18+CM.png"
+      },
+      {
+        "title": "Nike Pegasus 41",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$155",
+        "image": "/images/nike/AIR+ZOOM+PEGASUS+41+CM.png"
+      },
+      {
+        "title": "Nike Structure Plus",
+        "subtitle": "Men's Road Running Shoes",
+        "price": "$170",
+        "image": "/images/nike/NIKE+STRUCTURE+PLUS.png"
+      },
+      {
+        "title": "Nike Kiger 10",
+        "subtitle": "Men's Trail Running Shoes",
+        "price": "$170",
+        "image": "/images/nike/NIKE+TERRA+KIGER+10.png"
+      }
+    ]
+  },
+  "ebay-srp": {
+    "count": 60,
+    "listings": [
+      {
+        "title": "Apple iPhone 14 Pro Max 256GB - Deep Purple - Unlocked",
+        "subtitle": "Brand New \u00b7 256 GB \u00b7 Unlocked",
+        "priceCents": 99900,
+        "originalPriceCents": 124900,
+        "freeDelivery": true,
+        "location": "United States",
+        "watcherCount": 247,
+        "couponPct": 10,
+        "starsFull": 5,
+        "hasHalfStar": false,
+        "reviewCount": 1284,
+        "format": "BuyItNow",
+        "caption": "NewLowPrice",
+        "sellerName": "premier_resale",
+        "sellerFeedbackPctX10": 998,
+        "sellerFeedbackCount": 47912
+      },
+      {
+        "title": "Samsung Galaxy S24 Ultra 512GB - Titanium Black - Unlocked",
+        "subtitle": "Pre-Owned \u00b7 512 GB \u00b7 Unlocked",
+        "priceCents": 78900,
+        "freeDelivery": false,
+        "deliveryCents": 999,
+        "watcherCount": 89,
+        "caption": "Trending"
+      },
+      {
+        "title": "Custom: edit any field below to see it render live \u2192",
+        "priceCents": 1,
+        "couponPct": 50,
+        "caption": "EndsSoon",
+        "watcherCount": 9999,
+        "sellerName": "edit-me!"
+      }
+    ]
+  }
+}

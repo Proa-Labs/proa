@@ -1,0 +1,33 @@
+---
+title: Math
+description: Compile TeX to MathML at build time, with nothing shipped to the browser.
+---
+
+Math is off by default. Turn it on and dollar-delimited TeX compiles to MathML during the build:
+
+```rust filename="build.rs"
+use proa_docs_build::{Config, MathMode};
+
+let config = Config::new().source(source.markdown(pipeline.math(MathMode::MathMl)));
+```
+
+```mdx filename="content/performance.mdx"
+Render cost is $O(n)$ in the number of dynamic slots, not in template size.
+```
+
+## Why MathML rather than KaTeX
+
+The generated markup renders natively in every modern browser. **No client JavaScript, no stylesheet, no font.**
+
+That is the difference between this and the usual approach. A docs site with KaTeX ships a renderer and a font file to every reader on every page; a Proa docs page with math ships bytes that were already going to be there. It is the same argument as build-time syntax highlighting, applied to equations.
+
+| Mode | Behaviour |
+|---|---|
+| `MathMode::Disabled` *(default)* | `$…$` passes through as literal text |
+| `MathMode::MathMl` | TeX compiles to MathML during the build |
+
+Leaving it disabled is correct for most sites — prose that never uses math should not pay for a TeX parser in the build.
+
+## Related
+
+[Code block](/docs/proa-docs/code-block) · [Mermaid](/docs/proa-docs/mermaid) · [Configuration](/docs/proa-docs/configuration)

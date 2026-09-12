@@ -1,0 +1,72 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license-file.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+# For old button implementation comparison
+heapless = { workspace = true }
+http-body-util = { workspace = true }
+proa_core = { workspace = true }
+proa_framework_axum = { workspace = true }
+proa_macros = { workspace = true }
+proa_showcase = { workspace = true, default-features = false }
+proa_stream = { workspace = true, features = ["rt-tokio"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time"] }
+tower = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true, features = ["rayon"] }
+
+[[bench]]
+name = "render_memcpy_floor"
+harness = false
+
+[[bench]]
+name = "closure_overhead"
+harness = false
+
+[[bench]]
+name = "component_facade"
+harness = false
+
+[[bench]]
+name = "complex_comparison"
+harness = false
+
+[[bench]]
+name = "button_comparison"
+harness = false
+
+[[bench]]
+name = "sync_coverage"
+harness = false
+
+[[bench]]
+name = "streaming_buffer_comparison"
+harness = false
+
+[[bench]]
+name = "streaming_pure_render"
+harness = false
+
+[[bench]]
+name = "suspense_boundary_scaling"
+harness = false
+
+[[bench]]
+name = "context_parts_page"
+harness = false
+
+[[bench]]
+name = "in_order_streaming_pages"
+harness = false

@@ -1,0 +1,5 @@
+error: <img> is missing `src` or `srcset` attribute. add src="/path/to/image.jpg" or srcset="..." with responsive sources (HTML §4.8.3)
+ --> tests/ui/fail/required_img_src.rs:5:19
+  |
+5 |     html_sync! { <img alt="photo" /> };
+  |                   ^^^

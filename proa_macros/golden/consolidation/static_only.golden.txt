@@ -1,0 +1,4 @@
+--- sync ---
+:: proa_core :: shared :: html_node :: static_html (b"<header class=\"hero\"><h1>Proa Pages</h1><p class=\"tagline\">Templates as &lt;data&gt; &amp; bytes</p></header>")
+--- async ---
+:: proa_core :: shared :: html_node :: static_html (b"<header class=\"hero\"><h1>Proa Pages</h1><p class=\"tagline\">Templates as &lt;data&gt; &amp; bytes</p></header>")

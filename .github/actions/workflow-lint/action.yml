@@ -1,0 +1,49 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Workflow lint
+description: Validate GitHub workflows, the repository boundary, and the CLI binary release contract
+
+runs:
+  using: composite
+  steps:
+    - name: Check first-party copyright headers
+      shell: bash
+      run: |
+        python3 scripts/test_copyright_headers.py
+        python3 scripts/copyright_headers.py --check
+
+    - name: Check the public repository boundary
+      shell: bash
+      run: |
+        python3 scripts/test_repository_boundary.py
+        python3 scripts/check_repository_boundary.py
+
+    - name: Install pinned actionlint
+      shell: bash
+      run: |
+        set -euo pipefail
+        version=1.7.7
+        checksum=023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+        directory="$(mktemp -d)"
+        archive="$directory/actionlint.tar.gz"
+        curl --fail --silent --show-error --location \
+          --proto '=https' --tlsv1.2 \
+          --output "$archive" \
+          "https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz"
+        printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --status
+        tar -xzf "$archive" -C "$directory" actionlint
+        echo "ACTIONLINT=$directory/actionlint" >> "$GITHUB_ENV"
+
+    - name: Lint workflows and embedded shell
+      shell: bash
+      run: |
+        "$ACTIONLINT" -ignore SC2029
+
+    - name: Test CLI binary distribution contract
+      shell: bash
+      run: python3 scripts/test_cli_binary_distribution.py
+
+    - name: Test the linked-acceptance path classifier
+      shell: bash
+      run: python3 scripts/test_linked_acceptance_paths.py

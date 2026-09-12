@@ -1,0 +1,82 @@
+---
+title: Sink
+description: Render streamed output into recycled pages instead of fresh allocations.
+---
+
+`SinkWriter<N>` is a `WriteBuf` backed by a request-scoped `PagePool<N>`. It checks out fixed-capacity pages, writes into them, flushes them through a `StreamChunkFlusher`, and returns them to the pool.
+
+It was the writer behind in-order streaming, built so a streamed `Suspense` child does not allocate a fresh large `Vec<u8>` for every boundary. It is now deprecated: built-in streaming renders into the standard `RenderBuffer`, which owns and recycles its own pages, and flushes through the same `StreamChunkFlusher`.
+
+Most app code should never name it. Use framework streaming responses or the Markdown stream driver; `SinkWriter` remains only for legacy adapters and benchmarks that explicitly selected the pool-backed writer.
+
+## The page pool cycle
+
+A page moves through four states, and the fourth returns it to the first:
+
+1. **Checkout.** `SinkWriter` takes a `SinkPage<N>` from the pool.
+2. **Write.** The child renders into that page through a `WebContext` or `MdContext`.
+3. **Flush.** The transport sees a `StreamChunkView`, a borrowed view over ordered page slices.
+4. **Return.** The page goes back to the pool, ready for the next boundary.
+
+Static markup inside an interactive component stays server-rendered throughout. Nothing is copied between steps two and three.
+
+```rust filename="src/stream.rs"
+use std::rc::Rc;
+
+use proa_core::{
+    InOrderPagePool, InOrderSinkWriter, SinkWriter, StreamChunkFlusher,
+    WriteError,
+};
+
+fn flush_boundary(flusher: Rc<dyn StreamChunkFlusher>) -> Result<(), WriteError> {
+    let page_pool = Rc::new(InOrderPagePool::new());
+    let mut out: InOrderSinkWriter = SinkWriter::new(page_pool);
+
+    // Render into `out` through a WebContext or MdContext, then flush pages.
+    out.flush_into_flusher(flusher.as_ref())
+}
+```
+
+`InOrderSinkWriter` is a type alias for the page size the old in-order streaming path used; Proa's built-in streaming paths now reuse the standard `RenderBuffer` instead. Reach for `SinkWriter<N>` and `PagePool<N>` directly only when a custom page size is part of a legacy adapter contract.
+
+## The types
+
+| Type | Role |
+|------|------|
+| `PagePool<N>` | Owns reusable fixed-capacity pages. |
+| `SinkPage<N>` | One checked-out page. |
+| `SinkWriter<N>` | `WriteBuf` that writes across pages from a pool. |
+| `InOrderPagePool` | Legacy pool alias for the old in-order streaming path. |
+| `InOrderSinkWriter` | Legacy writer alias for the old in-order streaming path. |
+| `StreamChunkFlusher` | Transport-facing sink that receives owned chunks or chunk views. |
+| `StreamChunkView` | Borrowed view over ordered page slices during flush. |
+| `SinkCheckpoint` | Rewind checkpoint for the pool-backed writer. |
+
+The pool-backed types are deprecated compatibility shims. `StreamChunkFlusher` and `StreamChunkView` are the live transport-facing traits, shared with the `RenderBuffer` streaming paths.
+
+## Checkpoint streaming without a pool
+
+`StreamingZeroCopyBuf` handles incremental streaming without page pooling. It creates explicit checkpoint marks and flushes complete parts, never half-written dynamic content:
+
+```rust filename="src/stream.rs"
+use proa_core::{StreamingZeroCopyBuf, WebContext, WebRenderSync};
+
+let mut cx = WebContext::with_buffer(StreamingZeroCopyBuf::new());
+shell.render(&mut cx)?;
+let mut out = cx.into_output();
+let mark = out.mark();
+let first_chunk = out.flush_through(mark);
+```
+
+Normal SSR routes should not manage streaming checkpoints by hand. [Streaming SSR](/docs/core/streaming-ssr) covers the Suspense API you want instead.
+
+## Next steps
+
+- [Streaming SSR](/docs/core/streaming-ssr)
+  - Flush the page shell first and stream slow sections as they resolve.
+- [WriteBuf](/docs/core/write-buf)
+  - Pick the buffer a route renders into.
+- [Loading data and streaming](/docs/framework/data-loading)
+  - Load request data, apply cache hints, dedupe repeated loads, and stream slow page sections with Suspense.
+- [Route responses](/docs/framework/responses)
+  - Return synchronous, buffered async, or streaming SSR with islands.

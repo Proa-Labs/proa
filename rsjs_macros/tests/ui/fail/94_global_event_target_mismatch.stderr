@@ -1,0 +1,22 @@
+error[E0277]: event current-target marker `Document` does not match binding target `Window`
+  --> tests/ui/fail/94_global_event_target_mismatch.rs:12:40
+   |
+12 |             <div on_window_resize={|_: rsjs::Event<rsjs::web::dom::Document>| {}}>
+   |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this event target marker is incompatible with the `on_*` binding
+   |
+   = note: parameterize the event type with `rsjs::web::dom::Document` for `on_document_*`, `rsjs::web::dom::Window` for `on_window_*`, or the bound element marker for a local handler; `dom::Any` is element-local only
+help: the trait `EventCurrentTargetFor<Window>` is not implemented for `Document`
+      but trait `EventCurrentTargetFor<Document>` is implemented for it
+  --> $WORKSPACE/rsjs_web/src/generated.rs
+   |
+   | impl EventCurrentTargetFor<dom::Document> for dom::Document {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `Document`, found `Window`
+note: required by a bound in `rsjs::__private::assert_event_type`
+  --> $WORKSPACE/rsjs/src/lib.rs
+   |
+   |     pub fn assert_event_type<Target, Interface, E>()
+   |            ----------------- required by a bound in this function
+...
+   |         <E as crate::EventParamStub>::CurrentTarget: EventCurrentTargetFor<Target>,
+   |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_event_type`

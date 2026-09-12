@@ -1,0 +1,299 @@
+---
+title: Component props
+description: Pass RSJS callbacks and reactive values into child component structs.
+---
+
+A child component receives parent state through ordinary struct fields, and the linker keeps those fields live across the edge. This page covers [required](#passing-a-required-callback) and [optional](#passing-an-optional-callback) callbacks, [live values and local state](#when-does-a-child-see-live-parent-values), [node refs](#passing-a-node-ref), and [island boundaries](#what-crosses-an-island-boundary).
+
+## Passing a required callback
+
+Use callback props when a child component owns markup but the parent owns state.
+
+Child component:
+
+```rust filename="src/components/search_input.rs"
+pub struct SearchInput {
+    pub label: &'static str,
+    pub value: String,
+    pub on_change: rsjs::Handler<String>,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for SearchInput {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let on_input = rsjs::event_handler(
+            |event: rsjs::InputEvent<rsjs::elem::Input>| {
+                self.on_change.call(event.current_value());
+            },
+        );
+
+        html_sync! {
+            <label class="grid gap-2">
+                <span>{self.label}</span>
+                <input
+                    type="search"
+                    value={self.value}
+                    on_input={on_input()}
+                />
+            </label>
+        }
+        .render(cx)
+    }
+}
+```
+
+Parent component:
+
+```rust filename="src/components/search_panel.rs"
+pub struct SearchPanel;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for SearchPanel {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let query = signal(String::new());
+        let on_change = rsjs::handler(|next: String| {
+            query.set(next);
+        });
+
+        html_sync! {
+            <section>
+                {SearchInput {
+                    label: "Search",
+                    value: query.get(),
+                    on_change,
+                }}
+                <p>"Current query: "{query.get()}</p>
+            </section>
+        }
+        .render(cx)
+    }
+}
+```
+
+The parent renders `SearchInput` through a direct component edge. The semantic linker resolves the child's real Rust type and imports its linked fragment. It then fuses the two occurrences into one final owner, because a live value and a callback cannot cross an ownership boundary. The callback updates the parent signal without creating an independent island.
+
+That edge does not depend on how you spell the child's name.
+
+## Resolving component names
+
+Direct component syntax uses normal Rust name resolution. Ordinary imports, renamed imports, and re-exports all select the same component ABI:
+
+```rust filename="src/components/status_row.rs"
+use crate::ui::StatusBadge as Badge;
+
+html_sync! {
+    {Badge {
+        label: status.get(),
+    }}
+}
+```
+
+The authored path spelling is not the component identity. Rust resolves `Badge`, and the linker verifies the selected type's generated component ABI. A direct struct literal in an analyzed template is therefore a component edge. To render an arbitrary non-component renderer, construct it in the prelude and render its local value instead.
+
+Name resolution decides which type renders; the next section decides when that type sees a new value.
+
+## When does a child see live parent values?
+
+A direct inbound read participates in the parent graph without originating browser state:
+
+```rust filename="src/components/status_badge.rs"
+pub struct StatusBadge {
+    pub label: String,
+}
+
+#[rsjs(component)]
+impl<L: DataLoader> WebRenderSync<L> for StatusBadge {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <span>{self.label}</span>
+        }
+        .render(cx)
+    }
+}
+```
+
+When a parent passes `label: status.get()`, the direct `self.label` read observes the current parent value. When you render the component without a live producer, the same template stays ordinary SSR. RSJS does not emit JavaScript for a field that could participate but has no live producer.
+
+Local state has different time semantics. If a child declares `let current = signal(self.value)`, it samples the incoming value once when that child occurrence initializes. Later parent updates do not reset the child-owned signal. A fresh child occurrence samples a fresh seed. Callback props similarly resolve the currently connected parent callback when the browser event fires.
+
+The complete temporal contract is:
+
+| Child use of an inbound value | Semantics |
+|-------------------------------|-----------|
+| Text, attribute, property, branch, handler read, or exact local alias | `LiveRead`: observes the latest connected parent value. |
+| `signal(self.value)` | `SeedOnce`: samples once when that child occurrence initializes; later parent writes do not reset local state. |
+| A query key derived from the field | Rebinds the observer from the old cache entry to the entry for the new structural key. It does not mutate the old entry's identity. |
+| `rsjs::SharedStateProvider { state: ... }` initialization | RSJS rejects a live parent value. Provider initialization is a server seed, not ongoing synchronization. |
+| `rsjs::island(...)` input | RSJS rejects a live value, callback, or client handle, because it would cross an independent-owner cut. |
+
+`rsjs::Handler<T>` follows the same live-edge rule: `self.on_change.call(...)` resolves the callback currently connected to that child occurrence when the event fires. It does not retain a serialized or stale SSR closure.
+
+A child that runs without a parent callback declares that field as optional.
+
+## Passing an optional callback
+
+Use `Option<rsjs::Handler<T>>` when the child can run without a parent callback.
+
+```rust filename="src/components/clear_button.rs"
+use rsjs::OptionalHandlerExt;
+
+pub struct ClearButton {
+    pub on_clear: Option<rsjs::Handler<()>>,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for ClearButton {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <button type="button" on_click={|_| self.on_clear.call_if_some(())}>
+                "Clear"
+            </button>
+        }
+        .render(cx)
+    }
+}
+```
+
+```rust filename="src/components/search_panel.rs"
+let on_clear = rsjs::handler(|_: ()| query.set(String::new()));
+
+html_sync! {
+    {ClearButton { on_clear: Some(on_clear) }}
+    {ClearButton { on_clear: None }}
+}
+```
+
+When the browser event and a per-node value both matter, build the handler inside the child.
+
+## Combining an event with a payload
+
+Use `rsjs::event_handler(...)` inside the child when the browser event and a per-node payload both matter.
+
+```rust filename="src/components/date_picker.rs"
+pub struct DatePicker {
+    pub selected: u32,
+    pub on_change: rsjs::Handler<u32>,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for DatePicker {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let selected = signal(self.selected);
+
+        let pick = rsjs::event_handler(|event: rsjs::MouseEvent<rsjs::elem::Button>, day: u32| {
+            event.prevent_default();
+            selected.set(day);
+            self.on_change.call(day);
+        });
+
+        html_sync! {
+            <div class="grid grid-cols-7 gap-1">
+                {for day in 1_u32..=31_u32 {
+                    html_sync! {
+                        <button
+                            type="button"
+                            data_selected={selected.get() == day}
+                            on_click={pick(day)}
+                        >
+                            {day}
+                        </button>
+                    }
+                }}
+            </div>
+        }
+        .render(cx)
+    }
+}
+```
+
+Parent:
+
+```rust filename="src/components/booking_panel.rs"
+let selected_day = signal(15_u32);
+let on_change = rsjs::handler(|day: u32| selected_day.set(day));
+
+html_sync! {
+    {DatePicker {
+        selected: selected_day.get(),
+        on_change,
+    }}
+    <p>"Selected day: "{selected_day.get()}</p>
+}
+```
+
+Callbacks carry values up to the parent; a node ref hands a DOM handle down to the child.
+
+## Passing a node ref
+
+A static direct child can bind a parent-owned `NodeRef<T>`. The child consumes the handle as a participant, so it does not need `client` permission for the ref alone:
+
+```rust filename="src/components/focus_input.rs"
+pub struct FocusInput {
+    pub input_ref: rsjs::NodeRef<rsjs::HtmlInputElement>,
+}
+
+#[rsjs(component)]
+impl<L: DataLoader> WebRenderSync<L> for FocusInput {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <input ref={self.input_ref}/>
+        }
+        .render(cx)
+    }
+}
+```
+
+The origin-capable parent creates and uses the same handle:
+
+```rust filename="src/components/account_form.rs"
+let input_ref = rsjs::node_ref::<rsjs::HtmlInputElement>();
+
+html_sync! {
+    {FocusInput { input_ref }}
+    <button on_click={|_| input_ref.focus()}>"Focus"</button>
+}
+```
+
+The linker fuses the direct parent and child into one owner and aliases one browser ref object. There is no serialization or fallback allocation. This first handle shape is **required** and `StaticSingle`. RSJS rejects optional, explicit-island, conditional, repeated, keyed, standalone-child, and multiply-bound crossings.
+
+Every shape above assumes one fused owner; an explicit island creates an independent one instead.
+
+## What crosses an island boundary?
+
+| Shape | Callback can update parent state? |
+|-------|-----------------------------------|
+| `{Child { on_change }}` | Yes. The linker fuses the child occurrence and the parent into one final owner. |
+| `{rsjs::island(Child { on_change: rsjs::noop_handler() })}` | No. Explicit child islands are independent. |
+| A child constructed in the prelude as an ordinary SSR value | No live parent edge crosses; the server renders it once. |
+
+Use `rsjs::noop_handler()` for standalone child instances that need a required handler field without calling back into a parent.
+
+An explicit island can receive static server scalars for its own SSR and initial seed. It can also receive one immutable static HTML slot. That slot requires the child's component ABI to carry the slot capability, and the value must be a direct `html_sync!` or `html!` fragment. That fragment carries exactly one root element and entirely static markup. The server renders the slot once, and the browser does not reconstruct it.
+
+Live parent values, callbacks, and query, SharedState, or NodeRef handles cannot cross that independent boundary. Neither can arbitrary or multi-root renderables, reactive slot content, or nested owners. Render the child directly when those values must stay live, or give the independent child its own state and communication channel.
+
+The table below maps each prop kind to the pattern that carries it.
+
+## Choosing a prop shape
+
+| Prop kind | Pattern |
+|-----------|---------|
+| Parent-owned callback | `pub on_change: rsjs::Handler<T>` plus `self.on_change.call(value)`. |
+| Optional callback | `Option<rsjs::Handler<T>>` plus `call_if_some(value)`. |
+| Live inbound label or id | Render `self.label` directly; a linked live parent value stays current. |
+| Intentional server-only attribute | `href={rsjs::server_attr(self.href)}` takes a per-render snapshot. |
+| Child-local reactive value | `let current = signal(self.value)` samples the incoming value once. |
+| Required static DOM handle | `pub input_ref: NodeRef<HtmlInputElement>` plus a direct `{FocusInput { input_ref }}` edge aliases the parent's exact ref object. |
+
+Read inbound props directly when they need to stay live. Create a prop-seeded signal only when the child deliberately owns `SeedOnce` state, and emit a callback for parent-owned changes. Do not treat an inbound prop as mutable shared state.
+
+## Next steps
+
+- [Event handlers](/docs/rsjs/handlers)
+  - Attach named typed browser handlers and component callbacks in RSJS.
+- [Signals](/docs/rsjs/signals)
+  - Model owner-local and typed cross-owner browser state in RSJS.
+- [Shared state](/docs/rsjs/shared-state)
+  - Share typed synchronous browser state across independent RSJS owners.
+- [Server-rendered content](/docs/rsjs/server-only)
+  - Keep ordinary Rust values and renderables outside an RSJS client graph.

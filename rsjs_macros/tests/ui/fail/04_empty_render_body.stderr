@@ -1,0 +1,5 @@
+error: `#[rsjs]` expects a non-empty render body ending in an `html_sync!` / `html!` invocation
+  --> tests/ui/fail/04_empty_render_body.rs:14:75
+   |
+14 |     fn render(self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {}
+   |                                                                           ^^

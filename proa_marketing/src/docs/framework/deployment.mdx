@@ -1,0 +1,87 @@
+---
+title: Deploy
+description: Pick a deployment target, then follow the guide for it.
+---
+
+Proa builds one release binary plus a `public/` directory. Every target below runs that same artifact, usually as a Docker image. The choice is not about Proa. It is about how much of the platform you want to operate yourself.
+
+## Pick a target
+
+| | **Railway** | **Coolify** | **Docker, self-managed** |
+|---|---|---|---|
+| Who owns the machine | Railway | You, one VPS | You |
+| Who compiles Rust | Railway | Your VPS, or GitHub Actions | You |
+| Preview URL per pull request | One toggle, domains auto-provisioned, deleted on merge | Yes: wildcard DNS + GitHub App + URL template | Build it yourself |
+| TLS certificates | Automatic | Automatic | Caddy or nginx, renewal yours |
+| Zero-downtime swap | Health-check gated | Health-check gated | Yours |
+| Rollback | One click | One click | Retag and restart |
+| Secrets | Service variables | App env + BuildKit secrets | Yours |
+| Logs and metrics | Built in | Built in | Ship them yourself |
+| Beside an existing Rails or Django app | Awkward | Possible | Native, this is the sidecar shape |
+| Floor cost | Usage-based | One VPS | One VPS |
+| Escape hatch | It is your Dockerfile | It is your Dockerfile | You are already there |
+
+**Start with [Railway](/docs/framework/railway)** unless you have a reason not to. Rust release builds are heavy, and Railway runs them for you. Coolify source builds run on your own VPS, which is why the [Coolify guide](/docs/framework/coolify) recommends building in GitHub Actions and deploying a prebuilt image instead.
+
+**Choose [Coolify](/docs/framework/coolify)** when you want a fixed monthly bill, data residency on hardware you control, or several apps sharing one box.
+
+**Choose [Docker](/docs/framework/docker)** when you are running Proa as a sidecar next to an existing app, deploying into Kubernetes, Nomad, or ECS, or working somewhere a PaaS is not an option. Read the next section first.
+
+## What self-managed Docker costs you
+
+Plain Docker is the most flexible target and the most expensive one. Flexibility is not the tradeoff. Labour is.
+
+A platform is roughly ten features in a trench coat. Take it away and you own all ten:
+
+| You now build | Because otherwise |
+|---|---|
+| Reverse proxy and TLS renewal | Nothing terminates HTTPS |
+| Zero-downtime container swap | Every deploy drops in-flight requests |
+| Health-check gating before cutover | A broken build takes production with it |
+| Rollback | Recovery means finding the previous image tag under pressure |
+| Secret injection | Tokens end up in a `.env` on the box |
+| Log shipping and retention | `docker logs` is your only forensics, until the container restarts |
+| Metrics and alerting | You learn about outages from users |
+| Restart-on-crash policy | One panic ends the deployment |
+| Image garbage collection | The disk fills, quietly, around week six |
+| Preview environments | Reviewers test on `main` |
+
+None of these are hard. All of them are yours forever, and they are why a cheap VPS is rarely cheaper than a managed platform once your time is priced in.
+
+Take Docker anyway when the alternative does not exist: the sidecar shape in the [Rails](/docs/migration/rails) and [Django / Flask](/docs/migration/python) migrations puts Proa on the same host as your existing app, routed by your existing proxy. No platform models that well.
+
+## What every target needs
+
+Whatever you pick, the app must:
+
+- Read `PORT` from the environment. Never hardcode it.
+- Bind `0.0.0.0`, or `::` on IPv6-only private networks such as Railway's.
+- Serve static assets from `STATIC_DIR`.
+- Answer `200` on a cheap `/healthz`, with dependency checks on a separate `/readyz`.
+- Receive the `GITHUB_TOKEN` that fetches Proa's git dependencies at build time only, while the Proa repository is private. It should never appear in the running container.
+
+Verify all five before you deploy anywhere:
+
+```bash
+docker run --rm -p 3000:3000 -e PORT=3000 my-site
+curl -fsS http://127.0.0.1:3000/healthz
+curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
+docker run --rm my-site env | grep -c GITHUB_TOKEN   # expect 0
+```
+
+Build a release binary with `cargo build --release`, and make the GitHub token available to every Cargo step in CI while the Proa repository is private. The compiled binary and static assets are the deployable artifact; the token is never needed at runtime.
+
+## Next steps
+
+- [Railway](/docs/framework/railway)
+  - Deploy a Proa app to Railway from a Dockerfile in about ten minutes.
+- [Coolify](/docs/framework/coolify)
+  - Deploy a Proa app to Coolify on your own VPS.
+- [Docker](/docs/framework/docker)
+  - Run the Proa image yourself, and own everything a platform would have done.
+- [CI / GitHub Actions](/docs/guides/ci)
+  - Gate pull requests with proa check, then deploy from the same pipeline.
+- [Environment variables](/docs/framework/environment)
+  - Configure a deployed Proa app without rebuilding the binary.
+- [Page caching](/docs/framework/page-caching#making-cloudflare-cache-your-html)
+  - Cache public SSR pages at the edge and invalidate them after a deploy or content update.

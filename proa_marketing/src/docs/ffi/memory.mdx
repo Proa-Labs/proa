@@ -1,0 +1,107 @@
+---
+title: Memory ownership
+description: Own, reuse, and free Proa FFI buffers from a host runtime.
+---
+
+The FFI boundary has two ownership modes: Proa-owned output for allocating renders, and host-owned output for `_into` renders. This page covers [allocated output](#taking-ownership-of-allocated-output), [reused buffers](#reusing-a-caller-provided-buffer), [JSON inputs](#passing-json-inputs), [concurrency](#calling-concurrently), and [buffer sizing](#choosing-buffer-sizes).
+
+## Taking ownership of allocated output
+
+Allocating functions transfer ownership of an output buffer to the host:
+
+```c filename="examples/render.c"
+uint8_t *ptr = NULL;
+uintptr_t len = 0;
+
+int32_t rc = render_airbnb_home(&ptr, &len);
+if (rc == 0) {
+    /* ptr points to len UTF-8 bytes */
+    proa_free(ptr, len);
+}
+```
+
+Rules:
+
+- Read exactly `len` bytes.
+- Do not assume null termination.
+- Free with `proa_free`, not the host allocator.
+- Pass the same pointer and length returned by the render function.
+- Call `proa_free` once.
+
+`proa_free(NULL, 0)` is a no-op in the current implementation. Call it only for successful allocated renders.
+
+One allocation per render costs you an allocator round trip. The `_into` functions remove it.
+
+## Reusing a caller-provided buffer
+
+`_into` functions let the host reuse output storage:
+
+```c filename="examples/render_into.c"
+uint8_t buf[256 * 1024];
+uintptr_t written = 0;
+
+int32_t rc = render_airbnb_home_into(buf, sizeof(buf), &written);
+if (rc == 0) {
+    /* buf[0..written] contains the HTML */
+}
+```
+
+If the buffer is too small, retry with the required size:
+
+```c filename="examples/render_into_retry.c"
+uint8_t probe[1];
+uintptr_t needed = 0;
+
+int32_t rc = render_airbnb_home_into(probe, sizeof(probe), &needed);
+if (rc == -1) {
+    uint8_t *buf = malloc(needed);
+    rc = render_airbnb_home_into(buf, needed, &needed);
+    free(buf);
+}
+```
+
+The host owns `_into` buffers. Do not pass them to `proa_free`.
+
+Output is one direction. Props travel the other way, and they follow a third rule.
+
+## Passing JSON inputs
+
+JSON render functions borrow the input bytes for the duration of the call:
+
+```c filename="examples/render_json.c"
+const uint8_t *json_ptr = ...;
+uintptr_t json_len = ...;
+uint8_t *out = NULL;
+uintptr_t out_len = 0;
+
+int32_t rc = render_nike_pdp_json(json_ptr, json_len, &out, &out_len);
+```
+
+The host keeps ownership of `json_ptr`. The input must remain valid until the function returns. On success, Proa owns the output, and you release it with `proa_free`.
+
+Those rules hold per call. Running calls in parallel adds one more.
+
+## Calling concurrently
+
+Use separate output buffers per concurrent call. Do not share a mutable `_into` buffer between requests unless the host serializes access. Allocating renders return independent buffers per successful call.
+
+How large each of those buffers needs to be depends on the page.
+
+## Choosing buffer sizes
+
+For the current showcase pages, a 256 KiB host buffer covers the default pages in the distributed package. For production bindings, prefer one of these patterns:
+
+- call the allocating function and free the result
+- provision a buffer from measured maximum HTML size plus headroom
+- retry `_into` calls on `-1` using the required size from `out_len`
+
+## Next steps
+
+- [ABI contract](/docs/ffi/abi)
+  - Look up the exact signature and return codes for each export.
+- [Example payloads](/docs/ffi/examples)
+  - Feed the JSON renders valid props.
+- [Packaging](/docs/ffi/packaging)
+  - Ship the shared library your host runtime loads.
+- [Playground](/docs/ffi/playground)
+  - Try the exports before writing a binding.

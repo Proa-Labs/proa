@@ -1,0 +1,522 @@
+[
+  {
+    "effect": {
+      "kind": "focus"
+    },
+    "kind": "node_ref_effect",
+    "ref": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "click"
+    },
+    "kind": "node_ref_effect",
+    "ref": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 2
+      },
+      "start": {
+        "column": 20,
+        "line": 2
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "request_submit"
+    },
+    "kind": "node_ref_effect",
+    "ref": 1,
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 3
+      },
+      "start": {
+        "column": 20,
+        "line": 3
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "reset"
+    },
+    "kind": "node_ref_effect",
+    "ref": 1,
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 4
+      },
+      "start": {
+        "column": 20,
+        "line": 4
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "show_modal"
+    },
+    "kind": "node_ref_effect",
+    "ref": 2,
+    "span": {
+      "end": {
+        "column": 26,
+        "line": 5
+      },
+      "start": {
+        "column": 20,
+        "line": 5
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "close"
+    },
+    "kind": "node_ref_effect",
+    "ref": 2,
+    "span": {
+      "end": {
+        "column": 26,
+        "line": 6
+      },
+      "start": {
+        "column": 20,
+        "line": 6
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "show_popover"
+    },
+    "kind": "node_ref_effect",
+    "ref": 3,
+    "span": {
+      "end": {
+        "column": 27,
+        "line": 7
+      },
+      "start": {
+        "column": 20,
+        "line": 7
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "hide_popover"
+    },
+    "kind": "node_ref_effect",
+    "ref": 3,
+    "span": {
+      "end": {
+        "column": 27,
+        "line": 8
+      },
+      "start": {
+        "column": 20,
+        "line": 8
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "toggle_popover"
+    },
+    "kind": "node_ref_effect",
+    "ref": 3,
+    "span": {
+      "end": {
+        "column": 27,
+        "line": 9
+      },
+      "start": {
+        "column": 20,
+        "line": 9
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "scroll_to",
+      "x": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 41,
+            "line": 10
+          },
+          "start": {
+            "column": 36,
+            "line": 10
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 0
+        }
+      },
+      "y": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 49,
+            "line": 10
+          },
+          "start": {
+            "column": 43,
+            "line": 10
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 32
+        }
+      }
+    },
+    "kind": "node_ref_effect",
+    "ref": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 10
+      },
+      "start": {
+        "column": 20,
+        "line": 10
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "scroll_by",
+      "x": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 41,
+            "line": 11
+          },
+          "start": {
+            "column": 36,
+            "line": 11
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 0
+        }
+      },
+      "y": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 48,
+            "line": 11
+          },
+          "start": {
+            "column": 43,
+            "line": 11
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 8
+        }
+      }
+    },
+    "kind": "node_ref_effect",
+    "ref": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 11
+      },
+      "start": {
+        "column": 20,
+        "line": 11
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "select"
+    },
+    "kind": "node_ref_effect",
+    "ref": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 12
+      },
+      "start": {
+        "column": 20,
+        "line": 12
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "set_value",
+      "value": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 38,
+            "line": 13
+          },
+          "start": {
+            "column": 36,
+            "line": 13
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": ""
+        }
+      }
+    },
+    "kind": "node_ref_effect",
+    "ref": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 13
+      },
+      "start": {
+        "column": 20,
+        "line": 13
+      }
+    }
+  },
+  {
+    "effect": {
+      "end": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 58,
+            "line": 14
+          },
+          "start": {
+            "column": 53,
+            "line": 14
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 0
+        }
+      },
+      "kind": "set_selection_range",
+      "start": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 51,
+            "line": 14
+          },
+          "start": {
+            "column": 46,
+            "line": 14
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 0
+        }
+      }
+    },
+    "kind": "node_ref_effect",
+    "ref": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 14
+      },
+      "start": {
+        "column": 20,
+        "line": 14
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "set_attribute",
+      "name": "aria-expanded",
+      "value": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 64,
+            "line": 15
+          },
+          "start": {
+            "column": 57,
+            "line": 15
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "false"
+        }
+      }
+    },
+    "kind": "node_ref_effect",
+    "ref": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 15
+      },
+      "start": {
+        "column": 20,
+        "line": 15
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "remove_attribute",
+      "name": "hidden"
+    },
+    "kind": "node_ref_effect",
+    "ref": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 16
+      },
+      "start": {
+        "column": 20,
+        "line": 16
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "set_style_property",
+      "name": "outline-color",
+      "value": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 75,
+            "line": 17
+          },
+          "start": {
+            "column": 62,
+            "line": 17
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "transparent"
+        }
+      }
+    },
+    "kind": "node_ref_effect",
+    "ref": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 17
+      },
+      "start": {
+        "column": 20,
+        "line": 17
+      }
+    }
+  },
+  {
+    "args": [
+      {
+        "accessor": "Attribute { name: \"data-kind\" }",
+        "kind": "node_ref_read",
+        "ref": 0,
+        "span": {
+          "end": {
+            "column": 38,
+            "line": 18
+          },
+          "start": {
+            "column": 33,
+            "line": 18
+          }
+        }
+      },
+      {
+        "accessor": "HasAttribute { name: \"hidden\" }",
+        "kind": "node_ref_read",
+        "ref": 0,
+        "span": {
+          "end": {
+            "column": 72,
+            "line": 18
+          },
+          "start": {
+            "column": 67,
+            "line": 18
+          }
+        }
+      }
+    ],
+    "kind": "console",
+    "level": "Log",
+    "span": {
+      "end": {
+        "column": 27,
+        "line": 18
+      },
+      "start": {
+        "column": 20,
+        "line": 18
+      }
+    }
+  },
+  {
+    "kind": "signal_set",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 27,
+        "line": 19
+      },
+      "start": {
+        "column": 20,
+        "line": 19
+      }
+    },
+    "value": {
+      "accessor": "Value",
+      "kind": "node_ref_read",
+      "ref": 0,
+      "span": {
+        "end": {
+          "column": 37,
+          "line": 19
+        },
+        "start": {
+          "column": 32,
+          "line": 19
+        }
+      }
+    }
+  }
+]

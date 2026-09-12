@@ -1,0 +1,331 @@
+#!/usr/bin/env bash
+# Run the immutable-preview-only Traefik instance. This process deliberately
+# has no relationship to Coolify's shared Traefik configuration surface.
+set -euo pipefail
+umask 077
+
+log() {
+  printf 'preview_archive_router %s\n' "$*"
+}
+
+fail() {
+  log "event=error reason=$1" >&2
+  exit "${2:-1}"
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail root_required 2
+
+command=${1:-}
+case "$command" in
+  attest|prepare|run|stop) ;;
+  *) fail command_invalid 2 ;;
+esac
+
+CONFIG_FILE=${PROA_ARCHIVE_CONFIG_FILE:-/etc/proa/preview-archive.env}
+[[ "$CONFIG_FILE" == /* ]] || fail config_path_invalid 2
+[[ -f "$CONFIG_FILE" && ! -L "$CONFIG_FILE" ]] || fail config_unsafe 2
+
+stat_value() {
+  local kind=$1 path=$2
+  case "$kind" in
+    owner)
+      stat -c '%u' "$path" 2>/dev/null || stat -f '%u' "$path" 2>/dev/null
+      ;;
+    group)
+      stat -c '%g' "$path" 2>/dev/null || stat -f '%g' "$path" 2>/dev/null
+      ;;
+    mode)
+      stat -c '%a' "$path" 2>/dev/null || stat -f '%Lp' "$path" 2>/dev/null
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+config_owner=$(stat_value owner "$CONFIG_FILE") || fail config_unsafe
+config_mode=$(stat_value mode "$CONFIG_FILE") || fail config_unsafe
+[[ "$config_owner" == 0 && "$config_mode" =~ ^[0-7]{3,4}$ ]] || fail config_unsafe
+(((8#$config_mode & 077) == 0)) || fail config_unsafe
+
+# The file is root-owned, non-symlink, and private, so sourcing it does not
+# introduce a lower-privilege code-injection boundary.
+# shellcheck disable=SC1090
+. "$CONFIG_FILE"
+
+APPLICATION_UUID=${PROA_ARCHIVE_APPLICATION_UUID:-}
+DOCKER_NETWORK=${PROA_ARCHIVE_DOCKER_NETWORK:-}
+ROUTER_IMAGE_FILE=${PROA_ARCHIVE_ROUTER_IMAGE_FILE:-}
+ROUTER_STATIC_CONFIG_FILE=${PROA_ARCHIVE_ROUTER_STATIC_CONFIG_FILE:-}
+ROUTER_CONFIG_DIR=${PROA_ARCHIVE_ROUTER_CONFIG_DIR:-}
+ROUTER_ENTRYPOINT=${PROA_ARCHIVE_ROUTER_ENTRYPOINT:-archive}
+ROUTER_IP=${PROA_ARCHIVE_ROUTER_IP:-172.31.252.2}
+ROUTER_PORT=${PROA_ARCHIVE_ROUTER_PORT:-8082}
+ROUTER_HEALTH_PORT=${PROA_ARCHIVE_ROUTER_HEALTH_PORT:-8083}
+DOCKER_BIN=${PROA_ARCHIVE_DOCKER_BIN:-docker}
+JQ_BIN=${PROA_ARCHIVE_JQ_BIN:-jq}
+CONTAINER_NAME=proa-preview-archive-router
+ROUTER_STATIC_CONFIG_SHA256=1bdae3ab31557e5c98ac5c59157edd5b02f6977dd0c4dde54fd07ac9388c4ad9
+
+[[ "$APPLICATION_UUID" =~ ^[a-z0-9]{8,64}$ ]] || fail application_invalid 2
+[[ "$DOCKER_NETWORK" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || fail network_invalid 2
+[[ "$ROUTER_ENTRYPOINT" == archive ]] || fail entrypoint_invalid 2
+[[ "$ROUTER_IP" == 172.31.252.2 ]] || fail router_ip_invalid 2
+[[ "$ROUTER_PORT" == 8082 ]] || fail port_invalid 2
+[[ "$ROUTER_HEALTH_PORT" == 8083 ]] || fail health_port_invalid 2
+command -v "$DOCKER_BIN" >/dev/null 2>&1 || fail docker_unavailable
+command -v "$JQ_BIN" >/dev/null 2>&1 || fail jq_unavailable
+command -v python3 >/dev/null 2>&1 || fail python_unavailable
+
+read_private_line() {
+  local path=$1 kind=$2 owner mode value extra first_status second_status
+  [[ "$path" == /* ]] || fail "${kind}_path_invalid" 2
+  [[ -f "$path" && ! -L "$path" ]] || fail "${kind}_unsafe" 2
+  owner=$(stat_value owner "$path") || fail "${kind}_unsafe"
+  mode=$(stat_value mode "$path") || fail "${kind}_unsafe"
+  [[ "$owner" == 0 && "$mode" =~ ^[0-7]{3,4}$ ]] || fail "${kind}_unsafe"
+  (((8#$mode & 077) == 0)) || fail "${kind}_unsafe"
+  exec 8< "$path" || fail "${kind}_invalid"
+  if IFS= read -r value <&8; then
+    first_status=0
+  else
+    first_status=$?
+  fi
+  if ((first_status != 0)) && [[ -z "$value" ]]; then
+    exec 8<&-
+    fail "${kind}_invalid"
+  fi
+  if IFS= read -r extra <&8; then
+    second_status=0
+  else
+    second_status=$?
+  fi
+  exec 8<&-
+  if ((second_status == 0)) || [[ -n "$extra" ]]; then
+    fail "${kind}_invalid"
+  fi
+  printf '%s' "$value"
+}
+
+router_image=$(read_private_line "$ROUTER_IMAGE_FILE" router_image)
+[[ "$router_image" =~ ^sha256:[0-9a-f]{64}$ ]] || fail router_image_invalid 2
+[[ "$ROUTER_STATIC_CONFIG_FILE" == /* ]] || fail router_static_config_path_invalid 2
+[[ -f "$ROUTER_STATIC_CONFIG_FILE" && ! -L "$ROUTER_STATIC_CONFIG_FILE" ]] ||
+  fail router_static_config_unsafe 2
+router_static_config_owner=$(stat_value owner "$ROUTER_STATIC_CONFIG_FILE") ||
+  fail router_static_config_unsafe
+router_static_config_mode=$(stat_value mode "$ROUTER_STATIC_CONFIG_FILE") ||
+  fail router_static_config_unsafe
+[[ "$router_static_config_owner" == 0 && "$router_static_config_mode" == 644 ]] ||
+  fail router_static_config_unsafe
+router_static_config_sha256=$(python3 - "$ROUTER_STATIC_CONFIG_FILE" <<'PY'
+import hashlib
+import sys
+
+with open(sys.argv[1], "rb") as config:
+    print(hashlib.sha256(config.read()).hexdigest())
+PY
+) || fail router_static_config_unsafe
+[[ "$router_static_config_sha256" == "$ROUTER_STATIC_CONFIG_SHA256" ]] ||
+  fail router_static_config_drift
+[[ "$ROUTER_CONFIG_DIR" == /* ]] || fail router_config_path_invalid 2
+[[ -d "$ROUTER_CONFIG_DIR" && ! -L "$ROUTER_CONFIG_DIR" ]] || fail router_config_unsafe 2
+router_config_owner=$(stat_value owner "$ROUTER_CONFIG_DIR") || fail router_config_unsafe
+router_config_mode=$(stat_value mode "$ROUTER_CONFIG_DIR") || fail router_config_unsafe
+[[ "$router_config_owner" == 0 && "$router_config_mode" =~ ^[0-7]{3,4}$ ]] || fail router_config_unsafe
+(((8#$router_config_mode & 0777) == 0755)) || fail router_config_unsafe
+
+network_identity=$(
+  "$DOCKER_BIN" network inspect --format \
+    '{{.Driver}}|{{.Internal}}|{{index .Labels "proa.preview.archive.network"}}|{{index .Labels "proa.preview.archive.application"}}|{{if eq (len .IPAM.Config) 1}}{{(index .IPAM.Config 0).Subnet}}{{end}}|{{len .IPAM.Config}}' \
+    "$DOCKER_NETWORK" 2>/dev/null
+) || fail network_missing
+[[ "$network_identity" == "bridge|true|true|${APPLICATION_UUID}|172.31.252.0/24|1" ]] ||
+  fail network_identity_mismatch
+available_image_contract=$(
+  "$DOCKER_BIN" image inspect --format \
+    '{{.Id}}|{{json (index .Config "Volumes")}}|{{json (index .Config "Env")}}' \
+    "$router_image" 2>/dev/null
+) || fail router_image_missing
+case "$available_image_contract" in
+  "$router_image|null|"*)
+    router_image_environment=${available_image_contract#"$router_image|null|"}
+    ;;
+  "$router_image|{}|"*)
+    router_image_environment=${available_image_contract#"$router_image|{}|"}
+    ;;
+  "$router_image|"*) fail router_image_volumes ;;
+  *) fail router_image_mismatch ;;
+esac
+if ! printf '%s' "$router_image_environment" | "$JQ_BIN" -e '
+  if . == null then
+    true
+  elif type == "array" then
+    all(.[]; type == "string" and (startswith("TRAEFIK_") | not))
+  else
+    false
+  end
+' >/dev/null 2>&1; then
+  fail router_image_environment
+fi
+
+container_inspect() {
+  "$DOCKER_BIN" inspect --format \
+    '{{index .Config.Labels "proa.preview.archive.router"}}|{{index .Config.Labels "proa.preview.archive.router.application"}}|{{.Image}}' \
+    "$CONTAINER_NAME" 2>/dev/null
+}
+
+assert_owned_container() {
+  local identity=$1
+  [[ "$identity" == "true|${APPLICATION_UUID}|${router_image}" ]] ||
+    fail container_identity_conflict
+}
+
+if [[ "$command" == prepare ]]; then
+  if identity=$(container_inspect); then
+    assert_owned_container "$identity"
+    "$DOCKER_BIN" rm -fv "$CONTAINER_NAME" >/dev/null
+    log event=stale_router_removed
+  fi
+  exit 0
+fi
+
+if [[ "$command" == attest ]]; then
+  container_json=
+  container_seen=false
+  for attempt in {1..50}; do
+    if container_json=$("$DOCKER_BIN" inspect "$CONTAINER_NAME" 2>/dev/null); then
+      container_seen=true
+      # shellcheck disable=SC2016 # Dollar-prefixed names below are jq variables.
+      if printf '%s' "$container_json" | "$JQ_BIN" -e \
+    --arg application "$APPLICATION_UUID" \
+    --arg image "$router_image" \
+    --arg name "/$CONTAINER_NAME" \
+    --arg network "$DOCKER_NETWORK" \
+    --arg route_source "$ROUTER_CONFIG_DIR" \
+    --arg route_bind "${ROUTER_CONFIG_DIR}:/etc/traefik/dynamic:ro" \
+    --arg static_source "$ROUTER_STATIC_CONFIG_FILE" \
+    --arg static_bind "${ROUTER_STATIC_CONFIG_FILE}:/etc/traefik/traefik.yml:ro" \
+    --arg router_ip "$ROUTER_IP" '
+      try (
+        if type != "array" or length != 1 then
+          false
+        else
+        .[0] as $container |
+        ($container.Config.Labels // {}) as $labels |
+        ($container.Config.Cmd // []) as $command |
+        ($container.Config.Env // []) as $environment |
+        ($labels | with_entries(select(
+          (.key | startswith("traefik.")) or
+          .key == "proa.preview.archive" or
+          (.key | startswith("proa.preview.archive."))
+        ))) == {
+          "traefik.enable": "false",
+          "proa.preview.archive.router": "true",
+          "proa.preview.archive.router.application": $application
+        } and
+        $container.Name == $name and
+        $container.Image == $image and
+        $container.Config.Image == $image and
+        ($environment | type == "array") and
+        all($environment[];
+          type == "string" and (startswith("TRAEFIK_") | not)
+        ) and
+        $container.State.Running == true and
+        $container.Config.User == "65532:65532" and
+        $container.HostConfig.ReadonlyRootfs == true and
+        $container.HostConfig.Privileged == false and
+        $container.HostConfig.PublishAllPorts == false and
+        $container.HostConfig.AutoRemove == true and
+        $container.HostConfig.RestartPolicy.Name == "no" and
+        $container.HostConfig.NetworkMode == $network and
+        (($container.HostConfig.Binds // []) | sort) ==
+          ([$route_bind, $static_bind] | sort) and
+        (($container.HostConfig.Mounts // []) == []) and
+        $container.HostConfig.Tmpfs == {
+          "/tmp": "rw,noexec,nosuid,nodev,size=8m,uid=65532,gid=65532,mode=0700"
+        } and
+        (($container.Mounts // []) | sort_by(.Destination)) == ([{
+            "Type": "bind",
+            "Source": $route_source,
+            "Destination": "/etc/traefik/dynamic",
+            "Mode": "ro",
+            "RW": false,
+            "Propagation": "rprivate"
+          }, {
+            "Type": "bind",
+            "Source": $static_source,
+            "Destination": "/etc/traefik/traefik.yml",
+            "Mode": "ro",
+            "RW": false,
+            "Propagation": "rprivate"
+          }] | sort_by(.Destination)) and
+        ((($container.NetworkSettings.Networks // {}) | keys) == [$network]) and
+        $container.NetworkSettings.Networks[$network].IPAddress == $router_ip and
+        $container.NetworkSettings.Networks[$network].IPAMConfig.IPv4Address == $router_ip and
+        (($container.HostConfig.PortBindings // {}) == {}) and
+        (($container.HostConfig.CapAdd // []) == []) and
+        $container.HostConfig.CapDrop == ["ALL"] and
+        $container.HostConfig.SecurityOpt == ["no-new-privileges:true"] and
+        $container.HostConfig.PidsLimit == 64 and
+        $container.HostConfig.Memory == 134217728 and
+        $container.HostConfig.MemorySwap == 134217728 and
+        $container.HostConfig.NanoCpus == 500000000 and
+        $container.HostConfig.Ulimits == [{"Name": "nofile", "Hard": 1024, "Soft": 1024}] and
+        $container.HostConfig.LogConfig == {
+          "Type": "journald",
+          "Config": {"tag": "proa-preview-archive-router"}
+        } and
+        $command == [
+          "--configFile=/etc/traefik/traefik.yml"
+        ] and
+        ([$command[] | select(
+          startswith("--providers.docker") or
+          startswith("--api.dashboard")
+        )] | length == 0)
+        end
+      ) catch false
+      ' >/dev/null 2>&1; then
+        log event=router_attested
+        exit 0
+      fi
+    fi
+    if ((attempt < 50)); then
+      sleep 0.1
+    fi
+  done
+  [[ "$container_seen" == true ]] || fail container_missing
+  fail container_contract_drift
+fi
+
+if [[ "$command" == stop ]]; then
+  if identity=$(container_inspect); then
+    assert_owned_container "$identity"
+    "$DOCKER_BIN" stop --time 10 "$CONTAINER_NAME" >/dev/null
+    log event=router_stopped
+  fi
+  exit 0
+fi
+
+log event=router_starting image="$router_image" network="$DOCKER_NETWORK" ip="$ROUTER_IP" port="$ROUTER_PORT" health_port="$ROUTER_HEALTH_PORT"
+exec "$DOCKER_BIN" run --rm \
+  --name "$CONTAINER_NAME" \
+  --label traefik.enable=false \
+  --label proa.preview.archive.router=true \
+  --label "proa.preview.archive.router.application=$APPLICATION_UUID" \
+  --network "$DOCKER_NETWORK" \
+  --ip "$ROUTER_IP" \
+  --user 65532:65532 \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=8m,uid=65532,gid=65532,mode=0700 \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --pids-limit 64 \
+  --memory 128m \
+  --memory-swap 128m \
+  --cpus 0.50 \
+  --ulimit nofile=1024:1024 \
+  --log-driver journald \
+  --log-opt tag=proa-preview-archive-router \
+  --volume "${ROUTER_STATIC_CONFIG_FILE}:/etc/traefik/traefik.yml:ro" \
+  --volume "${ROUTER_CONFIG_DIR}:/etc/traefik/dynamic:ro" \
+  "$router_image" \
+  --configFile=/etc/traefik/traefik.yml

@@ -1,0 +1,340 @@
+---
+title: HTML rendering
+description: Render typed Rust values to HTML with render traits and the html! macros.
+keywords: [html_sync, html!, html_sync!, text!, template]
+---
+
+Proa lets you use ordinary Rust for dynamic values,
+components, conditions, matches, and loops. You write templates with `html!` or
+`html_sync!`, then implement a render trait to turn the template into a component.
+
+Everything on this page renders on the server. That is not a mode you select per
+route or per component: a component writes bytes into the response, the reader
+gets a complete page, and nothing on it needs JavaScript to appear. There is no
+hydration pass by default, and a page ships no client JavaScript at all until you
+add an [island](/docs/guides/islands), which is opt-in per component. A wholly
+client-rendered SPA is mounted separately with `ExternalApp::csr_app`; it is not
+a Proa component render mode.
+
+## Writing templates
+
+`html_sync!` and `html!` share the same template syntax. The examples in this
+section use `html_sync!` because most components do not need to await anything.
+
+### DOM Elements
+
+Standard elements, attributes, dynamic values, and components share one tree:
+
+```rust filename="src/components/hero.rs" {4-5}
+html_sync! {
+    <section data-component="hero" aria-labelledby="hero-title">
+        <h1 id="hero-title">"Hello World!"</h1>
+        <p>"Count: "{self.count}</p>
+        {Price { amount: self.price }}
+    </section>
+}
+```
+
+Write attribute names with their HTML spelling: `aria-label`,
+`aria-labelledby`, and `data-component` stay kebab-case in the template and
+rendered DOM.
+
+Text nodes are string literals in double quotes, and Proa escapes them
+automatically. Characters like `<`, `>`, `&`, and non-breaking spaces are encoded per the
+[HTML serialization algorithm](https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments).
+
+Rust expressions go in curly braces. Values render as text, while components use rust `struct` syntax and render in place.
+
+### Formatted text with `text!`
+
+Use a plain `{value}` slot for one dynamic value. Use `text!` when a text node
+mixes static text, multiple values, or Rust formatting directives:
+
+```rust filename="src/components/block_gallery.rs" {5,9}
+html_sync! {
+    <article class="block-gallery-card">
+        <iframe
+            src={block.preview_href}
+            title={text!("{} block preview", block.name)}
+            loading="lazy"
+        ></iframe>
+        <p>
+            {text!("Explore the {} block.", block.name)}
+        </p>
+    </article>
+}
+```
+
+`text!` escapes for its position: attribute escaping in `title`, and text-node
+escaping in the caption. Bare `{}` placeholders use Proa rendering; format
+specifiers such as `{:.2}` use Rust formatting. Write `{{` or `}}` for literal
+braces.
+
+Unlike `format!()`, `text!` writes directly to Proa's output buffer. This avoids
+allocating an intermediate `String` and then copying it into the response on
+every render, which reduces work in a hot render path.
+
+The Proa CLI is designed to catch this mistake. If you use `format!()` while
+rendering, `proa lint` reports the allocation and suggests a streaming
+alternative:
+
+```console
+$ proa lint src/components/greeting.rs
+src/components/greeting.rs:4:17: warning[perf/format]: format!() in a Proa render path allocates a String on every render
+  help: for text, render adjacent pieces like `"$"{price}" / night"`; for attrs, precompute or use `text!(...)`
+```
+
+Placeholder-bearing `text!` is rejected in URL attributes such as `href` and
+`src`; use a validated URL value or typed URL helper instead.
+
+### Control flow (if, for, match, etc.) is Rust
+
+Inside an ordinary server-rendered component, a `{ ... }` slot accepts Rust
+expressions. Use `if`, `match`, and `for` directly in the render tree. When a
+branch or loop iteration produces markup, return another template fragment:
+
+```rust filename="src/components/product_list.rs" {2-3,10,13,21}
+html_sync! {
+    <section class={if self.featured { "featured-products" } else { "products" }}>
+        {if self.products.is_empty() {
+            html_sync! {
+                <p>"No products found"</p>
+            }
+        } else {
+            html_sync! {
+                <ul>
+                    {for product in self.products {
+                        html_sync! {
+                            <li>
+                                {match &product.status {
+                                    Status::Active => html_sync! {
+                                        <span class="text-green-600">"Active"</span>
+                                    },
+                                    Status::Inactive => html_sync! {
+                                        <span class="text-red-600">"Inactive"</span>
+                                    },
+                                }}
+                                {ProductCard { product }}
+                            </li>
+                        }
+                    }}
+                </ul>
+            }
+        }}
+    </section>
+}
+```
+
+The `class` conditional returns strings directly; branches that
+produce elements return template fragments.
+
+### `Option<T>`
+
+`Option<T>` renders its value when it is `Some` and nothing when it is `None`,
+so optional content often needs no explicit branch:
+
+```rust filename="src/components/panel.rs"
+html_sync! {
+    <section>
+        <h2>{self.title}</h2>
+        {self.subtitle}
+    </section>
+}
+```
+
+> **RSJS note**: These examples show ordinary server-rendered components.
+> Expressions that must also compile into browser JavaScript inside an
+> RSJS-analyzed component use a deliberately portable subset of Rust. See
+> [Islands: when and why](/docs/guides/islands) before moving behavior to the
+> browser.
+
+### Attributes
+
+Static values are string literals; dynamic values go in braces and are escaped before rendering:
+
+```rust filename="src/components/link.rs"
+html_sync! {
+    <a href={self.href} aria-label={self.label}>
+        {self.children}
+    </a>
+}
+```
+
+`Option<&str>` omits the attribute entirely when `None`:
+
+```rust filename="src/components/tab.rs"
+let selected: Option<&str> = self.selected.then_some("true");
+
+html_sync! {
+    <button aria-selected={selected}>"Tab"</button>
+}
+```
+
+Valueless attributes render as the bare attribute name (`disabled`, `open`), which is spec-compliant:
+
+```rust filename="src/components/form.rs"
+html_sync! {
+    <input type="text" disabled />
+    <details open>
+        <summary>"Click"</summary>
+    </details>
+}
+```
+
+The macro accepts **any** attribute name, so htmx, Alpine, ARIA, and `data-*`
+attributes work without a fixed allowlist. Prefer their canonical hyphenated
+HTML spelling; underscores are accepted and normalized to dashes when needed:
+
+```rust filename="src/components/save.rs"
+html_sync! {
+    <button hx-post="/api/submit" hx-swap="outerHTML">"Save"</button>
+    <div data-user-id="123" data-role="admin">"content"</div>
+}
+```
+
+Prefer data attributes for JavaScript hooks and tests, and classes for styling. Never parse a generated class string as state.
+
+### Documents and comments
+
+`<!DOCTYPE html>` works inside the macro, and `<>...</>` renders siblings without a wrapper.
+
+Rust comments inside `html!` are stripped by the compiler and never reach the output. `///` doc comments do not work there, they are only valid before item definitions.
+
+There is no `<!-- -->` syntax. HTML comments in SSR output are almost always wasted bytes, so including one is deliberate:
+
+```rust filename="src/layouts/root.rs"
+use proa_core::StaticRaw;
+
+html_sync! {
+    {StaticRaw("<!-- page boundary -->")}
+    <div>"content"</div>
+}
+```
+
+## Choosing a render trait
+
+| Output | Synchronous | Async-capable |
+|--------|-------------|---------------|
+| HTML | `WebRenderSync` + `html_sync!` | `WebRender` + `html!` |
+| Markdown | `MdRenderSync` + `md_sync!` | `MdRender` + `md!` |
+
+Every component picks one of these two, and the choice is narrow: **use the
+synchronous trait unless the component itself has to `.await` while rendering.**
+Both render on the server; the difference is whether rendering can suspend.
+
+A synchronous component writes its bytes and returns. There is no future, no
+driver, and no scheduling. An async-capable component returns a `RenderOutcome`
+instead, which a driver at the route or adapter boundary resolves. Most route
+bodies, layouts, and UI components stay synchronous.
+
+<Tabs items={['Synchronous', 'Async-capable']}>
+
+<Tab value="Synchronous">
+
+`WebRenderSync` with `html_sync!`. This is the shape of almost every component
+you will write.
+
+```rust filename="src/components/price.rs"
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+
+pub struct Price {
+    pub amount: u32,
+}
+
+impl<L: DataLoader> WebRenderSync<L> for Price {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <span data-component="price" class="font-semibold">"$"{self.amount}</span>
+        }
+        .render(cx)
+    }
+}
+```
+
+</Tab>
+
+<Tab value="Async-capable">
+
+`WebRender` with `html!`. The signature is heavier because the returned future
+borrows the context, so reach for it only when you need to `.await`.
+
+```rust filename="src/components/async_price.rs"
+use std::future::Future;
+
+use proa_core::{
+    DataLoader, RenderOutcome, WebContext, WebRender, WriteError,
+};
+use proa_macros::html_sync;
+
+pub struct AsyncPrice;
+
+impl<L: DataLoader> WebRender<L> for AsyncPrice {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let amount = 42_u32;
+            html_sync! {
+                <span>"$"{amount}</span>
+            }
+            .render(cx)
+        })
+    }
+}
+```
+
+</Tab>
+
+</Tabs>
+
+
+Ordinary authored implementations are generic only over `L: DataLoader`.
+`WebContext<L>` owns the default reusable `RenderBuffer`; the second `B`
+parameter is reserved for lower-level custom-writer integrations.
+
+## Driving an async render
+
+`WebRender` never blocks to render itself. It returns a `RenderOutcome`,
+`Done(result)` on the sync path or `Pending(future)` on the async path, and a
+driver at the route or adapter boundary resolves it.
+
+For framework routes, use `RouteResponse::ssr_async(...)`, `ssr_async_with_loader(...)`, or the `ssr_stream*` constructors. For custom adapters and tests, `proa_core` ships drivers:
+
+| Driver | Use it when |
+|--------|-------------|
+| `render_to_vec_async(root)` | You want an owned contiguous byte buffer. |
+| `render_to_string_async(root)` | You want a UTF-8 string and accept a panic on invalid UTF-8. |
+| `try_render_to_string_async(root)` | You want a UTF-8 string with explicit error handling. |
+| `render_into_async(&mut buf, root)` | You want to reuse a caller-owned `RenderBuffer`. |
+| `render_in_context_async(&mut cx, root)` | You need to customize `WebContext` first. |
+
+```rust filename="src/adapter.rs"
+use std::sync::Arc;
+
+use proa_core::{render_in_context_async, WebContext};
+
+let mut out = Vec::new();
+let mut cx = WebContext::with_loader_buffer(
+    &mut out,
+    Arc::new(loader),
+);
+
+render_in_context_async(&mut cx, PageWithData).await?;
+```
+
+> **Good to know**: Streaming render modes also need the matching framework state installed, stream recorders, chunk flushers, and page pools. Use the framework response helpers unless you are writing that adapter layer. See [Streaming SSR](/docs/core/streaming-ssr).
+
+## Next steps
+
+- [Components](/docs/core/components)
+  - Nest components, pass children, and branch inside a render tree.
+- [Markdown rendering](/docs/core/markdown)
+  - Render typed Rust values to Markdown for docs, feeds, and agents.
+- [WriteBuf](/docs/core/write-buf)
+  - Pick the buffer a route renders into.
+- [Escaping and raw HTML](/docs/core/escaping)
+  - How Proa encodes dynamic values, and the two ways to opt out.
+- [Route responses](/docs/framework/responses)
+  - Return synchronous, buffered async, or streaming SSR with islands.

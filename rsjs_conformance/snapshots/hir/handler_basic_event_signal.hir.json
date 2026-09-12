@@ -1,0 +1,59 @@
+[
+  {
+    "kind": "let",
+    "local": 0,
+    "name": "next",
+    "span": {
+      "end": {
+        "column": 23,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    },
+    "value": {
+      "kind": "event_value",
+      "span": {
+        "end": {
+          "column": 36,
+          "line": 1
+        },
+        "start": {
+          "column": 31,
+          "line": 1
+        }
+      },
+      "value": "TargetValue"
+    }
+  },
+  {
+    "kind": "signal_set",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 2
+      },
+      "start": {
+        "column": 20,
+        "line": 2
+      }
+    },
+    "value": {
+      "kind": "local",
+      "local": 0,
+      "span": {
+        "end": {
+          "column": 33,
+          "line": 2
+        },
+        "start": {
+          "column": 29,
+          "line": 2
+        }
+      }
+    }
+  }
+]

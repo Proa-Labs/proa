@@ -1,0 +1,98 @@
+---
+title: Routes and layouts
+description: Define route trees, layouts, and static paths.
+---
+
+Proa route declarations are regular Rust values. You define a route tree with `Route`, then turn it into an Axum `Router` with `router_from_spec`.
+
+## Route Tree
+
+```rust
+use axum::routing::get;
+use proa_framework_axum::{router_from_spec, Route, RouteMode};
+
+let (routes, metadata) = router_from_spec(vec![
+    Route::layout(
+        "",
+        &AppLayout,
+        vec![
+            Route::page("/", "Home", get(home)).with_route_mode(RouteMode::Server),
+            Route::page("/about", "About", get(about)).with_route_mode(RouteMode::Static),
+            Route::page("/dashboard", "Dashboard", get(dashboard))
+                .with_route_mode(RouteMode::ClientBrowser),
+        ],
+    ),
+]);
+```
+
+The generated router contains the Axum routes. The metadata map contains precomputed metadata for those same paths and should be passed to `FrameworkBuilder::with_dynamic_routes_and_metadata`.
+
+For JSON APIs, form submissions, webhooks, health checks, and other non-page routes, use [Route handlers](/docs/framework/route-handlers).
+
+## Route Constructors
+
+| Constructor | Use it for |
+|-------------|------------|
+| `Route::endpoint(path, router)` | Raw endpoint without generated title metadata. |
+| `Route::page(path, title, router)` | Page endpoint with title-only metadata. |
+| `Route::page_with_metadata(path, router, metadata)` | Page endpoint with a custom metadata provider. |
+| `Route::layout(path, layout, children)` | Metadata layout shared by child routes. |
+
+## Route Modes
+
+`RouteMode` describes how a route should be treated by build and client-routing tooling.
+
+| Mode | Use it when |
+|------|-------------|
+| `Server` | The route is rendered by the server at request time. |
+| `Static` | The route can be pre-rendered by build tooling. |
+| `ClientBrowser` | The route participates in client-side browser navigation. |
+
+The mode does not replace your Axum handler. It is metadata for Proa's route tooling and export pipeline.
+
+## Dynamic Static Paths
+
+Static dynamic routes can provide path parameters:
+
+```rust
+use std::collections::HashMap;
+
+use axum::routing::get;
+use proa_framework_axum::{Route, RouteMode};
+
+fn blog_paths() -> Vec<HashMap<&'static str, String>> {
+    vec![
+        HashMap::from([("slug", "intro".to_string())]),
+        HashMap::from([("slug", "routing".to_string())]),
+    ]
+}
+
+let route = Route::<()>::page("/blog/:slug", "Blog Post", get(blog_handler))
+    .with_route_mode(RouteMode::Static)
+    .with_static_paths(blog_paths);
+```
+
+The keys match the `:param` names in the route path.
+
+## Layouts
+
+A route layout is a metadata boundary. It implements `Metadata`, so title templates and Open Graph defaults can live at the layout level.
+
+```rust
+use proa_framework_axum::{Layout, Metadata};
+
+pub struct AppLayout;
+
+impl Metadata for AppLayout {}
+impl Layout for AppLayout {}
+```
+
+Compose shared HTML chrome explicitly in the render tree, normally with a reusable `RootDocument` component:
+
+```rust
+use proa_framework_axum::RouteResponse;
+
+RouteResponse::ssr(RootDocument { content: ProductPage })
+```
+
+That composition is typed and works the same way for synchronous, buffered async, and streaming routes; route metadata continues to cascade independently.

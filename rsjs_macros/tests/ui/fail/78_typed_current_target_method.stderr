@@ -1,0 +1,13 @@
+error[E0599]: the method `checked` exists for struct `rsjs::CurrentTarget<rsjs::web::dom::HtmlButtonElement>`, but its trait bounds were not satisfied
+  --> tests/ui/fail/78_typed_current_target_method.rs:13:36
+   |
+13 |                 checked.set(button.checked());
+   |                                    ^^^^^^^ method cannot be called due to unsatisfied trait bounds
+   |
+  ::: $WORKSPACE/rsjs_web/src/generated.rs
+   |
+   |     pub struct HtmlButtonElement;
+   |     ---------------------------- doesn't satisfy `_: CheckedElementMarker`
+   |
+   = note: the following trait bounds were not satisfied:
+           `rsjs::web::dom::HtmlButtonElement: CheckedElementMarker`

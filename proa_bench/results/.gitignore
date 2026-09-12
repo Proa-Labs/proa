@@ -1,0 +1,3 @@
+# Results are machine-specific, regenerate with ./run_all.sh
+*.json
+*.log

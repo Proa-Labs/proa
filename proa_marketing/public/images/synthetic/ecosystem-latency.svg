@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" role="img" aria-label="Synthetic latency dashboard">
+  <rect width="1440" height="900" fill="#101820"/><rect x="70" y="65" width="1300" height="770" rx="28" fill="#17242e"/>
+  <path d="M140 655l150-90 130 35 170-220 145 95 170-245 170 285 220-185" fill="none" stroke="#6ee7b7" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#d7fbe9"><rect x="140" y="150" width="260" height="46" rx="12"/><rect x="140" y="226" width="160" height="28" rx="8"/></g>
+</svg>

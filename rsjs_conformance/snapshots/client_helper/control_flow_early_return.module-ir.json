@@ -1,0 +1,83 @@
+{
+  "format": "rsjs.client_module_ir",
+  "client_ir_version": 3,
+  "name": "pricing_labels",
+  "module_kind": "client_module",
+  "imports": [],
+  "constants": [],
+  "functions": [
+    {
+      "id": 0,
+      "name": "label",
+      "visibility": "private",
+      "params": [
+        {
+          "name": "price",
+          "ty": {
+            "kind": "i64"
+          }
+        }
+      ],
+      "return_ty": {
+        "kind": "string"
+      },
+      "captures": [],
+      "body": {
+        "kind": "block",
+        "stmts": [
+          {
+            "kind": "if",
+            "condition": {
+              "kind": "binary",
+              "op": "gt",
+              "left": {
+                "kind": "local",
+                "local": 0
+              },
+              "right": {
+                "kind": "literal",
+              "value": {
+                "kind": "bigint",
+                "value": "100"
+              }
+              }
+            },
+            "then": {
+              "kind": "block",
+              "stmts": [
+                {
+                  "kind": "return",
+                  "value": {
+                    "kind": "literal",
+                    "value": {
+                      "kind": "string",
+                      "value": "premium"
+                    }
+                  }
+                }
+              ]
+            },
+            "else": null
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "literal",
+              "value": {
+                "kind": "string",
+                "value": "standard"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "exports": [
+    {
+      "name": "pricing_labels__label",
+      "function": 0
+    }
+  ],
+  "metadata": {}
+}

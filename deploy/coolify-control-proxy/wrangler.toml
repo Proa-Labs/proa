@@ -1,0 +1,31 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name = "proa-coolify-control"
+main = "worker.js"
+compatibility_date = "2026-08-08"
+account_id = "7abe97a65e9407c5d007217a40c270e3"
+workers_dev = false
+
+routes = [
+  { pattern = "coolify.proa.so", custom_domain = true }
+]
+
+[vars]
+# ARCHIVE_CONTROL_SECRET is a dedicated Wrangler secret shared only with the
+# host-local archive controller; it must never be placed in this file.
+# PROA_PREVIEW_APP_ID, PROA_PREVIEW_APP_SLUG, and the PKCS#8
+# PROA_PREVIEW_APP_PRIVATE_KEY are Wrangler secrets used only by the fixed
+# GitHub presentation-token broker; they must never be placed in this file.
+ARCHIVE_APPLICATION_NAME = "proa-marketing"
+COOLIFY_APPLICATION_UUID = "irx97itir84sonabt5d0g5c5"
+GITHUB_BASE_REF = "main"
+# Coolify source-webhook App (`proa-coolify`), not the presentation App.
+GITHUB_APP_ID = "4531960"
+GITHUB_REPOSITORY = "Proa-Labs/proa"
+GITHUB_REPOSITORY_ID = "1325972097"
+GITHUB_WORKFLOW_REF = "Proa-Labs/proa/.github/workflows/marketing-preview.yml@refs/heads/main"
+MAINTAINER_ALLOWLIST = "hariria"
+OIDC_AUDIENCE = "https://coolify.proa.so/github-actions"
+PREVIEW_DOMAIN = "proa.cool"
+SESSION_TTL_SECONDS = "4500"

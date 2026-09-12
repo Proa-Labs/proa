@@ -1,0 +1,222 @@
+---
+title: Configuration
+description: Configure FrameworkBuilder, security defaults, static mounts, external apps, and response behavior.
+---
+
+`FrameworkBuilder` turns routes, manifests, static services, external apps, and hardening layers into the Axum router you run in production.
+
+Use this page when you need the complete setup surface in one place. Use [Routing](/docs/framework/routing), [Responses](/docs/framework/responses), [Static assets](/docs/framework/static-assets), and [Deployment](/docs/framework/deployment) for deeper workflow examples.
+
+## Minimal Builder
+
+```rust
+use std::collections::HashMap;
+
+use axum::routing::get;
+use proa_framework_axum::{
+    router_from_spec, FrameworkBuilder, IslandManifest, ManifestAssets, Route, RouteResponse,
+};
+
+async fn home() -> RouteResponse {
+    RouteResponse::ssr(HomePage)
+}
+
+let manifest = IslandManifest {
+    islands: HashMap::new(),
+    assets: ManifestAssets::default(),
+    import_map: HashMap::new(),
+    ssr_bundle: None,
+};
+
+let (routes, metadata) = router_from_spec(vec![
+    Route::page("/", "Home", get(home)),
+]);
+
+let app = FrameworkBuilder::new(manifest)
+    .with_dynamic_routes_and_metadata(routes, metadata)
+    .build();
+```
+
+`with_dynamic_routes_and_metadata` is the common path for page routes because it installs both the Axum router and the precomputed metadata map used by response finalization.
+
+## Builder Methods
+
+| Method | Use it for |
+|--------|------------|
+| `FrameworkBuilder::new(manifest)` | Create the builder with an island manifest and secure defaults. |
+| `.with_config(config)` | Override project paths, codegen flags, and server defaults. |
+| `.with_static_service(router)` | Mount a router under `/static`. |
+| `.with_dynamic_routes(router)` | Merge an Axum router without a metadata map. |
+| `.with_dynamic_routes_and_metadata(router, metadata)` | Merge Proa route specs plus computed route metadata. |
+| `.with_external_app(app)` | Mount static, SSR, or CSR external applications. |
+| `.with_body_limit(bytes)` | Override the global request body cap. |
+| `.with_cross_origin_protection(bool)` | Toggle browser cross-origin unsafe request protection. |
+| `.with_trusted_origin(origin)` | Add an exact trusted origin such as `https://admin.example.com`. |
+| `.with_security_headers(config)` | Configure frame policy, HSTS, and CSP. |
+| `.with_request_timeout(duration)` | Override the default request timeout. |
+| `.without_request_timeout()` | Disable the timeout layer. Prefer raising the timeout first. |
+| `.with_concurrency_limit(max)` | Add a global in-flight request cap. |
+| `.with_catch_panic(bool)` | Convert panics into plain 500 responses instead of resetting the connection. |
+| `.config()` | Inspect the current `ProaConfig`. |
+| `.build()` | Produce the final Axum `Router`. |
+
+## Production Defaults
+
+`build()` applies conservative defaults:
+
+| Default | Value |
+|---------|-------|
+| Body limit | `1 MiB` through Axum `DefaultBodyLimit`. |
+| Request timeout | `30s` for response production. Streaming bodies keep flowing after the response head is produced. |
+| Cross-origin protection | On for unsafe browser requests. |
+| Security headers | `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: strict-origin-when-cross-origin`. |
+| Concurrency limit | Off until configured. |
+| Panic catching | Off until configured. |
+
+Keep the global body limit small. For uploads, prefer a dedicated nested router with a larger Axum body limit instead of raising the whole app.
+
+## Security
+
+Security defaults live on their own pages, because they are policy decisions rather than configuration plumbing:
+
+| Builder call | Covered in |
+|---|---|
+| `.with_security_headers(config)`, `.with_strict_csp()`, `.with_csp_policy(policy)` | [Headers and CSP](/docs/framework/security-headers) |
+| `.with_trusted_origin(origin)` | [Cross-origin and CSRF](/docs/framework/cross-origin) |
+
+Cross-origin protection, the 1 MiB body limit, and the 30-second request timeout are applied by `build()` without configuration. See [Security](/docs/guides/security) for what Proa hardens and what stays yours.
+
+## ProaConfig
+
+`ProaConfig` contains path, codegen, and server defaults:
+
+```rust
+use proa_framework_axum::{CodegenConfig, PathsConfig, ProaConfig, ServerConfig};
+
+let config = ProaConfig {
+    paths: PathsConfig {
+        frontend_root: "./apps/web".into(),
+        public_dir: "./apps/web/public".into(),
+        build_output: "./apps/web/dist".into(),
+        ..Default::default()
+    },
+    codegen: CodegenConfig {
+        routes: true,
+        components: true,
+        islands: true,
+        watch: cfg!(debug_assertions),
+    },
+    server: ServerConfig {
+        host: "0.0.0.0".to_string(),
+        port: 3000,
+        auto_reload: cfg!(debug_assertions),
+    },
+};
+```
+
+### PathsConfig
+
+| Field | Default |
+|-------|---------|
+| `crates_root` | `./crates` |
+| `server_crate` | `./crates/server` |
+| `frontend_root` | `./apps/web` |
+| `codegen_output` | `./apps/web/src/.generated` |
+| `public_dir` | `./apps/web/public` |
+| `build_output` | `./apps/web/dist` |
+
+### CodegenConfig
+
+| Field | Default |
+|-------|---------|
+| `routes` | `true` |
+| `components` | `true` |
+| `islands` | `true` |
+| `watch` | `true` in debug, `false` in release |
+
+### ServerConfig
+
+| Field | Default |
+|-------|---------|
+| `port` | `3000` |
+| `host` | `127.0.0.1` |
+| `auto_reload` | `true` in debug |
+
+## Static Services
+
+Mount generated assets under `/static`:
+
+```rust
+use tower_http::services::ServeDir;
+
+let static_router = axum::Router::new().nest_service("/", ServeDir::new("public"));
+
+let app = FrameworkBuilder::new(manifest)
+    .with_static_service(static_router)
+    .build();
+```
+
+For public directories, keep untrusted writers out of the served tree. `ServeDir` rejects `..` traversal, but deployments should still treat symlinks and generated files deliberately.
+
+## External Apps
+
+Use external app mounts when one path is owned by a different frontend or service:
+
+```rust
+use proa_framework_axum::ExternalApp;
+
+let app = FrameworkBuilder::new(manifest)
+    .with_external_app(ExternalApp::static_app("/docs", "./apps/docs/out"))
+    .with_external_app(ExternalApp::ssr_app(
+        "/admin",
+        "http://127.0.0.1:4000".to_string(),
+    ))
+    .with_external_app(ExternalApp::csr_app(
+        "/console",
+        "./apps/console/dist",
+        Some("http://127.0.0.1:5173".to_string()),
+    ))
+    .build();
+```
+
+| Strategy | Constructor | Behavior |
+|----------|-------------|----------|
+| Static | `ExternalApp::static_app` | Serves prebuilt files from disk. |
+| SSR | `ExternalApp::ssr_app` | Reverse proxies to an upstream server. |
+| CSR | `ExternalApp::csr_app` | Serves a built SPA directory; a dev upstream is accepted, but dev proxying is not implemented yet. |
+
+SSR proxy mounts strip hop-by-hop headers, rebuild `X-Forwarded-*` metadata, reuse a shared HTTP client, and buffer bodies with bounded request and response limits.
+
+## Proxy Limits
+
+If you build a `ProxyConfig` directly, defaults are:
+
+| Setting | Default |
+|---------|---------|
+| Connect timeout | `5s` |
+| Upstream request timeout | `30s` |
+| Request body cap | `10 MiB` |
+| Upstream response body cap | `16 MiB` |
+
+When `FrameworkBuilder` mounts SSR external apps, it aligns the proxy request cap with the framework body limit.
+
+## RouteResponse Quick Reference
+
+| Constructor | Use it for |
+|-------------|------------|
+| `RouteResponse::ssr(component)` | Sync `WebRenderSync` pages. |
+| `RouteResponse::ssr_async(component)` | Async pages that do not use a loader. |
+| `RouteResponse::ssr_async_with_loader(component, loader)` | Async pages with a typed loader. |
+| `RouteResponse::ssr_stream(component)` | Streaming pages without a loader. |
+| `RouteResponse::ssr_stream_with_loader(component, loader)` | Streaming pages with a typed loader. |
+
+Response modifiers:
+
+| Modifier | Applies to |
+|----------|------------|
+| `.with_islands([...])` | Sync, async, and streaming SSR responses. |
+| `.with_bootstrap(config)` | SSR responses that need custom React bootstrap behavior. |
+| `.with_loader(loader)` | Async and streaming responses with typed loaders. |
+| `.with_render_mode(mode)` | Async render plans; chunked modes stream, while static and agent modes buffer. |
+
+Use [Responses](/docs/framework/responses) for examples and [Data loading and streaming](/docs/framework/data-loading) for loader and streaming details.

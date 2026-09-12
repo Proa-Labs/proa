@@ -1,0 +1,5 @@
+error: dangerous URL scheme in `href` attribute. use a safe scheme (https:, /, #) or pass data via data-* attributes (OWASP XSS Prevention Cheat Sheet, Rule #7)
+ --> tests/ui/fail/text_direct_unsafe_literal_url.rs:5:24
+  |
+5 |         <a href={text!("javascript:alert(1)")}>"unsafe"</a>
+  |                        ^^^^^^^^^^^^^^^^^^^^^

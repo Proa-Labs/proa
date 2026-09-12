@@ -1,0 +1,5 @@
+{
+  "rust-analyzer.check.command": "clippy",
+  "editor.formatOnSave": true,
+  "files.exclude": { "target": true, "data/*.db*": true }
+}

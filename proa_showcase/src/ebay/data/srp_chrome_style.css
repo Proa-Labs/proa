@@ -1,0 +1,72 @@
+/* Styles for the fully dynamic SRP chrome (header, rail, controls,
+   pagination, footer). Shared verbatim by the Proa, React, and Next.js
+   engines; the card region keeps eBay's own extracted stylesheet. */
+.srp-page{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;color:#191919;background:#fff;margin:0}
+.srp-page a{color:#191919;text-decoration:none}
+.srp-page a:hover{text-decoration:underline}
+.gh{border-bottom:1px solid #e5e5e5}
+.gh-topbar{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 24px;border-bottom:1px solid #e5e5e5}
+.gh-topbar__nav{display:flex;gap:14px;list-style:none;margin:0;padding:0;align-items:center}
+.gh-topbar__item--icon a{display:inline-flex;align-items:center;position:relative}
+.gh-icon{width:18px;height:18px;fill:none;stroke:#191919;stroke-width:1.5}
+.gh-cart-badge{position:absolute;top:-6px;right:-8px;background:#c7112d;color:#fff;border-radius:8px;font-size:10px;padding:0 4px}
+.gh-main{display:flex;align-items:center;gap:16px;padding:10px 24px}
+.gh-logo svg{width:96px;height:38px}
+.gh-logo__e{fill:#e53238}.gh-logo__b{fill:#0064d2}.gh-logo__a{fill:#f5af02}.gh-logo__y{fill:#86b817}
+.gh-search{display:flex;align-items:center;gap:10px;flex:1}
+.gh-search__form{display:flex;align-items:center;flex:1;border:2px solid #191919;border-radius:22px;overflow:hidden;padding-left:10px}
+.gh-search__icon-svg{width:16px;height:16px;fill:none;stroke:#767676;stroke-width:1.5}
+.gh-search__input{flex:1;border:0;outline:0;font-size:14px;padding:9px 8px}
+.gh-search__category{border:0;border-left:1px solid #e5e5e5;background:#f7f7f7;font-size:12px;padding:9px 6px;max-width:180px}
+.gh-search__btn{background:#3665f3;color:#fff;border:0;font-size:14px;font-weight:700;padding:10px 24px;cursor:pointer}
+.gh-search__advanced{font-size:11px;color:#555}
+.gh-cats{padding:6px 24px}
+.gh-cats ul{display:flex;gap:18px;list-style:none;margin:0;padding:0;font-size:12px;flex-wrap:wrap}
+.gh-meganav{display:flex;gap:32px;padding:10px 24px 16px;border-top:1px solid #f0f0f0;flex-wrap:wrap}
+.gh-meganav__section h3{font-size:12px;margin:0 0 6px;text-transform:uppercase;color:#555}
+.gh-meganav__section ul{list-style:none;margin:0;padding:0;font-size:12px;line-height:1.9;color:#555}
+.gh-meganav__section a{color:#555}
+.srp{max-width:1280px;margin:0 auto;padding:8px 24px}
+.srp-controls__breadcrumb ol{display:flex;gap:8px;list-style:none;margin:8px 0;padding:0;font-size:11px;color:#555}
+.srp-controls__breadcrumb li+li::before{content:"›";margin-right:8px;color:#aaa}
+.srp-controls__count{font-size:16px;font-weight:400;margin:4px 0 10px}
+.srp-controls__count-bold{font-weight:700}
+.srp-controls__row{display:flex;align-items:center;gap:18px;border-top:1px solid #e5e5e5;border-bottom:1px solid #e5e5e5;padding:8px 0;font-size:13px;margin-bottom:12px}
+.srp-controls__save{display:inline-flex;align-items:center;gap:6px;border:0;background:none;font-size:13px;color:#3665f3;cursor:pointer}
+.srp-controls__save .gh-icon{stroke:#3665f3}
+.srp-controls__sort,.srp-controls__perpage{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+.srp-controls__perpage{margin-left:0}
+.srp-controls__row select{border:1px solid #ccc;border-radius:4px;padding:4px 6px;font-size:12px;background:#fff}
+.srp-layout{display:flex;gap:24px;align-items:flex-start}
+.srp-rail{width:230px;flex-shrink:0;font-size:12px}
+.srp-rail__heading{font-size:14px;margin:0 0 8px}
+.srp-rail__cats{list-style:none;margin:0 0 14px;padding:0;line-height:2}
+.srp-rail__cats a{color:#555}
+.x-refine__group{border-top:1px solid #e5e5e5;padding:10px 0}
+.x-refine__title{font-size:13px;margin:0 0 6px}
+.x-refine__group ul{list-style:none;margin:0;padding:0}
+.x-refine__item{padding:3px 0}
+.x-refine__label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.x-refine__count{color:#767676}
+.srp-rail__cta{display:flex;flex-direction:column;gap:6px;border-top:1px solid #e5e5e5;padding-top:10px}
+.srp-rail__cta a{color:#3665f3}
+.srp-river{flex:1;min-width:0}
+.srp-pagination{display:flex;align-items:center;justify-content:center;gap:6px;padding:18px 0;font-size:13px}
+.srp-pagination__page{display:inline-flex;min-width:28px;height:28px;align-items:center;justify-content:center;border-radius:50%}
+.srp-pagination__page--active{background:#191919;color:#fff}
+.srp-pagination__nav{display:inline-flex;align-items:center}
+.srp-pagination__ellipsis{color:#767676}
+.srp-related{border-top:1px solid #e5e5e5;padding:14px 0}
+.srp-related h2{font-size:14px;margin:0 0 8px}
+.srp-related ul{display:flex;gap:10px;list-style:none;margin:0;padding:0;flex-wrap:wrap;font-size:12px}
+.srp-related a{display:inline-block;border:1px solid #ccc;border-radius:16px;padding:5px 12px;color:#191919}
+.gh-footer{border-top:1px solid #e5e5e5;margin-top:18px;padding:18px 24px;font-size:12px}
+.gh-footer__cols{display:flex;gap:48px;max-width:1280px;margin:0 auto;flex-wrap:wrap}
+.gh-footer__col h3{font-size:12px;margin:0 0 6px}
+.gh-footer__col ul{list-style:none;margin:0;padding:0;line-height:2;color:#555}
+.gh-footer__col a{color:#555}
+.gh-footer__legal{max-width:1280px;margin:14px auto 0;color:#767676;font-size:11px;display:flex;gap:10px;flex-wrap:wrap}
+.gh-footer__legal a{color:#767676;text-decoration:underline}
+.srp-filter-chips{display:flex;gap:8px;margin:0 0 10px}
+.filter-chip{border:1px solid #ccc;border-radius:16px;background:#fff;padding:5px 12px;font-size:12px;cursor:pointer}
+.filter-chip-label--active{font-weight:700;color:#3665f3}

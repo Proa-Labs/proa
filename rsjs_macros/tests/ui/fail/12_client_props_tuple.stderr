@@ -1,0 +1,5 @@
+error: #[derive(rsjs::ClientProps)] requires named fields; tuple structs are not supported in v0.1
+ --> tests/ui/fail/12_client_props_tuple.rs:6:21
+  |
+6 | pub struct Position(i64, i64);
+  |                     ^^^

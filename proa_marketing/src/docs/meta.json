@@ -1,0 +1,115 @@
+{
+  "title": "Framework",
+  "icon": "Cpu",
+  "pages": [
+    {
+      "separator": "Start here",
+      "icon": "BookOpen"
+    },
+    "index",
+    "guides/editor-setup",
+    "guides/tutorial",
+    {
+      "separator": "Rendering",
+      "icon": "Layers"
+    },
+    "core/html-rendering",
+    "core/components",
+    "core/markdown",
+    "core/write-buf",
+    "framework/responses",
+    "core/streaming-ssr",
+    "core/sink",
+    {
+      "separator": "Routing and pages",
+      "icon": "Route"
+    },
+    "framework/routing",
+    "framework/linking",
+    "framework/route-handlers",
+    "framework/content-negotiation",
+    "framework/page-caching",
+    "framework/errors",
+    "framework/metadata",
+    {
+      "separator": "Data",
+      "icon": "Database"
+    },
+    "framework/data-loading",
+    "framework/databases",
+    "framework/caching",
+    {
+      "separator": "Interactivity (RSJS)",
+      "icon": "Zap"
+    },
+    "guides/forms-actions",
+    "guides/islands",
+    "rsjs/signals",
+    "rsjs/shared-state",
+    "rsjs/handlers",
+    "rsjs/bindings",
+    "rsjs/component-props",
+    "rsjs/client-helpers",
+    "rsjs/browser-apis",
+    "rsjs/server-only",
+    "rsjs/hydration",
+    "rsjs/queries-mutations",
+    "rsjs/runtime",
+    {
+      "separator": "Styling and assets",
+      "icon": "Palette"
+    },
+    "guides/tailwind-intellisense",
+    "core/class-composition",
+    "framework/fonts",
+    "framework/images",
+    "framework/static-assets",
+    {
+      "separator": "Configuration",
+      "icon": "Settings"
+    },
+    "framework/configuration",
+    "framework/project-config",
+    "framework/environment",
+    {
+      "separator": "Security",
+      "icon": "ShieldCheck"
+    },
+    "guides/security",
+    "core/escaping",
+    "framework/security-headers",
+    "framework/cross-origin",
+    {
+      "separator": "Quality",
+      "icon": "ShieldCheck"
+    },
+    "guides/testing",
+    "guides/performance",
+    "guides/accessibility",
+    {
+      "separator": "Deploy",
+      "icon": "Rocket"
+    },
+    "framework/deployment",
+    "framework/railway",
+    "framework/coolify",
+    "framework/docker",
+    "guides/ci",
+    {
+      "separator": "Working with AI",
+      "icon": "Brain"
+    },
+    "agents",
+    "llms",
+    {
+      "separator": "When stuck",
+      "icon": "LifeBuoy"
+    },
+    "guides/troubleshooting",
+    "guides/upgrading",
+    "migration",
+    "cli",
+    "ffi",
+    "proa-docs"
+  ]
+}

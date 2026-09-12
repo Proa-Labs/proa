@@ -1,0 +1,68 @@
+---
+title: Callout
+description: Mark a note, warning, or error inside the page flow.
+---
+
+A callout separates a remark from the prose around it without taking the reader out of the page. It renders as an icon beside your Markdown, coloured by the kind of remark it is.
+
+```mdx filename="content/deploy.mdx"
+<Callout>
+Cross-origin protection is on by default and returns `403` for browser-issued
+cross-origin writes.
+</Callout>
+
+<Callout type="warning">
+`Vary: Accept` fragments CDN caches. Normalize the header at the edge first.
+</Callout>
+```
+
+Rendered:
+
+<Callout>
+Cross-origin protection is on by default and returns `403` for browser-issued cross-origin writes.
+</Callout>
+
+<Callout type="info">
+The children are ordinary Markdown, so [links](/docs/proa-docs/callout), `code`, and lists all work inside one.
+</Callout>
+
+<Callout type="warning">
+`Vary: Accept` fragments CDN caches. Normalize the header at the edge first.
+</Callout>
+
+<Callout type="error">
+A request that fails CSRF validation is rejected before your handler runs.
+</Callout>
+
+## Attributes
+
+| Attribute | Required | Default | Meaning |
+|---|---|---|---|
+| `type` | no | `default` | One of `default`, `info`, `warning`, `error`. Written to `data-type`, which the stylesheet colours |
+| `emoji` | no | built-in icon | Replaces the icon with the text you pass |
+
+An unrecognized `type` falls back to `default` rather than dropping the callout, so a typo costs you the colour, not the content.
+
+```mdx filename="content/release.mdx"
+<Callout type="warning" emoji="🔥">
+This deletes the environment and everything in it.
+</Callout>
+```
+
+<Callout type="warning" emoji="🔥">
+This deletes the environment and everything in it.
+</Callout>
+
+## Accessibility
+
+The container carries `role="note"`, so assistive technology announces it as an aside rather than as body copy. The icon is `aria-hidden`, because it repeats what the type and the prose already say; a screen reader that announced it would read decoration.
+
+That means the colour and the icon are never the only carrier of meaning. Write the callout so it still reads correctly in plain text, and the reader who cannot see the treatment loses nothing.
+
+## Use it sparingly
+
+A page with four callouts has no callouts: the reader stops seeing them. If something is required to succeed, it belongs in the prose. Reserve callouts for the thing that is true but would break the sentence you are writing.
+
+## Related
+
+[Accordions](/docs/proa-docs/accordions) · [Styling contract](/docs/proa-docs/styling-contract)

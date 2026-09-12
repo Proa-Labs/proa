@@ -1,0 +1,5 @@
+error: <caption> must be the first child of <table>. move the <caption> to be the first element inside <table> (HTML §4.9.1)
+ --> tests/ui/fail/nesting_caption_order.rs:5:50
+  |
+5 |     html_sync! { <table><tr><td>"data"</td></tr><caption>"bad"</caption></table> };
+  |                                                  ^^^^^^^

@@ -1,0 +1,49 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "if",
+      "condition": {
+        "kind": "binary",
+        "op": "gt",
+        "left": {
+          "kind": "local",
+          "local": 0
+        },
+        "right": {
+          "kind": "literal",
+          "value": {
+            "kind": "bigint",
+            "value": "100"
+          }
+        }
+      },
+      "then": {
+        "kind": "block",
+        "stmts": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "literal",
+              "value": {
+                "kind": "string",
+                "value": "premium"
+              }
+            }
+          }
+        ]
+      },
+      "else": null
+    },
+    {
+      "kind": "return",
+      "value": {
+        "kind": "literal",
+        "value": {
+          "kind": "string",
+          "value": "standard"
+        }
+      }
+    }
+  ]
+}

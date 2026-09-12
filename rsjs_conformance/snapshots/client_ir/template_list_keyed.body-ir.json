@@ -1,0 +1,26 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "signal_set",
+      "signal": 0,
+      "value": {
+        "elems": [
+          {
+            "kind": "string",
+            "value": "Gamma"
+          },
+          {
+            "kind": "string",
+            "value": "Beta"
+          },
+          {
+            "kind": "string",
+            "value": "Alpha"
+          }
+        ],
+        "kind": "array_lit"
+      }
+    }
+  ]
+}

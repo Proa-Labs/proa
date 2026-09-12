@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic wide boulevard illustration</title>
+  <desc id="desc">An original geometric illustration of a broad tree-lined boulevard.</desc>
+  <rect width="1200" height="800" fill="#cbdce0"/>
+  <path d="M0 135h350v450H0zm850 0h350v450H850z" fill="#c5aa83"/>
+  <path d="M350 800l150-390h200l150 390z" fill="#64676b"/>
+  <path d="M500 410h200v390H500z" fill="#8f8270"/>
+  <path d="M595 410h10v390h-10z" fill="#e7d3a1"/>
+  <g fill="#486b53"><circle cx="380" cy="390" r="85"/><circle cx="820" cy="390" r="85"/><circle cx="300" cy="580" r="95"/><circle cx="900" cy="580" r="95"/></g>
+  <g fill="#efe3c8"><rect x="45" y="220" width="82" height="112"/><rect x="175" y="220" width="82" height="112"/><rect x="943" y="220" width="82" height="112"/><rect x="1073" y="220" width="82" height="112"/></g>
+</svg>

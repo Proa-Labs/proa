@@ -1,0 +1,5 @@
+error: `async fn render` sugar has been removed; implement the real `WebRender::render` signature returning `RenderOutcome<impl Future<Output = Result<(), WriteError>>>` and return `RenderOutcome::pending(async move { ... })`
+ --> tests/ui/fail/59_component_async.rs:7:5
+  |
+7 |     async fn render(
+  |     ^^^^^

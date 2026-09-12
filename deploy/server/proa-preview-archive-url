@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Derive the public hostname for one retained Coolify preview deployment.
+# This is shared by the host sync service and GitHub Actions so the route
+# producer and the published deployment URL cannot drift apart.
+set -euo pipefail
+
+fail() {
+  echo "proa-preview-archive-url: $1" >&2
+  exit "${2:-2}"
+}
+
+application_name=proa-marketing
+deployment_uuid=
+domain=
+format=url
+
+while (($#)); do
+  case "$1" in
+    --application-name)
+      (($# >= 2)) || fail "--application-name requires a value"
+      application_name=$2
+      shift 2
+      ;;
+    --deployment-uuid)
+      (($# >= 2)) || fail "--deployment-uuid requires a value"
+      deployment_uuid=$2
+      shift 2
+      ;;
+    --domain)
+      (($# >= 2)) || fail "--domain requires a value"
+      domain=$2
+      shift 2
+      ;;
+    --format)
+      (($# >= 2)) || fail "--format requires a value"
+      format=$2
+      shift 2
+      ;;
+    -h|--help)
+      cat <<'USAGE'
+usage: proa-preview-archive-url \
+  --deployment-uuid <24-char Coolify CUID> \
+  --domain <preview domain> \
+  [--application-name proa-marketing] \
+  [--format url|hostname|github-output]
+
+github-output appends both `url` and `hostname` to $GITHUB_OUTPUT.
+USAGE
+      exit 0
+      ;;
+    *) fail "unknown argument: $1" ;;
+  esac
+done
+
+[[ "$application_name" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] ||
+  fail "application name must be one lowercase DNS label"
+[[ "$deployment_uuid" =~ ^[a-z0-9]{24}$ ]] ||
+  fail "deployment UUID must be exactly 24 lowercase alphanumeric characters"
+[[ ${#domain} -le 253 && "$domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] ||
+  fail "domain must be a lowercase multi-label DNS name"
+
+hostname="${application_name}-${deployment_uuid:0:12}.${domain}"
+url="https://${hostname}"
+
+case "$format" in
+  url)
+    printf '%s\n' "$url"
+    ;;
+  hostname)
+    printf '%s\n' "$hostname"
+    ;;
+  github-output)
+    [[ -n "${GITHUB_OUTPUT:-}" ]] || fail "GITHUB_OUTPUT is required for github-output format"
+    {
+      printf 'url=%s\n' "$url"
+      printf 'hostname=%s\n' "$hostname"
+    } >> "$GITHUB_OUTPUT"
+    printf '%s\n' "$url"
+    ;;
+  *) fail "format must be url, hostname, or github-output" ;;
+esac

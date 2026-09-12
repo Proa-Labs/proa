@@ -1,0 +1,148 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[workspace]
+# Publishing is additionally constrained in package manifests:
+# publish.workspace = true resolves to [workspace.package].publish = ["proa"].
+# The GitHub workflow also passes `registry: proa`.
+release = false
+dependencies_update = false
+git_release_enable = true
+git_tag_name = "{{ package }}-v{{ version }}"
+pr_labels = ["release"]
+publish = true
+publish_allow_dirty = false
+# Verify each packaged crate before publication. Package-boundary failures
+# should be fixed in the owning crate instead of hidden by the release tool.
+publish_no_verify = false
+publish_timeout = "30m"
+release_always = false
+# Keep public API compatibility checks enabled for normal automated releases.
+# The initial standalone 0.3.0 bootstrap is a documented manual release because
+# the prior package history was coupled to sibling repositories.
+semver_check = true
+
+[[package]]
+name = "proa_core"
+release = true
+version_group = "proa-ssr-0-3"
+
+[[package]]
+name = "proa_macros"
+release = true
+version_group = "proa-ssr-0-3"
+
+[[package]]
+name = "proa_stream"
+release = true
+version_group = "proa-ssr-0-3"
+
+[[package]]
+name = "proa_docs"
+release = true
+
+[[package]]
+name = "proa_docs_build"
+release = true
+
+[[package]]
+name = "proa_react"
+release = true
+version_group = "proa-ssr-0-3"
+
+[[package]]
+name = "proa_actions"
+release = true
+version_group = "proa-ssr-0-3"
+
+[[package]]
+name = "proa_fonts"
+release = true
+
+[[package]]
+name = "proa_fonts_build"
+release = true
+
+[[package]]
+name = "proa_fonts_macros"
+release = true
+
+[[package]]
+name = "proa_fonts_parse"
+release = true
+
+
+[[package]]
+name = "proa_framework_core"
+release = true
+version_group = "proa-ssr-0-3"
+
+[[package]]
+name = "proa_framework_axum"
+release = true
+version_group = "proa-ssr-0-3"
+
+[[package]]
+name = "proa_dsl"
+release = true
+
+[[package]]
+name = "proa_ir"
+release = true
+
+[[package]]
+name = "proa_codegen"
+release = true
+
+[[package]]
+name = "proa_og"
+release = true
+
+[[package]]
+name = "itoa_lut"
+release = true
+
+[[package]]
+name = "rsjs"
+release = true
+version_group = "rsjs-0-2"
+
+[[package]]
+name = "rsjs_ir"
+release = true
+version_group = "rsjs-0-2"
+
+[[package]]
+name = "rsjs_macros"
+release = true
+version_group = "rsjs-0-2"
+
+[[package]]
+name = "rsjs_transport"
+release = true
+version_group = "rsjs-0-2"
+
+[[package]]
+name = "rsjs_web"
+release = true
+version_group = "rsjs-0-2"
+
+[[package]]
+name = "const_json"
+release = true
+version_group = "const-json-0-1"
+
+[[package]]
+name = "const_json_macros"
+release = true
+version_group = "const-json-0-1"
+
+[[package]]
+name = "tailwind-merge"
+release = true
+version_group = "tailwind-merge-0-1"
+
+[[package]]
+name = "tailwind-merge-macro"
+release = true
+version_group = "tailwind-merge-0-1"

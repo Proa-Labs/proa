@@ -1,0 +1,379 @@
+---
+title: 'Islands: when and why'
+description: Decide when a page needs browser code, then reach for RSJS.
+keywords: [island, hydrate]
+---
+
+Most Proa pages should stay server-rendered. Add an island only for UI that must keep state in the browser after the HTML arrives.
+
+| Need | Use |
+|------|-----|
+| Render data, links, forms, tables, metadata | Normal `WebRenderSync` page/component |
+| Submit to the server | Native `<form method="post">` |
+| Toggle, filter, validate, open, close, copy, measure, or react to input without a navigation | `#[rsjs(component, client)]` island |
+| Fetch browser-visible data after hydration | Async RSJS query/mutation island |
+
+The boundary is explicit: the server renders HTML first, then RSJS hydrates only the marked island.
+
+## First Island
+
+Author the normal render trait, then mark it for RSJS analysis and permission to
+originate browser behavior:
+
+```rust
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+use rsjs::signal;
+use rsjs_macros::rsjs;
+
+pub struct FavoriteButton {
+    pub label: &'static str,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for FavoriteButton {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let saved = signal(false);
+        let label = self.label;
+
+        html_sync! {
+            <button
+                type="button"
+                aria_pressed={if saved.get() { "true" } else { "false" }}
+                on_click={|_| saved.set(!saved.get())}
+                class="rounded-md border px-3 py-2 text-sm"
+            >
+                {if saved.get() {
+                    html_sync! { "Saved" }
+                } else {
+                    html_sync! { {label} }
+                }}
+            </button>
+        }
+        .render(cx)
+    }
+}
+```
+
+Use it from any page or component:
+
+```rust
+html_sync! {
+    <article class="grid gap-3 rounded-lg border p-5">
+        <h2>"Atlas Jacket"</h2>
+        <p>"Weatherproof shell with a quiet technical finish."</p>
+        {FavoriteButton { label: "Save" }}
+    </article>
+}
+```
+
+The server still sends real button HTML. RSJS adds the handler, signal seed, and per-island runtime metadata next to that HTML.
+
+## What Gets Hydrated
+
+An island emits a small boundary:
+
+```html
+<rsjs-island data-rsjs-island-root="favoritebutton_...">
+  <button data-rsjs-handler="0" data-rsjs-bind="0">Save</button>
+</rsjs-island>
+<script type="application/json" data-rsjs-island="favoritebutton_...">
+  {"signals":[false]}
+</script>
+```
+
+Only nodes inside `<rsjs-island>` hydrate. The rest of the page stays static server-rendered HTML.
+
+## Signal Rules
+
+Declare signals near the top of `render`:
+
+```rust
+let query = signal(String::new());
+let open = signal(false);
+let count = signal(0_i64);
+```
+
+Read signals in markup:
+
+```rust
+html_sync! {
+    <p>"Count: "{count.get()}</p>
+    <section hidden={!open.get()}>"Details"</section>
+}
+```
+
+Write signals inside handlers:
+
+```rust
+html_sync! {
+    <button type="button" on_click={|_| count.update(|n| n + 1)}>
+        "Increment"
+    </button>
+}
+```
+
+Avoid writing to signals while the server is rendering the template body. Signal writes belong in browser event handlers.
+
+## Inputs
+
+Use bindings for simple form state:
+
+```rust
+pub struct ProductFilter;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for ProductFilter {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let query = signal(String::new());
+        let in_stock = signal(false);
+
+        html_sync! {
+            <form class="grid gap-3">
+                <label>
+                    "Search"
+                    <input type="search" bind_value={query} />
+                </label>
+                <label>
+                    <input type="checkbox" bind_checked={in_stock} />
+                    "In stock only"
+                </label>
+                <p>"Query: "{query.get()}</p>
+            </form>
+        }
+        .render(cx)
+    }
+}
+```
+
+Use handlers instead when the update needs validation or normalization:
+
+```rust
+html_sync! {
+    <input
+        type="search"
+        value={query.get()}
+        on_input={|event| query.set(event.value().trim().to_string())}
+    />
+}
+```
+
+## Server-Rendered Content
+
+Ordinary Rust values stay on the server unless a browser-reachable operation
+depends on them. Construct arbitrary non-component renderers in the prelude and
+render the resulting local:
+
+```rust
+use proa_core::UnsafeRaw;
+
+let icon = UnsafeRaw(r#"<svg aria-hidden="true"></svg>"#);
+
+html_sync! {
+    <button type="button" on_click={|_| open.set(!open.get())}>
+        {icon}
+        <span>{if open.get() { "Close" } else { "Open" }}</span>
+    </button>
+}
+```
+
+The SVG renders once on the server while the label remains reactive. If an
+opaque helper consumes `open.get()`, compilation fails rather than snapshotting
+the initial value.
+
+## Child Components
+
+Render a child island component directly when the parent should own state:
+
+```rust
+pub struct SearchInput {
+    pub value: String,
+    pub on_change: rsjs::Handler<String>,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for SearchInput {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <input
+                type="search"
+                value={self.value}
+                on_input={|event| self.on_change.call(event.value())}
+            />
+        }
+        .render(cx)
+    }
+}
+
+pub struct SearchPanel;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for SearchPanel {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let query = signal(String::new());
+        let on_change = rsjs::handler(|next: String| query.set(next));
+
+        html_sync! {
+            <section>
+                {SearchInput {
+                    value: query.get(),
+                    on_change,
+                }}
+                <p>"Current query: "{query.get()}</p>
+            </section>
+        }
+        .render(cx)
+    }
+}
+```
+
+Use `rsjs::island(...)` only when the child should hydrate as an independent nested island:
+
+```rust
+html_sync! {
+    <section>
+        {rsjs::island(FavoriteButton { label: "Save" })}
+    </section>
+}
+```
+
+Parent handlers cannot cross that explicit island boundary. If the child updates parent state, render it directly.
+
+## Hydration Timing
+
+The default strategy hydrates immediately. Defer below-the-fold or optional UI:
+
+```rust
+#[rsjs(component, client, strategy = "visible")]
+impl<L: DataLoader> WebRenderSync<L> for ReviewsPanel {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let expanded = signal(false);
+        html_sync! {
+            <section>
+                <button type="button" on_click={|_| expanded.set(!expanded.get())}>
+                    "Toggle reviews"
+                </button>
+            </section>
+        }
+        .render(cx)
+    }
+}
+```
+
+| Strategy | Use for |
+|----------|---------|
+| default | Buttons, menus, inputs above the fold |
+| `visible` | Below-the-fold widgets |
+| `idle` | Enhancements that can wait until the browser is idle |
+| `interaction:click` | UI that should hydrate on first interaction |
+| `media:(min-width: 768px)` | Desktop-only or media-query-gated widgets |
+
+See [Hydration](/docs/rsjs/hydration) for the full behavior.
+
+## Async Islands
+
+Use sync islands for local browser state. Switch to async `WebRender` when the island declares `mutation(...)` or awaits server data before rendering. A `query_with_initial(...)` whose initial value is already available can stay on `WebRenderSync`:
+
+```rust
+use proa_core::{DataLoader, LoadKey, WebContext, WebRender, WriteError};
+use proa_macros::html;
+use rsjs_macros::rsjs;
+use std::future::Future;
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+pub struct StockPrice {
+    pub symbol: String,
+    pub value: f64,
+}
+
+pub struct StockTile {
+    pub symbol: &'static str,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRender<L> for StockTile {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> proa_core::RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        proa_core::RenderOutcome::pending(async move {
+            let initial: StockPrice = cx
+                .load_json(LoadKey::named("stock", self.symbol))
+                .await?;
+            let price = rsjs::query_with_initial(
+                rsjs::QueryKey::new(("stock", self.symbol)),
+                initial,
+                rsjs::FetchRequest {
+                    url: "/api/stock/AAPL",
+                    method: Some(rsjs::HttpMethod::Get),
+                    ..Default::default()
+                },
+                rsjs::QueryOptions::default(),
+            );
+
+            html! {
+                <span>{price.data().value}</span>
+            }
+            .render(cx)
+            .resolve()
+            .await
+        })
+    }
+}
+```
+
+Use [Queries and mutations](/docs/rsjs/queries-mutations) for the full query surface.
+
+## Checklist
+
+Before shipping an island:
+
+- Keep the non-interactive shell server-rendered.
+- Keep the island root small and focused.
+- Prefer native forms for server mutations.
+- Use `WebRenderSync` unless the island actually awaits or declares a mutation.
+- Keep signal writes inside event handlers.
+- Construct arbitrary server renderers in the prelude and render the local.
+- Choose a hydration strategy for below-the-fold or optional UI.
+- Run `cargo check`, `cargo test`, and `proa lint`.
+
+## Read Next
+
+<Cards>
+  <Card title="RSJS reference" description="Signals, handlers, bindings, browser APIs, hydration, queries, mutations, and runtime details." href="/docs/rsjs/signals" />
+  <Card title="Component props" description="Pass on_change and other RSJS callbacks through child structs." href="/docs/rsjs/component-props" />
+  <Card title="Browser APIs" description="See the typed DOM, observer, storage, URL, clipboard, and network boundary." href="/docs/rsjs/browser-apis" />
+  <Card title="Forms and actions" description="Use native POST routes for server mutations before adding client state." href="/docs/guides/forms-actions" />
+</Cards>
+
+## Which RSJS primitive
+
+Once you have decided a component needs browser behaviour, this is the map:
+
+| Need | RSJS primitive |
+| --- | --- |
+| Owner-local browser state | `signal(...)` |
+| Read-only derived state | `computed(...)` |
+| Typed state shared by independent owners | `SharedStateProvider` and `shared::<T>()` |
+| Click, input, keyboard, pointer, document, or window events | `event_handler(...)` and `on_*` attributes |
+| Form control state | `bind_value`, `bind_checked`, `bind_selected` |
+| Typed child callbacks | `rsjs::Handler<T>` props |
+| Portable browser-side calculations | `#[rsjs::client]` functions |
+| DOM reads and effects | `node_ref::<T>()` |
+| Delayed hydration | `strategy = "visible"`, `idle`, `interaction`, or `media:(...)` |
+| Browser fetch work | `query_with_initial(...)` and `mutation(...)` |
+
+Each row links onward from [the RSJS pages](/docs/rsjs/signals) in this section.
+
+## Next steps
+
+- [Signals](/docs/rsjs/signals)
+  - Model owner-local and typed cross-owner browser state in RSJS.
+- [Event handlers](/docs/rsjs/handlers)
+  - Attach named typed browser handlers and component callbacks in RSJS.
+- [Hydration strategies](/docs/rsjs/hydration)
+  - Defer RSJS island hydration until it matters.
+- [Forms and actions](/docs/guides/forms-actions)
+  - Build HTML forms, handle submissions with Axum, and attach typed actions.
+- [Route responses](/docs/framework/responses)
+  - Return synchronous, buffered async, or streaming SSR with islands.

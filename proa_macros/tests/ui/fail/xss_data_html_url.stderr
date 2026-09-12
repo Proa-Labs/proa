@@ -1,0 +1,5 @@
+error: dangerous URL scheme in `HREF` attribute. use a safe scheme (https:, /, #) or pass data via data-* attributes (OWASP XSS Prevention Cheat Sheet, Rule #7)
+ --> tests/ui/fail/xss_data_html_url.rs:5:26
+  |
+5 |     html_sync! { <a HREF="data:text/html;base64,PHNjcmlwdD4=">"bad"</a> };
+  |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

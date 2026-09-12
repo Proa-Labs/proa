@@ -1,0 +1,5 @@
+error: missing shared-state protocol identity; add `#[rsjs(type_key = "your.namespace.state")]`
+ --> tests/ui/fail/56_shared_state_missing_type_key.rs:5:12
+  |
+5 | pub struct MissingKey {
+  |            ^^^^^^^^^^

@@ -1,0 +1,36 @@
+[Unit]
+Description=Report immutable preview archive failure for %i
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/proa-preview-archive-monitor unit-failure %i
+UMask=0077
+User=root
+Group=root
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectProc=invisible
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SyslogLevelPrefix=yes
+TimeoutStartSec=10s
+MemoryMax=64M
+TasksMax=16

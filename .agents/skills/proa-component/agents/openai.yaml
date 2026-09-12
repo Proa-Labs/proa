@@ -1,0 +1,7 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+interface:
+  display_name: "Proa Component"
+  short_description: "Author static Proa components"
+  default_prompt: "Use $proa-component for opaque server-rendered Proa components. If browser state, events, hydration, or client validation are needed, switch to $proa-island and author an explicit #[rsjs(component, client)] render-trait impl."

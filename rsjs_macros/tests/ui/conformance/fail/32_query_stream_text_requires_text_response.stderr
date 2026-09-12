@@ -1,0 +1,5 @@
+error: `rsjs::QueryOptions.stream_text` requires a text response decoder; set `rsjs::FetchRequest { response: Some(rsjs::ResponseKind::Text), ... }`
+  --> tests/ui/conformance/fail/32_query_stream_text_requires_text_response.rs:27:17
+   |
+27 |                 rsjs::QueryOptions {
+   |                 ^^^^

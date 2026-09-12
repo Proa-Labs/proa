@@ -1,0 +1,22 @@
+error[E0277]: element reference marker `rsjs::HtmlInputElement` does not match binding target `rsjs::web::dom::HtmlButtonElement`
+  --> tests/ui/fail/91_conditional_typed_node_ref.rs:16:38
+   |
+16 |                         <button ref={input}>"Wrong target"</button>
+   |                                      ^^^^^ this node-ref marker is incompatible with the `ref` element
+   |
+   = note: parameterize `node_ref` with the bound element marker, or use `dom::Element` or `dom::HtmlElement` for an intentionally broader element contract
+help: the trait `ElementTargetFor<rsjs::web::dom::HtmlButtonElement>` is not implemented for `rsjs::HtmlInputElement`
+      but trait `ElementTargetFor<rsjs::HtmlInputElement>` is implemented for it
+  --> $WORKSPACE/rsjs_web/src/generated.rs
+   |
+   | impl ElementTargetFor<dom::HtmlInputElement> for dom::HtmlInputElement {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `rsjs::HtmlInputElement`, found `rsjs::web::dom::HtmlButtonElement`
+note: required by a bound in `rsjs::__private::assert_component_node_ref_target`
+  --> $WORKSPACE/rsjs/src/lib.rs
+   |
+   |     pub fn assert_component_node_ref_target<Field, Target>(_field: &crate::NodeRef<Field>)
+   |            -------------------------------- required by a bound in this function
+...
+   |         Field: ComponentNodeRefTarget<Target>,
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_component_node_ref_target`

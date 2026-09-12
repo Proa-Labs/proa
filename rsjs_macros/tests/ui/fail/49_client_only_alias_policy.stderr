@@ -1,0 +1,5 @@
+error: `#[rsjs(client_only)]` is reserved but not supported yet; use an SSR-capable island today, because future client-only rendering must make its fallback/no-JS policy explicit
+  --> tests/ui/fail/49_client_only_alias_policy.rs:10:27
+   |
+10 | #[rsjs(component, client, client_only)]
+   |                           ^^^^^^^^^^^

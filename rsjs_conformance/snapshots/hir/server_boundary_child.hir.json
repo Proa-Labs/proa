@@ -1,0 +1,32 @@
+[
+  {
+    "kind": "callback_invoke",
+    "payload": {
+      "kind": "literal",
+      "span": {
+        "end": {
+          "column": 51,
+          "line": 1
+        },
+        "start": {
+          "column": 49,
+          "line": 1
+        }
+      },
+      "value": {
+        "kind": "null"
+      }
+    },
+    "slot": 0,
+    "span": {
+      "end": {
+        "column": 34,
+        "line": 1
+      },
+      "start": {
+        "column": 30,
+        "line": 1
+      }
+    }
+  }
+]

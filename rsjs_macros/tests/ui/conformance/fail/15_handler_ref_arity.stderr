@@ -1,0 +1,5 @@
+error: `save` expects 0 payload arguments based on its `rsjs::handler(...)` closure
+  --> tests/ui/conformance/fail/15_handler_ref_arity.rs:19:36
+   |
+19 |             <div><button on_click={save(())}>"Save"</button></div>
+   |                                    ^^^^

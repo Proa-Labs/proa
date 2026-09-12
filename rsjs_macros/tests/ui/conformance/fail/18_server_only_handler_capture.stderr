@@ -1,0 +1,16 @@
+error: rsjs boundary: `rsjs::server_only(...)` cannot capture rsjs handler `on_change`
+
+       Why:
+         rsjs handlers are client IR callbacks. Opaque server-only boundaries render server HTML, so rsjs cannot inline or replay that callback inside the boundary during hydration.
+
+       Use one of:
+         - Render the interactive child directly inside the parent island so the handler can be inlined.
+         - Keep the callback on a DOM event handler in the parent island.
+         - If the child must remain server-only, pass ordinary server data instead of an rsjs handler.
+
+       Tracked feature:
+         component.server_only_handler_capture
+  --> tests/ui/conformance/fail/18_server_only_handler_capture.rs:33:54
+   |
+33 |                 {rsjs::server_only(ServerOnlyChild { on_change })}
+   |                                                      ^^^^^^^^^

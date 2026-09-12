@@ -1,0 +1,22 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "args": [
+        {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "refresh"
+          }
+        }
+      ],
+      "kind": "console",
+      "level": "log"
+    },
+    {
+      "kind": "query_refetch",
+      "query": 0
+    }
+  ]
+}

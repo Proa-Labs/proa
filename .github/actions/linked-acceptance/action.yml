@@ -1,0 +1,24 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Linked acceptance
+description: Run one linked proa-cli acceptance suite or shard
+
+inputs:
+  mode:
+    description: Acceptance mode accepted by scripts/run_proa_cli_acceptance.sh
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install Node.js for browser-fragment assertions
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: "22"
+
+    - name: Run linked acceptance suite
+      shell: bash
+      env:
+        ACCEPTANCE_MODE: ${{ inputs.mode }}
+      run: scripts/run_proa_cli_acceptance.sh "$ACCEPTANCE_MODE"

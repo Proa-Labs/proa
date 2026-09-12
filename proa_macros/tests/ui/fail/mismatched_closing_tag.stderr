@@ -1,0 +1,5 @@
+error: expected ident
+ --> tests/ui/fail/mismatched_closing_tag.rs:8:25
+  |
+8 |             <h1>"Title"</span>
+  |                         ^

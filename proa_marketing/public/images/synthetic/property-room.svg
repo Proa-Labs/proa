@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic room illustration</title>
+  <desc id="desc">A geometric room with a window and bed, created for Proa fixtures.</desc>
+  <rect width="1200" height="800" fill="#e9dfd1"/>
+  <rect x="90" y="85" width="540" height="390" fill="#96c8d2"/>
+  <path d="M90 365c120-80 230-72 335-18s155 62 205 28v100H90z" fill="#4c8592"/>
+  <path d="M360 85v390M90 280h540" stroke="#f8f4ec" stroke-width="18"/>
+  <rect x="690" y="135" width="390" height="510" rx="8" fill="#d1b89b"/>
+  <rect x="650" y="455" width="470" height="215" rx="28" fill="#fbf8f2"/>
+  <rect x="700" y="420" width="160" height="86" rx="24" fill="#c9a989"/>
+  <rect x="885" y="420" width="160" height="86" rx="24" fill="#b9c8bd"/>
+  <path d="M0 680h1200v120H0z" fill="#8d654b"/>
+</svg>

@@ -1,0 +1,5 @@
+error: `rsjs::webauthn::get_json_into(options_json, &signal)` expects a signal target such as `&result_signal`
+  --> tests/ui/conformance/fail/33_webauthn_target.rs:20:62
+   |
+20 |                 rsjs::webauthn::get_json_into(options.get(), credential.get());
+   |                                                              ^^^^^^^^^^

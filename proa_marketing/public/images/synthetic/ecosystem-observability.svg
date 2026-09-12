@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" role="img" aria-label="Synthetic observability trace">
+  <rect width="1440" height="900" fill="#121418"/><rect x="70" y="65" width="1300" height="770" rx="28" fill="#1c2026"/>
+  <g fill="#8996a8"><rect x="130" y="160" width="300" height="34" rx="8"/><rect x="130" y="225" width="190" height="24" rx="7"/></g>
+  <g><rect x="170" y="340" width="940" height="36" rx="9" fill="#8b7cf6"/><rect x="260" y="410" width="650" height="36" rx="9" fill="#5db6d6"/><rect x="365" y="480" width="760" height="36" rx="9" fill="#e7a85a"/><rect x="480" y="550" width="400" height="36" rx="9" fill="#64c58b"/></g>
+  <path d="M170 330v280M260 400v210M365 470v140M480 540v70" stroke="#546170" stroke-width="4"/>
+</svg>

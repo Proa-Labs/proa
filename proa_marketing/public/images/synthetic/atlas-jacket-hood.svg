@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Atlas Jacket, hood detail</title>
+  <desc id="desc">An original geometric weatherproof shell silhouette created for Proa fixtures.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#e9eef0"/><stop offset="1" stop-color="#d3dcd9"/></linearGradient>
+    <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4e6066"/><stop offset="1" stop-color="#35454a"/></linearGradient>
+  </defs>
+  <rect width="1200" height="1200" fill="url(#bg)"/>
+  <ellipse cx="600" cy="1010" rx="300" ry="38" fill="#6a7375" opacity=".16"/>
+
+  <!-- shoulders, cropped -->
+  <path d="M300 900c14-176 92-286 300-286s286 110 300 286c-186 44-414 44-600 0z" fill="url(#shell)" stroke="#1f2d30" stroke-width="18" stroke-linejoin="round"/>
+
+  <!-- raised hood -->
+  <path d="M600 190c150 0 236 104 236 244 0 96-40 172-102 216-88-38-180-38-268 0-62-44-102-120-102-216 0-140 86-244 236-244z" fill="url(#shell)" stroke="#1f2d30" stroke-width="18" stroke-linejoin="round"/>
+  <!-- hood opening -->
+  <path d="M600 268c96 0 152 74 152 166 0 62-26 112-66 142-56-26-116-26-172 0-40-30-66-80-66-142 0-92 56-166 152-166z" fill="#22302f" stroke="#1f2d30" stroke-width="14" stroke-linejoin="round"/>
+
+  <!-- drawcords -->
+  <path d="M482 566c-14 76-6 138 22 186M718 566c14 76 6 138-22 186" fill="none" stroke="#c9d2ce" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="508" cy="762" r="20" fill="#dd7627"/>
+  <circle cx="692" cy="762" r="20" fill="#dd7627"/>
+
+  <!-- brim seam -->
+  <path d="M448 372c88-58 216-58 304 0" fill="none" stroke="#c9d2ce" stroke-width="10" stroke-linecap="round" opacity=".8"/>
+</svg>

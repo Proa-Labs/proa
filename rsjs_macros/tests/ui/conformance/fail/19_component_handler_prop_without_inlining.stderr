@@ -1,0 +1,18 @@
+error[E0277]: `HandlerPropChild` does not carry an RSJS component ABI witness
+  --> tests/ui/conformance/fail/19_component_handler_prop_without_inlining.rs:35:18
+   |
+35 |                 {HandlerPropChild { on_change }}
+   |                  ^^^^^^^^^^^^^^^^ this type is not an analyzed RSJS component
+   |
+help: the trait `rsjs::__private::ComponentAbi` is not implemented for `HandlerPropChild`
+  --> tests/ui/conformance/fail/19_component_handler_prop_without_inlining.rs:10:1
+   |
+10 | pub struct HandlerPropChild {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: add `#[rsjs(component)]` to exactly one real `WebRenderSync` or `WebRender` impl; add `client` only when that component originates browser behavior
+help: the trait `rsjs::__private::ComponentAbi` is implemented for `HandlerPropWithoutInlining`
+  --> tests/ui/conformance/fail/19_component_handler_prop_without_inlining.rs:27:1
+   |
+27 | #[rsjs(component, client)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: this error originates in the attribute macro `rsjs` (in Nightly builds, run with -Z macro-backtrace for more info)

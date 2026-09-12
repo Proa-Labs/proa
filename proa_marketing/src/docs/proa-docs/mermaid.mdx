@@ -1,0 +1,46 @@
+---
+title: Mermaid
+description: Draw flowcharts and sequence diagrams from a code fence.
+---
+
+Write a `mermaid` fence and the block is marked for diagram rendering instead of syntax highlighting.
+
+````mdx filename="content/pipeline.mdx"
+```mermaid
+flowchart LR
+  MD[Markdown] --> C[compile]
+  C --> R[static Rust registry]
+  R --> H[HTML]
+```
+````
+
+## Configuring it
+
+```rust filename="build.rs"
+use proa_docs_build::{Config, MermaidConfig};
+
+let config = Config::new().source(source.markdown(pipeline.mermaid(MermaidConfig::new())));
+```
+
+| Option | Meaning |
+|---|---|
+| `enabled` | Turn Mermaid handling on |
+| `code_fences` | Treat ```` ```mermaid ```` fences as diagrams |
+| `renderer` | Which renderer receives the source |
+| `fallback` | What to show when rendering does not happen |
+
+The build emits the diagram source in `data-proa-docs-mermaid-source` and an output slot in `data-proa-docs-mermaid-output`, then leaves rendering to the renderer you configure.
+
+<Callout type="warning">
+`proa_docs` does not currently ship a Mermaid renderer. The build emits the
+source and the slot; supplying a renderer is yours. Until you do, a Mermaid
+fence renders only its `<noscript>` fallback.
+</Callout>
+
+## Diagram or picture?
+
+Mermaid is right for anything with a decision or a sequence — it lives in git, needs no design time, and survives refactoring. For a conceptual diagram where the layout *is* the explanation, a hand-authored SVG beats Mermaid's auto-layout every time.
+
+## Related
+
+[Code block](/docs/proa-docs/code-block) · [Math](/docs/proa-docs/math) · [Configuration](/docs/proa-docs/configuration)

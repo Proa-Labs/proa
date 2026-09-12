@@ -1,0 +1,1 @@
+{"kind":"block","stmts":[{"kind":"signal_set","signal":0,"value":{"kind":"literal","value":{"kind":"string","value":"https://example.com/safe"}}}]}

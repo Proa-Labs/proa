@@ -1,0 +1,41 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_origin_routing_atlas"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+description = "ORIGIN: a live routing atlas built with Proa and RIPE data"
+license-file.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+const_format = { version = "0.2" }
+heapless = { workspace = true }
+proa_actions = { workspace = true }
+proa_core = { workspace = true }
+proa_fonts = { workspace = true }
+proa_fonts_macros = { workspace = true }
+proa_framework_axum = { workspace = true }
+proa_ir = { workspace = true }
+proa_macros = { workspace = true }
+proa_stream = { workspace = true, features = ["rt-tokio"] }
+reqwest = { workspace = true, features = ["json"] }
+rsjs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[build-dependencies]
+proa_fonts_build = { workspace = true }
+
+[dev-dependencies]
+http-body-util = { workspace = true }
+tower = { workspace = true }

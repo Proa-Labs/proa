@@ -1,0 +1,58 @@
+---
+title: Accordions
+description: Collapse answers the reader only needs sometimes.
+---
+
+Use accordions for FAQ blocks and for asides that would interrupt the main flow. Content inside stays in the DOM, so search still indexes it and Ctrl-F still finds it.
+
+```mdx filename="content/faq.mdx"
+<Accordions>
+<Accordion title="Does it need a runtime parser?">
+No. Markdown compiles to escaped static HTML during `build.rs`.
+</Accordion>
+<Accordion title="Can I use my own CSS?">
+Yes. Ship your own theme against the documented markup contract.
+</Accordion>
+</Accordions>
+```
+
+Rendered:
+
+<Accordions>
+<Accordion title="Does it need a runtime parser?">
+No. Markdown compiles to escaped static HTML during `build.rs`, so no parser ships to the reader.
+</Accordion>
+<Accordion title="Can I use my own CSS?">
+Yes. `proa_docs` ships a default theme, and every hook it targets is documented in the [styling contract](/docs/proa-docs/styling-contract).
+</Accordion>
+</Accordions>
+
+## Attributes
+
+| Tag | Attribute | Required | Meaning |
+|---|---|---|---|
+| `<Accordions>` | `type` | no | `multiple` allows several open at once. Anything else, including omitting it, means one at a time |
+| `<Accordion>` | `title` | no | The always-visible label. Defaults to empty |
+| `<Accordion>` | `id` | no | Stable anchor, so a link can target this item directly |
+
+Exclusive is the default. Pass `type="multiple"` when items are independent:
+
+```mdx
+<Accordions type="multiple">
+```
+
+## Linking to one item
+
+Give an item an `id` and it becomes addressable:
+
+```mdx
+<Accordion title="Registry access" id="registry">
+```
+
+`/docs/proa-docs/accordions#registry` then jumps to that item on load.
+
+> **Good to know**: Like tabs, accordions are CSS-only and work without JavaScript.
+
+## Related
+
+[Tabs](/docs/proa-docs/tabs) · [Callout](/docs/proa-docs/callout) · [Steps](/docs/proa-docs/steps)

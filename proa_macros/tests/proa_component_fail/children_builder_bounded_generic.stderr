@@ -1,0 +1,5 @@
+error: `children_builder` requires child type parameter `C` to be unconstrained; put render bounds on generated implementations or write `with_children` manually
+ --> tests/proa_component_fail/children_builder_bounded_generic.rs:5:27
+  |
+5 | struct BoundedChildren<C: Default = ()> {
+  |                           ^^^^^^^

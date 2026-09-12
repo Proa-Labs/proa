@@ -1,0 +1,24 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "signal_set",
+      "signal": 0,
+      "value": {
+        "kind": "binary",
+        "left": {
+          "kind": "signal_read",
+          "signal": 0
+        },
+        "op": "checked_i32_add",
+        "right": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 1
+          }
+        }
+      }
+    }
+  ]
+}

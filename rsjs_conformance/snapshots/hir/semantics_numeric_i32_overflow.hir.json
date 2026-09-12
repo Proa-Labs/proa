@@ -1,0 +1,61 @@
+[
+  {
+    "kind": "signal_set",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    },
+    "value": {
+      "kind": "binary",
+      "lhs": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 35,
+            "line": 1
+          },
+          "start": {
+            "column": 30,
+            "line": 1
+          }
+        }
+      },
+      "op": "Checked { op: Add, domain: I32 }",
+      "rhs": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 35,
+            "line": 1
+          },
+          "start": {
+            "column": 30,
+            "line": 1
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 1
+        }
+      },
+      "span": {
+        "end": {
+          "column": 35,
+          "line": 1
+        },
+        "start": {
+          "column": 30,
+          "line": 1
+        }
+      }
+    }
+  }
+]

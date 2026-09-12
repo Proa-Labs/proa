@@ -1,0 +1,5 @@
+error: `rsjs::clipboard::read_text_into(&signal)` expects a signal target such as `&result_signal`
+  --> tests/ui/conformance/fail/31_clipboard_read_target.rs:19:49
+   |
+19 |                 rsjs::clipboard::read_text_into(value.get());
+   |                                                 ^^^^^

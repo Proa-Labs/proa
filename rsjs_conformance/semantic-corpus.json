@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "governing_rule": "Rust semantics by default; intentional JavaScript-native behavior must use an explicitly named client-native operation.",
+  "numeric_contract": {
+    "client_arithmetic_domains": ["i32", "u32", "i64", "u64"],
+    "number_backed": ["i32", "u32"],
+    "bigint_backed": ["i64", "u64"],
+    "failure_rule": "Overflow and invalid division or remainder fail before mutation; mixed domains and unsupported arithmetic widths are compile errors.",
+    "boundary_rule": "Boundary codecs may transport other integer-typed fields without granting them a client arithmetic domain."
+  },
+  "cases": [
+    {
+      "id": "unicode.utf8_len.ascii",
+      "expectation": "parity",
+      "operation": "string_utf8_len",
+      "input": {
+        "value": "proa"
+      }
+    },
+    {
+      "id": "unicode.utf8_len.composed",
+      "expectation": "parity",
+      "operation": "string_utf8_len",
+      "input": {
+        "value": "é"
+      }
+    },
+    {
+      "id": "unicode.utf8_len.hangul_emoji",
+      "expectation": "parity",
+      "operation": "string_utf8_len",
+      "input": {
+        "value": "한😊"
+      }
+    },
+    {
+      "id": "unicode.utf8_len.zwj_sequence",
+      "expectation": "parity",
+      "operation": "string_utf8_len",
+      "input": {
+        "value": "👩‍💻"
+      }
+    },
+    {
+      "id": "unicode.trim.rust_next_line",
+      "expectation": "parity",
+      "operation": "string_trim",
+      "input": {
+        "value": "ready"
+      }
+    },
+    {
+      "id": "unicode.trim.rust_ideographic_space",
+      "expectation": "parity",
+      "operation": "string_trim",
+      "input": {
+        "value": "　ready　"
+      }
+    },
+    {
+      "id": "unicode.trim.feff_is_not_rust_whitespace",
+      "expectation": "parity",
+      "operation": "string_trim",
+      "input": {
+        "value": "﻿ready﻿"
+      }
+    },
+    {
+      "id": "numeric.i64.safe_boundary_increment",
+      "expectation": "parity",
+      "operation": "i64_increment",
+      "input": {
+        "value": "9007199254740991",
+        "delta": "1"
+      }
+    },
+    {
+      "id": "numeric.i64.first_unsafe_integer_increment",
+      "expectation": "parity",
+      "operation": "i64_increment",
+      "input": {
+        "value": "9007199254740993",
+        "delta": "1"
+      }
+    },
+    {
+      "id": "numeric.i64.minimum_wire_boundary",
+      "expectation": "parity",
+      "operation": "i64_increment",
+      "input": {
+        "value": "-9223372036854775808",
+        "delta": "0"
+      }
+    },
+    {
+      "id": "numeric.i64.maximum_wire_boundary",
+      "expectation": "parity",
+      "operation": "i64_increment",
+      "input": {
+        "value": "9223372036854775807",
+        "delta": "0"
+      }
+    },
+    {
+      "id": "numeric.i64.negative_dividend",
+      "expectation": "parity",
+      "operation": "i64_div_rem",
+      "input": {
+        "lhs": "-7",
+        "rhs": "3"
+      }
+    },
+    {
+      "id": "numeric.i64.negative_divisor",
+      "expectation": "parity",
+      "operation": "i64_div_rem",
+      "input": {
+        "lhs": "7",
+        "rhs": "-3"
+      }
+    },
+    {
+      "id": "numeric.i64.wide_positive_div_rem",
+      "expectation": "parity",
+      "operation": "i64_div_rem",
+      "input": {
+        "lhs": "9223372036854775807",
+        "rhs": "3"
+      }
+    },
+    {
+      "id": "numeric.i64.wide_negative_div_rem",
+      "expectation": "parity",
+      "operation": "i64_div_rem",
+      "input": {
+        "lhs": "-9223372036854775807",
+        "rhs": "3"
+      }
+    },
+    {
+      "id": "numeric.f64.display.binary_sum",
+      "expectation": "parity",
+      "operation": "f64_display",
+      "input": {
+        "value": "sum_0_1_0_2"
+      }
+    },
+    {
+      "id": "numeric.f64.display.nan",
+      "expectation": "parity",
+      "operation": "f64_display",
+      "input": {
+        "value": "nan"
+      }
+    },
+    {
+      "id": "numeric.f64.display.positive_infinity",
+      "expectation": "parity",
+      "operation": "f64_display",
+      "input": {
+        "value": "positive_infinity"
+      }
+    },
+    {
+      "id": "numeric.f64.display.negative_infinity",
+      "expectation": "parity",
+      "operation": "f64_display",
+      "input": {
+        "value": "negative_infinity"
+      }
+    },
+    {
+      "id": "numeric.f64.display.negative_zero",
+      "expectation": "known_divergence",
+      "operation": "f64_display",
+      "input": {
+        "value": "negative_zero"
+      },
+      "browser_characterization": "0",
+      "reason": "Rust Display preserves the minus sign as -0; JavaScript String(-0) currently produces 0."
+    },
+    {
+      "id": "numeric.f64.display.small_exponent",
+      "expectation": "known_divergence",
+      "operation": "f64_display",
+      "input": {
+        "value": "small_exponent"
+      },
+      "browser_characterization": "1e-7",
+      "reason": "Rust Display expands this finite value as 0.0000001; JavaScript String uses 1e-7."
+    },
+    {
+      "id": "wire.option.none_i32",
+      "expectation": "parity",
+      "operation": "option_i32_wire",
+      "input": {
+        "value": null
+      }
+    },
+    {
+      "id": "wire.option.some_i32_min",
+      "expectation": "parity",
+      "operation": "option_i32_wire",
+      "input": {
+        "value": -2147483648
+      }
+    },
+    {
+      "id": "wire.option.some_unicode_string",
+      "expectation": "parity",
+      "operation": "option_string_wire",
+      "input": {
+        "value": "</script> 한😊"
+      }
+    },
+    {
+      "id": "wire.fieldless_enum.idle",
+      "expectation": "parity",
+      "operation": "fieldless_enum_wire",
+      "input": {
+        "value": "Idle"
+      }
+    },
+    {
+      "id": "wire.fieldless_enum.ready",
+      "expectation": "parity",
+      "operation": "fieldless_enum_wire",
+      "input": {
+        "value": "Ready"
+      }
+    },
+    {
+      "id": "wire.nested.account_full",
+      "expectation": "parity",
+      "operation": "nested_account_wire",
+      "input": {
+        "balance_cents": "18446744073709551615",
+        "bonus": "-9223372036854775808",
+        "tags": [
+          {
+            "label": "한😊"
+          },
+          {
+            "label": "</script>"
+          }
+        ],
+        "primary_tag": null
+      }
+    },
+    {
+      "id": "wire.nested.account_optional_child",
+      "expectation": "parity",
+      "operation": "nested_account_wire",
+      "input": {
+        "balance_cents": "9007199254740993",
+        "bonus": null,
+        "tags": [],
+        "primary_tag": {
+          "label": "primary"
+        }
+      }
+    }
+  ],
+  "exclusions": [
+    {
+      "id": "wire.client_props.data_enum",
+      "kind": "compile_fail",
+      "fixture": "rsjs_macros/tests/ui/fail/12_client_props_enum.rs",
+      "stderr": "rsjs_macros/tests/ui/fail/12_client_props_enum.stderr",
+      "reason": "ClientProps fieldless enums use tagged strings, but data-carrying enum variants are not yet part of the wire vocabulary."
+    },
+    {
+      "id": "wire.client_props.tuple_struct",
+      "kind": "compile_fail",
+      "fixture": "rsjs_macros/tests/ui/fail/12_client_props_tuple.rs",
+      "stderr": "rsjs_macros/tests/ui/fail/12_client_props_tuple.stderr",
+      "reason": "ClientProps tuple structs are not part of the v0.1 wire vocabulary."
+    },
+    {
+      "id": "wire.client_props.nested_option",
+      "kind": "compile_fail",
+      "fixture": "rsjs_macros/tests/ui/fail/12_client_props_nested_option.rs",
+      "stderr": "rsjs_macros/tests/ui/fail/12_client_props_nested_option.stderr",
+      "reason": "Option<Option<T>> cannot preserve None versus Some(None) through JSON null and is rejected."
+    }
+  ]
+}

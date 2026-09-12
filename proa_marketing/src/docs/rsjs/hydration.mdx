@@ -1,0 +1,209 @@
+---
+title: Hydration strategies
+description: Defer RSJS island hydration until it matters.
+---
+
+RSJS hydrates every island immediately unless a component asks for a later trigger. This page covers [choosing a strategy](#choosing-a-strategy), [final owner planning](#how-does-the-linker-plan-final-owners), the [interaction](#hydrating-on-interaction) and [media](#hydrating-on-a-media-query) triggers, and [runtime behavior](#how-does-each-trigger-behave-at-runtime).
+
+## Choosing a strategy
+
+The server always sends real HTML first. A **final owner** is the linked unit RSJS activates in the browser. The strategy controls only when that owner attaches client state, event handlers, input bindings, and query/mutation runtime work.
+
+```rust filename="src/components/cart_button.rs"
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for CartButton {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let count = signal(0_i64);
+        html_sync! {
+            <button type="button" on_click={|_| count.update(|n| n + 1)}>
+                "Cart ("{count.get()}")"
+            </button>
+        }
+        .render(cx)
+    }
+}
+```
+
+Add `strategy = "..."` to the complete component attribute when the final owner can
+wait without breaking the first user action.
+
+```rust filename="src/components/below_fold_filters.rs"
+#[rsjs(component, client, strategy = "visible")]
+impl<L: DataLoader> WebRenderSync<L> for BelowFoldFilters {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let expanded = signal(false);
+        html_sync! {
+            <aside>
+                <button on_click={|_| expanded.set(!expanded.get())}>
+                    "Toggle filters"
+                </button>
+                <div hidden={!expanded.get()}>"Filters"</div>
+            </aside>
+        }
+        .render(cx)
+    }
+}
+```
+
+| Strategy | Use for | Hydrates when |
+|----------|---------|---------------|
+| `immediate` or no strategy | Above-the-fold controls, nav, search, cart buttons | DOM is ready. |
+| `visible` | Below-the-fold filters, related products, large accordions | The final owner root enters the viewport. |
+| `idle` | Nice-to-have enhancements that do not block use | The browser has idle time. |
+| `interaction` | Widgets that wake on the first click, keydown, or focus | First pointer, keyboard, or focus event on the final owner root. |
+| `interaction:click` | Controls where one event is the trigger | The named event fires on the final owner root. |
+| `media:(min-width: 768px)` | Desktop-only or media-query-gated UI | The media query matches. |
+
+RSJS accepts `eager` as an alias for `immediate`.
+
+A strategy names a constraint, not an island boundary. The next section covers how the linker turns those constraints into final owners.
+
+## How does the linker plan final owners?
+
+A strategy on `#[rsjs(component, ...)]` contributes a constraint from that
+component occurrence. It does not force every component to become a separate
+browser island. Once the linker knows client reachability, it partitions the
+rendered component graph into final owners:
+
+| Relationship | Owner result |
+|--------------|--------------|
+| Live prop, live callback, client handle, or parent-reactive lifecycle edge | The connected occurrences must fuse into one owner. |
+| Static nesting between disconnected client subgraphs | The subgraphs may remain separate owners and retain separate strategies. |
+| `rsjs::island(...)` | Forces an independent-owner cut. A live edge cannot cross it. |
+| Different explicit strategies on occurrences that must fuse | Compilation fails with the conflicting strategies and coupling path. |
+| One constrained occurrence plus unconstrained fused participants | The final owner uses the constrained strategy. |
+| No occurrence in an active owner supplies a constraint | The final owner defaults to eager/immediate hydration. |
+| A final `ServerOnly` result with no reachable browser obligation or coupling to one | It forms no owner and ignores any requested strategy. |
+
+A server-only section can therefore contain a visible chart and an
+interaction-activated search box without becoming an owner itself. When nothing
+connects the two children, each remains its own owner. When a live prop or
+callback connects them, they share one owner and must agree on an explicit
+activation strategy.
+
+Interaction carries the most runtime nuance of the deferred triggers, so the next section covers it first.
+
+## Hydrating on interaction
+
+Use `interaction` when HTML handles the first paint and a user action activates
+the owner.
+
+```rust filename="src/components/search_box.rs"
+#[rsjs(component, client, strategy = "interaction:focusin")]
+impl<L: DataLoader> WebRenderSync<L> for SearchBox {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let query = signal(String::new());
+
+        html_sync! {
+            <label>
+                "Search"
+                <input type="search" bind_value={query} />
+            </label>
+        }
+        .render(cx)
+    }
+}
+```
+
+Without an explicit event, `interaction` listens for `pointerdown`, `keydown`, and `focusin`.
+
+Interaction owner modules start loading eagerly. The runtime arms capture
+listeners only after the module and its dependencies evaluate successfully.
+Once armed, the triggering native event initializes the owner during capture.
+That event then reaches the real bubble handler exactly once, without synthetic
+replay, `preventDefault()`, or propagation suppression.
+
+> **Good to know**: an interaction that happens while the module still loads keeps its normal browser behavior. It cannot invoke an RSJS handler that is not ready yet.
+
+Use `visible`, `idle`, or `media` when you want the framework to delay the owner
+module import itself. The next section covers the layout-driven trigger of that set.
+
+## Hydrating on a media query
+
+Use `media:<query>` when the owner only matters in a matching layout.
+
+```rust filename="src/components/desktop_inspector.rs"
+#[rsjs(component, client, strategy = "media:(min-width: 1024px)")]
+impl<L: DataLoader> WebRenderSync<L> for DesktopInspector {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let open = signal(false);
+        html_sync! {
+            <aside>
+                <button on_click={|_| open.set(!open.get())}>"Inspector"</button>
+                <div hidden={!open.get()}>"Desktop tools"</div>
+            </aside>
+        }
+        .render(cx)
+    }
+}
+```
+
+If the query matches immediately, the owner hydrates immediately. If it does
+not match, the runtime waits for a media-query change.
+
+Every deferred trigger leaves a window where the user can type first, and the next section covers what happens to those edits.
+
+## Keeping form state before hydration
+
+Deferred hydration does not overwrite edits the user makes before an owner
+activates. On the owner's first mount, RSJS compares form controls with their
+server defaults. It adopts dirty browser state into the corresponding signal
+before committing DOM updates. This covers text inputs and textareas, `checked`
+state, select options, and editable text.
+
+Untouched controls take the current signal value. Reconciliation for the whole
+owner completes before its first DOM commits. One edited control therefore
+updates other untouched controls bound to the same signal, without briefly
+restoring the old server seed.
+
+Each strategy reaches these guarantees through a different browser primitive, listed next.
+
+## How does each trigger behave at runtime?
+
+| Strategy | Browser primitive | Fallback |
+|----------|-------------------|----------|
+| `visible` | `IntersectionObserver` | Hydrates immediately when unavailable. |
+| `idle` | `requestIdleCallback` | Uses `setTimeout(..., 0)` when unavailable. |
+| `interaction` | Capture-phase DOM listener on the final owner root | Hydrates immediately if the root cannot receive listeners. |
+| `media:(...)` | `window.matchMedia(...)` | Hydrates immediately when unavailable or invalid. |
+
+For `visible`, `idle`, and `media`, framework bootstraps can delay importing the
+owner module until the trigger fires:
+
+```html filename="index.html"
+<script type="module">
+  import { hydrate_when_visible } from "/rsjs-runtime.js";
+  hydrate_when_visible("belowfoldfilters_...", () => {
+    import("/rsjs/island/belowfoldfilters_....js?rsjs-triggered=1");
+  });
+</script>
+```
+
+The `?rsjs-triggered=1` flag tells the imported owner module not to wait a
+second time.
+
+These hydration primitives are runtime internals. Use the strategy attribute in
+island code, and pick between the strategies with the table below.
+
+## When to use each strategy?
+
+| Rule | Why |
+|------|-----|
+| Keep critical controls immediate | Users would otherwise wait for a trigger before primary navigation or form controls work. |
+| Use `visible` for below-the-fold UI | It avoids hydration work for content the user never reaches. |
+| Use `idle` for optional polish | It yields to initial rendering and input. |
+| Use `interaction` for wake-on-use widgets | After its eagerly loaded module is ready, the triggering event reaches the installed handler exactly once. |
+| Use `media` for layout-specific islands | It avoids hydrating desktop-only or mobile-only controls on the wrong viewport. |
+
+## Next steps
+
+- [Browser APIs](/docs/rsjs/browser-apis)
+  - The public RSJS browser API surface island code calls.
+- [Signals](/docs/rsjs/signals)
+  - Declare the client state a hydrated owner attaches to.
+- [Bindings](/docs/rsjs/bindings)
+  - Bind form controls to signals with `bind_value`.
+- [Server-only components](/docs/rsjs/server-only)
+  - Keep sections out of the browser so they form no owner.
+- [Islands](/docs/guides/islands)
+  - See how islands fit into a full Proa page.

@@ -1,0 +1,257 @@
+---
+title: Signals
+description: Model owner-local and typed cross-owner browser state in RSJS.
+keywords: [signal, derived, effect]
+---
+
+Server-rendered HTML stops changing the moment it reaches the browser, so RSJS keeps the live parts in signals. This page covers [declaring a signal](#declaring-a-signal), [the primitives](#which-primitive-do-you-need), [reactive reads](#reading-values-reactively), [initial values](#seeding-initial-values), [inbound fields](#seeding-once-versus-reading-live), and [cross-owner state](#sharing-state-between-independent-owners).
+
+## Declaring a signal
+
+Call `signal(initial)` inside an origin-capable `#[rsjs(component, client)]`
+render implementation for state that must keep changing after the server HTML
+reaches the browser.
+
+```rust filename="src/components/counter.rs"
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+use rsjs::{event_handler, rsjs, signal};
+
+pub struct Counter;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for Counter {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let count = signal(0_i64);
+        let doubled = rsjs::computed(|| count.get() * 2_i64);
+        let increment = event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+            count.update(|value| value + 1_i64);
+        });
+
+        html_sync! {
+            <button type="button" on_click={increment()}>
+                {count.get()}
+            </button>
+            <output>{doubled.get()}</output>
+        }
+        .render(cx)
+    }
+}
+```
+
+The server renders the initial values. The final linker retains only signals and
+computed cells reachable from browser work. The browser runtime rebuilds that
+graph during hydration.
+
+For an `i64` seed, the adjacent compiler-owned state is conceptually:
+
+```html filename="counter-response.html"
+<script type="application/json" data-rsjs-island="counter_...">
+  {"signals":["0"]}
+</script>
+```
+
+The compiler owns the exact script shape, marker IDs, and `data-rsjs-*`
+attributes. `i64` and `u64` values use validated canonical decimal strings, so
+values outside JavaScript's safe integer range stay exact.
+
+Four more primitives build on `signal` for derivation and batching.
+
+## Which primitive do you need?
+
+| Primitive | Use |
+| --- | --- |
+| `signal(initial)` | Declare writable owner-local state. |
+| `computed(\|\| expression)` | Declare a read-only value derived from live inputs. |
+| `value.get()` | Read the current value in text, attributes, conditions, handlers, or another computed. |
+| `value.set(next)` | Replace a writable value from a supported client operation. |
+| `value.update(\|old\| next)` | Compute the next value from the previous value. |
+| `batch(\|\| { ... })` | Group several synchronous writes into one DOM/subscriber flush. |
+
+Prefer `update` when the next value depends on the old value. Use `computed`
+instead of manually synchronizing a second signal.
+
+```rust filename="src/components/toolbar.rs"
+let count = signal(0_i64);
+let open = signal(false);
+let summary = rsjs::computed(|| count.get() * 2_i64);
+
+let update_both = rsjs::event_handler(|_: rsjs::Event| {
+    rsjs::batch(|| {
+        count.update(|value| value + 1_i64);
+        open.update(|value| !value);
+    });
+});
+```
+
+Later reads inside the batch see those writes immediately. RSJS deduplicates
+dependent DOM effects and flushes them after the outermost batch completes.
+Nested batches coalesce.
+
+Where you call `.get()` decides which DOM the flush touches.
+
+## Reading values reactively
+
+RSJS tracks reads in browser-reachable positions and updates only the affected
+binding.
+
+| Position | Example |
+| --- | --- |
+| Text | `<span>{count.get()}</span>` |
+| Attribute | `<button aria_expanded={open.get()}>` |
+| Conditional | `{if open.get() { html_sync! { <div>"Open"</div> } }}` |
+| Predicate helper | `{if name.is_non_empty() { html_sync! { "Ready" } }}` |
+| Derived value | `let total = computed(|| price.get() * quantity.get());` |
+
+Declaring a client primitive does not guarantee that it ships. The final
+reachability pass can remove an unused signal, computed, or handler. Surviving
+signals retain deterministic declaration order in the owner seed. Never put
+required server side effects inside an otherwise unused client declaration.
+
+Whatever survives carries its initial value to the browser as page data.
+
+## Seeding initial values
+
+A signal initializer runs during SSR and becomes a one-time browser seed. A
+runtime value that reaches a signal must implement `rsjs::ClientEncode`.
+
+```rust filename="src/components/tab_bar.rs"
+let open = signal(false);
+let count = signal(0_i64);
+let initial_tab = signal(self.initial_tab);
+```
+
+The codec requirement is usage-driven: a value rendered only through opaque SSR
+does not need a browser codec. Once a value reaches a signal seed, handler
+payload, live component prop, query/mutation metadata, or another client-visible
+surface, treat it as public page data. Never seed secrets, authorization
+capabilities, database handles, or private session data.
+
+Make ambiguous numeric domains explicit with a suffix or turbofish. In
+particular, `i64` and `u64` use exact integer semantics and decimal-string wire
+encoding rather than JavaScript `Number` approximation.
+
+An inbound field seeds a signal once, but reads differently outside one.
+
+## Seeding once versus reading live
+
+Inbound component fields behave differently depending on how you use them:
+
+```rust filename="src/components/draft_field.rs"
+let local_draft = signal(self.value); // SeedOnce
+
+html_sync! {
+    <span>{self.label}</span>          // LiveRead
+}
+```
+
+- `signal(self.value)` samples the inbound value when that child occurrence
+  mounts. It creates child-owned state, and later parent writes do not reset it.
+- A direct field read such as `{self.label}`, `class={self.class}`, or an exact
+  local alias remains a `LiveRead`. When a linked parent supplies a live value,
+  the child observes the latest value.
+- A `computed` derived only from inbound live values participates in the
+  enclosing graph but does not create independent mutable state. A computed that
+  reads local state inherits that local origin.
+
+A signal initializer cannot read an earlier client cell:
+
+```rust filename="src/components/doubler.rs"
+let count = signal(1_i64);
+let doubled = rsjs::computed(|| count.get() * 2_i64); // live derivation
+```
+
+RSJS rejects `signal(count.get() * 2_i64)` instead of silently taking a
+snapshot.
+
+`rsjs::server_only(...)` and `rsjs::server_attr(...)` are intentional per-render
+snapshot boundaries, not a way to bypass this model. If a linked parent tries to
+pass a live input across one of those boundaries, linking fails rather than
+freezing the value silently.
+
+Independent owners need a different mechanism entirely.
+
+## Sharing state between independent owners
+
+Local `signal(...)` cells belong to one final browser owner. For synchronous UI
+state shared by independent owners, derive a typed schema and provide it around
+the owning server-rendered region. See [Shared state](/docs/rsjs/shared-state)
+for the full lifecycle and provider contract.
+
+```rust filename="src/state/workbench.rs"
+#[derive(rsjs::SharedState)]
+#[rsjs(type_key = "acme.workbench")]
+pub struct WorkbenchState {
+    pub mode: String,
+    pub selected_node: Option<String>,
+}
+
+html_sync! {
+    {rsjs::SharedStateProvider {
+        state: WorkbenchState {
+            mode: "select".into(),
+            selected_node: None,
+        },
+        children: WorkbenchRegion {},
+    }}
+}
+```
+
+The provider is a server-side lexical declaration and renders no DOM wrapper.
+It does not itself originate client work. A consumer acquires the nearest
+provider inside its own origin-capable component:
+
+```rust filename="src/components/workbench_region.rs"
+let workbench = rsjs::shared::<WorkbenchState>();
+let mode = workbench.mode();
+let editing = rsjs::computed(|| mode.get() == "edit");
+
+let choose_edit = rsjs::event_handler(|_: rsjs::Event| {
+    mode.set("edit".to_string());
+});
+```
+
+Every top-level field is an independent writable cell. All committed owners
+under the same provider occurrence acquire the same cells, and nested providers
+use nearest-provider semantics. A late-hydrating owner observes the current live
+value rather than resetting it to the SSR seed. `rsjs::batch(...)` can group
+writes across local signals and shared fields.
+
+In the current provider surface, topology must be statically present. The
+`state` field must be a named `SharedState` struct literal, and `children` must
+be one direct analyzed component literal. Put richer markup inside that child
+component.
+
+Provider initialization stays seed-only. RSJS rejects a seed that reads an
+enclosing live value rather than snapshotting it. Use a static server seed, make
+SharedState the source of truth, or write to it explicitly from a supported
+client operation.
+
+Proa serializes the complete provider schema as public page data, including
+fields no current consumer reads. Use
+[queries and mutations](/docs/rsjs/queries-mutations) instead when the source of
+truth is asynchronous, server-owned, stale, refetchable, or invalidated.
+
+## Which rules apply to signals?
+
+| Rule | Why |
+| --- | --- |
+| Use `client` when the component originates local or shared browser state | `#[rsjs(component)]` alone is participation-only. |
+| Read live values with `.get()` in analyzed positions | Reads register the binding or derived dependency to update. |
+| Write from supported handlers or browser operations | Render-time writes would make SSR nondeterministic. |
+| Use `computed` for derivation | A second synchronized signal creates unnecessary state and drift. |
+| Treat client crossings as public | Proa delivers seeds and payloads to the browser. |
+| Use SharedState only for typed synchronous cross-owner UI state | Local signals cannot cross an independent owner boundary. |
+
+## Next steps
+
+- [Event handlers](/docs/rsjs/handlers)
+  - Write the typed browser handlers that call `.set` and `.update`.
+- [Input bindings](/docs/rsjs/bindings)
+  - Bind form controls straight to a writable signal.
+- [Shared state](/docs/rsjs/shared-state)
+  - Share one typed store across independent owners.
+- [Hydration strategies](/docs/rsjs/hydration)
+  - Decide when the owner holding these signals activates.
+- [Runtime wiring](/docs/rsjs/runtime)
+  - See how the seed and runtime tags reach the page.

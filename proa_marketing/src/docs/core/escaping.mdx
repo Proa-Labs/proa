@@ -1,0 +1,115 @@
+---
+title: Escaping and raw HTML
+description: How Proa encodes dynamic values, and the two ways to opt out.
+keywords: [StaticRaw, UnsafeRaw, raw HTML, XSS]
+---
+
+Proa's primary security job is output encoding: making sure a dynamic value cannot break out of its HTML context and execute. Every value in `html!` is escaped before it reaches the buffer, with no opt-in.
+
+```rust filename="src/components/comment.rs"
+let user_input = "<script>alert('xss')</script>";
+
+html_sync! {
+    <p>{user_input}</p>
+}
+// <p>&lt;script&gt;alert('xss')&lt;/script&gt;</p>
+```
+
+## Encoding contexts
+
+Proa escapes per the [OWASP XSS Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html), and the context decides the rule:
+
+| Context | Characters escaped | OWASP rule |
+|---------|-------------------|------------|
+| Text content | `&`, `<`, `>`, U+00A0, U+0000 | #1 |
+| Attribute values | `&`, `<`, `>`, `"`, `'`, U+00A0, U+0000 | #2 |
+| `<script>` content | `&`, `<`, `>`, plus `</script`, `<script`, and `<!--` masked with `\` | Tag breakout |
+| `<style>` content | `&`, `<`, `>`, plus `</style`, `<style`, and `<!--` masked with `\` | Tag breakout |
+
+All attribute values are always double-quoted. There is no code path that emits an unquoted attribute.
+
+## Dangerous URL schemes
+
+`javascript:` and `vbscript:` execute arbitrary script when navigated to, and so do the executable `data:` types (`text/html`, `application/xhtml+xml`, `application/xml`, `image/svg+xml`). Proa blocks all of them in every URL-bearing attribute: `href`, `src`, `action`, `formaction`, `poster`, `ping`, `cite`, `data`, `background`, `longdesc`, `manifest`, and both spellings of `xlink:href`. The check runs during macro expansion and produces a compile error:
+
+```rust filename="src/components/link.rs"
+html_sync! {
+    <a href="javascript:alert(1)">"Click me"</a>
+}
+// error: dangerous URL scheme in `href` attribute.
+```
+
+The comparison normalizes the value the way a browser does before parsing it, so the usual evasions fail too. ASCII whitespace and NUL are skipped throughout the scheme (not just at the leading edge), which catches `java&Tab;script:` and `\njavascript:`, and one pass of numeric character reference decoding runs first, which catches `&#106;avascript:alert(1)` and its zero-padded variants.
+
+**Dynamic URLs get the same check at render time.** A compile-time error cannot see `href={user_supplied}`, so URL-bearing attributes route through a runtime guard using the identical normalization. In debug builds a dangerous value trips a `debug_assert!`; in release builds the attribute renders empty rather than dangerous.
+
+That guard is a backstop, not a substitute for validation. It only recognizes executable schemes, so an open redirect or an attacker-chosen host still reaches the page. Validate user-controlled URLs in application code.
+
+Related: when you write `<a target="_blank">`, add `rel="noopener noreferrer"` unless you deliberately want an opener relationship. Without it the opened page can redirect your original tab through `window.opener`, reverse tabnabbing. Modern browsers default to `noopener`, but being explicit preserves behaviour in older clients.
+
+## Dynamic values inside script and style
+
+Proa emits a compile-time warning when a dynamic expression appears inside `<script>` or `<style>`:
+
+```rust filename="src/layouts/root.rs"
+html_sync! {
+    <script>
+        {some_dynamic_value}  // warning: OWASP XSS: dynamic expr in script/style
+    </script>
+}
+```
+
+HTML escaping is **not sufficient** here. JavaScript and CSS are separate encoding contexts needing JS-specific and CSS-specific encoding, which an HTML engine does not provide.
+
+Pass the data through a `data-*` attribute instead, and read it from the DOM:
+
+```rust filename="src/layouts/root.rs"
+use proa_core::StaticRaw;
+
+html_sync! {
+    <div id="app" data-config={&serde_json::to_string(&config).unwrap()}></div>
+    <script>
+        {StaticRaw(r#"
+            const config = JSON.parse(
+                document.getElementById('app').dataset.config
+            );
+        "#)}
+    </script>
+}
+```
+
+The attribute value goes through attribute escaping, and the script reads it via the DOM. No injection path.
+
+## The two escape hatches
+
+**`StaticRaw`** takes a compile-time constant. No user data can reach it at runtime, so it is inherently safe:
+
+```rust filename="src/components/icon.rs"
+use proa_core::StaticRaw;
+
+StaticRaw("<svg viewBox='0 0 24 24'>...</svg>")
+```
+
+**`UnsafeRaw`** takes a dynamic string and escapes nothing. Use it only with content you have already sanitized:
+
+```rust filename="src/pages/article.rs"
+use proa_core::UnsafeRaw;
+
+let sanitized = ammonia::clean(&user_html);
+UnsafeRaw(&sanitized)
+```
+
+Never wrap request input, CMS strings, or user-authored Markdown in `UnsafeRaw` directly. Sanitize with an allowlist first, [ammonia](https://crates.io/crates/ammonia) on the server, [DOMPurify](https://github.com/cure53/DOMPurify) in the browser.
+
+> **Good to know**: The typed `AttrKey` enum deliberately excludes event-handler attributes such as `onclick`. Inline handlers cannot execute under a [Content Security Policy](https://www.w3.org/TR/CSP3/#directive-script-src) `script-src` directive, so the typed API does not encourage them. The macro still accepts them if you write them by hand.
+
+## Next steps
+
+- [HTML rendering](/docs/core/html-rendering)
+  - Render typed Rust values to HTML with render traits and the html! macros.
+- [Security](/docs/guides/security)
+  - What Proa hardens by default, and what stays your job.
+- [Headers and CSP](/docs/framework/security-headers)
+  - Set frame policy, HSTS, and a nonce-based Content Security Policy.
+- [Writing performant pages](/docs/guides/performance)
+  - How to write zero-allocation Proa pages that render in microseconds. Covers format!() avoidance, SafeText, ClassList, numeric rendering, buffer selection, and pre-formatting patterns.

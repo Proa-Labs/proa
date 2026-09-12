@@ -1,0 +1,5 @@
+error: `#[rsjs]` does not recognise event method `.native_event()`; supported event value accessors include `type_()`, `value()`, `checked()`, `target_value()`, `target_checked()`, `target_date()`, `target_id()`, `current_target_id()`, `current_value()`, `current_checked()`, `key()`, `code()`, `repeat()`, modifier keys, `is_cmd_or_ctrl("k")`, mouse/wheel coordinates, button fields, pointer fields, scroll fields, input-event/toggle-state fields, storage-event fields, clipboard/data-transfer/file fields, changed-touch fields, indexed touch/file/data-transfer item fields, target containment via `target_inside(ref)` / `target_outside(ref)`, and static attribute reads like `target_attr("data-id")`, `closest_attr("data-id")`, and `current_target_attr("data-id")`. Event statement methods are `prevent_default()`, `stop_propagation()`, `target_first_file_text_into(&signal)`, and `data_transfer_first_file_text_into(&signal)`.
+  --> tests/ui/conformance/fail/16_event_unknown_method.rs:19:58
+   |
+19 |                 <input on_input={|event| value.set(event.native_event())}/>
+   |                                                          ^^^^^^^^^^^^

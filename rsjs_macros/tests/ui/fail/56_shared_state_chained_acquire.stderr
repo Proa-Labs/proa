@@ -1,0 +1,5 @@
+error: rsjs/shared-state-chained-acquire: `rsjs::shared::<WorkbenchState>()` cannot be chained straight into `.mode()` in one `let`. Field bindings resolve against a named store local, and the SSR provider acquisition is emitted once per named handle, so an anonymous chained acquisition has no identity to bind to. Split it into two lets: `let state = rsjs::shared::<WorkbenchState>();` then `let mode = state.mode();`
+  --> tests/ui/fail/56_shared_state_chained_acquire.rs:21:20
+   |
+21 |         let mode = rsjs::shared::<WorkbenchState>().mode();
+   |                    ^^^^

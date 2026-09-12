@@ -1,0 +1,7 @@
+error: rsjs: exported client class method has inconsistent Client IR types
+         help: give literals and mutable locals the same explicit supported Rust types as the class fields and method signature
+         note: standalone helper Return expects ValueObject { type_key: "c1b043537a2292789000fb377a1f46d842fed4556083fc29eca8bb5cc08231bb", fields: [ClientObjectField { name: "count", ty: I64 }] }, but expression has value object c1b043537a2292789000fb377a1f46d842fed4556083fc29eca8bb5cc08231bb with 1 fields
+ --> tests/ui/fail/89_client_class_untyped_wide_field.rs:8:16
+  |
+8 |         pub fn new() -> Self {
+  |                ^^^

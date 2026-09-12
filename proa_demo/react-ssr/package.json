@@ -1,0 +1,17 @@
+{
+  "name": "proa-demo-react-ssr",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "build": "esbuild server.tsx --bundle --platform=node --format=esm --packages=external --target=node20 --outfile=dist/server.js --define:process.env.NODE_ENV=\\\"production\\\"",
+    "start": "node --import tsx server.tsx",
+    "start:prod": "node dist/server.js"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsx": "^4.19.0"
+  }
+}

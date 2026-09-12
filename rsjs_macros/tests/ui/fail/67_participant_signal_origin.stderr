@@ -1,0 +1,6 @@
+error: this writable local signal originates browser behavior, but the component is participant-only
+       help: change the attribute to `#[rsjs(component, client)]`, or move the origin into a client-capable child
+  --> tests/ui/fail/67_participant_signal_origin.rs:13:13
+   |
+13 |         let count = rsjs::signal(0_i64);
+   |             ^^^^^

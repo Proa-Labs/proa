@@ -1,0 +1,95 @@
+[
+  {
+    "args": [
+      {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 30,
+            "line": 1
+          },
+          "start": {
+            "column": 25,
+            "line": 1
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "today"
+        }
+      }
+    ],
+    "kind": "console",
+    "level": "Log",
+    "span": {
+      "end": {
+        "column": 19,
+        "line": 1
+      },
+      "start": {
+        "column": 12,
+        "line": 1
+      }
+    }
+  },
+  {
+    "kind": "signal_set",
+    "signal": 1,
+    "span": {
+      "end": {
+        "column": 18,
+        "line": 2
+      },
+      "start": {
+        "column": 12,
+        "line": 2
+      }
+    },
+    "value": {
+      "kind": "literal",
+      "span": {
+        "end": {
+          "column": 28,
+          "line": 2
+        },
+        "start": {
+          "column": 23,
+          "line": 2
+        }
+      },
+      "value": {
+        "kind": "string",
+        "value": "today"
+      }
+    }
+  },
+  {
+    "kind": "signal_set",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 18,
+        "line": 3
+      },
+      "start": {
+        "column": 12,
+        "line": 3
+      }
+    },
+    "value": {
+      "attr": "data-date",
+      "kind": "event_attribute",
+      "source": "Closest",
+      "span": {
+        "end": {
+          "column": 28,
+          "line": 3
+        },
+        "start": {
+          "column": 23,
+          "line": 3
+        }
+      }
+    }
+  }
+]

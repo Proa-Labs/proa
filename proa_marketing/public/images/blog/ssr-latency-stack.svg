@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" fill="none">
+  <style>
+    text { font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace; }
+    .title { font-size: 13px; font-weight: 700; fill: #1a1a1a; }
+    .label { font-size: 11px; font-weight: 600; fill: #1a1a1a; }
+    .sublabel { font-size: 10px; fill: #6b7280; }
+    .time { font-size: 11px; font-weight: 700; fill: #1a1a1a; }
+    .time-right { font-size: 10px; fill: #6b7280; text-anchor: end; }
+    .header-bg { fill: #e8e4d8; rx: 8; }
+    .divider { stroke: #e5e7eb; stroke-width: 1; stroke-dasharray: 6 4; }
+    .total-line { stroke: #dc2626; stroke-width: 1.5; stroke-dasharray: 4 3; }
+    .total-label { font-size: 12px; font-weight: 700; fill: #dc2626; }
+    .proa-label { font-size: 12px; font-weight: 700; fill: #16a34a; }
+    .section-label { font-size: 10px; font-weight: 600; fill: #9ca3af; letter-spacing: 0.08em; }
+  </style>
+
+  <!-- Title -->
+  <rect class="header-bg" x="20" y="16" width="760" height="32"/>
+  <text class="title" x="400" y="37" text-anchor="middle">Next.js SSR Request — Where the Time Goes</text>
+
+  <!-- Scale markers -->
+  <text class="sublabel" x="160" y="72">0ms</text>
+  <text class="sublabel" x="310" y="72">50ms</text>
+  <text class="sublabel" x="460" y="72">100ms</text>
+  <text class="sublabel" x="610" y="72">200ms</text>
+  <text class="sublabel" x="745" y="72" text-anchor="end">315ms</text>
+  <line class="divider" x1="160" y1="76" x2="750" y2="76"/>
+
+  <!-- Row 1: Data fetching -->
+  <text class="label" x="20" y="108">Data fetching</text>
+  <text class="sublabel" x="20" y="122">getServerSideProps</text>
+  <rect x="160" y="92" width="320" height="36" rx="4" fill="#fde68a" stroke="#f59e0b" stroke-width="1"/>
+  <text class="time" x="320" y="115" text-anchor="middle">10 – 200ms</text>
+  <text class="sublabel" x="320" y="128" text-anchor="middle">DB / API round-trips</text>
+
+  <!-- Row 2: React render -->
+  <text class="label" x="20" y="168">React render</text>
+  <text class="sublabel" x="20" y="182">VDOM → string</text>
+  <rect x="480" y="152" width="140" height="36" rx="4" fill="#fed7aa" stroke="#f97316" stroke-width="1"/>
+  <text class="time" x="550" y="175" text-anchor="middle">5 – 50ms</text>
+
+  <!-- Row 3: Framework overhead -->
+  <text class="label" x="20" y="228">Framework overhead</text>
+  <text class="sublabel" x="20" y="242">routing, context, streaming</text>
+  <rect x="620" y="212" width="80" height="36" rx="4" fill="#fecaca" stroke="#ef4444" stroke-width="1"/>
+  <text class="time" x="660" y="235" text-anchor="middle">5 – 15ms</text>
+
+  <!-- Row 4: Serialization -->
+  <text class="label" x="20" y="288">__NEXT_DATA__</text>
+  <text class="sublabel" x="20" y="302">JSON.stringify for hydration</text>
+  <rect x="700" y="272" width="50" height="36" rx="4" fill="#e9d5ff" stroke="#a855f7" stroke-width="1"/>
+  <text class="time" x="725" y="295" text-anchor="middle">1 – 20ms</text>
+
+  <!-- Row 5: Network -->
+  <text class="label" x="20" y="348">Network</text>
+  <text class="sublabel" x="20" y="362">TCP / TLS</text>
+  <rect x="160" y="332" width="100" height="36" rx="4" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+  <text class="time" x="210" y="355" text-anchor="middle">5 – 30ms</text>
+
+  <!-- Total line -->
+  <line class="total-line" x1="750" y1="82" x2="750" y2="380"/>
+  <text class="total-label" x="748" y="396" text-anchor="end">Total TTFB: 26 – 315ms</text>
+  <text class="sublabel" x="748" y="410" text-anchor="end">+ cold start (50 – 3,000ms) on first request</text>
+
+  <!-- Proa comparison -->
+  <rect x="20" y="432" width="760" height="36" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text class="proa-label" x="400" y="455" text-anchor="middle">Proa: data fetching + render (microseconds) + network.  No framework tax. No serialization. No GC.</text>
+</svg>

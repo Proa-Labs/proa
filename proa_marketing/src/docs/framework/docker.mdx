@@ -1,0 +1,190 @@
+---
+title: Docker
+description: Run the Proa image yourself, and own everything a platform would have done.
+---
+
+Proa produces one release binary and a `public/` directory. This page packages both into an image and runs it on hardware you control.
+
+Read [what self-managed Docker costs you](/docs/framework/deployment) first. Take this path when you are running Proa beside an existing app, deploying into Kubernetes, Nomad, or ECS, or working somewhere a managed platform is not an option. For a plain public site, [Railway](/docs/framework/railway) or [Coolify](/docs/framework/coolify) does all of this for you.
+
+## Build the image
+
+Multi-stage: compile in a Rust image, run from a slim base. The GitHub token that fetches Proa's git dependencies stays in the build stage, which never ships.
+
+```dockerfile filename="Dockerfile"
+# syntax=docker/dockerfile:1.7
+
+FROM rust:1.93-bookworm AS build
+WORKDIR /app
+COPY . .
+
+# Fetch Proa git dependencies through the git CLI. While the Proa repository
+# is private, pass a GitHub token with read access as Docker secret
+# `github_token`; drop the secret once the repository is public.
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+RUN --mount=type=secret,id=github_token \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    if [ -s /run/secrets/github_token ]; then \
+        git config --global \
+            url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf \
+            "https://github.com/"; \
+    fi \
+    && cargo build --release
+
+FROM debian:bookworm-slim AS runtime
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /app/target/release/my-site /usr/local/bin/my-site
+COPY --from=build /app/public /app/public
+
+ENV HOST=0.0.0.0
+ENV PORT=3000
+ENV STATIC_DIR=/app/public
+ENV RUST_LOG=info
+
+EXPOSE 3000
+CMD ["my-site"]
+```
+
+```bash
+docker build --secret id=github_token,env=GITHUB_TOKEN -t my-site:$(git rev-parse --short HEAD) .
+```
+
+**Tag with the commit SHA, never `latest`.** Rollback means pointing at the previous tag. Without immutable tags you have nothing to point at.
+
+Build in CI rather than on the production box. Rust release builds want CPU and RAM that your web server should be spending on requests, and it keeps the GitHub token off the host entirely.
+
+## Run it
+
+```yaml filename="compose.yaml"
+services:
+  web:
+    image: ghcr.io/you/my-site:abc1234
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      STATIC_DIR: /app/public
+      RUST_LOG: info
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/healthz"]
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 5s
+    ports:
+      - "127.0.0.1:3000:3000"
+```
+
+Bind to `127.0.0.1:3000`, not `0.0.0.0:3000`. Publishing to all interfaces bypasses the host firewall on most Docker installs and exposes the app directly.
+
+### Beside an existing app
+
+This is the shape the [Rails](/docs/migration/rails) and [Django / Flask](/docs/migration/python) migrations describe: Proa renders the routes you have moved, your existing app serves the rest, and one proxy routes between them.
+
+```yaml filename="compose.yaml"
+services:
+  legacy:
+    image: ghcr.io/you/legacy-app:def5678
+    expose: ["8000"]
+
+  proa:
+    image: ghcr.io/you/my-site:abc1234
+    expose: ["3000"]
+    environment:
+      PORT: 3000
+      STATIC_DIR: /app/public
+
+  proxy:
+    image: caddy:2
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+```
+
+```caddyfile filename="Caddyfile"
+example.com {
+    handle /rooms/* {
+        reverse_proxy proa:3000
+    }
+    handle {
+        reverse_proxy legacy:8000
+    }
+}
+```
+
+Move one path prefix at a time. The proxy config is the migration progress bar.
+
+## TLS and the rest of the platform
+
+Caddy handles certificates and renewal with no configuration, which is why it appears above. nginx works too, with certbot and a renewal timer you now maintain.
+
+Either way, preserve forwarding headers or the app cannot see the real client:
+
+```nginx filename="/etc/nginx/conf.d/my-site.conf"
+proxy_set_header Host              $host;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Real-IP         $remote_addr;
+```
+
+Do not cache dynamic HTML at the proxy until you have route-level rules. See [Page caching](/docs/framework/page-caching).
+
+Three more things a platform would have handled, in the order they bite:
+
+- **Logs.** `docker logs` vanishes with the container. Ship to a collector before you need it, not after.
+- **Disk.** Old images accumulate silently. Run `docker image prune -af --filter "until=168h"` on a weekly timer.
+- **Alerting.** The compose healthcheck restarts a wedged container. It does not tell you it happened.
+
+## Ship a new version without downtime
+
+`docker compose up -d` stops the old container before the new one is ready. That is a visible outage on every deploy.
+
+Start the new version alongside, prove it healthy, then move traffic:
+
+```bash
+NEW=abc1234
+docker run -d --name my-site-$NEW -p 127.0.0.1:3001:3000 \
+  -e PORT=3000 -e STATIC_DIR=/app/public ghcr.io/you/my-site:$NEW
+
+for i in $(seq 30); do
+  curl -fsS http://127.0.0.1:3001/healthz && break
+  sleep 1
+done || { docker rm -f my-site-$NEW; echo "unhealthy, aborting"; exit 1; }
+
+# flip the proxy upstream 3000 -> 3001, reload, then retire the old container
+```
+
+Rollback is the same sequence with the previous SHA. Which is exactly why the tag has to be a SHA.
+
+For more than one host, this is the point where Kubernetes, Nomad, or ECS stops being overkill.
+
+## Verify before you deploy
+
+```bash
+docker build --secret id=github_token,env=GITHUB_TOKEN -t my-site:test .
+docker run --rm -p 3000:3000 -e PORT=3000 my-site:test
+curl -fsS http://127.0.0.1:3000/healthz
+curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
+docker run --rm my-site:test env | grep -c GITHUB_TOKEN   # expect 0
+docker image inspect my-site:test --format '{{.Size}}'                  # expect ~100MB, not ~2GB
+```
+
+The last line catches a single-stage Dockerfile, which ships your entire Rust toolchain and source to production.
+
+## Next steps
+
+- [Deploy overview](/docs/framework/deployment)
+  - Pick a deployment target, then follow the guide for it.
+- [Railway](/docs/framework/railway)
+  - Deploy a Proa app to Railway from a Dockerfile in about ten minutes.
+- [Coolify](/docs/framework/coolify)
+  - Deploy a Proa app to Coolify on your own VPS.
+- [Environment variables](/docs/framework/environment)
+  - Configure a deployed Proa app without rebuilding the binary.
+- [CI / GitHub Actions](/docs/guides/ci)
+  - Gate pull requests with proa check, then deploy from the same pipeline.

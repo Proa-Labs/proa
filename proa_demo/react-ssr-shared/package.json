@@ -1,0 +1,32 @@
+{
+  "name": "react-ssr-shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prebench": "npm run parity",
+    "bench": "NODE_ENV=production tsx bench.ts",
+    "bench:espn": "NODE_ENV=production tsx bench-espn.tsx",
+    "prebench:sentry-otel": "npm run parity:sentry-otel",
+    "bench:sentry-otel": "NODE_ENV=production tsx bench-sentry-otel.tsx",
+    "parity": "npm run parity:home && npm run parity:nike && npm run parity:sentry-otel",
+    "parity:home": "node showcase-parity.mjs airbnb-home",
+    "parity:nike": "node showcase-parity.mjs nike-pdp",
+    "parity:sentry-otel": "node showcase-parity.mjs sentry-otel",
+    "lint": "biome check .",
+    "lint:fix": "biome check --fix ."
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "playwright": "1.61.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

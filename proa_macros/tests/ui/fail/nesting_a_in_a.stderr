@@ -1,0 +1,5 @@
+error: <a> cannot be nested inside another <a>. move the inner link outside, or use a single <a> wrapping the full content (HTML §4.5.1)
+ --> tests/ui/fail/nesting_a_in_a.rs:5:36
+  |
+5 |     html_sync! { <a href="/outer"><a href="/inner">"bad"</a></a> };
+  |                                    ^

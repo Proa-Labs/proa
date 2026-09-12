@@ -1,0 +1,15 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "args": [
+        {
+          "kind": "signal_read",
+          "signal": 0
+        }
+      ],
+      "kind": "run_mutation",
+      "mutation": 0
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+error: duplicate named argument `value`
+  --> tests/md_fail/named_arg_duplicate.rs:10:9
+   |
+10 |         value = 2
+   |         ^^^^^

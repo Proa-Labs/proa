@@ -1,0 +1,1924 @@
+#!/usr/bin/env bash
+# Retain bounded, immutable snapshots of healthy native Coolify PR previews.
+#
+# Coolify owns the mutable pr-N container and route. This reconciler discovers
+# that container after it is healthy, pins its exact image ID in a second
+# read-only container, and gives the retained container a deployment-specific
+# Traefik hostname. It never modifies Coolify's database or generated compose
+# files.
+set -euo pipefail
+umask 077
+
+log() {
+  printf 'preview_archive %s\n' "$*"
+}
+
+fail() {
+  log "event=error message=$1"
+  exit "${2:-1}"
+}
+
+require_uint() {
+  local name=$1 value=$2
+  valid_uint "$value" || fail "$name must be a canonical unsigned 63-bit integer" 2
+}
+
+valid_uint() {
+  local value=$1 max_value=9223372036854775807
+  [[ "$value" =~ ^(0|[1-9][0-9]{0,18})$ ]] || return 1
+  # Same-length canonical digit strings compare numerically here; parsing an
+  # out-of-range candidate as shell arithmetic would overflow before the guard.
+  # shellcheck disable=SC2071
+  ((${#value} < ${#max_value})) ||
+    [[ ${#value} -eq ${#max_value} && ( "$value" < "$max_value" || "$value" == "$max_value" ) ]]
+}
+
+valid_created_epoch() {
+  local value=$1
+  valid_uint "$value" && ((value <= NOW_EPOCH))
+}
+
+APPLICATION_UUID=${PROA_ARCHIVE_APPLICATION_UUID:-}
+APPLICATION_NAME=${PROA_ARCHIVE_APPLICATION_NAME:-proa-marketing}
+PREVIEW_DOMAIN=${PROA_ARCHIVE_PREVIEW_DOMAIN:-proa.cool}
+NATIVE_DOCKER_NETWORK=${PROA_ARCHIVE_NATIVE_DOCKER_NETWORK:-proa-preview}
+DOCKER_NETWORK=${PROA_ARCHIVE_DOCKER_NETWORK:-proa-preview-archive}
+ARCHIVE_NETWORK_SUBNET=172.31.252.0/24
+ROUTER_IP=${PROA_ARCHIVE_ROUTER_IP:-172.31.252.2}
+CONTAINER_PORT=${PROA_ARCHIVE_CONTAINER_PORT:-5555}
+STATE_DIR=${PROA_ARCHIVE_STATE_DIR:-/var/lib/proa-preview-archive}
+ROUTER_CONFIG_DIR=${PROA_ARCHIVE_ROUTER_CONFIG_DIR:-/var/lib/proa-preview-archive/routes}
+MAX_PER_PR=${PROA_ARCHIVE_MAX_PER_PR:-3}
+MAX_GLOBAL=${PROA_ARCHIVE_MAX_GLOBAL:-30}
+TTL_SECONDS=${PROA_ARCHIVE_TTL_SECONDS:-604800}
+PROVISIONAL_TTL_SECONDS=${PROA_ARCHIVE_PROVISIONAL_TTL_SECONDS:-900}
+HEALTH_ATTEMPTS=${PROA_ARCHIVE_HEALTH_ATTEMPTS:-30}
+HEALTH_INTERVAL_SECONDS=${PROA_ARCHIVE_HEALTH_INTERVAL_SECONDS:-2}
+NOW_EPOCH=${PROA_ARCHIVE_NOW_EPOCH:-$(date +%s)}
+DOCKER_BIN=${PROA_ARCHIVE_DOCKER_BIN:-docker}
+JQ_BIN=${PROA_ARCHIVE_JQ_BIN:-jq}
+FLOCK_BIN=${PROA_ARCHIVE_FLOCK_BIN:-flock}
+PYTHON_BIN=${PROA_ARCHIVE_PYTHON_BIN:-python3}
+URL_HELPER=${PROA_ARCHIVE_URL_HELPER:-"$(cd "$(dirname "$0")" && pwd)/proa-preview-archive-url"}
+
+[[ "$APPLICATION_UUID" =~ ^[a-z0-9]{8,64}$ ]] ||
+  fail "PROA_ARCHIVE_APPLICATION_UUID must be 8-64 lowercase alphanumeric characters" 2
+[[ "$APPLICATION_NAME" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] ||
+  fail "PROA_ARCHIVE_APPLICATION_NAME must be one lowercase DNS label" 2
+[[ ${#PREVIEW_DOMAIN} -le 253 && "$PREVIEW_DOMAIN" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] ||
+  fail "PROA_ARCHIVE_PREVIEW_DOMAIN must be a lowercase multi-label DNS name" 2
+[[ "$DOCKER_NETWORK" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] ||
+  fail "PROA_ARCHIVE_DOCKER_NETWORK is invalid" 2
+[[ "$NATIVE_DOCKER_NETWORK" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] ||
+  fail "PROA_ARCHIVE_NATIVE_DOCKER_NETWORK is invalid" 2
+[[ "$NATIVE_DOCKER_NETWORK" != "$DOCKER_NETWORK" ]] ||
+  fail "native and archive Docker networks must be distinct" 2
+[[ "$ROUTER_IP" == 172.31.252.2 ]] ||
+  fail "PROA_ARCHIVE_ROUTER_IP must be 172.31.252.2" 2
+[[ ${#ROUTER_CONFIG_DIR} -le 4096 && "$ROUTER_CONFIG_DIR" =~ ^/[A-Za-z0-9_./-]+$ ]] ||
+  fail "PROA_ARCHIVE_ROUTER_CONFIG_DIR must be a safe absolute path" 2
+for pair in \
+  "CONTAINER_PORT:$CONTAINER_PORT" \
+  "MAX_PER_PR:$MAX_PER_PR" \
+  "MAX_GLOBAL:$MAX_GLOBAL" \
+  "TTL_SECONDS:$TTL_SECONDS" \
+  "PROVISIONAL_TTL_SECONDS:$PROVISIONAL_TTL_SECONDS" \
+  "HEALTH_ATTEMPTS:$HEALTH_ATTEMPTS" \
+  "HEALTH_INTERVAL_SECONDS:$HEALTH_INTERVAL_SECONDS" \
+  "NOW_EPOCH:$NOW_EPOCH"; do
+  require_uint "${pair%%:*}" "${pair#*:}"
+done
+((CONTAINER_PORT >= 1 && CONTAINER_PORT <= 65535)) || fail "CONTAINER_PORT is out of range" 2
+((MAX_PER_PR >= 1 && MAX_GLOBAL >= MAX_PER_PR)) || fail "archive caps are inconsistent" 2
+((TTL_SECONDS >= 60)) || fail "retention window is too small" 2
+((PROVISIONAL_TTL_SECONDS >= 60 && PROVISIONAL_TTL_SECONDS <= 3600 && PROVISIONAL_TTL_SECONDS <= TTL_SECONDS)) ||
+  fail "provisional retention window must be 60-3600 seconds and no longer than approved retention" 2
+((HEALTH_ATTEMPTS >= 1 && HEALTH_INTERVAL_SECONDS >= 1)) || fail "health wait is invalid" 2
+[[ -x "$URL_HELPER" ]] || fail "URL helper is not executable: $URL_HELPER" 2
+command -v "$DOCKER_BIN" >/dev/null 2>&1 || fail "docker client is unavailable" 2
+command -v "$JQ_BIN" >/dev/null 2>&1 || fail "jq is unavailable" 2
+command -v "$FLOCK_BIN" >/dev/null 2>&1 || fail "flock is unavailable" 2
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || fail "python3 is unavailable" 2
+
+mkdir -p \
+  "$STATE_DIR/approved" \
+  "$STATE_DIR/deployments" \
+  "$STATE_DIR/retired" \
+  "$STATE_DIR/hostname-claims"
+
+"$PYTHON_BIN" - "$ROUTER_CONFIG_DIR" <<'PY' || \
+  fail "archive route directory is unavailable or unsafe" 2
+import os
+from pathlib import Path
+import stat
+import sys
+
+path = Path(sys.argv[1])
+try:
+    metadata = path.lstat()
+except FileNotFoundError:
+    try:
+        path.mkdir(mode=0o755)
+        path.chmod(0o755)
+        metadata = path.lstat()
+    except OSError:
+        raise SystemExit(1)
+except OSError:
+    raise SystemExit(1)
+if (
+    stat.S_ISLNK(metadata.st_mode)
+    or not stat.S_ISDIR(metadata.st_mode)
+    or metadata.st_uid != os.geteuid()
+    or stat.S_IMODE(metadata.st_mode) != 0o755
+):
+    raise SystemExit(1)
+PY
+exec 9>"$STATE_DIR/sync.lock"
+if ! "$FLOCK_BIN" -n 9; then
+  log "event=error reason=already_running"
+  exit 75
+fi
+
+RUN_DIR=$(mktemp -d "$STATE_DIR/run.XXXXXX")
+trap 'rm -rf "$RUN_DIR"' EXIT
+ACTIVE_PRS_FILE=$RUN_DIR/active-prs
+ACTIVE_DEPLOYMENTS_FILE=$RUN_DIR/active-deployments
+QUARANTINED_FILE=$RUN_DIR/quarantined
+ERROR_COUNT=0
+PUBLISHED_ROUTES=0
+REMOVE_ARCHIVE_COMMITTED=false
+ADMISSION_EVICTION_COMMITTED=false
+: > "$ACTIVE_PRS_FILE"
+: > "$ACTIVE_DEPLOYMENTS_FILE"
+: > "$QUARANTINED_FILE"
+
+docker_cmd() {
+  "$DOCKER_BIN" "$@"
+}
+
+inspect_json() {
+  docker_cmd inspect "$1"
+}
+
+jq_value() {
+  local json=$1 expression=$2
+  printf '%s' "$json" | "$JQ_BIN" -er "$expression"
+}
+
+label_value() {
+  local json=$1 label=$2
+  # shellcheck disable=SC2016 # $label is a jq variable supplied by --arg.
+  printf '%s' "$json" | "$JQ_BIN" -er --arg label "$label" \
+    '.[0].Config.Labels[$label] // empty'
+}
+
+env_value() {
+  local json=$1 key=$2
+  # shellcheck disable=SC2016 # $key is a jq variable supplied by --arg.
+  printf '%s' "$json" | "$JQ_BIN" -er --arg key "$key" '
+    [.[0].Config.Env[]? | select(startswith($key + "="))]
+    | if length == 1 then .[0][($key | length) + 1:] else empty end
+  '
+}
+
+fsync_path() {
+  "$PYTHON_BIN" - "$1" <<'PY'
+import os
+import sys
+
+descriptor = os.open(sys.argv[1], os.O_RDONLY)
+try:
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+}
+
+write_atomic() {
+  local destination=$1 content=$2 mode=${3:-} parent temporary=''
+  parent=${destination%/*}
+  temporary=$(mktemp "$parent/.write.XXXXXX") || return 1
+  if ! printf '%s\n' "$content" > "$temporary"; then
+    rm -f "$temporary" || true
+    return 1
+  fi
+  if [[ -n "$mode" ]] && ! chmod "$mode" "$temporary"; then
+    rm -f "$temporary" || true
+    return 1
+  fi
+  if ! fsync_path "$temporary"; then
+    rm -f "$temporary" || true
+    return 1
+  fi
+  # Rename through a no-follow directory descriptor. Plain `mv -f` treats an
+  # existing directory (including a symlink to one) as a destination to copy
+  # into, which can report success without replacing the intended state file.
+  # The final lstat also pins the owner and mode before callers act on it.
+  if ! "$PYTHON_BIN" - "$temporary" "$destination" "${mode:-0600}" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+source = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+expected_mode = int(sys.argv[3], 8)
+if source.parent != destination.parent or source.name == destination.name:
+    raise SystemExit(1)
+
+flags = os.O_RDONLY | os.O_DIRECTORY
+if hasattr(os, "O_NOFOLLOW"):
+    flags |= os.O_NOFOLLOW
+descriptor = os.open(source.parent, flags)
+try:
+    parent = os.fstat(descriptor)
+    if (
+        not stat.S_ISDIR(parent.st_mode)
+        or parent.st_uid != os.geteuid()
+        or stat.S_IMODE(parent.st_mode) & 0o022
+    ):
+        raise SystemExit(1)
+
+    source_metadata = os.stat(source.name, dir_fd=descriptor, follow_symlinks=False)
+    if (
+        not stat.S_ISREG(source_metadata.st_mode)
+        or source_metadata.st_uid != os.geteuid()
+        or stat.S_IMODE(source_metadata.st_mode) != expected_mode
+    ):
+        raise SystemExit(1)
+
+    try:
+        destination_metadata = os.stat(
+            destination.name,
+            dir_fd=descriptor,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        pass
+    else:
+        if (
+            not stat.S_ISREG(destination_metadata.st_mode)
+            or destination_metadata.st_uid != os.geteuid()
+        ):
+            raise SystemExit(1)
+
+    os.replace(
+        source.name,
+        destination.name,
+        src_dir_fd=descriptor,
+        dst_dir_fd=descriptor,
+    )
+    final = os.stat(destination.name, dir_fd=descriptor, follow_symlinks=False)
+    if (
+        not stat.S_ISREG(final.st_mode)
+        or final.st_uid != os.geteuid()
+        or stat.S_IMODE(final.st_mode) != expected_mode
+        or final.st_nlink != 1
+    ):
+        raise SystemExit(1)
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+  then
+    rm -f "$temporary" || true
+    return 1
+  fi
+}
+
+remove_marker_durable() {
+  local path=$1 parent
+  parent=${path%/*}
+  rm -f "$path" && fsync_path "$parent"
+}
+
+route_path_for() {
+  # Traefik's file provider only watches supported dynamic-config extensions.
+  # The bytes remain canonical JSON (which is valid YAML), while the .yml
+  # suffix makes the file discoverable by Traefik 3.x.
+  printf '%s/%s.yml\n' "$ROUTER_CONFIG_DIR" "$1"
+}
+
+remove_archive_route() {
+  local deployment_uuid=$1 path
+  [[ "$deployment_uuid" =~ ^[a-z0-9]{24}$ ]] || return 1
+  path=$(route_path_for "$deployment_uuid")
+  if [[ -e "$path" || -L "$path" ]]; then
+    if ! "$PYTHON_BIN" - "$ROUTER_CONFIG_DIR" "${deployment_uuid}.yml" <<'PY'
+import os
+from pathlib import Path
+import shutil
+import stat
+import sys
+
+directory = Path(sys.argv[1])
+name = sys.argv[2]
+metadata = directory.lstat()
+if (
+    stat.S_ISLNK(metadata.st_mode)
+    or not stat.S_ISDIR(metadata.st_mode)
+    or metadata.st_uid != os.geteuid()
+    or stat.S_IMODE(metadata.st_mode) != 0o755
+):
+    raise SystemExit(1)
+
+descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    path = directory / name
+    try:
+        entry = path.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if stat.S_ISDIR(entry.st_mode) and not stat.S_ISLNK(entry.st_mode):
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+    then
+      log "event=route_remove_error deployment=$deployment_uuid"
+      return 1
+    fi
+    log "event=route_removed deployment=$deployment_uuid"
+  fi
+}
+
+clear_archive_routes() {
+  "$PYTHON_BIN" - "$ROUTER_CONFIG_DIR" <<'PY'
+import os
+from pathlib import Path
+import shutil
+import stat
+import sys
+
+directory = Path(sys.argv[1])
+metadata = directory.lstat()
+if (
+    stat.S_ISLNK(metadata.st_mode)
+    or not stat.S_ISDIR(metadata.st_mode)
+    or metadata.st_uid != os.geteuid()
+    or stat.S_IMODE(metadata.st_mode) != 0o755
+):
+    raise SystemExit(1)
+
+descriptor = os.open(directory, os.O_RDONLY)
+failure = False
+try:
+    entries = list(directory.iterdir())
+    # Remove route-bearing files and symlinks first. Even if a corrupt nested
+    # directory cannot be cleaned up, no stale route definition survives this
+    # pass, including legacy unsupported .json files.
+    for entry in entries:
+        try:
+            entry_metadata = entry.lstat()
+            if stat.S_ISDIR(entry_metadata.st_mode) and not stat.S_ISLNK(
+                entry_metadata.st_mode
+            ):
+                continue
+            entry.unlink()
+        except OSError:
+            failure = True
+    for entry in entries:
+        try:
+            entry_metadata = entry.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            failure = True
+            continue
+        if stat.S_ISDIR(entry_metadata.st_mode) and not stat.S_ISLNK(
+            entry_metadata.st_mode
+        ):
+            try:
+                shutil.rmtree(entry)
+            except OSError:
+                failure = True
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+if failure:
+    raise SystemExit(1)
+PY
+}
+
+write_archive_route() {
+  local deployment_uuid=$1 hostname=$2 container_name=$3 router content path
+  [[ "$deployment_uuid" =~ ^[a-z0-9]{24}$ ]] || return 1
+  [[ "$container_name" == "$(archive_name_for "$deployment_uuid")" ]] || return 1
+  [[ "$hostname" == "$(archive_hostname_for "$deployment_uuid")" ]] || return 1
+  router="proa-preview-archive-${deployment_uuid:0:12}"
+  path=$(route_path_for "$deployment_uuid")
+  # shellcheck disable=SC2016 # Dollar-prefixed names below are jq variables.
+  content=$("$JQ_BIN" -cSn \
+    --arg router "$router" \
+    --arg hostname "$hostname" \
+    --arg service_url "http://${container_name}:${CONTAINER_PORT}" '
+      {
+        http: {
+          routers: {
+            ($router): {
+              entryPoints: ["archive"],
+              rule: ("Host(`" + $hostname + "`) && PathPrefix(`/`)"),
+              middlewares: [($router + "-gzip")],
+              service: $router
+            }
+          },
+          middlewares: {
+            ($router + "-gzip"): {compress: {}}
+          },
+          services: {
+            ($router): {
+              loadBalancer: {
+                servers: [{url: $service_url}]
+              }
+            }
+          }
+        }
+      }
+    ') || return 1
+  write_atomic "$path" "$content" 0644
+}
+
+archive_route_matches() {
+  local deployment_uuid=$1 hostname=$2 container_name=$3 router content path
+  [[ "$deployment_uuid" =~ ^[a-z0-9]{24}$ ]] || return 1
+  [[ "$container_name" == "$(archive_name_for "$deployment_uuid")" ]] || return 1
+  [[ "$hostname" == "$(archive_hostname_for "$deployment_uuid")" ]] || return 1
+  router="proa-preview-archive-${deployment_uuid:0:12}"
+  path=$(route_path_for "$deployment_uuid")
+  # Generate the exact canonical route bytes written by write_archive_route.
+  # shellcheck disable=SC2016 # Dollar-prefixed names below are jq variables.
+  content=$("$JQ_BIN" -cSn \
+    --arg router "$router" \
+    --arg hostname "$hostname" \
+    --arg service_url "http://${container_name}:${CONTAINER_PORT}" '
+      {
+        http: {
+          routers: {
+            ($router): {
+              entryPoints: ["archive"],
+              rule: ("Host(`" + $hostname + "`) && PathPrefix(`/`)"),
+              middlewares: [($router + "-gzip")],
+              service: $router
+            }
+          },
+          middlewares: {
+            ($router + "-gzip"): {compress: {}}
+          },
+          services: {
+            ($router): {
+              loadBalancer: {
+                servers: [{url: $service_url}]
+              }
+            }
+          }
+        }
+      }
+    ') || return 1
+  "$PYTHON_BIN" - "$path" "$content" <<'PY'
+import os
+from pathlib import Path
+import stat
+import sys
+
+path = Path(sys.argv[1])
+expected = (sys.argv[2] + "\n").encode("utf-8")
+try:
+    metadata = path.lstat()
+except OSError:
+    raise SystemExit(1)
+if (
+    stat.S_ISLNK(metadata.st_mode)
+    or not stat.S_ISREG(metadata.st_mode)
+    or metadata.st_uid != os.geteuid()
+    or stat.S_IMODE(metadata.st_mode) != 0o644
+    or metadata.st_nlink != 1
+    or metadata.st_size != len(expected)
+):
+    raise SystemExit(1)
+try:
+    actual = path.read_bytes()
+except OSError:
+    raise SystemExit(1)
+if actual != expected:
+    raise SystemExit(1)
+PY
+}
+
+read_single_marker_line() {
+  local path=$1
+  local line extra first_status second_status
+  if [[ ! -e "$path" && ! -L "$path" ]]; then
+    return 1
+  fi
+  [[ -f "$path" && ! -L "$path" ]] || return 2
+  # macOS still ships Bash 3.2, which has no mapfile/readarray. Read through a
+  # dedicated descriptor so a second logical line (including an empty one) is
+  # rejected without invoking an external command or losing a final line that
+  # lacks a newline.
+  exec 8< "$path" || return 2
+  if IFS= read -r line <&8; then
+    first_status=0
+  else
+    first_status=$?
+  fi
+  if ((first_status != 0)) && [[ -z "$line" ]]; then
+    exec 8<&-
+    return 2
+  fi
+  if IFS= read -r extra <&8; then
+    second_status=0
+  else
+    second_status=$?
+  fi
+  if ((second_status == 0)) || [[ -n "$extra" ]]; then
+    exec 8<&-
+    return 2
+  fi
+  exec 8<&-
+  printf '%s\n' "$line"
+}
+
+metadata_path() {
+  printf '%s/deployments/%s\n' "$STATE_DIR" "$1"
+}
+
+retired_path() {
+  printf '%s/retired/%s\n' "$STATE_DIR" "$1"
+}
+
+approved_path() {
+  printf '%s/approved/%s\n' "$STATE_DIR" "$1"
+}
+
+hostname_claim_path() {
+  printf '%s/hostname-claims/%s\n' "$STATE_DIR" "${1:0:12}"
+}
+
+reserve_hostname() {
+  local deployment_uuid=$1 claim existing marker_status
+  claim=$(hostname_claim_path "$deployment_uuid")
+  if existing=$(read_single_marker_line "$claim"); then
+    if [[ "$existing" != "$deployment_uuid" ]]; then
+      log "event=conflict reason=hostname_tombstone deployment=$deployment_uuid prefix=${deployment_uuid:0:12}"
+      return 1
+    fi
+    return 0
+  else
+    marker_status=$?
+    if ((marker_status == 2)); then
+      log "event=conflict reason=hostname_tombstone deployment=$deployment_uuid prefix=${deployment_uuid:0:12}"
+      return 1
+    fi
+  fi
+  # The process-wide flock serializes claims. Claims are deliberately never
+  # removed: after an archive expires, its URL may become unavailable but can
+  # never resolve to a different deployment that happens to share the prefix.
+  if ! write_atomic "$claim" "$deployment_uuid"; then
+    log "event=state_write_error marker=hostname_claim deployment=$deployment_uuid"
+    return 1
+  fi
+}
+
+write_metadata() {
+  local deployment_uuid=$1 pr=$2 revision=$3 created=$4 image_id=$5
+  write_atomic "$(metadata_path "$deployment_uuid")" "$pr $revision $created $image_id"
+}
+
+metadata_created_for() {
+  local deployment_uuid=$1 pr=$2 revision=$3 image_id=$4 path line marker_status
+  local stored_pr stored_revision stored_created stored_image extra
+  path=$(metadata_path "$deployment_uuid")
+  if line=$(read_single_marker_line "$path"); then
+    :
+  else
+    marker_status=$?
+    return "$marker_status"
+  fi
+  read -r stored_pr stored_revision stored_created stored_image extra <<< "$line" || return 2
+  if [[ -n "${extra:-}" || "$stored_pr" != "$pr" || "$stored_revision" != "$revision" ||
+        "$stored_image" != "$image_id" ]] || ! valid_created_epoch "$stored_created"; then
+    return 2
+  fi
+  printf '%s\n' "$stored_created"
+}
+
+retired_identity_matches() {
+  local deployment_uuid=$1 pr=$2 revision=$3 path line stored_pr stored_revision retired_at extra
+  path=$(retired_path "$deployment_uuid")
+  line=$(read_single_marker_line "$path") || return $?
+  read -r stored_pr stored_revision retired_at extra <<< "$line" || return 2
+  [[ -z "${extra:-}" && "$stored_pr" == "$pr" && "$stored_revision" == "$revision" ]] ||
+    return 2
+  valid_created_epoch "$retired_at" || return 2
+  return 0
+}
+
+archive_is_approved() {
+  local deployment_uuid=$1 pr=$2 revision=$3 image_id=$4 path line marker_status
+  local stored_pr stored_revision approved_at stored_image extra
+  path=$(approved_path "$deployment_uuid")
+  if line=$(read_single_marker_line "$path"); then
+    :
+  else
+    marker_status=$?
+    return "$marker_status"
+  fi
+  read -r stored_pr stored_revision approved_at stored_image extra <<< "$line" || return 2
+  [[ -z "${extra:-}" && "$stored_pr" == "$pr" && "$stored_revision" == "$revision" &&
+    "$stored_image" == "$image_id" ]] || return 2
+  valid_created_epoch "$approved_at" || return 2
+  return 0
+}
+
+archive_expiry_reason() {
+  local deployment_uuid=$1 pr=$2 revision=$3 image_id=$4 created=$5
+  local limit reason
+  ((NOW_EPOCH >= created)) || return 1
+  if archive_is_approved "$deployment_uuid" "$pr" "$revision" "$image_id"; then
+    reason=ttl
+    limit=$TTL_SECONDS
+  else
+    reason=provisional_ttl
+    limit=$PROVISIONAL_TTL_SECONDS
+  fi
+  ((NOW_EPOCH - created >= limit)) || return 1
+  printf '%s\n' "$reason"
+}
+
+archive_state_is_consistent() {
+  local deployment_uuid=$1 pr=$2 revision=$3 image_id=$4 created=$5
+  local stored_created metadata_status
+  ARCHIVE_STATE_ERROR=
+  if stored_created=$(metadata_created_for "$deployment_uuid" "$pr" "$revision" "$image_id"); then
+    if [[ "$stored_created" != "$created" ]]; then
+      ARCHIVE_STATE_ERROR=deployment_metadata
+      return 1
+    fi
+  else
+    metadata_status=$?
+    ARCHIVE_STATE_ERROR=deployment_metadata
+    return "$metadata_status"
+  fi
+  if [[ -e "$(retired_path "$deployment_uuid")" || -L "$(retired_path "$deployment_uuid")" ]] &&
+    ! retired_identity_matches "$deployment_uuid" "$pr" "$revision"; then
+    ARCHIVE_STATE_ERROR=retired_identity
+    return 1
+  fi
+  if [[ -e "$(approved_path "$deployment_uuid")" || -L "$(approved_path "$deployment_uuid")" ]] &&
+    ! archive_is_approved "$deployment_uuid" "$pr" "$revision" "$image_id"; then
+    ARCHIVE_STATE_ERROR=approved_identity
+    return 1
+  fi
+  if ! reserve_hostname "$deployment_uuid"; then
+    ARCHIVE_STATE_ERROR=hostname_claim
+    return 1
+  fi
+  return 0
+}
+
+mark_source_seen() {
+  local pr=$1 deployment_uuid=$2
+  printf '%s\n' "$pr" >> "$ACTIVE_PRS_FILE"
+  printf '%s\n' "$deployment_uuid" >> "$ACTIVE_DEPLOYMENTS_FILE"
+}
+
+archive_name_for() {
+  printf 'proa-preview-archive-%s\n' "$1"
+}
+
+archive_hostname_for() {
+  "$URL_HELPER" \
+    --application-name "$APPLICATION_NAME" \
+    --deployment-uuid "$1" \
+    --domain "$PREVIEW_DOMAIN" \
+    --format hostname
+}
+
+valid_selected_env() {
+  local key=$1 value=$2
+  case "$key" in
+    RUST_LOG)
+      [[ ${#value} -le 512 && "$value" =~ ^[A-Za-z0-9_=,.:/-]+$ ]]
+      ;;
+    STATIC_DIR|SHOWCASE_PUBLIC_DIR)
+      [[ ${#value} -le 512 && "$value" =~ ^/[A-Za-z0-9._/-]+$ ]]
+      ;;
+    PROA_CONSOLE_LOAD_TESTS)
+      [[ "$value" == 0 || "$value" == 1 ]]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+valid_path_env() {
+  local value=$1
+  [[ ${#value} -le 2048 && "$value" =~ ^/[A-Za-z0-9._+/-]+(:/[A-Za-z0-9._+/-]+)*$ ]]
+}
+
+environment_keys_match() {
+  local json=$1 expected=$2
+  # shellcheck disable=SC2016 # Dollar-prefixed names are jq variables.
+  printf '%s' "$json" | "$JQ_BIN" -e --argjson expected "$expected" '
+    (.[0].Config.Env | type == "array") and
+    (.[0].Config.Env | length) == ($expected | length) and
+    all(.[0].Config.Env[];
+      type == "string" and test("^[A-Z][A-Z0-9_]*=")) and
+    ([.[0].Config.Env[] |
+      split("=")[0]
+    ] | sort) == ($expected | sort)
+  ' >/dev/null 2>&1
+}
+
+image_metadata_error() {
+  local json=$1 key value
+  if ! printf '%s' "$json" | "$JQ_BIN" -e '
+    type == "array" and length == 1 and
+    (.[0].Config | type == "object") and
+    ((.[0].Config.Labels == null) or (.[0].Config.Labels | type == "object")) and
+    ((.[0].Config.Volumes == null) or (.[0].Config.Volumes | type == "object")) and
+    (.[0].Config.Env | type == "array")
+  ' >/dev/null 2>&1; then
+    printf 'image_metadata\n'
+    return 0
+  fi
+  if printf '%s' "$json" | "$JQ_BIN" -e '
+    [
+      (.[0].Config.Labels // {})
+      | keys[]
+      | ascii_downcase
+      | select(
+          startswith("traefik.") or
+          startswith("coolify.") or
+          . == "proa.preview.archive" or
+          startswith("proa.preview.archive.")
+        )
+    ]
+    | length > 0
+  ' >/dev/null 2>&1; then
+    printf 'image_labels\n'
+    return 0
+  fi
+  if ! printf '%s' "$json" | "$JQ_BIN" -e '
+    ((.[0].Config.Volumes // {}) | length) == 0
+  ' >/dev/null 2>&1; then
+    printf 'image_volumes\n'
+    return 0
+  fi
+  if ! environment_keys_match "$json" '[
+    "HOST", "PATH", "PORT", "PROA_CONSOLE_LOAD_TESTS", "RUST_LOG",
+    "SHOWCASE_PUBLIC_DIR", "STATIC_DIR"
+  ]'; then
+    printf 'image_environment\n'
+    return 0
+  fi
+  [[ "$(env_value "$json" HOST 2>/dev/null || true)" == 0.0.0.0 &&
+    "$(env_value "$json" PORT 2>/dev/null || true)" == "$CONTAINER_PORT" ]] || {
+    printf 'image_environment\n'
+    return 0
+  }
+  value=$(env_value "$json" PATH 2>/dev/null || true)
+  if ! valid_path_env "$value"; then
+    printf 'image_environment\n'
+    return 0
+  fi
+  for key in RUST_LOG STATIC_DIR SHOWCASE_PUBLIC_DIR PROA_CONSOLE_LOAD_TESTS; do
+    value=$(env_value "$json" "$key" 2>/dev/null || true)
+    if ! valid_selected_env "$key" "$value"; then
+      printf 'image_environment\n'
+      return 0
+    fi
+  done
+  return 1
+}
+
+archive_runtime_contract_matches() {
+  local json=$1 name application pr deployment revision hostname created expected_hostname
+  local configured_host configured_port configured_site source_revision build_revision
+  local configured_path key value
+  name=$(jq_value "$json" '.[0].Name // empty' 2>/dev/null || true)
+  name=${name#/}
+  application=$(label_value "$json" proa.preview.archive.application 2>/dev/null || true)
+  pr=$(label_value "$json" proa.preview.archive.pr 2>/dev/null || true)
+  deployment=$(label_value "$json" proa.preview.archive.deployment 2>/dev/null || true)
+  revision=$(label_value "$json" proa.preview.archive.revision 2>/dev/null || true)
+  hostname=$(label_value "$json" proa.preview.archive.hostname 2>/dev/null || true)
+  created=$(label_value "$json" proa.preview.archive.created 2>/dev/null || true)
+
+  [[ "$application" == "$APPLICATION_UUID" &&
+    "$pr" =~ ^[1-9][0-9]{0,5}$ &&
+    "$deployment" =~ ^[a-z0-9]{24}$ &&
+    "$revision" =~ ^[0-9a-f]{40}$ ]] || return 1
+  valid_created_epoch "$created" || return 1
+  [[ "$name" == "$(archive_name_for "$deployment")" ]] || return 1
+  expected_hostname=$(archive_hostname_for "$deployment") || return 1
+  [[ "$hostname" == "$expected_hostname" ]] || return 1
+  configured_host=$(env_value "$json" HOST 2>/dev/null || true)
+  configured_port=$(env_value "$json" PORT 2>/dev/null || true)
+  configured_site=$(env_value "$json" SITE_URL 2>/dev/null || true)
+  source_revision=$(env_value "$json" SOURCE_COMMIT 2>/dev/null || true)
+  build_revision=$(env_value "$json" PROA_BUILD_REVISION 2>/dev/null || true)
+  configured_path=$(env_value "$json" PATH 2>/dev/null || true)
+  [[ "$configured_host" == 0.0.0.0 &&
+    "$configured_port" == "$CONTAINER_PORT" &&
+    "$configured_site" == "https://$hostname" &&
+    "$source_revision" == "$revision" &&
+    "$build_revision" == "$revision" ]] || return 1
+  valid_path_env "$configured_path" || return 1
+  environment_keys_match "$json" '[
+    "HOST", "PATH", "PORT", "PROA_BUILD_REVISION", "PROA_CONSOLE_LOAD_TESTS",
+    "RUST_LOG", "SHOWCASE_PUBLIC_DIR", "SITE_URL", "SOURCE_COMMIT", "STATIC_DIR"
+  ]' || return 1
+  for key in RUST_LOG STATIC_DIR SHOWCASE_PUBLIC_DIR PROA_CONSOLE_LOAD_TESTS; do
+    value=$(env_value "$json" "$key" 2>/dev/null || true)
+    valid_selected_env "$key" "$value" || return 1
+  done
+
+  # shellcheck disable=SC2016 # Dollar-prefixed names below are jq variables.
+  printf '%s' "$json" | "$JQ_BIN" -e \
+    --arg application "$APPLICATION_UUID" \
+    --arg pr "$pr" \
+    --arg deployment "$deployment" \
+    --arg revision "$revision" \
+    --arg hostname "$hostname" \
+    --arg created "$created" \
+    --arg health_command "curl -fsS http://127.0.0.1:${CONTAINER_PORT}/healthz || exit 1" \
+    --arg network "$DOCKER_NETWORK" '
+      try (
+        .[0] as $container |
+        ($container.Config.Labels // {}) as $labels |
+        {
+          "proa.preview.archive": "true",
+          "proa.preview.archive.application": $application,
+          "proa.preview.archive.pr": $pr,
+          "proa.preview.archive.deployment": $deployment,
+          "proa.preview.archive.revision": $revision,
+          "proa.preview.archive.hostname": $hostname,
+          "proa.preview.archive.created": $created
+        } as $expected_labels |
+        (($labels | with_entries(select(
+          (.key | ascii_downcase | startswith("traefik.")) or
+          (.key | ascii_downcase | startswith("coolify.")) or
+          ((.key | ascii_downcase) == "proa.preview.archive") or
+          (.key | ascii_downcase | startswith("proa.preview.archive."))
+        ))) == $expected_labels) and
+        ($container.Config.User == "10001:10001") and
+        ($container.Config.StopTimeout == 10) and
+        ($container.Config.Healthcheck.Test == [
+          "CMD-SHELL",
+          $health_command
+        ]) and
+        ($container.Config.Healthcheck.Interval == 10000000000) and
+        ($container.Config.Healthcheck.Timeout == 5000000000) and
+        ($container.Config.Healthcheck.Retries == 10) and
+        ($container.Config.Healthcheck.StartPeriod == 30000000000) and
+        ($container.HostConfig.RestartPolicy.Name == "unless-stopped") and
+        ($container.HostConfig.Privileged == false) and
+        ($container.HostConfig.PublishAllPorts == false) and
+        ($container.HostConfig.ReadonlyRootfs == true) and
+        (($container.HostConfig.CapAdd // []) == []) and
+        ($container.HostConfig.CapDrop == ["ALL"]) and
+        ($container.HostConfig.SecurityOpt == ["no-new-privileges:true"]) and
+        ($container.HostConfig.PidsLimit == 256) and
+        ($container.HostConfig.Memory == 1073741824) and
+        ($container.HostConfig.MemorySwap == 1073741824) and
+        ($container.HostConfig.MemoryReservation == 268435456) and
+        ($container.HostConfig.NanoCpus == 2000000000) and
+        ($container.HostConfig.CpuShares == 1024) and
+        ($container.HostConfig.LogConfig == {
+          "Type": "local",
+          "Config": {"max-file": "3", "max-size": "10m"}
+        }) and
+        (($container.HostConfig.PortBindings // {}) == {}) and
+        ($container.HostConfig.NetworkMode == $network) and
+        ($container.HostConfig.Tmpfs == {
+          "/tmp": "rw,noexec,nosuid,nodev,size=64m"
+        }) and
+        (($container.Config.Volumes // {}) == {}) and
+        (($container.Mounts // []) == []) and
+        ((($container.NetworkSettings.Networks // {}) | keys) == [$network])
+      ) catch false
+    ' >/dev/null 2>&1
+}
+
+archive_identity_matches() {
+  local name=$1 deployment_uuid=$2 pr=${3:-} revision=${4:-} json inspected_name
+  json=$(inspect_json "$name" 2>/dev/null) || return 1
+  inspected_name=$(jq_value "$json" '.[0].Name // empty' 2>/dev/null || true)
+  inspected_name=${inspected_name#/}
+  [[ "$inspected_name" == "$name" ]] || return 1
+  [[ "$(label_value "$json" proa.preview.archive 2>/dev/null || true)" == true ]] || return 1
+  [[ "$(label_value "$json" proa.preview.archive.application 2>/dev/null || true)" == "$APPLICATION_UUID" ]] || return 1
+  [[ "$(label_value "$json" proa.preview.archive.deployment 2>/dev/null || true)" == "$deployment_uuid" ]] || return 1
+  [[ -z "$pr" || "$(label_value "$json" proa.preview.archive.pr 2>/dev/null || true)" == "$pr" ]] || return 1
+  [[ -z "$revision" || "$(label_value "$json" proa.preview.archive.revision 2>/dev/null || true)" == "$revision" ]]
+}
+
+remove_archive() {
+  local name=$1 deployment_uuid=$2 pr=$3 revision=$4 reason=$5 retire=$6
+  REMOVE_ARCHIVE_COMMITTED=false
+  if ! archive_identity_matches "$name" "$deployment_uuid" "$pr" "$revision"; then
+    log "event=gc_skip reason=identity_changed container=$name deployment=$deployment_uuid"
+    return 1
+  fi
+  # Persist the tombstone before making the route disappear. If Docker removal
+  # fails, the next reconciliation sees the tombstone and can only retry that
+  # same removal; it can never recreate or reassign the deployment hostname.
+  if [[ "$retire" == true ]]; then
+    if ! write_atomic "$(retired_path "$deployment_uuid")" "$pr $revision $NOW_EPOCH"; then
+      # os.replace may have completed before a final attestation or directory
+      # fsync reported failure. A matching tombstone is already an irreversible
+      # logical retirement for this reconciliation, so preserve a replacement
+      # rather than rolling it back and then collecting the incumbent.
+      if retired_identity_matches "$deployment_uuid" "$pr" "$revision"; then
+        REMOVE_ARCHIVE_COMMITTED=true
+      fi
+      log "event=gc_error reason=retired_state pr=$pr deployment=$deployment_uuid container=$name"
+      return 1
+    fi
+    # The tombstone is the irreversible logical commit: once durable, this
+    # deployment may never be routed again even if route/container cleanup
+    # needs another reconciliation pass.
+    REMOVE_ARCHIVE_COMMITTED=true
+  fi
+  if ! remove_archive_route "$deployment_uuid"; then
+    log "event=gc_error reason=route_removal pr=$pr deployment=$deployment_uuid container=$name"
+    return 1
+  fi
+  # A non-retiring cleanup reaches its commit point when the route disappears.
+  # Retiring removals already committed at the durable tombstone above.
+  REMOVE_ARCHIVE_COMMITTED=true
+  if ! docker_cmd rm -fv "$name" >/dev/null; then
+    log "event=gc_error reason=$reason pr=$pr deployment=$deployment_uuid container=$name"
+    return 1
+  fi
+  if ! remove_marker_durable "$(approved_path "$deployment_uuid")"; then
+    log "event=gc_error reason=approved_state pr=$pr deployment=$deployment_uuid container=$name"
+    return 1
+  fi
+  log "event=removed reason=$reason pr=$pr deployment=$deployment_uuid container=$name"
+}
+
+quarantine_archive() {
+  local name=$1 reason=$2
+  local deployment='' json='' inspected_name='' is_archive='' application='' labelled_deployment=''
+  if grep -Fqx -- "$name" "$QUARANTINED_FILE"; then
+    return 0
+  fi
+  printf '%s\n' "$name" >> "$QUARANTINED_FILE"
+  ERROR_COUNT=$((ERROR_COUNT + 1))
+  json=$(inspect_json "$name" 2>/dev/null || true)
+  inspected_name=$(jq_value "$json" '.[0].Name // empty' 2>/dev/null || true)
+  inspected_name=${inspected_name#/}
+  is_archive=$(label_value "$json" proa.preview.archive 2>/dev/null || true)
+  application=$(label_value "$json" proa.preview.archive.application 2>/dev/null || true)
+  labelled_deployment=$(label_value "$json" proa.preview.archive.deployment 2>/dev/null || true)
+  if [[ "$name" =~ ^proa-preview-archive-([a-z0-9]{24})$ ]]; then
+    deployment=${BASH_REMATCH[1]}
+  fi
+  # Destructive quarantine is permitted only when the immutable name and all
+  # ownership labels agree. An ambiguous identity is foreign: retain it and
+  # fail closed rather than deleting a container another workload may own.
+  if [[ -z "$json" || -z "$deployment" || "$inspected_name" != "$name" ||
+        "$is_archive" != true || "$application" != "$APPLICATION_UUID" ||
+        "$labelled_deployment" != "$deployment" ]]; then
+    log "event=quarantine_error reason=foreign_identity trigger=$reason container=$name deployment=${deployment:-unknown}"
+    return 1
+  fi
+  if ! remove_archive_route "$deployment"; then
+    log "event=quarantine_error reason=route_removal trigger=$reason container=$name deployment=$deployment"
+    return 1
+  fi
+  if ! docker_cmd rm -fv "$name" >/dev/null; then
+    log "event=quarantine_error reason=container_removal trigger=$reason container=$name deployment=$deployment"
+    return 1
+  fi
+  log "event=quarantined reason=$reason action=removed container=$name deployment=$deployment application=$application"
+}
+
+wait_for_archive_health() {
+  local name=$1 attempt json status
+  for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
+    json=$(inspect_json "$name" 2>/dev/null) || return 1
+    status=$(jq_value "$json" '.[0].State.Health.Status // empty' 2>/dev/null || true)
+    [[ "$status" == healthy ]] && return 0
+    [[ "$status" == unhealthy ]] && return 1
+    sleep "$HEALTH_INTERVAL_SECONDS"
+  done
+  return 1
+}
+
+hostname_claimed_by_other() {
+  local hostname=$1 deployment_uuid=$2 name json claimed_deployment claimed_hostname list
+  list=$RUN_DIR/hostname-claims
+  if ! docker_cmd ps -a --filter label=proa.preview.archive=true --format '{{.Names}}' > "$list"; then
+    log "event=conflict reason=archive_discovery_failed deployment=$deployment_uuid host=$hostname"
+    return 0
+  fi
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    json=$(inspect_json "$name" 2>/dev/null) || continue
+    claimed_hostname=$(label_value "$json" proa.preview.archive.hostname 2>/dev/null || true)
+    claimed_deployment=$(label_value "$json" proa.preview.archive.deployment 2>/dev/null || true)
+    if [[ "$claimed_hostname" == "$hostname" && "$claimed_deployment" != "$deployment_uuid" ]]; then
+      return 0
+    fi
+  done < "$list"
+  return 1
+}
+
+ensure_archive() {
+  local source_json=$1 pr=$2 deployment_uuid=$3 revision=$4 image_id=$5
+  local archive_name hostname existing_json='' existing_application existing_pr existing_deployment existing_revision existing_host existing_image existing_created running='' health=''
+  local key value created metadata_status expiry_reason image_json image_error created_json cleanup_failed route_removed
+  local -a run_args
+
+  archive_name=$(archive_name_for "$deployment_uuid")
+  hostname=$(archive_hostname_for "$deployment_uuid")
+
+  if [[ -e "$(retired_path "$deployment_uuid")" || -L "$(retired_path "$deployment_uuid")" ]]; then
+    if retired_identity_matches "$deployment_uuid" "$pr" "$revision"; then
+      if ! reserve_hostname "$deployment_uuid"; then
+        return 1
+      fi
+      if ! remove_marker_durable "$(approved_path "$deployment_uuid")"; then
+        log "event=state_write_error marker=approved deployment=$deployment_uuid"
+        return 1
+      fi
+      remove_archive_route "$deployment_uuid" || return 1
+      log "event=skip reason=retired pr=$pr deployment=$deployment_uuid host=$hostname"
+    else
+      log "event=conflict reason=retired_identity pr=$pr deployment=$deployment_uuid host=$hostname"
+      if archive_identity_matches "$archive_name" "$deployment_uuid" "$pr" "$revision"; then
+        quarantine_archive "$archive_name" retired_identity
+      fi
+      return 1
+    fi
+    return 0
+  fi
+
+  if created=$(metadata_created_for "$deployment_uuid" "$pr" "$revision" "$image_id"); then
+    :
+  else
+    metadata_status=$?
+    if ((metadata_status == 2)); then
+      log "event=conflict reason=metadata_identity pr=$pr deployment=$deployment_uuid"
+      if archive_identity_matches "$archive_name" "$deployment_uuid" "$pr" "$revision"; then
+        quarantine_archive "$archive_name" deployment_metadata
+      fi
+      return 1
+    fi
+    created=$NOW_EPOCH
+  fi
+
+  if [[ -e "$(approved_path "$deployment_uuid")" || -L "$(approved_path "$deployment_uuid")" ]] &&
+    ! archive_is_approved "$deployment_uuid" "$pr" "$revision" "$image_id"; then
+    log "event=conflict reason=approved_identity pr=$pr deployment=$deployment_uuid"
+    if archive_identity_matches "$archive_name" "$deployment_uuid" "$pr" "$revision"; then
+      quarantine_archive "$archive_name" approved_identity
+    fi
+    return 1
+  fi
+
+  if existing_json=$(inspect_json "$archive_name" 2>/dev/null); then
+    existing_application=$(label_value "$existing_json" proa.preview.archive.application 2>/dev/null || true)
+    existing_pr=$(label_value "$existing_json" proa.preview.archive.pr 2>/dev/null || true)
+    existing_deployment=$(label_value "$existing_json" proa.preview.archive.deployment 2>/dev/null || true)
+    existing_revision=$(label_value "$existing_json" proa.preview.archive.revision 2>/dev/null || true)
+    existing_host=$(label_value "$existing_json" proa.preview.archive.hostname 2>/dev/null || true)
+    existing_image=$(jq_value "$existing_json" '.[0].Image' 2>/dev/null || true)
+    existing_created=$(label_value "$existing_json" proa.preview.archive.created 2>/dev/null || true)
+    if [[ "$(label_value "$existing_json" proa.preview.archive 2>/dev/null || true)" != true ||
+          "$existing_application" != "$APPLICATION_UUID" ||
+          "$existing_pr" != "$pr" ||
+          "$existing_deployment" != "$deployment_uuid" ||
+          "$existing_revision" != "$revision" ||
+          "$existing_host" != "$hostname" ||
+          "$existing_image" != "$image_id" ||
+          ( -f "$(metadata_path "$deployment_uuid")" && "$existing_created" != "$created" ) ]]; then
+      log "event=conflict pr=$pr deployment=$deployment_uuid container=$archive_name"
+      return 1
+    fi
+    if ! valid_created_epoch "$existing_created"; then
+      log "event=conflict reason=created_epoch pr=$pr deployment=$deployment_uuid container=$archive_name"
+      quarantine_archive "$archive_name" created_epoch
+      return 1
+    fi
+    created=$existing_created
+    if ! archive_runtime_contract_matches "$existing_json"; then
+      log "event=conflict reason=runtime_contract pr=$pr deployment=$deployment_uuid container=$archive_name"
+      quarantine_archive "$archive_name" runtime_contract
+      return 1
+    fi
+    running=$(jq_value "$existing_json" '.[0].State.Running' 2>/dev/null || true)
+    health=$(jq_value "$existing_json" '.[0].State.Health.Status // empty' 2>/dev/null || true)
+  else
+    # Docker writes `[]` to stdout before returning nonzero when the named
+    # container is absent. Command substitution still assigns that output, so
+    # normalize a failed inspection back to the missing-container sentinel.
+    existing_json=''
+  fi
+
+  if [[ -n "$existing_json" ]]; then
+    # Missing deployment metadata from an older installation can be backfilled
+    # only after the container's immutable identity and timestamp are attested.
+    if ! write_metadata "$deployment_uuid" "$pr" "$revision" "$created" "$image_id"; then
+      log "event=state_write_error marker=deployment_metadata pr=$pr deployment=$deployment_uuid"
+      quarantine_archive "$archive_name" deployment_metadata
+      return 1
+    fi
+    if ! archive_state_is_consistent "$deployment_uuid" "$pr" "$revision" "$image_id" "$created"; then
+      quarantine_archive "$archive_name" "$ARCHIVE_STATE_ERROR"
+      return 1
+    fi
+  fi
+
+  # Enforce retention before an existing route can be accepted as present and
+  # before a missing or unhealthy archive can be recreated. Persisted metadata
+  # deliberately survives container loss, so it remains the source of the
+  # original retention epoch.
+  if expiry_reason=$(archive_expiry_reason "$deployment_uuid" "$pr" "$revision" "$image_id" "$created"); then
+    if ! reserve_hostname "$deployment_uuid"; then
+      return 1
+    fi
+    if [[ -n "$existing_json" ]]; then
+      remove_archive "$archive_name" "$deployment_uuid" "$pr" "$revision" "$expiry_reason" true || return 1
+    else
+      if ! write_atomic "$(retired_path "$deployment_uuid")" "$pr $revision $NOW_EPOCH"; then
+        log "event=state_write_error marker=retired pr=$pr deployment=$deployment_uuid"
+        return 1
+      fi
+      if ! remove_marker_durable "$(approved_path "$deployment_uuid")"; then
+        log "event=state_write_error marker=approved pr=$pr deployment=$deployment_uuid"
+        return 1
+      fi
+      remove_archive_route "$deployment_uuid" || return 1
+      log "event=retired reason=$expiry_reason pr=$pr deployment=$deployment_uuid container=absent"
+    fi
+    return 0
+  fi
+
+  if [[ -n "$existing_json" ]]; then
+    if [[ "$running" == true && "$health" == healthy ]]; then
+      log "event=present pr=$pr deployment=$deployment_uuid revision=$revision host=$hostname"
+      return 0
+    fi
+    # A stale published route must disappear durably before its unhealthy
+    # backend is removed and a replacement enters the health-wait window.
+    if ! remove_archive_route "$deployment_uuid"; then
+      log "event=recreate_error reason=route_removal pr=$pr deployment=$deployment_uuid container=$archive_name"
+      return 1
+    fi
+    docker_cmd rm -fv "$archive_name" >/dev/null || {
+      log "event=recreate_error pr=$pr deployment=$deployment_uuid container=$archive_name"
+      return 1
+    }
+  else
+    # A container may have disappeared outside the reconciler while its route
+    # file survived. Remove that stale route before Docker DNS can bind the
+    # same name to a replacement that has not passed health attestation yet.
+    if ! remove_archive_route "$deployment_uuid"; then
+      log "event=recreate_error reason=stale_route_removal pr=$pr deployment=$deployment_uuid container=$archive_name"
+      return 1
+    fi
+  fi
+
+  if ! reserve_hostname "$deployment_uuid"; then
+    return 1
+  fi
+  if hostname_claimed_by_other "$hostname" "$deployment_uuid"; then
+    log "event=conflict reason=hostname_collision pr=$pr deployment=$deployment_uuid host=$hostname"
+    return 1
+  fi
+  image_json=$(docker_cmd image inspect "$image_id" 2>/dev/null) || {
+    log "event=skip reason=image_missing pr=$pr deployment=$deployment_uuid"
+    return 1
+  }
+  if image_error=$(image_metadata_error "$image_json"); then
+    log "event=skip reason=$image_error pr=$pr deployment=$deployment_uuid"
+    return 1
+  fi
+  if ! admit_peak_one "$pr"; then
+    log "event=skip reason=admission_capacity pr=$pr deployment=$deployment_uuid"
+    return 1
+  fi
+  # Persist the first accepted identity and epoch before Docker can begin a
+  # health attempt. Failed candidates retain this epoch, so retries cannot
+  # reset the provisional-retention clock indefinitely.
+  if ! write_metadata "$deployment_uuid" "$pr" "$revision" "$created" "$image_id"; then
+    log "event=state_write_error marker=deployment_metadata pr=$pr deployment=$deployment_uuid"
+    return 1
+  fi
+
+  run_args=(
+    run --detach
+    --name "$archive_name"
+    --restart unless-stopped
+    --network "$DOCKER_NETWORK"
+    --network-alias "$archive_name"
+    --user 10001:10001
+    --read-only
+    --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=64m"
+    --cap-drop ALL
+    --security-opt no-new-privileges:true
+    --pids-limit 256
+    --memory 1g
+    --memory-swap 1g
+    --memory-reservation 256m
+    --cpus 2
+    --cpu-shares 1024
+    --log-driver local
+    --log-opt max-size=10m
+    --log-opt max-file=3
+    --stop-timeout 10
+    --health-cmd "curl -fsS http://127.0.0.1:${CONTAINER_PORT}/healthz || exit 1"
+    --health-interval 10s
+    --health-timeout 5s
+    --health-retries 10
+    --health-start-period 30s
+    --env "HOST=0.0.0.0"
+    --env "PORT=$CONTAINER_PORT"
+    --env "SITE_URL=https://$hostname"
+    --env "SOURCE_COMMIT=$revision"
+    --env "PROA_BUILD_REVISION=$revision"
+  )
+
+  for key in RUST_LOG STATIC_DIR SHOWCASE_PUBLIC_DIR PROA_CONSOLE_LOAD_TESTS; do
+    value=$(env_value "$source_json" "$key" 2>/dev/null || true)
+    if [[ -n "$value" ]]; then
+      if ! valid_selected_env "$key" "$value"; then
+        log "event=skip reason=invalid_environment pr=$pr deployment=$deployment_uuid key=$key"
+        return 1
+      fi
+      run_args+=(--env "$key=$value")
+    fi
+  done
+
+  run_args+=(
+    --label proa.preview.archive=true
+    --label "proa.preview.archive.application=$APPLICATION_UUID"
+    --label "proa.preview.archive.pr=$pr"
+    --label "proa.preview.archive.deployment=$deployment_uuid"
+    --label "proa.preview.archive.revision=$revision"
+    --label "proa.preview.archive.hostname=$hostname"
+    --label "proa.preview.archive.created=$created"
+    "$image_id"
+  )
+
+  if ! docker_cmd "${run_args[@]}" >/dev/null; then
+    log "event=create_error pr=$pr deployment=$deployment_uuid host=$hostname"
+    if archive_identity_matches "$archive_name" "$deployment_uuid" &&
+      ! docker_cmd rm -fv "$archive_name" >/dev/null 2>&1; then
+      log "event=cleanup_error reason=create_failed pr=$pr deployment=$deployment_uuid container=$archive_name"
+    fi
+    return 1
+  fi
+  created_json=$(inspect_json "$archive_name" 2>/dev/null || true)
+  if [[ -z "$created_json" ]] || ! archive_runtime_contract_matches "$created_json"; then
+    log "event=create_error reason=runtime_contract pr=$pr deployment=$deployment_uuid host=$hostname"
+    if archive_identity_matches "$archive_name" "$deployment_uuid" &&
+      ! docker_cmd rm -fv "$archive_name" >/dev/null 2>&1; then
+      log "event=cleanup_error reason=runtime_contract pr=$pr deployment=$deployment_uuid container=$archive_name"
+    fi
+    return 1
+  fi
+  if ! wait_for_archive_health "$archive_name"; then
+    log "event=health_error pr=$pr deployment=$deployment_uuid host=$hostname"
+    if archive_identity_matches "$archive_name" "$deployment_uuid" &&
+      ! docker_cmd rm -fv "$archive_name" >/dev/null 2>&1; then
+      log "event=cleanup_error reason=health pr=$pr deployment=$deployment_uuid container=$archive_name"
+    fi
+    return 1
+  fi
+  if ! attest_archive_network_members; then
+    clear_archive_routes || fail "archive route fail-closed reset failed"
+    fail "Docker network membership changed before candidate route publication"
+  fi
+  # Materialize and attest the candidate's immutable route before retiring an
+  # incumbent. This makes the capacity transition a publish-then-prune commit:
+  # a route/fsync failure rolls back only the candidate, while an incumbent
+  # removal failure leaves the already-healthy candidate available.
+  if ! write_archive_route "$deployment_uuid" "$hostname" "$archive_name"; then
+    log "event=candidate_route_error pr=$pr deployment=$deployment_uuid host=$hostname"
+    cleanup_failed=false
+    route_removed=true
+    if ! remove_archive_route "$deployment_uuid"; then
+      cleanup_failed=true
+      route_removed=false
+    fi
+    if [[ "$route_removed" == true ]]; then
+      if archive_identity_matches "$archive_name" "$deployment_uuid" "$pr" "$revision"; then
+        if ! docker_cmd rm -fv "$archive_name" >/dev/null; then
+          log "event=cleanup_error reason=candidate_route pr=$pr deployment=$deployment_uuid container=$archive_name"
+          cleanup_failed=true
+        fi
+      else
+        log "event=cleanup_error reason=candidate_identity pr=$pr deployment=$deployment_uuid container=$archive_name"
+        cleanup_failed=true
+      fi
+    fi
+    if [[ "$cleanup_failed" == true ]]; then
+      fail "candidate route rollback failed for $deployment_uuid"
+    fi
+    return 1
+  fi
+  if ! archive_route_matches "$deployment_uuid" "$hostname" "$archive_name"; then
+    log "event=candidate_route_error reason=attestation pr=$pr deployment=$deployment_uuid host=$hostname"
+    if ! remove_archive_route "$deployment_uuid" ||
+      ! archive_identity_matches "$archive_name" "$deployment_uuid" "$pr" "$revision" ||
+      ! docker_cmd rm -fv "$archive_name" >/dev/null; then
+      fail "candidate route attestation rollback failed for $deployment_uuid"
+    fi
+    return 1
+  fi
+  log "event=candidate_route_ready pr=$pr deployment=$deployment_uuid host=$hostname"
+  if ! make_room_for_archive "$pr" "$deployment_uuid"; then
+    log "event=admission_error reason=commit_capacity pr=$pr deployment=$deployment_uuid"
+    if [[ "$ADMISSION_EVICTION_COMMITTED" == false ]]; then
+      # No incumbent retirement/de-route committed, so roll the candidate back
+      # and preserve the previously serving route and configured capacity.
+      cleanup_failed=false
+      route_removed=true
+      if ! remove_archive_route "$deployment_uuid"; then
+        cleanup_failed=true
+        route_removed=false
+      fi
+      if [[ "$route_removed" == true ]]; then
+        if archive_identity_matches "$archive_name" "$deployment_uuid" "$pr" "$revision"; then
+          if ! docker_cmd rm -fv "$archive_name" >/dev/null; then
+            log "event=cleanup_error reason=admission_capacity pr=$pr deployment=$deployment_uuid container=$archive_name"
+            cleanup_failed=true
+          fi
+        else
+          log "event=cleanup_error reason=admission_identity pr=$pr deployment=$deployment_uuid container=$archive_name"
+          cleanup_failed=true
+        fi
+      fi
+      if [[ "$cleanup_failed" == true ]]; then
+        fail "candidate admission rollback failed for $deployment_uuid"
+      fi
+    fi
+    # If removal failed after the incumbent was durably retired and de-routed,
+    # retaining this healthy candidate preserves availability. The normal GC
+    # pass retries physical cleanup and reports the temporary capacity excess.
+    return 1
+  fi
+  log "event=created pr=$pr deployment=$deployment_uuid revision=$revision host=$hostname image=${image_id:7:12}"
+}
+
+sync_sources() {
+  local source_name source_json pr label_pr managed running health image_id config_file deployment_uuid revision source_revision
+  local source_list=$RUN_DIR/sources
+  if ! docker_cmd ps --filter label=coolify.pullRequestId --format '{{.Names}}' > "$source_list"; then
+    fail "native preview discovery failed"
+  fi
+  while IFS= read -r source_name; do
+    [[ -n "$source_name" ]] || continue
+    if [[ ! "$source_name" =~ ^${APPLICATION_UUID}-pr-([1-9][0-9]{0,5})$ ]]; then
+      log "event=source_skip reason=name container=$source_name"
+      continue
+    fi
+    pr=${BASH_REMATCH[1]}
+    source_json=$(inspect_json "$source_name" 2>/dev/null) || {
+      log "event=source_skip reason=inspect pr=$pr container=$source_name"
+      continue
+    }
+    label_pr=$(label_value "$source_json" coolify.pullRequestId 2>/dev/null || true)
+    managed=$(label_value "$source_json" coolify.managed 2>/dev/null || true)
+    running=$(jq_value "$source_json" '.[0].State.Running' 2>/dev/null || true)
+    health=$(jq_value "$source_json" '.[0].State.Health.Status // empty' 2>/dev/null || true)
+    image_id=$(jq_value "$source_json" '.[0].Image' 2>/dev/null || true)
+    config_file=$(label_value "$source_json" com.docker.compose.project.config_files 2>/dev/null || true)
+    revision=$(env_value "$source_json" PROA_BUILD_REVISION 2>/dev/null || true)
+    source_revision=$(env_value "$source_json" SOURCE_COMMIT 2>/dev/null || true)
+
+    if [[ "$label_pr" != "$pr" || "$managed" != true || "$running" != true || "$health" != healthy ]]; then
+      log "event=source_skip reason=not_healthy_native pr=$pr container=$source_name"
+      continue
+    fi
+    # A matching name and Coolify labels are insufficient provenance. The
+    # source must still be attached to the separately configured native
+    # preview network and must never share the archive-only bridge.
+    # shellcheck disable=SC2016 # Dollar-prefixed names are jq variables.
+    if ! printf '%s' "$source_json" | "$JQ_BIN" -e \
+      --arg native_network "$NATIVE_DOCKER_NETWORK" \
+      --arg archive_network "$DOCKER_NETWORK" '
+        ((.[0].NetworkSettings.Networks // {}) | has($native_network)) and
+        (((.[0].NetworkSettings.Networks // {}) | has($archive_network)) | not)
+      ' >/dev/null 2>&1; then
+      log "event=source_skip reason=network_identity pr=$pr container=$source_name"
+      continue
+    fi
+    [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+      log "event=source_skip reason=image_identity pr=$pr container=$source_name"
+      continue
+    }
+    if [[ "$config_file" =~ ^/artifacts/([a-z0-9]{24})/docker-compose\.yaml$ ]]; then
+      deployment_uuid=${BASH_REMATCH[1]}
+    else
+      log "event=source_skip reason=deployment_identity pr=$pr container=$source_name"
+      continue
+    fi
+    if [[ ! "$revision" =~ ^[0-9a-f]{40}$ || "$revision" != "$source_revision" ]]; then
+      log "event=source_skip reason=revision_identity pr=$pr deployment=$deployment_uuid"
+      continue
+    fi
+
+    mark_source_seen "$pr" "$deployment_uuid"
+    if ! ensure_archive "$source_json" "$pr" "$deployment_uuid" "$revision" "$image_id"; then
+      ERROR_COUNT=$((ERROR_COUNT + 1))
+    fi
+  done < "$source_list"
+  sort -u -o "$ACTIVE_PRS_FILE" "$ACTIVE_PRS_FILE"
+  sort -u -o "$ACTIVE_DEPLOYMENTS_FILE" "$ACTIVE_DEPLOYMENTS_FILE"
+}
+
+collect_archives() {
+  local destination=$1 name json is_archive application pr deployment revision hostname created image_id running health list
+  : > "$destination"
+  list=$RUN_DIR/archive-list
+  if ! docker_cmd ps -a --filter label=proa.preview.archive=true --format '{{.Names}}' > "$list"; then
+    fail "retained preview discovery failed"
+  fi
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    if grep -Fqx -- "$name" "$QUARANTINED_FILE"; then
+      continue
+    fi
+    json=$(inspect_json "$name" 2>/dev/null) || {
+      quarantine_archive "$name" inspect_failed
+      continue
+    }
+    is_archive=$(label_value "$json" proa.preview.archive 2>/dev/null || true)
+    application=$(label_value "$json" proa.preview.archive.application 2>/dev/null || true)
+    pr=$(label_value "$json" proa.preview.archive.pr 2>/dev/null || true)
+    deployment=$(label_value "$json" proa.preview.archive.deployment 2>/dev/null || true)
+    revision=$(label_value "$json" proa.preview.archive.revision 2>/dev/null || true)
+    hostname=$(label_value "$json" proa.preview.archive.hostname 2>/dev/null || true)
+    created=$(label_value "$json" proa.preview.archive.created 2>/dev/null || true)
+    image_id=$(jq_value "$json" '.[0].Image' 2>/dev/null || true)
+    running=$(jq_value "$json" '.[0].State.Running' 2>/dev/null || true)
+    health=$(jq_value "$json" '.[0].State.Health.Status // empty' 2>/dev/null || true)
+    if [[ "$is_archive" != true || "$application" != "$APPLICATION_UUID" ||
+          ! "$pr" =~ ^[1-9][0-9]{0,5}$ || ! "$deployment" =~ ^[a-z0-9]{24}$ ||
+          ! "$revision" =~ ^[0-9a-f]{40}$ ||
+          ! "$image_id" =~ ^sha256:[0-9a-f]{64}$ ||
+          "$name" != "$(archive_name_for "$deployment")" ||
+          "$hostname" != "$(archive_hostname_for "$deployment")" ]] ||
+      ! valid_created_epoch "$created"; then
+      quarantine_archive "$name" invalid_metadata
+      continue
+    fi
+    if ! archive_runtime_contract_matches "$json"; then
+      quarantine_archive "$name" runtime_contract
+      continue
+    fi
+    if [[ "$running" != true || "$health" != healthy ]]; then
+      quarantine_archive "$name" runtime_health
+      continue
+    fi
+    if ! archive_state_is_consistent "$deployment" "$pr" "$revision" "$image_id" "$created"; then
+      quarantine_archive "$name" "$ARCHIVE_STATE_ERROR"
+      continue
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$created" "$pr" "$deployment" "$name" "$revision" "$image_id" >> "$destination"
+  done < "$list"
+}
+
+make_room_for_archive() {
+  local target_pr=$1 protected_deployment=${2:-}
+  local records=$RUN_DIR/admission-records sorted=$RUN_DIR/admission-sorted
+  local created pr deployment name revision image_id total per_pr reason found
+  local candidate_created candidate_pr candidate_deployment candidate_name candidate_revision
+
+  ADMISSION_EVICTION_COMMITTED=false
+
+  while true; do
+    collect_archives "$records"
+    total=0
+    per_pr=0
+    while IFS=$'\t' read -r created pr deployment name revision image_id; do
+      [[ -n "$deployment" ]] || continue
+      total=$((total + 1))
+      if [[ "$pr" == "$target_pr" ]]; then
+        per_pr=$((per_pr + 1))
+      fi
+    done < "$records"
+
+    if ((per_pr <= MAX_PER_PR && total <= MAX_GLOBAL)); then
+      return 0
+    fi
+
+    sort -t $'\t' -k1,1n -k3,3 "$records" > "$sorted"
+    found=false
+    reason=admission_global_cap
+    while IFS=$'\t' read -r created pr deployment name revision image_id; do
+      [[ -n "$deployment" ]] || continue
+      [[ "$deployment" != "$protected_deployment" ]] || continue
+      if ((per_pr > MAX_PER_PR)) && [[ "$pr" != "$target_pr" ]]; then
+        continue
+      fi
+      if ((per_pr > MAX_PER_PR)); then
+        reason=admission_per_pr_cap
+      fi
+      candidate_created=$created
+      candidate_pr=$pr
+      candidate_deployment=$deployment
+      candidate_name=$name
+      candidate_revision=$revision
+      found=true
+      break
+    done < "$sorted"
+    if [[ "$found" != true ]]; then
+      log "event=admission_error reason=no_evictable_archive pr=$target_pr"
+      return 1
+    fi
+    if remove_archive \
+      "$candidate_name" \
+      "$candidate_deployment" \
+      "$candidate_pr" \
+      "$candidate_revision" \
+      "$reason" \
+      true; then
+      ADMISSION_EVICTION_COMMITTED=true
+    else
+      if [[ "$REMOVE_ARCHIVE_COMMITTED" == true ]]; then
+        ADMISSION_EVICTION_COMMITTED=true
+      fi
+      log "event=admission_error reason=eviction_failed pr=$target_pr deployment=$candidate_deployment created=$candidate_created"
+      return 1
+    fi
+  done
+}
+
+admit_peak_one() {
+  local target_pr=$1 records=$RUN_DIR/pre-admission-records physical_file=$RUN_DIR/physical-archives
+  local created pr deployment name revision image_id total=0 per_pr=0 physical
+  local checked_pr checked_deployment count_for_pr
+  collect_archives "$records"
+  if ! docker_cmd ps -a --filter label=proa.preview.archive=true --format '{{.Names}}' > "$physical_file"; then
+    log "event=admission_error reason=archive_discovery_failed pr=$target_pr"
+    return 1
+  fi
+  physical=$(wc -l < "$physical_file" | tr -d ' ')
+  while IFS=$'\t' read -r created pr deployment name revision image_id; do
+    [[ -n "$deployment" ]] || continue
+    total=$((total + 1))
+    if [[ "$pr" == "$target_pr" ]]; then
+      per_pr=$((per_pr + 1))
+    fi
+  done < "$records"
+  # Validate every PR population, not only the PR requesting a new slot. A
+  # pre-existing over-cap population must be reconciled before any admission
+  # can consume the single bounded peak slot.
+  while IFS=$'\t' read -r created pr deployment name revision image_id; do
+    [[ -n "$deployment" ]] || continue
+    count_for_pr=0
+    while IFS=$'\t' read -r _ checked_pr checked_deployment _; do
+      [[ -n "$checked_deployment" ]] || continue
+      if [[ "$checked_pr" == "$pr" ]]; then
+        count_for_pr=$((count_for_pr + 1))
+      fi
+    done < "$records"
+    if ((count_for_pr > MAX_PER_PR)); then
+      log "event=admission_error reason=preexisting_capacity_violation pr=$target_pr offending_pr=$pr total=$total per_pr=$count_for_pr"
+      return 1
+    fi
+  done < "$records"
+  if ((physical != total)); then
+    log "event=admission_error reason=unvalidated_physical_archive pr=$target_pr physical=$physical validated=$total"
+    return 1
+  fi
+  if ((total > MAX_GLOBAL || per_pr > MAX_PER_PR)); then
+    log "event=admission_error reason=preexisting_capacity_violation pr=$target_pr total=$total per_pr=$per_pr"
+    return 1
+  fi
+  # One serialized candidate may temporarily make the physical population
+  # MAX_GLOBAL+1 and the target PR population MAX_PER_PR+1. No incumbent is
+  # evicted until that candidate has passed runtime and health attestation.
+  return 0
+}
+
+attest_archive_network_members() {
+  local members=$RUN_DIR/archive-network-members member json inspected_name deployment
+  local is_archive application aliases alias
+  if ! docker_cmd network inspect --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' \
+    "$DOCKER_NETWORK" > "$members" 2>/dev/null; then
+    log "event=network_attestation_error reason=membership_inspect"
+    return 1
+  fi
+  while IFS= read -r member; do
+    [[ -n "$member" ]] || continue
+    json=$(inspect_json "$member" 2>/dev/null) || {
+      log "event=network_attestation_error reason=member_inspect container=$member"
+      return 1
+    }
+    inspected_name=$(jq_value "$json" '.[0].Name // empty' 2>/dev/null || true)
+    inspected_name=${inspected_name#/}
+    [[ "$inspected_name" == "$member" ]] || {
+      log "event=network_attestation_error reason=member_name container=$member"
+      return 1
+    }
+    if [[ "$member" == proa-preview-archive-router ]]; then
+      [[ "$(label_value "$json" proa.preview.archive.router 2>/dev/null || true)" == true &&
+        "$(label_value "$json" proa.preview.archive.router.application 2>/dev/null || true)" == "$APPLICATION_UUID" ]] || {
+        log "event=network_attestation_error reason=router_identity container=$member"
+        return 1
+      }
+      # The router is the only statically addressed archive-network member.
+      # Pin both Docker's realized address and the requested IPAM address, and
+      # reject an attachment to any second network.
+      # shellcheck disable=SC2016 # Dollar-prefixed names are jq variables.
+      if ! printf '%s' "$json" | "$JQ_BIN" -e \
+        --arg network "$DOCKER_NETWORK" \
+        --arg router_ip "$ROUTER_IP" '
+          ((.[0].NetworkSettings.Networks // {}) | keys) == [$network] and
+          (.[0].NetworkSettings.Networks[$network].IPAddress == $router_ip) and
+          (.[0].NetworkSettings.Networks[$network].IPAMConfig | type == "object") and
+          (.[0].NetworkSettings.Networks[$network].IPAMConfig.IPv4Address == $router_ip)
+        ' >/dev/null 2>&1; then
+        log "event=network_attestation_error reason=router_network_identity container=$member"
+        return 1
+      fi
+      deployment=''
+    elif [[ "$member" =~ ^proa-preview-archive-([a-z0-9]{24})$ ]]; then
+      deployment=${BASH_REMATCH[1]}
+      is_archive=$(label_value "$json" proa.preview.archive 2>/dev/null || true)
+      application=$(label_value "$json" proa.preview.archive.application 2>/dev/null || true)
+      [[ "$is_archive" == true && "$application" == "$APPLICATION_UUID" &&
+        "$(label_value "$json" proa.preview.archive.deployment 2>/dev/null || true)" == "$deployment" ]] || {
+        log "event=network_attestation_error reason=archive_identity container=$member"
+        return 1
+      }
+    else
+      log "event=network_attestation_error reason=foreign_member container=$member"
+      return 1
+    fi
+    # Docker aliases are typed data in the inspected network attachment. Do
+    # not silently ignore a malformed value and accidentally attest less than
+    # the daemon reported.
+    # shellcheck disable=SC2016 # Dollar-prefixed names are jq variables.
+    if ! printf '%s' "$json" | "$JQ_BIN" -e --arg network "$DOCKER_NETWORK" '
+      (.[0].NetworkSettings.Networks[$network] | type == "object") and
+      ((.[0].NetworkSettings.Networks[$network].Aliases // []) | type == "array") and
+      all((.[0].NetworkSettings.Networks[$network].Aliases // [])[]; type == "string")
+    ' >/dev/null 2>&1; then
+      log "event=network_attestation_error reason=alias_metadata container=$member"
+      return 1
+    fi
+    # shellcheck disable=SC2016 # Dollar-prefixed names are jq variables.
+    if ! aliases=$(printf '%s' "$json" | "$JQ_BIN" -r --arg network "$DOCKER_NETWORK" '
+      (.[0].NetworkSettings.Networks[$network].Aliases // [])[] | ascii_downcase
+    ' 2>/dev/null); then
+      log "event=network_attestation_error reason=alias_extraction container=$member"
+      return 1
+    fi
+    while IFS= read -r alias; do
+      [[ -n "$alias" ]] || continue
+      if [[ "$alias" =~ ^proa-preview-archive-([a-z0-9]{24})$ && "$alias" != "$member" ]]; then
+        log "event=network_attestation_error reason=archive_alias_hijack container=$member alias=$alias"
+        return 1
+      fi
+    done <<< "$aliases"
+  done < "$members"
+}
+
+remove_stale_archive_routes() {
+  local desired=$1
+  "$PYTHON_BIN" - "$ROUTER_CONFIG_DIR" "$desired" <<'PY'
+import os
+from pathlib import Path
+import shutil
+import stat
+import sys
+
+directory = Path(sys.argv[1])
+desired_path = Path(sys.argv[2])
+metadata = directory.lstat()
+if (
+    stat.S_ISLNK(metadata.st_mode)
+    or not stat.S_ISDIR(metadata.st_mode)
+    or metadata.st_uid != os.geteuid()
+    or stat.S_IMODE(metadata.st_mode) != 0o755
+):
+    raise SystemExit(1)
+desired = {
+    f"{line.strip()}.yml"
+    for line in desired_path.read_text(encoding="ascii").splitlines()
+    if line.strip()
+}
+descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    for entry in directory.iterdir():
+        if entry.name in desired:
+            continue
+        info = entry.lstat()
+        if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode):
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+}
+
+publish_archive_routes() {
+  local records=$1 phase=${2:-final} desired=$RUN_DIR/desired-routes
+  local created pr deployment name revision image_id json hostname running health
+  local route_was_valid start_errors=$ERROR_COUNT event=route_published
+  if [[ "$phase" == stage ]]; then
+    event=route_staged
+  elif [[ "$phase" != final ]]; then
+    fail "invalid archive route publication phase: $phase"
+  fi
+  PUBLISHED_ROUTES=0
+  : > "$desired"
+  while IFS=$'\t' read -r created pr deployment name revision image_id; do
+    [[ -n "$deployment" ]] || continue
+    json=$(inspect_json "$name" 2>/dev/null || true)
+    if [[ -z "$json" ]] || ! archive_runtime_contract_matches "$json" ||
+      ! archive_identity_matches "$name" "$deployment" "$pr" "$revision" ||
+      [[ "$(jq_value "$json" '.[0].Image' 2>/dev/null || true)" != "$image_id" ]] ||
+      ! archive_state_is_consistent "$deployment" "$pr" "$revision" "$image_id" "$created"; then
+      quarantine_archive "$name" route_validation
+      continue
+    fi
+    # A durable retirement marker is authoritative even when Docker removal
+    # fails. The leftover container remains available for the next GC retry,
+    # but its immutable hostname must never be made reachable again.
+    if [[ -e "$(retired_path "$deployment")" || -L "$(retired_path "$deployment")" ]]; then
+      if retired_identity_matches "$deployment" "$pr" "$revision"; then
+        log "event=route_skipped reason=retired pr=$pr deployment=$deployment"
+        continue
+      fi
+      quarantine_archive "$name" retired_identity
+      continue
+    fi
+    running=$(jq_value "$json" '.[0].State.Running' 2>/dev/null || true)
+    health=$(jq_value "$json" '.[0].State.Health.Status // empty' 2>/dev/null || true)
+    if [[ "$running" != true || "$health" != healthy ]]; then
+      quarantine_archive "$name" route_health
+      continue
+    fi
+    hostname=$(archive_hostname_for "$deployment") || {
+      quarantine_archive "$name" route_hostname
+      continue
+    }
+    route_was_valid=false
+    if archive_route_matches "$deployment" "$hostname" "$name"; then
+      route_was_valid=true
+      # Preserve a previously attested route if a transient replacement/fsync
+      # fails. Corrupt files, symlinks, and directories are never protected.
+      printf '%s\n' "$deployment" >> "$desired"
+    fi
+    if ! write_archive_route "$deployment" "$hostname" "$name"; then
+      # A directory fsync can report failure after os.replace completed. Keep
+      # the new route only when its exact bytes and metadata attest afterward.
+      if [[ "$route_was_valid" == false ]] &&
+        archive_route_matches "$deployment" "$hostname" "$name"; then
+        printf '%s\n' "$deployment" >> "$desired"
+      fi
+      log "event=route_write_error pr=$pr deployment=$deployment container=$name"
+      ERROR_COUNT=$((ERROR_COUNT + 1))
+      continue
+    fi
+    if [[ "$route_was_valid" == false ]]; then
+      printf '%s\n' "$deployment" >> "$desired"
+    fi
+    PUBLISHED_ROUTES=$((PUBLISHED_ROUTES + 1))
+    log "event=$event pr=$pr deployment=$deployment host=$hostname"
+  done < "$records"
+  sort -u -o "$desired" "$desired"
+  if ! remove_stale_archive_routes "$desired"; then
+    log "event=route_prune_error"
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+  fi
+  ((ERROR_COUNT == start_errors))
+}
+
+gc_ttl() {
+  local records=$1 created pr deployment name revision image_id age reason limit
+  while IFS=$'\t' read -r created pr deployment name revision image_id; do
+    if ! archive_state_is_consistent "$deployment" "$pr" "$revision" "$image_id" "$created"; then
+      quarantine_archive "$name" "$ARCHIVE_STATE_ERROR"
+      continue
+    fi
+    if [[ -e "$(retired_path "$deployment")" || -L "$(retired_path "$deployment")" ]]; then
+      if retired_identity_matches "$deployment" "$pr" "$revision"; then
+        if reserve_hostname "$deployment"; then
+          remove_archive "$name" "$deployment" "$pr" "$revision" revoked false ||
+            ERROR_COUNT=$((ERROR_COUNT + 1))
+        else
+          ERROR_COUNT=$((ERROR_COUNT + 1))
+        fi
+      else
+        log "event=gc_skip reason=retired_identity container=$name deployment=$deployment"
+      fi
+      continue
+    fi
+    ((NOW_EPOCH >= created)) || continue
+    age=$((NOW_EPOCH - created))
+    if archive_is_approved "$deployment" "$pr" "$revision" "$image_id"; then
+      reason=ttl
+      limit=$TTL_SECONDS
+    else
+      reason=provisional_ttl
+      limit=$PROVISIONAL_TTL_SECONDS
+    fi
+    ((age >= limit)) || continue
+    remove_archive "$name" "$deployment" "$pr" "$revision" "$reason" true ||
+      ERROR_COUNT=$((ERROR_COUNT + 1))
+  done < "$records"
+}
+
+gc_per_pr_cap() {
+  local records=$1 sorted=$RUN_DIR/per-pr-sorted current_pr='' count=0 created pr deployment name revision image_id
+  sort -t $'\t' -k2,2n -k1,1nr -k3,3 "$records" > "$sorted"
+  while IFS=$'\t' read -r created pr deployment name revision image_id; do
+    if ! archive_state_is_consistent "$deployment" "$pr" "$revision" "$image_id" "$created"; then
+      quarantine_archive "$name" "$ARCHIVE_STATE_ERROR"
+      continue
+    fi
+    if [[ "$pr" != "$current_pr" ]]; then
+      current_pr=$pr
+      count=0
+    fi
+    count=$((count + 1))
+    ((count > MAX_PER_PR)) || continue
+    remove_archive "$name" "$deployment" "$pr" "$revision" per_pr_cap true ||
+      ERROR_COUNT=$((ERROR_COUNT + 1))
+  done < "$sorted"
+}
+
+gc_global_cap() {
+  local records=$1 sorted=$RUN_DIR/global-sorted count=0 created pr deployment name revision image_id
+  sort -t $'\t' -k1,1nr -k3,3 "$records" > "$sorted"
+  while IFS=$'\t' read -r created pr deployment name revision image_id; do
+    if ! archive_state_is_consistent "$deployment" "$pr" "$revision" "$image_id" "$created"; then
+      quarantine_archive "$name" "$ARCHIVE_STATE_ERROR"
+      continue
+    fi
+    count=$((count + 1))
+    ((count > MAX_GLOBAL)) || continue
+    remove_archive "$name" "$deployment" "$pr" "$revision" global_cap true ||
+      ERROR_COUNT=$((ERROR_COUNT + 1))
+  done < "$sorted"
+}
+
+archive_network_identity=$(
+  docker_cmd network inspect --format \
+    '{{.Driver}}|{{.Internal}}|{{index .Labels "proa.preview.archive.network"}}|{{index .Labels "proa.preview.archive.application"}}|{{if eq (len .IPAM.Config) 1}}{{(index .IPAM.Config 0).Subnet}}{{end}}|{{len .IPAM.Config}}' \
+  "$DOCKER_NETWORK" 2>/dev/null
+) || {
+  clear_archive_routes || fail "archive route fail-closed reset failed"
+  fail "Docker network $DOCKER_NETWORK does not exist"
+}
+if [[ "$archive_network_identity" != "bridge|true|true|${APPLICATION_UUID}|${ARCHIVE_NETWORK_SUBNET}|1" ]]; then
+  clear_archive_routes || fail "archive route fail-closed reset failed"
+  fail "Docker network $DOCKER_NETWORK has an unexpected identity"
+fi
+if ! attest_archive_network_members; then
+  clear_archive_routes || fail "archive route fail-closed reset failed"
+  fail "Docker network $DOCKER_NETWORK membership is unsafe"
+fi
+docker_cmd network inspect "$NATIVE_DOCKER_NETWORK" >/dev/null 2>&1 ||
+  fail "native Docker network $NATIVE_DOCKER_NETWORK does not exist"
+
+sync_sources
+
+records=$RUN_DIR/archives
+collect_archives "$records"
+gc_ttl "$records"
+collect_archives "$records"
+# Publish and durably attest every unexpired route before a capacity pass can
+# retire an incumbent. This closes the recovery window where a prior
+# reconciliation retained a healthy candidate after route rollback failed:
+# capacity GC must not proceed until that candidate is reachable too.
+if ! attest_archive_network_members; then
+  clear_archive_routes || fail "archive route fail-closed reset failed"
+  fail "Docker network $DOCKER_NETWORK membership changed before route staging"
+fi
+if ! publish_archive_routes "$records" stage; then
+  fail "archive route staging failed before capacity garbage collection"
+fi
+gc_per_pr_cap "$records"
+collect_archives "$records"
+gc_global_cap "$records"
+collect_archives "$records"
+
+remaining=$(wc -l < "$records" | tr -d ' ')
+active=$(wc -l < "$ACTIVE_PRS_FILE" | tr -d ' ')
+if ! attest_archive_network_members; then
+  clear_archive_routes || fail "archive route fail-closed reset failed"
+  fail "Docker network $DOCKER_NETWORK membership changed during reconciliation"
+fi
+publish_archive_routes "$records" final || true
+log "event=complete active_prs=$active retained=$remaining routes=$PUBLISHED_ROUTES"
+if ((ERROR_COUNT > 0)); then
+  fail "$ERROR_COUNT source snapshot(s) failed"
+fi

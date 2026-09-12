@@ -1,0 +1,5 @@
+error: #[derive(rsjs::ClientProps)] does not support nested `Option<Option<T>>` in v0.1
+ --> tests/ui/fail/12_client_props_nested_option.rs:7:29
+  |
+7 |     pub middle_name: Option<Option<String>>,
+  |                             ^^^^^^

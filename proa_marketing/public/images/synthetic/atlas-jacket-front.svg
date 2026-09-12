@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Atlas Jacket, front</title>
+  <desc id="desc">An original geometric weatherproof shell silhouette created for Proa fixtures.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#f5eee3"/><stop offset="1" stop-color="#dfe4e0"/></linearGradient>
+    <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4a5b60"/><stop offset="1" stop-color="#37474c"/></linearGradient>
+  </defs>
+  <rect width="1200" height="1200" fill="url(#bg)"/>
+  <ellipse cx="600" cy="1000" rx="330" ry="42" fill="#6a7375" opacity=".16"/>
+
+  <!-- sleeves -->
+  <path d="M415 350c-70 22-118 92-142 186l-63 236c36 30 90 34 128 12l72-232z" fill="url(#shell)" stroke="#1f2d30" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M785 350c70 22 118 92 142 186l63 236c-36 30-90 34-128 12l-72-232z" fill="url(#shell)" stroke="#1f2d30" stroke-width="16" stroke-linejoin="round"/>
+
+  <!-- body -->
+  <path d="M415 350c60-30 310-30 370 0l28 590c-115 24-311 24-426 0z" fill="url(#shell)" stroke="#1f2d30" stroke-width="18" stroke-linejoin="round"/>
+
+  <!-- collar -->
+  <path d="M478 356c18-96 226-96 244 0-58-26-186-26-244 0z" fill="#2b3a3e" stroke="#1f2d30" stroke-width="16" stroke-linejoin="round"/>
+
+  <!-- centre zip and pull -->
+  <path d="M600 336v596" stroke="#c9d2ce" stroke-width="12" stroke-linecap="round"/>
+  <rect x="580" y="612" width="40" height="70" rx="14" fill="#dd7627"/>
+
+  <!-- hand pockets -->
+  <path d="M452 700l104 26M748 700l-104 26" stroke="#c9d2ce" stroke-width="12" stroke-linecap="round"/>
+  <!-- hem drawcord -->
+  <path d="M424 900h352" stroke="#c9d2ce" stroke-width="10" stroke-linecap="round" opacity=".7"/>
+</svg>

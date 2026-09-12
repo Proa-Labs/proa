@@ -1,0 +1,16 @@
+error: rsjs boundary: `rsjs::server_only(...)` cannot call browser helper `rsjs::window::inner_width`
+
+       Why:
+         Browser helpers are client IR reads or effects. Opaque server-only boundaries render once on the server and are not revisited during hydration.
+
+       Use one of:
+         - Move the browser helper into a normal reactive slot, handler, binding, or client helper.
+         - If the value should be static HTML, compute it from server data instead of browser state.
+         - Keep `rsjs::server_only(...)` and `rsjs::server_attr(...)` limited to plain server-rendered content.
+
+       Tracked feature:
+         server_boundary.browser_helper
+  --> tests/ui/fail/52_server_only_browser_helper.rs:16:37
+   |
+16 |             <div>{rsjs::server_only(rsjs::window::inner_width())}</div>
+   |                                     ^^^^

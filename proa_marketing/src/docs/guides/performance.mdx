@@ -1,0 +1,352 @@
+---
+title: Writing performant pages
+description: How to write zero-allocation Proa pages that render in microseconds. Covers format!() avoidance, SafeText, ClassList, numeric rendering, buffer selection, and pre-formatting patterns.
+---
+
+Proa's `html!` macro compiles static markup to byte literals at build time. At request time, only dynamic values are rendered. This guide covers how to keep the dynamic path fast.
+
+The core principle: **every byte written during a render should go directly into the output buffer. No intermediate strings, no format!() calls, no temporary allocations.**
+
+## Avoid format!()
+
+`format!()` allocates a `String` on every call. In a render path that runs hundreds of thousands of times per second, this is the single most common performance mistake.
+
+### In text content, use inline segments
+
+Instead of `format!()`, place string literals and expressions side by side. Each segment writes directly to the output buffer with zero allocation:
+
+```rust
+// Bad: allocates a String every render
+html! { <p>{format!("${} / night", price)}</p> }
+html! { <p>{format!("Hello, {}!", name)}</p> }
+
+// Good: inline segments — zero allocation
+html! { <p>"$"{price}" / night"</p> }
+html! { <p>"Hello, "{name}"!"</p> }
+```
+
+How it works: `"$"` compiles into the static byte run (zero cost at runtime), `{price}` renders the integer directly via `itoa_lut` (no `.to_string()`), and `" / night"` compiles into the next static byte run. No intermediate `String` is ever created.
+
+More examples:
+
+```rust
+// Bad
+html! { <span>{format!("{} items in cart", count)}</span> }
+html! { <title>{format!("{} - MyApp", page_title)}</title> }
+
+// Good
+html! { <span>{count}" items in cart"</span> }
+html! { <title>{page_title}" - MyApp"</title> }
+```
+
+### In attributes, pre-compute
+
+Attributes take a single `{expr}`, so inline segments don't work there. Pre-compute the full string value before rendering:
+
+```rust
+// Bad: allocates a String every render
+html! {
+    <img src={format!("/images/{}.webp", product.slug)} />
+}
+
+// Good: pre-compute in your data
+struct Product {
+    image_path: &'static str,  // "/images/alphafly-3.webp"
+}
+
+html! {
+    <img src={product.image_path} />
+}
+```
+
+If you can't pre-compute, do the `format!()` in your Axum handler and pass the result as a `&str`, this moves the allocation out of the render hot path.
+
+## SafeText
+
+`SafeText<'a>` wraps a `&str` and skips HTML escape scanning. Use it when you know the string contains no HTML-unsafe characters (`<`, `>`, `&`, `"`, `'`).
+
+```rust
+use proa_core::SafeText;
+
+// Compile-time verified literal
+safe_text!("Hello world")
+
+// Runtime: string from a controlled source (e.g., enum variant, database slug)
+SafeText::from_trusted(product.slug)
+```
+
+`SafeText` renders with a single `memcpy` into the output buffer. Regular `&str` rendering scans every byte with `memchr3` looking for unsafe characters. For strings you control (slugs, IDs, enum labels), `SafeText` eliminates that scan.
+
+**When NOT to use it:** Never wrap user input in `SafeText`. If the string could contain `<script>`, you've created an XSS vulnerability.
+
+## ClassList
+
+`ClassList<N>` composes CSS classes without string concatenation or allocation. All construction methods except `add_opt` are `const fn`.
+
+```rust
+use proa_core::ClassList;
+
+// Compile-time class composition
+const fn button_classes(primary: bool) -> ClassList<3> {
+    ClassList::new()
+        .add("inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium")
+        .add_if(primary, "bg-blue-600 text-white")
+        .add_if(!primary, "bg-gray-100 text-gray-900")
+}
+
+// In your component
+html! {
+    <button class={button_classes(self.primary)}>
+        {self.label}
+    </button>
+}
+```
+
+Available methods:
+- `add(class)` - always add (const)
+- `add_if(condition, class)` - conditional (const)
+- `add_non_empty(class)` - skip empty strings (const)
+- `add_opt(class)` - `Option<&'static str>` (runtime)
+
+`ClassList` renders by writing each segment directly to the buffer with space separators. No intermediate string is ever built.
+
+## Numeric rendering
+
+Primitive numeric types implement Proa's render traits directly. Integers use a lookup-table algorithm (`itoa_lut`) that formats digits in pairs. Floats use `ryu`. Both write directly to the output buffer.
+
+```rust
+// Good: direct numeric rendering, zero allocation
+html! {
+    <span>{product.price_cents / 100}</span>
+    <span>{product.rating}</span>
+}
+
+// Bad: format!() for number formatting
+html! {
+    <span>{format!("${}", product.price_cents / 100)}</span>
+}
+```
+
+For formatted prices like `"$205"`, pre-compute the string in your data rather than formatting at render time.
+
+## Pre-formatting pattern
+
+When your data has values that need formatting, do it once at initialization, not per render.
+
+```rust
+// Bad: formats on every render
+struct Product {
+    price_cents: u32,
+    color_hex: &'static str,
+}
+
+// In render:
+html! {
+    <span>{format!("${}", self.price_cents / 100)}</span>
+    <div style={format!("background-color:{}", self.color_hex)} />
+}
+
+// Good: pre-formatted in static data
+struct Product {
+    price: &'static str,           // "$205"
+    color_style: &'static str,     // "background-color:#26292B"
+    image_path: &'static str,      // "/images/air-jordan-14.webp"
+    color_count: &'static str,     // "3 Colors"
+}
+
+// In render: zero allocation
+html! {
+    <span>{SafeText::from_trusted(self.price)}</span>
+    <div style={SafeText::from_trusted(self.color_style)} />
+}
+```
+
+This is the pattern used in the fictional footwear showcase, which renders 117 product cards in ~11 microseconds.
+
+## Static consolidation
+
+The `html!` macro automatically merges consecutive static content into single byte literals at compile time. Understand this to write templates that maximize static runs.
+
+```rust
+// This entire template is one static byte literal at compile time:
+html! {
+    <div class="flex items-center gap-4">
+        <h1>"Product title"</h1>
+        <span class="text-sm text-gray-500">"In stock"</span>
+    </div>
+}
+// Generated: static BYTES: &[u8] = b"<div class=\"flex items-center gap-4\">..."
+// Render cost: one memcpy
+
+// Dynamic values break static runs:
+html! {
+    <div class="flex items-center gap-4">
+        <h1>{self.title}</h1>                    // breaks here
+        <span class="text-sm text-gray-500">
+            {self.stock_label}                    // breaks here
+        </span>
+    </div>
+}
+// Generated: 3 static byte literals + 2 dynamic renders
+// Still fast, but more work than fully static
+```
+
+**Tips for maximizing static runs:**
+- Put dynamic values at the leaves, not in wrapper elements
+- Use pre-computed strings (SafeText) for values that rarely change
+- Static attribute values are consolidated; dynamic ones break the run
+
+## Choosing a buffer
+
+Proa supports multiple buffer types. Most applications should use one of the
+standard targets so the compiler does not repeatedly monomorphize the same
+component tree for many buffer shapes.
+
+| Buffer | Best for | Allocation |
+|--------|----------|------------|
+| `RenderBuffer` | Production servers, tests, app-owned buffered renders | 4 KB pages recycled across renders |
+| `ZeroCopyBuf` | Custom scatter-gather transport experiments | Static bytes are referenced, dynamic bytes are owned |
+| `StreamingZeroCopyBuf` | Streaming responses | Segmented output with flush checkpoints |
+
+Specialized writer variants, contiguous byte-vector buffers, and custom page
+sizes are benchmark tools or narrow adapter internals. Avoid copying them into
+normal app code; production routes should not depend on guessing an output size.
+
+**For production servers, use `RenderBuffer`:**
+
+```rust
+// Create once, reuse across requests
+let mut buf = RenderBuffer::new();
+
+// Per request:
+buf.render_into(component);  // Clears first, then recycles pages as it renders
+```
+
+`RenderBuffer` grows by chaining 4 KB pages. When a page fills, it rotates to a new one. On `clear()`, pages are cached for reuse. After a few requests, the buffer stabilizes and stops allocating entirely.
+
+## Attribute rendering
+
+Proa fuses attribute names and delimiters into single static byte slices at compile time.
+
+```rust
+// The macro generates:
+cx.out.extend_static(b" class=\"")?;  // single pointer, not 3 separate writes
+value.render_attr_value(cx)?;
+cx.out.extend_static(b"\"")?;
+```
+
+For attribute values you control, use `SafeAttr` to skip escape scanning:
+
+```rust
+use proa_core::SafeAttr;
+
+html! {
+    <div data-page={SafeAttr("product-detail")} />
+}
+```
+
+## Loops and iteration
+
+Use the standard Rust `for` pattern inside `html!`. Each iteration writes directly to the output buffer.
+
+```rust
+html! {
+    <ul class="space-y-2">
+        {for product in &self.products {
+            html! {
+                <li class="flex items-center gap-4">
+                    <img src={product.image_path} />
+                    <span>{SafeText::from_trusted(product.title)}</span>
+                    <span>{SafeText::from_trusted(product.price)}</span>
+                </li>
+            }.render(cx)?;
+        }}
+    </ul>
+}
+```
+
+**Do not** collect into a `Vec<String>` and then render. Each iteration should write directly.
+
+## Compile-time performance hints
+
+Proa's `html!` macro detects common allocation patterns at compile time and emits compiler warnings. These don't block compilation, they surface mistakes before they reach production.
+
+### What gets flagged
+
+| Pattern | Why | Fix |
+|---------|-----|-----|
+| `format!()` in `html!` | Allocates a `String` every render | Inline segments for text, pre-compute for attrs |
+| `.to_string()` | Unnecessary allocation, primitives render directly | Remove the call: `{count}` not `{count.to_string()}` |
+| `.to_owned()` | Clones a `&str` into a `String` for no reason | Use the `&str` directly |
+| `String::from()` | Same as above | Use a string literal or `&str` |
+| `.join()` | Collects into a `String` | Use a `for` loop with `.render(cx)?` |
+| `.collect()` | Allocates a `Vec` then iterates | Iterate the original iterator directly |
+| `vec![...]` | Heap-allocates a `Vec` | Use `&[...]` (a stack-allocated slice) |
+| `{"literal"}` | String literal in braces gets runtime-escaped | Use `"literal"` as a text node (compile-time escaped) |
+
+### Example warnings
+
+```rust
+// This produces a compiler warning:
+html! { <p>{format!("${} / night", price)}</p> }
+```
+
+The hint surfaces as a rustc warning anchored to the offending expression:
+
+```
+warning: unused `_perf_format__inside_html_allocates_a_String_on_every_render_0` that must be used
+  --> src/pages/room.rs:24:17
+   |
+   = note: perf: format!() inside html! allocates a String on every render.
+           for text content, use inline segments: "$"{price}" / night" — for
+           attributes, pre-compute the value before rendering
+           (docs/guides/performance). Wrap in perf_ok() to suppress if
+           intentional
+```
+
+### Silencing a hint with `perf_ok()`
+
+When you intentionally allocate in the render path, wrap the expression in `perf_ok()` to suppress the warning:
+
+```rust
+use proa_core::perf_ok;
+
+// Flagged:
+html! { <span>{format!("${}", price)}</span> }
+
+// Silenced — you've acknowledged the allocation:
+html! { <span>{perf_ok(format!("${}", price))}</span> }
+```
+
+`perf_ok()` is an `#[inline(always)]` identity function, it returns its argument unchanged and compiles away to nothing. It exists only as a signal to the scanner (and to code reviewers) that the allocation is intentional.
+
+**When to use it:**
+- Prototyping where speed of development matters more than render performance
+- Rare code paths (error pages, admin panels) where allocation cost is negligible
+- Complex formatting that can't be pre-computed (e.g., locale-dependent number formatting)
+
+**When NOT to use it:**
+- Hot paths (product listings, search results, home pages), pre-compute instead
+- Inside `for` loops, N allocations per render, use `.render(cx)?` pattern instead
+
+### Disabling all hints
+
+To disable performance hints project-wide (e.g., during early prototyping):
+
+```toml
+[dependencies]
+proa_macros = { git = "https://github.com/Proa-Labs/proa.git", features = ["no-perf-hints"] }
+```
+
+Remove the feature flag when you're ready to optimize.
+
+## Summary of rules
+
+1. **Never use `format!()`** inside `html!`. Use inline segments for text (`"$"{price}" / night"`), pre-compute for attributes.
+2. **Use `SafeText`** for strings from controlled sources (slugs, enum labels, pre-formatted data).
+3. **Use `ClassList`** for CSS class composition. It's `const fn` and zero-allocation.
+4. **Pre-format data** at initialization, not per render. Store `&'static str` instead of raw values.
+5. **Use `RenderBuffer`** in production for buffer reuse across requests.
+6. **Maximize static runs** by keeping dynamic values at the leaves of your template.
+7. **Never allocate in a loop.** Each iteration should write directly to the output buffer.
+8. **Use `perf_ok()`** to silence hints on intentional allocations, not to ignore them.

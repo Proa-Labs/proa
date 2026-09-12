@@ -1,0 +1,1230 @@
+/* Copyright Proa Labs, Inc. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/*!
+ * proa_docs default theme
+ *
+ * Styles every component `proa_docs_build` emits. Import it, or copy it and
+ * edit freely -- the markup contract is documented at
+ * https://proa.so/docs/proa-docs/styling-contract
+ *
+ * Theming is the 15 custom properties below. Override them on `.proa-docs-body`
+ * (or any ancestor) and every component follows. Nothing here uses Tailwind,
+ * `@apply`, or any build step.
+ */
+
+.proa-docs-body {
+  --docs-accent: #dd7627;
+  --docs-accent-ink: #9b4f14;
+  --docs-accent-soft: rgba(221, 118, 39, 0.14);
+  --docs-bg: #f7f4ee;
+  --docs-bg-2: #f2ede4;
+  --docs-bg-3: #ebe4d8;
+  --docs-fg: #18181b;
+  --docs-fg-dim: #57544e;
+  --docs-fg-muted: #8a857d;
+  --docs-line: rgba(24, 24, 27, 0.12);
+  --docs-line-soft: rgba(24, 24, 27, 0.08);
+  --docs-line-strong: rgba(24, 24, 27, 0.2);
+  --docs-rail-bg: #f3ede6;
+  --docs-rail-border: rgba(24, 24, 27, 0.12);
+  --docs-surface: rgba(255, 255, 255, 0.7);
+  --docs-sidebar-width: 17rem;
+  --docs-toc-width: 15rem;
+  --docs-content-width: 900px;
+}
+
+.dark .proa-docs-body {
+  --docs-accent: #dd7627;
+  --docs-accent-ink: #ffb070;
+  --docs-accent-soft: rgba(221, 118, 39, 0.18);
+  --docs-bg: #0b0b0d;
+  --docs-bg-2: #111113;
+  --docs-bg-3: #18181b;
+  --docs-fg: #fafafa;
+  --docs-fg-dim: #d4d4d8;
+  --docs-fg-muted: #a1a1aa;
+  --docs-line: rgba(255, 255, 255, 0.1);
+  --docs-line-soft: rgba(255, 255, 255, 0.08);
+  --docs-line-strong: rgba(255, 255, 255, 0.18);
+  --docs-rail-bg: #111113;
+  --docs-rail-border: rgba(255, 255, 255, 0.1);
+  --docs-surface: rgba(255, 255, 255, 0.06);
+}
+
+/* ---- page layout ---- */
+
+/*
+ * The grid `DocsShell` renders into: sidebar | main | toc, with the outer
+ * columns absorbing slack so the article stays centred and capped. Retune it
+ * through the three width properties above rather than by editing these rules.
+ */
+.proa-docs-body {
+  margin: 0;
+  background: var(--docs-bg);
+  color: var(--docs-fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.proa-docs-layout {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    var(--docs-sidebar-width)
+    minmax(0, var(--docs-content-width))
+    var(--docs-toc-width)
+    minmax(0, 1fr);
+  grid-template-areas: ". sidebar main toc .";
+  min-height: 100vh;
+  border-bottom: 1px solid var(--docs-line);
+}
+
+.proa-docs-sidebar,
+.proa-docs-toc {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
+.proa-docs-sidebar {
+  grid-area: sidebar;
+  padding: 1.5rem 0.9rem 2rem 1.15rem;
+  border-right: 1px solid var(--docs-rail-border);
+  background: var(--docs-rail-bg);
+}
+
+.proa-docs-brand {
+  display: block;
+  margin-bottom: 1.25rem;
+  color: var(--docs-fg);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.proa-docs-main {
+  grid-area: main;
+  min-width: 0;
+  background: var(--docs-bg);
+}
+
+.proa-docs-toc {
+  grid-area: toc;
+  padding: 2.2rem 0.9rem 2rem 1.15rem;
+  background: var(--docs-bg);
+}
+
+/* ---- article base ---- */
+
+/*
+ * No CSS reset ships with this file, so the article sets the handful of
+ * defaults the components assume: measure, rhythm, and link colour.
+ */
+.proa-docs-article {
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: clamp(3rem, 5vw, 4rem) clamp(1.5rem, 3.5vw, 2.25rem) 5rem;
+  color: var(--docs-fg);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.proa-docs-article a {
+  color: var(--docs-accent-ink);
+  text-decoration-color: color-mix(in srgb, var(--docs-accent) 55%, transparent);
+}
+
+/* ---- table of contents ---- */
+
+.proa-docs-toc ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0.2rem 0 0.2rem 0.8rem;
+  scrollbar-width: none;
+}
+
+.proa-docs-toc ul::-webkit-scrollbar {
+  display: none;
+}
+
+.proa-docs-toc li {
+  list-style: none;
+}
+
+.proa-docs-toc a {
+  position: relative;
+  display: block;
+  color: var(--docs-fg-dim);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  padding: 0.32rem 0.2rem 0.32rem 0;
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+
+.proa-docs-toc a::before {
+  content: "";
+  position: absolute;
+  left: calc(-0.8rem - 1px);
+  top: 0.42rem;
+  bottom: 0.42rem;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.proa-docs-toc a:hover {
+  color: var(--docs-fg);
+}
+
+.proa-docs-toc a[data-active="true"] {
+  color: var(--docs-accent-ink);
+  font-weight: 600;
+}
+
+.proa-docs-toc a[data-active="true"]::before {
+  background: var(--docs-accent);
+}
+
+.proa-docs-toc-empty {
+  color: var(--docs-fg-muted);
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+/* Drop the TOC column first, then the sidebar. */
+@media (max-width: 1180px) {
+  .proa-docs-layout {
+    grid-template-columns:
+      minmax(0, 1fr)
+      var(--docs-sidebar-width)
+      minmax(0, var(--docs-content-width))
+      minmax(0, 1fr);
+    grid-template-areas: ". sidebar main .";
+  }
+
+  .proa-docs-toc {
+    display: none;
+  }
+}
+
+/* ---- components ---- */
+
+.proa-docs-nav ul {
+  display: grid;
+  gap: 0.08rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.proa-docs-nav ul ul {
+  border-left: 1px solid var(--docs-line-soft);
+  margin-left: 0.45rem;
+  padding-left: 0.45rem;
+}
+
+.proa-docs-nav li {
+  min-width: 0;
+  list-style: none;
+}
+
+.proa-docs-nav li > span {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--docs-fg-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  gap: 0.38rem;
+  margin-top: 0.78rem;
+  padding: 0.5rem 0.45rem 0.22rem;
+}
+
+.proa-docs-nav ul > li:first-child > span {
+  margin-top: 0;
+}
+
+/* Sticky group headers. The base sidebar runs 13 separators over 54 pages, so
+   without this the reader scrolls past the heading and loses which group the
+   current rows belong to. The background is opaque because rows scroll
+   underneath. */
+/* The separator's own <li> is only as tall as the separator, so sticky has no
+   room to travel there. display:contents promotes the label into the <ul>,
+   whose height is the whole list. Headers then pile up in one band and the
+   newest paints over the older ones, which is the behaviour we want: the
+   visible header is always the current group. */
+.proa-docs-nav li:has(> .proa-docs-nav-separator) {
+  display: contents;
+}
+
+.proa-docs-nav-separator {
+  position: sticky;
+  /* Offset by the scroll container's 0.75rem padding so the header pins to
+     the panel's border box. At top:0 it pins to the padding box and rows show
+     through the gap above it. */
+  top: -0.75rem;
+  z-index: 1;
+  /* Match the rail the sidebar actually paints, not the page background.
+     --docs-bg is #f7f4ee / #0b0b0d while the rail is #f3ede6 / #111113, so
+     using the page value left a visible block behind the stuck header in
+     both themes. Both variables are theme-scoped, so this follows the
+     toggle. */
+  background: var(--docs-rail-bg);
+  margin-top: 0;
+  padding-top: calc(0.78rem + 0.75rem);
+  box-shadow: 0 1px 0 var(--docs-line);
+}
+
+.proa-docs-nav-icon {
+  display: inline-flex;
+  flex: 0 0 0.85rem;
+  height: 0.85rem;
+  align-items: center;
+  align-self: center;
+  color: currentColor;
+  font-size: inherit;
+  font-weight: inherit;
+  justify-content: center;
+  min-width: 0.85rem;
+  opacity: 0.58;
+  padding: 0;
+  vertical-align: -0.08em;
+  width: 0.85rem;
+}
+
+.proa-docs-nav-icon svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: 0 0 auto;
+}
+
+.proa-docs-nav a[data-active="true"] .proa-docs-nav-icon {
+  opacity: 0.9;
+}
+
+.proa-docs-nav a {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  overflow: hidden;
+  border-radius: 5px;
+  color: var(--docs-fg-dim);
+  font-size: 0.86rem;
+  line-height: 1.35;
+  min-height: 1.85rem;
+  padding: 0.32rem 0.45rem;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proa-docs-nav a:hover {
+  background: var(--docs-surface);
+  color: var(--docs-fg);
+}
+
+.proa-docs-nav a:focus-visible {
+  box-shadow: 0 0 0 2px rgba(221, 118, 39, 0.28);
+  outline: none;
+}
+
+.proa-docs-nav a[data-active="true"] {
+  background: var(--docs-accent-soft);
+  color: var(--docs-accent-ink);
+  font-weight: 600;
+}
+
+[data-docs-copy-markdown][data-copied="true"] {
+  border-color: color-mix(in srgb, var(--docs-accent) 32%, var(--docs-line));
+  background: var(--docs-accent-soft);
+  color: var(--docs-accent-ink);
+}
+
+.proa-docs-article [data-code-block] {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--docs-line);
+  border-radius: 6px;
+  background: var(--docs-bg-2);
+}
+
+.proa-docs-article [data-code-header] {
+  display: flex;
+  min-width: 0;
+  min-height: 2.375rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--docs-line);
+  background: color-mix(in srgb, var(--docs-surface) 48%, transparent);
+  color: var(--docs-fg-muted);
+  padding: 0.35rem 0.55rem 0.35rem 0.85rem;
+}
+
+.proa-docs-article [data-code-file-icon] {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.proa-docs-article [data-code-file-icon] svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.proa-docs-article [data-code-filename] {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--docs-fg-muted);
+  font-family: "Geist Mono", "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.76rem;
+  font-weight: 550;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proa-docs-article [data-code-block] pre {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  margin: 0;
+  padding: 1rem 4.75rem 1rem 1rem;
+}
+
+.proa-docs-article [data-code-block][data-filename] pre {
+  padding-right: 1rem;
+}
+
+.proa-docs-article [data-code-block] code {
+  color: var(--docs-fg);
+}
+
+.proa-docs-article [data-code-line] {
+  box-sizing: border-box;
+  display: inline-block;
+  min-height: 1lh;
+  min-width: 100%;
+  vertical-align: top;
+}
+
+.proa-docs-article [data-highlighted-line] {
+  background: color-mix(in srgb, var(--docs-accent) 12%, transparent);
+  box-shadow: inset 2px 0 color-mix(in srgb, var(--docs-accent) 70%, transparent);
+}
+
+.proa-docs-article [data-code-copy] {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  z-index: 2;
+  display: inline-flex;
+  min-width: 3.2rem;
+  min-height: 1.65rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--docs-line);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--docs-surface) 92%, transparent);
+  color: var(--docs-fg-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 550;
+  line-height: 1;
+  opacity: 0;
+  padding: 0.28rem 0.48rem;
+  transform: translateY(-2px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    background 140ms ease;
+}
+
+.proa-docs-article [data-code-header] [data-code-copy] {
+  position: static;
+  flex: none;
+  min-width: 3.2rem;
+  opacity: 1;
+  transform: none;
+}
+
+.proa-docs-article [data-code-block]:hover [data-code-copy],
+.proa-docs-article [data-code-block]:focus-within [data-code-copy],
+.proa-docs-article [data-code-copy][data-copied="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.proa-docs-article [data-code-copy]:hover,
+.proa-docs-article [data-code-copy]:focus-visible {
+  border-color: var(--docs-line-strong);
+  background: var(--docs-surface);
+  color: var(--docs-fg);
+}
+
+.proa-docs-article [data-code-copy][data-copied="true"] {
+  border-color: color-mix(in srgb, var(--docs-accent) 32%, var(--docs-line));
+  background: var(--docs-accent-soft);
+  color: var(--docs-accent-ink);
+}
+
+@media (hover: none) {
+  .proa-docs-article [data-code-copy] {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Container components (Tabs, Accordion, Steps, Callout).
+   Tabs switch with a radio/label pair so docs pages stay inert: no JS runs,
+   and the panel state survives with CSS alone. */
+.proa-docs-article .proa-docs-tabs {
+  margin: 0 0 1rem;
+  border: 1px solid var(--docs-line);
+  border-radius: 8px;
+  background: var(--docs-bg-2);
+  overflow: hidden;
+}
+
+.proa-docs-article .proa-docs-tabs-radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.proa-docs-article .proa-docs-tabs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.35rem 0.35rem 0;
+  border-bottom: 1px solid var(--docs-line);
+}
+
+.proa-docs-article .proa-docs-tabs-tab {
+  cursor: pointer;
+  padding: 0.4rem 0.7rem;
+  border-radius: 6px 6px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.2;
+  color: var(--docs-muted, inherit);
+  border-bottom: 2px solid transparent;
+  user-select: none;
+}
+
+.proa-docs-article .proa-docs-tabs-tab:hover {
+  background: var(--docs-bg-1, transparent);
+}
+
+/* Keyboard focus lands on the visually hidden radio, so surface it here. */
+.proa-docs-article .proa-docs-tabs-radio:focus-visible + .proa-docs-tabs-radio ~ .proa-docs-tabs-list .proa-docs-tabs-tab,
+.proa-docs-article .proa-docs-tabs-radio:focus-visible ~ .proa-docs-tabs-list .proa-docs-tabs-tab {
+  outline: none;
+}
+
+.proa-docs-article .proa-docs-tabs-panel {
+  display: none;
+  padding: 0.85rem;
+}
+
+.proa-docs-article .proa-docs-tabs-panel > :first-child {
+  margin-top: 0;
+}
+
+.proa-docs-article .proa-docs-tabs-panel > :last-child {
+  margin-bottom: 0;
+}
+
+/* Grid and flex items default to min-width:auto, so a wide <pre> stretches the
+   container instead of letting its own overflow-x:auto scroll. Allowing these
+   to shrink is what lets long install commands scroll inside the panel rather
+   than pushing the page sideways. */
+.proa-docs-article .proa-docs-accordion,
+.proa-docs-article .proa-docs-accordion-body,
+.proa-docs-article .proa-docs-step,
+.proa-docs-article .proa-docs-tabs-panel {
+  min-width: 0;
+}
+
+.proa-docs-article .proa-docs-accordion-body > *,
+.proa-docs-article .proa-docs-step > *,
+.proa-docs-article .proa-docs-tabs-panel > * {
+  max-width: 100%;
+}
+
+.proa-docs-article .proa-docs-accordion-body pre,
+.proa-docs-article .proa-docs-step pre,
+.proa-docs-article .proa-docs-tabs-panel pre {
+  overflow-x: auto;
+}
+
+.proa-docs-article .proa-docs-accordions {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.proa-docs-article .proa-docs-accordion {
+  border: 1px solid var(--docs-line);
+  border-radius: 8px;
+  background: var(--docs-bg-2);
+  padding: 0.35rem 0.75rem;
+}
+
+.proa-docs-article .proa-docs-accordion-title {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.35rem 0;
+}
+
+.proa-docs-article .proa-docs-accordion-body > :first-child {
+  margin-top: 0;
+}
+
+.proa-docs-article .proa-docs-accordion-body > :last-child {
+  margin-bottom: 0;
+}
+
+.proa-docs-article .proa-docs-steps {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  counter-reset: proa-docs-step;
+  border-inline-start: 1px solid var(--docs-line);
+  padding-inline-start: 1.25rem;
+}
+
+.proa-docs-article .proa-docs-step {
+  position: relative;
+  counter-increment: proa-docs-step;
+}
+
+.proa-docs-article .proa-docs-step::before {
+  content: counter(proa-docs-step);
+  position: absolute;
+  inset-inline-start: -2.15rem;
+  top: 0.1rem;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--docs-line);
+  background: var(--docs-bg-2);
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.proa-docs-article .proa-docs-step > :first-child {
+  margin-top: 0;
+}
+
+.proa-docs-article .proa-docs-step > :last-child {
+  margin-bottom: 0;
+}
+
+/* Callouts pair a decorative icon with the author's Markdown. The colour is
+   keyed on data-type so the meaning survives a theme change, and each type
+   sets only the three custom properties the shared rules read. */
+.proa-docs-article .proa-docs-callout {
+  display: flex;
+  gap: 0.55rem;
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--docs-callout-line, var(--docs-line));
+  /* The rail carries the type at a glance, so a reader scanning the page
+     registers the kind of remark before reading a word of it. */
+  border-left: 3px solid var(--docs-callout-fg, var(--docs-accent));
+  background: var(--docs-callout-bg, var(--docs-bg-2));
+}
+
+.proa-docs-article .proa-docs-callout-icon {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 0.28em;
+  font-size: 1.05em;
+  line-height: 1;
+  color: var(--docs-callout-fg, var(--docs-fg-muted));
+  user-select: none;
+}
+
+.proa-docs-article .proa-docs-callout-body {
+  min-width: 0;
+}
+
+.proa-docs-article .proa-docs-callout-body > :first-child {
+  margin-top: 0;
+}
+
+.proa-docs-article .proa-docs-callout-body > :last-child {
+  margin-bottom: 0;
+}
+
+/* The neutral type previously sat on --docs-bg-2 over --docs-bg, a difference
+   too small to register as a distinct block. It takes the theme accent. */
+.proa-docs-article .proa-docs-callout[data-type="default"] {
+  --docs-callout-fg: #b4560f;
+  --docs-callout-bg: var(--docs-accent-soft);
+  --docs-callout-line: rgba(221, 118, 39, 0.3);
+}
+
+.proa-docs-article .proa-docs-callout[data-type="info"] {
+  --docs-callout-fg: #1d4ed8;
+  --docs-callout-bg: rgba(37, 99, 235, 0.08);
+  --docs-callout-line: rgba(37, 99, 235, 0.32);
+}
+
+.proa-docs-article .proa-docs-callout[data-type="warning"] {
+  --docs-callout-fg: #a16207;
+  --docs-callout-bg: rgba(217, 119, 6, 0.1);
+  --docs-callout-line: rgba(217, 119, 6, 0.34);
+}
+
+.proa-docs-article .proa-docs-callout[data-type="error"] {
+  --docs-callout-fg: #b91c1c;
+  --docs-callout-bg: rgba(220, 38, 38, 0.08);
+  --docs-callout-line: rgba(220, 38, 38, 0.32);
+}
+
+.dark .proa-docs-article .proa-docs-callout[data-type="default"] {
+  --docs-callout-fg: #ffb070;
+  --docs-callout-bg: rgba(221, 118, 39, 0.14);
+  --docs-callout-line: rgba(221, 118, 39, 0.32);
+}
+
+.dark .proa-docs-article .proa-docs-callout[data-type="info"] {
+  --docs-callout-fg: #93b4fd;
+  --docs-callout-bg: rgba(59, 130, 246, 0.12);
+  --docs-callout-line: rgba(96, 165, 250, 0.3);
+}
+
+.dark .proa-docs-article .proa-docs-callout[data-type="warning"] {
+  --docs-callout-fg: #fbbf24;
+  --docs-callout-bg: rgba(245, 158, 11, 0.12);
+  --docs-callout-line: rgba(251, 191, 36, 0.3);
+}
+
+.dark .proa-docs-article .proa-docs-callout[data-type="error"] {
+  --docs-callout-fg: #fca5a5;
+  --docs-callout-bg: rgba(239, 68, 68, 0.12);
+  --docs-callout-line: rgba(248, 113, 113, 0.3);
+}
+
+/* Code explorers use the same horizontal tab machinery as <Tabs>. File lists
+   can be longer than the article is wide, so this variant scrolls the tab row
+   instead of consuming a permanent sidebar beside every code panel. */
+.proa-docs-article .proa-docs-explorer {
+  margin: 0 0 1rem;
+}
+
+.proa-docs-article .proa-docs-explorer > .proa-docs-tabs-list {
+  flex-wrap: nowrap;
+  gap: 0;
+  padding: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  background: var(--docs-bg-3);
+}
+
+.proa-docs-article .proa-docs-explorer-file {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: 2.35rem;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0;
+  border-top: 2px solid transparent;
+  border-bottom-width: 0;
+  border-inline-end: 1px solid var(--docs-line);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.proa-docs-article .proa-docs-explorer-file:hover {
+  color: var(--docs-fg);
+}
+
+.proa-docs-article .proa-docs-explorer-paths {
+  min-width: 0;
+  border-bottom: 1px solid var(--docs-line);
+  background: var(--docs-bg-2);
+}
+
+.proa-docs-article .proa-docs-explorer-path {
+  display: none;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  overflow-x: auto;
+  color: var(--docs-fg-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.proa-docs-article .proa-docs-explorer-path-separator {
+  color: var(--docs-fg-dim);
+}
+
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(1):checked ~ .proa-docs-explorer-paths > .proa-docs-explorer-path:nth-child(1),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(2):checked ~ .proa-docs-explorer-paths > .proa-docs-explorer-path:nth-child(2),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(3):checked ~ .proa-docs-explorer-paths > .proa-docs-explorer-path:nth-child(3),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(4):checked ~ .proa-docs-explorer-paths > .proa-docs-explorer-path:nth-child(4),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(5):checked ~ .proa-docs-explorer-paths > .proa-docs-explorer-path:nth-child(5),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(6):checked ~ .proa-docs-explorer-paths > .proa-docs-explorer-path:nth-child(6),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(7):checked ~ .proa-docs-explorer-paths > .proa-docs-explorer-path:nth-child(7),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(8):checked ~ .proa-docs-explorer-paths > .proa-docs-explorer-path:nth-child(8) {
+  display: flex;
+}
+
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(1):checked ~ .proa-docs-tabs-list .proa-docs-explorer-file:nth-child(1),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(2):checked ~ .proa-docs-tabs-list .proa-docs-explorer-file:nth-child(2),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(3):checked ~ .proa-docs-tabs-list .proa-docs-explorer-file:nth-child(3),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(4):checked ~ .proa-docs-tabs-list .proa-docs-explorer-file:nth-child(4),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(5):checked ~ .proa-docs-tabs-list .proa-docs-explorer-file:nth-child(5),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(6):checked ~ .proa-docs-tabs-list .proa-docs-explorer-file:nth-child(6),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(7):checked ~ .proa-docs-tabs-list .proa-docs-explorer-file:nth-child(7),
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-radio:nth-of-type(8):checked ~ .proa-docs-tabs-list .proa-docs-explorer-file:nth-child(8) {
+  border-top-color: var(--docs-accent);
+  background: var(--docs-bg-2);
+  color: var(--docs-fg);
+}
+
+.proa-docs-article .proa-docs-explorer > .proa-docs-tabs-panels {
+  min-width: 0;
+}
+
+/* A code fence is the whole point of a panel here, so let it fill the pane
+   instead of sitting in the padding a prose tab panel wants. Bounding the
+   height is what keeps a page of explorers shorter than the same listings
+   printed end to end: a long file scrolls in its pane instead of setting the
+   height of the article. */
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-panel {
+  padding: 0;
+  max-height: 30rem;
+  overflow: auto;
+}
+
+.proa-docs-article .proa-docs-explorer .proa-docs-tabs-panel > * {
+  margin: 0;
+  border-radius: 0;
+  border: 0;
+}
+
+/* Live demo frames. The framed page is a separate document under /demos, so
+   the article inherits none of its scripts or styles: only the box is ours. */
+.proa-docs-article .proa-docs-demo {
+  margin: 0 0 1rem;
+}
+
+.proa-docs-article .proa-docs-demo-frame {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--docs-line);
+  border-radius: 8px;
+  background: var(--docs-bg-2);
+  color-scheme: light dark;
+}
+
+.proa-docs-article .proa-docs-demo-link {
+  display: inline-block;
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--docs-fg-dim, #71717a);
+  text-decoration: none;
+}
+
+.proa-docs-article .proa-docs-demo-link:hover {
+  text-decoration: underline;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(1):checked ~ .proa-docs-tabs-panels > .proa-docs-tabs-panel:nth-child(1) {
+  display: block;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(1):checked ~ .proa-docs-tabs-list .proa-docs-tabs-tab:nth-child(1) {
+  color: var(--docs-fg, inherit);
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(2):checked ~ .proa-docs-tabs-panels > .proa-docs-tabs-panel:nth-child(2) {
+  display: block;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(2):checked ~ .proa-docs-tabs-list .proa-docs-tabs-tab:nth-child(2) {
+  color: var(--docs-fg, inherit);
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(3):checked ~ .proa-docs-tabs-panels > .proa-docs-tabs-panel:nth-child(3) {
+  display: block;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(3):checked ~ .proa-docs-tabs-list .proa-docs-tabs-tab:nth-child(3) {
+  color: var(--docs-fg, inherit);
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(4):checked ~ .proa-docs-tabs-panels > .proa-docs-tabs-panel:nth-child(4) {
+  display: block;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(4):checked ~ .proa-docs-tabs-list .proa-docs-tabs-tab:nth-child(4) {
+  color: var(--docs-fg, inherit);
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(5):checked ~ .proa-docs-tabs-panels > .proa-docs-tabs-panel:nth-child(5) {
+  display: block;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(5):checked ~ .proa-docs-tabs-list .proa-docs-tabs-tab:nth-child(5) {
+  color: var(--docs-fg, inherit);
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(6):checked ~ .proa-docs-tabs-panels > .proa-docs-tabs-panel:nth-child(6) {
+  display: block;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(6):checked ~ .proa-docs-tabs-list .proa-docs-tabs-tab:nth-child(6) {
+  color: var(--docs-fg, inherit);
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(7):checked ~ .proa-docs-tabs-panels > .proa-docs-tabs-panel:nth-child(7) {
+  display: block;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(7):checked ~ .proa-docs-tabs-list .proa-docs-tabs-tab:nth-child(7) {
+  color: var(--docs-fg, inherit);
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(8):checked ~ .proa-docs-tabs-panels > .proa-docs-tabs-panel:nth-child(8) {
+  display: block;
+}
+
+.proa-docs-article .proa-docs-tabs-radio:nth-of-type(8):checked ~ .proa-docs-tabs-list .proa-docs-tabs-tab:nth-child(8) {
+  color: var(--docs-fg, inherit);
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+.proa-docs-article .proa-docs-filetree {
+  display: grid;
+  gap: 0.12rem;
+  border: 1px solid var(--docs-line);
+  border-radius: 6px;
+  background: var(--docs-bg-2);
+  margin: 0 0 1rem;
+  padding: 0.65rem;
+  overflow-x: auto;
+}
+
+.proa-docs-article .proa-docs-filetree-row {
+  display: flex;
+  align-items: center;
+  min-height: 1.65rem;
+  color: var(--docs-fg-dim);
+  font-size: 0.86rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.proa-docs-article .proa-docs-filetree-indent {
+  flex: 0 0 1.15rem;
+  height: 1px;
+}
+
+.proa-docs-article .proa-docs-filetree-icon {
+  position: relative;
+  flex: 0 0 0.94rem;
+  width: 0.94rem;
+  height: 0.94rem;
+  margin-right: 0.48rem;
+  color: var(--docs-fg-muted);
+}
+
+.proa-docs-article .proa-docs-filetree-row[data-kind="folder"] {
+  color: var(--docs-fg);
+}
+
+.proa-docs-article .proa-docs-filetree-row[data-kind="folder"] .proa-docs-filetree-icon {
+  color: var(--docs-accent);
+}
+
+.proa-docs-article .proa-docs-filetree-row[data-kind="folder"] .proa-docs-filetree-icon::before {
+  content: "";
+  position: absolute;
+  left: 0.06rem;
+  top: 0.16rem;
+  width: 0.43rem;
+  height: 0.17rem;
+  border: 1px solid currentColor;
+  border-bottom: 0;
+  border-radius: 2px 2px 0 0;
+}
+
+.proa-docs-article .proa-docs-filetree-row[data-kind="folder"] .proa-docs-filetree-icon::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.1rem;
+  height: 0.58rem;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+
+.proa-docs-article .proa-docs-filetree-row[data-kind="file"] .proa-docs-filetree-icon::before {
+  content: "";
+  position: absolute;
+  inset: 0.08rem 0.16rem 0.05rem 0.16rem;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+
+.proa-docs-article .proa-docs-filetree-row[data-kind="file"] .proa-docs-filetree-icon::after {
+  content: "";
+  position: absolute;
+  right: 0.16rem;
+  top: 0.08rem;
+  width: 0.26rem;
+  height: 0.26rem;
+  border-left: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  background: var(--docs-bg-2);
+}
+
+.proa-docs-article .proa-docs-filetree code {
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  padding: 0;
+}
+
+.proa-docs-toc .proa-docs-toc-title {
+  color: var(--docs-fg-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.proa-docs-toc .proa-docs-toc-depth-1 a {
+  color: var(--docs-fg);
+  font-weight: 600;
+}
+
+.proa-docs-toc .proa-docs-toc-depth-3 a {
+  padding-left: 0.75rem;
+}
+
+.proa-docs-toc .proa-docs-toc-depth-4 a {
+  padding-left: 1.35rem;
+  font-size: 0.78rem;
+}
+
+.proa-docs-toc .proa-docs-toc-depth-5 a,
+.proa-docs-toc .proa-docs-toc-depth-6 a {
+  padding-left: 1.9rem;
+  font-size: 0.76rem;
+}
+
+.proa-docs-pager {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  border-top: 1px solid var(--docs-line);
+  margin-top: 2.75rem;
+  padding-top: 1.25rem;
+}
+
+.proa-docs-pager a {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+  border: 1px solid var(--docs-line);
+  border-radius: 7px;
+  color: var(--docs-fg);
+  padding: 0.85rem 1rem;
+  text-decoration: none;
+}
+
+.proa-docs-pager a:hover {
+  border-color: color-mix(in srgb, var(--docs-accent) 48%, var(--docs-line));
+  background: var(--docs-bg-2);
+}
+
+.proa-docs-pager span {
+  color: var(--docs-fg-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.proa-docs-pager strong {
+  color: var(--docs-fg);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.proa-docs-pager-next {
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .proa-docs-layout {
+    grid-template-areas: "main";
+    grid-template-columns: minmax(0, 1fr);
+    min-height: auto;
+    border-bottom: 0;
+  }
+
+  .proa-docs-layout > .proa-docs-sidebar,
+  .proa-docs-layout > .proa-docs-toc {
+    display: none;
+  }
+
+  .proa-docs-article {
+    padding: 1.5rem 1rem 4rem;
+  }
+
+  .proa-docs-pager {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .proa-docs-pager-next {
+    text-align: left;
+  }
+}
+
+.proa-docs-article [data-code-block] code {
+  color: #24292f;
+}
+
+.proa-docs-article .hl-keyword,
+.proa-docs-article .hl-operator {
+  color: #cf222e;
+}
+
+.proa-docs-article .hl-string,
+.proa-docs-article .hl-string-special {
+  color: #0a3069;
+}
+
+.proa-docs-article .hl-comment {
+  color: #6e7781;
+}
+
+.proa-docs-article .hl-function,
+.proa-docs-article .hl-function-builtin,
+.proa-docs-article .hl-function-macro {
+  color: #8250df;
+}
+
+.proa-docs-article .hl-type,
+.proa-docs-article .hl-type-builtin,
+.proa-docs-article .hl-constant,
+.proa-docs-article .hl-constant-builtin,
+.proa-docs-article .hl-number,
+.proa-docs-article .hl-attribute {
+  color: #0550ae;
+}
+
+.proa-docs-article .hl-variable-builtin,
+.proa-docs-article .hl-constructor {
+  color: #953800;
+}
+
+.proa-docs-article .hl-tag {
+  color: #116329;
+}
+
+.proa-docs-article .hl-punctuation,
+.proa-docs-article .hl-punctuation-bracket,
+.proa-docs-article .hl-punctuation-delimiter,
+.proa-docs-article .hl-variable,
+.proa-docs-article .hl-variable-parameter,
+.proa-docs-article .hl-property,
+.proa-docs-article .hl-label {
+  color: #24292f;
+}
+
+.dark .proa-docs-article [data-code-block] code {
+  color: #e6edf3;
+}
+
+.dark .proa-docs-article .hl-keyword,
+.dark .proa-docs-article .hl-operator {
+  color: #ff7b72;
+}
+
+.dark .proa-docs-article .hl-string,
+.dark .proa-docs-article .hl-string-special {
+  color: #a5d6ff;
+}
+
+.dark .proa-docs-article .hl-comment {
+  color: #8b949e;
+}
+
+.dark .proa-docs-article .hl-function,
+.dark .proa-docs-article .hl-function-builtin,
+.dark .proa-docs-article .hl-function-macro {
+  color: #d2a8ff;
+}
+
+.dark .proa-docs-article .hl-type,
+.dark .proa-docs-article .hl-type-builtin,
+.dark .proa-docs-article .hl-constant,
+.dark .proa-docs-article .hl-constant-builtin,
+.dark .proa-docs-article .hl-number,
+.dark .proa-docs-article .hl-attribute {
+  color: #79c0ff;
+}
+
+.dark .proa-docs-article .hl-variable-builtin,
+.dark .proa-docs-article .hl-constructor {
+  color: #ffa657;
+}
+
+.dark .proa-docs-article .hl-tag {
+  color: #7ee787;
+}
+
+.dark .proa-docs-article .hl-punctuation,
+.dark .proa-docs-article .hl-punctuation-bracket,
+.dark .proa-docs-article .hl-punctuation-delimiter,
+.dark .proa-docs-article .hl-variable,
+.dark .proa-docs-article .hl-variable-parameter,
+.dark .proa-docs-article .hl-property,
+.dark .proa-docs-article .hl-label {
+  color: #e6edf3;
+}

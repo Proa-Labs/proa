@@ -1,0 +1,5 @@
+error: a11y: <meta> does not allow ARIA roles or attributes. remove the role and aria-* attributes from this element (ARIA in HTML §3)
+ --> tests/ui/fail/a11y_aria_prohibited.rs:5:19
+  |
+5 |     html_sync! { <meta name="x" content="y" role="none" /> };
+  |                   ^^^^

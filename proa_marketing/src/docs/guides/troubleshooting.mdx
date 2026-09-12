@@ -1,0 +1,367 @@
+---
+title: Troubleshooting
+description: Fix the most common Proa setup, registry, template, component, island, routing, and CI failures.
+---
+
+Start with the fastest checks. They separate environment problems from template and runtime problems:
+
+```bash
+proa --help
+cargo check
+proa fmt --check --verify src
+proa lint --min-severity info src
+proa site check
+```
+
+If you are working from the Proa repository instead of an installed CLI, use the Cargo wrapper:
+
+```bash
+cargo run -p proa-cli --bin proa -- fmt --check --verify src
+cargo run -p proa-cli --bin proa -- lint --min-severity info src
+```
+
+## `proa: command not found`
+
+Right after an install, the cause is PATH. The installer appends an `export PATH`
+line to every shell profile it finds (`~/.bashrc`, `~/.bash_profile`, `~/.zshrc`,
+`~/.profile`, and `~/.config/fish/config.fish`), and the shell you are already in
+never rereads those files. Open a new terminal, or add the directory to the
+current shell by hand:
+
+```bash
+export PATH="$HOME/.proa/bin:$PATH"
+```
+
+Confirm that the binaries landed where you expect:
+
+```bash
+ls "$HOME/.proa/bin"
+"$HOME/.proa/bin/proa" --version
+```
+
+On Windows, the installer writes the directory into your user PATH and into the
+terminal it ran in, so that terminal can run `proa` right away. Every other
+process keeps the PATH it started with, so restart any other terminal or editor
+before running `proa --version` there. Check the persisted value with:
+
+```powershell
+[Environment]::GetEnvironmentVariable("Path", "User")
+```
+
+The installer refuses to rewrite a user PATH that contains `%VAR%` references,
+because rewriting one would freeze today's expansion. It warns and prints the
+line to add when it finds one.
+
+If you ran `cargo install` or the installer fell back to a source build, the
+binaries live in `~/.cargo/bin` instead. Point the same `export` line at that
+directory.
+
+If you passed `PROA_NO_MODIFY_PATH` or `--no-modify-path`, the installer left
+your profiles, and the Windows user PATH, alone by design, and printed the line
+to add. Add it yourself, or run the installer again without that flag.
+
+Every run writes a log that lists which profile files the installer examined,
+which it changed, and which already had the line. The installer prints the path
+as it exits, and it looks like
+`/tmp/proa-install-20260813T221500Z-1234.log` (under `%TEMP%` on Windows). Read
+that when the PATH change did not land where you expected, and attach it if you
+report the problem.
+
+When you are developing inside this repository, run the CLI through Cargo instead:
+
+```bash
+cargo run -p proa-cli --bin proa -- --help
+```
+
+Then use that same prefix for later commands. See [Install Proa](/docs#1-install-proa) and the [CLI reference](/docs/cli).
+
+## The Installer Cannot Reach The Download Host
+
+The installer fetches release archives from `https://proa.so/downloads/cli`,
+the value of `PROA_DOWNLOAD_BASE`. A connection failure or a `503` from that
+host stops the download before there is anything to verify.
+
+A `503` means the release host behind the bridge is unavailable or rate
+limited. The response carries `Retry-After: 30`, so wait half a minute and run
+the installer again. Check the endpoint yourself:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sS -i https://proa.so/downloads/cli/latest.json
+```
+
+A `200` with a `version` field means the host is healthy and the problem is
+between you and it, usually a proxy or a DNS resolver. If the failure persists,
+build the CLI from source instead:
+
+```bash
+curl -fsSL https://proa.so/install.sh | PROA_BUILD_FROM_SOURCE=1 sh
+```
+
+Or point the installer at another host that serves the same file names:
+
+```bash
+curl -fsSL https://proa.so/install.sh | PROA_DOWNLOAD_BASE=https://mirror.example/downloads/cli sh
+```
+
+`PROA_REPO` does not help here. It selects the repository the source build
+compiles from, not the host archives come from.
+
+The installer log records the request and what came back. Its path is printed
+as the installer exits.
+
+## No Release Is Published Yet
+
+`https://proa.so/downloads/cli/latest.json` answers `404` when no `proa-cli`
+release exists. The installer reads that as "there is no version to install"
+rather than a failure, and compiles the CLI with Cargo instead. The log names
+the outcome, and the run ends with a working `proa`, just built rather than
+downloaded.
+
+The source build puts `proa` and `cargo-proa` in `~/.cargo/bin`, not
+`~/.proa/bin`, so look there when the shell cannot find the binary afterwards.
+
+Pinning `PROA_VERSION` does not change this. A version with no published
+archives answers `404` on the asset URL too.
+
+## Checksum Verification Failed
+
+The installer compares the downloaded archive against the `SHA256SUMS` file for
+that release. A mismatch stops the install before the installer unpacks
+anything, and it deletes the temporary directory it downloaded into, so nothing
+was installed and no unpacked binary was left behind.
+
+A truncated download, a proxy that rewrote the response, or a stale cache all
+produce this. Run the installer again first. If the mismatch survives a retry,
+fetch both files and check them yourself:
+
+```bash
+VERSION=0.1.0
+TARGET=x86_64-unknown-linux-gnu
+BASE="https://proa.so/downloads/cli/$VERSION"
+curl --proto '=https' --tlsv1.2 -fLO "$BASE/proa-cli-$VERSION-$TARGET.tar.gz"
+curl --proto '=https' --tlsv1.2 -fLO "$BASE/proa-cli-$VERSION-SHA256SUMS"
+shasum -a 256 --ignore-missing -c "proa-cli-$VERSION-SHA256SUMS"
+```
+
+Use `sha256sum --ignore-missing -c` on Linux. A clean download on a different
+network settles the question: if it verifies there, your first download passed
+through something that changed it. If it fails there too, do not install the
+archive. Open an issue with the version, the target triple, and the digest you
+computed, and attach the installer log. It records the URL it fetched, the
+expected hash, and the hash it computed. Its path is printed as the installer
+exits.
+
+To keep moving in the meantime, build the CLI from source instead:
+
+```bash
+curl -fsSL https://proa.so/install.sh | PROA_BUILD_FROM_SOURCE=1 sh
+```
+
+## No Prebuilt Binary For This Platform
+
+For now, Proa publishes one native release binary:
+`x86_64-unknown-linux-gnu`, built on Ubuntu 24.04. It supports 64-bit Ubuntu
+24.04+ and other glibc 2.39+ Linux systems. On anything else, including older
+Ubuntu releases, ARM Linux, Alpine and other musl distributions, macOS,
+Windows, FreeBSD, and 32-bit hosts, the installer reports that it found no
+matching asset and compiles the CLI with Cargo instead. While the repository is
+private, that fallback requires GitHub access:
+
+```bash
+CARGO_REGISTRIES_PROA_INDEX="sparse+https://registry.proa.so/sparse/" \
+  cargo install --git https://github.com/proa-labs/proa --locked proa-cli
+```
+
+The installer sets `CARGO_REGISTRIES_PROA_INDEX` itself for that build, so
+there is nothing to export first; an index you exported already wins. The
+prefix matters when you run the command by hand: `proa-cli` depends on crates
+that name the `proa` registry, and `cargo install --git` reads configuration
+from the current directory and `CARGO_HOME` rather than from the checkout it
+clones, so without the index the build stops with
+`registry index was not found in any configuration: proa`.
+
+The installer also sets `CARGO_NET_GIT_FETCH_WITH_CLI=true` when a `git`
+binary is available, so the clone goes through git itself rather than Cargo's
+built-in fetcher. The built-in fetcher ignores credential helpers,
+`url.*.insteadOf` rewrites, `http.sslCAInfo`, and most proxy configuration
+from `~/.gitconfig`, which is why cloning used to fail for some setups until
+that variable was exported by hand. Running the Cargo command yourself behind
+a proxy or a corporate CA, prefix it the same way.
+
+That build takes several minutes and needs Rust 1.93.0 or newer plus a C
+toolchain. On Alpine, install the toolchain first:
+
+```bash
+apk add build-base
+```
+
+Alpine's packaged Rust lags the 1.93.0 minimum on some releases. Run
+`rustc --version`, and install the toolchain with
+[rustup](https://rustup.rs) when the packaged one is older. The installer
+does not install Rust for you: it stops and prints the rustup command
+instead. And when the only downloader on the system is BusyBox `wget`,
+which cannot enforce HTTPS-only transfers, the installer stops and asks
+for curl before downloading anything:
+
+```bash
+apk add curl
+```
+
+The source build puts `proa` and `cargo-proa` in `~/.cargo/bin`, not
+`~/.proa/bin`, so check that directory when the shell cannot find the binary
+afterwards.
+
+When the fallback surprises you on a platform that does have a published
+binary, read the installer log. It records the raw `uname` output, the libc it
+detected and how, the target triple it resolved, and the asset lookup that came
+back empty. Attach it if you report the detection as wrong.
+
+## Cargo Cannot Download Proa Crates
+
+Generated projects declare Proa crates as git dependencies on
+`https://github.com/Proa-Labs/proa.git`. Confirm that your project has a
+`.cargo/config.toml` that fetches them with the git CLI and defines the
+`proa` registry name:
+
+```toml
+[net]
+git-fetch-with-cli = true
+
+[registries.proa]
+index = "sparse+https://registry.proa.so/sparse/"
+```
+
+`git-fetch-with-cli` makes Cargo run your git binary, so existing GitHub
+credentials (SSH agent, keychain, `gh auth`) apply. The `[registries.proa]`
+entry only defines the registry name that Proa workspace manifests reference;
+nothing is downloaded from it and no token is needed.
+
+While the repository is private, the git fetch needs GitHub access, on your
+machine and in CI. See [Installation](/docs) and [CI / GitHub Actions](/docs/guides/ci).
+
+## The Page Builds But Styles Are Missing
+
+Generated Tailwind sites write `public/styles.css`. If the page renders unstyled, rebuild the stylesheet with the same command the `proa dev` / `proa build` asset step runs:
+
+```bash
+tailwindcss -i styles/input.css -o public/styles.css
+```
+
+If `tailwindcss` is not on PATH, install Tailwind CSS CLI v4 with the Proa installer (`curl -fsSL https://proa.so/install.sh | sh -s -- --tailwind-only`) or with Homebrew (`brew install tailwindcss`).
+
+Use `--no-tailwind` when scaffolding if you want to bring your own stylesheet pipeline.
+
+## `html_sync!` Or `html!` Does Not Parse
+
+Run the formatter with structural verification first:
+
+```bash
+proa fmt --check --verify src
+```
+
+Common causes:
+
+| Symptom | Fix |
+|---------|-----|
+| A void element has children | Use a self-closing element such as `<input ... />`. |
+| Attribute syntax is split by invalid tokens | Keep names like `data-state` and `aria-label` as one attribute token. |
+| Dynamic text appears without braces | Use `{value}` for Rust expressions and quoted text for static strings. |
+| A generated macro body has odd spacing | Run `proa fmt src`, then `cargo fmt --all`. |
+
+See [The html! Macro](/docs/core/html-rendering) and [Format, Lint, And Check](/docs/cli/format-lint-check).
+
+## A Component Has Trait Errors
+
+Most page and component render paths should implement `WebRenderSync`. Keep the
+implementation generic over the data loader; the output defaults to the owned
+`RenderBuffer`:
+
+```rust
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+
+impl<L: DataLoader> WebRenderSync<L> for MyComponent {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        // ...
+        Ok(())
+    }
+}
+```
+
+If you place a sync component inside an async `html!` tree, wrap it with `proa_core::to_async(...)`. If the component awaits data or uses async loaders, implement `WebRender` and render with `html!`. See [Render traits](/docs/core/html-rendering).
+
+## Classes Disappear Or `ClassList` Fails
+
+`ClassList<N>` has fixed capacity. Count every segment you add, including optional classes:
+
+```rust
+let classes = ClassList::<4>::new()
+    .add(BASE)
+    .add(size.classes())
+    .add(variant.classes())
+    .add_opt(self.class);
+```
+
+Prefer increasing the capacity over building a `String` in the render path. See [Class composition](/docs/core/class-composition).
+
+## An Island Renders But Clicks Do Nothing
+
+Check the browser network panel first. The page should load the rsjs runtime and the island chunk without 404s.
+
+Then confirm:
+
+- The island has a matching server-rendered placeholder.
+- The route serves static assets from the same origin during development.
+- Event handlers live inside the `#[island]` or
+  `#[rsjs(component, client)]` boundary.
+- Async query helpers use an async `WebRender` component, not a sync render implementation.
+
+See [RSJS](/docs/guides/islands).
+
+## A New Route Returns 404
+
+Run the site checks:
+
+```bash
+proa site routes
+proa site check
+```
+
+Confirm that the route is registered in the router, the page module is exported, and generated metadata points at the same path. See [Framework routing](/docs/framework/routing) and [Site commands](/docs/cli/site).
+
+## CI Fails But Local Checks Pass
+
+Make CI run the same commands as local development:
+
+```bash
+cargo fmt --all --check
+cargo check
+proa check src
+```
+
+If CI fails before compilation, check GitHub access for the Proa git dependencies first. While the repository is private, every Cargo invocation that resolves dependencies needs credentials for it, including `cargo check`, `cargo test`, and `cargo clippy`.
+
+For GitHub annotations, run:
+
+```bash
+proa lint --github --changed --base origin/main
+```
+
+Git selection replaces the path argument: `--changed` and `--base` cannot be combined with explicit paths.
+
+See [CI / GitHub Actions](/docs/guides/ci).
+
+## Still Stuck
+
+Capture the exact failing command and a machine-readable diagnostic:
+
+```bash
+proa lint --json --min-severity info src
+proa chunks --json src
+```
+
+Include the failing route, the rendered HTML snippet if a browser page looks wrong, and the first compiler or CLI diagnostic that points at your code.
+
+For an install that failed, attach the installer log instead. The installer
+prints its path on the way out, on success and on failure, and
+`PROA_LOG=/path/to/file` writes it where you choose. Rerun with `PROA_VERBOSE=1`
+to see the same detail in the terminal while you work.

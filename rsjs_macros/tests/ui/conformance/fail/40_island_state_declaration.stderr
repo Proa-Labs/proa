@@ -1,0 +1,16 @@
+error: rsjs boundary: `rsjs::island(...)` cannot declare or read parent `signal(...)` state
+
+       Why:
+         Explicit child islands are independent client scopes. State must belong to the parent island or the child island, not both through the boundary expression.
+
+       Use one of:
+         - Declare the state in the parent and keep the reactive markup in the parent island.
+         - Declare independent state inside the child island.
+         - Pass plain server data across the island boundary and coordinate later through query, mutation, or custom events.
+
+       Tracked feature:
+         server_boundary.state_declaration
+  --> tests/ui/conformance/fail/40_island_state_declaration.rs:30:61
+   |
+30 |                 {rsjs::island(ChildWithServerValue { value: signal(0_i64).get() })}
+   |                                                             ^^^^^^

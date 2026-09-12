@@ -1,0 +1,6 @@
+error: rsjs/template-browser-operation-in-opaque-server-statement: `rsjs::location::href` is browser behavior and cannot execute as an ordinary server statement
+       help: move it into a reachable handler, effect, binding, or supported client expression
+  --> tests/ui/fail/72_browser_operation_in_opaque_server_local.rs:11:17
+   |
+11 |         let _ = rsjs::location::href();
+   |                 ^^^^

@@ -1,0 +1,55 @@
+---
+title: Cards
+description: Link onward with a grid instead of a paragraph of links.
+---
+
+<Callout>
+Opt-in. Enable it in `build.rs` before use — see [Enabling](#enabling) below.
+</Callout>
+
+Cards are how a hub page hands off. They read faster than a "see also" paragraph and they survive scanning.
+
+```mdx filename="content/index.mdx"
+<Cards>
+  <Card title="Quickstart" description="Running docs site in five minutes." href="/docs/proa-docs/quickstart" />
+  <Card title="Code block" description="Highlighting, filenames, line marks, and copy controls." href="/docs/proa-docs/code-block" />
+</Cards>
+```
+
+Rendered:
+
+<Cards>
+  <Card title="Quickstart" description="Running docs site in five minutes." href="/docs/proa-docs/quickstart" />
+  <Card title="Code block" description="Highlighting, filenames, line marks, and copy controls." href="/docs/proa-docs/code-block" />
+</Cards>
+
+## Attributes
+
+| Attribute | Required | Meaning |
+|---|---|---|
+| `title` | **yes** | Card heading. Missing title fails the build |
+| `href` | **yes** | Destination. Internal links are checked by [link validation](/docs/proa-docs/link-validation) |
+| `description` | no | One line under the title |
+
+Each `<Card />` is a single self-closing tag on its own line; any other non-blank line inside `<Cards>` fails the build. Cards have no bodies, so keep the description to a sentence.
+
+## Enabling
+
+The `MdxConfig::proa()` preset enables this along with the other opt-in components. To turn on just this one:
+
+```rust filename="build.rs"
+use proa_docs_build::{Config, MarkdownPipeline, MdxConfig};
+
+let markdown = MarkdownPipeline::default().mdx(MdxConfig::new().cards(true));
+let config = Config::new().source(source.markdown(markdown));
+```
+
+## Where they earn their place
+
+End a hub page with cards rather than prose. Fumadocs does this on every index page and it is the right call: a reader arriving at a section wants the menu, not a paragraph describing the menu.
+
+Do not use them mid-page as a substitute for inline links.
+
+## Related
+
+[Files](/docs/proa-docs/files) · [Navigation](/docs/proa-docs/navigation) · [Link validation](/docs/proa-docs/link-validation)

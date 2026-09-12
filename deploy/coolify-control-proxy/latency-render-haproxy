@@ -1,0 +1,387 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TEST_ROOT=${PROA_HAPROXY_TEST_ROOT:-}
+if [ -n "$TEST_ROOT" ]; then
+  if [[ ${EUID:-$(id -u)} -eq 0 || "$TEST_ROOT" != /* ]]; then
+    echo "PROA_HAPROXY_TEST_ROOT requires a non-root process and an absolute path" >&2
+    exit 2
+  fi
+  PREVIEW_DIR=$TEST_ROOT/etc/haproxy/previews
+  CFG=$TEST_ROOT/etc/haproxy/haproxy.cfg
+else
+  PREVIEW_DIR=/etc/haproxy/previews
+  CFG=/etc/haproxy/haproxy.cfg
+fi
+TMP="$(mktemp)"
+USES="$(mktemp)"
+BACKENDS="$(mktemp)"
+ROUTER_USES="$(mktemp)"
+ROUTER_BACKENDS="$(mktemp)"
+ARCHIVE_ROUTER_USES="$(mktemp)"
+ARCHIVE_ROUTER_BACKENDS="$(mktemp)"
+ARCHIVE_ROUTER_NAMESPACES="$(mktemp)"
+ARCHIVE_ROUTER_PORTS="$(mktemp)"
+cleanup() {
+  rm -f \
+    "${TMP}" \
+    "${USES}" \
+    "${BACKENDS}" \
+    "${ROUTER_USES}" \
+    "${ROUTER_BACKENDS}" \
+    "${ARCHIVE_ROUTER_USES}" \
+    "${ARCHIVE_ROUTER_BACKENDS}" \
+    "${ARCHIVE_ROUTER_NAMESPACES}" \
+    "${ARCHIVE_ROUTER_PORTS}"
+}
+trap cleanup EXIT
+
+if [ -d "${PREVIEW_DIR}" ]; then
+  for env_file in "${PREVIEW_DIR}"/*.env; do
+    [ -e "${env_file}" ] || continue
+    PREVIEW=""
+    FQDN=""
+    PORT=""
+    HEALTH_PATH="/readyz"
+    REALTIME_PORT=""
+    TERMINAL_PORT=""
+    ROUTER_SUFFIX=""
+    ROUTER_PORT=""
+    ARCHIVE_ROUTER_APPLICATION=""
+    ARCHIVE_ROUTER_DOMAIN=""
+    ARCHIVE_ROUTER_HOST=""
+    ARCHIVE_ROUTER_PORT=""
+    ARCHIVE_ROUTER_HEALTH_PORT=""
+    AUTH_HEADER_FILE=""
+    REDIRECT_HOST=""
+    PUBLIC_PATH=""
+    ARCHIVE_CONTROL_PATH=""
+    ARCHIVE_CONTROL_PORT=""
+    # shellcheck disable=SC1090
+    . "${env_file}"
+    if [[ ! "${PREVIEW}" =~ ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$ ]]; then
+      echo "invalid PREVIEW in ${env_file}: ${PREVIEW}" >&2
+      exit 1
+    fi
+    case "${FQDN}" in
+      *.*) ;;
+      *) echo "invalid FQDN in ${env_file}: ${FQDN}" >&2; exit 1 ;;
+    esac
+    case "${PORT}" in
+      ''|*[!0-9]*) echo "invalid PORT in ${env_file}: ${PORT}" >&2; exit 1 ;;
+    esac
+    for optional_port in \
+      REALTIME_PORT \
+      TERMINAL_PORT \
+      ROUTER_PORT \
+      ARCHIVE_CONTROL_PORT \
+      ARCHIVE_ROUTER_PORT \
+      ARCHIVE_ROUTER_HEALTH_PORT; do
+      value="${!optional_port}"
+      case "${value}" in
+        '') ;;
+        *[!0-9]*) echo "invalid ${optional_port} in ${env_file}: ${value}" >&2; exit 1 ;;
+      esac
+    done
+    if { [ -n "${REALTIME_PORT}" ] && [ -z "${TERMINAL_PORT}" ]; } \
+      || { [ -z "${REALTIME_PORT}" ] && [ -n "${TERMINAL_PORT}" ]; }; then
+      echo "REALTIME_PORT and TERMINAL_PORT must be configured together in ${env_file}" >&2
+      exit 1
+    fi
+    if { [ -n "${ROUTER_SUFFIX}" ] && [ -z "${ROUTER_PORT}" ]; } \
+      || { [ -z "${ROUTER_SUFFIX}" ] && [ -n "${ROUTER_PORT}" ]; }; then
+      echo "ROUTER_SUFFIX and ROUTER_PORT must be configured together in ${env_file}" >&2
+      exit 1
+    fi
+    archive_router_fields=0
+    [ -n "${ARCHIVE_ROUTER_APPLICATION}" ] && archive_router_fields=$((archive_router_fields + 1))
+    [ -n "${ARCHIVE_ROUTER_DOMAIN}" ] && archive_router_fields=$((archive_router_fields + 1))
+    [ -n "${ARCHIVE_ROUTER_HOST}" ] && archive_router_fields=$((archive_router_fields + 1))
+    [ -n "${ARCHIVE_ROUTER_PORT}" ] && archive_router_fields=$((archive_router_fields + 1))
+    [ -n "${ARCHIVE_ROUTER_HEALTH_PORT}" ] && archive_router_fields=$((archive_router_fields + 1))
+    if ((archive_router_fields != 0 && archive_router_fields != 5)); then
+      echo "ARCHIVE_ROUTER_APPLICATION, ARCHIVE_ROUTER_DOMAIN, ARCHIVE_ROUTER_HOST, ARCHIVE_ROUTER_PORT, and ARCHIVE_ROUTER_HEALTH_PORT must be configured together in ${env_file}" >&2
+      exit 1
+    fi
+    if { [ -n "${ARCHIVE_CONTROL_PATH}" ] && [ -z "${ARCHIVE_CONTROL_PORT}" ]; } \
+      || { [ -z "${ARCHIVE_CONTROL_PATH}" ] && [ -n "${ARCHIVE_CONTROL_PORT}" ]; }; then
+      echo "ARCHIVE_CONTROL_PATH and ARCHIVE_CONTROL_PORT must be configured together in ${env_file}" >&2
+      exit 1
+    fi
+    if [ -n "${ROUTER_SUFFIX}" ] && [[ ! "${ROUTER_SUFFIX}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
+      echo "invalid ROUTER_SUFFIX in ${env_file}: ${ROUTER_SUFFIX}" >&2
+      exit 1
+    fi
+    if [ -n "${ARCHIVE_ROUTER_APPLICATION}" ]; then
+      if [[ ! "${ARCHIVE_ROUTER_APPLICATION}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+        echo "invalid ARCHIVE_ROUTER_APPLICATION in ${env_file}: ${ARCHIVE_ROUTER_APPLICATION}" >&2
+        exit 1
+      fi
+      if [[ ! "${ARCHIVE_ROUTER_DOMAIN}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
+        echo "invalid ARCHIVE_ROUTER_DOMAIN in ${env_file}: ${ARCHIVE_ROUTER_DOMAIN}" >&2
+        exit 1
+      fi
+      if ((${#ARCHIVE_ROUTER_APPLICATION} + ${#ARCHIVE_ROUTER_DOMAIN} + 14 > 253)); then
+        echo "archive router hostname is too long in ${env_file}" >&2
+        exit 1
+      fi
+      if [[ ! "${ARCHIVE_ROUTER_HOST}" =~ ^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]] \
+        || ((10#${BASH_REMATCH[1]} > 255)) \
+        || ((10#${BASH_REMATCH[2]} > 255)) \
+        || ((10#${BASH_REMATCH[3]} > 255)) \
+        || ((10#${BASH_REMATCH[4]} > 255)); then
+        echo "invalid ARCHIVE_ROUTER_HOST in ${env_file}: ${ARCHIVE_ROUTER_HOST}" >&2
+        exit 1
+      fi
+      if [[ ! "${ARCHIVE_ROUTER_PORT}" =~ ^[1-9][0-9]{0,4}$ ]] \
+        || ((10#${ARCHIVE_ROUTER_PORT} > 65535)); then
+        echo "invalid ARCHIVE_ROUTER_PORT in ${env_file}: ${ARCHIVE_ROUTER_PORT}" >&2
+        exit 1
+      fi
+      if [[ ! "${ARCHIVE_ROUTER_HEALTH_PORT}" =~ ^[1-9][0-9]{0,4}$ ]] \
+        || ((10#${ARCHIVE_ROUTER_HEALTH_PORT} > 65535)) \
+        || [[ "${ARCHIVE_ROUTER_HEALTH_PORT}" == "${ARCHIVE_ROUTER_PORT}" ]]; then
+        echo "invalid ARCHIVE_ROUTER_HEALTH_PORT in ${env_file}: ${ARCHIVE_ROUTER_HEALTH_PORT}" >&2
+        exit 1
+      fi
+    fi
+    if [ -n "${ARCHIVE_CONTROL_PATH}" ]; then
+      if [ -z "${AUTH_HEADER_FILE}" ] || [ -z "${REDIRECT_HOST}" ]; then
+        echo "archive control requires AUTH_HEADER_FILE and REDIRECT_HOST in ${env_file}" >&2
+        exit 1
+      fi
+      if [ "${ARCHIVE_CONTROL_PATH}" != "/_proa/origin/preview-archive" ]; then
+        echo "invalid ARCHIVE_CONTROL_PATH in ${env_file}: ${ARCHIVE_CONTROL_PATH}" >&2
+        exit 1
+      fi
+      if [[ ! "${ARCHIVE_CONTROL_PORT}" =~ ^[1-9][0-9]{0,4}$ ]] \
+        || ((10#${ARCHIVE_CONTROL_PORT} > 65535)); then
+        echo "invalid ARCHIVE_CONTROL_PORT in ${env_file}: ${ARCHIVE_CONTROL_PORT}" >&2
+        exit 1
+      fi
+    fi
+    auth_token=""
+    if [ -n "${AUTH_HEADER_FILE}${REDIRECT_HOST}${PUBLIC_PATH}" ]; then
+      if [ -z "${AUTH_HEADER_FILE}" ] || [ -z "${REDIRECT_HOST}" ]; then
+        echo "AUTH_HEADER_FILE and REDIRECT_HOST must be configured together in ${env_file}" >&2
+        exit 1
+      fi
+      if [ ! -f "${AUTH_HEADER_FILE}" ]; then
+        echo "AUTH_HEADER_FILE does not name a regular file in ${env_file}" >&2
+        exit 1
+      fi
+      auth_token="$(cat "${AUTH_HEADER_FILE}")"
+      if [[ ! "${auth_token}" =~ ^[A-Za-z0-9_-]{32,128}$ ]]; then
+        echo "invalid control-plane credential in ${AUTH_HEADER_FILE}" >&2
+        exit 1
+      fi
+      if [[ ! "${REDIRECT_HOST}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
+        echo "invalid REDIRECT_HOST in ${env_file}: ${REDIRECT_HOST}" >&2
+        exit 1
+      fi
+      if [ -n "${PUBLIC_PATH}" ]; then
+        case "${PUBLIC_PATH}" in
+          /*) ;;
+          *) echo "invalid PUBLIC_PATH in ${env_file}: ${PUBLIC_PATH}" >&2; exit 1 ;;
+        esac
+        if [[ "${PUBLIC_PATH}" =~ [[:space:]\\\"] ]]; then
+          echo "invalid PUBLIC_PATH in ${env_file}: ${PUBLIC_PATH}" >&2
+          exit 1
+        fi
+      fi
+    fi
+    case "${HEALTH_PATH}" in
+      /*) ;;
+      *) echo "invalid HEALTH_PATH in ${env_file}: ${HEALTH_PATH}" >&2; exit 1 ;;
+    esac
+    if [[ "${HEALTH_PATH}" =~ [[:space:]\\\"] ]]; then
+      echo "invalid HEALTH_PATH in ${env_file}: ${HEALTH_PATH}" >&2
+      exit 1
+    fi
+    backend="preview_${PREVIEW//-/_}"
+    acl="host_${PREVIEW//-/_}"
+    {
+      printf '    acl %s hdr(host) -i %s\n' "${acl}" "${FQDN}"
+      if [ -n "${auth_token}" ]; then
+        printf '    acl %s_control_auth req.hdr(X-Proa-Control-Plane) -m str %s\n' "${acl}" "${auth_token}"
+        if [ -n "${PUBLIC_PATH}" ]; then
+          printf '    acl %s_public_path path -i %s\n' "${acl}" "${PUBLIC_PATH}"
+          printf '    http-request redirect prefix https://%s code 308 if %s !%s_control_auth !%s_public_path\n' \
+            "${REDIRECT_HOST}" "${acl}" "${acl}" "${acl}"
+        else
+          printf '    http-request redirect prefix https://%s code 308 if %s !%s_control_auth\n' \
+            "${REDIRECT_HOST}" "${acl}" "${acl}"
+        fi
+      fi
+      if [ -n "${REALTIME_PORT}" ]; then
+        printf '    acl %s_terminal_path path -i /terminal/ws\n' "${acl}"
+        printf '    acl %s_realtime_path path_beg -i /app/\n' "${acl}"
+        if [ -n "${auth_token}" ]; then
+          printf '    use_backend %s_terminal if %s %s_control_auth %s_terminal_path\n' "${backend}" "${acl}" "${acl}" "${acl}"
+          printf '    use_backend %s_realtime if %s %s_control_auth %s_realtime_path\n' "${backend}" "${acl}" "${acl}" "${acl}"
+        else
+          printf '    use_backend %s_terminal if %s %s_terminal_path\n' "${backend}" "${acl}" "${acl}"
+          printf '    use_backend %s_realtime if %s %s_realtime_path\n' "${backend}" "${acl}" "${acl}"
+        fi
+      fi
+      if [ -n "${ARCHIVE_CONTROL_PORT}" ]; then
+        printf '    acl %s_archive_control_path path -i %s\n' "${acl}" "${ARCHIVE_CONTROL_PATH}"
+        # This must precede the generic authenticated Coolify backend below.
+        printf '    use_backend %s_archive_control if %s %s_control_auth %s_archive_control_path\n' \
+          "${backend}" "${acl}" "${acl}" "${acl}"
+      fi
+      if [ -n "${auth_token}" ]; then
+        printf '    use_backend %s if %s %s_control_auth\n' "${backend}" "${acl}" "${acl}"
+        if [ -n "${PUBLIC_PATH}" ]; then
+          printf '    use_backend %s if %s %s_public_path\n' "${backend}" "${acl}" "${acl}"
+        fi
+      else
+        printf '    use_backend %s if %s\n' "${backend}" "${acl}"
+      fi
+    } >> "${USES}"
+    {
+      printf 'backend %s\n' "${backend}"
+      if [ -n "${auth_token}" ]; then
+        printf '    http-request del-header X-Proa-Control-Plane\n'
+      fi
+      printf '    option httpchk GET %s\n' "${HEALTH_PATH}"
+      printf '    http-check expect status 200\n'
+      printf '    server app 127.0.0.1:%s check\n\n' "${PORT}"
+      if [ -n "${REALTIME_PORT}" ]; then
+        printf 'backend %s_realtime\n' "${backend}"
+        printf '    option httpchk GET /ready\n'
+        printf '    http-check expect status 200\n'
+        printf '    server app 127.0.0.1:%s check\n\n' "${REALTIME_PORT}"
+        printf 'backend %s_terminal\n' "${backend}"
+        printf '    option httpchk GET /ready\n'
+        printf '    http-check expect status 200\n'
+        printf '    server app 127.0.0.1:%s check\n\n' "${TERMINAL_PORT}"
+      fi
+      if [ -n "${ARCHIVE_CONTROL_PORT}" ]; then
+        printf 'backend %s_archive_control\n' "${backend}"
+        printf '    http-request del-header X-Proa-Control-Plane\n'
+        printf '    option httpchk GET /healthz\n'
+        printf '    http-check expect status 200\n'
+        printf '    server app 127.0.0.1:%s check\n\n' "${ARCHIVE_CONTROL_PORT}"
+      fi
+    } >> "${BACKENDS}"
+    if [ -n "${ROUTER_PORT}" ]; then
+      suffix_regex="${ROUTER_SUFFIX//./\\.}"
+      printf '    acl %s_router_host hdr_reg(host) -i ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.%s(:[0-9]+)?$\n' \
+        "${acl}" "${suffix_regex}" >> "${ROUTER_USES}"
+      printf '    use_backend %s_router if %s_router_host\n' \
+        "${backend}" "${acl}" >> "${ROUTER_USES}"
+      {
+        printf 'backend %s_router\n' "${backend}"
+        printf '    option httpchk GET /ping\n'
+        printf '    http-check expect status 200\n'
+        printf '    http-request set-header X-Forwarded-Proto https\n'
+        printf '    http-request set-header X-Forwarded-Port 443\n'
+        printf '    http-request set-header X-Forwarded-Host %%[req.hdr(Host)]\n'
+        printf '    server router 127.0.0.1:%s check\n\n' "${ROUTER_PORT}"
+      } >> "${ROUTER_BACKENDS}"
+    fi
+    if [ -n "${ARCHIVE_ROUTER_PORT}" ]; then
+      archive_namespace="${ARCHIVE_ROUTER_APPLICATION}.${ARCHIVE_ROUTER_DOMAIN}"
+      if grep -Fqx -- "$archive_namespace" "${ARCHIVE_ROUTER_NAMESPACES}"; then
+        echo "duplicate archive router namespace in ${env_file}: ${archive_namespace}" >&2
+        exit 1
+      fi
+      printf '%s\n' "$archive_namespace" >> "${ARCHIVE_ROUTER_NAMESPACES}"
+      for archive_router_port in "$ARCHIVE_ROUTER_PORT" "$ARCHIVE_ROUTER_HEALTH_PORT"; do
+        if grep -Fqx -- "$archive_router_port" "${ARCHIVE_ROUTER_PORTS}"; then
+          echo "duplicate archive router port in ${env_file}: ${archive_router_port}" >&2
+          exit 1
+        fi
+        printf '%s\n' "$archive_router_port" >> "${ARCHIVE_ROUTER_PORTS}"
+      done
+      archive_domain_regex=${ARCHIVE_ROUTER_DOMAIN//./\\.}
+      # This ACL deliberately admits only the immutable application hostname
+      # shape. It is emitted before the generic *.proa.cool Coolify route, so
+      # shared Coolify Traefik providers cannot claim or mask exact links.
+      printf '    acl %s_archive_router_host hdr_reg(host) -i ^%s-[a-z0-9]{12}\\.%s(:[0-9]+)?$\n' \
+        "${acl}" "${ARCHIVE_ROUTER_APPLICATION}" "${archive_domain_regex}" >> "${ARCHIVE_ROUTER_USES}"
+      printf '    use_backend %s_archive_router if %s_archive_router_host\n' \
+        "${backend}" "${acl}" >> "${ARCHIVE_ROUTER_USES}"
+      {
+        printf 'backend %s_archive_router\n' "${backend}"
+        printf '    option httpchk GET /ping\n'
+        printf '    http-check expect status 200\n'
+        printf '    http-request set-header X-Forwarded-Proto https\n'
+        printf '    http-request set-header X-Forwarded-Port 443\n'
+        printf '    http-request set-header X-Forwarded-Host %%[req.hdr(Host)]\n'
+        printf '    server router %s:%s check port %s\n\n' \
+          "${ARCHIVE_ROUTER_HOST}" "${ARCHIVE_ROUTER_PORT}" "${ARCHIVE_ROUTER_HEALTH_PORT}"
+      } >> "${ARCHIVE_ROUTER_BACKENDS}"
+    fi
+  done
+fi
+
+cat > "${TMP}" <<'CFGEOF'
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+    ca-base /etc/ssl/certs
+    crt-base /etc/haproxy/certs
+    ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+
+defaults
+    log global
+    mode http
+    option httplog
+    option dontlognull
+    option forwardfor
+    timeout connect 5s
+    timeout client 60s
+    timeout server 60s
+    timeout tunnel 1h
+
+frontend latency_http
+    bind :80
+    acl is_acme path_beg /.well-known/acme-challenge/
+    http-request redirect scheme https code 301 unless is_acme
+    use_backend latency_acme if is_acme
+
+backend latency_acme
+    server certbot 127.0.0.1:8888
+
+frontend latency_https
+    bind :443 ssl crt /etc/haproxy/certs alpn h2,http/1.1
+    http-request set-header X-Forwarded-Proto https
+    http-request set-header X-Forwarded-Port 443
+CFGEOF
+
+{
+  if [ -s "${USES}" ]; then
+    cat "${USES}"
+  fi
+  if [ -s "${ARCHIVE_ROUTER_USES}" ]; then
+    cat "${ARCHIVE_ROUTER_USES}"
+  fi
+  if [ -s "${ROUTER_USES}" ]; then
+    cat "${ROUTER_USES}"
+  fi
+  cat <<'CFGEOF'
+    default_backend latency_missing_preview
+
+backend latency_missing_preview
+    http-request return status 404 content-type text/plain string "preview not found\n"
+
+CFGEOF
+  cat "${BACKENDS}"
+  cat "${ARCHIVE_ROUTER_BACKENDS}"
+  cat "${ROUTER_BACKENDS}"
+} >> "${TMP}"
+
+if [ -n "$TEST_ROOT" ]; then
+  install -m 0640 "${TMP}" "${CFG}"
+else
+  haproxy -c -f "${TMP}"
+  install -o root -g haproxy -m 0640 "${TMP}" "${CFG}"
+fi

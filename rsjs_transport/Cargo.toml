@@ -1,0 +1,28 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rsjs_transport"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Versioned object/rlib record transport for the staged RSJS linker."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+object = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+object = { workspace = true, features = ["write"] }
+rsjs_ir = { workspace = true }
+serde_json = { workspace = true, features = ["preserve_order"] }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

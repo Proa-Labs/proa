@@ -1,0 +1,60 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa-cli"
+version = "0.1.1"
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+description = "CLI for scaffolding, inspecting, formatting, and validating Proa web projects"
+license-file.workspace = true
+
+[[bin]]
+name = "proa"
+path = "src/main.rs"
+
+[[bin]]
+name = "cargo-proa"
+path = "src/bin/cargo-proa.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { version = "4.5", features = ["derive", "cargo"] }
+clap_complete = { version = "4.5" }
+# Live-reload session secret for `proa dev`.
+getrandom = { version = "0.3" }
+glob = { version = "0.3" }
+object = { workspace = true }
+# Path handling.
+pathdiff = { version = "0.2" }
+proa_dsl = { workspace = true }
+proa_fonts_build = { workspace = true }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+quote = { workspace = true }
+rayon = { version = "1.10" }
+reqwest = { workspace = true, features = ["blocking"] }
+rsjs_ir = { workspace = true }
+rsjs_transport = { workspace = true }
+serde = { workspace = true }
+serde_ignored = { version = "0.1" }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+similar = { version = "2" }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate"] }
+syn = { workspace = true, features = ["full", "visit"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+toml = { workspace = true }
+toml_edit = { version = "0.22" }
+walkdir = { workspace = true }
+
+# Dev-loop process-group teardown
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

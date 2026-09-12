@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic field recorder illustration</title>
+  <desc id="desc">An original geometric audio recorder created for Proa fixtures.</desc>
+  <defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#eef2ff"/><stop offset="1" stop-color="#d7e6e8"/></linearGradient></defs>
+  <rect width="1200" height="800" fill="url(#bg)"/>
+  <rect x="270" y="185" width="660" height="430" rx="54" fill="#f8f8f6" stroke="#1f2d30" stroke-width="18"/>
+  <circle cx="410" cy="400" r="74" fill="#375f65"/><circle cx="790" cy="400" r="74" fill="#375f65"/>
+  <circle cx="410" cy="400" r="26" fill="#d7e6e8"/><circle cx="790" cy="400" r="26" fill="#d7e6e8"/>
+  <rect x="525" y="270" width="150" height="260" rx="18" fill="#e17352"/>
+  <path d="M566 326h68M566 370h68M566 414h68M566 458h68" stroke="#fff" stroke-width="16" stroke-linecap="round"/>
+  <path d="M330 660h540" stroke="#1f2d30" stroke-width="24" stroke-linecap="round" opacity=".18"/>
+</svg>

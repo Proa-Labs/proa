@@ -1,0 +1,5 @@
+error: <span> is not a valid child of <ul>. <ul> only accepts: <li> (HTML §3.2.5)
+ --> tests/ui/fail/nesting_span_in_ul.rs:5:23
+  |
+5 |     html_sync! { <ul><span>"bad"</span></ul> };
+  |                       ^^^^

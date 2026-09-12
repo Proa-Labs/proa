@@ -1,0 +1,19 @@
+{
+  "name": "@proa-labs/language-server",
+  "version": "0.1.0",
+  "description": "Proa Markdown template support through an LSP bridge to rust-analyzer.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Proa-Labs/proa.git",
+    "directory": "editors/lsp"
+  },
+  "bin": { "proa-lsp": "bin/proa-lsp.mjs" },
+  "files": ["bin", "src", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:neovim": "node ../neovim/test/run.mjs"
+  }
+}

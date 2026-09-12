@@ -1,0 +1,46 @@
+[
+  {
+    "args": [
+      {
+        "attr": "data-rsjs-payload-p0",
+        "kind": "event_payload",
+        "span": {
+          "end": {
+            "column": 50,
+            "line": 1
+          },
+          "start": {
+            "column": 45,
+            "line": 1
+          }
+        }
+      },
+      {
+        "kind": "event_value",
+        "span": {
+          "end": {
+            "column": 69,
+            "line": 1
+          },
+          "start": {
+            "column": 64,
+            "line": 1
+          }
+        },
+        "value": "Key"
+      }
+    ],
+    "kind": "console",
+    "level": "Log",
+    "span": {
+      "end": {
+        "column": 39,
+        "line": 1
+      },
+      "start": {
+        "column": 32,
+        "line": 1
+      }
+    }
+  }
+]

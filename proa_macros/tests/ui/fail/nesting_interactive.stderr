@@ -1,0 +1,5 @@
+error: <a> cannot appear inside <button> — interactive content cannot be nested. move the <a> outside the <button>, or restructure the UI (HTML §3.2.5.2.7)
+ --> tests/ui/fail/nesting_interactive.rs:5:27
+  |
+5 |     html_sync! { <button><a href="/link">"bad"</a></button> };
+  |                           ^

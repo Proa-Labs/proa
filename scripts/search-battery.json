@@ -1,0 +1,256 @@
+{
+  "description": "Ground truth for scripts/search_battery.mjs: each query names the page a reader obviously wants first, or a short list when two pages are equally right. Thresholds gate the run; raise them when the ranking improves.",
+  "thresholds": {
+    "top1": 56,
+    "top3": 58
+  },
+  "queries": [
+    {
+      "query": "signals",
+      "expect": "/docs/rsjs/signals"
+    },
+    {
+      "query": "fonts",
+      "expect": "/docs/framework/fonts"
+    },
+    {
+      "query": "docker",
+      "expect": "/docs/framework/docker"
+    },
+    {
+      "query": "railway",
+      "expect": "/docs/framework/railway"
+    },
+    {
+      "query": "coolify",
+      "expect": "/docs/framework/coolify"
+    },
+    {
+      "query": "etags",
+      "expect": "/docs/framework/page-caching"
+    },
+    {
+      "query": "csp",
+      "expect": "/docs/framework/security-headers"
+    },
+    {
+      "query": "streaming",
+      "expect": "/docs/core/streaming-ssr"
+    },
+    {
+      "query": "escaping",
+      "expect": "/docs/core/escaping"
+    },
+    {
+      "query": "hydration",
+      "expect": "/docs/rsjs/hydration"
+    },
+    {
+      "query": "mermaid",
+      "expect": "/docs/proa-docs/mermaid"
+    },
+    {
+      "query": "databases",
+      "expect": "/docs/framework/databases"
+    },
+    {
+      "query": "images",
+      "expect": "/docs/framework/images"
+    },
+    {
+      "query": "tutorial",
+      "expect": "/docs/guides/tutorial"
+    },
+    {
+      "query": "testing",
+      "expect": "/docs/guides/testing"
+    },
+    {
+      "query": "accessibility",
+      "expect": "/docs/guides/accessibility"
+    },
+    {
+      "query": "troubleshooting",
+      "expect": "/docs/guides/troubleshooting"
+    },
+    {
+      "query": "upgrading",
+      "expect": "/docs/guides/upgrading"
+    },
+    {
+      "query": "metadata",
+      "expect": "/docs/framework/metadata"
+    },
+    {
+      "query": "routing",
+      "expect": "/docs/framework/routing"
+    },
+    {
+      "query": "linking",
+      "expect": "/docs/framework/linking"
+    },
+    {
+      "query": "deploy",
+      "expect": "/docs/framework/deployment"
+    },
+    {
+      "query": "islands",
+      "expect": "/docs/guides/islands"
+    },
+    {
+      "query": "tailwind",
+      "expect": "/docs/guides/tailwind-intellisense"
+    },
+    {
+      "query": "csrf",
+      "expect": "/docs/framework/cross-origin"
+    },
+    {
+      "query": "sqlx",
+      "expect": "/docs/framework/databases"
+    },
+    {
+      "query": "redirects",
+      "expect": "/docs/framework/errors"
+    },
+    {
+      "query": "cache control",
+      "expect": "/docs/framework/page-caching"
+    },
+    {
+      "query": "page caching",
+      "expect": "/docs/framework/page-caching"
+    },
+    {
+      "query": "data caching",
+      "expect": "/docs/framework/caching"
+    },
+    {
+      "query": "content negotiation",
+      "expect": "/docs/framework/content-negotiation"
+    },
+    {
+      "query": "route handlers",
+      "expect": "/docs/framework/route-handlers"
+    },
+    {
+      "query": "forms actions",
+      "expect": "/docs/guides/forms-actions"
+    },
+    {
+      "query": "security headers",
+      "expect": "/docs/framework/security-headers"
+    },
+    {
+      "query": "environment variables",
+      "expect": "/docs/framework/environment"
+    },
+    {
+      "query": "static assets",
+      "expect": "/docs/framework/static-assets"
+    },
+    {
+      "query": "class composition",
+      "expect": "/docs/core/class-composition"
+    },
+    {
+      "query": "shared state",
+      "expect": "/docs/rsjs/shared-state"
+    },
+    {
+      "query": "browser apis",
+      "expect": "/docs/rsjs/browser-apis"
+    },
+    {
+      "query": "og images",
+      "expect": "/docs/framework/metadata"
+    },
+    {
+      "query": "html_sync",
+      "expect": "/docs/core/html-rendering"
+    },
+    {
+      "query": "ClassList",
+      "expect": "/docs/core/class-composition"
+    },
+    {
+      "query": "WebRenderSync",
+      "expect": [
+        "/docs/core/html-rendering",
+        "/docs/core/components"
+      ]
+    },
+    {
+      "query": "bind_value",
+      "expect": "/docs/rsjs/bindings"
+    },
+    {
+      "query": "StaticRaw",
+      "expect": "/docs/core/escaping"
+    },
+    {
+      "query": "Writing performant pages",
+      "expect": "/docs/guides/performance"
+    },
+    {
+      "query": "Data loading and streaming",
+      "expect": "/docs/framework/data-loading"
+    },
+    {
+      "query": "Headers and CSP",
+      "expect": "/docs/framework/security-headers"
+    },
+    {
+      "query": "Quickstart",
+      "expect": [
+        "/docs",
+        "/docs/proa-docs/quickstart"
+      ]
+    },
+    {
+      "query": "sigals",
+      "expect": "/docs/rsjs/signals"
+    },
+    {
+      "query": "cache invalidation",
+      "expect": [
+        "/docs/framework/page-caching",
+        "/docs/framework/caching"
+      ]
+    },
+    {
+      "query": "nonce",
+      "expect": "/docs/framework/security-headers"
+    },
+    {
+      "query": "google fonts",
+      "expect": "/docs/framework/fonts"
+    },
+    {
+      "query": "markdown",
+      "expect": [
+        "/docs/core/markdown",
+        "/docs/proa-docs/markdown"
+      ]
+    },
+    {
+      "query": "event handlers",
+      "expect": "/docs/rsjs/handlers"
+    },
+    {
+      "query": "suspense",
+      "expect": [
+        "/docs/core/streaming-ssr",
+        "/docs/framework/data-loading"
+      ]
+    },
+    {
+      "query": "llms.txt",
+      "expect": "/docs/llms"
+    },
+    {
+      "query": "rails",
+      "expect": "/docs/migration/rails"
+    }
+  ]
+}

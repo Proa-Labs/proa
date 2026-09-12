@@ -1,0 +1,107 @@
+{
+  "kind": "Block",
+  "statements": [
+    {
+      "span": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 1,
+          "column": 0
+        }
+      },
+      "kind": "Let",
+      "local": 1,
+      "name": "length",
+      "value": {
+        "span": {
+          "start": {
+            "line": 1,
+            "column": 0
+          },
+          "end": {
+            "line": 1,
+            "column": 0
+          }
+        },
+        "kind": "Len",
+        "target": {
+          "span": {
+            "start": {
+              "line": 1,
+              "column": 0
+            },
+            "end": {
+              "line": 1,
+              "column": 0
+            }
+          },
+          "kind": "Param",
+          "index": 0,
+          "name": "label"
+        }
+      }
+    },
+    {
+      "span": {
+        "start": {
+          "line": 1,
+          "column": 0
+        },
+        "end": {
+          "line": 1,
+          "column": 0
+        }
+      },
+      "kind": "Return",
+      "value": {
+        "span": {
+          "start": {
+            "line": 1,
+            "column": 0
+          },
+          "end": {
+            "line": 1,
+            "column": 0
+          }
+        },
+        "kind": "BinaryOp",
+        "op": "Gt",
+        "lhs": {
+          "span": {
+            "start": {
+              "line": 1,
+              "column": 0
+            },
+            "end": {
+              "line": 1,
+              "column": 0
+            }
+          },
+          "kind": "Local",
+          "local": 1,
+          "name": "length"
+        },
+        "rhs": {
+          "span": {
+            "start": {
+              "line": 1,
+              "column": 0
+            },
+            "end": {
+              "line": 1,
+              "column": 0
+            }
+          },
+          "kind": "Lit",
+          "value": {
+            "v": "Int",
+            "data": 0
+          }
+        }
+      }
+    }
+  ]
+}

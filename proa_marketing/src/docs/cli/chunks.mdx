@@ -1,0 +1,57 @@
+---
+title: proa chunks
+description: Inspect static runs and dynamic slots.
+---
+
+`proa chunks` estimates how `html!` and `html_sync!` macro bodies split into consolidated static byte runs and dynamic slots. Use it when tuning hot SSR routes or reviewing a template that changed unexpectedly.
+
+```bash
+proa chunks src/pages/home.rs
+proa chunks src/components
+proa chunks --json src/pages/home.rs
+```
+
+## Report Fields
+
+| Field | Meaning |
+|-------|---------|
+| `runs` | Number of consolidated static byte runs. |
+| `static_bytes` | Estimated bytes across all static runs. |
+| `largest_run` | Estimated size of the largest static run. |
+| `text_slots` | Dynamic child/text slots such as `{child}`. |
+| `attr_slots` | Dynamic attribute slots such as `class={classes}`. |
+
+Dynamic text and attribute slots create run boundaries. Fewer, larger static runs generally render faster because more bytes can be copied as consolidated static segments.
+
+## Example
+
+```bash
+proa chunks src/pages/home.rs
+```
+
+Text output includes one row per discovered macro body:
+
+```text
+macro (file:line)                                runs       static      largest  txt{} attr{}
+src/pages/home.rs:18 html_sync!                     4         420B         180B      1      2
+```
+
+Use `--json` when feeding the output to scripts or dashboards.
+
+## Changed Files
+
+`chunks` uses the same Git file-selection flags as `lint` and `check`:
+
+```bash
+proa chunks --changed --base origin/main
+proa chunks --staged --json
+```
+
+The report scans Rust files and ignores non-HTML macro dialects.
+
+## How To Use The Numbers
+
+- Treat byte counts as estimates, not exact macro expansion output.
+- Look for templates where small dynamic expressions split large static regions.
+- Hoist invariant text and attribute values into literals where practical.
+- Keep correctness first when deciding whether to reduce dynamic slots.

@@ -1,0 +1,16 @@
+{
+  "title": "CLI",
+  "pages": [
+    "---Start Here---",
+    "index",
+    "---Scaffolding---",
+    "new-site",
+    "generators",
+    "---Developer workflow---",
+    "format-lint-check",
+    "site",
+    "chunks"
+  ],
+  "icon": "Terminal",
+  "root": true
+}

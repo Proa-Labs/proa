@@ -1,0 +1,16 @@
+error: rsjs boundary: `rsjs::island(...)` cannot call parent browser helper `rsjs::window::inner_width`
+
+       Why:
+         Explicit child islands hydrate independently. Parent-side browser work cannot be smuggled through the server-rendered boundary expression.
+
+       Use one of:
+         - Give the child island its own browser helper call.
+         - Render the child directly inside the parent island if parent browser state must feed it.
+         - Pass plain server data across the explicit island boundary.
+
+       Tracked feature:
+         server_boundary.browser_helper
+  --> tests/ui/fail/54_island_browser_helper.rs:19:54
+   |
+19 |                 {rsjs::island(BoundaryChild { value: rsjs::window::inner_width() })}
+   |                                                      ^^^^

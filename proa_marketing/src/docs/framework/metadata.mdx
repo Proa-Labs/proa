@@ -1,0 +1,101 @@
+---
+title: Metadata and OG images
+description: Compose titles, descriptions, and social preview images.
+---
+
+Proa metadata is resolved from the current route context. Layouts and pages can both provide metadata; the framework precomputes a metadata map from the route specification and exposes helpers for rendering the current route's head tags.
+
+## Title-Only Pages
+
+`Route::page` creates title-only metadata:
+
+```rust
+Route::page("/pricing", "Pricing", get(pricing))
+```
+
+Use this for simple pages where layout defaults provide the rest.
+
+## Custom Metadata
+
+Implement `Metadata` for full control:
+
+```rust
+use proa_framework_axum::{
+    CascadeOpenGraph, CascadeValue, Metadata, OpenGraphImage,
+};
+
+pub struct PricingMeta;
+
+impl Metadata for PricingMeta {
+    fn title(&self) -> CascadeValue<&'static str> {
+        CascadeValue::Set("Pricing")
+    }
+
+    fn description(&self) -> CascadeValue<&'static str> {
+        CascadeValue::Set("Plans and deployment options for Proa.")
+    }
+
+    fn open_graph(&self) -> CascadeOpenGraph {
+        static IMAGES: [OpenGraphImage; 1] = [
+            OpenGraphImage::new("https://proa.so/static/og/pricing.png")
+                .with_dimensions(1200, 630)
+                .with_alt("Proa pricing"),
+        ];
+
+        CascadeOpenGraph {
+            images: CascadeValue::Set(&IMAGES),
+            ..Default::default()
+        }
+    }
+}
+
+static PRICING_META: PricingMeta = PricingMeta;
+
+let route = Route::page_with_metadata("/pricing", get(pricing), &PRICING_META);
+```
+
+## Layout Metadata
+
+Layouts implement `Metadata` as well as `Layout`, so they can provide defaults:
+
+```rust
+impl Metadata for AppLayout {
+    fn title(&self) -> CascadeValue<&'static str> {
+        CascadeValue::Set("%s - Proa")
+    }
+
+    fn description(&self) -> CascadeValue<&'static str> {
+        CascadeValue::Set("A Proa application.")
+    }
+}
+```
+
+Use layout metadata for site-wide title templates, default descriptions, and default Open Graph fields.
+
+## Rendering Head Tags
+
+Inside a document layout, call the helpers while route context is installed:
+
+```rust
+use proa_framework_axum::{render_css_link, render_metadata_head};
+
+fn render_head(cx: &mut proa_core::ctx::Ctx) {
+    render_metadata_head(cx);
+    render_css_link(cx);
+}
+```
+
+`render_metadata_head` reads the resolved metadata for the current route. `render_css_link` reads the CSS asset path from the current `IslandManifest`.
+
+## Clearing Inherited Values
+
+Use `CascadeValue::Tombstone` to explicitly clear an inherited field. This is useful for pages that should not inherit layout-level Open Graph images.
+
+```rust
+CascadeOpenGraph {
+    images: CascadeValue::Tombstone,
+    ..Default::default()
+}
+```
+
+Use tombstones deliberately. Most routes should inherit sensible layout defaults.

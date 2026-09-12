@@ -1,0 +1,69 @@
+{
+  "eslint.workingDirectories": [
+    {
+      "mode": "auto"
+    }
+  ],
+
+  // --- Tailwind CSS IntelliSense for Rust files ---
+
+  // Map "rust" language ID to "html" so the extension activates in .rs files.
+  // The value must be a built-in language the extension already supports.
+  "tailwindCSS.includeLanguages": {
+    "rust": "html"
+  },
+
+  // Point the extension to the Tailwind config (needed because it's nested,
+  // not at the workspace root). Keys are config file paths relative to the
+  // workspace root; values are glob patterns for which source files use that config.
+  "tailwindCSS.experimental.configFile": {
+    "proa_marketing/frontend/tailwind.config.cjs": "**/*.rs"
+  },
+
+  // Custom regex patterns so IntelliSense triggers inside Proa idioms.
+  //
+  // FORMAT RULES (from the extension source / GitHub discussions):
+  //   - Each entry is either a string or a [container, classlist] array.
+  //   - String form: one regex with exactly one capture group. The captured
+  //     text is treated as a single space-separated class list.
+  //   - Array form: first regex (container) has one capture group that
+  //     selects a region; second regex (classlist) is applied inside that
+  //     region, also with one capture group, to extract individual class strings.
+  //   - The extension applies each regex with the global flag internally,
+  //     so all matches in a file are found.
+  //
+  "tailwindCSS.experimental.classRegex": [
+    // 1) class="..." inside html! macro
+    //    Matches: <div class="flex gap-2 items-center">
+    "class=\"([^\"]*?)\"",
+
+    // 2) tw_join!(...) — extract each quoted string argument.
+    //    Container regex captures everything inside tw_join!(...).
+    //    Inner regex extracts each "..." string literal.
+    //    Matches both single-line and multiline:
+    //      tw_join!("inline-flex", "items-center", "rounded-md")
+    //      tw_join!(
+    //          "inline-flex",
+    //          "items-center",
+    //      )
+    ["tw_join!\\(([^)]*)\\)", "\"([^\"]*)\""]
+  ],
+
+  // Enable quick suggestions inside strings so IntelliSense appears
+  // as you type class names (not just on Ctrl+Space).
+  "editor.quickSuggestions": {
+    "strings": true
+  },
+
+  // Let rust-analyzer inspect #[rsjs(component...)] render bodies directly.
+  // The proc macro rewrites render bodies too aggressively for completion
+  // inside in-progress edits like `price.`.
+  "rust-analyzer.procMacro.ignored": {
+    "rsjs_macros": [
+      "rsjs"
+    ]
+  },
+  "rust-analyzer.diagnostics.disabled": [
+    "proc-macro-disabled"
+  ]
+}

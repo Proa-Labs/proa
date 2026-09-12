@@ -1,0 +1,228 @@
+/* Copyright Proa Labs, Inc. */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+@layer theme, base, proa-compat, components, utilities;
+@import "tailwindcss";
+@source "../src/**/*.rs";
+@source "../public/origin.js";
+
+/* ORIGIN design tokens, exposed to Tailwind by reference so the runtime
+   `.dark` class flip below keeps working through every utility. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg2: var(--bg2);
+  --color-panel: var(--panel);
+  --color-blur: var(--blur);
+  --color-scrim: var(--scrim);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink2);
+  --color-ink3: var(--ink3);
+  --color-ink4: var(--ink4);
+  --color-ink5: var(--ink5);
+  --color-ink6: var(--ink6);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-line-mid: var(--line-mid);
+  --color-line-soft: var(--line-soft);
+  --color-line-faint: var(--line-faint);
+  --color-line-hair: var(--line-hair);
+  --color-grid-line: var(--grid);
+  --color-cyan: var(--cyan);
+  --color-red: var(--red);
+  --color-brand: var(--brand);
+  --font-display: "Instrument Sans", sans-serif;
+  --font-mono: "Azeret Mono", ui-monospace, monospace;
+
+  /* Semantic tokens the vendored proa-ui recipes (dialog, theme toggle,
+     button) style themselves with, mapped onto the ORIGIN palette. */
+  --color-background: var(--bg2);
+  --color-foreground: var(--ink);
+  --color-muted-foreground: var(--ink3);
+  --color-accent: var(--panel);
+  --color-accent-foreground: var(--ink);
+  --color-border: var(--line-strong);
+  --color-input: var(--line-soft);
+  --color-ring: var(--cyan);
+}
+
+/* Vendored recipes use class-based dark: variants; ORIGIN toggles .dark on
+   the root element. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Everything below is the pre-Tailwind ORIGIN stylesheet: runtime variables,
+   keyframes, hover states, vendored-component skins, and the responsive
+   layer for the sections that still carry inline styles. */
+
+:root {
+  --bg: #EFECE4; --bg2: #E4E0D5; --panel: #FFFEFA; --blur: rgba(239,236,228,0.94);
+  --scrim: rgba(239,236,228,0.86); --shadow: rgba(22,20,16,0.22); --scroll: #C6C1B4;
+  --ink: #16151A; --ink2: #35332D; --ink3: #4F4C45; --ink4: #6B6860; --ink5: #6F6B62; --ink6: #7B776E;
+  --line: rgba(22,21,26,0.16); --line-strong: rgba(22,21,26,0.26); --line-mid: rgba(22,21,26,0.22);
+  --line-soft: rgba(22,21,26,0.2); --line-faint: rgba(22,21,26,0.08); --line-hair: rgba(22,21,26,0.07);
+  --grid: rgba(22,21,26,0.06);
+  --cyan: #0B6E77; --red: #9E1D14; --brand: #A85411;
+  color-scheme: light;
+}
+/* ORIGIN is dark-first: the server ships html.dark and the head bootstrap
+   honours the stored `theme` key (falling back to the OS preference) before
+   first paint, matching the proa-ui theme-toggle contract. */
+.dark {
+  --bg: #0B0B0C; --bg2: #0E0E0F; --panel: #15151A; --blur: rgba(11,11,12,0.94);
+  --scrim: rgba(11,11,12,0.86); --shadow: rgba(0,0,0,0.65); --scroll: #2A2A2C;
+  --ink: #E5E1D6; --ink2: #A8A49A; --ink3: #8C887E; --ink4: #6F6C64; --ink5: #4A4844; --ink6: #3B3A37;
+  --line: rgba(229,225,214,0.14); --line-strong: rgba(229,225,214,0.22); --line-mid: rgba(229,225,214,0.2);
+  --line-soft: rgba(229,225,214,0.18); --line-faint: rgba(229,225,214,0.06); --line-hair: rgba(229,225,214,0.05);
+  --grid: rgba(229,225,214,0.045);
+  --cyan: #3DE1E8; --red: #FF3B30; --brand: #DD7627;
+  color-scheme: dark;
+}
+html, body { margin: 0; padding: 0; background: var(--bg); scroll-behavior: smooth; }
+body { -webkit-font-smoothing: antialiased; }
+a { color: var(--cyan, #3DE1E8); text-decoration: none; }
+a:hover { color: var(--ink, #E5E1D6); }
+::selection { background: var(--cyan, #3DE1E8); color: var(--bg, #0B0B0C); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg, #0B0B0C); }
+::-webkit-scrollbar-thumb { background: var(--scroll, #2A2A2C); border: 2px solid var(--bg, #0B0B0C); }
+[hidden] { display: none !important; }
+@keyframes org-pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+@keyframes org-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes org-spin { to { transform: rotate(360deg); } }
+@keyframes org-dash { to { stroke-dashoffset: -48; } }
+@keyframes org-blip { 0% { opacity: 0; transform: scale(0.2); } 18% { opacity: 1; } 100% { opacity: 0; transform: scale(2.4); } }
+@keyframes org-breathe { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.85; } }
+[data-xray="1"] [data-island] { outline: 1px dashed #3DE1E8; outline-offset: 3px; }
+[data-xray="1"] [data-island]::before { content: attr(data-island); position: absolute; top: -9px; left: 10px; z-index: 20; background: var(--cyan, #3DE1E8); color: var(--bg, #0B0B0C); font: 600 9px/1 "Azeret Mono", monospace; letter-spacing: .1em; padding: 3px 5px; }
+[data-xray="1"] [data-stream] { outline: 1px dashed #DD7627; outline-offset: 3px; }
+
+/* Hover states from the prototype's style-hover attributes. */
+.hv-bg-ink:hover { background: var(--ink, #E5E1D6) !important; }
+.hv-line-strong:hover { color: var(--ink, #E5E1D6) !important; border-color: var(--line-strong, rgba(229,225,214,0.22)) !important; }
+.hv-bg-cyan:hover { background: var(--cyan, #3DE1E8) !important; color: var(--bg, #0B0B0C) !important; border-color: var(--cyan, #3DE1E8) !important; }
+.hv-cyan:hover { border-color: var(--cyan, #3DE1E8) !important; color: var(--cyan, #3DE1E8) !important; }
+.hv-bg-red:hover { background: var(--red, #FF3B30) !important; }
+.hv-row:hover { background: color-mix(in srgb, var(--cyan, #3DE1E8) 5%, transparent); }
+
+/* proa-ui tooltip skin: pure CSS hover reveal on the anatomy contract. */
+[data-scope="tooltip"][data-part="root"] { position: relative; display: inline-flex; }
+[data-scope="tooltip"] [data-part="trigger"] { border: 0; background: none; padding: 0; margin: 0; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; box-shadow: none; border-radius: 0; }
+[data-scope="tooltip"] [data-part="content"] { display: none; position: absolute; top: 100%; margin-top: 8px; left: 0; white-space: normal; width: 236px; z-index: 30; background: var(--panel, #15151A); border: 1px solid var(--line-strong, rgba(229,225,214,0.22)); box-shadow: 0 12px 26px var(--shadow, rgba(0,0,0,0.65)); padding: 9px 11px; font-size: 10px; line-height: 1.65; letter-spacing: 0; text-transform: none; color: var(--ink2, #A8A49A); }
+[data-scope="tooltip"]:hover [data-part="content"] { display: block; }
+dialog[data-md-overlay]::backdrop { background: var(--scrim, rgba(11,11,12,0.86)); backdrop-filter: blur(4px); }
+
+/* ORIGIN skin for the vendored Button used as the TRACE submit. */
+button.origin-trace[data-button] { display: flex; align-items: center; border: 0; border-radius: 0; padding: 0 22px; height: auto; background: var(--ink, #E5E1D6); color: var(--bg, #0B0B0C); font-family: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; cursor: pointer; }
+
+/* ------------------------------------------------------------------------
+   Responsive layer. The section markup carries its desktop layout inline
+   (ported verbatim from the ORIGIN v2 prototype), so narrow viewports are
+   restyled here via each section's data-* root; !important is required to
+   outrank those inline declarations and is confined to this block.
+   ------------------------------------------------------------------------ */
+
+@media (max-width: 1080px) {
+  /* Two-column sections stack, main content first. */
+  [data-live-wire],
+  [data-agent-surface],
+  [data-flood-lab] > div:first-child { grid-template-columns: 1fr !important; }
+  [data-live-wire] > div:first-child,
+  [data-agent-surface] > div:first-child { border-right: 0 !important; }
+  [data-live-wire] aside { border-top: 1px solid var(--line, rgba(229,225,214,0.14)); }
+
+  /* Dossier panes: three across becomes one deep. */
+  [data-pane-grid] { grid-template-columns: 1fr !important; }
+  [data-pane-grid] > div { border-right: 0 !important; }
+
+  /* Metric tiles: six across becomes three. */
+  [data-dossier-metrics] { grid-template-columns: repeat(3, 1fr) !important; }
+
+  /* The hero radar is a fixed 400px decoration pinned top-right. */
+  [data-hero-radar] { display: none !important; }
+  [data-hero] h1 { font-size: clamp(44px, 9vw, 92px) !important; }
+}
+
+@media (max-width: 900px) {
+  /* The trace strip's five-column journey stacks; the dashed connector and
+     arrowheads only make sense horizontally. */
+  [data-trace-grid] { display: flex !important; flex-direction: column; gap: 18px; padding: 28px 22px 30px !important; }
+  [data-trace-connector],
+  [data-trace-arrow] { display: none !important; }
+  [data-trace-grid] > div { padding: 0 !important; }
+  [data-trace-grid] br { display: none; }
+
+  /* Section headings sized for a desktop canvas. */
+  [data-agent-surface] h2,
+  [data-flood-lab] h2 { font-size: clamp(38px, 8vw, 70px) !important; }
+
+  /* The receipt keeps its numbers and wraps the brand cluster below. */
+  [data-receipt] { flex-wrap: wrap; row-gap: 6px; }
+  [data-receipt] > div { flex-wrap: wrap; row-gap: 6px; }
+
+  /* Flood controls: four buttons in a row need to wrap. */
+  [data-flood-controls] { flex-wrap: wrap; }
+
+  /* Header: title row plus tools wrap instead of overflowing. */
+  [data-site-header] { flex-wrap: wrap; row-gap: 8px; }
+
+  /* Feed and road-sign headers are single-line flexes of nowrap clusters;
+     let the clusters wrap onto new lines instead of forcing the column
+     wider than the phone. */
+  [data-live-wire] > div > div:first-child { flex-wrap: wrap; row-gap: 8px; }
+  [data-route-tape] > div:first-child { flex-wrap: wrap; row-gap: 8px; }
+  [data-route-tape] > div:first-child > div { flex-wrap: wrap; }
+  [data-summary-bar] { flex-wrap: wrap; }
+
+  /* Neighbourhood header, route caption, and legend rows wrap; their long
+     labels give up nowrap and their fixed flex basis so a phone column can
+     break them. */
+  [data-neighbourhood] > div { flex-wrap: wrap; row-gap: 6px; }
+  [data-neighbourhood] > div span { white-space: normal !important; flex-shrink: 1 !important; min-width: 0; }
+
+  /* Grid items default to min-width auto, so a nowrap ticker line deep in a
+     column widens the whole page; opting the stacked sections' items into
+     min-width 0 lets those lines clip (they carry their own ellipsis). */
+  [data-live-wire] > *,
+  [data-pane-grid] > *,
+  [data-agent-surface] > *,
+  [data-flood-lab] > div:first-child > * { min-width: 0 !important; }
+
+  /* The narrated feed builds flex rows whose content column holds a nowrap
+     raw line with its own ellipsis; flex min-width auto would let that line
+     set the page width. */
+  [data-events] div { min-width: 0 !important; }
+  [data-events] { overflow-x: hidden; }
+
+  /* Hero: the lookup form's input yields, and the try-chips row wraps. */
+  [data-hero] form { flex-wrap: wrap; }
+  [data-hero] form input { min-width: 0; }
+  [data-hero] form + div { flex-wrap: wrap; }
+
+  /* The feed header's right cluster (status, clock, pause) wraps too. */
+  [data-live-wire] > div > div:first-child > div { flex-wrap: wrap; row-gap: 6px; }
+}
+
+@media (max-width: 720px) {
+  /* Route tape: keep time, type, range, and origin; the full AS path and
+     collector need more room than a phone has. */
+  [data-tape-header],
+  [data-tape] > div { grid-template-columns: 74px 24px minmax(0, 1fr) 78px !important; }
+  [data-tape-header] > div:nth-child(5),
+  [data-tape-header] > div:nth-child(6),
+  [data-tape] > div > div:nth-child(5),
+  [data-tape] > div > div:nth-child(6) { display: none !important; }
+
+  /* Metric tiles: two across on phones. */
+  [data-dossier-metrics] { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Lab readout tiles stack in pairs already (2x2); keep, but the row of
+     synthetic-table columns gets tighter. */
+  [data-flood-table] > div,
+  [data-flood-table] > div:first-child { padding-left: 12px !important; padding-right: 12px !important; }
+
+  /* The install command is the widest footer item; the links matter more. */
+  [data-receipt] > div:last-child > span:first-child { display: none; }
+  [data-receipt] > div:last-child > span:nth-child(2) { display: none; }
+
+  /* Agent-surface curl lines scroll rather than stretch the page. */
+  [data-agent-surface] code { font-size: 10px; }
+}

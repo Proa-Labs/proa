@@ -1,0 +1,5 @@
+error: keyed lists require a `key={...}` attribute on the item's root element so the client can match DOM nodes to items across inserts, removes, and reorders. Give each item a stable identity, e.g. `<li key={item}>` for value lists or `<li key={item.id}>` for struct rows
+  --> tests/ui/fail/46_keyed_list_missing_key.rs:29:26
+   |
+29 |                         <li>{item}</li>
+   |                          ^^

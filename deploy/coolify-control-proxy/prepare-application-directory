@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly PROGRAM_NAME="${0##*/}"
+
+usage() {
+    cat <<EOF
+Usage: ${PROGRAM_NAME} [OPTIONS] APPLICATION_UUID
+
+Prepare one Coolify application directory for the host owner and Coolify group.
+
+Options:
+  --root PATH    Application root (default: /data/coolify/applications)
+  --owner UID    Host owner UID (default: 1000)
+  --group GID    Coolify group GID (default: 9999)
+  --dry-run      Validate and describe the change without modifying the directory
+  -h, --help     Show this help
+
+The defaults can also be set with COOLIFY_APPLICATION_ROOT,
+COOLIFY_APPLICATION_OWNER_UID, and COOLIFY_APPLICATION_GROUP_GID.
+EOF
+}
+
+die() {
+    printf '[coolify-directory] error: %s\n' "$*" >&2
+    exit 1
+}
+
+require_value() {
+    local option="$1"
+    local value="${2-}"
+    [[ -n "$value" ]] || die "${option} requires a value"
+}
+
+application_root="${COOLIFY_APPLICATION_ROOT:-/data/coolify/applications}"
+owner_uid="${COOLIFY_APPLICATION_OWNER_UID:-1000}"
+coolify_gid="${COOLIFY_APPLICATION_GROUP_GID:-9999}"
+dry_run=0
+application_uuid=""
+
+while (($# > 0)); do
+    case "$1" in
+        --root)
+            require_value "$1" "${2-}"
+            application_root="$2"
+            shift 2
+            ;;
+        --owner)
+            require_value "$1" "${2-}"
+            owner_uid="$2"
+            shift 2
+            ;;
+        --group)
+            require_value "$1" "${2-}"
+            coolify_gid="$2"
+            shift 2
+            ;;
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --*)
+            die "unknown option: $1"
+            ;;
+        *)
+            [[ -z "$application_uuid" ]] || die "exactly one application UUID is required"
+            application_uuid="$1"
+            shift
+            ;;
+    esac
+done
+
+[[ -n "$application_uuid" ]] || die "an application UUID is required"
+[[ "$application_uuid" =~ ^[A-Za-z0-9]+$ ]] || \
+    die "application UUID must contain only ASCII letters and digits"
+[[ "$owner_uid" =~ ^[0-9]+$ ]] || die "owner UID must be an unsigned integer"
+[[ "$coolify_gid" =~ ^[0-9]+$ ]] || die "Coolify group GID must be an unsigned integer"
+[[ "$application_root" == /* ]] || die "application root must be an absolute path"
+while [[ "$application_root" != "/" && "$application_root" == */ ]]; do
+    application_root="${application_root%/}"
+done
+[[ "$application_root" != "/" ]] || die "refusing to use the filesystem root"
+((EUID == 0)) || die "this command must run as root"
+command -v setfacl >/dev/null 2>&1 || die "setfacl is required"
+command -v stat >/dev/null 2>&1 || die "stat is required"
+command -v mountpoint >/dev/null 2>&1 || die "mountpoint is required"
+
+[[ ! -L "$application_root" ]] || die "application root must not be a symlink"
+[[ -d "$application_root" ]] || die "application root does not exist or is not a directory"
+
+resolved_application_root="$(cd -P -- "$application_root" && pwd)"
+[[ "$resolved_application_root" == "$application_root" ]] || \
+    die "application root must be canonical and must not traverse symlinks"
+application_root="$resolved_application_root"
+[[ "$application_root" != "/" ]] || die "refusing to use the filesystem root"
+application_directory="${application_root}/${application_uuid}"
+
+case "$application_directory" in
+    "${application_root}"/*) ;;
+    *) die "resolved application path is outside the application root" ;;
+esac
+
+validate_application_directory() {
+    [[ ! -L "$application_directory" ]] || die "application directory must not be a symlink"
+    [[ -d "$application_directory" ]] || die "application path exists but is not a directory"
+
+    local resolved_directory
+    resolved_directory="$(cd -P -- "$application_directory" && pwd)"
+    [[ "$resolved_directory" == "$application_directory" ]] || \
+        die "resolved application path is outside the expected root"
+
+    local nested_symlink
+    nested_symlink="$(find "$application_directory" -xdev -type l -print -quit)"
+    [[ -z "$nested_symlink" ]] || \
+        die "application directory contains a symlink: ${nested_symlink}"
+
+    local root_device path path_device
+    root_device="$(stat -c '%d' "$application_directory")"
+    while IFS= read -r -d '' path; do
+        if [[ "$path" != "$application_directory" ]] && mountpoint -q -- "$path"; then
+            die "application directory contains a nested mount: ${path}"
+        fi
+        path_device="$(stat -c '%d' "$path")"
+        [[ "$path_device" == "$root_device" ]] || \
+            die "application directory contains a nested mount: ${path}"
+    done < <(find "$application_directory" -xdev -print0)
+}
+
+printf '[coolify-directory] application=%s root=%s owner_uid=%s coolify_gid=%s dry_run=%s\n' \
+    "$application_uuid" "$application_root" "$owner_uid" "$coolify_gid" "$dry_run"
+
+[[ ! -L "$application_directory" ]] || die "application directory must not be a symlink"
+if [[ ! -e "$application_directory" ]]; then
+    if ((dry_run)); then
+        printf '[coolify-directory] would create %s\n' "$application_directory"
+        printf '[coolify-directory] validation complete; no changes made\n'
+        exit 0
+    fi
+    mkdir -- "$application_directory"
+fi
+
+validate_application_directory
+
+if ((dry_run)); then
+    printf '[coolify-directory] would set ownership, modes, and access/default ACLs on %s\n' \
+        "$application_directory"
+    printf '[coolify-directory] validation complete; no changes made\n'
+    exit 0
+fi
+
+# The shared applications root is commonly 0700 and owned by Coolify's service
+# UID. Grant only traversal there; the application subtree below remains the
+# sole writable boundary.
+setfacl -m "u:${owner_uid}:--x,g:${coolify_gid}:--x" "$application_root"
+
+# Clear inherited or stale extended ACLs first, then install an exact subtree
+# policy. Every traversal is filesystem-bounded so nested mounts are never
+# recursively mutated.
+while IFS= read -r -d '' path; do
+    setfacl -b "$path"
+    chown --no-dereference -- "${owner_uid}:${coolify_gid}" "$path"
+done < <(find "$application_directory" -xdev -print0)
+
+while IFS= read -r -d '' directory; do
+    setfacl -k "$directory"
+    chmod u+rwx,g+rwx,g+s,o-rwx "$directory"
+done < <(find "$application_directory" -xdev -type d -print0)
+
+# Keep regular-file execute bits exactly as they were; only directories gain
+# execute permission for traversal and inherited collaboration.
+while IFS= read -r -d '' file; do
+    chmod u+rw,g+rw,o-rwx "$file"
+done < <(find "$application_directory" -xdev -type f -print0)
+
+while IFS= read -r -d '' directory; do
+    setfacl -m \
+        "u:${owner_uid}:rwx,g:${coolify_gid}:rwx,m::rwx,o::---,d:u:${owner_uid}:rwx,d:g:${coolify_gid}:rwx,d:m::rwx,d:o::---" \
+        "$directory"
+done < <(find "$application_directory" -xdev -type d -print0)
+
+while IFS= read -r -d '' file; do
+    file_permissions='rw-'
+    if [[ -x "$file" ]]; then
+        file_permissions='rwx'
+    fi
+    setfacl -m \
+        "u:${owner_uid}:${file_permissions},g:${coolify_gid}:${file_permissions},o::---" \
+        "$file"
+done < <(find "$application_directory" -xdev -type f -print0)
+
+printf '[coolify-directory] prepared %s\n' "$application_directory"

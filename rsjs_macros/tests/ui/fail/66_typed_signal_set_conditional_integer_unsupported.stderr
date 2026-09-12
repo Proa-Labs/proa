@@ -1,0 +1,5 @@
+error: rsjs/integer-domain-unsupported: `u8` arithmetic is not yet supported by checked client lowering; use `i32`, `u32`, `i64`, or `u64`, or perform this operation in server Rust
+  --> tests/ui/fail/66_typed_signal_set_conditional_integer_unsupported.rs:17:28
+   |
+17 |                 output.set(if flag.get() { 1_u8 } else { 2 });
+   |                            ^^

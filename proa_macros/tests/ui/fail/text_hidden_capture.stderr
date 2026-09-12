@@ -1,0 +1,5 @@
+error: text!: format specs with named/positional width or precision captures are not supported in v1
+ --> tests/ui/fail/text_hidden_capture.rs:4:19
+  |
+4 |     let _ = text!("{:width$}", "value");
+  |                   ^^^^^^^^^^^

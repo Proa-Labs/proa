@@ -1,0 +1,5 @@
+error: <form> cannot be nested inside another <form>. use a single form, or split into separate non-nested forms (HTML §4.10.3)
+ --> tests/ui/fail/nesting_form_in_form.rs:5:42
+  |
+5 |     html_sync! { <form action="/a"><div><form action="/b">"bad"</form></div></form> };
+  |                                          ^^^^

@@ -1,0 +1,70 @@
+---
+title: AI consumption
+description: Serve Proa docs as Markdown context for coding agents.
+sidebar_title: AI / LLMs
+keywords: [llms.txt, llms-full.txt, Markdown]
+---
+
+Proa serves its docs as plain text and Markdown, so a coding agent never executes client JavaScript to read them. This page covers [fetching the full corpus](#fetching-the-full-corpus), [fetching a single page](#fetching-a-single-page), [how much context an agent needs](#how-much-context-does-an-agent-need), and [keeping the corpus stable](#keeping-the-corpus-stable).
+
+## Fetching the full corpus
+
+Use `/llms-full.txt` when you want a single plain text file with every docs page:
+
+```bash filename="Terminal"
+curl https://proa.so/llms-full.txt > proa-docs.txt
+```
+
+The endpoint carries each page title, canonical route, optional description, and the Markdown source the site renders. Feed it to agent context windows, retrieval pipelines, and local search indexes.
+
+The whole corpus is a large amount of context. Most tasks need one page.
+
+## Fetching a single page
+
+Every docs page also exposes its Markdown source:
+
+```bash filename="Terminal"
+curl https://proa.so/docs/index.md
+curl https://proa.so/docs/proa-docs/configuration.md
+```
+
+Use page Markdown when an agent needs focused context. Use the full corpus when the agent answers questions across Core, CLI, Framework, Proa Docs, FFI, Migration, and RSJS.
+
+Which of the two you reach for depends on the task.
+
+## How much context does an agent need?
+
+Start with the smallest useful context:
+
+| Task | Context |
+|------|---------|
+| Build a page | `/docs/agents.md`, `/docs/index.md`, `/docs/core/components.md`, `/docs/core/html-rendering.md` |
+| Fix docs navigation | `/docs/proa-docs/pages-and-routes.md`, `/docs/proa-docs/navigation.md`, `/docs/proa-docs/configuration.md` |
+| Wire a server route | `/docs/framework/routing.md`, `/docs/framework/route-handlers.md`, `/docs/framework/responses.md` |
+| Review performance | `/docs/guides/performance.md`, `/docs/core/class-composition.md`, `/docs/cli/chunks.md` |
+
+Add `/llms-full.txt` only if the agent needs broad recall across the whole site.
+
+Those routes stay valid because the corpus follows a fixed contract.
+
+## Keeping the corpus stable
+
+Proa generates the text endpoint from compiled docs registries, not from rendered HTML. That keeps the context stable:
+
+- Markdown remains the source of truth.
+- Page URLs match the generated routes.
+- Descriptions come from frontmatter or inferred content.
+- Search-only UI, shell markup, and client scripts stay out of the corpus.
+
+If you publish a new docs collection, add it to the endpoint explicitly so the file stays predictable.
+
+## Next steps
+
+- [Agent setup](/docs/agents)
+  - Start here when the agent edits the project instead of only reading docs.
+- [Authoring](/docs/proa-docs/pages-and-routes)
+  - Write the Markdown pages that feed these endpoints.
+- [Markdown pipeline](/docs/proa-docs/markdown)
+  - See how Proa compiles Markdown into routes and text endpoints.
+- [Quickstart](/docs)
+  - Build the site an agent will read the docs for.

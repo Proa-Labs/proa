@@ -1,0 +1,34 @@
+[
+  {
+    "kind": "signal_set",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 28,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    },
+    "value": {
+      "kind": "browser_read",
+      "read": {
+        "args": [],
+        "helper": "navigator.language",
+        "kind": "declared"
+      },
+      "span": {
+        "end": {
+          "column": 37,
+          "line": 1
+        },
+        "start": {
+          "column": 33,
+          "line": 1
+        }
+      }
+    }
+  }
+]

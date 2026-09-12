@@ -1,0 +1,10 @@
+{
+  "title": "Migration",
+  "icon": "ArrowRightLeft",
+  "root": true,
+  "pages": [
+    "react",
+    "rails",
+    "python"
+  ]
+}

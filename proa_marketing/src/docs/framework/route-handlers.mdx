@@ -1,0 +1,297 @@
+---
+title: Route handlers
+description: Build JSON, form, and webhook endpoints with Route::endpoint.
+---
+
+Proa does not invent a second request-handler model: a route handler is an Axum handler, and `Route::endpoint` registers routes that need no page metadata. This page covers [registering an endpoint](#registering-an-endpoint), [returning JSON](#returning-json), [handling forms](#handling-forms), [sharing application state](#sharing-application-state), and [the security defaults](#what-do-endpoints-inherit-from-the-framework) every endpoint inherits.
+
+## Registering an endpoint
+
+Use route handlers for:
+
+- JSON APIs consumed by islands or external clients
+- form submissions and mutations
+- webhooks and machine-to-machine callbacks
+- health checks, robots.txt, sitemaps, and downloads
+- redirects and canonical URL handlers
+
+Use `Route::page` when the route belongs in page metadata and layout resolution. Use `Route::endpoint` when the route is an API or transport endpoint.
+
+`Route::endpoint` accepts an Axum `MethodRouter`, so compose methods exactly as you would in Axum:
+
+```rust filename="src/routes/mod.rs"
+use axum::routing::{get, post};
+use proa_framework_axum::{router_from_spec, Route};
+
+let (router, metadata) = router_from_spec(vec![
+    Route::page("/", "Home", get(home_page)),
+    Route::endpoint("/api/search", get(search).post(search_post)),
+    Route::endpoint("/contact", post(submit_contact)),
+    Route::endpoint("/healthz", get(healthz)),
+]);
+```
+
+Pass `router` and `metadata` to `FrameworkBuilder::with_dynamic_routes_and_metadata(...)`.
+
+What each of those handlers returns is plain Axum, starting with JSON.
+
+## Returning JSON
+
+Use `Json<T>` for ordinary JSON responses:
+
+```rust filename="src/routes/search.rs"
+use axum::{extract::Query, Json};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize)]
+pub struct SearchQuery {
+    q: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SearchResponse {
+    query: String,
+    results: Vec<SearchResult>,
+}
+
+pub async fn search(Query(query): Query<SearchQuery>) -> Json<SearchResponse> {
+    Json(SearchResponse {
+        query: query.q,
+        results: run_search(&query.q).await,
+    })
+}
+```
+
+If you need custom headers, return a tuple or `Response`:
+
+```rust filename="src/routes/search.rs"
+use axum::{http::header, response::IntoResponse, Json};
+
+pub async fn search() -> impl IntoResponse {
+    (
+        [(header::CACHE_CONTROL, "private, max-age=30")],
+        Json(SearchResponse::empty()),
+    )
+}
+```
+
+Axum extractors pull path and query data into those handlers.
+
+## Handling dynamic params
+
+Use Axum extractors for path and query data:
+
+```rust filename="src/routes/product.rs"
+use axum::{
+    extract::Path,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
+
+pub async fn product(Path(id): Path<String>) -> Response {
+    let Some(product) = load_product(&id).await else {
+        return (StatusCode::NOT_FOUND, "Not found").into_response();
+    };
+
+    Json(product).into_response()
+}
+```
+
+Register the path with Axum-style parameters:
+
+```rust filename="src/routes/mod.rs"
+Route::endpoint("/api/products/:id", get(product));
+```
+
+Form posts use the same extractor pattern with a different body type.
+
+## Handling forms
+
+Use native HTML forms in the page and `Form<T>` in the endpoint:
+
+```rust filename="src/routes/contact.rs"
+use axum::{extract::Form, response::Redirect};
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+pub struct ContactForm {
+    email: String,
+    message: String,
+}
+
+pub async fn submit_contact(Form(form): Form<ContactForm>) -> Redirect {
+    validate_contact(&form).expect("return a validation response in real code");
+    save_contact(form).await;
+
+    Redirect::to("/contact/thanks")
+}
+```
+
+For validation failures, return `Response` and render a Proa page with the invalid field state:
+
+```rust filename="src/routes/contact.rs"
+use axum::response::{IntoResponse, Response};
+use proa_framework_axum::RouteResponse;
+
+pub async fn submit_contact(Form(form): Form<ContactForm>) -> Response {
+    if let Err(errors) = validate_contact(&form) {
+        return RouteResponse::ssr(ContactPage { form, errors }).into_response();
+    }
+
+    save_contact(form).await;
+    Redirect::to("/contact/thanks").into_response()
+}
+```
+
+See [Forms and actions](/docs/guides/forms-actions) for the full form workflow.
+
+Handlers that touch a database need one more thing: a way to reach it.
+
+## Sharing application state
+
+`FrameworkBuilder` is not generic over typed Axum state. Use `Extension<Arc<T>>` for app-wide services when building with the framework builder:
+
+```rust filename="src/app.rs"
+use std::sync::Arc;
+
+use axum::{
+    extract::{Extension, Path},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use proa_framework_axum::RouteResponse;
+use tower::ServiceBuilder;
+
+#[derive(Clone)]
+pub struct AppState {
+    db: DbPool,
+}
+
+pub async fn product(
+    Extension(state): Extension<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    match state.db.product_by_id(&id).await {
+        Some(product) => RouteResponse::ssr(ProductPage { product }).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+let app = FrameworkBuilder::new(manifest)
+    .with_dynamic_routes_and_metadata(router, metadata)
+    .build()
+    .layer(ServiceBuilder::new().layer(Extension(Arc::new(AppState { db }))));
+```
+
+Keep request-specific values in extractors or `WebContext` locals, not in shared state.
+
+Webhook handlers break the extractor habit deliberately, because a parsed body loses its signature.
+
+## Handling raw bodies and webhooks
+
+Use bytes for signed webhook bodies so signature verification checks the exact payload:
+
+```rust filename="src/routes/webhook.rs"
+use axum::{
+    body::Bytes,
+    http::{HeaderMap, StatusCode},
+};
+
+pub async fn webhook(headers: HeaderMap, body: Bytes) -> StatusCode {
+    if !verify_signature(&headers, &body) {
+        return StatusCode::UNAUTHORIZED;
+    }
+
+    enqueue_webhook(body).await;
+    StatusCode::ACCEPTED
+}
+```
+
+The framework builder applies a 1 MiB default request-body limit. Raise it for a specific endpoint with an Axum layer when the route legitimately needs larger bodies:
+
+```rust filename="src/routes/mod.rs"
+use axum::{extract::DefaultBodyLimit, routing::post};
+
+Route::endpoint(
+    "/webhooks/payment",
+    post(webhook).layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
+);
+```
+
+Prefer narrow per-route limits over raising the global framework limit.
+
+That body limit is one of four defaults every endpoint inherits.
+
+## What do endpoints inherit from the framework?
+
+`FrameworkBuilder::build()` applies the same outer hardening to endpoints and pages:
+
+| Default | Endpoint effect |
+|---------|-----------------|
+| Cross-origin protection | Browser-issued cross-origin unsafe requests return `403` unless trusted. |
+| Body limit | Requests cap at 1 MiB unless you override the limit. |
+| Request timeout | Handlers must produce a response within 30 seconds by default. |
+| Security headers | Every response gets baseline hardening headers unless the handler already set them. |
+
+For browser-facing mutations, keep using normal same-origin forms or same-origin `fetch`. For cross-origin API clients, configure trusted origins deliberately. The alternative is mounting a separately configured Axum router outside the framework builder.
+
+Those defaults apply in tests too, so test through the built router rather than the bare handler.
+
+## Testing handlers
+
+Test endpoints with Tower `oneshot` so the extractor and response behavior matches production:
+
+```rust filename="tests/healthz.rs"
+use axum::{
+    body::{to_bytes, Body},
+    http::{Request, StatusCode},
+    routing::get,
+};
+use tower::ServiceExt;
+
+#[tokio::test]
+async fn health_check_returns_ok() {
+    let (router, metadata) = router_from_spec(vec![
+        Route::endpoint("/healthz", get(healthz)),
+    ]);
+
+    let app = FrameworkBuilder::new(empty_manifest())
+        .with_dynamic_routes_and_metadata(router, metadata)
+        .build();
+
+    let response = app
+        .oneshot(Request::builder().uri("/healthz").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(body.as_ref(), b"ok");
+}
+```
+
+## Reviewing an endpoint
+
+Before shipping:
+
+- Use `Route::endpoint` for API, form, webhook, health, and static text handlers.
+- Use `Route::page` when the response belongs in page metadata.
+- Return `Json<T>`, tuples, `Redirect`, `StatusCode`, or `Response` directly from Axum handlers.
+- Keep server mutations in handlers or service-layer functions.
+- Validate form and JSON input on the server.
+- Keep webhook signature verification on the raw body.
+- Set explicit cache headers for JSON and generated text endpoints.
+- Test status, headers, and bodies with `oneshot`.
+
+## Next steps
+
+- [Routes and layouts](/docs/framework/routing)
+  - Define route trees, layouts, and static paths.
+- [Route responses](/docs/framework/responses)
+  - Return synchronous, buffered async, or streaming SSR with islands.
+- [Status, redirects, and errors](/docs/framework/errors)
+  - Set status codes, return redirects, and render error pages.
+- [Cross-origin and CSRF](/docs/framework/cross-origin)
+  - Reject forged cross-origin writes, and add the CSRF defense Proa does not.

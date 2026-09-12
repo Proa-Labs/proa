@@ -1,0 +1,1258 @@
+[
+  {
+    "kind": "signal_set",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    },
+    "value": {
+      "kind": "browser_read",
+      "read": {
+        "area": "Local",
+        "fallback": {
+          "kind": "literal",
+          "span": {
+            "end": {
+              "column": 33,
+              "line": 1
+            },
+            "start": {
+              "column": 29,
+              "line": 1
+            }
+          },
+          "value": {
+            "kind": "string",
+            "value": ""
+          }
+        },
+        "key": {
+          "kind": "literal",
+          "span": {
+            "end": {
+              "column": 33,
+              "line": 1
+            },
+            "start": {
+              "column": 29,
+              "line": 1
+            }
+          },
+          "value": {
+            "kind": "string",
+            "value": ""
+          }
+        },
+        "kind": "storage",
+        "value_type": "String"
+      },
+      "span": {
+        "end": {
+          "column": 33,
+          "line": 1
+        },
+        "start": {
+          "column": 29,
+          "line": 1
+        }
+      }
+    }
+  },
+  {
+    "args": [
+      {
+        "kind": "browser_read",
+        "read": {
+          "area": "Session",
+          "fallback": null,
+          "key": {
+            "kind": "literal",
+            "span": {
+              "end": {
+                "column": 37,
+                "line": 2
+              },
+              "start": {
+                "column": 33,
+                "line": 2
+              }
+            },
+            "value": {
+              "kind": "string",
+              "value": ""
+            }
+          },
+          "kind": "storage",
+          "value_type": "String"
+        },
+        "span": {
+          "end": {
+            "column": 37,
+            "line": 2
+          },
+          "start": {
+            "column": 33,
+            "line": 2
+          }
+        }
+      }
+    ],
+    "kind": "console",
+    "level": "Log",
+    "span": {
+      "end": {
+        "column": 27,
+        "line": 2
+      },
+      "start": {
+        "column": 20,
+        "line": 2
+      }
+    }
+  },
+  {
+    "args": [
+      {
+        "kind": "browser_read",
+        "read": {
+          "area": "Local",
+          "fallback": {
+            "kind": "literal",
+            "span": {
+              "end": {
+                "column": 28,
+                "line": 4
+              },
+              "start": {
+                "column": 24,
+                "line": 4
+              }
+            },
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          },
+          "key": {
+            "kind": "literal",
+            "span": {
+              "end": {
+                "column": 28,
+                "line": 4
+              },
+              "start": {
+                "column": 24,
+                "line": 4
+              }
+            },
+            "value": {
+              "kind": "string",
+              "value": "enabled"
+            }
+          },
+          "kind": "storage",
+          "value_type": "Bool"
+        },
+        "span": {
+          "end": {
+            "column": 28,
+            "line": 4
+          },
+          "start": {
+            "column": 24,
+            "line": 4
+          }
+        }
+      },
+      {
+        "kind": "browser_read",
+        "read": {
+          "area": "Local",
+          "fallback": {
+            "kind": "literal",
+            "span": {
+              "end": {
+                "column": 28,
+                "line": 5
+              },
+              "start": {
+                "column": 24,
+                "line": 5
+              }
+            },
+            "value": {
+              "kind": "bigint",
+              "value": 0
+            }
+          },
+          "key": {
+            "kind": "literal",
+            "span": {
+              "end": {
+                "column": 28,
+                "line": 5
+              },
+              "start": {
+                "column": 24,
+                "line": 5
+              }
+            },
+            "value": {
+              "kind": "string",
+              "value": "count"
+            }
+          },
+          "kind": "storage",
+          "value_type": "I64"
+        },
+        "span": {
+          "end": {
+            "column": 28,
+            "line": 5
+          },
+          "start": {
+            "column": 24,
+            "line": 5
+          }
+        }
+      },
+      {
+        "kind": "browser_read",
+        "read": {
+          "area": "Session",
+          "fallback": {
+            "kind": "literal",
+            "span": {
+              "end": {
+                "column": 28,
+                "line": 6
+              },
+              "start": {
+                "column": 24,
+                "line": 6
+              }
+            },
+            "value": {
+              "kind": "float",
+              "value": 0.0
+            }
+          },
+          "key": {
+            "kind": "literal",
+            "span": {
+              "end": {
+                "column": 28,
+                "line": 6
+              },
+              "start": {
+                "column": 24,
+                "line": 6
+              }
+            },
+            "value": {
+              "kind": "string",
+              "value": "ratio"
+            }
+          },
+          "kind": "storage",
+          "value_type": "F64"
+        },
+        "span": {
+          "end": {
+            "column": 28,
+            "line": 6
+          },
+          "start": {
+            "column": 24,
+            "line": 6
+          }
+        }
+      }
+    ],
+    "kind": "console",
+    "level": "Log",
+    "span": {
+      "end": {
+        "column": 27,
+        "line": 3
+      },
+      "start": {
+        "column": 20,
+        "line": 3
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "window_scroll_to",
+      "x": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 49,
+            "line": 8
+          },
+          "start": {
+            "column": 44,
+            "line": 8
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 0
+        }
+      },
+      "y": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 58,
+            "line": 8
+          },
+          "start": {
+            "column": 51,
+            "line": 8
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 100
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 8
+      },
+      "start": {
+        "column": 20,
+        "line": 8
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "window_scroll_by",
+      "x": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 49,
+            "line": 9
+          },
+          "start": {
+            "column": 44,
+            "line": 9
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 0
+        }
+      },
+      "y": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 57,
+            "line": 9
+          },
+          "start": {
+            "column": 51,
+            "line": 9
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 20
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 9
+      },
+      "start": {
+        "column": 20,
+        "line": 9
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "window_print"
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 10
+      },
+      "start": {
+        "column": 20,
+        "line": 10
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "location_set_hash",
+      "value": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 49,
+            "line": 11
+          },
+          "start": {
+            "column": 45,
+            "line": 11
+          }
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 11
+      },
+      "start": {
+        "column": 20,
+        "line": 11
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "location_assign",
+      "url": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 61,
+            "line": 12
+          },
+          "start": {
+            "column": 43,
+            "line": 12
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "/catalog/filters"
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 12
+      },
+      "start": {
+        "column": 20,
+        "line": 12
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "location_replace",
+      "url": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 48,
+            "line": 13
+          },
+          "start": {
+            "column": 44,
+            "line": 13
+          }
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 13
+      },
+      "start": {
+        "column": 20,
+        "line": 13
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "location_reload"
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 14
+      },
+      "start": {
+        "column": 20,
+        "line": 14
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "history_push_state",
+      "url": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 64,
+            "line": 15
+          },
+          "start": {
+            "column": 46,
+            "line": 15
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "/catalog#filters"
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 15
+      },
+      "start": {
+        "column": 20,
+        "line": 15
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "history_replace_state",
+      "url": {
+        "kind": "browser_read",
+        "read": {
+          "field": "Pathname",
+          "kind": "location"
+        },
+        "span": {
+          "end": {
+            "column": 53,
+            "line": 16
+          },
+          "start": {
+            "column": 49,
+            "line": 16
+          }
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 16
+      },
+      "start": {
+        "column": 20,
+        "line": 16
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "history_back"
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 17
+      },
+      "start": {
+        "column": 20,
+        "line": 17
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "history_forward"
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 18
+      },
+      "start": {
+        "column": 20,
+        "line": 18
+      }
+    }
+  },
+  {
+    "effect": {
+      "delta": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 43,
+            "line": 19
+          },
+          "start": {
+            "column": 38,
+            "line": 19
+          }
+        },
+        "value": {
+          "kind": "int",
+          "value": 1
+        }
+      },
+      "kind": "history_go"
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 19
+      },
+      "start": {
+        "column": 20,
+        "line": 19
+      }
+    }
+  },
+  {
+    "effect": {
+      "detail": null,
+      "kind": "document_dispatch_event",
+      "name": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 68,
+            "line": 20
+          },
+          "start": {
+            "column": 51,
+            "line": 20
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "filters:changed"
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 20
+      },
+      "start": {
+        "column": 20,
+        "line": 20
+      }
+    }
+  },
+  {
+    "effect": {
+      "detail": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 86,
+            "line": 21
+          },
+          "start": {
+            "column": 82,
+            "line": 21
+          }
+        }
+      },
+      "kind": "document_dispatch_event",
+      "name": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 80,
+            "line": 21
+          },
+          "start": {
+            "column": 63,
+            "line": 21
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "filters:changed"
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 21
+      },
+      "start": {
+        "column": 20,
+        "line": 21
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "document_set_title",
+      "title": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 50,
+            "line": 22
+          },
+          "start": {
+            "column": 46,
+            "line": 22
+          }
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 22
+      },
+      "start": {
+        "column": 20,
+        "line": 22
+      }
+    }
+  },
+  {
+    "effect": {
+      "kind": "clipboard_write_text",
+      "text": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 52,
+            "line": 23
+          },
+          "start": {
+            "column": 48,
+            "line": 23
+          }
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 23
+      },
+      "start": {
+        "column": 20,
+        "line": 23
+      }
+    }
+  },
+  {
+    "effect": {
+      "fallback": null,
+      "kind": "webauthn_create_json_into",
+      "options_json": {
+        "kind": "signal_read",
+        "signal": 1,
+        "span": {
+          "end": {
+            "column": 71,
+            "line": 24
+          },
+          "start": {
+            "column": 53,
+            "line": 24
+          }
+        }
+      },
+      "target": 2
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 24
+      },
+      "start": {
+        "column": 20,
+        "line": 24
+      }
+    }
+  },
+  {
+    "effect": {
+      "fallback": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 110,
+            "line": 25
+          },
+          "start": {
+            "column": 97,
+            "line": 25
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "unavailable"
+        }
+      },
+      "kind": "webauthn_get_json_into",
+      "options_json": {
+        "kind": "signal_read",
+        "signal": 1,
+        "span": {
+          "end": {
+            "column": 71,
+            "line": 25
+          },
+          "start": {
+            "column": 53,
+            "line": 25
+          }
+        }
+      },
+      "target": 2
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 25
+      },
+      "start": {
+        "column": 20,
+        "line": 25
+      }
+    }
+  },
+  {
+    "effect": {
+      "area": "Local",
+      "key": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 59,
+            "line": 26
+          },
+          "start": {
+            "column": 50,
+            "line": 26
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "filters"
+        }
+      },
+      "kind": "storage_set_item",
+      "value": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 65,
+            "line": 26
+          },
+          "start": {
+            "column": 61,
+            "line": 26
+          }
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 26
+      },
+      "start": {
+        "column": 20,
+        "line": 26
+      }
+    }
+  },
+  {
+    "effect": {
+      "area": "Local",
+      "key": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 68,
+            "line": 27
+          },
+          "start": {
+            "column": 53,
+            "line": 27
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "filters:stale"
+        }
+      },
+      "kind": "storage_remove_item"
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 27
+      },
+      "start": {
+        "column": 20,
+        "line": 27
+      }
+    }
+  },
+  {
+    "effect": {
+      "area": "Session",
+      "key": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 61,
+            "line": 28
+          },
+          "start": {
+            "column": 52,
+            "line": 28
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "filters"
+        }
+      },
+      "kind": "storage_set_item",
+      "value": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 67,
+            "line": 28
+          },
+          "start": {
+            "column": 63,
+            "line": 28
+          }
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 28
+      },
+      "start": {
+        "column": 20,
+        "line": 28
+      }
+    }
+  },
+  {
+    "effect": {
+      "area": "Session",
+      "key": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 70,
+            "line": 29
+          },
+          "start": {
+            "column": 55,
+            "line": 29
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "filters:stale"
+        }
+      },
+      "kind": "storage_remove_item"
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 29
+      },
+      "start": {
+        "column": 20,
+        "line": 29
+      }
+    }
+  },
+  {
+    "effect": {
+      "key": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 57,
+            "line": 30
+          },
+          "start": {
+            "column": 48,
+            "line": 30
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "filters"
+        }
+      },
+      "kind": "url_set_search_param",
+      "mode": "Replace",
+      "value": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 63,
+            "line": 30
+          },
+          "start": {
+            "column": 59,
+            "line": 30
+          }
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 30
+      },
+      "start": {
+        "column": 20,
+        "line": 30
+      }
+    }
+  },
+  {
+    "effect": {
+      "key": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 58,
+            "line": 31
+          },
+          "start": {
+            "column": 51,
+            "line": 31
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "stale"
+        }
+      },
+      "kind": "url_delete_search_param",
+      "mode": "Replace"
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 31
+      },
+      "start": {
+        "column": 20,
+        "line": 31
+      }
+    }
+  },
+  {
+    "effect": {
+      "key": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 55,
+            "line": 32
+          },
+          "start": {
+            "column": 49,
+            "line": 32
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "page"
+        }
+      },
+      "kind": "url_set_search_param",
+      "mode": "Push",
+      "value": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 60,
+            "line": 32
+          },
+          "start": {
+            "column": 57,
+            "line": 32
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "2"
+        }
+      }
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 32
+      },
+      "start": {
+        "column": 20,
+        "line": 32
+      }
+    }
+  },
+  {
+    "effect": {
+      "key": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 63,
+            "line": 33
+          },
+          "start": {
+            "column": 56,
+            "line": 33
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "modal"
+        }
+      },
+      "kind": "url_delete_search_param",
+      "mode": "Push"
+    },
+    "kind": "browser_effect",
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 33
+      },
+      "start": {
+        "column": 20,
+        "line": 33
+      }
+    }
+  },
+  {
+    "args": [
+      {
+        "kind": "encoding",
+        "op": "Base64UrlEncode",
+        "span": {
+          "end": {
+            "column": 37,
+            "line": 34
+          },
+          "start": {
+            "column": 33,
+            "line": 34
+          }
+        },
+        "value": {
+          "kind": "encoding",
+          "op": "Utf8Bytes",
+          "span": {
+            "end": {
+              "column": 37,
+              "line": 34
+            },
+            "start": {
+              "column": 33,
+              "line": 34
+            }
+          },
+          "value": {
+            "kind": "signal_read",
+            "signal": 0,
+            "span": {
+              "end": {
+                "column": 37,
+                "line": 34
+              },
+              "start": {
+                "column": 33,
+                "line": 34
+              }
+            }
+          }
+        }
+      }
+    ],
+    "kind": "console",
+    "level": "Log",
+    "span": {
+      "end": {
+        "column": 27,
+        "line": 34
+      },
+      "start": {
+        "column": 20,
+        "line": 34
+      }
+    }
+  }
+]

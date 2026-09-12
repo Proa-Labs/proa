@@ -1,0 +1,9 @@
+error[E0308]: mismatched types
+  --> tests/ui/fail/62_shared_state_div_int_type_witness.rs:13:1
+   |
+13 | #[rsjs(component, client)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `&i32`, found `&u64`
+   |
+   = note: expected reference `&i32`
+              found reference `&u64`
+   = note: this error originates in the attribute macro `rsjs` (in Nightly builds, run with -Z macro-backtrace for more info)

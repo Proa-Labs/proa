@@ -1,0 +1,105 @@
+---
+title: Tailwind
+description: Style a Proa app, with autocomplete in Rust files.
+---
+
+Proa templates use Tailwind classes inside `class="..."` attributes and `tw_join!()` macros in Rust files. With a few VS Code settings, you get full autocomplete, color swatches, and class linting, the same experience you'd have in a `.tsx` file.
+
+## Prerequisites
+
+- [Tailwind CSS IntelliSense](https://marketplace.visualstudio.com/items?itemName=bradlc.vscode-tailwindcss) extension installed in VS Code
+- A Tailwind v4 CSS entrypoint, such as `styles/input.css` in generated sites.
+
+## Settings
+
+Add the following to your workspace `.vscode/settings.json`:
+
+```json
+{
+  // 1. Tell the extension to activate in Rust files.
+  //    Maps the "rust" language ID to "html" so it recognises class attributes.
+  "tailwindCSS.includeLanguages": {
+    "rust": "html"
+  },
+
+  // 2. Point to your Tailwind v4 CSS entrypoint.
+  "tailwindCSS.experimental.configFile": {
+    "styles/input.css": "**/*.rs"
+  },
+
+  // 3. Custom regex patterns for Proa idioms.
+  "tailwindCSS.experimental.classRegex": [
+    // class="..." inside html! macro
+    "class=\"([^\"]*?)\"",
+
+    // tw_join!("...", "...") — two-level match:
+    //   outer regex captures the contents of tw_join!(...)
+    //   inner regex extracts each quoted string
+    ["tw_join!\\(([^)]*)\\)", "\"([^\"]*)\""]
+  ],
+
+  // 4. Auto-trigger suggestions inside string literals
+  //    so you don't have to press Ctrl+Space each time.
+  "editor.quickSuggestions": {
+    "strings": true
+  }
+}
+```
+
+## What each setting does
+
+### `tailwindCSS.includeLanguages`
+
+The extension only activates for a built-in set of languages (HTML, CSS, JSX, etc.). This setting adds Rust to that list by mapping its VS Code language ID to `html`, which tells the extension to look for HTML-style `class` attributes.
+
+### `tailwindCSS.experimental.configFile`
+
+For Tailwind v4, point the extension at the CSS entrypoint that imports Tailwind and declares the project's sources and theme. The glob `**/*.rs` applies that stylesheet to Rust files throughout the workspace.
+
+### `tailwindCSS.experimental.classRegex`
+
+By default the extension only triggers inside `class` or `className` attributes in markup. This setting adds two patterns:
+
+**Pattern 1**, `class="([^\"]*?)"` matches class attributes in `html!`:
+
+```rust
+html! {
+    <div class="flex gap-2 items-center">  // autocomplete here
+```
+
+**Pattern 2**, the `[container, classlist]` array matches `tw_join!()`:
+
+```rust
+pub const BUTTON_BASE: &str = tw_join!(
+    "inline-flex",    // autocomplete here
+    "items-center",   // and here
+    "rounded-md",     // and here
+);
+```
+
+The outer regex captures everything inside the parentheses; the inner regex then extracts each individual `"..."` string.
+
+### `editor.quickSuggestions`
+
+By default VS Code suppresses auto-suggestions inside string literals. Since every Tailwind class in Proa lives inside a `"..."`, this setting enables inline suggestions so autocomplete appears as you type.
+
+## Verify it works
+
+1. Open any `.rs` file that uses `html!` or `html_sync!` (for example, `src/pages/home.rs`)
+2. Place your cursor inside a `class="..."` attribute
+3. Start typing a Tailwind class, you should see autocomplete suggestions with color swatches
+4. Open a local component recipe file if your app has one
+5. Place your cursor inside a `tw_join!("...")` string, autocomplete should work there too
+6. Try typing a custom theme color like `bg-primary`, it should appear with your theme's color preview
+
+> **Tip:** If suggestions don't appear, run **Tailwind CSS: Restart IntelliSense Server** from the VS Code command palette (`Cmd+Shift+P`).
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| No suggestions in `.rs` files | Check that `tailwindCSS.includeLanguages` has `"rust": "html"` |
+| Suggestions appear but no custom colors | Check that `tailwindCSS.experimental.configFile` points to the correct CSS entrypoint |
+| Suggestions in `class=""` but not `tw_join!()` | Check the `classRegex` array has both patterns |
+| Have to press `Ctrl+Space` every time | Set `editor.quickSuggestions.strings` to `true` |
+| Extension not activating at all | Ensure Tailwind CSS IntelliSense is installed and enabled for the workspace |

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Atlas Jacket, zip and cuff detail</title>
+  <desc id="desc">An original geometric weatherproof shell silhouette created for Proa fixtures.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#f2ece2"/><stop offset="1" stop-color="#d9ddd6"/></linearGradient>
+    <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#52646a"/><stop offset="1" stop-color="#38484d"/></linearGradient>
+  </defs>
+  <rect width="1200" height="1200" fill="url(#bg)"/>
+
+  <!-- sleeve, cropped and angled -->
+  <path d="M170 300c260-92 520-58 780 102l80 48-150 260-96-58c-206-126-424-152-654-76z" fill="url(#shell)" stroke="#1f2d30" stroke-width="18" stroke-linejoin="round"/>
+
+  <!-- cuff panel -->
+  <path d="M846 452l184 110-150 260-184-110z" fill="#2b3a3e" stroke="#1f2d30" stroke-width="16" stroke-linejoin="round"/>
+  <!-- hook and loop tab -->
+  <rect x="792" y="606" width="150" height="46" rx="22" transform="rotate(31 867 629)" fill="#dd7627"/>
+
+  <!-- storm zip running the sleeve -->
+  <path d="M212 392c250-74 484-34 720 118" fill="none" stroke="#c9d2ce" stroke-width="14" stroke-linecap="round"/>
+  <path d="M300 336l-24 66M420 322l-24 66M540 328l-24 66M660 356l-24 66M778 404l-24 66" stroke="#c9d2ce" stroke-width="10" stroke-linecap="round" opacity=".55"/>
+
+  <!-- taped seam callout -->
+  <path d="M250 760c220-70 430-42 640 86" fill="none" stroke="#c9d2ce" stroke-width="10" stroke-linecap="round" stroke-dasharray="28 26" opacity=".7"/>
+</svg>

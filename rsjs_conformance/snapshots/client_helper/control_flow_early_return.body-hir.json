@@ -1,0 +1,130 @@
+{
+  "kind": "Block",
+  "statements": [
+    {
+      "span": {
+        "start": {
+          "line": 84,
+          "column": 4
+        },
+        "end": {
+          "line": 84,
+          "column": 6
+        }
+      },
+      "kind": "If",
+      "condition": {
+        "span": {
+          "start": {
+            "line": 84,
+            "column": 7
+          },
+          "end": {
+            "line": 84,
+            "column": 12
+          }
+        },
+        "kind": "BinaryOp",
+        "op": "Gt",
+        "lhs": {
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 7
+            },
+            "end": {
+              "line": 84,
+              "column": 12
+            }
+          },
+          "kind": "Param",
+          "index": 0,
+          "name": "price"
+        },
+        "rhs": {
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 15
+            },
+            "end": {
+              "line": 84,
+              "column": 18
+            }
+          },
+          "kind": "Lit",
+          "value": {
+            "v": "BigInt",
+            "data": "100"
+          }
+        }
+      },
+      "then": {
+        "kind": "Block",
+        "statements": [
+          {
+            "span": {
+              "start": {
+                "line": 85,
+                "column": 8
+              },
+              "end": {
+                "line": 85,
+                "column": 14
+              }
+            },
+            "kind": "Return",
+            "value": {
+              "span": {
+                "start": {
+                  "line": 85,
+                  "column": 15
+                },
+                "end": {
+                  "line": 85,
+                  "column": 24
+                }
+              },
+              "kind": "Lit",
+              "value": {
+                "v": "String",
+                "data": "premium"
+              }
+            }
+          }
+        ]
+      },
+      "else": null
+    },
+    {
+      "span": {
+        "start": {
+          "line": 87,
+          "column": 4
+        },
+        "end": {
+          "line": 87,
+          "column": 14
+        }
+      },
+      "kind": "Return",
+      "value": {
+        "span": {
+          "start": {
+            "line": 87,
+            "column": 4
+          },
+          "end": {
+            "line": 87,
+            "column": 14
+          }
+        },
+        "kind": "Lit",
+        "value": {
+          "v": "String",
+          "data": "standard"
+        }
+      }
+    }
+  ]
+}

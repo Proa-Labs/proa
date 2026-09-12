@@ -1,0 +1,104 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A superseded run spends nothing: force-pushes and rapid PR updates cancel
+# the previous run instead of queueing behind it.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # The scaffold generator pins the exact CLI release it was built from.
+  PROA_CLI_VERSION: "0.1.1"
+  # Incremental artifacts and debuginfo only slow CI down.
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_TEST_THREADS: "2"
+
+jobs:
+  ci:
+    name: fmt, lint, build, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      # Download immutable release artifacts and verify them before execution.
+      # rust-toolchain.toml separately pins the Rust toolchain.
+      - name: Install the Proa CLI and Tailwind
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir="$RUNNER_TEMP/proa-bin"
+          temp_dir="$RUNNER_TEMP/proa-install"
+          target="x86_64-unknown-linux-gnu"
+          archive="proa-cli-$PROA_CLI_VERSION-$target.tar.gz"
+          sums="proa-cli-$PROA_CLI_VERSION-SHA256SUMS"
+          base="https://proa.so/downloads/cli/0.1.1"
+          tailwind_version="4.3.3"
+          tailwind_asset="tailwindcss-linux-x64"
+          tailwind_sha256="dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a"
+
+          mkdir -p "$install_dir" "$temp_dir"
+          curl --fail --location --proto '=https' --proto-redir '=https' \
+            --silent --show-error --tlsv1.2 \
+            --output "$temp_dir/$archive" "$base/$archive"
+          curl --fail --location --proto '=https' --proto-redir '=https' \
+            --silent --show-error --tlsv1.2 \
+            --output "$temp_dir/$sums" "$base/$sums"
+          awk -v archive="$archive" '
+            ($2 == archive || $2 == "*" archive) &&
+            length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {
+              print tolower($1) "  " archive
+              found = 1
+            }
+            END { exit found ? 0 : 1 }
+          ' "$temp_dir/$sums" > "$temp_dir/selected-SHA256SUMS"
+          (cd "$temp_dir" && sha256sum --check --strict selected-SHA256SUMS)
+          tar -xzf "$temp_dir/$archive" -C "$temp_dir"
+          release_dir="$temp_dir/proa-cli-$PROA_CLI_VERSION-$target"
+          install -m 0755 "$release_dir/proa" "$install_dir/proa"
+          install -m 0755 "$release_dir/cargo-proa" "$install_dir/cargo-proa"
+
+          curl --fail --location --proto '=https' --proto-redir '=https' \
+            --silent --show-error --tlsv1.2 \
+            --output "$temp_dir/$tailwind_asset" \
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/v$tailwind_version/$tailwind_asset"
+          printf '%s  %s\n' "$tailwind_sha256" "$tailwind_asset" \
+            > "$temp_dir/tailwind-SHA256SUMS"
+          (cd "$temp_dir" && sha256sum --check --strict tailwind-SHA256SUMS)
+          install -m 0755 "$temp_dir/$tailwind_asset" "$install_dir/tailwindcss"
+
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      - name: Format
+        run: |
+          cargo fmt --all -- --check
+          proa fmt --check
+
+      - name: Lint
+        run: proa lint
+
+      # cargo-proa refuses RUSTC_WRAPPER by design (a compiler cache must
+      # never bypass its descriptor/final compilation), so any wrapper the
+      # runner environment sets is dropped here.
+      - name: Test (mcp-incident-desk, linked pipeline)
+        run: env -u RUSTC_WRAPPER proa test
+
+      - name: Release build
+        run: env -u RUSTC_WRAPPER proa build

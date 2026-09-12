@@ -1,0 +1,47 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_marketing"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+description = "Proa marketing website"
+license-file.workspace = true
+
+[[bin]]
+name = "proa_marketing"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+futures = { workspace = true }
+proa_core = { workspace = true }
+proa_demo = { workspace = true, features = ["server"] }
+proa_docs = { workspace = true }
+proa_macros = { workspace = true }
+proa_showcase_web = { workspace = true }
+# json to read the GitHub release metadata, stream so an 11MB archive is
+# forwarded to the client instead of buffered in memory.
+reqwest = { workspace = true, features = ["json", "stream"] }
+rsjs = { workspace = true }
+rsjs_macros = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
+tower = { version = "0.4" }
+tower-http = { version = "0.5", features = ["compression-br", "compression-gzip", "fs", "set-header", "trace"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+
+[build-dependencies]
+proa_docs_build = { workspace = true }
+
+[dev-dependencies]
+tower-test = { package = "tower", version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

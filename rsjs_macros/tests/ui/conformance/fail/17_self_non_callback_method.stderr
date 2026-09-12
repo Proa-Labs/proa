@@ -1,0 +1,16 @@
+error: rsjs boundary: Rust method `self.save_now(...)` cannot run inside a client handler
+
+       Why:
+         rsjs handler bodies compile to JavaScript Client IR. Arbitrary Rust methods are server-side code unless you expose equivalent client code explicitly.
+
+       Use one of:
+         - Use a component callback slot named `self.on_*` and call it as `self.on_change.call(payload)`.
+         - Rewrite the handler with supported signal, event, callback, and control-flow operations.
+         - For pure portable computation only, move the logic into a standalone helper annotated once with `#[rsjs::client]`; effects must use supported handler, browser-capability, query, or mutation operations.
+
+       Tracked feature:
+         component.self_non_callback_method
+  --> tests/ui/conformance/fail/17_self_non_callback_method.rs:17:44
+   |
+17 |                 <button on_click={|_| self.save_now(())}>"Save"</button>
+   |                                            ^^^^^^^^

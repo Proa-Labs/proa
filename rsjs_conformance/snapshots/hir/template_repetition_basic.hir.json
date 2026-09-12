@@ -1,0 +1,89 @@
+[
+  {
+    "kind": "let",
+    "local": 0,
+    "name": "selected",
+    "span": {
+      "end": {
+        "column": 35,
+        "line": 1
+      },
+      "start": {
+        "column": 32,
+        "line": 1
+      }
+    },
+    "value": {
+      "attr": "data-rsjs-payload-p1",
+      "kind": "event_payload",
+      "span": {
+        "end": {
+          "column": 52,
+          "line": 1
+        },
+        "start": {
+          "column": 47,
+          "line": 1
+        }
+      }
+    }
+  },
+  {
+    "args": [
+      {
+        "kind": "local",
+        "local": 0,
+        "span": {
+          "end": {
+            "column": 53,
+            "line": 2
+          },
+          "start": {
+            "column": 45,
+            "line": 2
+          }
+        }
+      }
+    ],
+    "kind": "console",
+    "level": "Log",
+    "span": {
+      "end": {
+        "column": 39,
+        "line": 2
+      },
+      "start": {
+        "column": 32,
+        "line": 2
+      }
+    }
+  },
+  {
+    "kind": "callback_invoke",
+    "payload": {
+      "kind": "local",
+      "local": 0,
+      "span": {
+        "end": {
+          "column": 60,
+          "line": 3
+        },
+        "start": {
+          "column": 52,
+          "line": 3
+        }
+      }
+    },
+    "slot": 0,
+    "span": {
+      "end": {
+        "column": 36,
+        "line": 3
+      },
+      "start": {
+        "column": 32,
+        "line": 3
+      }
+    }
+  }
+]

@@ -1,0 +1,14 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Pin the toolchain so local and CI builds use the same compiler.
+# rustup picks this up automatically in the repo; the CI "Install Rust"
+# steps install a toolchain, then rustup defers to this file when cargo
+# runs inside the workspace.
+#
+# Keep `channel` at or above the [workspace.package] rust-version floor
+# (currently 1.93.0) in the root Cargo.toml. Bump both deliberately.
+
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 216" role="img" aria-label="Synthetic service category icon">
+  <rect width="240" height="216" rx="28" fill="#eee7d9"/>
+  <circle cx="120" cy="108" r="66" fill="#fff"/>
+  <path d="M82 82h76v72H82z" fill="#d9a85d"/>
+  <path d="M96 68h48v28H96zM70 154h100" fill="none" stroke="#5e4936" stroke-width="8" stroke-linejoin="round"/>
+  <circle cx="105" cy="119" r="7" fill="#5e4936"/>
+  <circle cx="135" cy="119" r="7" fill="#5e4936"/>
+</svg>

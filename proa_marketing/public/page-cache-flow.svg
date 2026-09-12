@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400" role="img" aria-labelledby="title desc">
+  <title id="title">Pages cached at the edge</title>
+  <desc id="desc">Visitors request HTML from the CDN. Fresh entries skip Proa. A cache miss reaches Proa for rendering. After rollout, deployment invalidates the CDN cache.</desc>
+  <style>
+    svg { --bg:#f8fafc; --panel:#fff; --fg:#17243a; --muted:#52647a; --line:#718096; --accent:#087f8c; }
+    @media (prefers-color-scheme:dark) { svg { --bg:#111923; --panel:#192735; --fg:#e6edf5; --muted:#afbdcc; --line:#8296aa; --accent:#52c9c0; } }
+    .panel { fill:var(--panel); stroke:var(--line); stroke-width:1.5; }
+    .label { fill:var(--fg); font:600 16px sans-serif; text-anchor:middle; }
+    .detail { fill:var(--muted); font:13px sans-serif; text-anchor:middle; }
+    .arrow { fill:none; stroke:var(--line); stroke-width:1.5; marker-end:url(#arrow); }
+    .purge { fill:none; stroke:var(--accent); stroke-width:1.5; stroke-dasharray:5 4; marker-end:url(#purge); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="var(--line)"/></marker>
+    <marker id="purge" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="var(--accent)"/></marker>
+  </defs>
+  <rect width="640" height="400" rx="16" fill="var(--bg)"/>
+  <text x="320" y="34" class="label">Pages cached at the edge</text>
+  <rect x="24" y="70" width="152" height="66" rx="10" class="panel"/>
+  <text x="100" y="98" class="label">Visitor</text>
+  <text x="100" y="119" class="detail">Requests the page</text>
+  <path d="M176 103H241" class="arrow"/>
+  <rect x="244" y="70" width="152" height="66" rx="10" class="panel"/>
+  <text x="320" y="98" class="label">CDN</text>
+  <text x="320" y="119" class="detail">Fresh cached HTML?</text>
+  <path d="M396 103H461" class="arrow"/>
+  <text x="430" y="89" class="detail">Yes</text>
+  <rect x="464" y="70" width="152" height="66" rx="10" class="panel"/>
+  <text x="540" y="98" class="label">Serve HTML</text>
+  <text x="540" y="119" class="detail">No origin request</text>
+  <path d="M320 136V203" class="arrow"/>
+  <text x="370" y="173" class="detail">Miss / refresh</text>
+  <rect x="244" y="206" width="152" height="66" rx="10" class="panel"/>
+  <text x="320" y="234" class="label">Proa renders</text>
+  <text x="320" y="255" class="detail">CDN stores the HTML</text>
+  <path d="M396 239H424V145H387" class="arrow"/>
+  <rect x="24" y="314" width="592" height="58" rx="10" class="panel"/>
+  <text x="320" y="339" class="label">New deployment completes</text>
+  <text x="320" y="359" class="detail">Deployment invalidates the CDN cache</text>
+  <path d="M100 314V175H259V139" class="purge"/>
+</svg>

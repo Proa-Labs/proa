@@ -1,0 +1,49 @@
+[
+  {
+    "args": [
+      {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 46,
+            "line": 1
+          },
+          "start": {
+            "column": 37,
+            "line": 1
+          }
+        },
+        "value": {
+          "kind": "string",
+          "value": "refresh"
+        }
+      }
+    ],
+    "kind": "console",
+    "level": "Log",
+    "span": {
+      "end": {
+        "column": 31,
+        "line": 1
+      },
+      "start": {
+        "column": 24,
+        "line": 1
+      }
+    }
+  },
+  {
+    "kind": "query_refetch",
+    "query": 0,
+    "span": {
+      "end": {
+        "column": 29,
+        "line": 2
+      },
+      "start": {
+        "column": 24,
+        "line": 2
+      }
+    }
+  }
+]

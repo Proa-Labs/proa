@@ -1,0 +1,5 @@
+error: `type_key` belongs on the struct, not on field `mode`: the protocol identity names the whole shared-state schema. Move it above the struct as `#[rsjs(type_key = "...")]`
+ --> tests/ui/fail/56_shared_state_field_type_key.rs:7:12
+  |
+7 |     #[rsjs(type_key = "probe.fieldkey")]
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^

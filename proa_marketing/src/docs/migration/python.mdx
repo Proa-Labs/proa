@@ -1,0 +1,332 @@
+---
+title: From Python (Django / Flask)
+description: Run Proa as a sidecar and migrate Python routes gradually.
+---
+
+Proa runs as a separate HTTP service, so a Django or Flask app can hand it one route at a time. This page covers [the sidecar service](#running-proa-as-a-sidecar), [an in-process bridge](#going-in-process), [auth and sessions](#sharing-auth-and-sessions), and [measuring the result](#comparing-in-production).
+
+## Running Proa as a sidecar
+
+The sidecar approach has two halves:
+
+- **Sidecar service**: Proa runs as a separate HTTP service, and your proxy routes selected paths to it.
+- **Shared data and auth**: both services read from the same database or service layer, and the proxy forwards the auth context Proa needs.
+
+Your Python app keeps serving every other route while you migrate.
+
+### Architecture
+
+```text filename="Request routing"
+                    ┌─────────────┐
+                    │   Nginx /   │
+                    │  Gunicorn   │
+                    └──────┬──────┘
+                           │
+              ┌────────────┴────────────┐
+              │                         │
+     /rooms/* │                         │ everything else
+              ▼                         ▼
+     ┌────────────────┐       ┌──────────────────┐
+     │  Proa (Axum)   │       │  Django / Flask   │
+     │  :4000         │       │  :8000            │
+     └────────┬───────┘       └────────┬──────────┘
+              │                         │
+              └────────────┬────────────┘
+                           │
+                    ┌──────┴──────┐
+                    │  Database   │
+                    └─────────────┘
+```
+
+### Nginx config
+
+```nginx filename="/etc/nginx/nginx.conf"
+upstream python {
+    server 127.0.0.1:8000;
+}
+
+upstream proa {
+    server 127.0.0.1:4000;
+}
+
+server {
+    listen 80;
+
+    location /rooms/ {
+        proxy_pass http://proa;
+        proxy_set_header Host $host;
+        proxy_set_header X-Request-Id $request_id;
+        proxy_set_header Cookie $http_cookie;
+    }
+
+    location / {
+        proxy_pass http://python;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+### Converting the template
+
+#### Jinja2 to html_sync!
+
+Django with Jinja2:
+
+```html filename="templates/listings/detail.html"
+{# templates/listings/detail.html #}
+{% extends "base.html" %}
+{% block content %}
+<div class="flex gap-4 rounded-xl border p-4">
+  <img src="{{ listing.image_url }}"
+       alt="{{ listing.title }}"
+       class="h-48 w-48 rounded-lg object-cover">
+  <div class="flex flex-col">
+    <h2 class="text-lg font-semibold">{{ listing.title }}</h2>
+    <p class="text-muted-foreground">{{ listing.location }}</p>
+    <p class="mt-auto font-semibold">
+      ${{ listing.price }}
+      <span class="font-normal">/ night</span>
+    </p>
+  </div>
+</div>
+{% endblock %}
+```
+
+The same markup in `html_sync!`:
+
+```rust filename="src/components/listing_detail.rs"
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+
+pub struct ListingDetail<'a> {
+    pub title: &'a str,
+    pub location: &'a str,
+    pub price: u32,
+    pub image_url: &'a str,
+}
+
+impl<'a, L: DataLoader> WebRenderSync<L> for ListingDetail<'a> {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <div class="flex gap-4 rounded-xl border p-4">
+                <img
+                    src={self.image_url}
+                    alt={self.title}
+                    class="h-48 w-48 rounded-lg object-cover"
+                />
+                <div class="flex flex-col">
+                    <h2 class="text-lg font-semibold">{self.title}</h2>
+                    <p class="text-muted-foreground">{self.location}</p>
+                    <p class="mt-auto font-semibold">
+                        "$"{self.price}" "
+                        <span class="font-normal">"/ night"</span>
+                    </p>
+                </div>
+            </div>
+        }.render(cx)
+    }
+}
+```
+
+### Quick reference
+
+| Jinja2 / Django | Proa | Notes |
+|-----------------|------|-------|
+| `{{ variable }}` | `{variable}` | Auto-escaped in both |
+| `{{ variable\|safe }}` | `{UnsafeRaw(html)}` | Unescaped: same risk |
+| `{% if condition %}` | `{if condition { html_sync! { ... } }}` | DOM branches return renderable fragments |
+| `{% for item in items %}` | `{for item in &items { html_sync! { ... } }}` | Rust for loop |
+| `{% include "partial.html" %}` | `{PartialComponent { ... }}` | Component struct |
+| `{% extends "base.html" %}` | Layout component wrapping children | Composition, not inheritance |
+| `{% block content %}` | Generic children parameter | `pub children: C` |
+| `{{ variable\|truncatewords:30 }}` | Compute before render | Pre-process data in the handler |
+| `{% url 'listing_detail' pk=id %}` | Hardcode or use a URL builder | No template-level URL resolution |
+| `{% csrf_token %}` | App-owned Axum middleware | Configure token issuance and validation explicitly; Proa's default cross-origin protection is not a CSRF-token service |
+
+### Template inheritance to composition
+
+Jinja2 uses inheritance (`{% extends %}`). Proa uses composition, where a layout component wraps children:
+
+```html filename="templates/base.html"
+{# base.html #}
+<!DOCTYPE html>
+<html lang="en">
+<head><title>{% block title %}{% endblock %} - MyApp</title></head>
+<body>
+  <nav>...</nav>
+  {% block content %}{% endblock %}
+  <footer>...</footer>
+</body>
+</html>
+
+{# detail.html #}
+{% extends "base.html" %}
+{% block title %}{{ listing.title }}{% endblock %}
+{% block content %}
+  <h1>{{ listing.title }}</h1>
+{% endblock %}
+```
+
+Proa:
+
+```rust filename="src/layouts/app.rs"
+pub struct AppLayout<C> {
+    pub title: &'static str,
+    pub children: C,
+}
+
+impl<L, C> WebRenderSync<L> for AppLayout<C>
+where
+    L: DataLoader,
+    C: WebRenderSync<L>,
+{
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <!DOCTYPE html>
+            <html lang="en">
+                <head><title>{self.title}" - MyApp"</title></head>
+                <body>
+                    <nav>"..."</nav>
+                    {self.children}
+                    <footer>"..."</footer>
+                </body>
+            </html>
+        }.render(cx)
+    }
+}
+
+// Usage in handler:
+AppLayout {
+    title: listing.title,
+    children: ListingDetail { ... },
+}
+```
+
+### Loading data
+
+Django:
+
+```python filename="listings/views.py"
+def listing_detail(request, listing_id):
+    listing = get_object_or_404(Listing, pk=listing_id)
+    return render(request, "listings/detail.html", {"listing": listing})
+```
+
+Flask:
+
+```python filename="app.py"
+@app.route("/rooms/<int:listing_id>")
+def listing_detail(listing_id):
+    listing = Listing.query.get_or_404(listing_id)
+    return render_template("listings/detail.html", listing=listing)
+```
+
+Proa with Axum:
+
+```rust filename="src/routes/listings.rs"
+async fn listing_detail(
+    Path(listing_id): Path<i64>,
+    State(pool): State<PgPool>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let listing = sqlx::query_as!(
+        Listing,
+        "SELECT * FROM listings WHERE id = $1",
+        listing_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    let mut cx = WebContext::new();
+
+    AppLayout {
+        title: &listing.title,
+        children: ListingDetail {
+            title: &listing.title,
+            location: &listing.location,
+            price: listing.price,
+            image_url: &listing.image_url,
+        },
+    }
+    .render(&mut cx)
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Html(cx.into_output().into_string()))
+}
+```
+
+The sidecar costs one HTTP hop per migrated route. Remove it only when profiling says it matters.
+
+## Going in-process
+
+Start with the sidecar unless the HTTP hop shows up in profiling. A PyO3 extension crate can host Proa in-process, but Proa ships no generic `proa-python` package in this workspace.
+
+Treat that path as application-specific integration work:
+
+- Define a narrow Rust function per migrated render path.
+- Render into `RenderBuffer` and convert the bytes to a Python `str` at the boundary.
+- Keep auth, database access, and error handling in the Python app.
+
+Either boundary raises the same question: how does Proa learn who the user is?
+
+## Sharing auth and sessions
+
+Django keeps sessions in a database or cache backend. Three options connect Proa to them:
+
+1. **Shared session backend**: point both Django and Proa at the same Redis or PostgreSQL session store.
+2. **JWT**: Django issues a JWT on login, and Proa validates it independently.
+3. **Proxy header**: Nginx validates the Django session cookie and passes user info as headers to Proa.
+
+Option 3 is simplest for migration:
+
+```nginx filename="/etc/nginx/nginx.conf"
+# In the Proa location block:
+location /rooms/ {
+    # First, authenticate with Django
+    auth_request /auth/validate;
+    auth_request_set $user_id $upstream_http_x_user_id;
+
+    proxy_pass http://proa;
+    proxy_set_header X-User-Id $user_id;
+}
+
+location = /auth/validate {
+    internal;
+    proxy_pass http://python/api/auth/validate;
+    proxy_set_header Cookie $http_cookie;
+}
+```
+
+With one route served and authenticated, measure it against the Python original.
+
+## Comparing in production
+
+```bash filename="Terminal"
+# Load test Django/Flask
+wrk -t4 -c100 -d30s http://localhost:8000/rooms/12345
+
+# Load test Proa sidecar
+wrk -t4 -c100 -d30s http://localhost:4000/rooms/12345
+```
+
+Measure the same route under the same cache policy before deciding whether to move more paths:
+
+| Metric | Why it matters |
+|--------|----------------|
+| p50 / p95 / p99 latency | Shows whether render time and tail latency improved. |
+| CPU per response | Captures whether native SSR reduces Python worker time. |
+| Resident memory | Shows how much capacity each worker keeps idle. |
+| Error rate under load | Prevents throughput wins from hiding overload failures. |
+| TTFB | Confirms users see the server-side improvement. |
+
+## Next steps
+
+- [Routes and layouts](/docs/framework/routing)
+  - Map the paths your proxy forwards onto Proa routes.
+- [HTML rendering](/docs/core/html-rendering)
+  - Write the components that replace each template.
+- [Cross-origin and CSRF](/docs/framework/cross-origin)
+  - Set the origin policy for forms that now post to Proa.
+- [Deploy](/docs/framework/deployment)
+  - Run the sidecar next to Gunicorn in production.

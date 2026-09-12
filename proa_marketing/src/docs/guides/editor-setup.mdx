@@ -1,0 +1,232 @@
+---
+title: Editor setup
+description: Configure VS Code, Neovim, Vim, Helix, and Zed for Rust navigation and completion inside Proa Markdown templates.
+keywords: [editor, vscode, "VS Code", VSIX, rust-analyzer, proa-lsp, Neovim, nvim, Vim, vim-lsp, Helix, Zed, autocomplete, "go to definition"]
+---
+
+Proa's editor tools add Rust go-to-definition, hover, completion, rename, and
+semantic highlighting inside raw-string `md!` and `md_sync!` templates,
+including `r###"..."###`. They use rust-analyzer for Rust analysis.
+
+```rust
+md_sync! { r###"
+    **{a.user_name.as_str()}**
+
+    {a.note.as_str()}
+    "###
+}
+```
+
+With editor support enabled, selecting `user_name` in this template navigates
+to its Rust field declaration. Hover shows its type, and completion works
+while typing an unfinished access such as `{a.}`.
+
+Use the **Proa extension** in VS Code. In other editors, configure
+**`proa-lsp`** as the Rust language-server command. For Tailwind class
+completion in HTML templates, see [Tailwind](/docs/guides/tailwind-intellisense).
+
+## VS Code
+
+Install the official
+[rust-analyzer extension](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+and the Rust toolchain used by your project. Open the project in a trusted
+workspace.
+
+The current Proa extension can be packaged from a
+[Proa repository checkout](https://github.com/Proa-Labs/proa). With Node.js 22
+or newer installed, run these commands from the repository root:
+
+```bash
+cd editors/vscode
+npm test
+npx @vscode/vsce package --no-dependencies
+code --install-extension ./proa-0.2.0.vsix
+```
+
+You can also install the resulting file through **Extensions: Install from
+VSIX...** in the Command Palette. Reload the VS Code window after installing.
+The extension ID is `proa-labs.proa`; `proa new site` recommends that ID in
+generated projects. These installation steps use a local VSIX and do not
+require a Proa Marketplace release.
+
+If you used the earlier `proa-labs.proa-markdown` prototype, uninstall it before
+enabling Proa so that only one extension handles template analysis.
+
+Proa attaches to the official rust-analyzer extension's existing server. No
+workspace settings are required, and `rust-analyzer.server.path` should keep
+pointing to your normal analyzer, not `proa-lsp`.
+
+## Install the bridge for other editors
+
+The standalone bridge requires **Node.js 22+**, **rust-analyzer**, and your
+project's Rust toolchain, including Cargo and rustfmt. From the Proa repository
+root:
+
+```bash
+rustup component add rust-analyzer rustfmt
+npm install --global ./editors/lsp
+proa-lsp --version
+```
+
+This installs from the checkout and does not require an npm registry release.
+Configure your editor to launch `proa-lsp --stdio`; the bridge starts one
+rust-analyzer process for that LSP connection.
+
+The default analyzer is `rust-analyzer` on `PATH`. To choose a particular
+executable, add these arguments to your editor's command:
+
+```bash
+proa-lsp --stdio --rust-analyzer /absolute/path/to/rust-analyzer
+```
+
+`PROA_RUST_ANALYZER` can set the same path. Node, Cargo, and rustfmt must also be
+available to the editor process, including in remote sessions and containers.
+
+Use the bridge for your existing Rust LSP connection, or disable the direct
+rust-analyzer connection before adding a new one. Running both on the same
+buffer produces duplicate results.
+
+## Neovim
+
+Neovim **0.11 or newer** includes the LSP configuration API used below.
+
+If nvim-lspconfig already provides your `rust_analyzer` configuration, change
+its command in `init.lua`. Your other settings and completion plugins can stay
+in that configuration:
+
+```lua
+vim.lsp.config('rust_analyzer', {
+  cmd = { 'proa-lsp', '--stdio' },
+})
+vim.lsp.enable('rust_analyzer')
+```
+
+For a setup without an existing Rust LSP configuration, use this instead:
+
+```lua
+vim.lsp.config('proa', {
+  cmd = { 'proa-lsp', '--stdio' },
+  filetypes = { 'rust' },
+  root_markers = { 'Cargo.toml', 'rust-project.json', '.git' },
+  settings = { ['rust-analyzer'] = {} },
+})
+vim.lsp.enable('proa')
+```
+
+Open a Rust file and run `:checkhealth vim.lsp`. There should be one attached
+Rust client. Use `K` for hover and the usual `vim.lsp.buf.definition()`,
+`vim.lsp.buf.rename()`, and `vim.lsp.buf.format()` functions through your
+preferred keymaps. See [Neovim's LSP documentation](https://neovim.io/doc/user/lsp/)
+for completion and keymap configuration.
+
+## Vim
+
+Install [vim-lsp](https://github.com/prabirshrestha/vim-lsp) using your plugin
+manager, then register the bridge in your vimrc:
+
+```vim
+augroup proa_lsp
+  autocmd!
+  autocmd User lsp_setup call lsp#register_server({
+        \ 'name': 'proa',
+        \ 'cmd': {server_info -> ['proa-lsp', '--stdio']},
+        \ 'allowlist': ['rust'],
+        \ 'workspace_config': {'rust-analyzer': {}},
+        \ })
+augroup END
+```
+
+Disable any existing direct Rust server registration. Use vim-lsp's
+`:LspDefinition`, `:LspHover`, `:LspRename`, and `:LspDocumentFormat` commands.
+Completion and semantic coloring depend on your Vim client and plugins.
+
+## Helix
+
+Override the command for Helix's existing Rust server in
+`~/.config/helix/languages.toml`:
+
+```toml
+[language-server.rust-analyzer]
+command = "proa-lsp"
+args = ["--stdio"]
+```
+
+This retains your Rust language settings. See
+[Helix language-server configuration](https://docs.helix-editor.com/languages.html#language-server-configuration)
+for additional options.
+
+## Zed
+
+Use `command -v proa-lsp` to find the bridge's absolute path, then set it as the
+command for Zed's existing Rust server in `settings.json`:
+
+```json
+{
+  "lsp": {
+    "rust-analyzer": {
+      "binary": {
+        "path": "/absolute/path/to/proa-lsp",
+        "arguments": ["--stdio"]
+      }
+    }
+  }
+}
+```
+
+See [Zed's Rust binary settings](https://zed.dev/docs/languages/rust#binary).
+
+## Verify the setup
+
+Open a Rust file in your Cargo project that uses a raw Markdown template.
+With the example at the top of this page:
+
+1. Use go-to-definition on `user_name` and check that it reaches the field declaration.
+2. Hover over the field to inspect its Rust type.
+3. Replace `a.user_name.as_str()` with `a.` and request completion. The fields on `a` should appear.
+4. Restore the expression, then run Format Document. The Markdown content should remain intact.
+
+Template loops and conditions, including nested blocks and `if let`, retain
+their Rust bindings. Unicode text before an expression does not move its
+navigation target.
+
+## Formatting and supported scope
+
+Format Document runs rustfmt on the original unsaved Rust file, using the
+owning Cargo target's edition and nearest rustfmt configuration. It respects
+`rust-analyzer.rustfmt.extraArgs` and `rust-analyzer.rustfmt.overrideCommand`.
+Use [proa fmt](/docs/cli/format-lint-check) to additionally normalize indentation
+inside the Markdown template.
+
+Analysis does not rewrite files on disk. Edits that would overwrite literal
+Markdown are rejected. Range and on-type formatting are suppressed in files
+with projected templates.
+
+The current editor support covers single raw-string templates with closed
+delimiters. Cooked strings, named-argument templates, and unclosed template
+delimiters fall back to native Rust analysis. Braces inside Markdown code
+spans, fenced code, and escaped braces remain literal.
+
+References inside **unopened raw templates** remain limited to rust-analyzer's
+native analysis. Open those files before a workspace rename and review the
+resulting edits. Markdown prose keeps the editor's string styling; semantic
+Rust colors depend on the editor's support for LSP semantic tokens.
+
+VS Code and Neovim have real-editor integration tests covering navigation,
+completion, rename, formatting, unsaved edits, and restart. The Vim, Helix,
+and Zed configurations use their documented LSP interfaces; they have not yet
+received equivalent end-to-end tests in Proa.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---------|-------|
+| No Rust features inside raw templates in VS Code | Enable both Proa and the official rust-analyzer extension, trust the workspace, and reload the window. |
+| `proa-lsp` cannot start | Check `node --version`, `proa-lsp --version`, and `rust-analyzer --version` from the environment that launches your editor. |
+| A rustup shim reports that rust-analyzer is missing | Run `rustup component add rust-analyzer` for the project's toolchain, or select a working executable with `--rust-analyzer`. |
+| Duplicate diagnostics or completion entries | Keep one Rust LSP connection per buffer and disable the old Proa Markdown prototype if installed. |
+| UTF-16 initialization error | Include `utf-16` in the client's `general.positionEncodings` capability. |
+| Formatting fails | Check that Cargo and rustfmt are available and that any configured rustfmt override accepts the document on stdin. |
+
+The bridge logs to stderr; use your editor's LSP log to inspect failures. In
+Neovim, use `:checkhealth vim.lsp` and `:LspLog`. Restart the Rust LSP client
+after changing its command or toolchain path.

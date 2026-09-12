@@ -1,0 +1,5 @@
+error: `children_builder` requires the #[component(children)] field to have the shape Option<C>, where C is a type parameter
+ --> tests/proa_component_fail/children_builder_wrong_shape.rs:7:15
+  |
+7 |     children: Vec<&'static str>,
+  |               ^^^^^^^^^^^^^^^^^

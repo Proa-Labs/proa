@@ -1,0 +1,20 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rsjs_web"
+version = "0.2.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Zero-cost typed browser API facade for the RSJS client compiler."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "rsjs-web-codegen"
+path = "codegen.rs"
+
+[lints]
+workspace = true

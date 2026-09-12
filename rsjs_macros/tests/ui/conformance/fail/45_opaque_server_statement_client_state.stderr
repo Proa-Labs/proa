@@ -1,0 +1,6 @@
+error: rsjs/template-client-state-in-opaque-server-statement: ordinary server code cannot read compiler-owned client local `count`
+       help: move the read into the analyzed template, an event handler, or another RSJS expression the compiler can lower
+  --> tests/ui/conformance/fail/45_opaque_server_statement_client_state.rs:16:12
+   |
+16 |         if count.get() > 0 {
+   |            ^^^^^

@@ -1,0 +1,7 @@
+error: rsjs: `#[rsjs::client(class)]` must annotate an inline module
+         help: place the named-field struct, inherent impl, and optional scalar helper roots inside `pub mod name { ... }`
+         note: one class module can export one or more public Rust structs as JavaScript classes
+ --> tests/ui/fail/85_client_class_on_function.rs:2:8
+  |
+2 | pub fn value() -> i32 {
+  |        ^^^^^

@@ -1,0 +1,22 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "args": [
+        {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "AAPL"
+          }
+        }
+      ],
+      "kind": "run_mutation",
+      "mutation": 0
+    },
+    {
+      "kind": "query_refetch",
+      "query": 0
+    }
+  ]
+}

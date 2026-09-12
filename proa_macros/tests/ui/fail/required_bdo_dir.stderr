@@ -1,0 +1,5 @@
+error: <bdo> is missing the `dir` attribute. add dir="ltr" or dir="rtl" (HTML §4.5.25)
+ --> tests/ui/fail/required_bdo_dir.rs:5:19
+  |
+5 |     html_sync! { <bdo>"Hebrew text"</bdo> };
+  |                   ^^^

@@ -1,0 +1,19 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_fonts"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Self-hosted, metric-matched web fonts for Proa: zero-JS <head> rendering over a build-time vendoring pipeline."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+proa_core = { workspace = true }
+
+[lints]
+workspace = true

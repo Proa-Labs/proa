@@ -1,0 +1,11 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Proa contains compiler/linker passes whose typed inputs are intentionally
+# explicit, and diagnostic enums that retain enough structured context to
+# explain cross-crate ABI failures. Keep Clippy useful for actionable issues
+# without forcing indirection into these cold tooling paths.
+too-many-arguments-threshold = 13
+type-complexity-threshold = 500
+enum-variant-size-threshold = 1024
+large-error-threshold = 512

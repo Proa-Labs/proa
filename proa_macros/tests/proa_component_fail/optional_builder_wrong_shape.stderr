@@ -1,0 +1,5 @@
+error: `optional_builder` requires a field with the exact shape Option<T>, std::option::Option<T>, or core::option::Option<T>
+ --> tests/proa_component_fail/optional_builder_wrong_shape.rs:7:11
+  |
+7 |     text: &'static str,
+  |           ^^^^^^^^^^^^

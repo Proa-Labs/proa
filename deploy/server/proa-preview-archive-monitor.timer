@@ -1,0 +1,11 @@
+[Unit]
+Description=Monitor immutable preview archive reconciliation
+
+[Timer]
+OnActiveSec=2min
+OnUnitInactiveSec=1min
+AccuracySec=10s
+Unit=proa-preview-archive-monitor.service
+
+[Install]
+WantedBy=timers.target

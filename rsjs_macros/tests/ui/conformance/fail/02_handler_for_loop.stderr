@@ -1,0 +1,16 @@
+error: rsjs boundary: this handler `for` loop is outside the current Client IR loop surface
+
+       Why:
+         Handler bodies compile to JavaScript without running Rust at hydration time. rsjs currently lowers static array literals and numeric ranges, but dynamic non-range iterators and labeled loops need richer iterator semantics.
+
+       Use one of:
+         - Rewrite the loop as a supported static array literal, static range, or dynamic numeric range.
+         - Move dynamic iterator logic into a standalone helper annotated once with `#[rsjs::client]`; reachable calls are linked automatically.
+         - Normalize the data into a signal-friendly primitive before it reaches the handler.
+
+       Tracked feature:
+         handler.for_loop
+  --> tests/ui/conformance/fail/02_handler_for_loop.rs:19:17
+   |
+19 |                 for value in count.get() {
+   |                 ^^^

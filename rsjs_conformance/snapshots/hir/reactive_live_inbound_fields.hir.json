@@ -1,0 +1,30 @@
+[
+  {
+    "kind": "callback_invoke",
+    "payload": {
+      "kind": "signal_read",
+      "signal": 1,
+      "span": {
+        "end": {
+          "column": 38,
+          "line": 1
+        },
+        "start": {
+          "column": 34,
+          "line": 1
+        }
+      }
+    },
+    "slot": 0,
+    "span": {
+      "end": {
+        "column": 16,
+        "line": 1
+      },
+      "start": {
+        "column": 12,
+        "line": 1
+      }
+    }
+  }
+]

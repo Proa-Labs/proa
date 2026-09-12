@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" role="img" aria-label="Synthetic product catalog">
+  <rect width="1440" height="900" fill="#f2eee8"/><rect x="70" y="65" width="1300" height="770" rx="28" fill="#fff"/>
+  <rect x="125" y="145" width="280" height="620" rx="18" fill="#f0f0ed"/>
+  <g fill="#e6ebe9"><rect x="465" y="145" width="250" height="250" rx="20"/><rect x="765" y="145" width="250" height="250" rx="20"/><rect x="1065" y="145" width="250" height="250" rx="20"/><rect x="465" y="505" width="250" height="250" rx="20"/><rect x="765" y="505" width="250" height="250" rx="20"/><rect x="1065" y="505" width="250" height="250" rx="20"/></g>
+  <g fill="#dd7657"><path d="M500 300l120-92 54 78-120 72z"/><path d="M800 300l120-92 54 78-120 72z"/><path d="M1100 300l120-92 54 78-120 72z"/></g>
+</svg>

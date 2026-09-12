@@ -1,0 +1,25 @@
+error[E0277]: `QueryChild` is not renderable in a synchronous Proa template
+  --> tests/ui/conformance/fail/35_query_mutation_child_component.rs:48:18
+   |
+41 | #[rsjs(component, client)]
+   | -------------------------- required by a bound introduced by this call
+...
+48 |                 {QueryChild {}}
+   |                  ^^^^^^^^^^^^^ missing `WebRenderSync<_, _>` for this child
+   |
+help: the trait `proa_core::WebRenderSync<_, _>` is not implemented for `QueryChild`
+  --> tests/ui/conformance/fail/35_query_mutation_child_component.rs:10:1
+   |
+10 | pub struct QueryChild;
+   | ^^^^^^^^^^^^^^^^^^^^^
+   = note: async children require `html!`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type
+   = help: the following other types implement trait `proa_core::WebRenderSync<L, B>`:
+             `&str` implements `proa_core::WebRenderSync<L, B>`
+             `()` implements `proa_core::WebRenderSync<L, B>`
+             `BoxedWebRenderSync<L, B>` implements `proa_core::WebRenderSync<L, B>`
+             `ClassList<N>` implements `proa_core::WebRenderSync<L, B>`
+             `ConstHtml` implements `proa_core::WebRenderSync<proa_core::NoLoader, Vec<u8>>`
+             `Elem<'a, Void, N, B, F, L>` implements `proa_core::WebRenderSync<L, B>`
+             `Elem<'a, proa_core::Normal, N, B, F, L>` implements `proa_core::WebRenderSync<L, B>`
+             `ErrorBoundary<C, Ef>` implements `proa_core::WebRenderSync<L, B>`
+           and $N others

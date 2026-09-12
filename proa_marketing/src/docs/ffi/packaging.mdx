@@ -1,0 +1,74 @@
+---
+title: Packaging
+description: Build outputs, dynamic library loading, Docker packaging, and runtime integration notes.
+---
+
+The playground FFI artifact is a native shared library plus `proa.h`. The host process loads the library and calls exported C ABI functions.
+
+## Build Outputs
+
+Build the demo library from the repository:
+
+```bash
+cargo build -p proa_demo --release
+```
+
+Expected native outputs:
+
+| Platform | Library |
+|----------|---------|
+| macOS | `target/release/libproa_demo.dylib` |
+| Linux | `target/release/libproa_demo.so` |
+| Windows | `target/release/proa_demo.dll` |
+
+The downloadable playground package places the library and header under `ffi/`.
+
+## Dynamic Loader Paths
+
+For C programs, set an rpath or configure the platform loader:
+
+```bash
+# macOS
+cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,./ffi
+
+# Linux
+cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,'$ORIGIN/ffi'
+```
+
+For host runtimes such as Python, Ruby, Go, Java, or Node native bindings, prefer an absolute library path or a path resolved relative to the deployed application directory.
+
+## Docker
+
+The playground package includes a Dockerfile:
+
+```bash
+docker build -t proa/playground .
+docker run -p 3001:3001 proa/playground
+```
+
+Use Docker when you want a self-contained playground with the Proa server, comparison engines, assets, and FFI library in one image.
+
+## Host Integration Checklist
+
+- Load the library once per process when the host runtime supports it.
+- Register function signatures explicitly in dynamic FFI systems.
+- Treat returned HTML as bytes with an explicit length.
+- Free allocated outputs with `proa_free`.
+- Keep JSON input buffers alive until the render call returns.
+- Avoid sharing mutable `_into` buffers across concurrent requests.
+- Log negative return codes before translating them into host exceptions.
+
+## Production Shape
+
+The demo library exports fixed showcase functions. A production integration should expose functions that match the host application's route and props model, then keep the same ownership rules:
+
+```c
+int32_t render_product_json(
+    const uint8_t *json_ptr,
+    uintptr_t json_len,
+    uint8_t **out_ptr,
+    uintptr_t *out_len
+);
+```
+
+Keep the ABI narrow. Prefer JSON or another stable byte protocol at the boundary instead of exposing many host-language-specific structs.

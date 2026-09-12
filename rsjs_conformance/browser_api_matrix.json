@@ -1,0 +1,903 @@
+{
+  "schema_version": 1,
+  "description": "Curated map of the browser API surface reachable from rsjs islands, keyed against MDN browser-compat-data (bcd_keys) and Baseline status. Statuses mirror the discipline of features.json: every API an island can reach is either supported or has a recorded reason it is not. Entry list derived from the web-features package (v3.30.0 sweep): every Baseline widely-available feature family exposing api.* compat keys gets a row, excluding CSS/HTML/SVG presentation features and deep sub-features (e.g. WebGL extensions, EME) which inherit their family's status. Refresh baseline values against web-features; refresh bcd_keys against @mdn/browser-compat-data.",
+  "statuses": {
+    "supported": "exposed to islands through the analyzed subset (event attrs, node refs, rsjs:: helpers)",
+    "partial": "exposed with restrictions; see notes",
+    "helper_only": "used internally by the RSJS runtime but not exposed to analyzed component code",
+    "rejected_by_design": "deliberately blocked (security or architecture boundary); compiler rejects with a diagnostic",
+    "planned": "not implemented; not part of the supported API",
+    "missing": "no surface and no agreed direction yet"
+  },
+  "entries": [
+    {
+      "id": "events.mouse",
+      "area": "events",
+      "description": "Delegated mouse events: on_click, on_mousedown, on_mouseup, on_mousemove, on_mouseover, on_mouseout",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Element.click_event",
+        "api.Element.mousedown_event",
+        "api.Element.mousemove_event"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs_macros/src/analyze.rs event attribute table; runtime bind_delegated_events"
+    },
+    {
+      "id": "events.mouse_enter_leave",
+      "area": "events",
+      "description": "on_mouseenter / on_mouseleave",
+      "status": "rejected_by_design",
+      "bcd_keys": [
+        "api.Element.mouseenter_event",
+        "api.Element.mouseleave_event"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs_macros/tests/ui/fail/23_unknown_event_attribute",
+      "notes": "Non-bubbling; incompatible with the delegation model. Use on_mouseover / on_mouseout."
+    },
+    {
+      "id": "events.pointer",
+      "area": "events",
+      "description": "Pointer events including enter/leave and pointer capture transitions (9 attrs)",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Element.pointerdown_event",
+        "api.Element.pointermove_event",
+        "api.Element.gotpointercapture_event"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs_macros/src/analyze.rs event attribute table"
+    },
+    {
+      "id": "events.touch",
+      "area": "events",
+      "description": "on_touchstart, on_touchmove, on_touchend, on_touchcancel",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Element.touchstart_event"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs_macros/src/analyze.rs event attribute table"
+    },
+    {
+      "id": "events.keyboard",
+      "area": "events",
+      "description": "on_keydown, on_keyup with .key() / .code() accessors",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Element.keydown_event",
+        "api.KeyboardEvent.key",
+        "api.KeyboardEvent.code"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs_macros/src/analyze.rs event payload accessors"
+    },
+    {
+      "id": "events.form_input",
+      "area": "events",
+      "description": "on_input, on_change, on_focus, on_blur, on_paste, on_beforeinput, on_submit (submit auto-preventDefaults)",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Element.input_event",
+        "api.Element.beforeinput_event",
+        "api.HTMLFormElement.submit_event"
+      ],
+      "baseline": "high",
+      "evidence": "runtime bind_submit; analyze.rs event attribute table"
+    },
+    {
+      "id": "events.animation_transition",
+      "area": "events",
+      "description": "8 animation and transition lifecycle events",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Element.animationend_event",
+        "api.Element.transitionend_event"
+      ],
+      "baseline": "high",
+      "evidence": "analyze.rs event attribute table"
+    },
+    {
+      "id": "events.composition",
+      "area": "events",
+      "description": "on_compositionstart, on_compositionupdate, on_compositionend (IME input)",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Element.compositionstart_event"
+      ],
+      "baseline": "high",
+      "evidence": "analyze.rs event attribute table"
+    },
+    {
+      "id": "events.drag_drop",
+      "area": "events",
+      "description": "6 drag-and-drop events plus DataTransfer file helpers",
+      "status": "supported",
+      "bcd_keys": [
+        "api.HTMLElement.dragstart_event",
+        "api.HTMLElement.drop_event",
+        "api.DataTransfer"
+      ],
+      "baseline": "high",
+      "evidence": "analyze.rs; event.data_transfer_first_file_text_into_or"
+    },
+    {
+      "id": "events.scroll_wheel",
+      "area": "events",
+      "description": "on_scroll, on_wheel with .delta_y()",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Element.scroll_event",
+        "api.Element.wheel_event"
+      ],
+      "baseline": "high",
+      "evidence": "analyze.rs event attribute table"
+    },
+    {
+      "id": "events.toggle",
+      "area": "events",
+      "description": "on_toggle, on_beforetoggle (details / popover)",
+      "status": "supported",
+      "bcd_keys": [
+        "api.HTMLElement.toggle_event",
+        "api.HTMLElement.beforetoggle_event"
+      ],
+      "baseline": "low",
+      "evidence": "analyze.rs event attribute table"
+    },
+    {
+      "id": "events.document",
+      "area": "events",
+      "description": "on_document_click, on_document_pointerdown, on_document_keydown (outside-click and shortcut patterns)",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Document.click_event",
+        "api.Document.keydown_event"
+      ],
+      "baseline": "high",
+      "evidence": "runtime bind_document_event"
+    },
+    {
+      "id": "events.window",
+      "area": "events",
+      "description": "on_window_popstate, on_window_hashchange, on_window_storage, on_window_resize",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Window.popstate_event",
+        "api.Window.hashchange_event",
+        "api.Window.storage_event",
+        "api.Window.resize_event"
+      ],
+      "baseline": "high",
+      "evidence": "runtime bind_window_event"
+    },
+    {
+      "id": "events.custom",
+      "area": "events",
+      "description": "Dispatching CustomEvent from handlers",
+      "status": "supported",
+      "bcd_keys": [
+        "api.CustomEvent"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs_conformance/runtime/browser_effects.mjs"
+    },
+    {
+      "id": "dom.node_ref_reads",
+      "area": "dom",
+      "description": "Node ref reads: value, checked, text_content, dimensions, bounding rect, scroll positions, selection, validity, file metadata",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Element.getBoundingClientRect",
+        "api.Element.clientWidth",
+        "api.HTMLInputElement.value",
+        "api.ValidityState"
+      ],
+      "baseline": "high",
+      "evidence": "analyze.rs node ref read table; tests/ui/conformance/pass/06_node_refs.rs"
+    },
+    {
+      "id": "dom.node_ref_effects",
+      "area": "dom",
+      "description": "Node ref effects: focus, blur, click, scroll_into_view, scroll_to/by, select, set_value, set_checked, set_text_content, class add/remove/toggle, set/remove_attribute, set_style_property, pointer capture",
+      "status": "supported",
+      "bcd_keys": [
+        "api.HTMLElement.focus",
+        "api.Element.scrollIntoView",
+        "api.Element.setAttribute",
+        "api.Element.setPointerCapture"
+      ],
+      "baseline": "high",
+      "evidence": "analyze.rs node ref effect table"
+    },
+    {
+      "id": "dom.attribute_names_dynamic",
+      "area": "dom",
+      "description": "set_attribute / get_attribute with dynamic attribute names",
+      "status": "rejected_by_design",
+      "bcd_keys": [
+        "api.Element.setAttribute"
+      ],
+      "baseline": "high",
+      "evidence": "tests/ui/fail/25_node_ref_dynamic_attribute_name, fail/26_node_ref_dynamic_attribute_read",
+      "notes": "Names must be static strings so the on* injection guard stays sound."
+    },
+    {
+      "id": "dom.dialog",
+      "area": "dom",
+      "description": "HTMLDialogElement show_modal / close via node refs",
+      "status": "supported",
+      "bcd_keys": [
+        "api.HTMLDialogElement.showModal",
+        "api.HTMLDialogElement.close"
+      ],
+      "baseline": "high",
+      "evidence": "analyze.rs node ref effect table"
+    },
+    {
+      "id": "dom.popover",
+      "area": "dom",
+      "description": "show_popover / hide_popover / toggle_popover via node refs",
+      "status": "supported",
+      "bcd_keys": [
+        "api.HTMLElement.showPopover",
+        "api.HTMLElement.togglePopover"
+      ],
+      "baseline": "low",
+      "evidence": "analyze.rs node ref effect table"
+    },
+    {
+      "id": "dom.forms_validation",
+      "area": "dom",
+      "description": "Constraint validation: check_validity, report_validity, set_custom_validity, validation_message, request_submit, reset",
+      "status": "supported",
+      "bcd_keys": [
+        "api.HTMLInputElement.checkValidity",
+        "api.HTMLFormElement.requestSubmit",
+        "api.HTMLInputElement.setCustomValidity"
+      ],
+      "baseline": "high",
+      "evidence": "analyze.rs node ref tables"
+    },
+    {
+      "id": "dom.query_selector",
+      "area": "dom",
+      "description": "Raw document / element querySelector access from handlers",
+      "status": "rejected_by_design",
+      "bcd_keys": [
+        "api.Document.querySelector"
+      ],
+      "baseline": "high",
+      "evidence": "tests/ui/fail/06_browser_global",
+      "notes": "Node refs are the sanctioned handle to specific elements."
+    },
+    {
+      "id": "bindings.text",
+      "area": "bindings",
+      "description": "Reactive text content from signal expressions",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Node.textContent"
+      ],
+      "baseline": "high",
+      "evidence": "runtime bind_text"
+    },
+    {
+      "id": "bindings.attr",
+      "area": "bindings",
+      "description": "Reactive attributes (boolean, value, and sanitized URL kinds); static names only; on* refused at runtime",
+      "status": "partial",
+      "bcd_keys": [
+        "api.Element.setAttribute"
+      ],
+      "baseline": "high",
+      "evidence": "runtime bind_attr",
+      "notes": "Single-URL dynamic attrs use sanitized URL bindings; srcset, ping, srcdoc, style, and on* remain rejected."
+    },
+    {
+      "id": "bindings.conditional",
+      "area": "bindings",
+      "description": "Conditional sections with else-if chains (display toggle, no node removal)",
+      "status": "supported",
+      "bcd_keys": [],
+      "baseline": "high",
+      "evidence": "runtime bind_conditional"
+    },
+    {
+      "id": "bindings.input_two_way",
+      "area": "bindings",
+      "description": "bind_value, bind_checked, bind_selected with cursor preservation",
+      "status": "supported",
+      "bcd_keys": [
+        "api.HTMLInputElement.value",
+        "api.HTMLInputElement.checked"
+      ],
+      "baseline": "high",
+      "evidence": "runtime bind_input"
+    },
+    {
+      "id": "bindings.list",
+      "area": "bindings",
+      "description": "Keyed list rendering over Vec signals: bind_list reconciles container children by key with SSR adoption via data-rsjs-key",
+      "status": "partial",
+      "bcd_keys": [
+        "api.Document.createElement",
+        "api.Node.insertBefore",
+        "api.Node.removeChild"
+      ],
+      "baseline": "high",
+      "evidence": "features.json template.list.keyed; runtime bind_list",
+      "notes": "v0.1 item bodies are one root element with static attributes plus text slots over the item or one field; handlers, bind_*, conditionals, and nested loops inside keyed bodies are rejected, and handler list writes are limited to literal vec![...] arrays. Static template loops over server data are unchanged."
+    },
+    {
+      "id": "storage.web_storage",
+      "area": "storage",
+      "description": "localStorage / sessionStorage get and set via rsjs:: helpers in handlers (not reactive)",
+      "status": "supported",
+      "bcd_keys": [
+        "api.Window.localStorage",
+        "api.Window.sessionStorage"
+      ],
+      "baseline": "high",
+      "evidence": "tests/ui/conformance/pass/05_browser_effects.rs; rsjs/KNOWN_LIMITATIONS.md"
+    },
+    {
+      "id": "storage.indexeddb",
+      "area": "storage",
+      "description": "IndexedDB",
+      "status": "missing",
+      "bcd_keys": [
+        "api.IDBFactory"
+      ],
+      "baseline": "high",
+      "notes": "Outside IR scope. Origin-free #[rsjs::client] helpers cannot access raw browser globals; use application-owned JavaScript until RSJS exposes a typed capability."
+    },
+    {
+      "id": "navigation.location",
+      "area": "navigation",
+      "description": "location read / write helpers in handlers",
+      "status": "partial",
+      "bcd_keys": [
+        "api.Location.href"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs::location:: helpers; KNOWN_LIMITATIONS.md",
+      "notes": "Imperative only. URL is not reactive state; see roadmap P2 item 9."
+    },
+    {
+      "id": "navigation.history",
+      "area": "navigation",
+      "description": "push_state, replace_state, back, forward, go helpers",
+      "status": "supported",
+      "bcd_keys": [
+        "api.History.pushState",
+        "api.History.replaceState"
+      ],
+      "baseline": "high",
+      "evidence": "analyze.rs browser effect helpers"
+    },
+    {
+      "id": "navigation.url_params_reactive",
+      "area": "navigation",
+      "description": "Reactive URLSearchParams binding (filter-state-in-URL)",
+      "status": "planned",
+      "bcd_keys": [
+        "api.URLSearchParams"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs/src/lib.rs url module exposes explicit query-string reads and writes, not a reactive URL subscription."
+    },
+    {
+      "id": "network.fetch_raw",
+      "area": "network",
+      "description": "Raw fetch from handlers",
+      "status": "rejected_by_design",
+      "bcd_keys": [
+        "api.fetch"
+      ],
+      "baseline": "high",
+      "evidence": "tests/ui/fail/07_raw_fetch",
+      "notes": "Queries and mutations are the sanctioned network layer."
+    },
+    {
+      "id": "network.query_mutation",
+      "area": "network",
+      "description": "Declarative queries and mutations: cache, stale-while-revalidate, invalidation, optimistic updates, retry, timeout, download progress, text streaming",
+      "status": "supported",
+      "bcd_keys": [
+        "api.fetch",
+        "api.AbortController",
+        "api.ReadableStream"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs/runtime/rsjs-runtime-query.js; tests/ui/conformance/pass/23_query_mutation_authoring.rs"
+    },
+    {
+      "id": "network.websocket",
+      "area": "network",
+      "description": "WebSocket",
+      "status": "missing",
+      "bcd_keys": [
+        "api.WebSocket"
+      ],
+      "baseline": "high",
+      "notes": "No IR surface. Live-update use cases currently fit query polling (interval_ms) or stream_text."
+    },
+    {
+      "id": "observers.intersection",
+      "area": "observers",
+      "description": "IntersectionObserver",
+      "status": "helper_only",
+      "bcd_keys": [
+        "api.IntersectionObserver"
+      ],
+      "baseline": "high",
+      "evidence": "runtime hydrate_when_visible uses it internally",
+      "notes": "Powers visible-hydration; not exposed to island code."
+    },
+    {
+      "id": "observers.resize",
+      "area": "observers",
+      "description": "ResizeObserver",
+      "status": "missing",
+      "bcd_keys": [
+        "api.ResizeObserver"
+      ],
+      "baseline": "high",
+      "notes": "on_window_resize plus node ref dimension reads cover the common cases."
+    },
+    {
+      "id": "observers.media_query",
+      "area": "observers",
+      "description": "matchMedia",
+      "status": "helper_only",
+      "bcd_keys": [
+        "api.Window.matchMedia"
+      ],
+      "baseline": "high",
+      "evidence": "runtime hydrate_when_media uses it internally",
+      "notes": "Powers media-query hydration; not exposed to island code."
+    },
+    {
+      "id": "timers",
+      "area": "timers",
+      "description": "setTimeout / setInterval / debounce",
+      "status": "supported",
+      "bcd_keys": [
+        "api.setTimeout",
+        "api.setInterval"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs_conformance/features.json timers.interval.basic and timers.debounce.basic; runtime primitives in rsjs/runtime/rsjs-runtime.js (interval, debounce) with disposal tests in rsjs-runtime.timers.test.mjs",
+      "notes": "Sanctioned surface only: rsjs::interval(ms, || ...) prelude timers and rsjs::debounce(ms, |event| ...) handler wrappers, both disposed on island teardown. Raw setTimeout / setInterval access stays rejected."
+    },
+    {
+      "id": "console",
+      "area": "diagnostics",
+      "description": "console::log from handlers",
+      "status": "supported",
+      "bcd_keys": [
+        "api.console.log_static"
+      ],
+      "baseline": "high",
+      "evidence": "tests/ui/conformance/pass/05_browser_effects.rs"
+    },
+    {
+      "id": "clipboard",
+      "area": "device",
+      "description": "Clipboard read",
+      "status": "partial",
+      "bcd_keys": [
+        "api.Clipboard.readText"
+      ],
+      "baseline": "high",
+      "evidence": "tests/ui/conformance/fail/39_clipboard_read_target",
+      "notes": "Restricted to user-gesture event contexts; the compiler rejects reads elsewhere."
+    },
+    {
+      "id": "webauthn",
+      "area": "device",
+      "description": "WebAuthn credential ceremonies",
+      "status": "partial",
+      "bcd_keys": [
+        "api.PublicKeyCredential"
+      ],
+      "baseline": "high",
+      "evidence": "tests/ui/conformance/fail/41_webauthn_target",
+      "notes": "Allowed only in supported handler contexts; the compiler rejects other call sites."
+    },
+    {
+      "id": "files",
+      "area": "device",
+      "description": "File input and drop access: counts, names, types, sizes, read-text-into-signal",
+      "status": "supported",
+      "bcd_keys": [
+        "api.File",
+        "api.FileReader"
+      ],
+      "baseline": "high",
+      "evidence": "analyze.rs event file accessors and node ref file reads"
+    },
+    {
+      "id": "workers",
+      "area": "platform",
+      "description": "Web Workers, Service Workers",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Worker",
+        "api.ServiceWorker"
+      ],
+      "baseline": "high",
+      "notes": "Outside IR scope."
+    },
+    {
+      "id": "encoding",
+      "area": "platform",
+      "description": "utf8_bytes, base64url_encode helpers (TextEncoder and base64 codecs)",
+      "status": "supported",
+      "bcd_keys": [
+        "api.TextEncoder",
+        "api.Window.btoa"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs::encoding:: helpers; tests/ui/conformance/pass/05_browser_effects.rs",
+      "notes": "Raw atob/btoa are not exposed; the rsjs::encoding helpers are the sanctioned codec surface."
+    },
+    {
+      "id": "security.web_crypto",
+      "area": "security",
+      "description": "WebCrypto: crypto.getRandomValues and crypto.subtle (digest, sign, encrypt)",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Crypto",
+        "api.SubtleCrypto"
+      ],
+      "baseline": "high",
+      "notes": "No analyzed surface. Origin-free #[rsjs::client] helpers cannot access raw browser globals. WebAuthn ceremonies (partial, see webauthn) and rsjs::encoding already cover the adjacent byte/codec surface, so typed digest/getRandomValues helpers would complete the set."
+    },
+    {
+      "id": "security.credential_management",
+      "area": "security",
+      "description": "Credential Management API (navigator.credentials)",
+      "status": "missing",
+      "bcd_keys": [
+        "api.CredentialsContainer"
+      ],
+      "baseline": "high",
+      "notes": "The WebAuthn entry covers the public-key ceremony subset rsjs constrains today; the general credentials surface has no analyzed form."
+    },
+    {
+      "id": "security.permissions",
+      "area": "security",
+      "description": "Permissions API (navigator.permissions.query)",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Permissions"
+      ],
+      "baseline": "high",
+      "notes": "No typed RSJS surface. Origin-free #[rsjs::client] helpers cannot access raw browser globals."
+    },
+    {
+      "id": "security.user_activation",
+      "area": "security",
+      "description": "navigator.userActivation",
+      "status": "missing",
+      "bcd_keys": [
+        "api.UserActivation"
+      ],
+      "baseline": "high",
+      "notes": "rsjs enforces user-gesture context statically where it matters (clipboard, WebAuthn call sites), so the runtime query has had no demand."
+    },
+    {
+      "id": "device.geolocation",
+      "area": "device",
+      "description": "Geolocation API",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Geolocation"
+      ],
+      "baseline": "high",
+      "notes": "No typed RSJS surface; the async callback shape needs a sanctioned primitive like queries. Origin-free #[rsjs::client] helpers cannot access raw browser globals."
+    },
+    {
+      "id": "device.gamepad",
+      "area": "device",
+      "description": "Gamepad API",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Gamepad"
+      ],
+      "baseline": "high",
+      "notes": "The polling model fits rsjs::interval, but reading gamepad state still needs a typed browser capability."
+    },
+    {
+      "id": "device.screen",
+      "area": "device",
+      "description": "Screen and ScreenOrientation",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Screen",
+        "api.ScreenOrientation"
+      ],
+      "baseline": "high",
+      "notes": "on_window_resize plus node-ref dimension reads cover the common layout cases."
+    },
+    {
+      "id": "sensors.device_orientation",
+      "area": "device",
+      "description": "Device orientation and motion events",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Window.deviceorientation_event"
+      ],
+      "baseline": "high",
+      "notes": "Candidate window-event additions if demand appears."
+    },
+    {
+      "id": "media.playback",
+      "area": "media",
+      "description": "HTMLMediaElement control: play, pause, currentTime, volume, track events",
+      "status": "missing",
+      "bcd_keys": [
+        "api.HTMLMediaElement.play",
+        "api.HTMLMediaElement.pause"
+      ],
+      "baseline": "high",
+      "notes": "Cleanest path is extending the node-ref effect table (play()/pause()/set_current_time()) the same way dialog and popover methods were added."
+    },
+    {
+      "id": "media.capture",
+      "area": "media",
+      "description": "getUserMedia, MediaStream recording, media capabilities",
+      "status": "missing",
+      "bcd_keys": [
+        "api.MediaDevices.getUserMedia",
+        "api.MediaRecorder"
+      ],
+      "baseline": "high",
+      "notes": "No typed RSJS surface. Origin-free #[rsjs::client] helpers cannot access raw browser globals."
+    },
+    {
+      "id": "media.web_audio",
+      "area": "media",
+      "description": "Web Audio API",
+      "status": "missing",
+      "bcd_keys": [
+        "api.AudioContext"
+      ],
+      "baseline": "high",
+      "notes": "No typed RSJS surface. Origin-free #[rsjs::client] helpers cannot access raw browser globals."
+    },
+    {
+      "id": "graphics.canvas_2d",
+      "area": "graphics",
+      "description": "Canvas 2D and OffscreenCanvas",
+      "status": "missing",
+      "bcd_keys": [
+        "api.CanvasRenderingContext2D",
+        "api.OffscreenCanvas"
+      ],
+      "baseline": "high",
+      "notes": "Imperative drawing is outside the binding model. Use application-owned JavaScript until RSJS exposes a typed canvas/node-ref capability; origin-free #[rsjs::client] helpers cannot receive raw DOM handles."
+    },
+    {
+      "id": "graphics.webgl",
+      "area": "graphics",
+      "description": "WebGL 1/2 (extensions inherit this status)",
+      "status": "missing",
+      "bcd_keys": [
+        "api.WebGLRenderingContext",
+        "api.WebGL2RenderingContext"
+      ],
+      "baseline": "high",
+      "notes": "Same lane as canvas: use application-owned JavaScript until RSJS exposes a typed graphics/node-ref capability."
+    },
+    {
+      "id": "messaging.broadcast_channel",
+      "area": "messaging",
+      "description": "BroadcastChannel",
+      "status": "missing",
+      "bcd_keys": [
+        "api.BroadcastChannel"
+      ],
+      "baseline": "high",
+      "notes": "Candidate substrate for cross-island shared state (roadmap P1.6), which currently relies on the query cache and custom DOM events."
+    },
+    {
+      "id": "messaging.channel_messaging",
+      "area": "messaging",
+      "description": "MessageChannel / postMessage",
+      "status": "missing",
+      "bcd_keys": [
+        "api.MessageChannel",
+        "api.Window.postMessage"
+      ],
+      "baseline": "high",
+      "notes": "No typed RSJS surface. Origin-free #[rsjs::client] helpers cannot access raw browser globals."
+    },
+    {
+      "id": "messaging.server_sent_events",
+      "area": "messaging",
+      "description": "EventSource (server-sent events)",
+      "status": "missing",
+      "bcd_keys": [
+        "api.EventSource"
+      ],
+      "baseline": "high",
+      "notes": "Query stream_text plus interval polling cover the common live-update shapes today; a sanctioned EventSource-backed query mode is the natural extension."
+    },
+    {
+      "id": "network.beacon",
+      "area": "network",
+      "description": "navigator.sendBeacon",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Navigator.sendBeacon"
+      ],
+      "baseline": "high",
+      "notes": "Telemetry-shaped; a sanctioned fire-and-forget helper would fit the mutation surface."
+    },
+    {
+      "id": "network.xhr",
+      "area": "network",
+      "description": "XMLHttpRequest",
+      "status": "rejected_by_design",
+      "bcd_keys": [
+        "api.XMLHttpRequest"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs_macros/tests/ui/fail/06_browser_global (browser globals are rejected in handlers)",
+      "notes": "Same boundary as raw fetch: queries and mutations are the network layer."
+    },
+    {
+      "id": "lifecycle.page_visibility",
+      "area": "lifecycle",
+      "description": "Page Visibility (visibilitychange) and page transition events",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Document.visibilitychange_event"
+      ],
+      "baseline": "high",
+      "notes": "Natural fit for an on_document_visibilitychange event attribute; queries already refetch-on-focus, covering the main use."
+    },
+    {
+      "id": "lifecycle.online_offline",
+      "area": "lifecycle",
+      "description": "online / offline events and navigator.onLine",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Window.online_event",
+        "api.Navigator.onLine"
+      ],
+      "baseline": "high",
+      "notes": "Candidate on_window_online / on_window_offline event additions."
+    },
+    {
+      "id": "dom.mutation_observer",
+      "area": "observers",
+      "description": "MutationObserver",
+      "status": "helper_only",
+      "bcd_keys": [
+        "api.MutationObserver"
+      ],
+      "baseline": "high",
+      "evidence": "rsjs/runtime/rsjs-runtime.js detached-root cleanup observer",
+      "notes": "Powers detached-island cleanup internally; not exposed to island code."
+    },
+    {
+      "id": "dom.parsing",
+      "area": "dom",
+      "description": "DOMParser, XMLSerializer, XPath, XSLT",
+      "status": "missing",
+      "bcd_keys": [
+        "api.DOMParser",
+        "api.XMLSerializer"
+      ],
+      "baseline": "high",
+      "notes": "No typed RSJS surface. Origin-free #[rsjs::client] helpers cannot access raw browser globals."
+    },
+    {
+      "id": "perf.timing",
+      "area": "diagnostics",
+      "description": "Performance APIs: navigation/paint/resource timing, performance.now",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Performance",
+        "api.PerformanceObserver"
+      ],
+      "baseline": "high",
+      "notes": "No typed RSJS surface; island-level vitals would be a framework concern. Origin-free #[rsjs::client] helpers cannot access raw browser globals."
+    },
+    {
+      "id": "platform.structured_clone",
+      "area": "platform",
+      "description": "structuredClone",
+      "status": "missing",
+      "bcd_keys": [
+        "api.structuredClone"
+      ],
+      "baseline": "high",
+      "notes": "Signal values are ClientEncode JSON; deep-clone needs have not surfaced."
+    },
+    {
+      "id": "platform.compression_streams",
+      "area": "platform",
+      "description": "Compression Streams",
+      "status": "missing",
+      "bcd_keys": [
+        "api.CompressionStream"
+      ],
+      "baseline": "high",
+      "notes": "No typed RSJS surface. Origin-free #[rsjs::client] helpers cannot access raw browser globals."
+    },
+    {
+      "id": "platform.web_locks",
+      "area": "platform",
+      "description": "Web Locks API",
+      "status": "missing",
+      "bcd_keys": [
+        "api.LockManager"
+      ],
+      "baseline": "high",
+      "notes": "No typed RSJS surface. Origin-free #[rsjs::client] helpers cannot access raw browser globals."
+    },
+    {
+      "id": "platform.navigator_info",
+      "area": "platform",
+      "description": "Navigator info: language, hardwareConcurrency, isSecureContext",
+      "status": "partial",
+      "bcd_keys": [
+        "api.Navigator.language",
+        "api.Navigator.hardwareConcurrency"
+      ],
+      "baseline": "high",
+      "evidence": "feature browser.navigator_language.basic; registry entry navigator.language in rsjs_ir::browser_registry",
+      "notes": "rsjs::navigator::language() is supported as a registry DeclaredRead (SSR-safe \"\" fallback). hardwareConcurrency and isSecureContext are still missing; each would be one more registry entry plus stub."
+    },
+    {
+      "id": "animation.frame",
+      "area": "timers",
+      "description": "requestAnimationFrame",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Window.requestAnimationFrame"
+      ],
+      "baseline": "high",
+      "notes": "The timer pair (interval/debounce) covers scheduled work; a sanctioned rsjs::raf with teardown disposal would follow the same pattern if animation islands appear."
+    },
+    {
+      "id": "storage.cookies",
+      "area": "storage",
+      "description": "document.cookie",
+      "status": "missing",
+      "bcd_keys": [
+        "api.Document.cookie"
+      ],
+      "baseline": "high",
+      "notes": "Server-set HttpOnly cookies are the framework's lane (CSRF, sessions). Client cookie reads have no typed RSJS surface, and origin-free #[rsjs::client] helpers cannot access document.cookie."
+    },
+    {
+      "id": "storage.storage_manager",
+      "area": "storage",
+      "description": "StorageManager (navigator.storage estimate/persist)",
+      "status": "missing",
+      "bcd_keys": [
+        "api.StorageManager"
+      ],
+      "baseline": "high",
+      "notes": "No typed RSJS surface. Origin-free #[rsjs::client] helpers cannot access raw browser globals."
+    },
+    {
+      "id": "files.opfs",
+      "area": "device",
+      "description": "Origin-private file system",
+      "status": "missing",
+      "bcd_keys": [
+        "api.FileSystemDirectoryHandle"
+      ],
+      "baseline": "high",
+      "notes": "The files entry covers input/drop file reads; OPFS has no surface."
+    }
+  ]
+}

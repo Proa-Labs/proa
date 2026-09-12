@@ -1,0 +1,112 @@
+---
+search: false
+title: Page conventions
+description: File routing, frontmatter fields, meta.json navigation, and sidebar icons in Proa Docs.
+---
+
+`proa_docs_build` compiles a directory of Markdown files into a static `Docs` registry. The compiler keeps the model deliberately small: files define routes, frontmatter defines page metadata, and `meta.json` defines navigation.
+
+## File Routes
+
+Routes come from file paths under the docs source root:
+
+| File | Route |
+|------|-------|
+| `src/docs/index.mdx` | `/docs` |
+| `src/docs/guides/index.mdx` | `/docs/guides` |
+| `src/docs/guides/installation.mdx` | `/docs/guides/installation` |
+| `src/docs/proa-docs/config-reference.mdx` | `/docs/proa-docs/config-reference` |
+
+`index.mdx` maps to the folder route. Other file stems map to the final path segment.
+
+## Frontmatter
+
+Supported page fields:
+
+| Field | Type | Runtime effect |
+|-------|------|----------------|
+| `title` | string | Page title. Falls back to the first `#` heading or file name. |
+| `description` | string | Page description, search metadata, and default page meta description. |
+| `icon` | string | Stored on `Frontmatter` and copied to the generated `NavItem`. |
+| `slug` | string | Overrides the route slug after base path normalization. |
+| `sidebar_title` | string | Overrides the label used in navigation. |
+| `nav_order` | integer | Fallback ordering when no `meta.json` controls a folder. |
+| `hidden` | boolean | Compiles the page and static Markdown, but omits it from nav. |
+| `draft` | boolean | Omits the page unless `include_drafts(true)` is set. |
+| `search` | boolean | Includes or excludes the page from generated search documents. |
+| `toc` | boolean | Stores a page-level table-of-contents preference for the app shell. |
+| `last_modified` | string | Optional date string for display, plugins, or generated metadata. |
+
+Example:
+
+```markdown
+---
+title: Route Handlers
+description: Build JSON endpoints, form handlers, webhooks, and health checks.
+sidebar_title: Handlers
+icon: Route
+---
+
+# Route Handlers
+```
+
+## Navigation Metadata
+
+Each folder can include a `meta.json` file:
+
+```json
+{
+  "title": "Framework",
+  "icon": "Route",
+  "root": true,
+  "pages": [
+    "---Start Here---",
+    "index",
+    "---Request lifecycle---",
+    "routing",
+    "route-handlers",
+    "responses"
+  ]
+}
+```
+
+The compiler supports these `pages` entry types:
+
+| Entry | Meaning |
+|-------|---------|
+| `"index"` | Page file in the current folder. |
+| `"guides"` | Child folder; the child folder's `meta.json` controls its group. |
+| `"---Label---"` | Separator item with no path and no children. |
+| `{ "title": "Group", "pages": [...] }` | Inline group using the current folder as its lookup base. |
+
+If a `pages` entry names a folder, the folder must contain `meta.json`. If it names a page, the compiler resolves `.md`, `.mdx`, or `index` by convention.
+
+Set `"root": true` on a child folder to make it an independent navigation root. The generated section menu uses that folder's `title` and `icon`, links to its first page, and shows only its `pages` while one of its pages is active. Root folders appear in the section menu, not as groups inside another root's sidebar. The source-level `meta.json` remains the default root, and its non-root separators, pages, and groups stay visible on pages outside a child root.
+
+## Icons
+
+Pages can set `icon` in frontmatter. Folders can set `icon` in `meta.json`.
+
+The generated runtime stores the value in two places:
+
+- `Frontmatter.icon` on the page.
+- `NavItem.icon` on the generated nav item.
+
+`DocsNav` renders a `.proa-docs-nav-icon` span with `data-icon="<name>"`. The default runtime includes a small inline SVG map for common names such as `BookOpen`, `Cpu`, `FileText`, `Settings`, `Brain`, `Layers`, `ArrowRightLeft`, `Route`, `Terminal`, and `Zap`. Unknown names fall back to a file icon, and applications can still target the `data-icon` hook for custom styling or replacement.
+
+## Current Differences From Fumadocs
+
+Proa Docs intentionally supports a smaller navigation model today:
+
+| Convention | Proa Docs today |
+|------------|-----------------|
+| Page `title`, `description`, `icon` | Supported. |
+| Folder `title`, `icon`, `pages` | Supported. |
+| Root folders with `root: true` | Supported. |
+| Separators in `pages` | Supported with `"---Label---"`. |
+| Inline groups | Supported with `{ "title": "...", "pages": [...] }`. |
+| Rest/extract/exclude syntax | Not implemented yet. |
+| `defaultOpen`, `collapsible`, linked groups | Not implemented yet. |
+| Bundled icon renderer | Small built-in SVG map plus `data-icon` hook; apps can override presentation. |
+
+This keeps generated Rust predictable and avoids coupling docs compilation to a specific frontend icon package.

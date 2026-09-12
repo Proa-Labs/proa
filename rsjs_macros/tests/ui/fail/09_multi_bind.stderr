@@ -1,0 +1,11 @@
+error: an element may carry at most one `bind_*` attribute in v0.1
+  --> tests/ui/fail/09_multi_bind.rs:24:40
+   |
+24 |             <div><input bind_value={a} bind_checked={b}/></div>
+   |                                        ^^^^^^^^^^^^
+
+error: previous `bind_*` attribute here
+  --> tests/ui/fail/09_multi_bind.rs:24:25
+   |
+24 |             <div><input bind_value={a} bind_checked={b}/></div>
+   |                         ^^^^^^^^^^

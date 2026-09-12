@@ -1,0 +1,1133 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Proa Playground API",
+    "version": "1.0.0",
+    "description": "API for the Proa SSR Playground — render Airbnb and Nike showcase pages with custom props, run load tests, and compare rendering performance across engines (Proa/Rust, React/Node, React/Bun)."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current server"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "operationId": "health",
+        "tags": [
+          "System"
+        ],
+        "responses": {
+          "200": {
+            "description": "Server is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/render": {
+      "post": {
+        "summary": "Render a page with optional props",
+        "operationId": "renderPage",
+        "tags": [
+          "Rendering"
+        ],
+        "description": "Renders the specified showcase page using the Proa SSR engine. Returns raw HTML with timing metadata in response headers. If `props` is omitted, default showcase props are used.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rendered HTML page",
+            "headers": {
+              "x-render-us": {
+                "description": "Pure SSR render time in microseconds (minimum of 10 iterations)",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "x-deser-us": {
+                "description": "JSON deserialization time in microseconds",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "x-e2e-us": {
+                "description": "Total server-side handler time in microseconds",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "x-html-size": {
+                "description": "HTML response size in bytes",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (unknown page or malformed props)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/loadtest": {
+      "post": {
+        "summary": "Run a load test across all engines",
+        "operationId": "loadTest",
+        "tags": [
+          "Benchmarking"
+        ],
+        "description": "Runs concurrent render requests against Proa (Rust), React/Node, and React/Bun engines, returning latency statistics for each.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadTestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Load test results for all engines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoadTestResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/props": {
+      "get": {
+        "summary": "Get default showcase props for all pages",
+        "operationId": "getDefaultProps",
+        "tags": [
+          "Rendering"
+        ],
+        "description": "Returns the full default props JSON for every showcase page. This is the same data used when `props` is omitted from a render request.",
+        "responses": {
+          "200": {
+            "description": "Default props keyed by page name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllPageProps"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "engine"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "engine": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "PageName": {
+        "type": "string",
+        "enum": [
+          "home",
+          "search",
+          "listing",
+          "nike-catalog",
+          "nike-pdp"
+        ],
+        "description": "Available showcase pages"
+      },
+      "RenderRequest": {
+        "type": "object",
+        "required": [
+          "page"
+        ],
+        "properties": {
+          "page": {
+            "$ref": "#/components/schemas/PageName"
+          },
+          "props": {
+            "description": "Page-specific props object. Schema depends on the `page` value. If omitted, default showcase props are used.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HomeProps"
+              },
+              {
+                "$ref": "#/components/schemas/SearchProps"
+              },
+              {
+                "$ref": "#/components/schemas/ListingProps"
+              },
+              {
+                "$ref": "#/components/schemas/NikeCatalogProps"
+              },
+              {
+                "$ref": "#/components/schemas/NikePdpProps"
+              }
+            ]
+          }
+        }
+      },
+      "LoadTestRequest": {
+        "type": "object",
+        "required": [
+          "page"
+        ],
+        "properties": {
+          "page": {
+            "$ref": "#/components/schemas/PageName"
+          },
+          "concurrency": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 10,
+            "description": "Number of concurrent requests"
+          },
+          "iterations": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 100,
+            "description": "Total number of render requests"
+          },
+          "port": {
+            "type": "integer",
+            "description": "Override port for the Node/Bun companion servers"
+          }
+        }
+      },
+      "LatencyStats": {
+        "type": "object",
+        "required": [
+          "avg",
+          "p50",
+          "p99",
+          "min",
+          "max"
+        ],
+        "properties": {
+          "avg": {
+            "type": "number",
+            "description": "Mean latency in microseconds"
+          },
+          "p50": {
+            "type": "number",
+            "description": "Median latency in microseconds"
+          },
+          "p99": {
+            "type": "number",
+            "description": "99th percentile latency in microseconds"
+          },
+          "min": {
+            "type": "number",
+            "description": "Minimum latency in microseconds"
+          },
+          "max": {
+            "type": "number",
+            "description": "Maximum latency in microseconds"
+          }
+        }
+      },
+      "EngineResult": {
+        "type": "object",
+        "required": [
+          "total_requests",
+          "failed_requests",
+          "duration_ms",
+          "rps",
+          "ssr_us",
+          "roundtrip_us"
+        ],
+        "properties": {
+          "total_requests": {
+            "type": "integer"
+          },
+          "failed_requests": {
+            "type": "integer"
+          },
+          "duration_ms": {
+            "type": "number",
+            "description": "Total wall-clock duration in milliseconds"
+          },
+          "rps": {
+            "type": "number",
+            "description": "Requests per second"
+          },
+          "ssr_us": {
+            "$ref": "#/components/schemas/LatencyStats",
+            "description": "Pure SSR render time (template to bytes, no HTTP overhead)"
+          },
+          "roundtrip_us": {
+            "$ref": "#/components/schemas/LatencyStats",
+            "description": "Full HTTP roundtrip latency"
+          }
+        }
+      },
+      "LoadTestResult": {
+        "type": "object",
+        "required": [
+          "proa",
+          "react",
+          "bun"
+        ],
+        "properties": {
+          "proa": {
+            "$ref": "#/components/schemas/EngineResult"
+          },
+          "react": {
+            "$ref": "#/components/schemas/EngineResult"
+          },
+          "bun": {
+            "$ref": "#/components/schemas/EngineResult"
+          }
+        }
+      },
+      "AllPageProps": {
+        "type": "object",
+        "properties": {
+          "home": {
+            "$ref": "#/components/schemas/HomeProps"
+          },
+          "search": {
+            "$ref": "#/components/schemas/SearchProps"
+          },
+          "listing": {
+            "$ref": "#/components/schemas/ListingProps"
+          },
+          "nike-catalog": {
+            "$ref": "#/components/schemas/NikeCatalogProps"
+          },
+          "nike-pdp": {
+            "$ref": "#/components/schemas/NikePdpProps"
+          }
+        }
+      },
+      "HomeListing": {
+        "type": "object",
+        "required": [
+          "title",
+          "location",
+          "price_per_night",
+          "rating",
+          "property_type",
+          "image"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "price_per_night": {
+            "type": "integer"
+          },
+          "rating": {
+            "type": "string"
+          },
+          "property_type": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          }
+        }
+      },
+      "Section": {
+        "type": "object",
+        "required": [
+          "title",
+          "subtitle",
+          "listing_indexes"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "subtitle": {
+            "type": "string"
+          },
+          "listing_indexes": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Indexes into the listings array"
+          }
+        }
+      },
+      "HomeProps": {
+        "type": "object",
+        "required": [
+          "listings",
+          "homes_sections",
+          "experiences_sections",
+          "services_sections"
+        ],
+        "properties": {
+          "listings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HomeListing"
+            }
+          },
+          "homes_sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            },
+            "description": "Featured home sections displayed on the homepage"
+          },
+          "experiences_sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            },
+            "description": "Experience sections led by locals"
+          },
+          "services_sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            },
+            "description": "Service add-on sections"
+          }
+        }
+      },
+      "SearchListing": {
+        "type": "object",
+        "required": [
+          "title",
+          "location",
+          "price_per_night",
+          "rating",
+          "reviews_count",
+          "property_type",
+          "beds",
+          "baths",
+          "image"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "price_per_night": {
+            "type": "integer"
+          },
+          "rating": {
+            "type": "string"
+          },
+          "reviews_count": {
+            "type": "integer"
+          },
+          "property_type": {
+            "type": "string"
+          },
+          "beds": {
+            "type": "integer"
+          },
+          "baths": {
+            "type": "integer"
+          },
+          "image": {
+            "type": "string"
+          }
+        }
+      },
+      "SearchProps": {
+        "type": "object",
+        "required": [
+          "title",
+          "subtitle",
+          "stay_info",
+          "filters",
+          "listings"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "subtitle": {
+            "type": "string"
+          },
+          "stay_info": {
+            "type": "string"
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "listings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchListing"
+            }
+          }
+        }
+      },
+      "ListingPhoto": {
+        "type": "object",
+        "required": [
+          "src",
+          "alt"
+        ],
+        "properties": {
+          "src": {
+            "type": "string"
+          },
+          "alt": {
+            "type": "string"
+          }
+        }
+      },
+      "ListingHighlight": {
+        "type": "object",
+        "required": [
+          "title",
+          "description"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "ReviewScores": {
+        "type": "object",
+        "required": [
+          "cleanliness",
+          "accuracy",
+          "check_in",
+          "communication",
+          "location",
+          "value"
+        ],
+        "properties": {
+          "cleanliness": {
+            "type": "string"
+          },
+          "accuracy": {
+            "type": "string"
+          },
+          "check_in": {
+            "type": "string"
+          },
+          "communication": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "ListingReview": {
+        "type": "object",
+        "required": [
+          "name",
+          "location",
+          "date",
+          "duration",
+          "body",
+          "avatar"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "duration": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "avatar": {
+            "type": "string"
+          }
+        }
+      },
+      "ListingHost": {
+        "type": "object",
+        "required": [
+          "name",
+          "photo",
+          "review_count",
+          "years_hosting",
+          "response_rate",
+          "response_time",
+          "bio"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "photo": {
+            "type": "string"
+          },
+          "review_count": {
+            "type": "integer"
+          },
+          "years_hosting": {
+            "type": "integer"
+          },
+          "response_rate": {
+            "type": "string"
+          },
+          "response_time": {
+            "type": "string"
+          },
+          "bio": {
+            "type": "string"
+          }
+        }
+      },
+      "ListingCohost": {
+        "type": "object",
+        "required": [
+          "name",
+          "photo"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "photo": {
+            "type": "string"
+          }
+        }
+      },
+      "ListingBooking": {
+        "type": "object",
+        "required": [
+          "check_in",
+          "checkout",
+          "check_in_display",
+          "checkout_display",
+          "range_label",
+          "guests",
+          "free_cancel_date",
+          "nights"
+        ],
+        "properties": {
+          "check_in": {
+            "type": "string",
+            "format": "date"
+          },
+          "checkout": {
+            "type": "string",
+            "format": "date"
+          },
+          "check_in_display": {
+            "type": "string"
+          },
+          "checkout_display": {
+            "type": "string"
+          },
+          "range_label": {
+            "type": "string"
+          },
+          "guests": {
+            "type": "string"
+          },
+          "free_cancel_date": {
+            "type": "string"
+          },
+          "nights": {
+            "type": "integer"
+          }
+        }
+      },
+      "ListingProps": {
+        "type": "object",
+        "required": [
+          "title",
+          "location",
+          "location_short",
+          "property_line",
+          "rating",
+          "review_count",
+          "overview_summary",
+          "description",
+          "nightly_rate",
+          "cleaning_fee",
+          "service_fee",
+          "total_amenity_count",
+          "photos",
+          "highlights",
+          "amenities",
+          "review_distribution",
+          "review_scores",
+          "reviews",
+          "house_rules",
+          "safety_items",
+          "cancellation_items",
+          "nearby_links",
+          "host",
+          "cohost",
+          "booking"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "location_short": {
+            "type": "string"
+          },
+          "property_line": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "string"
+          },
+          "review_count": {
+            "type": "integer"
+          },
+          "overview_summary": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "nightly_rate": {
+            "type": "integer"
+          },
+          "cleaning_fee": {
+            "type": "integer"
+          },
+          "service_fee": {
+            "type": "integer"
+          },
+          "total_amenity_count": {
+            "type": "integer"
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListingPhoto"
+            }
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListingHighlight"
+            }
+          },
+          "amenities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "review_distribution": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "string",
+                  "description": "Star rating (1-5)"
+                },
+                {
+                  "type": "integer",
+                  "description": "Percentage"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "description": "Distribution of star ratings as [rating_label, percentage] tuples"
+          },
+          "review_scores": {
+            "$ref": "#/components/schemas/ReviewScores"
+          },
+          "reviews": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListingReview"
+            }
+          },
+          "house_rules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "safety_items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cancellation_items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "nearby_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "host": {
+            "$ref": "#/components/schemas/ListingHost"
+          },
+          "cohost": {
+            "$ref": "#/components/schemas/ListingCohost"
+          },
+          "booking": {
+            "$ref": "#/components/schemas/ListingBooking"
+          }
+        }
+      },
+      "NikeProduct": {
+        "type": "object",
+        "required": [
+          "title",
+          "subtitle",
+          "price",
+          "messaging",
+          "image",
+          "colors",
+          "color_count"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "subtitle": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string"
+          },
+          "messaging": {
+            "type": "string",
+            "description": "Promotional label (e.g. 'Best Seller', 'Just In', 'Coming Soon'). Empty string if none."
+          },
+          "image": {
+            "type": "string"
+          },
+          "colors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CSS background-color values for color swatches"
+          },
+          "color_count": {
+            "type": "string",
+            "description": "Human-readable color count label. Empty string if no colors."
+          }
+        }
+      },
+      "NikeCatalogProps": {
+        "type": "object",
+        "required": [
+          "title",
+          "products"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "products": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NikeProduct"
+            }
+          }
+        }
+      },
+      "NikeBenefit": {
+        "type": "object",
+        "required": [
+          "title",
+          "description"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "NikeSize": {
+        "type": "object",
+        "required": [
+          "label",
+          "available"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NikeColorway": {
+        "type": "object",
+        "required": [
+          "style_code",
+          "selected"
+        ],
+        "properties": {
+          "style_code": {
+            "type": "string",
+            "description": "Image path for the colorway thumbnail"
+          },
+          "selected": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NikePdpReview": {
+        "type": "object",
+        "required": [
+          "author",
+          "date",
+          "title",
+          "body",
+          "rating"
+        ],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          }
+        }
+      },
+      "NikeRecommended": {
+        "type": "object",
+        "required": [
+          "title",
+          "subtitle",
+          "price",
+          "image"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "subtitle": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          }
+        }
+      },
+      "NikePdpProps": {
+        "type": "object",
+        "required": [
+          "title",
+          "subtitle",
+          "current_price",
+          "original_price",
+          "discount_pct",
+          "color_name",
+          "style_code",
+          "description",
+          "reason_to_buy",
+          "weight",
+          "drop",
+          "avg_rating",
+          "review_count",
+          "benefits",
+          "whats_new",
+          "sizes",
+          "colorways",
+          "reviews",
+          "recommended"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "subtitle": {
+            "type": "string"
+          },
+          "current_price": {
+            "type": "string"
+          },
+          "original_price": {
+            "type": "string"
+          },
+          "discount_pct": {
+            "type": "string"
+          },
+          "color_name": {
+            "type": "string"
+          },
+          "style_code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "reason_to_buy": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "string"
+          },
+          "drop": {
+            "type": "string"
+          },
+          "avg_rating": {
+            "type": "string"
+          },
+          "review_count": {
+            "type": "string"
+          },
+          "benefits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NikeBenefit"
+            }
+          },
+          "whats_new": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sizes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NikeSize"
+            }
+          },
+          "colorways": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NikeColorway"
+            }
+          },
+          "reviews": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NikePdpReview"
+            }
+          },
+          "recommended": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NikeRecommended"
+            }
+          }
+        }
+      }
+    }
+  }
+}

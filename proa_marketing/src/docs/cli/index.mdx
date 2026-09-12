@@ -1,0 +1,170 @@
+---
+title: All commands
+description: Every proa subcommand, and where each one is explained.
+---
+
+The Proa CLI is developer tooling for Proa templates and opinionated Proa sites. It scaffolds projects, generates typed Rust modules, formats template macro bodies, runs Proa-specific lints, inspects site structure, and reports how `html!` or `html_sync!` bodies consolidate into static byte runs.
+
+## Install
+
+The one-line installer downloads a checksum-verified release build. See
+[Install Proa](/docs#1-install-proa).
+
+To build from the source repository instead (needs GitHub access while the
+repository is private):
+
+```bash
+CARGO_REGISTRIES_PROA_INDEX="sparse+https://registry.proa.so/sparse/" \
+CARGO_NET_GIT_FETCH_WITH_CLI=true \
+  cargo install --git https://github.com/proa-labs/proa --locked proa-cli
+```
+
+`cargo install --git` reads configuration from the current directory and
+`CARGO_HOME`, never from the checkout it clones, so naming the index is what
+makes the CLI's `proa` registry dependencies resolvable, and the git-CLI fetch
+picks up credential helpers and proxy settings that Cargo's built-in fetcher
+does not. Drop the prefixes once your environment configures them.
+
+Then confirm the binary is on your path:
+
+```bash
+proa --help
+```
+
+Cargo installs both `proa` and `cargo-proa`. Pin audited source with a full
+commit SHA:
+
+```bash
+CARGO_REGISTRIES_PROA_INDEX="sparse+https://registry.proa.so/sparse/" \
+CARGO_NET_GIT_FETCH_WITH_CLI=true \
+  cargo install --git https://github.com/proa-labs/proa --rev <full-commit-sha> --locked --force proa-cli
+```
+
+Project builds fetch Proa crates as git dependencies of the same repository; the generated `.cargo/config.toml` enables the git-CLI fetch and names the `proa` registry so those manifests parse. Follow [Installation](/docs) if Cargo cannot download dependencies. When working from this repository, use:
+
+```bash
+cargo run -p proa-cli --bin proa -- <command>
+```
+
+## Invocation
+
+The installed binary is `proa`:
+
+```bash
+proa dev
+```
+
+The package also ships `cargo-proa`, so Cargo can invoke the same command as a subcommand:
+
+```bash
+cargo proa fmt --check --verify src
+```
+
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| `proa init` | Add `proa.config.json` and `proa.lock.json` to an existing project. |
+| `proa config validate` | Check `proa.config.json` for unknown keys, empty commands, and invalid asset definitions. |
+| `proa config show` | Print the effective configuration with defaults filled in. |
+| `proa new site` | Create an opinionated Proa site, including optional deployment presets such as `--deploy coolify`. |
+| `proa dev` | Build configured assets, run the app, restart on project changes, and reload open browser tabs. See [Live reload](/docs/cli/new-site#live-reload). |
+| `proa build` | Run Proa checks, build configured assets, and compile the app for deployment. |
+| `proa run` | Compile and run one exact Proa binary through the linked RSJS pipeline. |
+| `proa test` | Compile and execute one exact test target through the linked RSJS pipeline. |
+| `proa generate component` | Generate reusable render components under `src/components`. |
+| `proa generate layout` | Generate shared page layouts under `src/layouts`. |
+| `proa generate data` | Generate typed data modules under `src/data`. |
+| `proa registry list` | Print configured component registry aliases. |
+| `proa ui add` | Install a source component or block from the Proa UI registries. |
+| `proa rsjs explain` | Explain why an rsjs impl emitted browser JS or stayed server-only. |
+| `proa rsjs crossings` | Print redacted public data crossing records from rsjs strategy sidecars. |
+| `proa site check` | Validate the expected site structure. |
+| `proa site routes` | Print page routes discovered from `src/pages`. |
+| `proa site doctor` | Alias of `site check` with the same diagnostics. |
+| `proa fmt` | Format HTML, XML, and raw `md!` / `md_sync!` template bodies. |
+| `proa lint` | Run accessibility, format, composition, and render-path lints. |
+| `proa check` | Run verified format and lint checks and, for a whole project, the linked RSJS Cargo check. |
+| `proa chunks` | Inspect static runs, dynamic slots, and consolidation size estimates. |
+| `proa font sync` | Vendor and lock every font declared in code, or verify with `--offline`. |
+| `proa font list` | List fonts recorded in `proa-fonts.lock`. |
+| `proa completions` | Generate shell completions for the `proa` binary. |
+
+## Project Config
+
+Generated sites include `proa.config.json` and `proa.lock.json`. The config drives lifecycle commands and records component registry aliases:
+
+```json
+{
+  "$schema": "https://proa.so/schema/proa.config.json",
+  "paths": {
+    "components": "src/components",
+    "assets": "public/proa"
+  },
+  "registries": {
+    "@proa": "https://ui.proa.so/r/{name}.json",
+    "@proa-pro": "https://console.proa.so/r/{name}.json"
+  },
+  "dev": {
+    "command": ["cargo", "run"],
+    "host": "127.0.0.1",
+    "port": 3000,
+    "watch": ["src", "styles", "Cargo.toml", "build.rs", "proa.config.json"]
+  },
+  "build": {
+    "command": ["cargo", "build", "--release"],
+    "assets": [
+      {
+        "kind": "tailwind",
+        "input": "styles/input.css",
+        "output": "public/styles.css"
+      }
+    ]
+  }
+}
+```
+
+`proa.lock.json` records components installed by `proa ui add`: version, registry, installed files, source hashes, and dependencies.
+
+Use the command override when a project needs a custom server binary:
+
+```bash
+proa dev -- cargo run --bin my_app
+proa build -- cargo build --release --bin my_app
+```
+
+## Output Modes
+
+Several commands support machine-readable output:
+
+| Command | Machine Output |
+|---------|----------------|
+| `init`, `registry list` | `--json` |
+| `config validate`, `ui add` | `--json` |
+| `rsjs explain`, `rsjs crossings`, `font list` | `--json` |
+| `new site`, `generate *` | `--dry-run json` |
+| `site check`, `site routes` | `--json` |
+| `lint` | `--json` or `--github` |
+| `chunks` | `--json` |
+
+## File Selection
+
+`fmt`, `lint`, `check`, and `chunks` can operate on explicit paths or Git-selected paths:
+
+```bash
+proa lint src/pages/home.rs
+proa lint --changed --base origin/main
+proa check --staged
+proa chunks --changed --json
+```
+
+Do not combine explicit paths with `--changed`, `--staged`, or `--base`.
+
+## Reference Pages
+
+- [Create a site](/docs/cli/new-site)
+- [Generators](/docs/cli/generators)
+- [Format, lint, and check](/docs/cli/format-lint-check)
+- [Site inspection](/docs/cli/site)
+- [Static chunk reports](/docs/cli/chunks)
+- [CI usage](/docs/guides/ci)

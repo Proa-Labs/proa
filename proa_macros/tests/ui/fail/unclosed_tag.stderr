@@ -1,0 +1,5 @@
+error: unclosed element `<h1>`
+ --> tests/ui/fail/unclosed_tag.rs:8:13
+  |
+8 |             <h1>"Title"
+  |             ^

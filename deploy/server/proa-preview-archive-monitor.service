@@ -1,0 +1,51 @@
+[Unit]
+Description=Verify immutable preview archive reconciliation health
+After=proa-preview-archive-control.service proa-preview-archive-router.service proa-preview-archive-sync.service
+Wants=proa-preview-archive-control.service proa-preview-archive-router.service
+OnFailure=proa-preview-archive-alert@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/proa/preview-archive.env
+Environment=PROA_ARCHIVE_STATE_DIR=/var/lib/proa-preview-archive
+Environment=PROA_ARCHIVE_CONTROL_PORT=8788
+Environment=PROA_ARCHIVE_ROUTER_IP=172.31.252.2
+Environment=PROA_ARCHIVE_ROUTER_HEALTH_PORT=8083
+Environment=PROA_ARCHIVE_ROUTER_PORT=8082
+Environment=PROA_ARCHIVE_ROUTER_CONFIG_DIR=/var/lib/proa-preview-archive/routes
+ExecStart=/usr/local/sbin/proa-preview-archive-monitor check
+TimeoutStartSec=10s
+UMask=0077
+User=root
+Group=root
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectProc=invisible
+ProtectSystem=strict
+ReadOnlyPaths=/var/lib/proa-preview-archive
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=localhost
+IPAddressAllow=172.31.252.2/32
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SyslogLevelPrefix=yes
+LimitNOFILE=128
+TasksMax=16
+MemoryMax=64M

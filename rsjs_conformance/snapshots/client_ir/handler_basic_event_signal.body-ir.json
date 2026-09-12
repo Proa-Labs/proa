@@ -1,0 +1,25 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "let",
+      "local": 0,
+      "name": "next",
+      "ty": {
+        "kind": "string"
+      },
+      "value": {
+        "kind": "event_read",
+        "value": "target_value"
+      }
+    },
+    {
+      "kind": "signal_set",
+      "signal": 0,
+      "value": {
+        "kind": "local",
+        "local": 0
+      }
+    }
+  ]
+}

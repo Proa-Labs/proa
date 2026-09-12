@@ -1,0 +1,194 @@
+---
+title: Status, redirects, and errors
+description: Set status codes, return redirects, and render error pages.
+---
+
+A Proa route is an Axum handler: return an Axum response to decide early, or `RouteResponse` to let the Proa finalizer render a page. This page covers [status in the handler](#setting-status-in-the-handler), [rendered 404 pages](#rendering-a-404-page), [redirects](#redirecting), and [framework errors](#handling-framework-errors).
+
+## Setting status in the handler
+
+Return ordinary Axum responses when the handler can decide before rendering:
+
+```rust filename="src/routes/product.rs"
+use axum::{
+    extract::Path,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use proa_framework_axum::RouteResponse;
+
+pub async fn product(Path(id): Path<String>) -> Response {
+    let Some(product) = load_product(&id).await else {
+        return (StatusCode::NOT_FOUND, "Not found").into_response();
+    };
+
+    RouteResponse::ssr(ProductPage { product }).into_response()
+}
+```
+
+This keeps missing records, auth failures, and validation failures out of the render tree when they do not need a full page shell.
+
+Some error states do need that shell, and those become real pages.
+
+## Rendering a 404 page
+
+Render a full Proa page when the error state needs the same layout, metadata, or island bootstrap as the rest of the site. Set the status through `WebContext` before writing the body:
+
+```rust filename="src/pages/not_found.rs"
+use http::StatusCode;
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+
+pub struct NotFoundPage;
+
+impl<L: DataLoader> WebRenderSync<L> for NotFoundPage {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        cx.response_mut().set_status(StatusCode::NOT_FOUND);
+
+        html_sync! {
+            <main>
+                <h1>"Page not found"</h1>
+                <p>"The page may have moved or no longer exists."</p>
+            </main>
+        }
+        .render(cx)
+    }
+}
+```
+
+Then return `RouteResponse::ssr(NotFoundPage)` from the handler.
+
+The same response context also stages headers and cookies.
+
+## Setting headers during render
+
+Components stage response metadata through `cx.response_mut()`:
+
+```rust filename="src/pages/not_found.rs"
+use http::{header, HeaderValue, StatusCode};
+
+cx.response_mut().set_status(StatusCode::CREATED);
+cx.response_mut().insert_header(
+    header::CACHE_CONTROL,
+    HeaderValue::from_static("public, max-age=60"),
+);
+cx.response_mut().append_set_cookie(HeaderValue::from_static("theme=dark; Path=/; SameSite=Lax"));
+```
+
+`set_status`, `insert_header`, `append_header`, and `append_set_cookie` return `bool`. Treat `false` as a late mutation.
+
+Late mutations are exactly what streaming makes possible, so streamed routes need a tighter rule.
+
+## Setting status on a streamed route
+
+Streaming responses commit the response head before the root component starts rendering. Set status and headers in the handler that returns the streamed response:
+
+```rust filename="src/pages/dashboard.rs"
+use axum::http::{header, StatusCode};
+
+(
+    StatusCode::OK,
+    [(header::CACHE_CONTROL, "private, no-store")],
+    RouteResponse::ssr_stream(DashboardPage),
+)
+```
+
+Inside a streamed render tree, `ResponseContext::can_mutate_headers()` is `false` and status/header mutations are refused. This keeps the already-created transport response coherent. Buffered sync and async routes can still stage response metadata during render.
+
+Redirects avoid the problem entirely: they never enter the render tree.
+
+## Redirecting
+
+Use Axum redirects for moved routes, auth gates, and canonical URLs:
+
+```rust filename="src/routes/legacy.rs"
+use axum::response::Redirect;
+
+pub async fn old_docs_path() -> Redirect {
+    Redirect::permanent("/docs/framework")
+}
+```
+
+When a handler may either redirect or render, return `Response`:
+
+```rust filename="src/routes/account.rs"
+use axum::response::{IntoResponse, Redirect, Response};
+use proa_framework_axum::RouteResponse;
+
+pub async fn account() -> Response {
+    if !is_signed_in().await {
+        return Redirect::to("/login").into_response();
+    }
+
+    RouteResponse::ssr(AccountPage).into_response()
+}
+```
+
+Your own error types can carry the same decision, once you give them a status code.
+
+## Mapping application errors
+
+Map application errors to explicit status codes. Keep sensitive details in logs, not response bodies:
+
+```rust filename="src/error.rs"
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+
+pub enum AppError {
+    NotFound,
+    Unauthorized,
+    Upstream,
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        match self {
+            Self::NotFound => (StatusCode::NOT_FOUND, "Not found").into_response(),
+            Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
+            Self::Upstream => (StatusCode::BAD_GATEWAY, "Temporary upstream error").into_response(),
+        }
+    }
+}
+```
+
+Then use `Result<Response, AppError>` or `Result<impl IntoResponse, AppError>` in handlers.
+
+Failures below your code, in render or transport, never reach an `AppError`.
+
+## Handling framework errors
+
+The framework protects the response shape for infrastructure failures:
+
+| Source | Response |
+|--------|----------|
+| Render, bootstrap, or invariant error | `500` with a terse body such as `render error` |
+| Encoding error | `500 encoding error` |
+| Default request timeout | `408 Request Timeout` |
+| Rejected cross-origin unsafe browser request | `403 Forbidden` |
+| Missing embedded static asset | `404 Not Found` |
+
+Use `tracing` for the detailed error path and return short public messages to users.
+
+## Checking the error paths
+
+Before shipping:
+
+- Decide in the handler when data is missing before rendering.
+- Render a full error page only when it needs the site shell.
+- Set status and headers in the handler before returning a streamed response.
+- Check the `bool` returned from response-context mutations in streaming code.
+- Use Axum `Redirect` for redirects instead of rendering meta-refresh pages.
+- Test `404`, redirect, validation, timeout, and upstream-error paths.
+
+## Next steps
+
+- [Route responses](/docs/framework/responses)
+  - Return synchronous, buffered async, or streaming SSR with islands.
+- [Data loading and streaming](/docs/framework/data-loading)
+  - Load request data, apply cache hints, and stream slow sections with Suspense.
+- [Forms and actions](/docs/guides/forms-actions)
+  - Handle submissions with Axum and render invalid field state back to the user.
+- [Testing](/docs/guides/testing)
+  - Unit, snapshot, and integration tests for the paths above.

@@ -1,0 +1,15 @@
+error: rsjs boundary: `rsjs::server_attr(...)` cannot capture reactive signal `selected`
+
+       Why:
+         Server-only attributes emit static SSR values. Client hydration does not attach reactive updates to that attribute.
+
+       Use one of:
+         - Use a normal dynamic attribute for values that should update on the client.
+         - If the value is intentionally static, pass plain server data through `rsjs::server_attr(...)`.
+
+       Tracked feature:
+         server_boundary.server_attr_signal_capture
+  --> tests/ui/conformance/fail/37_server_attr_signal_capture.rs:18:46
+   |
+18 |             <button class={rsjs::server_attr(selected.get())}>"Save"</button>
+   |                                              ^^^^^^^^

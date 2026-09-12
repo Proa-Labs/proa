@@ -1,0 +1,14 @@
+error: `#[rsjs(component)]` now requires a real Proa render-trait impl; inherent `fn render(self)` shorthand has been removed
+       help: write:
+       impl<L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L> for Counter {
+           fn render(self, cx: &mut ::proa_core::WebContext<L>) -> Result<(), ::proa_core::WriteError> {
+               ::proa_core::WebRenderSync::render(
+                   ::proa_macros::html_sync! { /* ... */ },
+                   cx,
+               )
+           }
+       }
+ --> tests/ui/fail/01_inherent_impl.rs:8:1
+  |
+8 | impl Counter {
+  | ^^^^

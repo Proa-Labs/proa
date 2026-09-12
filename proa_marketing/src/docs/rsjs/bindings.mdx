@@ -1,0 +1,202 @@
+---
+title: Input bindings
+description: Bind form controls to writable RSJS signals and SharedState fields.
+keywords: [bind_value, bind_checked, two-way binding]
+---
+
+A binding synchronizes one form-control DOM property with one writable RSJS cell. This page covers binding [text inputs](#binding-text-inputs), [checkboxes](#binding-checkboxes), [select values](#binding-select-values), and [SharedState fields](#binding-sharedstate-fields).
+
+## Binding text inputs
+
+Use `bind_value` for an input element's string `value` property. That cell is an owner-local `Signal` or a field handle you acquire from typed [SharedState](/docs/rsjs/shared-state). User edits flow into the cell, and later cell writes flow back to the DOM.
+
+```rust filename="src/components/search_box.rs"
+let query = signal(String::new());
+
+html_sync! {
+    <label class="grid gap-2">
+        "Search"
+        <input type="search" bind_value={query} />
+    </label>
+    <p>"Current query: "{query.get()}</p>
+}
+```
+
+For an input, the server output includes its initial value and a hydration marker with a shape similar to:
+
+```html filename="output.html"
+<input data-rsjs-input-value="..." value="">
+```
+
+The `data-rsjs-*` name and ID are compiler-owned implementation details. Do not author or query them from application code.
+
+> **Good to know**: the runtime binding surface also targets a textarea's `value` property. The current SSR emitter does not yet synthesize the textarea's initial text content from the cell seed. Treat first-paint/no-JS textarea parity as a current limitation.
+
+Use a binding when one DOM property maps directly to one writable cell. Use a named typed [event handler](/docs/rsjs/handlers) when the edit also needs parsing, validation, normalization, or multiple writes. Never use both mechanisms to perform the same write.
+
+Booleans follow the same one-property rule under a different attribute name.
+
+## Binding checkboxes
+
+`bind_checked` expects a writable boolean cell and mirrors the control's `checked` property.
+
+```rust filename="src/components/newsletter_optin.rs"
+let subscribed = signal(false);
+
+html_sync! {
+    <label class="inline-flex items-center gap-2">
+        <input type="checkbox" bind_checked={subscribed} />
+        "Email me updates"
+    </label>
+
+    {if subscribed.get() {
+        html_sync! { <p>"Subscribed"</p> }
+    }}
+}
+```
+
+A `<select>` binds a string rather than a boolean, and it carries one extra name.
+
+## Binding select values
+
+Both `bind_value` and `bind_selected` target the owning `<select>` element's string `value`: the selected option's value.
+
+```rust filename="src/components/plan_picker.rs"
+let plan = signal("starter".to_string());
+
+html_sync! {
+    <label class="grid gap-2">
+        "Plan"
+        <select bind_selected={plan}>
+            <option value="starter">"Starter"</option>
+            <option value="team">"Team"</option>
+            <option value="enterprise">"Enterprise"</option>
+        </select>
+    </label>
+
+    <p>"Selected plan: "{plan.get()}</p>
+}
+```
+
+`bind_selected` does **not** bind an individual `<option>` element's boolean `selected` property. Prefer `bind_value` when consistent value-binding syntax across controls is clearer. Use `bind_selected` when the select-specific name communicates intent better.
+
+> **Good to know**: the current SSR emitter writes the bound select seed through a generic `value` attribute. HTML does not use that attribute to choose an option during parsing. If the initial choice is not already the markup's selected or default option, the correct value appears when the owner activates. Exact no-JS first-paint select parity is a current emitter gap.
+
+Each control above binds an owner-local signal; a provider field binds the same way.
+
+## Binding SharedState fields
+
+Bind a writable field from the nearest typed provider directly:
+
+```rust filename="src/components/preferences_search.rs"
+let preferences = rsjs::shared::<PreferencesState>();
+let search = preferences.search();
+
+html_sync! {
+    <input type="search" bind_value={search} />
+}
+```
+
+Every independent owner under that provider occurrence observes the same field cell. A computed value remains read-only and cannot be a `bind_*` target.
+
+An edit that does more than write one cell needs a handler instead.
+
+## Handling derived state and side effects
+
+Use `on_input` or `on_change` instead of a binding when one edit performs more than direct synchronization.
+
+```rust filename="src/components/search_form.rs"
+let query = signal(String::new());
+let touched = signal(false);
+
+let update_query = rsjs::event_handler(
+    |event: rsjs::InputEvent<rsjs::elem::Input>| {
+        query.set(event.current_value());
+        touched.set(true);
+    },
+);
+
+html_sync! {
+    <label class="grid gap-2">
+        "Search"
+        <input type="search" value={query.get()} on_input={update_query()} />
+    </label>
+
+    {if touched.get() && !query.is_non_empty() {
+        html_sync! { <p role="alert">"Enter a search term."</p> }
+    }}
+}
+```
+
+For several related writes, wrap the handler work in `rsjs::batch(...)`. All values change synchronously, and DOM and subscriber work flushes once.
+
+For numeric or structured values, keep a local browser input as a string at the boundary. Parse it in a typed handler or on submit. Shared fields with a pinned fixed-width representation validate and coerce their input according to that field's schema.
+
+The next section covers edits that land before the owner activates.
+
+## What happens to edits before hydration?
+
+A user may type, check a box, or choose an option before a delayed owner activates. On the owner's first mount, RSJS compares the live control property with its immutable SSR baseline:
+
+- A dirty control wins. RSJS adopts its current browser value into the writable cell before signal-to-DOM effects run.
+- An untouched control takes the cell's current value. This matters when another owner has already updated a SharedState field.
+- RSJS skips equal property writes, preserving input cursors, textarea selection and scroll state, select focus, and IME composition where the browser exposes stable state.
+- A later lifecycle remount does not re-adopt stale retained DOM state. Fresh `SeedOnce` child state wins for the new occurrence.
+
+Within one owner, all controls reconcile before the first DOM commit. An untouched sibling bound to the same cell therefore cannot immediately overwrite a dirty control.
+
+Reconciled or not, the browser still owns what a native form posts.
+
+## Submitting a form
+
+Bindings pair with native forms. Let the browser own submission when a normal POST is enough, and use RSJS state for optimistic UI or inline validation.
+
+```rust filename="src/components/newsletter_form.rs"
+let email = signal(String::new());
+let terms = signal(false);
+let submitting = signal(false);
+let mark_submitting = rsjs::event_handler(
+    |_: rsjs::SubmitEvent<rsjs::elem::Form>| submitting.set(true),
+);
+
+html_sync! {
+    <form method="post" action="/newsletter" on_submit={mark_submitting()}>
+        <input type="email" name="email" bind_value={email} required />
+
+        <label>
+            <input type="checkbox" name="terms" bind_checked={terms} required />
+            "I accept the terms"
+        </label>
+
+        <button type="submit" disabled={submitting.get()}>
+            {if submitting.get() { "Joining..." } else { "Join" }}
+        </button>
+    </form>
+}
+```
+
+Keep `name` attributes on posted fields: RSJS state does not replace native form serialization. Use a hidden input when the server needs a derived value that does not map one-to-one to a visible control.
+
+The table below collects the rules behind these patterns.
+
+## What rules do bindings follow?
+
+| Rule | Reason |
+| --- | --- |
+| Bind one DOM property to one writable cell per element | Competing bindings create ambiguous ownership. |
+| `bind_value` writes strings | Parse or normalize local numeric/structured values in a handler. |
+| `bind_checked` writes booleans | It mirrors the control's `checked` property. |
+| `bind_selected` writes the select's string value | It does not bind `option.selected`. |
+| Keep `name` attributes on posted fields | Native form submission reads the DOM, not RSJS state directly. |
+| Use handlers for side effects | Bindings stay direct property synchronization. |
+
+## Next steps
+
+- [Event handlers](/docs/rsjs/handlers)
+  - Attach named typed browser handlers and component callbacks in RSJS.
+- [Signals](/docs/rsjs/signals)
+  - Model owner-local and typed cross-owner browser state in RSJS.
+- [Shared state](/docs/rsjs/shared-state)
+  - Share typed synchronous browser state across independent RSJS owners.
+- [Forms and actions](/docs/guides/forms-actions)
+  - Build native HTML forms and handle their submissions with Axum.

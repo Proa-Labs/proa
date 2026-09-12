@@ -1,0 +1,258 @@
+---
+title: Runtime wiring
+description: Plan, emit, and activate the exact RSJS assets a response rendered.
+---
+
+Proa ships RSJS runtime code only for the owners a response actually rendered. This page covers the [shared runtime layers](#loading-the-runtime-layers), [automatic finalization](#finalizing-a-normal-response), the [response-local plan](#planning-one-response), [hydration semantics](#hydrating-and-disposing-owners), and [custom adapters](#writing-a-custom-adapter).
+
+## Loading the runtime layers
+
+RSJS has two shared runtime layers:
+
+| Asset | Loaded when | Purpose |
+|-------|-------------|---------|
+| `/rsjs-runtime.js` | The response contains at least one hydrated owner | Hydrates signals, handlers, bindings, refs, conditionals, lists, and typed SharedState. |
+| `/rsjs-runtime-query.js` | Reachable browser work uses a query or mutation | Adds the page-scoped query cache, observer policies, refetching, mutation state, invalidation, and progress hooks. |
+
+Proa emits the query runtime eagerly only when an immediate or interaction owner
+needs it. A visible, idle, or media owner that is the page's only query consumer
+keeps that work deferred until its module activates.
+
+Generated island modules, reachable client-helper bundles, and linked component
+fragments are separate ES modules. The compiler embeds their sources in the
+binary. The response planner selects only the graph needed by owners that
+actually rendered.
+
+The finalizer that picks those assets runs on every response without any work
+from your page code.
+
+## Finalizing a normal response
+
+Rendering records `RsjsRenderArtifacts` in the response's `WebContext`.
+`proa_framework_axum` snapshots those artifacts after rendering and finalizes the
+page automatically across:
+
+- synchronous and asynchronous responses;
+- cached-fragment replay;
+- in-order streaming; and
+- out-of-order streaming.
+
+Normal page and component code only renders the component:
+
+```rust filename="src/pages/dashboard.rs"
+html_sync! {
+    <main>
+        {Counter { initial: 0 }}
+    </main>
+}
+```
+
+Never call `cx.rsjs_islands_used()`, inspect the manifest, or append runtime
+tags yourself. The finalizer is the single integration point that sees which
+speculative branches committed, which cached artifacts replayed, and which
+streamed boundaries became public.
+
+The finalizer turns those artifacts into one plan, described next.
+
+## Planning one response
+
+The finalizer passes the committed rendered-island ids to
+`Manifest::page_runtime_plan(...)`. The resulting `PageRuntimePlan` is one
+deterministic description of:
+
+- rendered owner ids and reachable runtime features;
+- immediate/interaction modules and visible/idle/media modules;
+- reachable `#[rsjs::client]` helper bundles;
+- linked component-fragment modules;
+- exact eager module preloads;
+- base and query runtime URLs; and
+- stable tag order.
+
+CSP nonces remain request data; you supply them when the plan writes HTML. You
+can select application-owned asset URLs with `page_runtime_plan_with_urls(...)`
+and an `RsjsAssetUrlResolver`.
+
+A server-only result records no hydrated owner and therefore emits no RSJS
+runtime. A server-only parent may still render an independent hydrated child.
+That child records its own artifact, and Proa plans only its reachable graph.
+
+The plan decides which tags reach the browser, shown next.
+
+## What does a hydrated page emit?
+
+The compiler owns the exact output, which depends on reachability and hydration
+strategy. An immediate signal owner can produce a shape like this:
+
+```html filename="counter-response.html"
+<rsjs-island data-rsjs-island-root="counter_...">
+  <button data-rsjs-handler="0">+</button>
+  <span data-rsjs-bind="1">0</span>
+</rsjs-island>
+
+<script type="application/json" data-rsjs-island="counter_...">
+  {"signals":["0"]}
+</script>
+
+<script type="module" src="/rsjs-runtime.js"></script>
+<link rel="modulepreload" href="/rsjs/island/counter_....js">
+<script type="module" src="/rsjs/island/counter_....js"></script>
+```
+
+An owner using `query_with_initial(...)` also has adjacent effective-key
+metadata. Its server value lives in an inert page-level seed table that Proa
+emits before activation:
+
+```html filename="stockticker-response.html"
+<script type="application/json" data-rsjs-island-queries="stockticker_...">
+  {"0":{"key":["stock","AAPL"]}}
+</script>
+<script type="application/json" id="rsjs-query-seed-table">
+  {"queries":[...]}
+</script>
+```
+
+A reachable `SharedStateProvider` similarly contributes an inert table:
+
+```html filename="workbench-response.html"
+<script type="application/json" id="rsjs-shared-state-seed-table">
+  {"abi_version":1,"stores":[...]}
+</script>
+```
+
+Proa emits the query and SharedState tables only when the committed artifact set
+needs them. They appear before the runtime plan can activate a dependent owner.
+Proa applies a configured CSP nonce to both inert metadata scripts and
+executable module scripts.
+
+Once those tags reach the browser, the runtime activates each owner.
+
+## Hydrating and disposing owners
+
+For each owner, the runtime:
+
+1. Arms the selected immediate, visible, idle, interaction, or media strategy.
+2. Locates the exact `<rsjs-island data-rsjs-island-root="...">` occurrence.
+3. Validates and installs page-level SharedState/query metadata needed by that owner.
+4. Reads its adjacent signal, query, mutation, and provider-binding metadata.
+5. Installs generated handlers, bindings, effects, refs, and structural resources as one owner lifetime.
+
+Interaction hydration listens in the capture phase. Successful initialization
+installs the generated bubble handler before that same native event reaches the
+owner again. The runtime therefore delivers the triggering click, key, or focus
+event exactly once, without `preventDefault`, propagation suppression, or
+synthetic event replay.
+
+Users may edit a deferred form before it activates. On an owner's first mount,
+dirty `value`, `checked`, and `selected` DOM properties win over the SSR seed.
+The runtime adopts them into the bound cell, and untouched controls receive the
+cell's current value. It skips no-op writes, so text cursors, IME composition,
+textarea scroll, and select focus survive.
+
+Activation is atomic from the owner's perspective. If a module fails to load,
+SharedState schemas conflict, or an initializer throws, the SSR owner remains
+inert. The runtime unwinds partial resources and reports a scoped
+`RsjsActivationError`. It never leaves a partially bound owner active.
+
+Removing a reactive range or detached root disposes nested owners, event
+listeners, effects, query observers, SharedState subscriptions, node refs,
+timers, and pending module gates. Router subtree disposal removes only the
+affected owners. Full page-generation disposal also clears page query and
+SharedState registries and invalidates old handles.
+
+Streamed and cached responses activate owners the same way, under the ordering
+rules below.
+
+## Streaming and replaying cached artifacts
+
+Streaming finalizers retain one `PageRuntimeEmissionState` for the entire
+response. Each shell or boundary plan writes only the runtime URLs, preloads,
+modules, and deferred instructions that no earlier plan emitted.
+
+Cached fragments carry their complete `RsjsRenderArtifacts`, not just HTML.
+Speculative, failed, or cancelled branches do not publish their artifacts. For
+in-order streaming, an artifact-aware flush publishes a delta before the first
+chunk containing dependent owner markup. For out-of-order streaming, Proa emits
+a successful boundary's query/SharedState seed deltas and runtime-plan delta
+immediately before its swap frame. That ordering ensures the metadata and
+modules exist before the frame dispatches its boundary-ready event.
+
+An adapter outside `proa_framework_axum` reproduces that ordering itself.
+
+## Writing a custom adapter
+
+In a custom adapter, preserve the same sequence:
+
+```rust filename="src/adapter/finalize.rs"
+let artifacts = cx.rsjs_artifacts_snapshot();
+let plan = rsjs::manifest().page_runtime_plan(
+    artifacts.rendered_islands(),
+)?;
+
+let query_seeds = artifacts.query_seed_table_json();
+let shared_state_seeds = artifacts.shared_state_seed_table_json();
+let mut emission = rsjs::PageRuntimeEmissionState::new();
+
+// Emit present inert seed tables here, before executable runtime tags.
+plan.write_html_delta(&mut out, &mut emission, nonce)?;
+```
+
+Use one `PageRuntimeEmissionState` for every delta in one streaming response.
+For hashed, prefixed, or CDN-hosted URLs, build the plan with
+`page_runtime_plan_with_urls(...)`. The URL resolver changes response tags. It
+does not rewrite static import specifiers inside generated ESM, so the asset
+server must also rewrite those imports or preserve canonical aliases.
+
+`Manifest::runtime_with_prefix(...)` remains a coarse compatibility and
+diagnostic helper for the complete manifest. It is not a substitute for the
+response-local planner. It cannot select island modules, helper dependencies,
+component fragments, hydration gates, or preloads.
+
+A correct adapter still needs a correctly linked binary, which the build
+contract below guarantees.
+
+## Building a linked binary
+
+Cross-component composition and automatic client-helper discovery require a
+deterministic descriptor/link/final-compilation pipeline:
+
+| Command | Contract |
+|---------|----------|
+| `cargo check` / rust-analyzer | Local Rust typing and provisional descriptor expansion; Proa can defer link-only diagnostics. |
+| `cargo proa check` | Descriptor compilation, semantic link, and final Cargo check with cross-component diagnostics. |
+| `cargo proa build` | Descriptor compilation, deterministic link, and final deployable compilation. |
+| `cargo proa run` | Build one exact linked binary, validate it, then run its immutable snapshot. |
+| `cargo proa test` | Build one exact linked test target, then run that harness. |
+| `cargo proa dev` | Run the linked development workflow with reusable descriptor/link/final caches. |
+
+Plain local checking is useful, but its provisional output is not a deployable
+RSJS artifact. A code-generating build that contains analyzed RSJS components
+must have the exact final link plan. Building without it fails closed with an
+actionable `cargo proa build` diagnostic rather than emitting a descriptor-pass
+binary or silently consuming stale metadata.
+
+When a linked page still misbehaves, work through the checklist below.
+
+## Debugging a page
+
+| Symptom | Check |
+|---------|-------|
+| Button renders but does nothing | The response recorded the owner and emitted `/rsjs-runtime.js` plus `/rsjs/island/<asset-id>.js`. |
+| Signal starts with the wrong value | The adjacent `data-rsjs-island` seed matches the server-rendered text or attribute. |
+| Query starts without server data | The page emitted `rsjs-query-seed-table` before activation, and the adjacent effective key matches it. |
+| SharedState acquisition fails | The page emitted `rsjs-shared-state-seed-table`, and the provider `type_key` and schema ABI match. |
+| A deferred owner never hydrates | Its visible, idle, interaction, or media condition can fire and its managed module load did not fail. |
+| Only one repeated instance hydrates | Every wrapper occurrence has the correct `data-rsjs-island-root`; duplicate asset ids across occurrences are normal. |
+| A custom adapter works buffered but not streamed | It reuses one `PageRuntimeEmissionState` and publishes seed/plan deltas before boundary markup becomes active. |
+
+## Next steps
+
+- [Hydration strategies](/docs/rsjs/hydration)
+  - Choose when each owner activates in the browser.
+- [Signals](/docs/rsjs/signals)
+  - Declare the client state an activated owner attaches to.
+- [Queries and mutations](/docs/rsjs/queries-mutations)
+  - Seed the query cache the query runtime layer loads for.
+- [Shared state](/docs/rsjs/shared-state)
+  - Feed the page-level SharedState seed table from a lexical provider.
+- [Streaming SSR](/docs/core/streaming-ssr)
+  - Flush the shell first and stream slow sections as they resolve.

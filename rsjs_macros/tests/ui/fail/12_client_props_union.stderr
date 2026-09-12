@@ -1,0 +1,5 @@
+error: #[derive(rsjs::ClientProps)] supports named-field structs and fieldless enums; unions are not supported
+ --> tests/ui/fail/12_client_props_union.rs:6:5
+  |
+6 | pub union Bits {
+  |     ^^^^^

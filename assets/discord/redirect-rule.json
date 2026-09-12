@@ -1,0 +1,15 @@
+{
+  "description": "Proa Discord community invite",
+  "expression": "(http.host eq \"proa.so\" and http.request.uri.path in {\"/discord\" \"/discord/\"})",
+  "action": "redirect",
+  "action_parameters": {
+    "from_value": {
+      "target_url": {
+        "value": "https://discord.gg/wcYEdFz6E5"
+      },
+      "status_code": 302,
+      "preserve_query_string": false
+    }
+  },
+  "enabled": true
+}

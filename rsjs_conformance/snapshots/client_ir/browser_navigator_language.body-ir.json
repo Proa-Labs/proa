@@ -1,0 +1,15 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "signal_set",
+      "signal": 0,
+      "value": {
+        "args": [],
+        "helper": "navigator.language",
+        "kind": "browser_read",
+        "read": "declared"
+      }
+    }
+  ]
+}

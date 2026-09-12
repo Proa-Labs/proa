@@ -1,0 +1,5 @@
+error: `#[rsjs]` impl block has more than one `render` method; exactly one is required
+  --> tests/ui/fail/02_duplicate_render.rs:14:8
+   |
+14 |     fn render(self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+   |        ^^^^^^

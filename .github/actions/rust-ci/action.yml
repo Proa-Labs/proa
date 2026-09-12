@@ -1,0 +1,95 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Rust CI
+description: Run Rust formatting, correctness lints, tests, and RSJS conformance
+
+inputs:
+  cache-backend:
+    description: Compiler cache backend, either gha or gcs
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Validate cache backend
+      shell: bash
+      env:
+        CACHE_BACKEND: ${{ inputs.cache-backend }}
+      run: |
+        case "$CACHE_BACKEND" in
+          gha|gcs) ;;
+          *)
+            echo "unsupported sccache backend: $CACHE_BACKEND" >&2
+            exit 1
+            ;;
+        esac
+
+    - name: Install pinned sccache
+      uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      with:
+        version: v0.17.0
+
+    - name: Enable GitHub Actions sccache
+      if: inputs.cache-backend == 'gha'
+      shell: bash
+      run: |
+        {
+          echo "RUSTC_WRAPPER=sccache"
+          echo "SCCACHE_GHA_ENABLED=on"
+        } >> "$GITHUB_ENV"
+
+    - name: Enable trusted GCS sccache
+      if: inputs.cache-backend == 'gcs'
+      shell: bash
+      run: |
+        {
+          echo "RUSTC_WRAPPER=sccache"
+          echo "SCCACHE_GCS_BUCKET=proa-ci-sccache"
+          echo "SCCACHE_GCS_RW_MODE=READ_WRITE"
+        } >> "$GITHUB_ENV"
+
+    - name: lint (rustfmt)
+      shell: bash
+      run: cargo fmt --all -- --check
+
+    - name: clippy
+      shell: bash
+      run: |
+        cargo clippy --workspace --all-targets --locked -- \
+          -A clippy::all \
+          -D clippy::correctness
+
+    - name: Check generated RSJS web bindings
+      shell: bash
+      run: cargo run --locked -p rsjs_web --bin rsjs-web-codegen -- --check
+
+    - name: Install Node.js for JavaScript execution tests
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: "22"
+
+    - name: Test Proa editor adapters and LSP transport
+      shell: bash
+      run: |
+        corepack enable
+        pnpm run editor:test
+
+    # Clippy type-checks the same workspace/all-targets graph. The test steps
+    # below then perform real codegen, so another cargo check adds no coverage.
+    - name: test (libraries)
+      shell: bash
+      run: cargo test --workspace --locked --lib --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa-lean-server --exclude proa_webmcp_pizza
+
+    - name: test (integration)
+      shell: bash
+      run: cargo test --workspace --locked --test '*' --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa_showcase --exclude proa-lean-server --exclude proa-cli --exclude proa_webmcp_pizza --exclude proa_origin_routing_atlas
+
+    - name: Check RSJS conformance manifest and snapshots
+      shell: bash
+      run: node rsjs_conformance/report.mjs --check
+
+    - name: sccache stats
+      if: always()
+      shell: bash
+      run: sccache --show-stats

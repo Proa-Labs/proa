@@ -1,0 +1,45 @@
+---
+title: Code explorer
+description: Browse several files of one example in a file switcher.
+---
+
+An explorer groups the files of a single change so a reader can move between them without scrolling past all of them.
+
+````mdx filename="content/setup.mdx"
+<CodeExplorer>
+<CodeFile name="Cargo.toml">
+```toml
+[build-dependencies]
+proa_docs_build = "0.2"
+```
+</CodeFile>
+<CodeFile name="build.rs">
+```rust
+fn main() { proa_docs_build::compile(config); }
+```
+</CodeFile>
+</CodeExplorer>
+````
+
+Use it when the files only make sense together. For one file, a plain [code block](/docs/proa-docs/code-block) with `filename=` is lighter.
+
+## Attributes
+
+| Tag | Attribute | Required | Meaning |
+|---|---|---|---|
+| `<CodeExplorer>` | — | — | No attributes |
+| `<CodeFile>` | `name` | **yes** | Path shown in the switcher. An empty name is rejected |
+
+`name` takes a path, not just a filename. `src/pages/home.rs` renders as a path with the segments styled separately, which is what makes a multi-directory example readable.
+
+## Constraints
+
+**Eight files maximum**, for the same reason as [tabs](/docs/proa-docs/tabs) — the stylesheet addresses panels up to eight, and the build reports an explorer that exceeds it.
+
+**`<CodeFile>` only works inside `<CodeExplorer>`.** Outside one it is not claimed as a component and falls through to the Markdown renderer.
+
+Explorers and tabs share one counter, so their radio groups never collide on a page that uses both.
+
+## Related
+
+[Code block](/docs/proa-docs/code-block) · [Tabs](/docs/proa-docs/tabs) · [Files](/docs/proa-docs/files)

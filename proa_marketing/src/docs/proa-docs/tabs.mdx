@@ -1,0 +1,55 @@
+---
+title: Tabs
+description: Switch between alternative versions of the same content.
+---
+
+Use tabs when the same instruction differs by platform, language, or package manager. Declare the labels once on the container, then one `<Tab>` per label in the same order.
+
+```mdx filename="content/install.mdx"
+<Tabs data-items="npm|pnpm|bun">
+<Tab value="npm">
+`npm install`
+</Tab>
+<Tab value="pnpm">
+`pnpm install`
+</Tab>
+<Tab value="bun">
+`bun install`
+</Tab>
+</Tabs>
+```
+
+Rendered:
+
+<Tabs data-items="npm|pnpm|bun">
+<Tab value="npm">
+Runs the slowest of the three, and the one every reader already has.
+</Tab>
+<Tab value="pnpm">
+Content-addressed store, so repeat installs are near-instant.
+</Tab>
+<Tab value="bun">
+Fastest, and the runtime the Proa playground benchmarks against.
+</Tab>
+</Tabs>
+
+## Attributes
+
+| Tag | Attribute | Required | Meaning |
+|---|---|---|---|
+| `<Tabs>` | `data-items` | yes | Labels, `\|`-separated. Whitespace around each is trimmed |
+| `<Tab>` | `value` | no | Accessible label for the panel (`aria-label`). Panels always bind to labels in document order; omit it and the matching `data-items` label is used |
+
+## Constraints
+
+**Eight panels maximum.** The generated stylesheet addresses panels with `nth-of-type` rules up to eight. A ninth panel still renders, but nothing can switch to it — and the build reports the mistake rather than shipping a dead tab.
+
+**Close every container.** An unclosed `<Tabs>` is reported by name at build time.
+
+`<Tab>` outside a `<Tabs>` is not treated as a component at all — it falls through to the Markdown renderer as raw HTML. That is deliberate: it keeps `<Tab>`-shaped text in prose from being captured.
+
+> **Good to know**: Tabs are CSS-only. They lower to a radio group (`input[name="proa-docs-tabs-0"]`) plus sibling panels, so they work with JavaScript disabled. A replacement theme must implement the `:checked` sibling selectors or every panel renders stacked — see [Styling contract](/docs/proa-docs/styling-contract).
+
+## Related
+
+[Code explorer](/docs/proa-docs/code-explorer) · [Accordions](/docs/proa-docs/accordions) · [Styling contract](/docs/proa-docs/styling-contract)

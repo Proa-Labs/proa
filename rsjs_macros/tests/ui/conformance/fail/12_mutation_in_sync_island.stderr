@@ -1,0 +1,5 @@
+error: `mutation(...)` requires an async `WebRender` island; switch this impl from `WebRenderSync` to `WebRender` and use `html!` in the render body
+  --> tests/ui/conformance/fail/12_mutation_in_sync_island.rs:15:20
+   |
+15 |         let save = rsjs::mutation::<(), ()>("stock:AAPL", "/api/stocks/AAPL", ["stock:AAPL"]);
+   |                    ^^^^

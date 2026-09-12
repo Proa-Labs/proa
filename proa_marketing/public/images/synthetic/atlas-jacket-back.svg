@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Atlas Jacket, back</title>
+  <desc id="desc">An original geometric weatherproof shell silhouette created for Proa fixtures.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#eef0ea"/><stop offset="1" stop-color="#dcd6cb"/></linearGradient>
+    <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#465156"/><stop offset="1" stop-color="#333f44"/></linearGradient>
+  </defs>
+  <rect width="1200" height="1200" fill="url(#bg)"/>
+  <ellipse cx="600" cy="1000" rx="330" ry="42" fill="#6a7375" opacity=".16"/>
+
+  <path d="M415 350c-70 22-118 92-142 186l-63 236c36 30 90 34 128 12l72-232z" fill="url(#shell)" stroke="#1f2d30" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M785 350c70 22 118 92 142 186l63 236c-36 30-90 34-128 12l-72-232z" fill="url(#shell)" stroke="#1f2d30" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M415 350c60-30 310-30 370 0l28 590c-115 24-311 24-426 0z" fill="url(#shell)" stroke="#1f2d30" stroke-width="18" stroke-linejoin="round"/>
+
+  <!-- hood, stowed -->
+  <path d="M470 352c26-118 234-118 260 0-42-58-218-58-260 0z" fill="#2b3a3e" stroke="#1f2d30" stroke-width="16" stroke-linejoin="round"/>
+
+  <!-- storm yoke seam -->
+  <path d="M404 520c130-34 262-34 392 0" fill="none" stroke="#c9d2ce" stroke-width="12" stroke-linecap="round"/>
+  <!-- vent -->
+  <path d="M600 560v120" stroke="#c9d2ce" stroke-width="10" stroke-linecap="round" opacity=".6"/>
+  <!-- reflective mark -->
+  <rect x="556" y="740" width="88" height="24" rx="12" fill="#dd7627" opacity=".85"/>
+  <path d="M424 900h352" stroke="#c9d2ce" stroke-width="10" stroke-linecap="round" opacity=".7"/>
+</svg>

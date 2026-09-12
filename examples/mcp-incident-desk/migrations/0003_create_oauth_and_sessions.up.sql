@@ -1,0 +1,10 @@
+CREATE TABLE clients(id TEXT PRIMARY KEY, name TEXT NOT NULL, redirects TEXT NOT NULL, secret_hash TEXT, created_at INTEGER NOT NULL);
+CREATE TABLE pending(id_hash TEXT PRIMARY KEY, kind TEXT NOT NULL, body TEXT NOT NULL, expires INTEGER NOT NULL);
+CREATE INDEX pending_expiry ON pending(expires);
+CREATE TABLE sessions(id_hash TEXT PRIMARY KEY, kind TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id), workspace_id TEXT NOT NULL REFERENCES workspaces(id), scopes TEXT NOT NULL, csrf TEXT NOT NULL, expires INTEGER NOT NULL, last_seen INTEGER NOT NULL);
+CREATE INDEX sessions_expiry ON sessions(expires);
+CREATE TABLE grants(id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), workspace_id TEXT NOT NULL REFERENCES workspaces(id), client_id TEXT NOT NULL REFERENCES clients(id), scopes TEXT NOT NULL, resource TEXT NOT NULL, expires INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX grants_user ON grants(user_id,workspace_id);
+CREATE TABLE codes(hash TEXT PRIMARY KEY, grant_id TEXT NOT NULL REFERENCES grants(id), redirect TEXT NOT NULL, challenge TEXT NOT NULL, nonce TEXT, expires INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE refresh_tokens(hash TEXT PRIMARY KEY, grant_id TEXT NOT NULL REFERENCES grants(id), consumed INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX refresh_grant ON refresh_tokens(grant_id);

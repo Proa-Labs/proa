@@ -1,0 +1,39 @@
+---
+title: Type table
+description: Render a props or options table from a type definition.
+---
+
+A type table documents an API surface as a table rather than prose, so a reader scans for the field they need instead of reading paragraphs.
+
+```mdx filename="content/config.mdx"
+<auto-type-table path="src/config.ts" name="DocsConfig" />
+```
+
+The tag name is the `component_name` configured on `TypeScriptDocgen`; `auto-type-table` is the default.
+
+## Attributes
+
+| Attribute | Meaning |
+|---|---|
+| `path` | File to read the type from |
+| `name` | Named type inside that file |
+| `type` | An inline type literal, instead of `path` + `name` |
+
+The tag is deferred: the build records the request, emits a pending placeholder in the page, and leaves resolution to the external docgen command configured on `TypeScriptDocgen`. Enabling docgen without a command fails the build as soon as any page requests a table, so with docgen enabled an unresolved placeholder is never published silently. With docgen disabled (the default), a matched tag still lowers to its pending placeholder without a diagnostic.
+
+## Current limitation
+
+**Type extraction reads TypeScript only.** `proa_docs_build` shells the type through its TypeScript docgen path, so a Rust struct cannot currently be a source.
+
+For Rust APIs, write the table by hand:
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `base_path` | `&'static str` | `"/docs"` | URL prefix the site mounts under |
+| `site_name` | `&'static str` | — | Shown in the sidebar header |
+
+A rustdoc-driven source would let a config reference page shrink to a handful of lines. It is the highest-leverage thing missing from this crate — [Fumadocs' whole MDX config surface](https://www.fumadocs.dev/docs/mdx/global) is three generated tables and 111 words of prose.
+
+## Related
+
+[Configuration](/docs/proa-docs/configuration) · [Markdown](/docs/proa-docs/markdown)

@@ -1,0 +1,592 @@
+#!/usr/bin/env bash
+# Transactionally install the immutable preview archive controller, reconciler,
+# monitor, and isolated file-provider router.
+set -euo pipefail
+umask 077
+
+fail() {
+  echo "install-proa-preview-archive: $1" >&2
+  exit "${2:-1}"
+}
+
+[[ ${EUID:-$(id -u)} -eq 0 ]] || fail "run as root"
+
+application_uuid=
+application_name=proa-marketing
+preview_domain=proa.cool
+native_docker_network=proa-preview
+archive_docker_network=proa-preview-archive
+archive_docker_subnet=172.31.252.0/24
+archive_router_ip=172.31.252.2
+control_secret_file=/etc/proa/preview-archive-control.secret
+source_router_container=coolify-proxy
+defer_sync=false
+
+while (($#)); do
+  case "$1" in
+    --application-uuid)
+      (($# >= 2)) || fail "--application-uuid requires a value" 2
+      application_uuid=$2
+      shift 2
+      ;;
+    --application-name)
+      (($# >= 2)) || fail "--application-name requires a value" 2
+      application_name=$2
+      shift 2
+      ;;
+    --preview-domain)
+      (($# >= 2)) || fail "--preview-domain requires a value" 2
+      preview_domain=$2
+      shift 2
+      ;;
+    --native-docker-network)
+      (($# >= 2)) || fail "--native-docker-network requires a value" 2
+      native_docker_network=$2
+      shift 2
+      ;;
+    --archive-docker-network)
+      (($# >= 2)) || fail "--archive-docker-network requires a value" 2
+      archive_docker_network=$2
+      shift 2
+      ;;
+    --control-secret-file)
+      (($# >= 2)) || fail "--control-secret-file requires a value" 2
+      control_secret_file=$2
+      shift 2
+      ;;
+    --source-router-container)
+      (($# >= 2)) || fail "--source-router-container requires a value" 2
+      source_router_container=$2
+      shift 2
+      ;;
+    --defer-sync)
+      defer_sync=true
+      shift
+      ;;
+    -h|--help)
+      cat <<'USAGE'
+usage: sudo install-proa-preview-archive \
+  --application-uuid <Coolify application UUID> \
+  [--application-name proa-marketing] \
+  [--preview-domain proa.cool] \
+  [--native-docker-network proa-preview] \
+  [--archive-docker-network proa-preview-archive] \
+  [--control-secret-file /path/to/64-hex-character-secret] \
+  [--source-router-container coolify-proxy] \
+  [--defer-sync]
+USAGE
+      exit 0
+      ;;
+    *) fail "unknown argument: $1" 2 ;;
+  esac
+done
+
+[[ "$application_uuid" =~ ^[a-z0-9]{8,64}$ ]] || fail "application UUID is invalid" 2
+[[ "$application_name" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || fail "application name is invalid" 2
+[[ ${#preview_domain} -le 253 && "$preview_domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || fail "preview domain is invalid" 2
+[[ "$native_docker_network" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || fail "native Docker network is invalid" 2
+[[ "$archive_docker_network" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || fail "archive Docker network is invalid" 2
+[[ "$archive_docker_network" != "$native_docker_network" ]] || fail "native and archive Docker networks must be distinct" 2
+[[ "$source_router_container" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || fail "source router container is invalid" 2
+[[ "$control_secret_file" == /* ]] || fail "control secret path must be absolute" 2
+[[ -f "$control_secret_file" && ! -L "$control_secret_file" ]] ||
+  fail "control secret must be a regular, non-symlink file" 2
+secret_owner=$(stat -c '%u' "$control_secret_file")
+secret_mode=$(stat -c '%a' "$control_secret_file")
+[[ "$secret_owner" == 0 && "$secret_mode" =~ ^[0-7]{3,4}$ ]] ||
+  fail "control secret must be owned by root with a valid mode" 2
+(((8#$secret_mode & 077) == 0)) || fail "control secret must not be group- or world-readable" 2
+secret_bytes=$(wc -c < "$control_secret_file" | tr -d ' ')
+[[ "$secret_bytes" == 64 || "$secret_bytes" == 65 ]] ||
+  fail "control secret must contain exactly 64 lowercase hexadecimal characters" 2
+control_secret=$(< "$control_secret_file")
+[[ "$control_secret" =~ ^[0-9a-f]{64}$ ]] || fail "control secret must contain exactly 64 lowercase hexadecimal characters" 2
+unset control_secret
+
+for command in cp docker flock jq python3 systemctl; do
+  command -v "$command" >/dev/null 2>&1 || fail "$command is required"
+done
+docker network inspect "$native_docker_network" >/dev/null 2>&1 ||
+  fail "native Docker network $native_docker_network does not exist"
+source_router_running=$(
+  docker inspect --format '{{.State.Running}}' "$source_router_container" 2>/dev/null
+) || fail "Coolify source router $source_router_container does not exist"
+[[ "$source_router_running" == true ]] ||
+  fail "Coolify source router $source_router_container is not running"
+source_router_reference=$(
+  docker inspect --format '{{.Config.Image}}' "$source_router_container" 2>/dev/null
+) || fail "could not inspect Coolify source router image reference"
+case "$source_router_reference" in
+  traefik:*|traefik@*|*/traefik:*|*/traefik@*) ;;
+  *) fail "Coolify source router is not running a Traefik image" ;;
+esac
+router_image=$(
+  docker inspect --format '{{.Image}}' "$source_router_container" 2>/dev/null
+) || fail "could not inspect Coolify source router image"
+[[ "$router_image" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "Coolify source router image ID is invalid"
+installed_router_image_contract=$(
+  docker image inspect --format \
+    '{{.Id}}|{{json (index .Config "Volumes")}}|{{json (index .Config "Env")}}' \
+    "$router_image" 2>/dev/null
+) || fail "Coolify source router image is not installed"
+case "$installed_router_image_contract" in
+  "$router_image|null|"*)
+    router_image_environment=${installed_router_image_contract#"$router_image|null|"}
+    ;;
+  "$router_image|{}|"*)
+    router_image_environment=${installed_router_image_contract#"$router_image|{}|"}
+    ;;
+  "$router_image|"*) fail "Coolify source router image declares volumes" ;;
+  *) fail "Coolify source router image identity changed during inspection" ;;
+esac
+if ! printf '%s' "$router_image_environment" | jq -e '
+  if . == null then
+    true
+  elif type == "array" then
+    all(.[]; type == "string" and (startswith("TRAEFIK_") | not))
+  else
+    false
+  end
+' >/dev/null 2>&1; then
+  fail "Coolify source router image declares TRAEFIK_* environment configuration"
+fi
+
+script_dir=$(cd "$(dirname "$0")" && pwd)
+payloads=(
+  proa-preview-archive-sync
+  proa-preview-archive-control
+  proa-preview-archive-monitor
+  proa-preview-archive-router
+  proa-preview-archive-router-static.yml
+  proa-preview-archive-url
+  proa-preview-archive-alert@.service
+  proa-preview-archive-control.service
+  proa-preview-archive-monitor.service
+  proa-preview-archive-monitor.timer
+  proa-preview-archive-router.service
+  proa-preview-archive-sync.service
+  proa-preview-archive-sync.timer
+)
+for source in "${payloads[@]}"; do
+  [[ -f "$script_dir/$source" ]] || fail "missing installer payload: $source"
+done
+
+binary_destinations=(
+  /usr/local/sbin/proa-preview-archive-sync
+  /usr/local/sbin/proa-preview-archive-control
+  /usr/local/sbin/proa-preview-archive-monitor
+  /usr/local/sbin/proa-preview-archive-router
+  /usr/local/sbin/proa-preview-archive-url
+)
+unit_destinations=(
+  /etc/systemd/system/proa-preview-archive-alert@.service
+  /etc/systemd/system/proa-preview-archive-control.service
+  /etc/systemd/system/proa-preview-archive-monitor.service
+  /etc/systemd/system/proa-preview-archive-monitor.timer
+  /etc/systemd/system/proa-preview-archive-router.service
+  /etc/systemd/system/proa-preview-archive-sync.service
+  /etc/systemd/system/proa-preview-archive-sync.timer
+)
+config_destinations=(
+  /etc/proa/preview-archive.env
+  /etc/proa/preview-archive-control.secret
+  /etc/proa/preview-archive-router.image
+  /etc/proa/preview-archive-router-static.yml
+  /etc/proa/preview-archive-router.token
+)
+managed_destinations=(
+  "${binary_destinations[@]}"
+  "${unit_destinations[@]}"
+  "${config_destinations[@]}"
+)
+managed_units=(
+  proa-preview-archive-control.service
+  proa-preview-archive-router.service
+  proa-preview-archive-sync.service
+  proa-preview-archive-monitor.service
+  proa-preview-archive-sync.timer
+  proa-preview-archive-monitor.timer
+)
+
+ensure_directory() {
+  local path=$1 mode=$2 owner
+  if [[ -e "$path" || -L "$path" ]]; then
+    [[ -d "$path" && ! -L "$path" ]] || fail "unsafe managed directory: $path"
+    owner=$(stat -c '%u' "$path") || fail "could not inspect managed directory: $path"
+    [[ "$owner" == 0 ]] || fail "managed directory is not owned by root: $path"
+    chmod "$mode" "$path"
+  else
+    install -d -m "$mode" -o root -g root "$path"
+  fi
+}
+
+# These permanent ledgers are outside the installation transaction. The
+# installer creates their directories if absent but never backs up, restores,
+# truncates, removes, or overwrites their contents.
+ensure_directory /var/lib/proa-preview-archive 700
+ensure_directory /var/lib/proa-preview-archive/approved 700
+ensure_directory /var/lib/proa-preview-archive/deployments 700
+ensure_directory /var/lib/proa-preview-archive/hostname-claims 700
+ensure_directory /var/lib/proa-preview-archive/retired 700
+ensure_directory /var/lib/proa-preview-archive/routes 755
+ensure_directory /etc/proa 755
+
+# Serialize installation with itself. Reconciliation has its own state lock;
+# timers are quiesced below before any managed file is replaced.
+exec 9>/var/lib/proa-preview-archive/install.lock
+flock -n 9 || fail "another preview archive installation is already running"
+
+transaction_dir=$(mktemp -d /var/lib/proa-preview-archive/.install.XXXXXX)
+transaction_active=false
+sync_lock_held=false
+generated_config=
+generated_image=
+original_enabled=()
+original_active=()
+archive_network_created=false
+
+backup_managed_files() {
+  local index path backup
+  index=0
+  for path in "${managed_destinations[@]}"; do
+    backup="$transaction_dir/file-$index"
+    if [[ -e "$path" || -L "$path" ]]; then
+      [[ -f "$path" && ! -L "$path" ]] || fail "managed path is not a regular file: $path"
+      cp -a -- "$path" "$backup"
+      printf 'present\n' > "$transaction_dir/file-$index.state"
+    else
+      printf 'missing\n' > "$transaction_dir/file-$index.state"
+    fi
+    index=$((index + 1))
+  done
+}
+
+record_unit_states() {
+  local unit
+  for unit in "${managed_units[@]}"; do
+    if systemctl is-enabled --quiet "$unit" 2>/dev/null; then
+      original_enabled+=(true)
+    else
+      original_enabled+=(false)
+    fi
+    if systemctl is-active --quiet "$unit" 2>/dev/null; then
+      original_active+=(true)
+    else
+      original_active+=(false)
+    fi
+  done
+}
+
+quiesce_installation() {
+  local failed=false unit
+  for unit in \
+    proa-preview-archive-monitor.timer \
+    proa-preview-archive-sync.timer; do
+    if [[ -e "/etc/systemd/system/$unit" || -L "/etc/systemd/system/$unit" ]]; then
+      systemctl disable --now "$unit" || failed=true
+    fi
+  done
+  for unit in \
+    proa-preview-archive-monitor.service \
+    proa-preview-archive-sync.service \
+    proa-preview-archive-router.service \
+    proa-preview-archive-control.service; do
+    if [[ -e "/etc/systemd/system/$unit" || -L "/etc/systemd/system/$unit" ]]; then
+      systemctl stop "$unit" || failed=true
+    fi
+  done
+  [[ "$failed" == false ]]
+}
+
+restore_managed_files() {
+  local index path state failed=false
+  index=0
+  for path in "${managed_destinations[@]}"; do
+    state=$(< "$transaction_dir/file-$index.state")
+    rm -f -- "$path" || failed=true
+    if [[ "$state" == present ]]; then
+      cp -a -- "$transaction_dir/file-$index" "$path" || failed=true
+    fi
+    index=$((index + 1))
+  done
+  [[ "$failed" == false ]]
+}
+
+restore_unit_states() {
+  local index unit failed=false unit_path
+  index=0
+  for unit in "${managed_units[@]}"; do
+    unit_path="/etc/systemd/system/$unit"
+    if [[ ! -e "$unit_path" && ! -L "$unit_path" ]]; then
+      index=$((index + 1))
+      continue
+    fi
+    if [[ "${original_enabled[$index]}" == true ]]; then
+      systemctl enable "$unit" >/dev/null 2>&1 || failed=true
+    else
+      systemctl disable "$unit" >/dev/null 2>&1 || failed=true
+    fi
+    index=$((index + 1))
+  done
+  index=0
+  for unit in "${managed_units[@]}"; do
+    unit_path="/etc/systemd/system/$unit"
+    if [[ ! -e "$unit_path" && ! -L "$unit_path" ]]; then
+      index=$((index + 1))
+      continue
+    fi
+    if [[ "${original_active[$index]}" == true ]]; then
+      systemctl start "$unit" >/dev/null 2>&1 || failed=true
+    else
+      systemctl stop "$unit" >/dev/null 2>&1 || failed=true
+    fi
+    index=$((index + 1))
+  done
+  [[ "$failed" == false ]]
+}
+
+release_sync_lock() {
+  if [[ "$sync_lock_held" == true ]]; then
+    flock -u 8 || return 1
+    exec 8>&-
+    sync_lock_held=false
+  fi
+}
+
+rollback_installation() {
+  local rollback_failed=false
+  echo "install-proa-preview-archive: rolling back failed installation" >&2
+  set +e
+  quiesce_installation || rollback_failed=true
+  restore_managed_files || rollback_failed=true
+  systemctl daemon-reload || rollback_failed=true
+  if [[ "$archive_network_created" == true ]]; then
+    docker network rm "$archive_docker_network" >/dev/null 2>&1 || rollback_failed=true
+  fi
+  release_sync_lock || rollback_failed=true
+  restore_unit_states || rollback_failed=true
+  set -e
+  if [[ "$rollback_failed" == true ]]; then
+    echo "install-proa-preview-archive: rollback encountered errors; inspect host state before retrying" >&2
+    return 1
+  fi
+  echo "install-proa-preview-archive: rollback complete" >&2
+}
+
+finish() {
+  local status=$? rollback_ok=true
+  trap - EXIT
+  rm -f -- "${generated_config:-}" "${generated_image:-}"
+  if [[ "$transaction_active" == true ]]; then
+    if ! rollback_installation; then
+      status=1
+      rollback_ok=false
+    fi
+  fi
+  release_sync_lock || :
+  if [[ "$rollback_ok" == false ]]; then
+    echo "install-proa-preview-archive: recovery backup retained at $transaction_dir" >&2
+  else
+    rm -rf -- "$transaction_dir"
+  fi
+  exit "$status"
+}
+trap finish EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+backup_managed_files
+record_unit_states
+transaction_active=true
+quiesce_installation || fail "could not quiesce the existing archive installation"
+exec 8>/var/lib/proa-preview-archive/sync.lock
+flock -n 8 || fail "preview archive reconciliation is still running"
+sync_lock_held=true
+
+if archive_network_identity=$(
+  docker network inspect --format \
+    '{{.Driver}}|{{.Internal}}|{{index .Labels "proa.preview.archive.network"}}|{{index .Labels "proa.preview.archive.application"}}|{{if eq (len .IPAM.Config) 1}}{{(index .IPAM.Config 0).Subnet}}{{end}}|{{len .IPAM.Config}}' \
+    "$archive_docker_network" 2>/dev/null
+); then
+  [[ "$archive_network_identity" == "bridge|true|true|${application_uuid}|${archive_docker_subnet}|1" ]] ||
+    fail "archive Docker network has an unexpected identity"
+else
+  docker network create \
+    --driver bridge \
+    --internal \
+    --subnet "$archive_docker_subnet" \
+    --label proa.preview.archive.network=true \
+    --label "proa.preview.archive.application=$application_uuid" \
+    "$archive_docker_network" >/dev/null || fail "could not create archive Docker network"
+  archive_network_created=true
+  archive_network_identity=$(
+    docker network inspect --format \
+      '{{.Driver}}|{{.Internal}}|{{index .Labels "proa.preview.archive.network"}}|{{index .Labels "proa.preview.archive.application"}}|{{if eq (len .IPAM.Config) 1}}{{(index .IPAM.Config 0).Subnet}}{{end}}|{{len .IPAM.Config}}' \
+      "$archive_docker_network" 2>/dev/null
+  ) || fail "could not verify new archive Docker network"
+  [[ "$archive_network_identity" == "bridge|true|true|${application_uuid}|${archive_docker_subnet}|1" ]] ||
+    fail "new archive Docker network has an unexpected identity"
+fi
+archive_network_members=$(
+  docker network inspect --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' \
+    "$archive_docker_network" 2>/dev/null
+) || fail "could not inspect archive Docker network membership"
+while IFS= read -r member; do
+  [[ -n "$member" ]] || continue
+  if [[ "$member" == proa-preview-archive-router ]]; then
+    member_identity=$(
+      docker inspect --format \
+        '{{index .Config.Labels "proa.preview.archive.router"}}|{{index .Config.Labels "proa.preview.archive.router.application"}}' \
+        "$member" 2>/dev/null
+    ) || fail "could not inspect archive Docker network member"
+    [[ "$member_identity" == "true|${application_uuid}" ]] ||
+      fail "archive Docker network contains a foreign router container"
+    continue
+  fi
+  if [[ "$member" =~ ^proa-preview-archive-([a-z0-9]{24})$ ]]; then
+    member_deployment=${BASH_REMATCH[1]}
+    member_identity=$(
+      docker inspect --format \
+        '{{index .Config.Labels "proa.preview.archive"}}|{{index .Config.Labels "proa.preview.archive.application"}}|{{index .Config.Labels "proa.preview.archive.deployment"}}' \
+        "$member" 2>/dev/null
+    ) || fail "could not inspect archive Docker network member"
+    [[ "$member_identity" == "true|${application_uuid}|${member_deployment}" ]] ||
+      fail "archive Docker network contains a foreign archive container"
+    continue
+  fi
+  fail "archive Docker network contains an unexpected container"
+done <<< "$archive_network_members"
+
+install -m 755 "$script_dir/proa-preview-archive-sync" /usr/local/sbin/proa-preview-archive-sync
+install -m 755 "$script_dir/proa-preview-archive-control" /usr/local/sbin/proa-preview-archive-control
+install -m 755 "$script_dir/proa-preview-archive-monitor" /usr/local/sbin/proa-preview-archive-monitor
+install -m 755 "$script_dir/proa-preview-archive-router" /usr/local/sbin/proa-preview-archive-router
+install -m 755 "$script_dir/proa-preview-archive-url" /usr/local/sbin/proa-preview-archive-url
+install -m 644 -o root -g root \
+  "$script_dir/proa-preview-archive-router-static.yml" \
+  /etc/proa/preview-archive-router-static.yml
+install -m 644 "$script_dir/proa-preview-archive-alert@.service" /etc/systemd/system/proa-preview-archive-alert@.service
+install -m 644 "$script_dir/proa-preview-archive-control.service" /etc/systemd/system/proa-preview-archive-control.service
+install -m 644 "$script_dir/proa-preview-archive-monitor.service" /etc/systemd/system/proa-preview-archive-monitor.service
+install -m 644 "$script_dir/proa-preview-archive-monitor.timer" /etc/systemd/system/proa-preview-archive-monitor.timer
+install -m 644 "$script_dir/proa-preview-archive-router.service" /etc/systemd/system/proa-preview-archive-router.service
+install -m 644 "$script_dir/proa-preview-archive-sync.service" /etc/systemd/system/proa-preview-archive-sync.service
+install -m 644 "$script_dir/proa-preview-archive-sync.timer" /etc/systemd/system/proa-preview-archive-sync.timer
+
+if [[ "$control_secret_file" != /etc/proa/preview-archive-control.secret ]]; then
+  install -m 600 -o root -g root "$control_secret_file" /etc/proa/preview-archive-control.secret
+else
+  chown root:root /etc/proa/preview-archive-control.secret
+  chmod 600 /etc/proa/preview-archive-control.secret
+fi
+
+# The file-provider router has no enrollment secret. Remove a token from any
+# pre-release Docker-provider install; the transaction restores it on failure.
+rm -f /etc/proa/preview-archive-router.token
+
+generated_image=$(mktemp /etc/proa/.preview-archive-router.image.XXXXXX)
+printf '%s\n' "$router_image" > "$generated_image"
+install -m 600 -o root -g root "$generated_image" /etc/proa/preview-archive-router.image
+
+generated_config=$(mktemp /etc/proa/.preview-archive.env.XXXXXX)
+cat > "$generated_config" <<ENV
+PROA_ARCHIVE_APPLICATION_UUID=$application_uuid
+PROA_ARCHIVE_APPLICATION_NAME=$application_name
+PROA_ARCHIVE_PREVIEW_DOMAIN=$preview_domain
+PROA_ARCHIVE_NATIVE_DOCKER_NETWORK=$native_docker_network
+PROA_ARCHIVE_DOCKER_NETWORK=$archive_docker_network
+PROA_ARCHIVE_DOCKER_SUBNET=$archive_docker_subnet
+PROA_ARCHIVE_CONTAINER_PORT=5555
+PROA_ARCHIVE_MAX_PER_PR=3
+PROA_ARCHIVE_MAX_GLOBAL=30
+PROA_ARCHIVE_TTL_SECONDS=604800
+PROA_ARCHIVE_PROVISIONAL_TTL_SECONDS=900
+PROA_ARCHIVE_ROUTER_IMAGE_FILE=/etc/proa/preview-archive-router.image
+PROA_ARCHIVE_ROUTER_STATIC_CONFIG_FILE=/etc/proa/preview-archive-router-static.yml
+PROA_ARCHIVE_ROUTER_CONFIG_DIR=/var/lib/proa-preview-archive/routes
+PROA_ARCHIVE_ROUTER_ENTRYPOINT=archive
+PROA_ARCHIVE_ROUTER_IP=$archive_router_ip
+PROA_ARCHIVE_ROUTER_PORT=8082
+PROA_ARCHIVE_ROUTER_HEALTH_PORT=8083
+ENV
+chmod 600 "$generated_config"
+mv -f "$generated_config" /etc/proa/preview-archive.env
+generated_config=
+
+systemctl daemon-reload
+systemctl enable \
+  proa-preview-archive-control.service \
+  proa-preview-archive-router.service
+systemctl restart proa-preview-archive-control.service
+systemctl restart proa-preview-archive-router.service
+
+services_healthy=false
+for _attempt in {1..20}; do
+  if PROA_ARCHIVE_HEALTH_ROUTER_IP=$archive_router_ip python3 - <<'PY' >/dev/null 2>&1
+import json
+import os
+from http.client import HTTPConnection
+
+
+def request(host, port, path, expected):
+    connection = HTTPConnection(host, port, timeout=1)
+    try:
+        connection.request("GET", path, headers={"Connection": "close"})
+        response = connection.getresponse()
+        body = response.read(513)
+        if response.status != 200 or not expected(body):
+            raise SystemExit(1)
+    finally:
+        connection.close()
+
+
+request("127.0.0.1", 8788, "/healthz", lambda body: json.loads(body) == {"ok": True})
+request(
+    os.environ["PROA_ARCHIVE_HEALTH_ROUTER_IP"],
+    8083,
+    "/ping",
+    lambda body: body in (b"OK", b"OK\n"),
+)
+PY
+  then
+    services_healthy=true
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$services_healthy" != true ]]; then
+  systemctl --no-pager --full status proa-preview-archive-control.service >&2 || :
+  systemctl --no-pager --full status proa-preview-archive-router.service >&2 || :
+  fail "preview archive controller or isolated router did not become healthy"
+fi
+
+if [[ "$defer_sync" == true ]]; then
+  transaction_active=false
+  release_sync_lock
+  echo "install-proa-preview-archive: installed for $application_uuid at ${application_name}-<deployment>.$preview_domain; sync activation deferred"
+  exit 0
+fi
+
+# The installed controller and router are now healthy and the file switch is
+# committed. Reconciliation may mutate containers and permanent ledgers, so a
+# later timer-activation failure must not restore older code around that state.
+transaction_active=false
+release_sync_lock
+systemctl start proa-preview-archive-sync.service
+if ! systemctl enable --now \
+  proa-preview-archive-sync.timer \
+  proa-preview-archive-monitor.timer; then
+  systemctl disable --now \
+    proa-preview-archive-sync.timer \
+    proa-preview-archive-monitor.timer || :
+  fail "preview archive timers could not be activated"
+fi
+if ! systemctl is-active --quiet proa-preview-archive-sync.timer ||
+  ! systemctl is-active --quiet proa-preview-archive-monitor.timer; then
+  systemctl disable --now \
+    proa-preview-archive-sync.timer \
+    proa-preview-archive-monitor.timer || :
+  fail "preview archive timers did not both become active"
+fi
+echo "install-proa-preview-archive: installed for $application_uuid at ${application_name}-<deployment>.$preview_domain"

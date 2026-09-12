@@ -1,0 +1,16 @@
+error: rsjs boundary: this handler `match` pattern is outside the current Client IR match surface
+
+       Why:
+         rsjs lowers handler matches only when the pattern space has a direct JavaScript shape: exact booleans, `Some(value)` / `Some(_)` / `None`, literals, bounded ranges, optional guards, and a final `_` fallback. Path patterns and nested destructuring need richer type-aware pattern lowering.
+
+       Use one of:
+         - Rewrite the match to supported boolean, Option, literal, range, guard, and `_` arms.
+         - Move path-pattern or destructuring logic into a standalone helper annotated once with `#[rsjs::client]`; reachable calls are linked automatically.
+         - Normalize the matched value into a signal-friendly primitive before the handler uses it.
+
+       Tracked feature:
+         handler.match
+  --> tests/ui/conformance/fail/01_handler_match.rs:19:17
+   |
+19 |                 Status::Ready => count.set(1_i64),
+   |                 ^^^^^^

@@ -1,0 +1,241 @@
+---
+title: Shared state
+description: Share typed synchronous browser state across independent RSJS owners.
+---
+
+`signal(...)` belongs to one hydrated owner, so two independent owners cannot read the same cell. This page covers [defining a schema](#defining-a-schema), [providing it](#providing-state-to-a-subtree), [acquiring fields](#acquiring-and-using-fields), [provider resolution](#resolving-a-provider), and [the provider grammar](#writing-a-valid-provider).
+
+## Defining a schema
+
+Use typed SharedState when independent owners on the same page must
+synchronously read and write the same UI state. Derive `rsjs::SharedState` on an
+owned struct with named fields and assign a stable, namespaced protocol key:
+
+```rust filename="src/state/workbench.rs"
+#[derive(rsjs::SharedState)]
+#[rsjs(type_key = "acme.workbench")]
+pub struct WorkbenchState {
+    pub mode: String,
+    pub button_bg: String,
+    pub show_grid: bool,
+}
+```
+
+> **Good to know**: SharedState is not a server cache and does not persist
+> automatically. It holds browser-owned state for one response epoch and
+> navigation generation. Use a [query or mutation](/docs/rsjs/queries-mutations)
+> when the source of truth is server-owned, asynchronous, stale, refetchable, or
+> persistent.
+
+The derive generates typed field accessors, client codecs, and a canonical
+schema ABI. The explicit `type_key` is the browser/server identity; a Rust
+module path or `TypeId` is not.
+
+Changing a field name, order, type, nested codec, or integer-width rule changes
+the schema ABI. Two reachable declarations with the same `type_key` but
+different ABIs fail during linking. The runtime also validates the complete page
+table before attaching any owner, so mixed schema metadata cannot leave a page
+partially activated.
+
+A schema reaches the browser only through a provider, which you place next.
+
+## Providing state to a subtree
+
+`SharedStateProvider` establishes server-side topology. It does not render a DOM
+wrapper and is not itself a client origin. A provider that has no reachable
+consumer emits no browser state.
+
+```rust filename="src/pages/workbench.rs"
+pub struct WorkbenchPage;
+// Its `#[rsjs(component)]` WebRenderSync impl renders the consumer components.
+pub struct WorkbenchChildren {}
+
+#[rsjs(component)]
+impl<L: DataLoader> WebRenderSync<L> for WorkbenchPage {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            {rsjs::SharedStateProvider {
+                state: WorkbenchState {
+                    mode: "select".to_string(),
+                    button_bg: "#3366cc".to_string(),
+                    show_grid: true,
+                },
+                children: WorkbenchChildren {},
+            }}
+        }
+        .render(cx)
+    }
+}
+```
+
+`WorkbenchChildren` can render several consumer components inside its own
+analyzed render body. Keeping the provider's direct edge explicit lets the
+linker authenticate the provider occurrence and every consumer that resolves
+through it.
+
+Each of those consumers reaches the store by acquiring it.
+
+## Acquiring and using fields
+
+Acquisition is the client origin. Call `shared::<T>()` in an origin-capable
+`#[rsjs(component, client)]` prelude, then keep field handles in named locals:
+
+```rust filename="src/components/theme_panel.rs"
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for ThemePanel {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let workbench = rsjs::shared::<WorkbenchState>();
+        let mode = workbench.mode();
+        let button_bg = workbench.button_bg();
+        let show_grid = workbench.show_grid();
+        let is_editing = rsjs::computed(|| mode.get() == "edit");
+        let choose_edit = rsjs::event_handler(
+            |_: rsjs::MouseEvent<rsjs::elem::Button>| {
+                rsjs::batch(|| {
+                    mode.set("edit".to_string());
+                    button_bg.set("#2f6b4f".to_string());
+                });
+            },
+        );
+
+        html_sync! {
+            <section>
+                <input type="color" bind_value={button_bg} />
+                <input type="checkbox" bind_checked={show_grid} />
+                <button type="button" on_click={choose_edit()}>
+                    {if is_editing.get() { "Editing" } else { "Edit" }}
+                </button>
+            </section>
+        }
+        .render(cx)
+    }
+}
+```
+
+Each top-level field is an independently invalidating cell with `.get()`,
+`.set(...)`, and `.update(...)`. Field handles work in text, attributes,
+conditionals, computed values, handlers, and
+[`bind_value` / `bind_checked`](/docs/rsjs/bindings) bindings. Updating one
+field does not invalidate consumers of unrelated fields.
+
+The provider declaration remains server topology. `shared::<T>()` is what makes
+the consumer and its exact provider seed browser-reachable, so the consumer
+requires `client` permission.
+
+With several providers on a page, lexical position decides which store a
+consumer gets.
+
+## Resolving a provider
+
+Resolution is lexical during server rendering:
+
+- a consumer uses the nearest enclosing provider for its schema;
+- nested providers shadow outer providers;
+- sibling providers produce independent stores; and
+- separate owners resolved to the same provider share the same field cells.
+
+The linker records the exact provider occurrence, schema ABI, and consumer
+binding. The browser does not repeat a nearest-provider search through DOM
+ancestry and does not fall back to another provider with the same `type_key`.
+
+An owner that hydrates later observes the store's current browser value. A
+replayed identical seed never resets a store that an earlier owner has already
+mutated.
+
+Making a provider live also puts its whole value on the page.
+
+## Treating seed data as public
+
+Provider registration and seed exposure are separate. A provider remains
+private when no committed or prepared owner can acquire it. Once one reachable
+consumer makes the provider live, Proa serializes the complete state value into
+the page-level `rsjs-shared-state-seed-table`. That table includes fields the
+consumer does not read.
+
+Treat every field as public page data. Never put secrets, authorization policy,
+database handles, session internals, or server-only capability values in
+SharedState. Browser writes also do not synchronize back to Rust or grant
+authority. Persist changes through a validated server mutation.
+
+Once the store is live, group related writes so the page repaints once.
+
+## Batching writes
+
+Use `rsjs::batch(...)` when several synchronous writes form one UI update:
+
+```rust filename="src/components/theme_panel.rs"
+rsjs::batch(|| {
+    mode.set("edit".to_string());
+    button_bg.set("#2f6b4f".to_string());
+    show_grid.set(true);
+});
+```
+
+The batching contract is:
+
+- reads inside the batch see writes immediately;
+- nested batches share the outer boundary;
+- the scheduler deduplicates subscriber, computed, and DOM work across owners
+  into one next-microtask flush after the outer callback returns;
+- a thrown error does not roll back writes already made, but the scheduler
+  restores its state and rethrows the error; and
+- a batch is synchronous and cannot be `async` or return a promise.
+
+Ordinary RSJS signal writes use the same scheduler, so batching can combine
+local and SharedState writes when they participate in one interaction.
+
+Those writes survive exactly as long as the page generation that owns them.
+
+## Managing store lifetime
+
+Stores live for the complete response epoch and navigation generation. Removing
+one owner or router subtree disposes its subscriptions. It does not destroy a
+provider still needed by the shell or by an owner that may hydrate later.
+
+Full page-generation teardown destroys stores, field subscriptions, pending
+flushes, and owner references, and invalidates old handles. Query entries follow
+the same page-generation boundary but remain a separate async cache with
+request, staleness, loading, error, and invalidation semantics.
+
+That deterministic lifetime depends on a provider shape the linker can pin.
+
+## Writing a valid provider
+
+The v1 provider intrinsic is intentionally strict inside an analyzed RSJS
+template:
+
+| Rule | Required shape |
+|------|----------------|
+| State | One named `#[derive(rsjs::SharedState)]` struct literal. The compiler rejects constructor calls, opaque values, nested providers, and struct-update syntax. |
+| Children | Exactly one direct component struct literal, such as `children: WorkbenchChildren {}`. Put multi-child markup inside that component. |
+| Topology | The provider must be an unconditional static lexical site. RSJS does not support providers inside loops, reactive conditionals, repeated/keyed regions, or deferred boundaries. |
+| Seed dependencies | Provider state cannot capture a signal, query, mutation, SharedState handle, node ref, handler, browser value, or live inbound prop. The linker rejects a linked live input instead of sampling it once. |
+| Child edge | The direct child receives static server inputs only. It cannot carry enclosing client state or an inbound `self` field through the provider boundary. Acquire SharedState inside the child instead. |
+
+These restrictions make provider occurrence identity deterministic. Move
+ordinary server calculations before the template and use their results in the
+named state literal. If data must remain synchronized after hydration, make
+SharedState the source of truth or update it explicitly from a handler.
+
+## Choosing the state model
+
+| Need | Use |
+|------|-----|
+| State private to one owner | `signal(...)` |
+| Live value/callback through directly composed components | A normal linked prop or `rsjs::Handler<T>` |
+| Synchronous UI state shared by independent owners | `SharedStateProvider` + `shared::<T>()` |
+| Server-owned async data, refetching, staleness, or loading/error state | `query_with_initial(...)` |
+| Persist a browser action and invalidate server data | `mutation(...)` |
+
+## Next steps
+
+- [Signals](/docs/rsjs/signals)
+  - Keep state private to one owner with `signal(...)`.
+- [Component props](/docs/rsjs/component-props)
+  - Pass a live value straight to a directly composed child.
+- [Queries and mutations](/docs/rsjs/queries-mutations)
+  - Own asynchronous, refetchable, server-backed data instead.
+- [Input bindings](/docs/rsjs/bindings)
+  - Bind form controls to a SharedState field.
+- [Runtime wiring](/docs/rsjs/runtime)
+  - See when the page emits the shared-state seed table.

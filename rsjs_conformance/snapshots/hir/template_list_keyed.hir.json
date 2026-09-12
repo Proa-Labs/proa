@@ -1,0 +1,43 @@
+[
+  {
+    "kind": "signal_set",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 29,
+        "line": 1
+      },
+      "start": {
+        "column": 24,
+        "line": 1
+      }
+    },
+    "value": {
+      "elems": [
+        {
+          "kind": "string",
+          "value": "Gamma"
+        },
+        {
+          "kind": "string",
+          "value": "Beta"
+        },
+        {
+          "kind": "string",
+          "value": "Alpha"
+        }
+      ],
+      "kind": "array_lit",
+      "span": {
+        "end": {
+          "column": 37,
+          "line": 1
+        },
+        "start": {
+          "column": 34,
+          "line": 1
+        }
+      }
+    }
+  }
+]

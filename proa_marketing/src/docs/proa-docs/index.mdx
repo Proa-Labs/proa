@@ -1,0 +1,62 @@
+---
+title: Proa Docs
+description: A docs framework for Proa sites, compiled at build time.
+---
+
+Proa Docs is a docs framework for Proa sites, largely inspired by [fumadocs](https://www.fumadocs.dev/) and [nextra](https://nextra.site/) from JavaScript-land.
+
+Write Markdown, get a documentation site: file-routed pages, a generated sidebar, syntax highlighting, search, a table of contents, and thirteen authoring components.
+
+<Cards>
+  <Card title="Quickstart" description="Two crates, a build script, one route." href="/docs/proa-docs/quickstart" />
+  <Card title="Code block" description="Highlighting, filenames, line marks, and copy controls." href="/docs/proa-docs/code-block" />
+</Cards>
+
+## Everything happens at build time
+
+This is the difference that matters. Markdown is parsed, highlighted, and lowered to escaped static HTML during `build.rs`, then emitted as a static Rust registry your binary includes.
+
+No parser ships to the reader. No syntax highlighter, no math renderer, no client-side router. A docs page is bytes that were computed once.
+
+The practical consequences:
+
+- **Syntax highlighting costs nothing at runtime.** Syntect runs in your build; tokens carry semantic `hl-*` classes your stylesheet colours.
+- **Math is MathML.** Where most sites ship KaTeX and a font, Proa compiles TeX during the build and ships markup the browser already renders.
+- **Tabs, accordions, and the code explorer need no JavaScript.** They lower to CSS-only patterns.
+- **Every page has a Markdown representation** alongside its HTML, which is what makes the site legible to agents without a second pipeline.
+
+## Two crates, two jobs
+
+| Crate | Runs | Owns |
+|---|---|---|
+| `proa_docs_build` | `build.rs` | Parsing, frontmatter schemas, the Markdown pipeline, components, search index, link validation |
+| `proa_docs` | request time | The static data model, render primitives, and the default theme |
+
+`proa_docs` is deliberately small. It holds the compiled registry and renders a shell around generated article HTML — and ships the CSS and JavaScript that make the components work, so a site is styled on a fresh install.
+
+You can also ignore the default theme entirely and write your own against the [styling contract](/docs/proa-docs/styling-contract). That is the headless path, and it is a supported one.
+
+## How it compares
+
+| | Proa Docs | Fumadocs | Nextra | mdBook |
+|---|---|---|---|---|
+| Language | Rust | TypeScript | TypeScript | Rust |
+| Runtime cost | None — static HTML | React hydration | React hydration | None |
+| Components | 13, build-time | Large, React | MDX | Limited |
+| Theming | 15 CSS properties | CSS variables + presets | Themes | Handlebars |
+| Agent output | Per-page Markdown, `llms-full.txt` | `llms.txt`, per-page `.md` | — | — |
+
+**Choose Fumadocs or Nextra** if your site is already React and you want the largest component library and ecosystem.
+
+**Choose mdBook** if you want a book, not a site, and no framework at all.
+
+**Choose Proa Docs** if your site is Proa, or if shipping zero JavaScript for content pages is worth writing Rust.
+
+## Next
+
+<Cards>
+  <Card title="Pages and routes" description="How files become routes." href="/docs/proa-docs/pages-and-routes" />
+  <Card title="Navigation" description="Order the sidebar with meta.json." href="/docs/proa-docs/navigation" />
+  <Card title="Rendering pages" description="Put a docs site inside your Proa app." href="/docs/proa-docs/runtime" />
+  <Card title="Configuration" description="Every build option in one reference." href="/docs/proa-docs/configuration" />
+</Cards>

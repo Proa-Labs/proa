@@ -1,0 +1,5 @@
+error: rsjs/integer-domain-unproven: `rsjs::div_int::<T>(a, b)` requires `T` to be the primitive type `i32`, `u32`, `i64`, or `u64`; references, wrappers, aliases, and lookalike paths are not accepted
+  --> tests/ui/fail/63_shared_state_div_int_wrapped_width.rs:23:43
+   |
+23 |                 value.set(rsjs::div_int::<&i32>(value.get(), divisor.get()));
+   |                                           ^

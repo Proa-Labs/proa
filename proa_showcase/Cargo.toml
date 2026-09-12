@@ -1,0 +1,45 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_showcase"
+version = "0.2.1"
+edition.workspace = true
+publish = false
+description.workspace = true
+license-file.workspace = true
+
+[lib]
+name = "proa_showcase"
+path = "src/lib.rs"
+
+[features]
+default = ["rsjs-pages"]
+# Plain Criterion binaries cannot be linked through cargo-proa's final RSJS
+# plan. Keep the non-RSJS showcase pages available to proa_bench without
+# weakening the deployable-build guard on the interactive pages.
+rsjs-pages = ["sentry-otel"]
+# The Sentry parity dump and benchmark render the hydration-independent SSR
+# document without pulling every interactive showcase into no-default builds.
+sentry-otel = []
+
+[[bin]]
+name = "sentry_otel_bench"
+path = "src/bin/sentry_otel_bench.rs"
+required-features = ["sentry-otel"]
+
+[[bin]]
+name = "sentry_otel_dump"
+path = "src/bin/sentry_otel_dump.rs"
+required-features = ["sentry-otel"]
+
+[dependencies]
+icondata_lu = { version = "0.1" }
+icondata_si = { version = "0.1" }
+proa_core = { workspace = true }
+proa_macros = { workspace = true }
+proa_react = { workspace = true }
+rsjs = { workspace = true }
+rsjs_macros = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,5 @@
+error: `#[rsjs]` value-level `if` expressions need an `else` branch so the generated JavaScript expression has a value in both cases
+  --> tests/ui/conformance/fail/24_value_if_missing_else.rs:18:25
+   |
+18 |             <div><span>{if active.get() { "yes" }}</span></div>
+   |                         ^^

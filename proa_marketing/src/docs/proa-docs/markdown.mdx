@@ -1,0 +1,53 @@
+---
+title: Markdown
+description: The syntax a page supports, and what the build does with it.
+---
+
+Pages are CommonMark plus GitHub tables, strikethrough, and task lists. Everything is parsed once during `build.rs` and emitted as escaped static HTML; no parser reaches the reader.
+
+For anything beyond prose — tabs, code explorers, file trees, diagrams — use the dedicated guides in the Components section of the sidebar.
+
+## What does the default parser enable?
+
+The default parser enables:
+
+- headings with generated IDs
+- tables
+- strikethrough
+- task lists
+- fenced code blocks
+- links and images
+- table-of-contents extraction
+- search text extraction
+
+The compiler escapes inline HTML unless it recognizes a supported component tag or a configured type-table directive. It also escapes link and image URLs, and it strips `javascript:` and `vbscript:` URLs before writing HTML.
+
+Headings get one more treatment: a stable id.
+
+## Generating heading IDs and TOC entries
+
+Every Markdown heading gets a deterministic id:
+
+```markdown filename="src/docs/core/html-rendering.mdx"
+## Static consolidation
+```
+
+renders as `<h2 id="static-consolidation">Static consolidation</h2>`. The id keeps lowercased letters and digits and collapses everything else to single dashes; a repeated heading gets a `-2`, `-3` suffix so anchors stay unique. Every `h2` and deeper also becomes a table-of-contents entry, and every heading id is recorded for [link validation](/docs/proa-docs/link-validation), so a `#fragment` link to a heading that does not exist is reported at build time.
+
+## Serving static Markdown
+
+The generated registry stores the processed Markdown source for each page. For `.md` files this is the original source. For `.mdx` files with `MdxConfig` enabled, this is the lowered Markdown. `render_static` serves it at the page's `.md` route, and the marketing site builds `/llms-full.txt` from the same stored strings.
+
+One authored page therefore produces three useful artifacts:
+
+| Artifact | Purpose |
+|----------|---------|
+| `page.article_html` | Trusted generated HTML for runtime rendering. |
+| `page.markdown` | Source Markdown for `.md` routes and LLM ingestion. |
+| `page.search_text` in generated search JSON | Search index input. |
+
+Keep the pass predictable, and those three artifacts stay in agreement.
+
+## Related
+
+[Code block](/docs/proa-docs/code-block) · [Pages and routes](/docs/proa-docs/pages-and-routes) · [Search](/docs/proa-docs/search)

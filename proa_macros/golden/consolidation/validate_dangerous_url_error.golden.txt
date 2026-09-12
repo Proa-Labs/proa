@@ -1,0 +1,2 @@
+--- errors ---
+:: core :: compile_error ! { "dangerous URL scheme in `href` attribute. use a safe scheme (https:, /, #) or pass data via data-* attributes (OWASP XSS Prevention Cheat Sheet, Rule #7)" }

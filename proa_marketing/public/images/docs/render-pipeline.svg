@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 250" width="900" height="250" role="img" aria-label="The Proa render pipeline from Rust struct to response bytes">
+  <style>
+    .box { fill: none; stroke: #9aa3af; stroke-width: 1.5; }
+    .tint { fill: #6366f1; opacity: 0.07; }
+    .tint2 { fill: #10b981; opacity: 0.07; }
+    .lab { font: 600 13px ui-sans-serif, system-ui, sans-serif; fill: #6b7280; }
+    .sub { font: 12px ui-sans-serif, system-ui, sans-serif; fill: #6b7280; }
+    .m { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #6b7280; }
+    .arrow { fill: none; stroke: #9aa3af; stroke-width: 1.6; }
+    .stage { font: 600 11px ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.04em; }
+    .sa { fill: #6366f1; }
+    .sb { fill: #10b981; }
+    @media (prefers-color-scheme: dark) {
+      .lab, .sub, .m { fill: #a8b0bd; }
+      .box { stroke: #6b7280; }
+    }
+  </style>
+
+  <text class="stage sa" x="24" y="28">COMPILE TIME</text>
+  <text class="stage sb" x="574" y="28">REQUEST TIME</text>
+  <path class="arrow" d="M556 22 L556 226" stroke-dasharray="4 4"/>
+
+  <rect class="tint" x="24" y="52" width="150" height="76" rx="8"/>
+  <rect class="box" x="24" y="52" width="150" height="76" rx="8"/>
+  <text class="lab" x="40" y="80">Rust struct</text>
+  <text class="m" x="40" y="102">struct Hero {</text>
+  <text class="m" x="40" y="118">  price: u32 }</text>
+
+  <path class="arrow" d="M182 90 L214 90" marker-end="url(#a)"/>
+
+  <rect class="tint" x="222" y="52" width="150" height="76" rx="8"/>
+  <rect class="box" x="222" y="52" width="150" height="76" rx="8"/>
+  <text class="lab" x="238" y="80">html_sync!</text>
+  <text class="sub" x="238" y="102">static</text>
+  <text class="sub" x="238" y="120">consolidation</text>
+
+  <path class="arrow" d="M380 90 L412 90" marker-end="url(#a)"/>
+
+  <rect class="tint" x="420" y="52" width="120" height="76" rx="8"/>
+  <rect class="box" x="420" y="52" width="120" height="76" rx="8"/>
+  <text class="lab" x="436" y="80">byte runs</text>
+  <text class="sub" x="436" y="102">+ slots</text>
+  <text class="sub" x="436" y="120">in the binary</text>
+
+  <path class="arrow" d="M480 136 L480 166" marker-end="url(#a)"/>
+
+  <rect class="tint2" x="590" y="52" width="140" height="76" rx="8"/>
+  <rect class="box" x="590" y="52" width="140" height="76" rx="8"/>
+  <text class="lab" x="606" y="80">WriteBuf</text>
+  <text class="sub" x="606" y="102">extend_static</text>
+  <text class="sub" x="606" y="120">+ fill slots</text>
+
+  <path class="arrow" d="M738 90 L770 90" marker-end="url(#a)"/>
+
+  <rect class="tint2" x="778" y="52" width="100" height="76" rx="8"/>
+  <rect class="box" x="778" y="52" width="100" height="76" rx="8"/>
+  <text class="lab" x="794" y="80">response</text>
+  <text class="sub" x="794" y="102">bytes</text>
+
+  <path class="arrow" d="M420 180 L582 100" marker-end="url(#a)" stroke-dasharray="4 4"/>
+  <text class="sub" x="196" y="186">The expensive half happens once, at build.</text>
+  <text class="sub" x="196" y="206">Each request replays the cheap half.</text>
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9aa3af"/>
+    </marker>
+  </defs>
+</svg>

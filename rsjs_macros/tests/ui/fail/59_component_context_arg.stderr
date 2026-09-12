@@ -1,0 +1,5 @@
+error: `client` is only valid with `component`; write `#[rsjs(component, client)]` on a real `WebRenderSync` / `WebRender` trait impl
+ --> tests/ui/fail/59_component_context_arg.rs:5:8
+  |
+5 | #[rsjs(client)]
+  |        ^^^^^^

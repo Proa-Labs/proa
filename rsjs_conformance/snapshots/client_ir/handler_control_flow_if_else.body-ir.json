@@ -1,0 +1,72 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "condition": {
+        "kind": "event_read",
+        "value": "shift_key"
+      },
+      "else": {
+        "kind": "block",
+        "stmts": [
+          {
+            "kind": "signal_set",
+            "signal": 0,
+            "value": {
+              "kind": "literal",
+              "value": {
+                "kind": "string",
+                "value": "plain"
+              }
+            }
+          }
+        ]
+      },
+      "kind": "if",
+      "then": {
+        "kind": "block",
+        "stmts": [
+          {
+            "condition": {
+              "kind": "event_read",
+              "value": "ctrl_key"
+            },
+            "else": {
+              "kind": "block",
+              "stmts": [
+                {
+                  "kind": "signal_set",
+                  "signal": 0,
+                  "value": {
+                    "kind": "literal",
+                    "value": {
+                      "kind": "string",
+                      "value": "shift"
+                    }
+                  }
+                }
+              ]
+            },
+            "kind": "if",
+            "then": {
+              "kind": "block",
+              "stmts": [
+                {
+                  "kind": "signal_set",
+                  "signal": 0,
+                  "value": {
+                    "kind": "literal",
+                    "value": {
+                      "kind": "string",
+                      "value": "both"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

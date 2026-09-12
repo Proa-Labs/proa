@@ -1,0 +1,132 @@
+---
+title: ABI contract
+description: Call the playground FFI exports and free their buffers correctly.
+---
+
+The playground package ships `ffi/proa.h`, and that header is the source of truth for exported symbols and length types. This page covers [length types](#header-and-length-types), [allocating renders](#allocating-renders), [JSON renders](#json-renders), [caller-provided buffers](#caller-provided-buffers), and [freeing memory](#freeing-memory).
+
+## Header and length types
+
+```c filename="ffi/proa.h"
+#include <stddef.h>
+#include <stdint.h>
+```
+
+All byte lengths use `uintptr_t` in the public header. Host languages can usually map this to their pointer-sized unsigned integer type. In Python `ctypes`, `ctypes.c_size_t` is the practical mapping on supported platforms.
+
+Every export below uses that length type. The first group hands you a buffer Proa allocated.
+
+## Allocating renders
+
+Allocating renders return a newly allocated UTF-8 byte buffer through out-parameters:
+
+```c filename="ffi/proa.h"
+int32_t render_airbnb_home(uint8_t **out_ptr, uintptr_t *out_len);
+int32_t render_airbnb_search(uint8_t **out_ptr, uintptr_t *out_len);
+int32_t render_airbnb_listing(uint8_t **out_ptr, uintptr_t *out_len);
+int32_t render_nike_catalog(uint8_t **out_ptr, uintptr_t *out_len);
+int32_t render_nike_pdp(uint8_t **out_ptr, uintptr_t *out_len);
+```
+
+On success:
+
+- the function returns `0`
+- `*out_ptr` points to `*out_len` bytes
+- the bytes are UTF-8 HTML
+- the bytes are not null-terminated
+- the caller **must** eventually call `proa_free(*out_ptr, *out_len)`
+
+The current demo ABI assumes `out_ptr` and `out_len` are valid writable pointers. Invalid pointers are caller bugs, not recoverable error returns.
+
+Those five exports render default props. To pass your own props, use the JSON variants.
+
+## JSON renders
+
+JSON renders accept UTF-8 JSON bytes and return an allocated output buffer:
+
+```c filename="ffi/proa.h"
+int32_t render_airbnb_listing_json(
+    const uint8_t *json_ptr,
+    uintptr_t json_len,
+    uint8_t **out_ptr,
+    uintptr_t *out_len
+);
+
+int32_t render_nike_catalog_json(
+    const uint8_t *json_ptr,
+    uintptr_t json_len,
+    uint8_t **out_ptr,
+    uintptr_t *out_len
+);
+
+int32_t render_nike_pdp_json(
+    const uint8_t *json_ptr,
+    uintptr_t json_len,
+    uint8_t **out_ptr,
+    uintptr_t *out_len
+);
+```
+
+Return codes:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Render succeeded. |
+| `-2` | `json_ptr` / `json_len` did not decode as valid UTF-8 JSON for the expected props schema. |
+
+There are no `_json_into` functions in the current demo ABI.
+
+Both groups so far allocate. The `_into` group writes into memory you already own.
+
+## Caller-provided buffers
+
+`_into` renders copy default-prop page HTML into a caller-provided buffer:
+
+```c filename="ffi/proa.h"
+int32_t render_airbnb_home_into(uint8_t *buf_ptr, uintptr_t buf_cap, uintptr_t *out_len);
+int32_t render_airbnb_search_into(uint8_t *buf_ptr, uintptr_t buf_cap, uintptr_t *out_len);
+int32_t render_airbnb_listing_into(uint8_t *buf_ptr, uintptr_t buf_cap, uintptr_t *out_len);
+int32_t render_nike_catalog_into(uint8_t *buf_ptr, uintptr_t buf_cap, uintptr_t *out_len);
+int32_t render_nike_pdp_into(uint8_t *buf_ptr, uintptr_t buf_cap, uintptr_t *out_len);
+```
+
+Return codes:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Render succeeded and `*out_len` is the number of bytes written. |
+| `-1` | `buf_cap` was too small and `*out_len` is the required byte count. |
+
+The host owns `buf_ptr`. Do not pass it to `proa_free`.
+
+That leaves one rule to get right: which deallocator matches which pointer.
+
+## Freeing memory
+
+```c filename="ffi/proa.h"
+void proa_free(uint8_t *ptr, uintptr_t len);
+```
+
+Call `proa_free` exactly once for buffers returned by allocating render functions. The pointer and length must match the pair returned by the library.
+
+### WASM helpers
+
+The same crate exports simple WASM allocator helpers:
+
+```c filename="ffi/proa.h"
+uint8_t *wasm_alloc(uintptr_t size);
+void wasm_dealloc(uint8_t *ptr, uintptr_t size);
+```
+
+Use `wasm_dealloc` only for pointers returned by `wasm_alloc`. Use `proa_free` only for buffers returned by allocating render functions.
+
+## Next steps
+
+- [Memory ownership](/docs/ffi/memory)
+  - See the retry, concurrency, and buffer-sizing patterns for these calls.
+- [Example payloads](/docs/ffi/examples)
+  - Get the JSON props each `_json` export expects.
+- [Packaging](/docs/ffi/packaging)
+  - Build and distribute the shared library and header.
+- [Playground](/docs/ffi/playground)
+  - Run the exports without writing a binding first.

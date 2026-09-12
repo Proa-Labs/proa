@@ -1,0 +1,223 @@
+---
+title: proa new site
+description: Scaffold an opinionated Proa project.
+---
+
+Use `proa new site` to create a Rust project with the Proa site conventions.
+Pass the complete destination path; its final segment becomes the package
+name, and `--title` controls the human-facing title independently:
+
+```bash
+proa new site my-app --yes
+cd my-app && proa dev --open
+```
+
+To study a complete production-shaped application, scaffold ORIGIN:
+
+```bash
+proa new site origin-atlas --template origin --yes
+```
+
+For a Docker-ready deployment:
+
+```bash
+proa new site my-app --deploy docker --yes
+```
+
+## Templates
+
+`--template` selects a product preset:
+
+| Template | Shape |
+|----------|-------|
+| `app` (default) | SQLite/SQLx with request-scoped keyed data loading, proa-ui source components, Tailwind source, and guided application content. `basic` is an accepted alias. |
+| `marketing` | Content-oriented site without a database. |
+| `docs` | Documentation content and HTML/Markdown representations. |
+| `minimal` | Small CSS-based application with optional blank starter content. |
+| `origin` | ORIGIN, the complete reference application: a live routing atlas backed by a custom RIPEstat `DataLoader`, streamed Suspense sections, proa-ui components that each carry a Markdown representation, rsjs islands, self-hosted fonts, and a golden test pinning the server-rendered document byte for byte. |
+
+Unknown template names fail with an error naming the presets.
+
+## Capability overrides
+
+Presets resolve to orthogonal capabilities, each individually overridable:
+
+| Flag | Values | Effect |
+|---|---|---|
+| `--database` | `sqlite`, `none` | Database module, migrations, request-scoped loader, and guided data components. |
+| `--ui` | `proa`, `none` | Vendors proa-ui source components into `src/components/`. |
+| `--styling` | `tailwind`, `css` | Tailwind source input or a plain stylesheet. `--tailwind` and `--no-tailwind` are compatibility aliases. |
+| `--starter` | `guided`, `blank` | Guided starter content or empty pages. `--empty` is an alias for `--template minimal --starter blank`. |
+| `--deploy` | `none`, `docker`, `railway`, `coolify` | Provider-native deployment files. |
+
+The `origin` preset owns its application content, so only `--deploy` can be
+overridden there; `examples/origin-routing-atlas` in the Proa repository is
+the same template, and a drift test keeps the two byte-identical.
+
+## Options
+
+| Flag | Behavior |
+|------|----------|
+| `--title <TITLE>` | Human-facing display title. The package name always comes from the path. |
+| `--vscode` / `--no-vscode` | Generate or omit the recommended VS Code workspace files. |
+| `--agents-md` / `--no-agents-md` | Generate or omit `AGENTS.md` local agent instructions (on by default). |
+| `--no-git` | Skip Git initialization. |
+| `--verify` | Run the full `proa check --all` validation after committing the project. |
+| `--start` / `--open` | Enter `proa dev` after scaffolding, optionally opening the local URL. |
+| `--offline` | Forbid registry, tool, and Cargo network access. |
+| `--dry-run` / `--json` | Resolve and print the complete plan without writing anything. |
+| `--yes` | Accept recommended defaults; never implies verify, start, open, or deploy. |
+
+## Tailwind prerequisite
+
+When Tailwind is enabled, `proa dev` and `proa build` invoke `tailwindcss`
+from your `PATH` to create `public/styles.css`; a checked-in prebuilt
+stylesheet keeps the first page styled even when the executable is missing.
+Install it with the Tailwind-only installer mode:
+
+```bash
+curl -fsSL https://proa.so/install.sh | sh -s -- --tailwind-only
+```
+
+Or with Homebrew: `brew install tailwindcss`. A dry run never installs tools.
+
+## Dry runs
+
+Use dry runs before generating into an existing directory:
+
+```bash
+proa new site my-app --dry-run
+proa new site my-app --dry-run --json
+```
+
+The text dry run prints planned file writes; the JSON dry run emits the
+machine-readable scaffold plan. Scaffolding itself is transactional: files are
+assembled and validated in a staging directory and committed only after the
+whole plan succeeds, so a conflict never leaves partial writes.
+
+## Generated layout
+
+The default `app` preset generates:
+
+```proa-filetree
+.cargo/
+  config.toml
+Cargo.toml
+proa.config.json
+proa.lock.json
+build.rs
+src/
+  components/
+  endpoints/
+  layouts/
+  pages/
+  app.rs
+  config.rs
+  db.rs
+  loader.rs
+  main.rs
+  routes.rs
+  static_assets.rs
+migrations/
+data/
+public/
+  favicon.svg
+  styles.css
+styles/
+  input.css
+tests/
+```
+
+What each directory holds:
+
+| Path | Contents |
+|---|---|
+| `src/main.rs` | Process startup: configuration, the database pool, and serving the router. |
+| `src/routes.rs` | Router assembly and middleware, kept visible so a deploy is easy to audit. |
+| `src/pages/` | One module per route: the page component, its Markdown representation, and the handler. See [Routing](/docs/framework/routing). |
+| `src/endpoints/` | Operational endpoints such as `/healthz` and `/readyz`. |
+| `src/layouts/` | Document shells shared across routes, such as `root.rs`. |
+| `src/components/` | Source-owned render components, including any vendored with `proa ui add`. |
+| `src/db.rs`, `src/loader.rs` | The SQLx pool and the request-scoped `DataLoader` behind `cx.load_typed`. |
+| `migrations/`, `data/` | SQL migrations and the local SQLite database location. |
+| `public/` | Pre-built browser assets: CSS output, images, downloads. |
+| `tests/` | Integration tests, including the representation and data-loading contracts. |
+| `build.rs` | Build-time wiring, including the `proa_fonts_build` collector for `google_font!`/`local_font!` declarations (see [Fonts](/docs/framework/fonts)). |
+
+`proa.config.json` controls the `proa dev` and `proa build` lifecycle commands
+and records component registry aliases. `proa.lock.json` records the scaffold
+capabilities and every component installed by `proa ui add`. The generated
+Cargo dependencies on Proa crates resolve from the `proa` registry named in
+`.cargo/config.toml`.
+
+## Live reload
+
+`proa dev` reloads open browser tabs after a rebuild, so editing a page and
+looking at it does not need a manual refresh.
+
+A Rust change recompiles the site and replaces the server process, so the tab
+does a full reload, in the same way Vite falls back to `full-reload` for
+anything it cannot patch in place. The reload is only sent once the replacement
+server is accepting connections again, which is what keeps a tab from landing
+on a connection-refused page. A stylesheet-only change never restarts the
+server: the assets are rebuilt and every stylesheet is re-fetched in place, so
+scroll position, form values, and open dialogs survive. A failed build leaves
+the last working server running and raises a dismissible overlay in the tab
+with the failure summary. Cargo streams the compiler diagnostics themselves to
+the `proa dev` terminal, and the overlay says so.
+
+Nothing needs to be added to your source. `proa dev` runs the event stream in
+its own process, so it outlives every server restart, and
+`proa_framework_axum::serve` injects the matching client into HTML responses.
+Applications that do not serve through `proa_framework_axum::serve` can add
+`proa_framework_axum::DevReloadLayer` themselves.
+
+Injection is switched on by two variables that `proa dev` sets on the server
+process it spawns: `PROA_DEV_RELOAD_PORT` and `PROA_DEV_RELOAD_TOKEN`. The
+token is 16 random bytes drawn once per `proa dev` process, and the event
+stream answers `403` to any request that does not present it. That is what
+stops another site open in the same browser from reading your build failures,
+which carry absolute paths and source snippets, and what stops a tab left over
+from an earlier session from being reloaded by a server that never served it.
+Because both variables are required and the token is never reused, a
+`PROA_DEV_RELOAD_PORT` left exported in a shell profile cannot switch dev
+tooling on in a release binary; it logs a warning and stays off.
+
+A tab whose token has gone stale, which is what a restarted `proa dev` looks
+like, reloads itself once to pick up the current one. Live reload holds one
+Server-Sent Events connection per tab, and browsers allow six per origin, so
+responses to embedded frames are left uninjected rather than spending a
+connection each.
+
+The settings can be exported from your shell:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `PROA_DEV_RELOAD` | `on` | `off`, `no`, `false`, or `0` turns live reload off. |
+| `PROA_DEV_RELOAD_PORT` | operating-system assigned | Port for the event stream. Set it only if you want a predictable one. |
+| `PROA_DEV_CSS_HOT_SWAP` | `on` | Off restarts the server for stylesheet changes instead of swapping them in place. Use it when stylesheets are compiled into the binary rather than served from disk. |
+| `PROA_DEV_DEBOUNCE_MS` | `300` | Quiet window a change must survive before a rebuild starts. Raise it if a formatter or code generator triggers extra cycles. |
+
+The same controls exist as `proa dev` flags: `--no-reload`,
+`--reload-port <PORT>`, `--no-css-hot-swap`, and `--debounce-ms <MILLISECONDS>`.
+The debounce window cannot go below the 100ms file-watch poll interval.
+
+The event stream takes an operating-system assigned port by default. A fixed
+offset from the dev port would claim the port your next site wants, and that
+site would then fail to bind with an error naming neither live reload nor the
+process holding it. A tab whose stream endpoint has moved reloads itself and
+picks up the current one, so the port does not need to be stable. Pass
+`--reload-port` if you want it to be.
+
+Live reload is a watch-mode feature, so `proa dev --no-restart` does not start
+it. Turning live reload off does not turn off the stylesheet fast path: a
+stylesheet-only change still rebuilds assets without restarting the server, it
+just does not tell the browser. Use `--no-css-hot-swap` for that, and note that
+`--no-assets` disables it too, since there is nothing left to rebuild.
+
+The fast path only sees stylesheets under a watched path. `dev.watch` defaults
+to `src`, `styles`, `Cargo.toml`, `build.rs`, and `proa.config.json`, so a site
+whose only stylesheet is `public/styles.css` (what `--no-tailwind` generates)
+needs `public` added to `dev.watch` before edits to it are noticed at all.
+
+When `--deploy coolify` is enabled, the generated project also includes `Dockerfile`, `.dockerignore`, `coolify.env.example`, and `COOLIFY.md`. See [Coolify](/docs/framework/coolify) for the deployment flow and pull request preview URL setup.

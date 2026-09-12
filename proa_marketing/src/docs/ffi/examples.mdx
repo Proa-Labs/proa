@@ -1,0 +1,237 @@
+---
+title: Example payloads
+description: JSON prop shapes for the five benchmark render entry points.
+---
+
+Each playground benchmark takes a JSON object. The function names are historical and stay stable for existing FFI callers; all rendered content is fictional and Proa-authored.
+
+| Entry point | Renders |
+|---|---|
+| `render_airbnb_home` | [Travel home](#travel-home) |
+| `render_airbnb_search` | [Travel search](#travel-search) |
+| `render_airbnb_listing_json` | [Travel listing](#travel-listing) |
+| `render_nike_catalog_json` | [Catalog](#catalog) |
+| `render_nike_pdp_json` | [Product detail](#product-detail) |
+
+## Travel home
+
+`render_airbnb_home` is the compatibility entry point for a dense travel-home
+benchmark. The rendered Coast Stays page uses fictional data and Proa-authored
+illustrations; the function name is retained so existing benchmark callers do
+not break.
+
+### Required shape
+
+```ts
+type HomeProps = {
+  listings: Array<{
+    title: string;
+    location: string;
+    price_per_night: number;
+    rating: string;
+    property_type: string;
+    image: string;
+  }>;
+  homes_sections: HomeSection[];
+  experiences_sections: HomeSection[];
+  services_sections: HomeSection[];
+};
+
+type HomeSection = {
+  title: string;
+  subtitle: string;
+  listing_indexes: number[];
+};
+```
+
+Every top-level array is required. Each `listing_indexes` value refers to an
+entry in the shared `listings` array, allowing repeated cards without repeating
+their source objects.
+
+### Minimal payload
+
+```json
+{
+  "listings": [{
+    "title": "Harbor Point House",
+    "location": "Harbor Point, Coast County",
+    "price_per_night": 350,
+    "rating": "4.92",
+    "property_type": "Entire home",
+    "image": "/images/synthetic/property-coast.svg"
+  }],
+  "homes_sections": [{
+    "title": "Popular homes in Coast County",
+    "subtitle": "",
+    "listing_indexes": [0]
+  }],
+  "experiences_sections": [],
+  "services_sections": []
+}
+```
+
+The full synthetic fixture lives at `proa_demo/showcase-props.json > home`.
+
+## Travel search
+
+`render_airbnb_search` renders the fictional Coast Stays search benchmark. The
+historical function name remains part of the FFI compatibility surface; no
+third-party page data or imagery is required.
+
+### Required shape
+
+```ts
+type SearchProps = {
+  title: string;
+  subtitle: string;
+  stay_info: string;
+  filters: string[];
+  listings: Array<{
+    title: string;
+    location: string;
+    price_per_night: number;
+    rating: string;
+    reviews_count: number;
+    property_type: string;
+    beds: number;
+    baths: number;
+    image: string;
+  }>;
+};
+```
+
+The map column uses the first few listings for price pins. An empty `listings`
+array still renders the page chrome and filters.
+
+```json
+{
+  "title": "Harbor Point — Fictional Stays",
+  "subtitle": "Entire homes and unique stays",
+  "stay_info": "Flexible stay · 2 guests",
+  "filters": ["Price", "Rooms and beds"],
+  "listings": [{
+    "title": "Harbor Point House",
+    "location": "Harbor Point, Coast County",
+    "price_per_night": 350,
+    "rating": "4.92",
+    "reviews_count": 128,
+    "property_type": "Entire home",
+    "beds": 3,
+    "baths": 2,
+    "image": "/images/synthetic/property-coast.svg"
+  }]
+}
+```
+
+The full synthetic fixture lives at `proa_demo/showcase-props.json > search`.
+
+## Travel listing
+
+`render_airbnb_listing_json` renders the fictional Coast Stays detail page.
+Its historical name is retained for FFI compatibility. The checked-in default
+contains Proa-authored copy, fictional people and places, and synthetic SVGs.
+
+The required object contains:
+
+- listing metadata: `title`, `location`, `location_short`, `property_line`,
+  `rating`, `review_count`, `overview_summary`, and `description`;
+- prices and counts: `nightly_rate`, `cleaning_fee`, `service_fee`, and
+  `total_amenity_count`;
+- page collections: `photos`, `highlights`, `amenities`,
+  `review_distribution`, `reviews`, rules, safety items, cancellation items,
+  and nearby links;
+- nested `review_scores`, `host`, optional `cohost`, and `booking` objects.
+
+Start with `proa_demo/showcase-props.json > listing`. That file is the canonical
+complete example and is validated alongside the demo. Its image paths point to
+`/images/synthetic/*.svg`, which are included in this repository.
+
+```json
+{
+  "title": "Cliffside Coast House",
+  "location": "Harbor Point, Coast County",
+  "rating": "4.92",
+  "photos": [{
+    "src": "/images/synthetic/property-coast.svg",
+    "alt": "Illustrated coast house exterior"
+  }]
+}
+```
+
+The excerpt shows the primary fields only; use the canonical complete object
+when calling the renderer.
+
+## Catalog
+
+`render_nike_catalog_json` is the compatibility entry point for the fictional
+Stride Supply catalog. Its function name remains stable for existing FFI
+callers, while all rendered products and illustrations are Proa-authored.
+
+```ts
+type CatalogProps = {
+  title: string;
+  products: Array<{
+    title: string;
+    subtitle: string;
+    price: string;
+    messaging: string;
+    image: string;
+    colors: string[];
+    color_count: string;
+  }>;
+};
+```
+
+```json
+{
+  "title": "Footwear & Sneakers",
+  "products": [{
+    "title": "Stride Supply Pace 001",
+    "subtitle": "Road Running Shoes",
+    "price": "$145",
+    "messaging": "New",
+    "image": "/images/synthetic/product-shoe.svg",
+    "colors": ["background-color:#26292B", "background-color:#EFBF4D"],
+    "color_count": "2 Colors"
+  }]
+}
+```
+
+The full 117-card workload lives at
+`proa_demo/showcase-props.json > nike_catalog`.
+
+## Product detail
+
+`render_nike_pdp_json` is the compatibility entry point for the fictional
+Stride Supply product page. The default workload preserves a realistic product-detail
+shape without copied product copy, reviews, logos, or photography.
+
+The object includes product identity and pricing, `benefits`, `whats_new`,
+`sizes`, `colorways`, review summary and `reviews`, `recommended` products,
+delivery details, and a primary `image`.
+
+```json
+{
+  "title": "Stride Supply Velocity One",
+  "subtitle": "Unisex Road Racing Shoes",
+  "current_price": "$184",
+  "original_price": "$220",
+  "discount_pct": "16% off",
+  "color_name": "Cloud/Ember/Graphite",
+  "style_code": "SS-V1-101",
+  "avg_rating": "4.5",
+  "review_count": "48"
+}
+```
+
+This excerpt documents the primary scalar fields. Use the complete validated
+object at `proa_demo/showcase-props.json > nike_pdp` as a starting point.
+
+## Next steps
+
+- [Playground](/docs/ffi/playground)
+  - Interactive demo with live editing, benchmarks, and three SSR engines side by side
+- [C ABI contract](/docs/ffi/abi)
+  - Call the playground FFI exports and free their buffers correctly.
+- [Memory ownership](/docs/ffi/memory)
+  - Own, reuse, and free Proa FFI buffers from a host runtime.

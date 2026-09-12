@@ -1,0 +1,48 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rsjs_macros"
+version = "0.2.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Procedural macros for the rsjs reactive island compiler."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+# This repository-level integration suite consumes snapshots from the root
+# `rsjs_conformance/` corpus and is therefore excluded from the standalone
+# crate archive.
+exclude = ["tests/parser_counter.rs"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proa_dsl = { workspace = true }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+quote = { workspace = true }
+rsjs_ir = { workspace = true }
+rsjs_transport = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+syn = { workspace = true, features = ["full", "extra-traits", "visit", "fold"] }
+
+[dev-dependencies]
+# `prettyplease` formats the emit_rust output before golden
+# comparison so the golden file stays human-readable across rustfmt
+# changes.
+bytes = { workspace = true }
+prettyplease = { version = "0.2" }
+proa_core = { workspace = true }
+proa_macros = { workspace = true }
+# Cyclic dev-dep: integration tests for the proc-macro need to resolve
+# the `::rsjs::*` paths the macro expansion emits (manifest types,
+# linkme re-export). Cargo allows dev-dependency cycles.
+rsjs = { workspace = true }
+serde = { workspace = true }
+# Diagnostic golden suite (M7h): trybuild snapshots compile errors so
+# changes to the user-facing message surface require an intentional
+# update to the recorded `.stderr` files.
+trybuild = { workspace = true }

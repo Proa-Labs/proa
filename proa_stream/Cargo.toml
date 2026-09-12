@@ -1,0 +1,32 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_stream"
+version = "0.3.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Concurrent data loading and out-of-order streaming SSR for Proa."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[features]
+default = ["rt-tokio"]
+# Spawn prepared loads eagerly on the ambient tokio runtime. Without this
+# feature the crate is runtime-agnostic: prepared loads start lazily on
+# first await and overlap through cooperative polling.
+rt-tokio = ["dep:tokio"]
+
+[dependencies]
+base64 = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+proa_core = { workspace = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+http = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

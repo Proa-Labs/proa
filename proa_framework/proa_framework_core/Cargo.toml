@@ -1,0 +1,39 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_framework_core"
+version = "0.3.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Runtime-agnostic route, response, manifest, and bootstrap contracts for Proa."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[features]
+default = ["rt-tokio"]
+# Forwarded to proa_stream: eager parallel preloads on the ambient tokio
+# runtime. Disable for runtime-agnostic builds; the contract layer itself
+# never references a runtime.
+rt-tokio = ["proa_stream/rt-tokio"]
+
+[dependencies]
+anyhow = { workspace = true }
+async-stream = { version = "0.3" }
+bytes = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+proa_core = { workspace = true }
+proa_macros = { workspace = true }
+proa_react = { workspace = true }
+proa_stream = { workspace = true, default-features = false }
+rsjs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

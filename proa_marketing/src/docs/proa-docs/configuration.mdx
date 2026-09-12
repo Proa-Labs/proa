@@ -1,0 +1,549 @@
+---
+title: Configuration
+description: Set up build.rs, then every option in one place.
+---
+
+One `Config` value drives the whole build. Start with the minimal script; the reference below covers every builder.
+
+Proa Docs compiles a Markdown tree in `build.rs`, so a finished site ships as generated Rust with no runtime parser. This page covers [Cargo setup](#adding-the-cargo-dependencies), [a production build script](#writing-a-production-build-script), [schemas](#validating-frontmatter-with-schemas), and [the generated output](#reading-the-generated-output).
+
+## Adding the Cargo dependencies
+
+Add the build crate to `build-dependencies` and the runtime crate to normal dependencies.
+
+```toml filename="Cargo.toml"
+[build-dependencies]
+proa_docs_build = { git = "https://github.com/Proa-Labs/proa.git" }
+
+[dependencies]
+proa_docs = { git = "https://github.com/Proa-Labs/proa.git", features = ["axum"] }
+```
+
+These git dependencies work from a standalone application checkout.
+Repository contributors can keep using the workspace's in-repository path
+dependencies through the root workspace manifest.
+
+The `include_docs!("docs")` argument **must** match the source `out_dir_name("docs")`.
+
+With both crates in place, the build script decides what the compiler produces.
+
+## Writing a production build script
+
+Most apps start from this shape. It turns on code highlighting and search artifacts, and it runs strict link validation in CI. It also prints `cargo:rerun-if-changed` for the docs directory.
+
+```rust filename="build.rs"
+use std::{env, path::PathBuf};
+
+fn main() {
+    let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let docs_dir = manifest_dir.join("src/docs");
+
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed={}", docs_dir.display());
+
+    let markdown = proa_docs_build::MarkdownPipeline::default()
+        .code_highlighting(proa_docs_build::CodeHighlight::new())
+        .mdx(proa_docs_build::MdxConfig::proa())
+        .mermaid(proa_docs_build::MermaidConfig::new());
+
+    let link_validation = if env::var_os("CI").is_some() {
+        proa_docs_build::LinkValidation::strict()
+    } else {
+        proa_docs_build::LinkValidation::new()
+    };
+
+    let docs = proa_docs_build::DocsSource::new(docs_dir)
+        .out_dir_name("docs")
+        .base_path("/docs")
+        .site_name("My Docs")
+        .markdown(markdown)
+        .search(proa_docs_build::SearchConfig::orama_client())
+        .link_validation(link_validation)
+        .include_drafts(false);
+
+    proa_docs_build::compile(proa_docs_build::Config::new().source(docs));
+}
+```
+
+Call `compile(config)` in normal apps. You can call `try_compile(config)` instead when your build script adds custom diagnostics before panicking.
+
+That call writes a registry, which stays inert until your app includes it.
+
+## Including the registry at runtime
+
+Include the generated registry in your app shell or docs route module.
+
+```rust filename="src/main.rs"
+static DOCS: proa_docs::Docs = proa_docs::include_docs!("docs");
+```
+
+The registry contains:
+
+| Field | What it gives you |
+|-------|-------------------|
+| `DOCS.config` | `base_path` and `site_name`. |
+| `DOCS.pages` | Every compiled page with HTML, Markdown, TOC, pager links, and metadata. |
+| `DOCS.nav` | Sidebar tree the compiler generates from files and `meta.json`. |
+| `DOCS.search` | Search manifest and document paths when you enable search. |
+
+Use `DOCS.page_for_path(path)` for request routing. Use `DOCS.find_page(slug)` when you already have a slug.
+
+Both lookups lean on `base_path`, one of the defaults the next section lists.
+
+## What defaults does DocsSource start with?
+
+`DocsSource::new(root)` starts with production-oriented defaults:
+
+| Setting | Default |
+|---------|---------|
+| `out_dir_name` | `docs` |
+| `base_path` | `/docs` |
+| `site_name` | `Docs` |
+| `search` | `SearchConfig::orama_client()` |
+| `link_validation` | warn mode, internal links and hashes checked |
+| `include_drafts` | `false` |
+
+The compiler normalizes `base_path`. Empty input and `/` become `/`; other values get a leading slash and no trailing slash.
+
+Each source carries its own copy of these settings, so one build can compile several.
+
+## Compiling multiple sources
+
+Compile docs, blog posts, changelogs, or API references in one build by adding more sources. Each source gets its own generated registry.
+
+```rust filename="build.rs"
+let markdown = proa_docs_build::MarkdownPipeline::default()
+    .code_highlighting(proa_docs_build::CodeHighlight::new())
+    .mdx(proa_docs_build::MdxConfig::proa());
+
+let config = proa_docs_build::Config::new()
+    .source(
+        proa_docs_build::DocsSource::new("src/docs")
+            .out_dir_name("docs")
+            .base_path("/docs")
+            .site_name("Docs")
+            .markdown(markdown.clone()),
+    )
+    .source(
+        proa_docs_build::DocsSource::new("src/blog")
+            .out_dir_name("blog")
+            .base_path("/blog")
+            .site_name("Blog")
+            .markdown(markdown),
+    );
+
+proa_docs_build::compile(config);
+```
+
+Runtime includes stay separate:
+
+```rust filename="src/main.rs"
+static DOCS: proa_docs::Docs = proa_docs::include_docs!("docs");
+static BLOG: proa_docs::Docs = proa_docs::include_docs!("blog");
+```
+
+Sources also differ in the frontmatter they demand, which is what schemas describe.
+
+## Validating frontmatter with schemas
+
+Use schemas when a collection needs required or typed metadata.
+
+```rust filename="build.rs"
+let page_schema = proa_docs_build::PageSchema::new()
+    .required_string("title")
+    .optional_string("description")
+    .bool_with_default("draft", false)
+    .date("last_modified");
+
+let meta_schema = proa_docs_build::MetaSchema::new()
+    .optional_string("title")
+    .optional_string("icon");
+
+let docs = proa_docs_build::DocsSource::new("src/docs")
+    .schema(page_schema)
+    .meta_schema(meta_schema);
+```
+
+A schema allows unknown frontmatter fields. App-owned metadata passes through, and the compiler still checks the fields you declared.
+
+Once validation passes, the compiler writes its artifacts under `$OUT_DIR`.
+
+## Reading the generated output
+
+The compiler writes generated Rust, article HTML, Markdown source copies, table-of-contents data, pager links, and search JSON under `$OUT_DIR/proa_docs/<out_dir_name>/`. For `out_dir_name("docs")`, the tree looks like this:
+
+<Files>
+<Folder name="$OUT_DIR">
+<Folder name="proa_docs">
+<Folder name="docs">
+<File name="docs.generated.rs" />
+<Folder name="pages">
+<File name="index.html" />
+<File name="index.md" />
+</Folder>
+<Folder name="search">
+<File name="manifest.json" />
+<File name="documents.json" />
+</Folder>
+</Folder>
+</Folder>
+</Folder>
+</Files>
+
+`include_docs!("docs")` includes `docs.generated.rs`. The Markdown copies power `.md` routes and copy-for-LLM workflows. The compiler emits the search files when you enable search.
+
+Check those artifacts once, then run the list below before every deploy.
+
+## Shipping a docs site
+
+Before publishing a docs site:
+
+| Check | Why |
+|-------|-----|
+| Set `base_path` to the mounted route | Links, Markdown routes, and search paths depend on it. |
+| Keep `out_dir_name` stable | Runtime `include_docs!(...)` uses it. |
+| Enable strict link validation in CI | Broken docs links fail before deploy. |
+| Keep `include_drafts(false)` for production | Draft pages never ship by accident. |
+| Enable processed Markdown | Copy Markdown and `/llms-full.txt` need source text. |
+| Smoke test rendered HTML and `.md` routes | Both human pages and AI/LLM workflows depend on them. |
+
+## Next steps
+
+- [Config reference](/docs/proa-docs/configuration)
+  - Every builder on `Config`, `DocsSource`, and the Markdown pipeline.
+- [Runtime](/docs/proa-docs/runtime)
+  - Include the registry, serve static artifacts, and render your own shell.
+- [Markdown pipeline](/docs/proa-docs/markdown)
+  - Follow a page through MDX lowering, fences, Mermaid, and search text.
+- [Link validation](/docs/proa-docs/link-validation)
+  - Fail the build on broken internal routes and heading hashes.
+
+---
+
+# Reference
+
+## Config
+
+`Config` is the top-level build object that you pass to `proa_docs_build::compile(config)`.
+
+```rust filename="build.rs"
+let config = proa_docs_build::Config::new()
+    .source(docs_source)
+    .source(blog_source)
+    .plugin(proa_docs_build::plugins::last_modified());
+```
+
+| Method | Purpose |
+|--------|---------|
+| `Config::new()` | Create an empty config. |
+| `.source(DocsSource)` | Add a docs-like source that emits a `Docs` registry. |
+| `.collection(CollectionSource)` | Add a collection source for future non-doc data pipelines. |
+| `.plugin(Plugin)` | Add build plugins. |
+| `.sources()` | Read configured docs sources. |
+| `.collections()` | Read configured collection sources. |
+| `.plugins()` | Read configured plugins. |
+
+Sources do the compiling, and `DocsSource` is the one that produces docs pages.
+
+## DocsSource
+
+`DocsSource::new(root)` compiles one documentation tree.
+
+| Setting | Default | Builder |
+|---------|---------|---------|
+| `root` | required | `DocsSource::new(root)` |
+| `out_dir_name` | `docs` | `.out_dir_name("docs")` |
+| `base_path` | `/docs` | `.base_path("/docs")` |
+| `site_name` | `Docs` | `.site_name("Proa Docs")` |
+| `schema` | empty | `.schema(PageSchema::new())` |
+| `meta_schema` | empty | `.meta_schema(MetaSchema::new())` |
+| `postprocess` | enabled defaults | `.postprocess(Postprocess::new())` |
+| `markdown` | default pipeline | `.markdown(MarkdownPipeline::default())` |
+| `search` | `SearchConfig::orama_client()` | `.search(SearchConfig::disabled())` |
+| `link_validation` | warn, internal links on | `.link_validation(LinkValidation::strict())` |
+| `include_drafts` | `false` | `.include_drafts(true)` |
+
+The compiler normalizes `base_path`. Empty input and `/` become `/`; all other values get a leading slash and no trailing slash.
+
+Two of those settings, `schema` and `meta_schema`, describe the metadata a tree must carry.
+
+## PageSchema
+
+`PageSchema` validates frontmatter fields that your collection requires:
+
+```rust filename="build.rs"
+let schema = proa_docs_build::PageSchema::new()
+    .required_string("title")
+    .optional_string("description")
+    .bool_with_default("draft", false)
+    .date("last_modified");
+```
+
+| Method | Check |
+|--------|-------|
+| `.required_string(name)` | Field must exist and be a string. |
+| `.optional_string(name)` | Field may exist and must be a string. |
+| `.bool_with_default(name, default)` | Field may exist and must be a boolean. |
+| `.date(name)` | Field may exist and must parse as a date-like string. |
+
+Schema validation checks the fields you configure. The compiler allows unknown fields, so app-specific frontmatter passes through.
+
+Directory metadata lives in `meta.json` files, and `MetaSchema` checks those.
+
+## MetaSchema
+
+`MetaSchema` supports optional string validation:
+
+```rust filename="build.rs"
+let meta_schema = proa_docs_build::MetaSchema::new()
+    .optional_string("title")
+    .optional_string("icon");
+```
+
+Use it when a site wants typed checks for custom `meta.json` metadata.
+
+Past validation, `Postprocess` decides which side artifacts the build keeps.
+
+## Postprocess
+
+`Postprocess` controls generated side artifacts.
+
+| Method | Default | Effect |
+|--------|---------|--------|
+| `.include_processed_markdown(bool)` | `true` | Keep Markdown source copies for static `.md` routes. |
+| `.extract_link_references(bool)` | `true` | Record links for validation. |
+| `.export_element_ids(bool)` | `true` | Export heading IDs for hash validation and TOC data. |
+
+The current compiler always produces all three artifacts; these flags are configuration surface for opting out in a future release.
+
+The largest artifact, page HTML, comes out of the Markdown pipeline.
+
+## MarkdownPipeline
+
+`MarkdownPipeline` controls the Markdown compiler:
+
+```rust filename="build.rs"
+let markdown = proa_docs_build::MarkdownPipeline::default()
+    .code_highlighting(proa_docs_build::CodeHighlight::new())
+    .mdx(proa_docs_build::MdxConfig::proa())
+    .mermaid(proa_docs_build::MermaidConfig::new())
+    .math(proa_docs_build::MathMode::MathMl)
+    .component_indexing(
+        proa_docs_build::ComponentIndexing::new()
+            .preserve(["Cards", "Files"])
+            .children_only_default(true),
+    )
+    .typescript(proa_docs_build::TypeScriptDocgen::new().command("pnpm docgen"));
+```
+
+| Builder | Purpose |
+|---------|---------|
+| `.code_highlighting(CodeHighlight)` | Highlight recognized code fences with Syntect during the docs build. |
+| `.math(MathMode)` | Configure math handling. |
+| `.component_indexing(ComponentIndexing)` | Preserve or index component-shaped inline HTML. |
+| `.mdx(MdxConfig)` | Configure deterministic MDX-to-Markdown lowering. |
+| `.mermaid(MermaidConfig)` | Turn Mermaid fences into diagram placeholders. |
+| `.typescript(TypeScriptDocgen)` | Configure TypeScript type-table extraction. |
+
+Each builder gets its own section below, starting with `CodeHighlight`.
+
+## CodeHighlight
+
+| Constructor | Behavior |
+|-------------|----------|
+| `CodeHighlight::new()` | Enable highlighting. |
+| `CodeHighlight::disabled()` | Disable highlighting. |
+| `.enabled(bool)` | Toggle explicitly. |
+
+With highlighting on, Syntect maps recognized-language tokens to stable semantic
+`hl-*` classes during the docs build. The site supplies the class colors,
+including light and dark themes. Unknown languages fall back to escaped
+`<pre><code>`. TypeScript, TSX, and JSX fences highlight through the bundled
+JavaScript grammar; TOML is not in the bundled syntax set and falls back to
+plain code. Every highlight-enabled block carries `data-code-highlight="syntect"`,
+safe fallback blocks included, so client-side highlighters can skip them.
+
+`MathMode` handles the other class of typeset content.
+
+## MathMode
+
+| Mode | Behavior today |
+|------|----------------|
+| `MathMode::Disabled` | Default. Dollar-delimited text passes through as literal Markdown text. |
+| `MathMode::MathMl` | Convert TeX to MathML during the build. Browsers render it natively; no client JavaScript, stylesheet, or font is required. |
+
+MDX lowering, unlike math handling, rewrites the source before the parser sees it.
+
+## MdxConfig
+
+`MdxConfig` is an optional build-time lowering pass for `.mdx` files. It does not execute arbitrary MDX or JavaScript. It rewrites a small configured helper subset to plain Markdown before the normal Markdown compiler runs.
+
+```rust filename="build.rs"
+let markdown = proa_docs_build::MarkdownPipeline::default()
+    .mdx(proa_docs_build::MdxConfig::proa());
+```
+
+| Constructor | Behavior |
+|-------------|----------|
+| `MdxConfig::disabled()` | Default. The pipeline does not lower `.mdx` files. |
+| `MdxConfig::new()` | Enable the lowerer: it normalizes syntax, strips imports, and rejects exports. Helpers stay off until you select them. |
+| `MdxConfig::proa()` | Preset used by this site: Cards, Files, AgentTerminal, simple images, simple paragraph tags, layout div removal, class/style normalization, and fence metadata normalization. |
+
+| Builder | Purpose |
+|---------|---------|
+| `.enabled(bool)` | Toggle the MDX lowering pass. |
+| `.strip_imports(bool)` | Remove `import ... from ...` lines. |
+| `.strip_comments(bool)` | Remove `{/* ... */}` comments, including spans that cross lines. |
+| `.reject_exports(bool)` | Fail on `export ...` lines. |
+| `.normalize_brace_escapes(bool)` | Convert authored `{'{'} / {'}'}` escape helpers back to literal braces. |
+| `.normalize_fence_metadata(bool)` | Strip unsupported fence metadata such as `title="main.rs"`; preserve the language, `filename="..."`, and `{2,4-5}` selected-line ranges. |
+| `.normalize_class_name(bool)` | Convert `className=` to `class=`. |
+| `.normalize_style_objects(bool)` | Convert simple `style={{...}}` objects to string style attributes. |
+| `.remove_layout_divs(bool)` | Drop layout-only `<div>` wrappers. |
+| `.lower_paragraph_tags(bool)` | Convert simple `<p>`, `<strong>`, and `<code>` HTML to Markdown text. |
+| `.cards(bool)` | Lower `<Cards>` with `<Card />` children to Markdown bullet links. |
+| `.files(bool)` | Lower `<Files>` with `<Folder>` and `<File>` children to a `proa-filetree` fence. |
+| `.agent_terminal(bool)` | Lower `<AgentTerminal />` to a static `text` code fence. |
+| `.images(MdxImageConfig)` | Configure simple `<img ... />` lowering. |
+
+The pass writes its processed Markdown into `DocPage::markdown`, which the `.md` routes serve.
+
+Images take enough options to warrant their own config.
+
+## MdxImageConfig
+
+`MdxImageConfig` controls simple image lowering:
+
+```rust filename="build.rs"
+let images = proa_docs_build::MdxImageConfig::new()
+    .default_alt("Image")
+    .rewrite_prefix("/images/", "/static/images/");
+```
+
+| Constructor / Builder | Purpose |
+|-----------------------|---------|
+| `MdxImageConfig::new()` | Enable image lowering. |
+| `MdxImageConfig::disabled()` | Disable image lowering. |
+| `.enabled(bool)` | Toggle image lowering. |
+| `.default_alt(value)` | Alt text used when an authored image omits `alt`. |
+| `.rewrite_prefix(from, to)` | Rewrite a source path prefix before emitting Markdown image syntax. |
+
+Diagrams survive lowering as `mermaid` fences, which `MermaidConfig` picks up.
+
+## MermaidConfig
+
+`MermaidConfig::new()` enables Mermaid support.
+
+| Setting | Default | Builder |
+|---------|---------|---------|
+| `enabled` | `false`, `true` from `new()` | `MermaidConfig::new()` |
+| `code_fences` | `true` | `.code_fences(false)` |
+| `renderer` | `MermaidRenderer::Client` | `.renderer(...)` |
+| `fallback` | `MermaidFallback::CodeBlock` | `.fallback(...)` |
+
+The renderer accepts `Client`, `StaticSvg`, and `Custom`. The current compiler emits client-rendered placeholders for Mermaid fences when you enable them.
+
+Components the lowerer leaves alone can still reach an app-level pass through `ComponentIndexing`.
+
+## ComponentIndexing
+
+| Method | Purpose |
+|--------|---------|
+| `ComponentIndexing::new()` | Create default config. |
+| `.preserve(names)` | Preserve named component directives for app-level processing. |
+| `.children_only_default(bool)` | Treat unconfigured components as children-only by default. |
+
+Use this when an app runs an additional external MDX lowering pass and wants component-shaped inline HTML preserved for that pass.
+
+TypeScript docgen is one such external pass.
+
+## TypeScriptDocgen
+
+`TypeScriptDocgen::new()` enables type-table requests. The default component name is `auto-type-table`.
+
+| Method | Purpose |
+|--------|---------|
+| `.enabled(bool)` | Toggle TypeScript docgen. |
+| `.tsconfig_path(path)` | Select the TypeScript config. |
+| `.base_path(path)` | Select the path base used by docgen. |
+| `.cache_dir(path)` | Select the cache directory. |
+| `.component_name(name)` | Change the directive component name. |
+| `.hide_internal(bool)` | Hide internal API items. |
+| `.annotation(Annotation)` | Add a JSDoc annotation mapping. |
+| `.command(command)` | Configure the external docgen command. |
+
+Compilation fails when Markdown requests type tables and you enable TypeScript docgen **without** a command. That avoids silently publishing unresolved type API placeholders.
+
+With the pages compiled, `SearchConfig` decides how readers find them.
+
+## SearchConfig
+
+| Mode | Constructor |
+|------|-------------|
+| Disabled | `SearchConfig::disabled()` |
+| Orama client | `SearchConfig::orama_client()` |
+| Static client | `SearchConfig::static_client()` |
+| Server-owned search | `SearchConfig::Server` |
+| Custom integration | `SearchConfig::Custom(String)` |
+
+Every enabled mode emits a search manifest and documents JSON today. Your app decides whether to load them on the client, serve them through an API, or feed another index.
+
+`LinkValidation` guards the other half of navigation: the links themselves.
+
+## LinkValidation
+
+`LinkValidation::default()` collects broken internal links and hashes as warnings. `LinkValidation::strict()` turns them into build errors, the only mode `compile` enforces.
+
+| Method | Purpose |
+|--------|---------|
+| `.mode(LinkValidationMode)` | `Off`, `Warn`, or `Error`. |
+| `.check_internal(bool)` | Check absolute and relative internal route targets. |
+| `.check_hashes(bool)` | Check heading hashes. |
+| `.check_relative_paths(RelativePathMode)` | Ignore, URL-resolve, or file-resolve relative links. |
+| `.check_external(ExternalLinkCheck)` | Configure external link checking. |
+| `.component_attr(component, attr)` | Register component attributes that contain links. |
+| `.static_root(path)` | Register static asset roots. |
+
+See [Link validation](/docs/proa-docs/link-validation) for examples.
+
+Collections reuse the same source shape for data that is not a docs page.
+
+## CollectionSource
+
+`CollectionSource` is available for future collection compilation.
+
+| Method | Purpose |
+|--------|---------|
+| `CollectionSource::new(root)` | Create a collection source. |
+| `.kind(CollectionKind)` | Select `Doc` or `Data`. |
+| `.schema(PageSchema)` | Validate collection frontmatter. |
+| `.root()` | Read the source root. |
+| `.collection_kind()` | Read the configured kind. |
+
+Plugins are the last extension point on `Config`.
+
+## Plugins
+
+`proa_docs_build` exposes two plugin constructors today:
+
+| Plugin | Purpose |
+|--------|---------|
+| `plugins::json_schema()` | Reserve schema output integration. |
+| `plugins::last_modified()` | Reserve last-modified metadata integration. |
+
+The plugin API stays small while docs compilation stabilizes.
+
+## Next steps
+
+- [Configuration](/docs/proa-docs/configuration)
+  - Wire these builders into a production `build.rs`.
+- [Markdown pipeline](/docs/proa-docs/markdown)
+  - Follow a page through MDX lowering, fences, Mermaid, and search text.
+- [Link validation](/docs/proa-docs/link-validation)
+  - Fail the build on broken internal routes and heading hashes.
+- [Runtime](/docs/proa-docs/runtime)
+  - Include the generated registry and render it from your app.
+
+## Related
+
+[Quickstart](/docs/proa-docs/quickstart) · [Rendering pages](/docs/proa-docs/runtime) · [Search](/docs/proa-docs/search) · [Link validation](/docs/proa-docs/link-validation)

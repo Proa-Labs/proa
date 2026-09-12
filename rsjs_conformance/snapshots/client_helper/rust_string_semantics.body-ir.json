@@ -1,0 +1,44 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "let",
+      "local": 1,
+      "name": "length",
+      "ty": {
+        "kind": "unknown"
+      },
+      "value": {
+        "kind": "call",
+        "function": {
+          "kind": "runtime",
+          "name": "((__v) => { if (typeof __v === 'string') return new TextEncoder().encode(__v).length; if (Array.isArray(__v)) return __v.length; throw new TypeError('rsjs .len() expected a Rust String, Vec, or slice'); })"
+        },
+        "args": [
+          {
+            "kind": "local",
+            "local": 0
+          }
+        ]
+      }
+    },
+    {
+      "kind": "return",
+      "value": {
+        "kind": "binary",
+        "op": "gt",
+        "left": {
+          "kind": "local",
+          "local": 1
+        },
+        "right": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 0
+          }
+        }
+      }
+    }
+  ]
+}

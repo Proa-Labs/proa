@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 216" role="img" aria-label="Synthetic experience category icon">
+  <rect width="240" height="216" rx="28" fill="#e5eef0"/>
+  <circle cx="120" cy="86" r="50" fill="#e17655"/>
+  <path d="M92 126l-17 61m73-61l17 61m-69-29h48" stroke="#345a62" stroke-width="8" stroke-linecap="round"/>
+  <path d="M102 136h36l-6 31h-24z" fill="#fff4dc"/>
+</svg>

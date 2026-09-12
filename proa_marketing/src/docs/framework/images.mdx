@@ -1,0 +1,87 @@
+---
+title: Images
+description: Serve responsive images from static assets, without a build pipeline.
+---
+
+Proa has no image optimization pipeline. It renders the `<img>` tag you write, with typed attribute support for `srcset`, `sizes`, `imagesrcset`, and `imagesizes`, and serves the files from `STATIC_DIR`.
+
+```rust filename="src/components/hero.rs"
+html_sync! {
+    <img
+        src="/static/images/hero-800.avif"
+        srcset="/static/images/hero-400.avif 400w,
+                /static/images/hero-800.avif 800w,
+                /static/images/hero-1600.avif 1600w"
+        sizes="(max-width: 640px) 100vw, 800px"
+        width="800"
+        height="450"
+        alt="Coastal cliffs at sunrise"
+        loading="lazy"
+        decoding="async"
+    />
+}
+```
+
+That is the whole API. What follows is how to make it fast.
+
+## The four attributes that matter
+
+| Attribute | Why |
+|---|---|
+| `width` and `height` | Reserve the box before the bytes arrive. Without them the page reflows and your CLS score suffers |
+| `loading="lazy"` | Defer offscreen images. Never put it on your largest above-the-fold image |
+| `decoding="async"` | Keep decode work off the critical path |
+| `srcset` + `sizes` | Let the browser pick a file matching the device, instead of shipping a desktop image to a phone |
+
+`srcset` without `sizes` is a common mistake: the browser assumes the image is viewport-width and often picks a file larger than it needs.
+
+> **Good to know**: For the one image that is your Largest Contentful Paint, add `fetchpriority="high"` and leave `loading` off entirely. Lazy-loading your hero image is a measurable regression.
+
+## Generating the variants
+
+Resizing is a build step you own. Generate the sizes ahead of time and commit them, or produce them in CI before `proa build`:
+
+```bash
+for w in 400 800 1600; do
+  magick hero.jpg -resize ${w}x -quality 82 public/images/hero-${w}.avif
+done
+```
+
+Prefer AVIF, then WebP, then JPEG. If you need per-format fallbacks rather than per-width, use `<picture>`:
+
+```rust filename="src/components/hero.rs"
+html_sync! {
+    <picture>
+        <source srcset="/static/images/hero.avif" type="image/avif" />
+        <source srcset="/static/images/hero.webp" type="image/webp" />
+        <img src="/static/images/hero.jpg" width="800" height="450" alt="Coastal cliffs" />
+    </picture>
+}
+```
+
+## Serving them
+
+Images live under the directory `STATIC_DIR` points at, usually `public/`. See [Static assets](/docs/framework/static-assets) for mounting and cache headers.
+
+Give generated filenames a content hash and a long `max-age`. Stable names such as `hero.avif` need a shorter window or a cache-busting query string, because you cannot invalidate a name you keep reusing.
+
+In MDX content, `MdxImageConfig` rewrites authored paths at build time, so `/images/hero.avif` in a Markdown file can resolve to `/static/images/hero.avif` in the output:
+
+```rust filename="build.rs"
+.images(MdxImageConfig::new().rewrite_prefix("/images/", "/static/images/"))
+```
+
+## Open Graph images
+
+Social preview images are a different problem, generated per page, not authored. `proa_og` renders them headlessly. See [Metadata and OG images](/docs/framework/metadata).
+
+## Next steps
+
+- [Static assets](/docs/framework/static-assets)
+  - Serve static files, embedded assets, and external apps safely.
+- [Metadata and OG images](/docs/framework/metadata)
+  - Compose titles, descriptions, and social preview images.
+- [Page caching](/docs/framework/page-caching)
+  - Cache public HTML and static assets at browsers and CDNs.
+- [Accessibility](/docs/guides/accessibility)
+  - How Proa catches common WCAG, WAI-ARIA, and ARIA-in-HTML issues at compile time.

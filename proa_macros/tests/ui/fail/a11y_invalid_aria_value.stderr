@@ -1,0 +1,5 @@
+error: a11y: "yes" is not a valid value for aria-hidden. use one of the valid values: true, false (WAI-ARIA 1.2 §6.2)
+ --> tests/ui/fail/a11y_invalid_aria_value.rs:5:35
+  |
+5 |     html_sync! { <div aria_hidden="yes">"hidden"</div> };
+  |                                   ^^^^^

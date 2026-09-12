@@ -1,0 +1,245 @@
+---
+title: Rendering pages
+description: Put a docs site inside your Proa app.
+---
+
+Your build emits a static registry. This page mounts it: include the registry, add a route, serve the static artifacts, and render a page.
+
+## Including the registry
+
+The build crate handles Markdown parsing, frontmatter resolution, table-of-contents extraction, pager links, search JSON, and generated Rust emission. At runtime your app includes the static `Docs` registry and picks one of two paths:
+
+- call `proa_docs::render` and use the default docs shell
+- look up a `DocPage` and render your own shell around the compiled article HTML
+
+```rust filename="src/main.rs"
+static DOCS: proa_docs::Docs = proa_docs::include_docs!("docs");
+```
+
+The argument **must** match `DocsSource::out_dir_name(...)` from `build.rs`:
+
+```rust filename="build.rs"
+// build.rs
+let docs = proa_docs_build::DocsSource::new("src/docs")
+    .out_dir_name("docs")
+    .base_path("/docs")
+    .site_name("Proa Docs");
+```
+
+`include_docs!("docs")` expands to an `include!` path under `$OUT_DIR/proa_docs/docs/docs.generated.rs`. That generated file holds only static data plus `include_str!` references to generated HTML, Markdown, and search JSON.
+
+Everything your app touches at runtime comes from the handful of types below.
+
+## Reading the registry types
+
+| Type | Purpose |
+|------|---------|
+| `Docs` | Root registry: config, pages, nav, and optional search artifacts. |
+| `DocPage` | One compiled page: route path, title, HTML, Markdown, TOC, prev, next. |
+| `NavItem` | Nested sidebar tree item with title, optional icon, optional path, and children. |
+| `TocItem` | Heading entry with depth, ID, and title. |
+| `DocsResponse` | Runtime response wrapper for HTML, Markdown, JSON, or 404. |
+| `DocsNav` | Default nav renderer. |
+| `DocsToc` | Default table-of-contents renderer. |
+| `DocsPager` | Previous/next page renderer. |
+
+The core data model is inspectable on purpose:
+
+```rust filename="tests/docs_registry.rs"
+assert_eq!(DOCS.config.base_path, "/docs");
+assert_eq!(DOCS.config.site_name, "Proa Docs");
+
+for page in DOCS.pages {
+    println!("{} -> {}", page.slug, page.route_path);
+}
+```
+
+Routing a request means turning a path into one of those `DocPage` values.
+
+## Finding pages
+
+```rust filename="src/routes/docs.rs"
+let page = DOCS.page_for_path("/docs/guides/installation")
+    .expect("known docs page");
+
+assert_eq!(page.slug, "guides/installation");
+```
+
+`find_page("guides/installation")` looks up by slug. `page_for_path("/docs/guides/installation")` strips the configured base path first. It also normalizes trailing slashes, a trailing `index.html`, and `.md` suffixes.
+
+```rust filename="tests/docs_registry.rs"
+assert_eq!(
+    DOCS.page_for_path("/docs/guides/installation/")
+        .map(|page| page.slug),
+    Some("guides/installation"),
+);
+
+assert_eq!(
+    DOCS.find_page("guides/installation.md")
+        .map(|page| page.route_path),
+    Some("/docs/guides/installation"),
+);
+```
+
+You can call `first_page()` for an intentional fallback. Do not use it as a silent 404 replacement in production, unless you want unknown docs URLs to render the first page.
+
+Some requests never reach a page at all, and `render_static` answers those.
+
+## Serving static artifacts
+
+`render_static` handles generated non-page assets:
+
+```rust filename="src/routes/docs.rs"
+if let Some(response) = proa_docs::render_static(&DOCS, path) {
+    return docs_response_to_axum(response);
+}
+```
+
+It returns:
+
+- Markdown source for each page at `page.markdown_path`
+- search manifest JSON
+- search documents JSON
+
+Those responses carry the correct content types:
+
+| Method | Content type |
+|--------|--------------|
+| `DocsResponse::html` | `text/html; charset=utf-8` |
+| `DocsResponse::markdown` | `text/markdown; charset=utf-8` |
+| `DocsResponse::json` | `application/json; charset=utf-8` |
+| `DocsResponse::not_found` | `text/plain; charset=utf-8` |
+
+The default renderer wires that check together with page lookup for you.
+
+## Rendering with the default shell
+
+`proa_docs::render(&DOCS, path)` returns a `DocsResponse` using the default `DocsShell` renderer:
+
+```rust filename="src/routes/docs.rs"
+pub async fn docs_handler(Path(path): Path<String>) -> impl IntoResponse {
+    let path = format!("/docs/{path}");
+    let response = proa_docs::render(&DOCS, &path);
+
+    (
+        StatusCode::from_u16(response.status).unwrap(),
+        [(CONTENT_TYPE, response.content_type)],
+        response.body.into_owned(),
+    )
+}
+```
+
+`render` checks `render_static` first. If the path is not a static artifact, it renders the matching page. If no page matches, it falls back to `first_page()`, and it returns 404 only when the registry has no pages.
+
+Production sites outgrow that shell, so `proa_docs` exposes the pieces separately.
+
+## Building a custom shell
+
+Production sites want their own shell, header, section picker, search modal, and 404 behavior. Look up the page yourself and render the pieces you want:
+
+```rust filename="src/routes/docs.rs"
+use axum::{http::StatusCode, response::{IntoResponse, Response}};
+
+pub fn docs_response(path: &str) -> Response {
+    if let Some(response) = proa_docs::render_static(&DOCS, path) {
+        return docs_response_to_axum(response);
+    }
+
+    let Some(page) = DOCS.page_for_path(path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    html_response(DocsPageView { docs: &DOCS, page })
+}
+```
+
+Inside the page view, render the generated article HTML with `UnsafeRaw`. The compiler already produced trusted HTML from local Markdown files:
+
+```rust filename="src/routes/docs_page.rs"
+use proa_core::{UnsafeRaw, WebContext, WebRenderSync, WriteError};
+use proa_docs::{DocPage, Docs, DocsNav, DocsPager, DocsSectionMenu, DocsToc};
+use proa_macros::html_sync;
+
+struct DocsPageView {
+    docs: &'static Docs,
+    page: &'static DocPage,
+}
+
+impl<L: proa_core::DataLoader> WebRenderSync<L> for DocsPageView {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <main class="docs-layout">
+                <aside>
+                    {DocsSectionMenu {
+                        docs: self.docs,
+                        active_path: self.page.route_path,
+                    }}
+                    {DocsNav {
+                        items: self.docs.nav_items_for_path(self.page.route_path),
+                        active_path: self.page.route_path,
+                    }}
+                </aside>
+                <article>{UnsafeRaw(self.page.article_html)}</article>
+                <aside>{DocsToc { items: self.page.toc }}</aside>
+                <footer>{DocsPager { page: self.page }}</footer>
+            </main>
+        }
+        .render(cx)
+    }
+}
+```
+
+Keep `UnsafeRaw` scoped to `page.article_html`. Never use it for request data, CMS data, or user-generated Markdown.
+
+`DocsSectionMenu` and `Docs::nav_items_for_path` live in `proa_docs`, so custom shells share one section picker and one scoped-sidebar behavior. Sections come from folders whose `meta.json` sets `"root": true`, so your app supplies no section list of its own.
+
+A custom shell often fronts more than one registry.
+
+## Including multiple registries
+
+Apps can include more than one generated registry:
+
+```rust filename="src/main.rs"
+static DOCS: proa_docs::Docs = proa_docs::include_docs!("docs");
+static BLOG: proa_docs::Docs = proa_docs::include_docs!("blog");
+```
+
+Route each registry by its configured base path:
+
+```rust filename="src/routes/docs.rs"
+if path.starts_with("/blog") {
+    return proa_docs::render(&BLOG, path);
+}
+
+proa_docs::render(&DOCS, path)
+```
+
+Each of those `DocsResponse` values still needs a conversion into your framework's response type.
+
+## Using the Axum adapter
+
+With the `axum` feature enabled, `proa_docs::adapter::axum::response(&DOCS, path)` converts a `DocsResponse` into an Axum response.
+
+Use the adapter for a default docs site. Write your own adapter when the app needs custom status handling, metrics, headers, or route-level layout.
+
+Run through the list below before you ship either one.
+
+## Runtime checklist
+
+- Include the registry name that matches `out_dir_name`.
+- Call `render_static` before custom page rendering.
+- Decide whether unknown paths return 404 or fall back to the first page.
+- Render `page.article_html` only as trusted generated HTML.
+- Expose `page.markdown_path` if agents or users need source Markdown.
+- Keep search JSON routes available when the registry carries `Docs.search`.
+
+## Next steps
+
+- [Configuration](/docs/proa-docs/configuration)
+  - Produce the registry this page includes, from `build.rs`.
+- [Config reference](/docs/proa-docs/configuration)
+  - Every builder behind `out_dir_name`, `base_path`, and search.
+- [Search](/docs/proa-docs/search)
+  - Serve the search manifest and documents JSON to a client UI.
+- [Page conventions](/docs/proa-docs/pages-and-routes)
+  - Structure the pages your shell renders.

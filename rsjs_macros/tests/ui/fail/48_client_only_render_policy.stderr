@@ -1,0 +1,5 @@
+error: `#[rsjs(render = "client")]` is reserved but not supported yet; client-only rendering changes SSR, no-JS behaviour, accessibility, and SEO, so it will require an explicit fallback policy before rsjs accepts it
+  --> tests/ui/fail/48_client_only_render_policy.rs:11:27
+   |
+11 | #[rsjs(component, client, render = "client")]
+   |                           ^^^^^^

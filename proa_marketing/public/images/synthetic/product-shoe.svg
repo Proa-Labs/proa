@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic running shoe illustration</title>
+  <desc id="desc">An original geometric shoe silhouette created for Proa fixtures.</desc>
+  <defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#f5eee3"/><stop offset="1" stop-color="#d7e6e8"/></linearGradient></defs>
+  <rect width="1200" height="800" fill="url(#bg)"/>
+  <ellipse cx="606" cy="640" rx="430" ry="52" fill="#6a7375" opacity=".18"/>
+  <path d="M190 530c93-8 177-60 242-147l94-127 105 29 74 142c37 69 108 112 188 119l116 10c47 4 78 40 78 79 0 43-35 77-78 77H314c-114 0-180-84-124-182z" fill="#f8f8f6" stroke="#1f2d30" stroke-width="18" stroke-linejoin="round"/>
+  <path d="M430 390l258 42m-215-101l236 39M300 548l560 12" fill="none" stroke="#e17352" stroke-width="22" stroke-linecap="round"/>
+  <path d="M667 429l-83 89 205 20z" fill="#375f65"/>
+  <path d="M310 630h676" stroke="#1f2d30" stroke-width="24" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,279 @@
+{
+  "$schema": "https://proa.so/schema/proa.lock.json",
+  "components": {
+    "@proa/badge": {
+      "version": "sha256:fac87f5e0563064172dcea83ef606845792501fd73e2675dc18bc97453a2736e",
+      "registry": "@proa",
+      "mode": "source",
+      "sourceHash": "sha256:003ab6840ea7f4539edecdf19b77686b940878bdc64154fa129a3664b05db6db",
+      "localHashAtInstall": "sha256:003ab6840ea7f4539edecdf19b77686b940878bdc64154fa129a3664b05db6db",
+      "installedFiles": [
+        "src/components/badge/badge.rs",
+        "src/components/badge/md.rs",
+        "src/components/badge/mod.rs",
+        "src/components/badge/recipe.rs"
+      ],
+      "dependencies": [
+        "@proa/foundation"
+      ],
+      "rustModules": [
+        {
+          "target": "src/components/mod.rs",
+          "modules": [
+            "badge"
+          ]
+        }
+      ],
+      "cargoDependencies": []
+    },
+    "@proa/button": {
+      "version": "sha256:21a522899a1b5c21e4d305e20bc9226f67ac9f4ff481aaf7ec357c3479cd43c9",
+      "registry": "@proa",
+      "mode": "source",
+      "sourceHash": "sha256:690bd96e715c390f40eaa450624a1ccae4b8de01ffaac7bfb9c73135d25e7580",
+      "localHashAtInstall": "sha256:690bd96e715c390f40eaa450624a1ccae4b8de01ffaac7bfb9c73135d25e7580",
+      "installedFiles": [
+        "src/components/button/button.rs",
+        "src/components/button/md.rs",
+        "src/components/button/mod.rs",
+        "src/components/button/recipe.rs"
+      ],
+      "dependencies": [
+        "@proa/foundation",
+        "@proa/spinner"
+      ],
+      "rustModules": [
+        {
+          "target": "src/components/mod.rs",
+          "modules": [
+            "button"
+          ]
+        }
+      ],
+      "cargoDependencies": []
+    },
+    "@proa/card": {
+      "version": "sha256:6f600dd4b01d8ad8af02a2fc7044e7f4f18af58367243b5ce0b1c910d266ae22",
+      "registry": "@proa",
+      "mode": "source",
+      "sourceHash": "sha256:64e87f2398025a86cc1f2cef5e9274d442b144a30981b9e0a080202d00573e15",
+      "localHashAtInstall": "sha256:64e87f2398025a86cc1f2cef5e9274d442b144a30981b9e0a080202d00573e15",
+      "installedFiles": [
+        "src/components/card/card.rs",
+        "src/components/card/md.rs",
+        "src/components/card/mod.rs",
+        "src/components/card/recipe.rs"
+      ],
+      "dependencies": [
+        "@proa/foundation"
+      ],
+      "rustModules": [
+        {
+          "target": "src/components/mod.rs",
+          "modules": [
+            "card"
+          ]
+        }
+      ],
+      "cargoDependencies": []
+    },
+    "@proa/foundation": {
+      "version": "sha256:aced57ad1952b805af68c5abab3976c63946562693f03219de6ddf3b46e383b8",
+      "registry": "@proa",
+      "mode": "source",
+      "sourceHash": "sha256:2441744617af063007bebcff8cd35b00581d0389341370340c74db9f634b2039",
+      "localHashAtInstall": "sha256:2441744617af063007bebcff8cd35b00581d0389341370340c74db9f634b2039",
+      "installedFiles": [
+        "public/proa/proa-ui/proa-free.css",
+        "public/proa/proa-ui/proa-free.js",
+        "src/components/_proa/LICENSE",
+        "src/components/_proa/LICENSE-APACHE",
+        "src/components/_proa/LICENSE-MIT",
+        "src/components/_proa/LICENSING.md",
+        "src/components/_proa/THIRD_PARTY_NOTICES.md",
+        "src/components/_proa/anatomy.rs",
+        "src/components/_proa/collection.rs",
+        "src/components/_proa/component_macros.rs",
+        "src/components/_proa/component_tree.rs",
+        "src/components/_proa/form.rs",
+        "src/components/_proa/free_web.rs",
+        "src/components/_proa/licensing/free-source-allowlist.toml",
+        "src/components/_proa/md_support.rs",
+        "src/components/_proa/mod.rs",
+        "src/components/_proa/overlay.rs",
+        "src/components/_proa/recipe.rs",
+        "src/components/_proa/slots.rs",
+        "src/components/_proa/state.rs",
+        "src/components/_proa/theme.rs",
+        "src/components/_proa/tokens.rs",
+        "src/components/_proa/traits.rs",
+        "src/components/_proa/variant_spec.rs"
+      ],
+      "dependencies": [],
+      "rustModules": [
+        {
+          "target": "src/components/mod.rs",
+          "modules": [
+            "_proa"
+          ]
+        }
+      ],
+      "cargoDependencies": [
+        {
+          "name": "const_format",
+          "version": "0.2",
+          "features": []
+        },
+        {
+          "name": "heapless",
+          "version": "0.8",
+          "features": []
+        },
+        {
+          "name": "proa_actions",
+          "git": "https://github.com/Proa-Labs/proa.git",
+          "features": []
+        },
+        {
+          "name": "proa_core",
+          "git": "https://github.com/Proa-Labs/proa.git",
+          "features": []
+        },
+        {
+          "name": "proa_ir",
+          "git": "https://github.com/Proa-Labs/proa.git",
+          "features": []
+        },
+        {
+          "name": "proa_macros",
+          "git": "https://github.com/Proa-Labs/proa.git",
+          "features": []
+        },
+        {
+          "name": "serde",
+          "version": "1.0",
+          "features": [
+            "derive"
+          ]
+        },
+        {
+          "name": "serde_json",
+          "version": "1.0",
+          "features": []
+        },
+        {
+          "name": "strum",
+          "version": "0.27.2",
+          "features": [
+            "derive"
+          ]
+        },
+        {
+          "name": "strum_macros",
+          "version": "0.27.2",
+          "features": []
+        }
+      ]
+    },
+    "@proa/input": {
+      "version": "sha256:9ebf9b44052884f5679c2fa3d8ea88ddacb1fccc7e4dbf9e058ce577e9e8eab7",
+      "registry": "@proa",
+      "mode": "source",
+      "sourceHash": "sha256:8d94cfb952ca0254de249b6a7dc8727980f4c31a5f86f27d9f91775b5f6e53c5",
+      "localHashAtInstall": "sha256:8d94cfb952ca0254de249b6a7dc8727980f4c31a5f86f27d9f91775b5f6e53c5",
+      "installedFiles": [
+        "src/components/input/input.rs",
+        "src/components/input/md.rs",
+        "src/components/input/mod.rs",
+        "src/components/input/recipe.rs"
+      ],
+      "dependencies": [
+        "@proa/foundation"
+      ],
+      "rustModules": [
+        {
+          "target": "src/components/mod.rs",
+          "modules": [
+            "input"
+          ]
+        }
+      ],
+      "cargoDependencies": []
+    },
+    "@proa/spinner": {
+      "version": "sha256:e86f91f3ba7ef84eb16e4815a3150234ac8707c7940db863ec3567f6acb07ba2",
+      "registry": "@proa",
+      "mode": "source",
+      "sourceHash": "sha256:9bf6398c4dc43a3327dfebf26242de63e610570e7b48c62b6c3291653894daa9",
+      "localHashAtInstall": "sha256:9bf6398c4dc43a3327dfebf26242de63e610570e7b48c62b6c3291653894daa9",
+      "installedFiles": [
+        "src/components/spinner/md.rs",
+        "src/components/spinner/mod.rs",
+        "src/components/spinner/recipe.rs",
+        "src/components/spinner/spinner.rs"
+      ],
+      "dependencies": [
+        "@proa/foundation"
+      ],
+      "rustModules": [
+        {
+          "target": "src/components/mod.rs",
+          "modules": [
+            "spinner"
+          ]
+        }
+      ],
+      "cargoDependencies": []
+    },
+    "@proa/table": {
+      "version": "sha256:53716453bf21b0049aeb5af4cb0d23e1dd574cfedca7413196c46601e526ca30",
+      "registry": "@proa",
+      "mode": "source",
+      "sourceHash": "sha256:a127756b570fc71e3c135fbe928842cf127f9b632bf0fda7a592176a465223a7",
+      "localHashAtInstall": "sha256:a127756b570fc71e3c135fbe928842cf127f9b632bf0fda7a592176a465223a7",
+      "installedFiles": [
+        "src/components/table/md.rs",
+        "src/components/table/mod.rs",
+        "src/components/table/recipe.rs",
+        "src/components/table/table.rs"
+      ],
+      "dependencies": [
+        "@proa/foundation"
+      ],
+      "rustModules": [
+        {
+          "target": "src/components/mod.rs",
+          "modules": [
+            "table"
+          ]
+        }
+      ],
+      "cargoDependencies": []
+    },
+    "@proa/textarea": {
+      "version": "sha256:ba23a9c312c76f22d1ec6eac41d0a5395e9d668a893a1413e5358dffe5860197",
+      "registry": "@proa",
+      "mode": "source",
+      "sourceHash": "sha256:76ef358e330a32e16d9b516c4f6a8030a6b261e6c82bd87b73e17ccd89d021fe",
+      "localHashAtInstall": "sha256:76ef358e330a32e16d9b516c4f6a8030a6b261e6c82bd87b73e17ccd89d021fe",
+      "installedFiles": [
+        "src/components/textarea/md.rs",
+        "src/components/textarea/mod.rs",
+        "src/components/textarea/recipe.rs",
+        "src/components/textarea/textarea.rs"
+      ],
+      "dependencies": [
+        "@proa/foundation"
+      ],
+      "rustModules": [
+        {
+          "target": "src/components/mod.rs",
+          "modules": [
+            "textarea"
+          ]
+        }
+      ],
+      "cargoDependencies": []
+    }
+  }
+}

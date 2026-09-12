@@ -1,0 +1,22 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Web (HTML) rendering target
+//!
+//! This module provides functionality for rendering components to HTML for web browsers.
+//! It includes the rendering context and target-specific utilities.
+
+pub mod context;
+pub mod csp;
+pub mod send_context;
+
+pub use context::{
+    CacheDependency, CacheTrace, HeadContext, HeadEntry, Locals, RenderArtifacts, RenderTelemetry,
+    RequestContext, ResponseContext, RsjsArtifactBranch, RsjsArtifactCheckpoint,
+    RsjsLinkedProviderOccurrenceKey, RsjsLinkedProviderTagGuard, RsjsQuerySeedArtifact,
+    RsjsRenderArtifacts, RsjsSharedStateScopeGuard, RsjsSharedStateSeedArtifact,
+    RsjsSharedStateSeedCheckpoint, StandardWebContext, TelemetryEvent, WebContext, WebContextParts,
+    STANDARD_PAGE_SIZE,
+};
+pub use csp::{csp_nonce_attr, CspNonce, CspNonceAttr, InvalidCspNonce};
+pub use send_context::{SendWebContext, SendWebContextParts};

@@ -1,0 +1,16 @@
+error: rsjs boundary: `rsjs::island(...)` cannot capture parent reactive signal `selected`
+
+       Why:
+         Explicit child islands hydrate as independent client scopes. A parent signal is not serializable as live child state across that boundary.
+
+       Use one of:
+         - Pass a plain server value into the child island.
+         - Keep the reactive markup directly inside the parent island.
+         - Give the child island its own query, mutation, signal, or custom-event channel.
+
+       Tracked feature:
+         server_boundary.island_signal_capture
+  --> tests/ui/conformance/fail/41_island_signal_capture.rs:32:61
+   |
+32 |                 {rsjs::island(ChildWithServerValue { value: selected.get() })}
+   |                                                             ^^^^^^^^

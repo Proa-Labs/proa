@@ -1,0 +1,514 @@
+---
+title: Databases
+description: Connect SQLx, Diesel, or Toasty to a Proa DataLoader and render typed rows as components.
+---
+
+Proa is database and ORM agnostic. It ships no driver, no query builder, and no opinion about your data layer.
+
+`DataLoader` is the seam. It is a trait you implement, not a driver Proa ships, and its one required method returns a future, so anything you can await composes behind one key: a pool checkout, an ORM query, an HTTP call, a cache read, or all four.
+
+This page connects [SQLx](https://github.com/launchbadge/sqlx), [Diesel](https://diesel.rs), and [Toasty](https://github.com/tokio-rs/toasty) to that trait. Everything above the loader is identical in all three, which is the point. Installing and configuring each library is its own documentation; this page starts once you have a pool.
+
+## The part that does not change
+
+A component asks for what it needs by key. It never learns which library answers:
+
+```rust filename="src/components/product_page.rs"
+use std::future::Future;
+use std::sync::Arc;
+
+use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa_macros::{html, text};
+
+use crate::data::loader::{product_key, Product};
+
+pub struct ProductPage {
+    pub id: i64,
+}
+
+impl<L: DataLoader> WebRender<L> for ProductPage {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let product: Arc<Product> = cx.load_typed(product_key(self.id)).await?;
+
+            html! {
+                <main aria-label="Product details">
+                    <article>
+                        <h1>{product.name.as_str()}</h1>
+                        <p>{text!("${}.{:02}", product.price_cents / 100, product.price_cents % 100)}</p>
+                    </article>
+                </main>
+            }
+            .render(cx)
+            .resolve()
+            .await
+        })
+    }
+}
+```
+
+`load_typed` pairs with `LoadValue::typed` in the loader, so a database row moves from the query to the component as itself. Nothing is serialized to JSON on the way.
+
+Two details decide whether a loader can answer a key at all:
+
+- **`LoadKey::named("product", id)` renders as `product:42`**, which a loader can parse. `LoadKey::typed` hashes its input into `product#1e9f73…`, so use the named form whenever the loader needs the id back.
+- **Request-local dedupe is keyed on that string.** Two components asking for `product:42` in one request produce one query.
+
+Application-wide handles are shared the same way regardless of library. `FrameworkBuilder` is intentionally not generic over an application state type, so the loader goes through the response:
+
+```rust filename="src/app.rs"
+use std::sync::Arc;
+
+use axum::{extract::Extension, routing::get};
+use proa_framework_axum::{router_from_spec, FrameworkBuilder, Route};
+
+use crate::{data::loader::AppLoader, db::connect_database};
+
+let db = connect_database().await?;
+let loader = Arc::new(AppLoader { db });
+
+let (router, metadata) = router_from_spec(vec![
+    Route::page("/products/:id", "Product", get(product)),
+]);
+
+let app = FrameworkBuilder::new(manifest)
+    .with_dynamic_routes_and_metadata(router, metadata)
+    .build()
+    .layer(Extension(loader));
+```
+
+See [Route handlers](/docs/framework/route-handlers#sharing-application-state) for the broader state pattern, and [Data loading and streaming](/docs/framework/data-loading) for cache hints, dedupe, and streaming boundaries.
+
+Everything below differs only in how the pool is built and what the loader runs.
+
+## SQLx
+
+SQLx is an asynchronous SQL toolkit rather than an ORM: connection pooling, migrations, typed row decoding, and optional compile-time query checking for SQLite, PostgreSQL, and MySQL. You write SQL.
+
+<CodeExplorer>
+
+<CodeFile name="src/db.rs">
+
+```rust
+use sqlx::{migrate::Migrator, sqlite::SqlitePoolOptions, SqlitePool};
+
+static MIGRATOR: Migrator = sqlx::migrate!();
+
+pub async fn connect_database() -> anyhow::Result<SqlitePool> {
+    let database_url = std::env::var("DATABASE_URL")?;
+    let db = SqlitePoolOptions::new()
+        .max_connections(10)
+        .connect(&database_url)
+        .await?;
+
+    MIGRATOR.run(&db).await?;
+    Ok(db)
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/data/loader.rs">
+
+```rust
+use std::future::Future;
+
+use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
+use sqlx::{FromRow, SqlitePool};
+
+#[derive(Debug, FromRow)]
+pub struct Product {
+    pub name: String,
+    pub price_cents: i64,
+}
+
+pub fn product_key(id: i64) -> LoadKey {
+    LoadKey::named("product", id.to_string())
+}
+
+pub struct AppLoader {
+    pub db: SqlitePool,
+}
+
+impl DataLoader for AppLoader {
+    fn load(
+        &self,
+        request: &LoadRequest,
+    ) -> impl Future<Output = Result<LoadValue, LoadError>> + Send {
+        let db = self.db.clone();
+        let key = request.key().to_string();
+
+        async move {
+            let Some(id) = key.strip_prefix("product:") else {
+                return Err(LoadError::custom(format!("unknown load key: {key}")));
+            };
+
+            let row = sqlx::query_as::<_, Product>(
+                "SELECT name, price_cents FROM products WHERE id = ?",
+            )
+            .bind(id.parse::<i64>().map_err(|error| LoadError::custom(error.to_string()))?)
+            .fetch_optional(&db)
+            .await
+            .map_err(|error| LoadError::custom(error.to_string()))?;
+
+            match row {
+                Some(product) => Ok(LoadValue::typed(product)),
+                None => Err(LoadError::custom("product not found")),
+            }
+        }
+    }
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/routes/products.rs">
+
+```rust
+use std::sync::Arc;
+
+use axum::extract::{Extension, Path};
+use proa_framework_axum::RouteResponse;
+
+use crate::data::loader::AppLoader;
+
+pub async fn product(
+    Extension(loader): Extension<Arc<AppLoader>>,
+    Path(id): Path<i64>,
+) -> RouteResponse<AppLoader> {
+    RouteResponse::ssr_async_with_loader(ProductPage { id }, loader)
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/routes/update_price.rs">
+
+```rust
+use sqlx::SqlitePool;
+
+pub async fn update_price(db: &SqlitePool, id: i64, price_cents: i64) -> sqlx::Result<()> {
+    let mut transaction = db.begin().await?;
+
+    sqlx::query("UPDATE products SET price_cents = ? WHERE id = ?")
+        .bind(price_cents)
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+
+    transaction.commit().await?;
+    Ok(())
+}
+```
+
+</CodeFile>
+
+</CodeExplorer>
+
+**`src/db.rs`** — A SQLx pool is cheap to clone and every clone points at the same shared pool, so the loader holds one by value. Running migrations at startup suits a single instance; in a horizontally scaled deployment run them once as a release command instead of having every replica race.
+
+**`src/data/loader.rs`** — `.bind(...)` sends the id as a query parameter rather than interpolating it into the SQL. `fetch_optional` keeps a missing row distinct from a database failure.
+
+**`src/routes/products.rs`** — The handler hands the loader to the response and returns. It runs no query itself: the component asks for what it needs while rendering, and two components asking for the same key share one query.
+
+**`src/routes/update_price.rs`** — Writes own their transaction and commit before a response is constructed.
+
+## Diesel
+
+Diesel is a query builder and ORM with a typed schema, so a mismatch between schema and query is a compile error rather than a runtime one. Diesel itself is synchronous; [`diesel-async`](https://github.com/weiznich/diesel_async) supplies async connections and pooling for PostgreSQL and MySQL.
+
+<CodeExplorer>
+
+<CodeFile name="src/db.rs">
+
+```rust
+use diesel_async::{
+    pooled_connection::{bb8, AsyncDieselConnectionManager},
+    AsyncPgConnection,
+};
+
+pub type Pool = bb8::Pool<AsyncPgConnection>;
+
+pub async fn connect_database() -> anyhow::Result<Pool> {
+    let database_url = std::env::var("DATABASE_URL")?;
+    let config = AsyncDieselConnectionManager::<AsyncPgConnection>::new(database_url);
+    Ok(bb8::Pool::builder().build(config).await?)
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/data/schema.rs">
+
+```rust
+use diesel::prelude::*;
+
+diesel::table! {
+    products (id) {
+        id -> BigInt,
+        name -> Text,
+        price_cents -> BigInt,
+    }
+}
+
+#[derive(Debug, HasQuery)]
+pub struct Product {
+    pub name: String,
+    pub price_cents: i64,
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/data/loader.rs">
+
+```rust
+use std::future::Future;
+
+use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
+use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
+
+use crate::data::schema::{products, Product};
+use crate::db::Pool;
+
+pub fn product_key(id: i64) -> LoadKey {
+    LoadKey::named("product", id.to_string())
+}
+
+pub struct AppLoader {
+    pub db: Pool,
+}
+
+impl DataLoader for AppLoader {
+    fn load(
+        &self,
+        request: &LoadRequest,
+    ) -> impl Future<Output = Result<LoadValue, LoadError>> + Send {
+        let db = self.db.clone();
+        let key = request.key().to_string();
+
+        async move {
+            let Some(id) = key.strip_prefix("product:") else {
+                return Err(LoadError::custom(format!("unknown load key: {key}")));
+            };
+            let id: i64 = id.parse().map_err(|error| LoadError::custom(error.to_string()))?;
+
+            let mut conn = db.get().await.map_err(|error| LoadError::custom(error.to_string()))?;
+            let row = Product::query()
+                .filter(products::id.eq(id))
+                .first(&mut conn)
+                .await
+                .optional()
+                .map_err(|error| LoadError::custom(error.to_string()))?;
+
+            match row {
+                Some(product) => Ok(LoadValue::typed(product)),
+                None => Err(LoadError::custom("product not found")),
+            }
+        }
+    }
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/routes/update_price.rs">
+
+```rust
+use diesel::prelude::*;
+use diesel::result::Error;
+use diesel_async::{AsyncConnection, RunQueryDsl};
+
+use crate::data::schema::products;
+use crate::db::Pool;
+
+pub async fn update_price(db: &Pool, id: i64, price_cents: i64) -> anyhow::Result<()> {
+    let mut conn = db.get().await?;
+
+    conn.transaction::<_, Error, _>(async |conn| {
+        diesel::update(products::table.filter(products::id.eq(id)))
+            .set(products::price_cents.eq(price_cents))
+            .execute(conn)
+            .await?;
+        Ok(())
+    })
+    .await?;
+
+    Ok(())
+}
+```
+
+</CodeFile>
+
+</CodeExplorer>
+
+**`src/db.rs`** — `diesel-async` re-exports its pool backends, so `bb8` comes from `diesel_async::pooled_connection::bb8` rather than a direct dependency.
+
+**`src/data/schema.rs`** — `diesel_cli` normally generates this from your migrations; it is inline here so the example stands alone. `#[derive(HasQuery)]` gives you `Product::query()` and proves the result can be loaded into this type.
+
+**`src/data/loader.rs`** — `.filter(products::id.eq(id))` is a bound parameter, not string interpolation. `.optional()` comes from `OptionalExtension` in `diesel::prelude` and turns a "no rows" error into `Ok(None)`, which keeps a missing row distinct from a failed query.
+
+**`src/routes/update_price.rs`** — `diesel-async` takes an async closure and commits when it returns `Ok`.
+
+## Toasty
+
+[Toasty](https://tokio.rs/blog/2026-04-03-toasty-released) is the Tokio project's async ORM. You define models as plain Rust structs and it infers the schema, generating the query, create, and update builders so you write no SQL. It targets SQLite, PostgreSQL, MySQL, Turso, and DynamoDB from one model definition.
+
+Toasty is pre-1.0 and moving quickly. Pin a version, and expect API changes between minor releases in a way you would not expect from SQLx or Diesel.
+
+<CodeExplorer>
+
+<CodeFile name="src/data/model.rs">
+
+```rust
+#[derive(Debug, toasty::Model)]
+pub struct Product {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+
+    pub name: String,
+    pub price_cents: i64,
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/db.rs">
+
+```rust
+pub async fn connect_database() -> toasty::Result<toasty::Db> {
+    let url = std::env::var("TOASTY_CONNECTION_URL")
+        .unwrap_or_else(|_| "sqlite::memory:".to_string());
+
+    let db = toasty::Db::builder()
+        .models(toasty::models!(crate::*))
+        .connect(&url)
+        .await?;
+
+    Ok(db)
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/data/loader.rs">
+
+```rust
+use std::future::Future;
+
+use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
+
+use crate::data::model::Product;
+
+pub fn product_key(id: uuid::Uuid) -> LoadKey {
+    LoadKey::named("product", id.to_string())
+}
+
+pub struct AppLoader {
+    pub db: toasty::Db,
+}
+
+impl DataLoader for AppLoader {
+    fn load(
+        &self,
+        request: &LoadRequest,
+    ) -> impl Future<Output = Result<LoadValue, LoadError>> + Send {
+        // `Db` is cheap to clone and shares its pool, but the executor methods
+        // take `&mut self`, so each load works on its own handle.
+        let mut db = self.db.clone();
+        let key = request.key().to_string();
+
+        async move {
+            let Some(id) = key.strip_prefix("product:") else {
+                return Err(LoadError::custom(format!("unknown load key: {key}")));
+            };
+            let id: uuid::Uuid = id.parse().map_err(|error| LoadError::custom(error.to_string()))?;
+
+            let row = Product::filter_by_id(id)
+                .first()
+                .exec(&mut db)
+                .await
+                .map_err(|error| LoadError::custom(error.to_string()))?;
+
+            match row {
+                Some(product) => Ok(LoadValue::typed(product)),
+                None => Err(LoadError::custom("product not found")),
+            }
+        }
+    }
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/routes/update_price.rs">
+
+```rust
+use crate::data::model::Product;
+
+pub async fn update_price(
+    db: &toasty::Db,
+    id: uuid::Uuid,
+    new_price: i64,
+) -> toasty::Result<()> {
+    let mut tx = db.transaction().await?;
+
+    let mut product = Product::get_by_id(&mut tx, &id).await?;
+    toasty::update!(product { price_cents: new_price }).exec(&mut tx).await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+```
+
+</CodeFile>
+
+</CodeExplorer>
+
+**`src/data/model.rs`** — `#[key]` marks the primary key and `#[auto]` fills it on insert, which for a `Uuid` means a time-ordered UUID v7. The attributes drive the generated API: `#[unique]` on a field is what makes `Product::get_by_<field>` exist at all.
+
+**`src/db.rs`** — `toasty::models!` discovers every `#[derive(Model)]` in the crate, so models are not listed by hand. A fresh database has no tables; `db.push_schema().await?` creates them straight from the models, which is the quick path for demos and tests. Use migrations for anything with data you care about.
+
+**`src/data/loader.rs`** — `filter_by_*` builds a lazy query and the terminal decides the result shape: `.first().exec(&mut db)` yields `Option`, `.exec(&mut db)` on the unfiltered query yields `Vec`, and `.get(&mut db)` expects exactly one row and errors otherwise.
+
+**`src/routes/update_price.rs`** — A Toasty transaction is a value you pass where you would pass the `Db`. Dropping it rolls back, so an early return needs no explicit rollback.
+
+## Choosing
+
+| | SQLx | Diesel | Toasty |
+|---|---|---|---|
+| You write | SQL | Typed query builder | Model methods |
+| Query checking | Optional, via `query!` and offline metadata | Always, by the Rust type system | Generated from the model |
+| Async | Native | Via `diesel-async` | Native |
+| Backends | SQLite, PostgreSQL, MySQL | SQLite, PostgreSQL, MySQL | SQLite, PostgreSQL, MySQL, Turso, DynamoDB |
+| Maturity | Stable, widely deployed | Stable, widely deployed | Pre-1.0, released April 2026 |
+
+None of this changes anything on the Proa side. Pick on the merits of the data layer.
+
+## Do not hold a transaction across a render
+
+This applies to every library above. Keep a transaction in the handler that owns the mutation, and commit it before constructing the response. Do not place a live transaction inside a component or in shared application state. Its lifetime should be limited to one request operation, and no HTML should be emitted until the write either commits or rolls back.
+
+## When to use `DataLoader`
+
+Do not wrap your database library in a `DataLoader` solely because Proa has one. A handler query followed by a sync component is the shortest and most explicit path for a page that needs one result.
+
+Use a loader when independent components initiate reads, several components may request the same key, or a slow section should participate in `Suspense`. Because `DataLoader::load` is just an async method you write, the loader can own whatever handle your library uses: a cloned `SqlitePool` or `PgPool`, a `bb8::Pool<AsyncPgConnection>`, a `toasty::Db`, or several of them at once behind different key namespaces. Return `LoadValue::typed(record)` for a Rust value or `LoadValue::bytes(..)` for serialized JSON.
+
+See [Data loading and streaming](/docs/framework/data-loading) for that pattern, and [Caching](/docs/framework/caching) before caching database results across requests.
+
+## Next steps
+
+- [Data loading and streaming](/docs/framework/data-loading)
+  - Implement a `DataLoader`, key requests, and stream slow sections with `Suspense`.
+- [Route handlers](/docs/framework/route-handlers)
+  - Build JSON, form, and webhook endpoints, and share application state.
+- [Forms and actions](/docs/guides/forms-actions)
+  - Accept a write, validate it on the server, and re-render.
+- [Caching](/docs/framework/caching)
+  - Decide what is safe to cache across requests.

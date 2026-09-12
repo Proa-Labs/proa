@@ -1,0 +1,41 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Ephemeral pull-request runners. Keep this pool separate from `gcp-ci`: PR
+# build scripts execute repository code and must not inherit the Workload
+# Identity that can write trusted-main sccache objects.
+githubConfigUrl: https://github.com/Proa-Labs/proa
+githubConfigSecret: proa-github-token
+controllerServiceAccount:
+  name: arc-gha-rs-controller
+  namespace: arc-systems
+runnerScaleSetName: gcp-pr-ci
+minRunners: 0
+maxRunners: 8
+template:
+  spec:
+    # The namespace's default KSA has no GCP IAM binding. Do not replace it
+    # with the `runner` KSA used by the trusted cache-writing pool.
+    serviceAccountName: default
+    nodeSelector:
+      ci-runner-pool: "true"
+    tolerations:
+      - key: ci-runner-pool
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+    containers:
+      - name: runner
+        image: us-west1-docker.pkg.dev/airy-cycle-504821-k9/ci-images/proa-runner:1.95.0-v5
+        command: ["/home/runner/run.sh"]
+        resources:
+          requests:
+            cpu: "7"
+            memory: "26Gi"
+            ephemeral-storage: "80Gi"
+        volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+    volumes:
+      - name: work
+        emptyDir: {}

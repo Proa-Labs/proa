@@ -1,0 +1,71 @@
+---
+title: Pages and routes
+description: How a file becomes a route, and what frontmatter controls.
+---
+
+Every `.md` or `.mdx` file under your source root becomes a page. The path is the route; frontmatter is the metadata.
+
+## File routes
+
+Routes come from file paths under the docs source root:
+
+| File | Route |
+|------|-------|
+| `src/docs/index.mdx` | `/docs` |
+| `src/docs/guides/index.mdx` | `/docs/guides` |
+| `src/docs/guides/installation.mdx` | `/docs/guides/installation` |
+| `src/docs/proa-docs/configuration.mdx` | `/docs/proa-docs/configuration` |
+
+`index.mdx` maps to the folder route. Other file stems map to the final path segment.
+
+## Frontmatter
+
+Supported page fields:
+
+| Field | Type | Runtime effect |
+|-------|------|----------------|
+| `title` | string | Page title. Falls back to the first `#` heading or file name. |
+| `description` | string | Page description, search metadata, and default page meta description. |
+| `icon` | string | Stored on `Frontmatter` and copied to the generated `NavItem`. |
+| `slug` | string | Overrides the route slug after base path normalization. |
+| `sidebar_title` | string | Overrides the label used in navigation. |
+| `nav_order` | integer | Fallback ordering when no `meta.json` controls a folder. |
+| `hidden` | boolean | Compiles the page and static Markdown, but omits it from nav. |
+| `draft` | boolean | Omits the page unless `include_drafts(true)` is set. |
+| `search` | boolean | Includes or excludes the page from generated search documents. |
+| `keywords` | list of strings | Extra search terms the page canonically documents (identifiers, API names, synonyms). Emitted to the search documents so a client can boost them. |
+| `toc` | boolean | Stores a page-level table-of-contents preference for the app shell. |
+| `last_modified` | string | Optional date string for display, plugins, or generated metadata. |
+
+Example:
+
+```markdown
+---
+title: Route Handlers
+description: Build JSON endpoints, form handlers, webhooks, and health checks.
+sidebar_title: Handlers
+icon: Route
+---
+
+# Route Handlers
+```
+
+## Laying out a source folder
+
+<Files>
+<Folder name="src/docs">
+<File name="index.mdx" />
+<File name="meta.json" />
+<Folder name="guides">
+<File name="index.mdx" />
+<File name="installation.mdx" />
+<File name="meta.json" />
+</Folder>
+</Folder>
+</Files>
+
+Each folder carries its own `meta.json`, which orders that folder's pages. Frontmatter on each file controls how the route presents itself.
+
+## Related
+
+[Navigation](/docs/proa-docs/navigation) · [Markdown](/docs/proa-docs/markdown) · [Configuration](/docs/proa-docs/configuration)

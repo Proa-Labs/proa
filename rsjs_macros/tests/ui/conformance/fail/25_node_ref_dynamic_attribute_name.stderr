@@ -1,0 +1,5 @@
+error: `node_ref.set_attribute(...)` requires a static string literal attribute name, for example `node_ref.set_attribute("aria-expanded", value)`. Dynamic attribute names are not supported because rsjs needs to emit safe DOM code.
+  --> tests/ui/conformance/fail/25_node_ref_dynamic_attribute_name.rs:21:59
+   |
+21 |                 <button on_click={|_| input.set_attribute(attr.get(), "true")}> "Expand" </button>
+   |                                                           ^^^^

@@ -1,0 +1,5 @@
+error: dynamic `srcdoc` attributes are not supported inside `#[rsjs]` islands; use a static value or wrap vetted server-rendered content in `rsjs::server_attr(...)`
+  --> tests/ui/fail/23_dynamic_url_attr.rs:32:21
+   |
+32 |             <iframe srcdoc={html.get()}></iframe>
+   |                     ^^^^^^

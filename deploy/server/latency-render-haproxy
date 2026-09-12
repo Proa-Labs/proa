@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PREVIEW_DIR=/etc/haproxy/previews
+CFG=/etc/haproxy/haproxy.cfg
+TMP="$(mktemp)"
+USES="$(mktemp)"
+BACKENDS="$(mktemp)"
+ROUTER_USES="$(mktemp)"
+ROUTER_BACKENDS="$(mktemp)"
+cleanup() {
+  rm -f "${TMP}" "${USES}" "${BACKENDS}" "${ROUTER_USES}" "${ROUTER_BACKENDS}"
+}
+trap cleanup EXIT
+
+if [ -d "${PREVIEW_DIR}" ]; then
+  for env_file in "${PREVIEW_DIR}"/*.env; do
+    [ -e "${env_file}" ] || continue
+    PREVIEW=""
+    FQDN=""
+    PORT=""
+    HEALTH_PATH="/readyz"
+    REALTIME_PORT=""
+    TERMINAL_PORT=""
+    ROUTER_SUFFIX=""
+    ROUTER_PORT=""
+    # shellcheck disable=SC1090
+    . "${env_file}"
+    if [[ ! "${PREVIEW}" =~ ^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$ ]]; then
+      echo "invalid PREVIEW in ${env_file}: ${PREVIEW}" >&2
+      exit 1
+    fi
+    case "${FQDN}" in
+      *.*) ;;
+      *) echo "invalid FQDN in ${env_file}: ${FQDN}" >&2; exit 1 ;;
+    esac
+    case "${PORT}" in
+      ''|*[!0-9]*) echo "invalid PORT in ${env_file}: ${PORT}" >&2; exit 1 ;;
+    esac
+    for optional_port in REALTIME_PORT TERMINAL_PORT ROUTER_PORT; do
+      value="${!optional_port}"
+      case "${value}" in
+        '') ;;
+        *[!0-9]*) echo "invalid ${optional_port} in ${env_file}: ${value}" >&2; exit 1 ;;
+      esac
+    done
+    if { [ -n "${REALTIME_PORT}" ] && [ -z "${TERMINAL_PORT}" ]; } \
+      || { [ -z "${REALTIME_PORT}" ] && [ -n "${TERMINAL_PORT}" ]; }; then
+      echo "REALTIME_PORT and TERMINAL_PORT must be configured together in ${env_file}" >&2
+      exit 1
+    fi
+    if { [ -n "${ROUTER_SUFFIX}" ] && [ -z "${ROUTER_PORT}" ]; } \
+      || { [ -z "${ROUTER_SUFFIX}" ] && [ -n "${ROUTER_PORT}" ]; }; then
+      echo "ROUTER_SUFFIX and ROUTER_PORT must be configured together in ${env_file}" >&2
+      exit 1
+    fi
+    if [ -n "${ROUTER_SUFFIX}" ] && [[ ! "${ROUTER_SUFFIX}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]; then
+      echo "invalid ROUTER_SUFFIX in ${env_file}: ${ROUTER_SUFFIX}" >&2
+      exit 1
+    fi
+    case "${HEALTH_PATH}" in
+      /*) ;;
+      *) echo "invalid HEALTH_PATH in ${env_file}: ${HEALTH_PATH}" >&2; exit 1 ;;
+    esac
+    if [[ "${HEALTH_PATH}" =~ [[:space:]\\\"] ]]; then
+      echo "invalid HEALTH_PATH in ${env_file}: ${HEALTH_PATH}" >&2
+      exit 1
+    fi
+    backend="preview_${PREVIEW//-/_}"
+    acl="host_${PREVIEW//-/_}"
+    {
+      printf '    acl %s hdr(host) -i %s\n' "${acl}" "${FQDN}"
+      if [ -n "${REALTIME_PORT}" ]; then
+        printf '    acl %s_terminal_path path -i /terminal/ws\n' "${acl}"
+        printf '    use_backend %s_terminal if %s %s_terminal_path\n' "${backend}" "${acl}" "${acl}"
+        printf '    acl %s_realtime_path path_beg -i /app/\n' "${acl}"
+        printf '    use_backend %s_realtime if %s %s_realtime_path\n' "${backend}" "${acl}" "${acl}"
+      fi
+      printf '    use_backend %s if %s\n' "${backend}" "${acl}"
+    } >> "${USES}"
+    {
+      printf 'backend %s\n' "${backend}"
+      printf '    option httpchk GET %s\n' "${HEALTH_PATH}"
+      printf '    http-check expect status 200\n'
+      printf '    server app 127.0.0.1:%s check\n\n' "${PORT}"
+      if [ -n "${REALTIME_PORT}" ]; then
+        printf 'backend %s_realtime\n' "${backend}"
+        printf '    option httpchk GET /ready\n'
+        printf '    http-check expect status 200\n'
+        printf '    server app 127.0.0.1:%s check\n\n' "${REALTIME_PORT}"
+        printf 'backend %s_terminal\n' "${backend}"
+        printf '    option httpchk GET /ready\n'
+        printf '    http-check expect status 200\n'
+        printf '    server app 127.0.0.1:%s check\n\n' "${TERMINAL_PORT}"
+      fi
+    } >> "${BACKENDS}"
+    if [ -n "${ROUTER_PORT}" ]; then
+      suffix_regex="${ROUTER_SUFFIX//./\\.}"
+      printf '    acl %s_router_host hdr_reg(host) -i ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.%s(:[0-9]+)?$\n' \
+        "${acl}" "${suffix_regex}" >> "${ROUTER_USES}"
+      printf '    use_backend %s_router if %s_router_host\n' \
+        "${backend}" "${acl}" >> "${ROUTER_USES}"
+      {
+        printf 'backend %s_router\n' "${backend}"
+        printf '    option httpchk GET /ping\n'
+        printf '    http-check expect status 200\n'
+        printf '    http-request set-header X-Forwarded-Proto https\n'
+        printf '    http-request set-header X-Forwarded-Port 443\n'
+        printf '    http-request set-header X-Forwarded-Host %%[req.hdr(Host)]\n'
+        printf '    server router 127.0.0.1:%s check\n\n' "${ROUTER_PORT}"
+      } >> "${ROUTER_BACKENDS}"
+    fi
+  done
+fi
+
+cat > "${TMP}" <<'CFGEOF'
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+    ca-base /etc/ssl/certs
+    crt-base /etc/haproxy/certs
+    ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+
+defaults
+    log global
+    mode http
+    option httplog
+    option dontlognull
+    option forwardfor
+    timeout connect 5s
+    timeout client 60s
+    timeout server 60s
+    timeout tunnel 1h
+
+frontend latency_http
+    bind :80
+    acl is_acme path_beg /.well-known/acme-challenge/
+    http-request redirect scheme https code 301 unless is_acme
+    use_backend latency_acme if is_acme
+
+backend latency_acme
+    server certbot 127.0.0.1:8888
+
+frontend latency_https
+    bind :443 ssl crt /etc/haproxy/certs alpn h2,http/1.1
+    http-request set-header X-Forwarded-Proto https
+    http-request set-header X-Forwarded-Port 443
+CFGEOF
+
+{
+  if [ -s "${USES}" ]; then
+    cat "${USES}"
+  fi
+  if [ -s "${ROUTER_USES}" ]; then
+    cat "${ROUTER_USES}"
+  fi
+  cat <<'CFGEOF'
+    default_backend latency_missing_preview
+
+backend latency_missing_preview
+    http-request return status 404 content-type text/plain string "preview not found\n"
+
+CFGEOF
+  cat "${BACKENDS}"
+  cat "${ROUTER_BACKENDS}"
+} >> "${TMP}"
+
+haproxy -c -f "${TMP}"
+install -o root -g root -m 0644 "${TMP}" "${CFG}"

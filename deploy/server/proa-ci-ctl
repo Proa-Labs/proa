@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+# Constrained deploy verbs for the proa-ci GitHub Actions user. The sudoers
+# grant covers only this script; every input is validated here. Deploys are
+# CI-built artifacts rsynced into the CI user's staging directory as
+# tarballs; nothing here compiles code.
+set -euo pipefail
+
+CI_USER=proa-ci
+STAGING="/home/${CI_USER}/staging"
+MARKETING_ROOT=/opt/proa-marketing
+PREVIEW_BASE=/opt/proa-preview
+PREVIEW_ENV_DIR=/etc/proa/previews
+HAPROXY_REG=/etc/haproxy/previews
+PREVIEW_DOMAIN=proa.cool
+
+fail() { echo "proa-ci-ctl: $1" >&2; exit "${2:-1}"; }
+
+require_instance() {
+  [[ "${1:-}" =~ ^pr-[0-9]{1,6}$ ]] || fail "invalid preview instance" 2
+}
+
+require_revision() {
+  [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || fail "invalid revision (need full sha)" 2
+}
+
+health_check() {
+  local port="$1" tries=30
+  for _ in $(seq 1 "$tries"); do
+    if curl -fsS --max-time 2 "http://127.0.0.1:${port}/readyz" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+render_and_reload() {
+  # Mirrors the latency rollback discipline: a broken route must never take
+  # down the other tenants. $1 = registry file to remove on failure.
+  local rollback_file="${1:-}"
+  if ! /usr/local/sbin/latency-render-haproxy; then
+    [[ -n "$rollback_file" ]] && rm -f "$rollback_file"
+    /usr/local/sbin/latency-render-haproxy || true
+    fail "haproxy render failed; route rolled back"
+  fi
+  if ! systemctl reload haproxy; then
+    [[ -n "$rollback_file" ]] && rm -f "$rollback_file"
+    /usr/local/sbin/latency-render-haproxy || true
+    systemctl reload haproxy || true
+    fail "haproxy reload failed; route rolled back"
+  fi
+}
+
+extract_artifact() {
+  # $1 = tarball, $2 = destination root. Expects bin/proa_marketing,
+  # static/, showcase/ inside; refuses anything else, absolute paths, or
+  # path traversal.
+  local tar="$1" dest="$2"
+  [[ -f "$tar" ]] || fail "staged artifact missing: $tar"
+  while IFS= read -r member; do
+    case "$member" in
+      bin|bin/proa_marketing|static|static/*|showcase|showcase/*) ;;
+      *) fail "unexpected member in artifact: $member" ;;
+    esac
+    case "$member" in
+      /*|*..*) fail "unsafe path in artifact: $member" ;;
+    esac
+  done < <(tar -tzf "$tar")
+  rm -rf "${dest}.new"
+  install -d -m 755 "${dest}.new"
+  tar -xzf "$tar" -C "${dest}.new"
+  chmod 755 "${dest}.new/bin/proa_marketing"
+}
+
+alloc_port() {
+  # Deterministic start from the PR number, walk 5600-5699, persist.
+  local instance="$1" port_file="$2" n start candidate
+  if [[ -f "$port_file" ]]; then
+    cat "$port_file"; return 0
+  fi
+  n="${instance#pr-}"
+  start=$(( 5600 + (n % 100) ))
+  for i in $(seq 0 99); do
+    candidate=$(( ((start - 5600 + i) % 100) + 5600 ))
+    if ! ss -tlnH "sport = :${candidate}" 2>/dev/null | grep -q .; then
+      echo "$candidate" > "$port_file"
+      echo "$candidate"; return 0
+    fi
+  done
+  fail "no free preview port in 5600-5699"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  marketing-start|marketing-stop|marketing-restart|marketing-status)
+    exec systemctl "${cmd#marketing-}" proa-marketing.service ;;
+  marketing-logs)
+    exec journalctl -u proa-marketing.service -n 200 --no-pager ;;
+
+  marketing-install)
+    require_revision "${2:-}"
+    revision="$2"
+    tar="${STAGING}/marketing.tar.gz"
+    extract_artifact "$tar" "${MARKETING_ROOT}/incoming"
+    ts="$(date -u +%Y%m%dT%H%M%SZ)"
+    backup="${MARKETING_ROOT}/releases/${ts}-${revision:0:12}"
+    install -d -m 755 "$backup"
+    [[ -f "${MARKETING_ROOT}/bin/proa_marketing" ]] && cp -p "${MARKETING_ROOT}/bin/proa_marketing" "$backup/"
+    install -m 755 "${MARKETING_ROOT}/incoming.new/bin/proa_marketing" "${MARKETING_ROOT}/bin/proa_marketing.next"
+    rsync -a --delete "${MARKETING_ROOT}/incoming.new/static/" "${MARKETING_ROOT}/static/"
+    rsync -a --delete "${MARKETING_ROOT}/incoming.new/showcase/" "${MARKETING_ROOT}/showcase/"
+    mv -f "${MARKETING_ROOT}/bin/proa_marketing.next" "${MARKETING_ROOT}/bin/proa_marketing"
+    rm -rf "${MARKETING_ROOT}/incoming.new"
+    # PROA_BUILD_REVISION is the app's /readyz contract (x-proa-revision);
+    # SOURCE_COMMIT stays for provenance.
+    for var in SOURCE_COMMIT PROA_BUILD_REVISION; do
+      if grep -q "^${var}=" /etc/proa/marketing.env; then
+        sed -i "s/^${var}=.*/${var}=${revision}/" /etc/proa/marketing.env
+      else
+        echo "${var}=${revision}" >> /etc/proa/marketing.env
+      fi
+    done
+    systemctl restart proa-marketing.service
+    if ! health_check 5555; then
+      if [[ -f "$backup/proa_marketing" ]]; then
+        cp -p "$backup/proa_marketing" "${MARKETING_ROOT}/bin/proa_marketing"
+        systemctl restart proa-marketing.service || true
+      fi
+      fail "marketing failed health check; previous binary restored"
+    fi
+    rm -f "$tar"
+    echo "marketing deployed at ${revision}" ;;
+
+  preview-install)
+    require_instance "${2:-}"; require_revision "${3:-}"
+    instance="$2"; revision="$3"
+    fqdn="${instance}.${PREVIEW_DOMAIN}"
+    root="${PREVIEW_BASE}/${instance}"
+    tar="${STAGING}/${instance}.tar.gz"
+    extract_artifact "$tar" "$root"
+    install -d -m 755 "$root"
+    rsync -a --delete "${root}.new/" "${root}/"
+    rm -rf "${root}.new"
+    port="$(alloc_port "$instance" "${root}/.port")"
+    (
+      umask 022
+      cat > "${PREVIEW_ENV_DIR}/${instance}.env" <<ENV
+HOST=127.0.0.1
+PORT=${port}
+RUST_LOG=info
+STATIC_DIR=${root}/static
+SHOWCASE_PUBLIC_DIR=${root}/showcase
+PROA_CONSOLE_LOAD_TESTS=0
+SITE_URL=https://${fqdn}
+SOURCE_COMMIT=${revision}
+PROA_BUILD_REVISION=${revision}
+ENV
+    )
+    certbot certonly --standalone --http-01-address 127.0.0.1 --http-01-port 8888 \
+      --non-interactive --keep-until-expiring -d "$fqdn" >/dev/null
+    /usr/local/sbin/latency-haproxy-install-cert "$fqdn"
+    reg="${HAPROXY_REG}/proa-${instance}.env"
+    cat > "$reg" <<ENV
+PREVIEW=proa-${instance}
+FQDN=${fqdn}
+PORT=${port}
+ENV
+    render_and_reload "$reg"
+    systemctl enable "proa-preview@${instance}.service" >/dev/null 2>&1 || true
+    systemctl restart "proa-preview@${instance}.service"
+    if ! health_check "$port"; then
+      journalctl -u "proa-preview@${instance}.service" -n 30 --no-pager >&2 || true
+      fail "preview ${instance} failed health check (route stays for debugging)"
+    fi
+    touch "$root"
+    rm -f "$tar"
+    echo "preview ${instance} live at https://${fqdn} (port ${port}, ${revision:0:12})" ;;
+
+  preview-remove)
+    require_instance "${2:-}"
+    instance="$2"
+    fqdn="${instance}.${PREVIEW_DOMAIN}"
+    systemctl disable --now "proa-preview@${instance}.service" 2>/dev/null || true
+    rm -f "${PREVIEW_ENV_DIR}/${instance}.env" "${HAPROXY_REG}/proa-${instance}.env"
+    render_and_reload ""
+    rm -rf "${PREVIEW_BASE:?}/${instance}"
+    certbot delete --cert-name "$fqdn" --non-interactive >/dev/null 2>&1 || true
+    echo "preview ${instance} removed" ;;
+
+  preview-gc)
+    removed=0
+    for dir in "${PREVIEW_BASE}"/pr-*; do
+      [[ -d "$dir" ]] || continue
+      instance="$(basename "$dir")"
+      [[ "$instance" =~ ^pr-[0-9]{1,6}$ ]] || continue
+      if [[ -n "$(find "$dir" -maxdepth 0 -mtime +14)" ]]; then
+        "$0" preview-remove "$instance"
+        removed=$((removed+1))
+      fi
+    done
+    echo "gc removed ${removed} preview(s)" ;;
+
+  preview-start|preview-stop|preview-restart)
+    require_instance "${2:-}"
+    exec systemctl "${cmd#preview-}" "proa-preview@$2.service" ;;
+  preview-logs)
+    require_instance "${2:-}"
+    exec journalctl -u "proa-preview@$2.service" -n 200 --no-pager ;;
+
+  *)
+    echo "usage: proa-ci-ctl <marketing-{install,start,stop,restart,status,logs}|preview-{install,remove,gc,start,stop,restart,logs}> [args]" >&2
+    exit 2 ;;
+esac

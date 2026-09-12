@@ -1,0 +1,5 @@
+error: `clients(...)` was removed from `#[rsjs(...)]`; annotate each portable helper definition once with `#[rsjs::client]` and call it through an ordinary Rust path. Reachable helper calls are linked automatically; `#[rsjs::client_module]` remains optional grouping.
+  --> tests/ui/fail/17_clients_removed.rs:11:27
+   |
+11 | #[rsjs(component, client, clients(crate::helpers))]
+   |                           ^^^^^^^

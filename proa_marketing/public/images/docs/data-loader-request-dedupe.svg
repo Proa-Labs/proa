@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 430" width="960" height="430" role="img" aria-labelledby="title description">
+  <title id="title">Request-scoped data loading deduplicates repeated component reads</title>
+  <desc id="description">Without coordination, ProductHero, PriceBlock, and CartButton each load the same product from the origin. With the same product key and one request-scoped DataResolver, all three component reads share one origin load and one resolved value.</desc>
+  <style>
+    .panel { fill: none; stroke: #9aa3af; stroke-width: 1.4; }
+    .panel-left { fill: #ef4444; opacity: 0.045; }
+    .panel-right { fill: #22c55e; opacity: 0.06; }
+    .node { fill: none; stroke: #9aa3af; stroke-width: 1.2; }
+    .resolver { fill: #22c55e; fill-opacity: 0.1; stroke: #16a34a; stroke-width: 1.5; }
+    .heading { font: 600 17px ui-sans-serif, system-ui, sans-serif; fill: #374151; }
+    .body { font: 12px ui-sans-serif, system-ui, sans-serif; fill: #6b7280; }
+    .mono { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #4b5563; }
+    .small { font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #6b7280; }
+    .arrow { fill: none; stroke: #9aa3af; stroke-width: 1.7; }
+    .arrow-accent { fill: none; stroke: #16a34a; stroke-width: 1.9; }
+    .accent { fill: #166534; }
+    .bad { fill: #b91c1c; }
+    .badge-left { fill: #ef4444; fill-opacity: 0.07; stroke: #ef4444; stroke-opacity: 0.3; }
+    .badge-right { fill: #22c55e; fill-opacity: 0.1; stroke: #16a34a; stroke-opacity: 0.5; }
+    @media (prefers-color-scheme: dark) {
+      .panel, .node { stroke: #6b7280; }
+      .heading { fill: #f4f4f5; }
+      .body, .mono, .small { fill: #a8b0bd; }
+      .accent { fill: #86efac; }
+      .bad { fill: #fca5a5; }
+    }
+  </style>
+
+  <defs>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" fill="#9aa3af"/>
+    </marker>
+    <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" fill="#16a34a"/>
+    </marker>
+  </defs>
+
+  <rect class="panel-left" x="18" y="18" width="447" height="394" rx="14"/>
+  <rect class="panel" x="18" y="18" width="447" height="394" rx="14"/>
+  <text class="heading" x="40" y="52">Uncoordinated component fetches</text>
+  <text class="body" x="40" y="74">Each component talks to the origin independently</text>
+
+  <rect class="node" x="42" y="105" width="148" height="58" rx="9"/>
+  <rect class="node" x="42" y="187" width="148" height="58" rx="9"/>
+  <rect class="node" x="42" y="269" width="148" height="58" rx="9"/>
+  <rect class="node" x="316" y="169" width="118" height="94" rx="12"/>
+  <g class="mono" text-anchor="middle">
+    <text x="116" y="139">ProductHero</text>
+    <text x="116" y="221">PriceBlock</text>
+    <text x="116" y="303">CartButton</text>
+    <text x="375" y="205">Database</text>
+    <text x="375" y="225">or API</text>
+  </g>
+  <g class="arrow" marker-end="url(#arrow-muted)">
+    <path d="M190 134C245 134 262 178 316 191"/>
+    <path d="M190 216H316"/>
+    <path d="M190 298C245 298 262 254 316 241"/>
+  </g>
+  <g class="small">
+    <text x="238" y="144">load #1</text>
+    <text x="238" y="207">load #2</text>
+    <text x="238" y="290">load #3</text>
+  </g>
+  <rect class="badge-left" x="42" y="354" width="392" height="36" rx="18"/>
+  <text class="body bad" x="238" y="377" font-weight="600" text-anchor="middle">3 component reads → 3 origin loads</text>
+
+  <rect class="panel-right" x="483" y="18" width="459" height="394" rx="14"/>
+  <rect x="483" y="18" width="459" height="394" rx="14" fill="none" stroke="#16a34a" stroke-opacity="0.6" stroke-width="1.4"/>
+  <text class="heading" x="505" y="52">Stable key + request resolver</text>
+  <text class="body" x="505" y="74">Every component asks for the same resource identity</text>
+
+  <rect class="node" x="505" y="105" width="126" height="58" rx="9"/>
+  <rect class="node" x="505" y="187" width="126" height="58" rx="9"/>
+  <rect class="node" x="505" y="269" width="126" height="58" rx="9"/>
+  <rect class="resolver" x="686" y="158" width="124" height="116" rx="12"/>
+  <rect class="node" x="850" y="169" width="72" height="94" rx="12"/>
+  <g class="mono" text-anchor="middle">
+    <text x="568" y="139">ProductHero</text>
+    <text x="568" y="221">PriceBlock</text>
+    <text x="568" y="303">CartButton</text>
+    <text x="748" y="188">DataResolver</text>
+    <text class="accent" x="748" y="215">product:42</text>
+    <text class="body" x="748" y="244">shared result</text>
+    <text x="886" y="205">DB</text>
+    <text x="886" y="225">API</text>
+  </g>
+  <g class="arrow-accent" marker-end="url(#arrow-accent)">
+    <path d="M631 134C657 134 663 179 686 190"/>
+    <path d="M631 216H686"/>
+    <path d="M631 298C657 298 663 253 686 242"/>
+    <path d="M810 216H850"/>
+  </g>
+  <g class="small accent" text-anchor="middle">
+    <text x="658" y="126">same key</text>
+    <text x="658" y="207">same key</text>
+    <text x="658" y="307">same key</text>
+    <text x="830" y="207">1 load</text>
+  </g>
+  <rect class="badge-right" x="505" y="354" width="417" height="36" rx="18"/>
+  <text class="body accent" x="713.5" y="377" font-weight="600" text-anchor="middle">3 component reads → 1 origin load</text>
+</svg>

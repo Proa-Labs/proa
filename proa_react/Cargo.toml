@@ -1,0 +1,20 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_react"
+version = "0.3.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "React server-rendering and hydration interop for Proa."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+arrayvec = { workspace = true }
+proa_core = { workspace = true }
+proa_macros = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

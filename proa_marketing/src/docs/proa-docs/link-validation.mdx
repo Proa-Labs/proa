@@ -1,0 +1,172 @@
+---
+title: Link validation
+description: Validate internal links, heading hashes, relative paths, and app-specific link attributes at build time.
+---
+
+`proa_docs_build` records links while it compiles Markdown. The validator checks those links against the compiled page graph, so broken docs links can fail CI before the site ships.
+
+Use it for three common problems:
+
+- a page links to a route that does not exist
+- a page links to a heading id that changed
+- a relative docs link resolves differently than the author expected
+
+## Strict Mode
+
+Use strict mode in production docs:
+
+```rust
+let docs = proa_docs_build::DocsSource::new("src/docs")
+    .link_validation(proa_docs_build::LinkValidation::strict());
+```
+
+`LinkValidation::strict()` sets `mode` to `Error`. During `try_compile`, broken links print diagnostics and return `CompileError::LinkValidation(count)`. The convenience `compile` wrapper panics on that error, which is usually what you want in `build.rs`.
+
+```text
+cargo:warning=docs link validation: src/docs/guides/page.md: unknown internal route `/docs/guides/missing` (./missing)
+cargo:warning=docs link validation: src/docs/core.md: unknown hash `#old-heading` on current page (#old-heading)
+```
+
+Keep strict mode on for docs that publish with the application. Use softer modes only while migrating a large collection.
+
+## Configure Checks
+
+```rust
+use proa_docs_build::{
+    ExternalLinkCheck, LinkValidation, LinkValidationMode, RelativePathMode,
+};
+
+let validation = LinkValidation::new()
+    .mode(LinkValidationMode::Error)
+    .check_internal(true)
+    .check_hashes(true)
+    .check_relative_paths(RelativePathMode::AsUrl)
+    .check_external(ExternalLinkCheck::Disabled);
+```
+
+| Option | Purpose |
+|--------|---------|
+| `mode` | `Off`, `Warn`, or `Error`. `Error` is the mode enforced by `compile`. |
+| `check_internal` | Verify internal route targets exist. |
+| `check_hashes` | Verify `#heading` targets exist on the page. |
+| `check_relative_paths` | Treat relative links as ignored, URL-relative, or file-relative. |
+| `check_external` | Present in the API; the current validator skips `http://` and `https://` links. |
+| `component_attr` | Present in the API for app-specific link extraction; not consumed by the current Markdown validator. |
+| `static_root` | Present in the API for static asset roots; not consumed by the current Markdown validator. |
+
+Defaults are intentionally useful for docs:
+
+```rust
+let validation = LinkValidation::new();
+
+assert_eq!(validation.mode, LinkValidationMode::Warn);
+assert!(validation.check_internal);
+assert!(validation.check_hashes);
+```
+
+For production builds, prefer:
+
+```rust
+let validation = LinkValidation::strict()
+    .check_relative_paths(RelativePathMode::AsUrl);
+```
+
+`RelativePathMode::AsUrl` resolves `./quickstart` from `/docs/guides/install` to `/docs/guides/quickstart`. `RelativePathMode::Ignore` skips relative links. `RelativePathMode::AsFile` exists in the enum, but the current validator only performs URL-style relative resolution.
+
+## What Gets Checked
+
+The validator ignores empty links, `mailto:`, `tel:`, `http://`, and `https://` links. It checks:
+
+| Link | Check |
+|------|-------|
+| `/docs/core` | Route exists in the compiled docs graph. |
+| `/docs/core#render-traits` | Route exists and that page has the heading id. |
+| `#quick-reference` | Current page has the heading id. |
+| `./quickstart` | Resolves as a URL when `RelativePathMode::AsUrl` is selected. |
+
+For example, `/docs/core#render-traits` must point to a compiled page and a known heading id on that page.
+
+Heading ids come from Markdown headings after slug generation:
+
+```markdown
+## Render Traits
+
+[Jump to render traits](/docs/core/html-rendering)
+```
+
+If the heading changes to `## Rendering Traits`, the link now points at a missing hash and strict validation fails.
+
+## Validate Without Emitting
+
+Use `validate_links` when you want a dedicated CI check:
+
+```rust
+let report = proa_docs_build::validate_links(
+    proa_docs_build::Config::new().source(
+        proa_docs_build::DocsSource::new("src/docs")
+            .link_validation(proa_docs_build::LinkValidation::strict()),
+    ),
+)?;
+
+if !report.is_empty() {
+    for diagnostic in report.diagnostics {
+        eprintln!(
+            "{}: {}: {}",
+            diagnostic.source_path,
+            diagnostic.href,
+            diagnostic.message,
+        );
+    }
+}
+```
+
+This path is useful for a dedicated CI job because it builds the link graph and returns diagnostics without writing generated docs files.
+
+## CI Pattern
+
+Keep the build and link check separate when you want clearer failure output:
+
+```rust
+fn main() {
+    let config = proa_docs_build::Config::new().source(
+        proa_docs_build::DocsSource::new("src/docs")
+            .link_validation(proa_docs_build::LinkValidation::strict()),
+    );
+
+    proa_docs_build::compile(config);
+}
+```
+
+```rust
+#[test]
+fn docs_links_are_valid() {
+    let report = proa_docs_build::validate_links(
+        proa_docs_build::Config::new().source(
+            proa_docs_build::DocsSource::new("src/docs")
+                .link_validation(proa_docs_build::LinkValidation::strict()),
+        ),
+    )
+    .expect("link validation should run");
+
+    assert!(
+        report.is_empty(),
+        "docs contain broken links: {:#?}",
+        report.diagnostics
+    );
+}
+```
+
+Run it with the rest of the docs checks:
+
+```sh
+cargo test -p my-site docs_links_are_valid
+cargo check -p my-site
+```
+
+## Authoring Rules
+
+- Prefer absolute docs links when linking between major sections.
+- Use relative links only inside a tight folder, such as `guides/`.
+- Link to headings only when the target heading is stable.
+- Run strict validation before renaming pages or headings.
+- Keep redirects in app routing; the current validator checks compiled page routes, not redirect tables.

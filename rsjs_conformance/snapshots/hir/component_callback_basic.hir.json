@@ -1,0 +1,89 @@
+[
+  {
+    "kind": "let",
+    "local": 0,
+    "name": "next",
+    "span": {
+      "end": {
+        "column": 23,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    },
+    "value": {
+      "kind": "event_value",
+      "span": {
+        "end": {
+          "column": 36,
+          "line": 1
+        },
+        "start": {
+          "column": 31,
+          "line": 1
+        }
+      },
+      "value": "TargetValue"
+    }
+  },
+  {
+    "args": [
+      {
+        "kind": "local",
+        "local": 0,
+        "span": {
+          "end": {
+            "column": 37,
+            "line": 2
+          },
+          "start": {
+            "column": 33,
+            "line": 2
+          }
+        }
+      }
+    ],
+    "kind": "console",
+    "level": "Log",
+    "span": {
+      "end": {
+        "column": 27,
+        "line": 2
+      },
+      "start": {
+        "column": 20,
+        "line": 2
+      }
+    }
+  },
+  {
+    "kind": "callback_invoke",
+    "payload": {
+      "kind": "local",
+      "local": 0,
+      "span": {
+        "end": {
+          "column": 44,
+          "line": 3
+        },
+        "start": {
+          "column": 40,
+          "line": 3
+        }
+      }
+    },
+    "slot": 0,
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 3
+      },
+      "start": {
+        "column": 20,
+        "line": 3
+      }
+    }
+  }
+]

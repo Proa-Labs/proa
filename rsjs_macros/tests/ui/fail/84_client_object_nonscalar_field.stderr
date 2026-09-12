@@ -1,0 +1,7 @@
+error: rsjs: unsupported client value-object field type
+         help: use bool, i32/u32/i64/u64, f64, String, or &str fields
+         note: the first nominal object schema carries scalar own properties only
+ --> tests/ui/fail/84_client_object_nonscalar_field.rs:4:18
+  |
+4 |         history: Vec<i32>,
+  |                  ^^^

@@ -1,0 +1,4 @@
+--- sync ---
+:: proa_core :: shared :: html_node :: static_html (b"<a href=\"https://example.com\" target=\"_blank\" rel=\"me noopener noreferrer\">Docs</a>")
+--- async ---
+:: proa_core :: shared :: html_node :: static_html (b"<a href=\"https://example.com\" target=\"_blank\" rel=\"me noopener noreferrer\">Docs</a>")

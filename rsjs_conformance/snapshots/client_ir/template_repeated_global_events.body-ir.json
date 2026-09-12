@@ -1,0 +1,19 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "args": [
+        {
+          "attr": "data-rsjs-payload-p0",
+          "kind": "event_payload"
+        },
+        {
+          "kind": "event_read",
+          "value": "key"
+        }
+      ],
+      "kind": "console",
+      "level": "log"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+error: rsjs boundary: closure values cannot be rendered as client-reactive expressions
+
+       Why:
+         Text and attribute reactive slots compile to a small explicit Client IR so rsjs can generate deterministic JavaScript. Arbitrary Rust expressions do not have a JS lowering unless they fit that surface or are moved behind an explicit client helper.
+
+       Use one of:
+         - Use a supported reactive form: literals, `signal.get()`, `signal.is_non_empty()` / `.is_empty()`, string `.to_lowercase()` / `.to_uppercase()` / `.trim()` / `.contains(...)` / `.starts_with(...)` / `.ends_with(...)`, `rsjs::encoding::*`, value `if`/`else`, arithmetic/comparison, or unary `!`.
+         - If the expression is server-only Proa content, wrap it in `rsjs::server_only(...)`.
+         - If it needs portable origin-free client computation, move that logic into a standalone helper annotated once with `#[rsjs::client]`; reachable calls are linked automatically.
+
+       Tracked feature:
+         reactive.closure
+  --> tests/ui/conformance/fail/03_reactive_closure.rs:19:24
+   |
+19 |                 <span>{|value: i64| value + 1_i64}</span>
+   |                        ^

@@ -1,0 +1,472 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "kind": "signal_set",
+      "signal": 0,
+      "value": {
+        "area": "local",
+        "fallback": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": ""
+          }
+        },
+        "key": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": ""
+          }
+        },
+        "kind": "browser_read",
+        "read": "storage"
+      }
+    },
+    {
+      "args": [
+        {
+          "area": "session",
+          "key": {
+            "kind": "literal",
+            "value": {
+              "kind": "string",
+              "value": ""
+            }
+          },
+          "kind": "browser_read",
+          "read": "storage"
+        }
+      ],
+      "kind": "console",
+      "level": "log"
+    },
+    {
+      "args": [
+        {
+          "area": "local",
+          "fallback": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          },
+          "key": {
+            "kind": "literal",
+            "value": {
+              "kind": "string",
+              "value": "enabled"
+            }
+          },
+          "kind": "browser_read",
+          "read": "storage",
+          "value_type": "bool"
+        },
+        {
+          "area": "local",
+          "fallback": {
+            "kind": "literal",
+            "value": {
+              "kind": "bigint",
+              "value": "0"
+            }
+          },
+          "key": {
+            "kind": "literal",
+            "value": {
+              "kind": "string",
+              "value": "count"
+            }
+          },
+          "kind": "browser_read",
+          "read": "storage",
+          "value_type": "i64"
+        },
+        {
+          "area": "session",
+          "fallback": {
+            "kind": "literal",
+            "value": {
+              "kind": "float",
+              "value": 0
+            }
+          },
+          "key": {
+            "kind": "literal",
+            "value": {
+              "kind": "string",
+              "value": "ratio"
+            }
+          },
+          "kind": "browser_read",
+          "read": "storage",
+          "value_type": "f64"
+        }
+      ],
+      "kind": "console",
+      "level": "log"
+    },
+    {
+      "effect": {
+        "kind": "window_scroll_to",
+        "x": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 0
+          }
+        },
+        "y": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 100
+          }
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "window_scroll_by",
+        "x": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 0
+          }
+        },
+        "y": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 20
+          }
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "window_print"
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "location_set_hash",
+        "value": {
+          "kind": "signal_read",
+          "signal": 0
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "location_assign",
+        "url": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "/catalog/filters"
+          }
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "location_replace",
+        "url": {
+          "kind": "signal_read",
+          "signal": 0
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "location_reload"
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "history_push_state",
+        "url": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "/catalog#filters"
+          }
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "history_replace_state",
+        "url": {
+          "field": "pathname",
+          "kind": "browser_read",
+          "read": "location"
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "history_back"
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "history_forward"
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "delta": {
+          "kind": "literal",
+          "value": {
+            "kind": "int",
+            "value": 1
+          }
+        },
+        "kind": "history_go"
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "document_dispatch_event",
+        "name": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "filters:changed"
+          }
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "detail": {
+          "kind": "signal_read",
+          "signal": 0
+        },
+        "kind": "document_dispatch_event",
+        "name": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "filters:changed"
+          }
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "document_set_title",
+        "title": {
+          "kind": "signal_read",
+          "signal": 0
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "clipboard_write_text",
+        "text": {
+          "kind": "signal_read",
+          "signal": 0
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "kind": "webauthn_create_json_into",
+        "options_json": {
+          "kind": "signal_read",
+          "signal": 1
+        },
+        "target": 2
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "fallback": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "unavailable"
+          }
+        },
+        "kind": "webauthn_get_json_into",
+        "options_json": {
+          "kind": "signal_read",
+          "signal": 1
+        },
+        "target": 2
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "area": "local",
+        "key": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "filters"
+          }
+        },
+        "kind": "storage_set_item",
+        "value": {
+          "kind": "signal_read",
+          "signal": 0
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "area": "local",
+        "key": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "filters:stale"
+          }
+        },
+        "kind": "storage_remove_item"
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "area": "session",
+        "key": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "filters"
+          }
+        },
+        "kind": "storage_set_item",
+        "value": {
+          "kind": "signal_read",
+          "signal": 0
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "area": "session",
+        "key": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "filters:stale"
+          }
+        },
+        "kind": "storage_remove_item"
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "key": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "filters"
+          }
+        },
+        "kind": "url_set_search_param",
+        "value": {
+          "kind": "signal_read",
+          "signal": 0
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "key": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "stale"
+          }
+        },
+        "kind": "url_delete_search_param"
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "history": "push",
+        "key": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "page"
+          }
+        },
+        "kind": "url_set_search_param",
+        "value": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "2"
+          }
+        }
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "effect": {
+        "history": "push",
+        "key": {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "modal"
+          }
+        },
+        "kind": "url_delete_search_param"
+      },
+      "kind": "browser_effect"
+    },
+    {
+      "args": [
+        {
+          "kind": "encoding",
+          "op": "base64url_encode",
+          "value": {
+            "kind": "encoding",
+            "op": "utf8_bytes",
+            "value": {
+              "kind": "signal_read",
+              "signal": 0
+            }
+          }
+        }
+      ],
+      "kind": "console",
+      "level": "log"
+    }
+  ]
+}

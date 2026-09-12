@@ -1,0 +1,4 @@
+--- sync ---
+:: proa_core :: shared :: html_node :: optimized_html_from_fn (| cx | -> Result < () , :: proa_core :: shared :: write_buf :: WriteError > { :: proa_core :: WriteBuf :: extend_static (& mut cx . out , b"<span>a</span>") ? ; :: proa_core :: WebRenderSync :: render (value , cx) ? ; :: proa_core :: WriteBuf :: extend_static (& mut cx . out , b"<span>b</span>") ? ; Ok (()) })
+--- async ---
+:: proa_core :: shared :: html_node :: async_html_from_fn (:: std :: boxed :: Box :: new (| cx | { :: std :: boxed :: Box :: pin (async move { :: proa_core :: WriteBuf :: extend_static (& mut cx . out , b"<span>a</span>") ? ; :: proa_core :: render_child (cx , value) . await ? ; :: proa_core :: WriteBuf :: extend_static (& mut cx . out , b"<span>b</span>") ? ; Ok (()) }) }))

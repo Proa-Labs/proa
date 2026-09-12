@@ -1,0 +1,61 @@
+---
+title: Cross-origin and CSRF
+description: Reject forged cross-origin writes, and add the CSRF defense Proa does not.
+---
+
+`FrameworkBuilder::build()` rejects browser-issued unsafe cross-origin requests, POST, PUT, PATCH, DELETE, before they reach a handler. They return `403`.
+
+Safe methods pass. Non-browser clients pass. You do not turn this on.
+
+```rust filename="src/main.rs"
+let app = FrameworkBuilder::new(manifest)
+    .with_trusted_origin("https://admin.example.com")
+    .build();
+```
+
+Add a trusted origin when a browser on another origin legitimately needs to write to your app.
+
+## What else is on by default
+
+The same outer hardening applies to pages and endpoints alike:
+
+| Default | Effect |
+|---------|--------|
+| Cross-origin protection | Browser-issued cross-origin unsafe requests return `403` unless trusted |
+| Body limit | Requests capped at 1 MiB unless overridden |
+| Request timeout | Handlers must respond within 30 seconds by default |
+| Security headers | Framework responses get baseline hardening headers |
+
+Raise the body limit deliberately, per route, when a handler accepts file uploads. A global raise removes the protection everywhere.
+
+## This is not a CSRF-token service
+
+The distinction matters and it is easy to miss.
+
+Cross-origin protection rejects a request based on **its shape**, the method and the originating origin. A CSRF token proves the request came from **a form your app rendered**, to a user you authenticated.
+
+| Attack | Blocked by origin checks? |
+|---|---|
+| A form on `evil.example` POSTs to your app | Yes |
+| A `fetch()` from another origin issues a DELETE | Yes |
+| A replayed request with a stolen session cookie | **No** |
+| A forged request from a same-origin XSS foothold | **No** |
+
+If you migrated from Rails or Django, this is the gap where `csrf_meta_tags` and `{% csrf_token %}` used to sit. Proa does not issue or validate tokens. Configure that in Axum middleware, and keep the token check on every unsafe browser-issued method.
+
+For browser-facing mutations, keep using same-origin forms or same-origin `fetch`. For cross-origin API clients, configure trusted origins deliberately, or mount a separately configured Axum router outside the framework builder.
+
+> **Good to know**: Disable the layer only for a router that implements an equivalent defense. Turning it off to fix a `403` during development usually means an origin needs adding, not that the layer is wrong.
+
+## Next steps
+
+- [Security](/docs/guides/security)
+  - What Proa hardens by default, and what stays your job.
+- [Headers and CSP](/docs/framework/security-headers)
+  - Set frame policy, HSTS, and a nonce-based Content Security Policy.
+- [Forms and actions](/docs/guides/forms-actions)
+  - Build HTML forms, handle submissions with Axum, and attach typed actions.
+- [Route handlers](/docs/framework/route-handlers)
+  - Build JSON, form, and webhook endpoints with Route::endpoint.
+- [From Rails](/docs/migration/rails)
+  - Migrate from Rails ERB templates to Proa, run Proa as a rendering service alongside your Rails app.

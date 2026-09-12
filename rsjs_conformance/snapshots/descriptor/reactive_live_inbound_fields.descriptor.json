@@ -1,0 +1,421 @@
+{
+  "asset_id": "<asset_id>",
+  "bindings": {
+    "attrs": [
+      {
+        "expr": 0,
+        "kind": "value",
+        "name": "class",
+        "node": 0
+      }
+    ],
+    "conditionals": [
+      {
+        "condition": 2,
+        "else": [],
+        "parent": 0,
+        "then": [
+          2
+        ]
+      }
+    ],
+    "events": [
+      {
+        "event": "click",
+        "handler": 0,
+        "node": 2
+      }
+    ],
+    "inputs": [],
+    "refs": [],
+    "text": [
+      {
+        "expr": 1,
+        "node": 1
+      }
+    ]
+  },
+  "callback_slots": [
+    {
+      "id": 0,
+      "name": "on_activate"
+    }
+  ],
+  "client_ir_version": 3,
+  "client_origin_permission": "origin_capable",
+  "counts": {
+    "callback_slots": 1,
+    "crossings": 4,
+    "exprs": 3,
+    "fields": 4,
+    "handlers": 1,
+    "node_ref_fields": 0,
+    "node_refs": 0,
+    "nodes": 4,
+    "projection_fields": 0,
+    "prop_sites": 4,
+    "shared_state_provider_sites": 0,
+    "signals": 3,
+    "values": 4
+  },
+  "descriptor_hash": "sha256:<hash>",
+  "exprs": [
+    {
+      "expr": {
+        "kind": "signal_read",
+        "signal": 0
+      },
+      "id": 0
+    },
+    {
+      "expr": {
+        "kind": "signal_read",
+        "signal": 1
+      },
+      "id": 1
+    },
+    {
+      "expr": {
+        "kind": "signal_read",
+        "signal": 2
+      },
+      "id": 2
+    }
+  ],
+  "fields": [
+    {
+      "crossing_id": 0,
+      "id": 0,
+      "kind": "prop",
+      "name": "class",
+      "source": "live_read",
+      "source_anchor": {
+        "start_column": 29,
+        "start_line": 6
+      },
+      "value_id": 0
+    },
+    {
+      "crossing_id": 1,
+      "id": 1,
+      "kind": "prop",
+      "name": "label",
+      "source": "live_read",
+      "source_anchor": {
+        "start_column": 21,
+        "start_line": 7
+      },
+      "value_id": 1
+    },
+    {
+      "crossing_id": 2,
+      "id": 2,
+      "kind": "prop",
+      "name": "enabled",
+      "source": "live_read",
+      "source_anchor": {
+        "start_column": 21,
+        "start_line": 8
+      },
+      "value_id": 2
+    },
+    {
+      "callback_shape": "required",
+      "callback_slot": 0,
+      "crossing_id": 3,
+      "dispatch": "resolve_current",
+      "id": 3,
+      "kind": "handler",
+      "name": "on_activate",
+      "source": "callback_slot_usage",
+      "source_anchor": {
+        "start_column": 13,
+        "start_line": 2
+      },
+      "value_id": 3
+    }
+  ],
+  "format": "rsjs.component_descriptor",
+  "handlers": [
+    {
+      "body_ir": {
+        "kind": "block",
+        "stmts": [
+          {
+            "callback": 0,
+            "kind": "callback_invoke",
+            "payload": {
+              "kind": "signal_read",
+              "signal": 1
+            }
+          }
+        ]
+      },
+      "body_ir_version": 3,
+      "id": 0,
+      "source_anchor": {
+        "start_column": 24,
+        "start_line": 1
+      },
+      "source_name": "activate"
+    }
+  ],
+  "inbound_inputs": {
+    "crossings": [
+      {
+        "field_id": 0,
+        "id": 0,
+        "kind": "value",
+        "source_anchor": {
+          "start_column": 29,
+          "start_line": 6
+        }
+      },
+      {
+        "field_id": 1,
+        "id": 1,
+        "kind": "value",
+        "source_anchor": {
+          "start_column": 21,
+          "start_line": 7
+        }
+      },
+      {
+        "field_id": 2,
+        "id": 2,
+        "kind": "value",
+        "source_anchor": {
+          "start_column": 21,
+          "start_line": 8
+        }
+      },
+      {
+        "field_id": 3,
+        "id": 3,
+        "kind": "callback_resolve_current",
+        "source_anchor": {
+          "start_column": 13,
+          "start_line": 2
+        }
+      }
+    ],
+    "node_ref_fields": [],
+    "projection_fields": [],
+    "prop_sites": [
+      {
+        "crossing_id": 0,
+        "field_id": 0,
+        "id": 0,
+        "source_anchor": {
+          "start_column": 29,
+          "start_line": 6
+        },
+        "target": {
+          "kind": "live_signal",
+          "signal_id": 0
+        },
+        "temporal": {
+          "kind": "live_read"
+        },
+        "value_id": 0
+      },
+      {
+        "crossing_id": 1,
+        "field_id": 1,
+        "id": 1,
+        "source_anchor": {
+          "start_column": 21,
+          "start_line": 7
+        },
+        "target": {
+          "kind": "live_signal",
+          "signal_id": 1
+        },
+        "temporal": {
+          "kind": "live_read"
+        },
+        "value_id": 1
+      },
+      {
+        "crossing_id": 2,
+        "field_id": 2,
+        "id": 2,
+        "source_anchor": {
+          "start_column": 21,
+          "start_line": 8
+        },
+        "target": {
+          "kind": "live_signal",
+          "signal_id": 2
+        },
+        "temporal": {
+          "kind": "live_read"
+        },
+        "value_id": 2
+      },
+      {
+        "crossing_id": 1,
+        "field_id": 1,
+        "id": 3,
+        "source_anchor": {
+          "start_column": 35,
+          "start_line": 2
+        },
+        "target": {
+          "kind": "live_signal",
+          "signal_id": 1
+        },
+        "temporal": {
+          "kind": "live_read"
+        },
+        "value_id": 1
+      }
+    ],
+    "values": [
+      {
+        "field_id": 0,
+        "id": 0,
+        "source_anchor": {
+          "start_column": 29,
+          "start_line": 6
+        }
+      },
+      {
+        "field_id": 1,
+        "id": 1,
+        "source_anchor": {
+          "start_column": 21,
+          "start_line": 7
+        }
+      },
+      {
+        "field_id": 2,
+        "id": 2,
+        "source_anchor": {
+          "start_column": 21,
+          "start_line": 8
+        }
+      },
+      {
+        "field_id": 3,
+        "id": 3,
+        "source_anchor": {
+          "start_column": 13,
+          "start_line": 2
+        }
+      }
+    ]
+  },
+  "is_async": false,
+  "js_hash": "sha256:<hash>",
+  "mutations": [],
+  "node_refs": [],
+  "queries": [],
+  "schema_version": 9,
+  "self_ty": "LiveInboundFieldsSnapshot",
+  "shared_state_provider_sites": [],
+  "shared_stores": [],
+  "signals": [
+    {
+      "id": 0,
+      "init": {
+        "kind": "null",
+        "value": null
+      },
+      "source_anchor": {
+        "start_column": 29,
+        "start_line": 6
+      },
+      "source_name": "self.class",
+      "ty": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "id": 1,
+      "init": {
+        "kind": "null",
+        "value": null
+      },
+      "source_anchor": {
+        "start_column": 21,
+        "start_line": 7
+      },
+      "source_name": "self.label",
+      "ty": {
+        "kind": "unknown"
+      }
+    },
+    {
+      "id": 2,
+      "init": {
+        "kind": "null",
+        "value": null
+      },
+      "source_anchor": {
+        "start_column": 21,
+        "start_line": 8
+      },
+      "source_name": "self.enabled",
+      "ty": {
+        "kind": "unknown"
+      }
+    }
+  ],
+  "struct_name": "LiveInboundFieldsSnapshot",
+  "view_tree": {
+    "nodes": [
+      {
+        "id": 0,
+        "node": {
+          "children": [
+            1,
+            2
+          ],
+          "kind": "element",
+          "payload_attrs": [],
+          "server_attrs": [],
+          "static_attrs": [],
+          "tag": "section"
+        }
+      },
+      {
+        "id": 1,
+        "node": {
+          "children": [],
+          "kind": "element",
+          "payload_attrs": [],
+          "server_attrs": [],
+          "static_attrs": [],
+          "tag": "p"
+        }
+      },
+      {
+        "id": 2,
+        "node": {
+          "children": [
+            3
+          ],
+          "kind": "element",
+          "payload_attrs": [],
+          "server_attrs": [],
+          "static_attrs": [
+            {
+              "name": "type",
+              "value": "button"
+            }
+          ],
+          "tag": "button"
+        }
+      },
+      {
+        "id": 3,
+        "node": {
+          "kind": "static_text",
+          "text": "Activate"
+        }
+      }
+    ],
+    "root": 0
+  }
+}

@@ -1,0 +1,805 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Release CLI
+
+# Produces the prebuilt archives that install.sh and install.ps1 download.
+# The naming below is the installer contract, not a preference: change it here
+# and every already-published installer stops finding assets.
+#
+#   tag       proa-cli-v<version>
+#   archive   proa-cli-<version>-x86_64-unknown-linux-gnu.tar.gz
+#   checksums proa-cli-<version>-SHA256SUMS        (sha256sum --check format)
+#   layout    proa-cli-<version>-<target>/{proa,cargo-proa,README.md,LICENSE}
+#
+# Stable releases are tag-driven. In addition, every successful push to main
+# publishes a prerelease snapshot whose version is
+# <version-core>-main.<full-commit-sha>[.<original-prerelease>]. The main
+# channel is movable, but every archive it points at remains immutable and
+# reproducible.
+#
+# Every job runs on the unprivileged, ephemeral GCP Linux/amd64 pool. The
+# runner image is Ubuntu 24.04, so the native glibc-linked archive supports
+# x86_64 Ubuntu 24.04+ for now. Other platforms use the installers' existing
+# source-build fallback. Tag pushes, workflow_dispatch, and successful
+# push-to-main workflow runs are trusted events, so pull-request code never
+# executes in this workflow.
+
+on:
+  push:
+    tags:
+      - "proa-cli-v*"
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, without the proa-cli-v prefix. Defaults to the version in proa_cli/Cargo.toml."
+        required: false
+        type: string
+      dry_run:
+        description: "Build, package and verify the assets but do not create a GitHub Release."
+        required: false
+        default: true
+        type: boolean
+
+# Least privilege by default. Only the publishing job widens this.
+permissions:
+  contents: read
+
+concurrency:
+  # Only a successful push-to-main CI run joins the shared main group. Failed,
+  # manual, and pull-request CI completions still create workflow_run events,
+  # but their unique group cannot disturb publication. Never cancel a running
+  # release: the stale-main gates below stop superseded runs before visibility,
+  # while normal concurrency replacement keeps only the newest pending run.
+  group: >-
+    release-cli-${{
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      'main' ||
+      github.event_name != 'workflow_run' && github.ref ||
+      github.run_id
+    }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  setup:
+    name: Resolve version
+    # workflow_run can also observe manual and pull-request CI runs. Only a
+    # successful push to main is trusted to publish executable repository code.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main')
+    runs-on: gcp-pr-ci
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      cli_version: ${{ steps.resolve.outputs.cli_version }}
+      channel: ${{ steps.resolve.outputs.channel }}
+      publish: ${{ steps.resolve.outputs.publish }}
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Resolve and verify the release version
+        id: resolve
+        shell: bash
+        # Untrusted dispatch input reaches the script through the environment,
+        # never through a ${{ }} expansion inside the shell body.
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          if ! printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error title=Malformed source identity::expected a full commit SHA, got '${SOURCE_SHA}'"
+            exit 1
+          fi
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [ "$checked_out_sha" != "$SOURCE_SHA" ]; then
+            echo "::error title=Wrong source checkout::expected ${SOURCE_SHA}, checked out ${checked_out_sha}"
+            exit 1
+          fi
+
+          manifest_version="$(
+            awk -F'"' '
+              /^\[/ { in_package = ($0 == "[package]") }
+              in_package && /^[[:space:]]*version[[:space:]]*=/ { print $2; exit }
+            ' proa_cli/Cargo.toml
+          )"
+          if [ -z "$manifest_version" ]; then
+            echo "::error title=Manifest unreadable::could not read the version field from proa_cli/Cargo.toml"
+            exit 1
+          fi
+
+          case "$GITHUB_EVENT_NAME" in
+            workflow_run)
+              # The archive version is a unique distribution identity. The
+              # binary itself still reports the Cargo package version.
+              version="${manifest_version%%-*}-main.${SOURCE_SHA}"
+              if [ "$manifest_version" != "${manifest_version%%-*}" ]; then
+                version="${version}.${manifest_version#*-}"
+              fi
+              channel=main
+              publish=true
+              ;;
+            workflow_dispatch)
+              version="${INPUT_VERSION:-$manifest_version}"
+              channel=stable
+              ;;
+            *)
+              case "$GITHUB_REF_NAME" in
+                proa-cli-v*) ;;
+                *)
+                  echo "::error title=Unexpected tag::expected a tag named proa-cli-v<version>, got '${GITHUB_REF_NAME}'"
+                  exit 1
+                  ;;
+              esac
+              version="$GITHUB_REF_NAME"
+              channel=stable
+              ;;
+          esac
+
+          # Be forgiving about how the dispatch input is typed: proa-cli-v0.1.0,
+          # v0.1.0 and 0.1.0 all name the same release.
+          version="${version#proa-cli-v}"
+          version="${version#v}"
+
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error title=Malformed version::'${version}' is not a semver version"
+            exit 1
+          fi
+          if [ "${#version}" -gt 64 ]; then
+            echo "::error title=Version too long::'${version}' exceeds the download bridge's 64-byte version limit"
+            exit 1
+          fi
+
+          # The manifest is the source of truth for stable archives. Main
+          # snapshots deliberately add a commit-qualified distribution suffix.
+          if [ "$channel" = stable ] && [ "$version" != "$manifest_version" ]; then
+            echo "::error title=Version mismatch::the tag or input resolves to '${version}' but proa_cli/Cargo.toml declares '${manifest_version}'. Bump the manifest or retag."
+            exit 1
+          fi
+
+          if [ "$channel" = stable ]; then
+            if [ "${INPUT_DRY_RUN:-false}" = "true" ]; then
+              publish=false
+            else
+              publish=true
+            fi
+          fi
+
+          {
+            echo "version=${version}"
+            echo "cli_version=${manifest_version}"
+            echo "channel=${channel}"
+            echo "publish=${publish}"
+            echo "source_sha=${SOURCE_SHA}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Release CLI"
+            echo
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| channel | \`${channel}\` |"
+            echo "| source | \`${SOURCE_SHA}\` |"
+            echo "| CLI version | \`${manifest_version}\` |"
+            echo "| version | \`${version}\` |"
+            echo "| tag | \`proa-cli-v${version}\` |"
+            echo "| creates a release | \`${publish}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build Ubuntu x86_64 archive
+    needs: setup
+    runs-on: gcp-pr-ci
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.setup.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Verify the pinned Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/ { print $2; exit }' rust-toolchain.toml)"
+          if [ -z "$channel" ]; then
+            echo "::error title=Toolchain unreadable::could not read the channel field from rust-toolchain.toml"
+            exit 1
+          fi
+          if [ "$(rustc --version | awk '{print $2}')" != "$channel" ]; then
+            echo "::error title=Runner toolchain is stale::rebuild the GCP runner image for Rust ${channel}"
+            exit 1
+          fi
+          if ! rustup target list --installed | grep -Fxq "$TARGET"; then
+            echo "::error title=Runner target is missing::rebuild the GCP runner image with ${TARGET}"
+            exit 1
+          fi
+          rustc --version
+          cargo --version
+
+      # Builds both binaries: proa and cargo-proa are the two [[bin]] targets
+      # of the proa-cli package.
+      - name: Build
+        run: cargo build --release --locked -p proa-cli --target "$TARGET"
+
+      - name: Package
+        shell: bash
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          stage="proa-cli-${VERSION}-${TARGET}"
+          stage_dir="dist/${stage}"
+          rm -rf dist
+          mkdir -p "$stage_dir"
+
+          for binary in proa cargo-proa; do
+            source_path="target/${TARGET}/release/${binary}"
+            if [ ! -x "$source_path" ]; then
+              echo "::error title=Missing build output::${source_path} was not produced"
+              exit 1
+            fi
+            cp "$source_path" "${stage_dir}/${binary}"
+          done
+
+          # A failed strip costs archive size, not a release, so it warns.
+          for binary in proa cargo-proa; do
+            binary_path="${stage_dir}/${binary}"
+            if command -v strip > /dev/null 2>&1; then
+              strip "$binary_path" || echo "::warning title=strip failed::${binary_path} is shipping unstripped"
+            else
+              echo "::warning title=strip unavailable::${binary_path} is shipping unstripped"
+            fi
+            chmod 755 "$binary_path"
+          done
+
+          cp README.md LICENSE "${stage_dir}/"
+
+          archive="proa-cli-${VERSION}-${TARGET}.tar.gz"
+          tar -czf "dist/${archive}" -C dist "$stage"
+          rm -rf "$stage_dir"
+
+          # Bare filenames in the checksum line so sha256sum --check works from
+          # whatever directory the installer downloads assets into.
+          (
+            cd dist
+            sha256sum "$archive" > "${archive}.sha256"
+            cat "${archive}.sha256"
+          )
+
+      - name: Upload the Ubuntu archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proa-cli-x86_64-unknown-linux-gnu
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Checksums and GitHub Release
+    needs: [setup, build]
+    runs-on: gcp-pr-ci
+    timeout-minutes: 15
+    outputs:
+      published: ${{ steps.available.outputs.published }}
+    concurrency:
+      group: release-cli-publish-${{ needs.setup.outputs.version }}
+      cancel-in-progress: false
+    permissions:
+      # The only job that can write. Every build job above stays read-only, so
+      # a compromised build step cannot publish assets on its own.
+      contents: write
+      # GitHub artifact attestations require both capabilities. The attestation
+      # step activates when the repository is public; private Team repositories
+      # cannot persist GitHub attestations without Enterprise Cloud.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.setup.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Download the Ubuntu archive
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          pattern: proa-cli-*
+          merge-multiple: true
+
+      - name: Assemble and verify the checksum file
+        shell: bash
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          python3 scripts/verify_cli_release_assets.py \
+            verify dist --version "$VERSION"
+
+          cd dist
+          sums="proa-cli-${VERSION}-SHA256SUMS"
+          rm -f ./*.sha256
+
+          # The same command the installers run. Failing here beats publishing
+          # a checksum file that every install would reject.
+          sha256sum --check "$sums"
+          cat "$sums"
+
+          {
+            echo "### Assets"
+            echo
+            echo '```'
+            cat "$sums"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the checksum file
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proa-cli-SHA256SUMS
+          path: dist/proa-cli-*-SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Decide whether this exact release should publish
+        id: publish_gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.setup.outputs.version }}
+          CHANNEL: ${{ needs.setup.outputs.channel }}
+          REQUESTED_PUBLISH: ${{ needs.setup.outputs.publish }}
+          SOURCE_SHA: ${{ needs.setup.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          publish=false
+          create=false
+          reason=dry-run
+          if [ "$REQUESTED_PUBLISH" != true ]; then
+            {
+              echo "publish=${publish}"
+              echo "create=${create}"
+              echo "reason=${reason}"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A rerun of an old successful CI workflow must never move the main
+          # channel backwards. Check at publication time, after the build.
+          if [ "$CHANNEL" = main ]; then
+            current_main="$(
+              gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha'
+            )"
+            if [ "$current_main" != "$SOURCE_SHA" ]; then
+              reason=stale-main
+              echo "::notice title=Superseded main snapshot::${SOURCE_SHA} is no longer main (${current_main}); verified its archives but will not publish them"
+              {
+                echo "publish=${publish}"
+                echo "create=${create}"
+                echo "reason=${reason}"
+              } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          tag="proa-cli-v${VERSION}"
+          response="$RUNNER_TEMP/proa-cli-existing-release"
+          if gh api --include \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" \
+            > "$response" 2>&1
+          then
+            if [ "$CHANNEL" != main ]; then
+              echo "::error title=Immutable release already exists::${tag} already has a GitHub Release; bump proa_cli/Cargo.toml instead of replacing versioned assets"
+              exit 1
+            fi
+
+            tag_commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${tag}" --jq '.sha')"
+            if [ "$tag_commit" != "$SOURCE_SHA" ]; then
+              echo "::error title=Main snapshot points elsewhere::${tag} resolves to ${tag_commit}, expected ${SOURCE_SHA}"
+              exit 1
+            fi
+
+            # Published main CI reruns are idempotent. Reuse only a prerelease
+            # whose tag, source, and exact assets all agree.
+            if [ "$(gh release view "$tag" --json isPrerelease --jq '.isPrerelease')" != true ]; then
+              echo "::error title=Main snapshot is not reusable::${tag} is published but is not a prerelease"
+              exit 1
+            fi
+            expected="$RUNNER_TEMP/proa-cli-expected-existing-assets"
+            actual="$RUNNER_TEMP/proa-cli-existing-assets"
+            python3 scripts/verify_cli_release_assets.py \
+              names --version "$VERSION" > "$expected"
+            gh release view "$tag" --json assets \
+              --jq '.assets[].name' | LC_ALL=C sort > "$actual"
+            if ! diff -u "$expected" "$actual"; then
+              echo "::error title=Main snapshot differs::${tag} does not contain the exact verified asset set"
+              exit 1
+            fi
+            publish=true
+            reason=reused
+            echo "::notice title=Idempotent main publish::${tag} is already complete and points at ${SOURCE_SHA}"
+            {
+              echo "publish=${publish}"
+              echo "create=${create}"
+              echo "reason=${reason}"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! head -n 1 "$response" | grep -Eq '^HTTP/[^ ]+ 404 '; then
+            echo "::error title=Release preflight failed::GitHub did not confirm that ${tag} is unused"
+            tail -n 20 "$response"
+            exit 1
+          fi
+
+          # The by-tag endpoint is published-only. Find an interrupted draft
+          # through the authenticated list endpoint instead of relying on a 404.
+          drafts="$RUNNER_TEMP/proa-cli-draft-releases"
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | select(.draft == true) | [.id, .tag_name] | @tsv' > "$drafts"
+          draft_id=
+          draft_matches=0
+          while IFS=$'\t' read -r candidate_id candidate_tag; do
+            if [ "$candidate_tag" = "$tag" ]; then
+              draft_id="$candidate_id"
+              draft_matches=$((draft_matches + 1))
+            fi
+          done < "$drafts"
+          if [ "$draft_matches" -gt 1 ]; then
+            echo "::error title=Ambiguous hidden release::found ${draft_matches} drafts named ${tag}"
+            exit 1
+          fi
+          if [ -n "$draft_id" ]; then
+            if [ "$CHANNEL" != main ]; then
+              echo "::error title=Stable draft needs review::${tag} has an unpublished draft; inspect and delete it before retrying"
+              exit 1
+            fi
+            # Draft bytes have never been visible through the bridge. Removing
+            # only that release (not its exact-source tag) makes an automatic
+            # main retry safe; the tag provenance check below still applies.
+            gh api --method DELETE \
+              "repos/${GITHUB_REPOSITORY}/releases/${draft_id}"
+            echo "::notice title=Retrying hidden main draft::removed unpublished draft ${draft_id} for ${tag}"
+          fi
+
+          # A failed tag-triggered run can legitimately leave a tag without a
+          # release. Reusing it is safe only when it still names the exact
+          # commit being built; otherwise source and binary provenance diverge.
+          tag_response="$RUNNER_TEMP/proa-cli-existing-tag"
+          if gh api --include \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" \
+            > "$tag_response" 2>&1
+          then
+            tag_commit="$(
+              gh api "repos/${GITHUB_REPOSITORY}/commits/${tag}" --jq '.sha'
+            )"
+            if [ "$tag_commit" != "$SOURCE_SHA" ]; then
+              echo "::error title=Tag points elsewhere::${tag} resolves to ${tag_commit}, but this run is building ${SOURCE_SHA}; bump the CLI version"
+              exit 1
+            fi
+          elif ! head -n 1 "$tag_response" | grep -Eq '^HTTP/[^ ]+ 404 '; then
+            echo "::error title=Tag preflight failed::GitHub did not confirm whether ${tag} already exists"
+            tail -n 20 "$tag_response"
+            exit 1
+          fi
+
+          publish=true
+          create=true
+          reason=create
+          {
+            echo "publish=${publish}"
+            echo "create=${create}"
+            echo "reason=${reason}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attest release archives
+        if: steps.publish_gate.outputs.create == 'true' && github.event.repository.visibility == 'public'
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: |
+            dist/proa-cli-*.tar.gz
+            dist/proa-cli-*-SHA256SUMS
+
+      - name: Report deferred private-repository attestations
+        if: steps.publish_gate.outputs.create == 'true' && github.event.repository.visibility != 'public'
+        shell: bash
+        run: |
+          echo "::notice title=Artifact attestation deferred::GitHub artifact attestations require a public repository or GitHub Enterprise Cloud; checksums remain mandatory"
+
+      - name: Stage the draft GitHub Release
+        if: steps.publish_gate.outputs.create == 'true'
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: proa-cli-v${{ needs.setup.outputs.version }}
+          target_commitish: ${{ needs.setup.outputs.source_sha }}
+          name: proa-cli v${{ needs.setup.outputs.version }}
+          # A draft is invisible to normal release consumers while the action
+          # uploads its files one by one. It is published only after the exact
+          # remote asset set has passed the next step.
+          draft: true
+          prerelease: ${{ needs.setup.outputs.channel == 'main' || contains(needs.setup.outputs.version, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/proa-cli-*.tar.gz
+            dist/proa-cli-*-SHA256SUMS
+
+      - name: Verify the staged asset set
+        if: steps.publish_gate.outputs.create == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          expected="$RUNNER_TEMP/proa-cli-expected-assets"
+          actual="$RUNNER_TEMP/proa-cli-published-assets"
+          python3 scripts/verify_cli_release_assets.py \
+            names --version "$VERSION" > "$expected"
+          gh release view "proa-cli-v${VERSION}" \
+            --json assets \
+            --jq '.assets[].name' | LC_ALL=C sort > "$actual"
+          if ! diff -u "$expected" "$actual"; then
+            echo "::error title=Incomplete GitHub Release::published assets do not match the installer contract"
+            exit 1
+          fi
+
+      - name: Publish the verified GitHub Release
+        id: publish_release
+        if: steps.publish_gate.outputs.create == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.setup.outputs.version }}
+          CHANNEL: ${{ needs.setup.outputs.channel }}
+          SOURCE_SHA: ${{ needs.setup.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          tag="proa-cli-v${VERSION}"
+          if [ "$CHANNEL" = main ]; then
+            current_main="$(
+              gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha'
+            )"
+            if [ "$current_main" != "$SOURCE_SHA" ]; then
+              # The release is still a hidden draft. Remove it, leave the exact
+              # tag available for a safe retry, and do not move the main route.
+              gh release delete "$tag" --yes
+              echo "made_available=false" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Superseded during upload::main moved to ${current_main}; ${tag} stayed unpublished"
+              exit 0
+            fi
+          fi
+
+          gh release edit "$tag" --draft=false
+          if [ "$(gh release view "$tag" --json isDraft --jq '.isDraft')" != false ]; then
+            echo "::error title=Release stayed private::${tag} is still a draft"
+            exit 1
+          fi
+          echo "made_available=true" >> "$GITHUB_OUTPUT"
+
+      - name: Record the available release
+        id: available
+        if: >-
+          steps.publish_gate.outputs.publish == 'true' &&
+          (steps.publish_gate.outputs.create != 'true' ||
+          steps.publish_release.outputs.made_available == 'true')
+        shell: bash
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+          CHANNEL: ${{ needs.setup.outputs.channel }}
+        run: |
+          echo "published=true" >> "$GITHUB_OUTPUT"
+          echo "::notice title=CLI snapshot available::${CHANNEL} now has immutable proa-cli-v${VERSION}"
+
+      - name: Report why no release was created
+        if: steps.publish_gate.outputs.publish != 'true'
+        shell: bash
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+          REASON: ${{ steps.publish_gate.outputs.reason }}
+        run: |
+          set -euo pipefail
+          echo "::notice title=No release created::built, packaged and checksum-verified proa-cli v${VERSION}; reason=${REASON}"
+          {
+            echo
+            echo "No release was created (reason: \`${REASON}\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report a late main supersession
+        if: >-
+          steps.publish_gate.outputs.create == 'true' &&
+          steps.publish_release.outputs.made_available == 'false'
+        shell: bash
+        run: |
+          echo "A newer commit reached \`main\` during upload. The verified draft was removed and the channel was not changed." >> "$GITHUB_STEP_SUMMARY"
+
+  smoke-install:
+    name: Install published CLI from proa.so
+    if: needs.release.outputs.published == 'true'
+    needs: [setup, release]
+    runs-on: gcp-pr-ci
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Install through proa.so
+        shell: bash
+        env:
+          PROA_VERSION: ${{ needs.setup.outputs.version }}
+          PROA_CLI_VERSION: ${{ needs.setup.outputs.cli_version }}
+          PROA_CHANNEL: ${{ needs.setup.outputs.channel }}
+          PROA_DOWNLOAD_BASE: ${{ needs.setup.outputs.channel == 'main' && 'https://proa.so/downloads/cli/main' || 'https://proa.so/downloads/cli' }}
+          PROA_INSTALL_DIR: ${{ runner.temp }}/proa-bin
+          PROA_NO_MODIFY_PATH: "1"
+          PROA_PREBUILT_ONLY: "1"
+          PROA_TAILWIND: skip
+          PROA_YES: "1"
+          PROA_LOG: "off"
+        run: |
+          set -euo pipefail
+
+          base="${PROA_DOWNLOAD_BASE}/${PROA_VERSION}"
+          sums="proa-cli-${PROA_VERSION}-SHA256SUMS"
+          available=false
+          attempt=1
+          while [ "$attempt" -le 14 ]; do
+            route_ready=true
+            if [ "$PROA_CHANNEL" = main ]; then
+              route_ready=false
+              metadata="$RUNNER_TEMP/proa-main-latest.json"
+              if curl \
+                --fail \
+                --location \
+                --proto '=https' \
+                --proto-redir '=https' \
+                --silent \
+                --show-error \
+                --tlsv1.2 \
+                --output "$metadata" \
+                "${PROA_DOWNLOAD_BASE}/latest.json"
+              then
+                route_version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$metadata" | head -n 1)"
+                if [ "$route_version" = "$PROA_VERSION" ]; then
+                  route_ready=true
+                fi
+              fi
+            fi
+            if curl \
+              --fail \
+              --location \
+              --proto '=https' \
+              --proto-redir '=https' \
+              --silent \
+              --show-error \
+              --tlsv1.2 \
+              --output "$RUNNER_TEMP/$sums" \
+              "$base/$sums" && [ "$route_ready" = true ]
+            then
+              available=true
+              break
+            fi
+            if [ "$attempt" -lt 14 ]; then
+              sleep 30
+            fi
+            attempt=$((attempt + 1))
+          done
+          if [ "$available" != true ]; then
+            echo "release did not become visible through proa.so" >&2
+            exit 1
+          fi
+
+          installer="$RUNNER_TEMP/install-proa.sh"
+          curl \
+            --fail \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --silent \
+            --show-error \
+            --tlsv1.2 \
+            --output "$installer" \
+            https://proa.so/install.sh
+          sh "$installer" --prebuilt-only
+
+          test "$("$PROA_INSTALL_DIR/proa" --version)" = "proa $PROA_CLI_VERSION"
+          test "$("$PROA_INSTALL_DIR/cargo-proa" --version)" = "proa $PROA_CLI_VERSION"
+
+  prune-main-snapshots:
+    name: Remove superseded main CLI snapshots
+    if: >-
+      always() &&
+      needs.setup.outputs.channel == 'main' &&
+      needs.release.outputs.published == 'true' &&
+      needs.smoke-install.result == 'success'
+    needs: [setup, release, smoke-install]
+    runs-on: gcp-pr-ci
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Keep only the latest published main snapshot
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # main/latest.json is not stored by clients, but each bridge process
+          # can hold release-list metadata for one minute. Keep the prior bytes
+          # through one full cache lifetime before removing their exact URL.
+          sleep 65
+
+          stale="$RUNNER_TEMP/proa-cli-stale-main-releases"
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --order desc \
+            --json tagName,isDraft,isPrerelease \
+            --jq '[.[] | select(
+              .isDraft == false and
+              .isPrerelease == true and
+              (.tagName | test("^proa-cli-v[0-9]+\\.[0-9]+\\.[0-9]+-main\\.[0-9a-f]{40}(\\.[0-9A-Za-z.]+)?$"))
+            )][1:] | .[].tagName' > "$stale"
+
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            if gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes; then
+              echo "pruned ${tag}"
+            else
+              echo "::warning title=Snapshot retention failed::could not remove ${tag}; the current main snapshot remains published"
+            fi
+          done < "$stale"
+
+          # A cancelled or failed upload can leave a draft that the published
+          # by-tag endpoint cannot see. Remove only drafts for superseded SHAs;
+          # preserve a draft belonging to a newer commit currently on main.
+          current_main="$(
+            gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha'
+          )"
+          drafts="$RUNNER_TEMP/proa-cli-orphaned-main-drafts"
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | select(.draft == true) | [.id, .tag_name] | @tsv' > "$drafts"
+          while IFS=$'\t' read -r draft_id tag; do
+            if [[ "$tag" =~ ^proa-cli-v[0-9]+\.[0-9]+\.[0-9]+-main\.([0-9a-f]{40})(\.[0-9A-Za-z.]+)?$ ]] && \
+               [ "${BASH_REMATCH[1]}" != "$current_main" ]; then
+              if gh api --method DELETE \
+                "repos/${GITHUB_REPOSITORY}/releases/${draft_id}"
+              then
+                echo "pruned unpublished ${tag}"
+              else
+                echo "::warning title=Draft cleanup failed::could not remove unpublished ${tag}"
+              fi
+            fi
+          done < "$drafts"

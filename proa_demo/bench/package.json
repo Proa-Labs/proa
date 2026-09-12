@@ -1,0 +1,13 @@
+{
+  "name": "proa-bench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Timing/CPU/cache measurement harness for proa-rsjs vs Marko vs React SSR.",
+  "scripts": {
+    "bench": "node run.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" role="img" aria-label="Synthetic code review diff">
+  <rect width="1440" height="900" fill="#f5f7f8"/><rect x="70" y="65" width="1300" height="770" rx="28" fill="#fff" stroke="#c9d1d9" stroke-width="4"/>
+  <g fill="#ffd7d5"><rect x="130" y="180" width="1180" height="55"/><rect x="130" y="245" width="1180" height="55"/></g>
+  <g fill="#c7f0d8"><rect x="130" y="345" width="1180" height="55"/><rect x="130" y="410" width="1180" height="55"/><rect x="130" y="475" width="1180" height="55"/></g>
+  <g fill="#657786"><rect x="170" y="198" width="520" height="16"/><rect x="170" y="363" width="670" height="16"/><rect x="170" y="428" width="590" height="16"/></g>
+</svg>

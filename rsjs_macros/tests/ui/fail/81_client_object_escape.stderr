@@ -1,0 +1,7 @@
+error: rsjs: a client value object cannot escape to an ordinary function call
+         help: call a constructor or borrowed method declared in this closed object module
+         note: the nominal object carrier is legal only on compiler-generated transitive helper edges
+  --> tests/ui/fail/81_client_object_escape.rs:13:17
+   |
+13 |         consume(counter)
+   |                 ^^^^^^^

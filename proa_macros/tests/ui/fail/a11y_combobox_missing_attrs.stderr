@@ -1,0 +1,11 @@
+error: a11y: role="combobox" requires the `aria-controls` attribute. add aria-controls="..." with the appropriate value (WAI-ARIA 1.2 §5.4)
+ --> tests/ui/fail/a11y_combobox_missing_attrs.rs:5:19
+  |
+5 |     html_sync! { <div role="combobox">"Search"</div> };
+  |                   ^^^
+
+error: a11y: role="combobox" requires the `aria-expanded` attribute. add aria-expanded="..." with the appropriate value (WAI-ARIA 1.2 §5.4)
+ --> tests/ui/fail/a11y_combobox_missing_attrs.rs:5:19
+  |
+5 |     html_sync! { <div role="combobox">"Search"</div> };
+  |                   ^^^

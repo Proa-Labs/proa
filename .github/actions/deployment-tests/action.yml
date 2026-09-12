@@ -1,0 +1,56 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Deployment tests
+description: Run deployment scripts, Python tests, Traefik checks, and Worker tests
+
+runs:
+  using: composite
+  steps:
+    - name: Install Node.js for Worker tests
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: "22"
+
+    - name: Install deployment test dependencies
+      shell: bash
+      run: |
+        if ! command -v setfacl >/dev/null || \
+           ! command -v haproxy >/dev/null || \
+           ! command -v openssl >/dev/null
+        then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends acl haproxy openssl
+        fi
+
+    - name: Test deployment tooling
+      shell: bash
+      run: |
+        # GKE's overlay snapshotter reports different device IDs for files and
+        # directories. Use the emptyDir work volume for normal xdev semantics.
+        sudo env PROA_TEST_TMPDIR="$RUNNER_TEMP" \
+          deploy/coolify-control-proxy/test-prepare-application-directory
+        python3 scripts/test_build_workspace.py
+        TMPDIR="$RUNNER_TEMP" PYTHONPATH=deploy \
+          python3 scripts/run_unittest_shards.py \
+          --start-directory deploy \
+          --pattern 'test_*.py' \
+          --jobs 4
+        deploy/coolify-control-proxy/test-latency-render-haproxy
+
+        # The isolated GKE runner has no Docker daemon. Exercise the real file
+        # provider with the checksum-pinned native release instead.
+        traefik_directory="$(mktemp -d)"
+        traefik_archive="$traefik_directory/traefik.tar.gz"
+        curl --fail --silent --show-error --location \
+          --proto '=https' --tlsv1.2 \
+          --output "$traefik_archive" \
+          https://github.com/traefik/traefik/releases/download/v3.6.25/traefik_v3.6.25_linux_amd64.tar.gz
+        printf '%s  %s\n' \
+          32c003ad49f22f9e65b6d63cf60589bc8a4e8217abfd1661ebf5cb227b642c53 \
+          "$traefik_archive" | sha256sum --check --status
+        tar -xzf "$traefik_archive" -C "$traefik_directory" traefik
+        PROA_REQUIRE_TRAEFIK_INTEGRATION=1 \
+          python3 deploy/check_preview_archive_traefik_discovery.py \
+            --traefik-binary "$traefik_directory/traefik"
+        node --test deploy/coolify-control-proxy/worker.test.js

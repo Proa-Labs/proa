@@ -1,0 +1,5 @@
+error: a11y: "aria-labeledby" is not a valid ARIA attribute. check the attribute name for typos. Did you mean "aria-label", "aria-labelledby"? (WAI-ARIA 1.2 §6)
+ --> tests/ui/fail/a11y_invalid_aria_attr.rs:5:23
+  |
+5 |     html_sync! { <div aria_labeledby="title">"content"</div> };
+  |                       ^^^^^^^^^^^^^^

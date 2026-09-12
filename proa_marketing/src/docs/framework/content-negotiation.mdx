@@ -1,0 +1,77 @@
+---
+title: Content negotiation
+description: Serve one resource as HTML for humans and Markdown for agents.
+---
+
+One URL, one resource, more than one representation. A browser asks for `text/html` and gets a page; an agent asks for `text/markdown` and gets the same content without the layout, scripts, and styling it would only have to strip.
+
+This is ordinary HTTP. The resource advertises what else it can be, and the client picks.
+
+```http
+GET /docs/framework/routing
+
+HTTP/2 200
+Content-Type: text/html
+Link: </docs/framework/routing.md>; rel="alternate"; type="text/markdown"
+Vary: Accept
+```
+
+## Why not a separate agent endpoint
+
+The alternative is a parallel surface: a site, an API, an `llms.txt`, a scraping adapter, and an agent-specific endpoint for every piece of public information. Each one is a thing to build, secure, and keep in sync.
+
+Multiple representations of one resource is the design the web already has. `rel="alternate"` is [RFC 8288](https://www.rfc-editor.org/rfc/rfc8288) web linking, and content negotiation is as old as HTTP. The agent needs no prior knowledge of your conventions beyond the standard.
+
+Proa is unusually well placed for this, because a component is a typed Rust value rather than a DOM description. The Markdown representation is not a conversion of the HTML, it is the same component rendered through [`MdRenderSync`](/docs/core/markdown).
+
+## What Proa emits today
+
+| Piece | Status |
+|---|---|
+| Typed page → Markdown from one component | Ships. `MdRenderSync` / `MdRender` / `md!` |
+| Per-page Markdown artifact | Ships. `DocPage::markdown_path`, emitted for every page |
+| `text/markdown` responses | Ships. `DocsResponse::markdown()` |
+| `Link` header infrastructure | Ships. `DISCOVERY_LINKS` |
+| `rel="service-desc"` pointing at OpenAPI | Ships |
+| `/.well-known/proa-site.json`, `/llms-full.txt` | Ships |
+| `rel="alternate"` per page | Ships. Every HTML docs page links its Markdown path with `Vary: Accept` |
+| `Accept: text/markdown` negotiation | Ships. Docs pages return Markdown when `Accept` lists `text/markdown` with nonzero quality (`q=0` is respected) |
+
+Both halves are standard-shaped today: the service description and the negotiated Markdown representation.
+
+## Two layers, not one
+
+`.well-known` and `rel="alternate"` answer different questions, and an agent needs both:
+
+| Question | Mechanism |
+|---|---|
+| What can I *read* here? | `Link: rel="alternate"` on the resource |
+| What can I *do* here? | `rel="service-desc"`, OpenAPI, MCP |
+
+Reading is a representation problem. Acting is a service-description problem. Do not collapse them into one endpoint.
+
+## Caching, before you ship it
+
+An HTTP cache that honors `Vary: Accept` keeps representations separate. Raw `Accept` values can create many variants because clients send different preference lists. Cloudflare does not honor arbitrary `Vary` fields by default; enable its [Vary support](https://developers.cloudflare.com/cache/concepts/vary/) or explicitly include the selected representation in the cache key before caching negotiated routes.
+
+Choose a representation policy:
+
+- **Normalize `Accept` at the edge** to the representations you actually serve, preserving the origin's negotiation semantics, and include that choice in the cache key. Changing the forwarded header alone does not separate cached responses.
+- **Use the `.md` URL for Markdown caching** and bypass shared caching on the negotiated canonical URL until its variants are configured. A separate Markdown URL does not by itself make a URL-only cache safe for the canonical route.
+
+See [Page caching](/docs/framework/page-caching).
+
+> **Good to know**: Markdown is a good representation for today's models, not the final destination. The same `Link` mechanism carries `application/ld+json` for entity data or an OpenAPI document for actions. The page advertises its interfaces; the agent picks the one that fits the job.
+
+## Next steps
+
+- [Markdown rendering](/docs/core/markdown)
+  - Render typed Rust values to Markdown for docs, feeds, and agents.
+- [Docs as LLM context](/docs/llms)
+  - Serve Proa docs as Markdown context for coding agents.
+- [Agent setup](/docs/agents)
+  - Configure coding agents to edit Proa projects with local instructions.
+- [Page caching](/docs/framework/page-caching)
+  - Cache public HTML and static assets at browsers and CDNs.
+- [Route responses](/docs/framework/responses)
+  - Return synchronous, buffered async, or streaming SSR with islands.

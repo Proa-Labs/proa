@@ -1,0 +1,5 @@
+error: a11y: "buttn" is not a valid ARIA role. use one of the 82 roles defined in WAI-ARIA 1.2. Did you mean "button"? (WAI-ARIA 1.2 §5.4)
+ --> tests/ui/fail/a11y_invalid_role.rs:5:19
+  |
+5 |     html_sync! { <div role="buttn">"Click"</div> };
+  |                   ^^^

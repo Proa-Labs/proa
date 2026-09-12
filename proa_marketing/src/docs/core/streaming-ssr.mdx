@@ -1,0 +1,179 @@
+---
+title: Streaming SSR
+description: Flush the page shell first and stream slow sections as they resolve.
+keywords: [Suspense, streaming, out-of-order]
+---
+
+Streaming sends the parts of a page that are ready before the parts that are not. The reader sees the shell immediately; a slow section arrives when its data resolves.
+
+Wrap the slow part in `Suspense` and give it a fallback:
+
+```rust filename="src/pages/product.rs"
+html! {
+    <main>
+        <h1>{self.product.name}</h1>
+        {Suspense::new(
+            Reviews { id: self.product.id },
+            html_sync! { <div class="skeleton" /> },
+        )}
+    </main>
+}
+```
+
+Everything outside the boundary flushes at once. Everything inside streams in behind it.
+
+## When streaming helps
+
+Streaming trades total time for time-to-first-byte. It helps when one section is meaningfully slower than the rest of the page, and hurts when you split a page that was already fast.
+
+| Situation | Do this |
+|---|---|
+| One slow query, rest of the page is cheap | Wrap the slow section in `Suspense` |
+| Every section is slow | Fix the data layer first; streaming will not hide it |
+| The whole page is fast | Do not stream. The shell flush costs a round trip |
+| A bot or crawler is reading | Serve the buffered response; streaming helps humans, not parsers |
+
+Streaming also fixes the response head before the root component renders. Set status codes and headers in the handler before returning `RouteResponse::ssr_stream`; render-tree mutations are refused. See [Status, redirects, and errors](/docs/framework/errors).
+
+## Returning a streaming response
+
+Use the framework response helpers rather than driving the stream yourself:
+
+```rust filename="src/pages/product.rs"
+use proa_framework_axum::RouteResponse;
+
+RouteResponse::ssr_stream(ProductPage { id })
+```
+
+The framework installs the stream recorder and the chunk flusher, then renders the root through them. [Route responses](/docs/framework/responses) covers the full set of constructors.
+
+## In-order and out-of-order
+
+Two boundaries on one page, one slow and one fast:
+
+```rust filename="src/pages/product.rs"
+html! {
+    <main>
+        <h1>"Product"</h1>
+        {Suspense::new(Reviews { id }, html_sync! { <p>"loading reviews"</p> })}
+        {Suspense::new(Stock { id }, html_sync! { <p>"loading stock"</p> })}
+    </main>
+}
+```
+
+Reviews takes 40 ms and comes first in the document. Stock takes 5 ms and comes second. The two modes resolve that conflict differently:
+
+```text
+time ─────────────────────────────────────────────────────────────►
+                 0 ms            5 ms                        40 ms
+
+out-of-order     shell           stock                       reviews
+                 flushed         sent the moment             sent when it
+                                 it resolves                 resolves
+
+in-order         shell                                       reviews, stock
+                 flushed                                     stock was ready at
+                                                             5 ms and waited
+```
+
+Out-of-order sends each boundary as it resolves. In-order preserves document order, so a slow boundary holds up every boundary behind it.
+
+That difference is visible on the wire. Out-of-order writes the fallback between comment markers, then sends each boundary later as a `<template>` plus a one-line swap call:
+
+```html filename="out-of-order (default)"
+<main><h1>Product</h1><!--proa:start:1--><p>loading reviews</p><!--proa:end:1--><!--proa:start:2--><p>loading stock</p><!--proa:end:2--></main>
+<script>/* $proa swap runtime, sent once */</script>
+<template id="proa-tpl-2" data-proa-encoding="base64-v1">…stock…</template><script>$proa(2);</script>
+<template id="proa-tpl-1" data-proa-encoding="base64-v1">…reviews…</template><script>$proa(1);</script>
+```
+
+Boundary `2` arrives before boundary `1`: stock was second in the document and first on the wire. The swap script replaces the marked region and dispatches `proa:boundary-ready`.
+
+In-order writes the resolved content inline, in document order, and emits nothing else:
+
+```html filename="in-order"
+<main><h1>Product</h1><section>reviews</section><section>stock</section></main>
+```
+
+No markers, no templates, no script. That is the whole response.
+
+| | In-order | Out-of-order |
+|---|---|---|
+| Arrival | Document order | Readiness order |
+| A slow boundary | Blocks the ones behind it | Blocks nothing |
+| Client JavaScript | None | One small swap script |
+| `priority` and `timeout` | Ignored | Honored |
+| Output equals the buffered render | Yes | Yes, after the swaps run |
+
+Out-of-order is the default for `ssr_stream`. Ask for the other one explicitly:
+
+```rust filename="src/pages/product.rs"
+use proa_core::RenderMode;
+
+RouteResponse::ssr_stream(ProductPage { id })
+    .with_render_mode(RenderMode::ChunkedInOrder)
+```
+
+Choose in-order when the reader must not depend on JavaScript, or when the response is consumed by something that reads bytes in order rather than executing a document. Choose out-of-order, the default, for a browser page where one section is much slower than the rest.
+
+For generated `text/markdown`, the choice does not arise: Markdown is always in-order, because a swap script cannot run in a text document. `proa_stream::render_md_in_order_to_flusher` drives it. See [Markdown rendering](/docs/core/markdown).
+
+## Priority and timeouts
+
+`Suspense` carries two scheduling options. Both are struct fields:
+
+```rust filename="src/pages/product.rs"
+use std::time::Duration;
+use proa_core::Priority;
+use proa_stream::Suspense;
+
+Suspense {
+    child: Recommendations { id },
+    fallback: html_sync! { <p>"loading recommendations"</p> },
+    priority: Priority::Defer,
+    timeout: Some(Duration::from_millis(200)),
+}
+```
+
+`Priority` orders boundaries that become ready in the same turn: `Critical` (the default), then `Optional`, then `Defer`. `timeout` bounds how long the driver waits before it gives up, cancels the future, keeps the fallback on screen, and emits `<!--proa:timeout:N-->` for observability.
+
+Both are out-of-order features. In-order, static, and Markdown renders ignore them by design: reordering would violate their wire contract, and cancelling a child that has already flushed would leave partial markup on the wire.
+
+## Where the data comes from
+
+This page is about delivery. Getting the data into a boundary is [Data loading and streaming](/docs/framework/data-loading), and the two meet at one constructor:
+
+```rust filename="src/pages/product.rs"
+RouteResponse::ssr_stream_with_loader(ProductPage { id }, loader)
+```
+
+Loading through `WebContext` is what lets independent boundaries overlap instead of running one after another, and request-local dedupe keeps two boundaries that need the same record from fetching it twice. If a page streams but every boundary waits on the same serial query, the data layer is the problem and streaming will not hide it.
+
+## What happens underneath
+
+Three pieces cooperate, and you rarely name any of them directly:
+
+| Piece | Role |
+|---|---|
+| `Suspense` | Marks the boundary and holds the fallback |
+| `RenderBuffer` | Buffers boundary bytes in pages the context owns and recycles |
+| `StreamChunkFlusher` | Hands ordered chunks to the transport |
+
+In-order boundaries flush and reuse the parent `RenderBuffer`, so a page with twenty boundaries renders through one recycled buffer. Out-of-order gives each detached boundary its own `RenderBuffer` and flattens it once when the chunk is framed. [Sink](/docs/core/sink) documents the legacy pool-backed writer these replaced.
+
+For manual checkpoint control without a page pool, `StreamingZeroCopyBuf` flushes complete parts and never half-written dynamic content. Normal routes should not manage checkpoints by hand.
+
+> **Good to know**: A reverse proxy can cache a completed streamed HTML response when its policy permits it. Set cache headers before streaming begins, and check the proxy's buffering behavior: cached delivery need not preserve the origin's chunk timing. Loader caching remains useful on cache misses and private routes. See [Page caching](/docs/framework/page-caching).
+
+## Next steps
+
+- [Loading data and streaming](/docs/framework/data-loading)
+  - Load request data, apply cache hints, dedupe repeated loads, and stream slow page sections with Suspense.
+- [Sink](/docs/core/sink)
+  - Render streamed output into recycled pages instead of fresh allocations.
+- [Route responses](/docs/framework/responses)
+  - Return synchronous, buffered async, or streaming SSR with islands.
+- [Markdown rendering](/docs/core/markdown)
+  - Render typed Rust values to Markdown for docs, feeds, and agents.
+- [Page caching](/docs/framework/page-caching)
+  - Cache public HTML and static assets at browsers and CDNs.

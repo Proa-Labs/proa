@@ -1,0 +1,7 @@
+error: rsjs: an exported client class method cannot be named `constructor`
+         help: rename the Rust receiver method
+         note: JavaScript class syntax reserves `constructor` for the one generated wrapper constructor
+  --> tests/ui/fail/88_client_class_constructor_method.rs:12:16
+   |
+12 |         pub fn constructor(&self) -> i32 {
+   |                ^^^^^^^^^^^

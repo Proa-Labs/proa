@@ -1,0 +1,5 @@
+error: `event.closest_attr(...)` requires a static string literal attribute name, for example `event.closest_attr("data-date")`. Dynamic attribute names are not supported because rsjs needs to emit a safe selector.
+  --> tests/ui/conformance/fail/22_event_attr_dynamic.rs:20:85
+   |
+20 |                 <button data_id="42" on_click={|event| value.set(event.closest_attr(attr))}>
+   |                                                                                     ^^^^

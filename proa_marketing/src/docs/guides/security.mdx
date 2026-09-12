@@ -1,0 +1,190 @@
+---
+title: Security
+description: What Proa hardens by default, the CVE classes its design answers, and what stays your job.
+---
+
+Proa's security work splits three ways: what the template engine does automatically, what the framework hardens by default, and what remains application logic.
+
+Knowing which bucket a concern falls into is most of the job.
+
+| Concern | Who handles it |
+|---|---|
+| Escaping dynamic values in HTML | **Proa, automatically.** No opt-in |
+| Executable URL schemes in static attributes | **Proa, at compile time.** Hard error |
+| Executable URL schemes in dynamic attributes | **Proa, at render time.** Value is neutralized |
+| Dynamic values inside `<script>` or `<style>` | **Proa warns at compile time**, and masks tokenizer breakouts at render time |
+| Dynamic `on*`, `srcdoc`, and `style` attributes | **Proa warns at compile time.** RSJS rejects them outright |
+| Baseline response headers | **Framework, on by default.** `nosniff`, `DENY`, `strict-origin-when-cross-origin` |
+| HSTS, frame policy overrides, Content Security Policy | **Framework, opt-in.** `with_security_headers()` / `with_strict_csp()` |
+| Cross-origin unsafe requests | **Framework, on by default.** Returns `403` |
+| Request body size and timeout | **Framework, on by default.** 1 MiB, 30 seconds |
+| Keeping server data out of the browser | **Framework, enforced by the RSJS linker** |
+| CSRF tokens, sessions, auth | **Yours.** Axum middleware |
+| Input validation, sanitizing user HTML | **Yours.** Before data reaches a template |
+| Rate limiting, cookie attributes, CORS, safe redirects | **Yours.** Server middleware |
+
+## What Proa does automatically
+
+Three layers run without configuration: the macro refuses to compile some markup, the escaper encodes per context at render time, and the RSJS client runtime repeats the same guards in the browser.
+
+### Compile time
+
+`html!` and `html_sync!` walk the template AST during macro expansion and run an OWASP-derived validation pass. Errors fail the build. Warnings compile but surface at the call site with the offending expression quoted back.
+
+| Check | Severity | What it catches |
+|---|---|---|
+| Executable scheme in a static URL attribute | **Error** | `href="javascript:alert(1)"` and every case, whitespace, and entity variant of it |
+| Dynamic `{expr}` inside `<script>` or `<style>` | Warning | HTML escaping is the wrong encoder for a JS or CSS context (OWASP Rules #3 and #4) |
+| Dynamic `on*` handler (`onclick={expr}`) | Warning | The value lands in a JavaScript execution context, where attribute escaping does nothing |
+| Dynamic `srcdoc={expr}` or `style={expr}` | Warning | Second-order contexts: `srcdoc` re-parses as HTML in the iframe, `style` parses as CSS |
+| Dynamic `{expr}` in a raw-text element | Warning | `<textarea>`, `<title>`, `<xmp>`, `<noscript>`, `<noframes>` have non-standard parser semantics |
+| `UnsafeRaw` inside `<svg>`, `<math>`, or `<foreignObject>` | Warning | Foreign content re-parses in another namespace, the mutation-XSS path |
+
+The static URL error looks like this:
+
+```rust filename="src/components/link.rs"
+html_sync! {
+    <a href="javascript:alert(1)">"Click me"</a>
+}
+// error: dangerous URL scheme in `href` attribute. use a safe scheme
+// (https:, /, #) or pass data via data-* attributes
+// (OWASP XSS Prevention Cheat Sheet, Rule #7)
+```
+
+Two details make that check hold up against real bypass techniques rather than only the obvious spelling.
+
+**The attribute set is wide.** Blocking `href`, `src`, `action`, and `formaction` is the common choice and it is not enough. Proa checks `href`, `src`, `action`, `formaction`, `poster`, `ping`, `cite`, `data`, `background`, `longdesc`, `manifest`, and both spellings of `xlink:href`. Each one is a real sink: `poster` fetches `javascript:` on older engines, `ping` is an exfiltration beacon, `data` on `<object>` executes, `manifest` was the AppCache vector. `srcset` is deliberately excluded, because its comma-separated `url descriptor, ...` grammar is not a single URL and a whole-string scheme check would be wrong there.
+
+**The scheme comparison is normalized the way a browser normalizes it.** Two decoding passes happen before a URL reaches the parser, and a naive prefix match misses both:
+
+- The WHATWG URL spec directs browsers to strip ASCII tab, LF, and CR from URL input. So `java&Tab;script:` and `\njavascript:` navigate fine. Proa skips ASCII whitespace and NUL *throughout* the scheme prefix, not just at the leading edge.
+- The HTML5 parser decodes numeric character references inside attribute values before URL parsing. So `&#106;avascript:alert(1)` and the zero-padded `&#0000000106;avascript:alert(1)` both work in a browser. Proa runs one pass of numeric-entity decoding with no digit cap, and treats a non-ASCII decoded code point as a non-match, since it cannot spell an ASCII scheme.
+
+The blocked set is `javascript:`, `vbscript:`, and the executable `data:` types: `text/html`, `application/xhtml+xml`, `application/xml`, and `image/svg+xml`. Raster image, audio, video, and font data URLs stay allowed, because they have legitimate inline uses. SVG is blocked even when a particular payload looks inert, because it is an executable XML container.
+
+### Render time
+
+Every dynamic value is escaped for its context before it reaches the output buffer:
+
+```rust filename="src/components/comment.rs"
+let user_input = "<script>alert('xss')</script>";
+
+html_sync! {
+    <p>{user_input}</p>
+}
+// <p>&lt;script&gt;alert('xss')&lt;/script&gt;</p>
+```
+
+Attribute values are always double-quoted. There is no code path that emits an unquoted attribute.
+
+**Dynamic URL attributes get the same scheme check as static ones.** A compile-time error cannot see `href={user_supplied}`, so the macro routes URL-bearing attributes through a runtime guard using the identical normalization. In debug builds a dangerous value trips a `debug_assert!`, so the mistake fails your test suite. In release builds the attribute renders with an empty value rather than the dangerous URL.
+
+**`<script>` and `<style>` content gets tokenizer masking.** HTML escaping alone does not keep a value inside a raw-text element, because the tokenizer leaves raw-text state on byte sequences that escaping does not touch. Proa masks three of them with a single backslash, which is a no-op for the decoded JavaScript string value:
+
+| Sequence | Masked to | Tokenizer transition it blocks |
+|---|---|---|
+| `</script` (or `</style`) followed by `>`, whitespace, or `/` | `<\/script` | Closes the raw-text element (HTML5 §13.2.5.17) |
+| `<script` followed by `>`, whitespace, or `/` | `<\script` | Enters script-data-escaped state (HTML5 §13.2.5.27) |
+| `<!--` | `<\!--` | Opens script-data-escaped state (HTML5 §13.2.5.18) |
+
+`-->` needs no mask of its own: every bare `>` is already escaped to `&gt;`, so the sequence cannot appear in the output, and reaching the `-->` transition requires an unmasked `<!--` first.
+
+This is defense in depth, not permission. The compile-time warning still fires. The masking exists so a value that slips through a suppressed warning cannot escape the element.
+
+**Island hydration payloads are masked too.** RSJS and React islands serialize props into `<script type="application/json">`. That content is raw text and `textContent` does not decode entities, so HTML-escaping it would corrupt the JSON. Instead `</` becomes `<\/` (a valid JSON escape for `/`) so the HTML parser cannot match a closing tag inside the payload, and U+2028 / U+2029 become their six-character escapes, since before ES2019 those acted as line terminators inside inline scripts and allowed breakout from a JSON string literal.
+
+### In the browser
+
+RSJS repeats the server-side guards on the client, because a client-updated attribute is the same sink as a server-rendered one.
+
+- The `#[rsjs(...)]` analyzer rejects dynamic bindings to any `on*` attribute, plus `srcset`, `ping`, `srcdoc`, and `style`. That is a compile error, not a warning.
+- Dynamic URL attributes are classified and lowered to a sanitized binding.
+- The runtime refuses to install any attribute matching `/^on/i` through `setAttribute`, and warns in dev mode. Reaching that branch means codegen regressed, so it fails closed.
+- The runtime carries its own port of the URL scheme check, including the entity-decoding and control-character normalization, and blanks a dangerous value instead of setting it.
+
+> **Good to know**: RSJS enforces a fourth boundary. A value that never reaches a client root never ships to the browser, so secrets held in server-only components stay on the server by construction. See [Server-rendered content](/docs/rsjs/server-only).
+
+## CVE precedents this design answers
+
+These are the published vulnerabilities the escaping and validation layers were reviewed against. Each one is cited in the source next to the code that answers it, so the reasoning survives refactors.
+
+| Precedent | Ecosystem | The bypass | What Proa does |
+|---|---|---|---|
+| CVE-2023-24538 | Go `html/template` | Script-context escape bypass through template actions in JS contexts | Warns at compile time on any dynamic value inside `<script>`, and masks raw-text breakout sequences at render time |
+| CVE-2023-39318 | Go `html/template` | A nested `<script` inside script-data-escaped state changes tokenizer state | `<script` followed by a tag-ending byte is masked to `<\script` |
+| CVE-2023-39319 | Go `html/template` | `</script ` with trailing whitespace still closes the element | The close-tag mask matches `</script` followed by `>`, whitespace, *or* `/`, not just `</script>` |
+| CVE-2026-32635 | Angular | The `i18n-href` sanitizer allowlist missed a URL attribute, which is a complete XSS bypass | Drove the wide URL-attribute set (11 attributes plus both `xlink:href` spellings) rather than the usual four |
+| CVE-2026-39315 | Unhead | `hasDangerousProtocol()` was defeated by HTML-entity padding in the scheme | One pass of numeric-entity decoding with no digit cap runs before the scheme comparison |
+| DOMPurify bypass series (2019 to 2020) | DOMPurify | Mutation XSS: HTML-escaped content becomes executable after the browser re-parses it in the SVG or MathML namespace | Warns on `UnsafeRaw` inside `<svg>`, `<math>`, or `<foreignObject>`, and points at a namespace-aware sanitizer |
+| OWASP XSS Prevention Rule #7 | Cross-ecosystem | `javascript:` URLs as a reflected XSS path | Compile-time hard error on static values, runtime neutralization on dynamic ones. React adopted the same block in v16.9 |
+
+The `data:text/html` block is worth calling out separately. An allowlist that stops at `javascript:` and `vbscript:` leaves `data:text/html,<script>...</script>` as a working navigation payload, so the executable `data:` MIME types are blocked by the same code path.
+
+## Dependency advisories
+
+Proa's own code is one half of the surface. The other half is the dependency tree, audited against the [RustSec advisory database](https://rustsec.org/).
+
+```bash filename="Terminal"
+cargo audit --deny warnings
+cargo deny check advisories bans sources licenses
+```
+
+`.cargo/audit.toml` and `deny.toml` hold the accepted-advisory list. Every entry is informational (unmaintained or unsound) with no fixed release available, and every one enters through an example app, developer tooling, a build-time processor, or a dev-dependency. None reach shipped library code on a request path.
+
+| Advisory | Crate | Why it is accepted |
+|---|---|---|
+| RUSTSEC-2025-0141 | `bincode` 1.3.3 | Unmaintained. Enters via syntect's dump loader in `proa_docs_build` at docs build time, where it deserializes only its crate-embedded syntax pack. No untrusted bytes reach it |
+| RUSTSEC-2025-0119 | `number_prefix` 0.4.0 | Unmaintained. Enters only via `indicatif` progress bars in the `proa-cli` developer tool |
+| RUSTSEC-2026-0097 | `rand` 0.8.5 / 0.9.2 | Unsound only when a custom logger re-enters `rand::rng()`, with no fixed release. Paths are the framework example, a proptest dev-dependency, and `reqwest` to `quinn` transitively, where the condition does not apply on a server render path |
+
+The policy is that a false positive or accepted risk gets an entry in **both** files with a justification, and severity is never loosened globally. Revisit an entry when its parent dependency updates.
+
+## What the framework hardens
+
+`FrameworkBuilder::build()` applies the same outer hardening to pages and endpoints:
+
+| Default | Effect |
+|---------|--------|
+| Baseline response headers | `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, set only when not already present |
+| Cross-origin protection | Browser-issued cross-origin unsafe requests return `403` unless trusted |
+| Body limit | Requests capped at 1 MiB unless overridden |
+| Request timeout | Handlers must respond within 30 seconds by default |
+
+Frame-policy overrides, HSTS, and Content Security Policy are opt-in, because each deployment needs its own. See [Headers and CSP](/docs/framework/security-headers).
+
+Cross-origin protection follows the pattern Go 1.25 ships as `net/http`'s `CrossOriginProtection`. Rather than synchronizer tokens, it reads the `Sec-Fetch-Site` metadata header that every evergreen browser sends, with an `Origin`-versus-`Host` fallback for older clients. Safe methods always pass. A request carrying neither header passes, because it did not come from a browser and CSRF does not apply to it.
+
+That is **not** a CSRF-token service. It rejects the shape of the request, not a forged token. [Cross-origin and CSRF](/docs/framework/cross-origin) explains the difference and what you still need to add.
+
+## What stays yours
+
+Proa gives you the attribute support these need, `nonce`, `integrity`, `http-equiv`, `sandbox`, `allow`, but the policy is yours:
+
+- **CSRF tokens and sessions.** Configure issuance and validation in Axum middleware. Proa ships no session or cookie primitive.
+- **Input validation.** Do it before data reaches a template, not after.
+- **Sanitizing user-authored HTML.** Use an allowlist sanitizer such as [ammonia](https://crates.io/crates/ammonia) before `UnsafeRaw`. Inside SVG or MathML, use a namespace-aware one.
+- **Cookie attributes.** `HttpOnly`, `SameSite`, and `Secure` are server configuration.
+- **Redirect targets.** There is no safe-redirect helper. Validate a user-supplied `next=` parameter against an allowlist yourself.
+- **URL encoding query parameters.** Application logic.
+- **Rate limiting.** Server middleware.
+
+Two things no policy can rescue: inline event-handler attributes (`onclick="…"`) never execute under a nonce policy, and a raw `<script>` tag you write by hand needs an explicit `nonce` read from `cx.csp_nonce()`.
+
+For untrusted data that genuinely has to reach client JavaScript, the supported pattern is `<script type="application/json">` plus `JSON.parse`, not interpolation into a JS string literal. The macro escapers mask tokenizer breakouts, but they do not JSON-encode JavaScript string literals.
+
+## Reporting a vulnerability
+
+Report privately through the **Security** tab of the repository on GitHub, using *Report a vulnerability*. That opens a private advisory visible only to you and the maintainers. Do not open a public issue with exploit details. See [`SECURITY.md`](https://github.com/proa-labs/proa/blob/main/SECURITY.md) for the supported surface and disclosure process.
+
+## Next steps
+
+- [Escaping and raw HTML](/docs/core/escaping)
+  - How Proa encodes dynamic values, and the two ways to opt out.
+- [Headers and CSP](/docs/framework/security-headers)
+  - Set frame policy, HSTS, and a nonce-based Content Security Policy.
+- [Cross-origin and CSRF](/docs/framework/cross-origin)
+  - Reject forged cross-origin writes, and add the CSRF defense Proa does not.
+- [Server-rendered content](/docs/rsjs/server-only)
+  - Keep ordinary Rust values and renderables outside an RSJS client graph.
+- [Environment variables](/docs/framework/environment)
+  - Configure a deployed Proa app without rebuilding the binary.

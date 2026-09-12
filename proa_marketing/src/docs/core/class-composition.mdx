@@ -1,0 +1,121 @@
+---
+title: Class composition
+description: Compose Tailwind classes with static strings, ClassList, and optional caller classes.
+keywords: [ClassList, tw_join, tw_merge, recipe]
+---
+
+Proa composes hot-path classes from static string fragments instead of building a `String` at render time. This page covers [static class constants](#declaring-static-class-constants), [`ClassList`](#composing-with-classlist), [capacity](#choosing-a-capacity), and [the allocation to avoid](#avoiding-hot-path-allocation).
+
+## Declaring static class constants
+
+Keep repeated class sets in constants:
+
+```rust filename="src/components/card/recipe.rs"
+pub const CARD_BASE: &str = "rounded-lg border bg-card text-card-foreground shadow-sm";
+pub const CARD_COMPACT: &str = "p-3 text-sm";
+pub const CARD_SPACIOUS: &str = "p-6";
+```
+
+Tailwind-heavy component recipes often use a local `tw_join!` helper. It joins static class fragments at compile time into one `&'static str`.
+
+```rust filename="src/components/button/recipe.rs"
+use crate::tw_join;
+
+pub const BUTTON_BASE: &str = tw_join!(
+    "inline-flex",
+    "items-center",
+    "justify-center",
+    "rounded-md",
+    "text-sm",
+    "font-medium",
+);
+```
+
+Constants cover the fragments you know at compile time. To pick between them per render, combine them with `ClassList`.
+
+## Composing with ClassList
+
+A **`ClassList<N>`** stores references to static class strings and writes them with spaces between segments. It does not allocate a `String`.
+
+```rust filename="src/components/card/recipe.rs"
+use proa_core::ClassList;
+
+pub enum CardDensity {
+    Compact,
+    Spacious,
+}
+
+impl CardDensity {
+    pub const fn classes(self) -> &'static str {
+        match self {
+            Self::Compact => CARD_COMPACT,
+            Self::Spacious => CARD_SPACIOUS,
+        }
+    }
+}
+
+pub fn card_classes(density: CardDensity, class: Option<&'static str>) -> ClassList<3> {
+    ClassList::new()
+        .add(CARD_BASE)
+        .add(density.classes())
+        .add_opt(class)
+}
+```
+
+Use the `ClassList` directly in a `class={...}` attribute:
+
+```rust filename="src/components/card/card.rs"
+html_sync! {
+    <section class={card_classes(self.density, self.class)}>
+        {self.children}
+    </section>
+}
+```
+
+One number in that signature carries a hard constraint: the `3`.
+
+## Choosing a capacity
+
+The `N` in `ClassList<N>` is the maximum number of class segments:
+
+```rust filename="src/components/button/button.rs"
+ClassList::<4>::new()
+    .add("base")
+    .add("variant")
+    .add_if(disabled, "opacity-50")
+    .add_opt(class)
+```
+
+If you add more than `N` segments, `ClassList` **panics**. Pick the exact capacity for the call site and count the optional segments too.
+
+Sizing the list correctly matters only if you use it. The alternative costs an allocation on every render.
+
+## Avoiding hot-path allocation
+
+Avoid this in render code:
+
+```rust filename="src/components/card/card.rs"
+let classes = format!("{} {}", CARD_BASE, self.density.classes());
+```
+
+Prefer `ClassList`:
+
+```rust filename="src/components/card/card.rs"
+let classes = ClassList::<3>::new()
+    .add(CARD_BASE)
+    .add(self.density.classes())
+    .add_opt(self.class);
+```
+
+If a class string comes from user input or application data, validate or normalize it before rendering. Most component APIs accept `Option<&'static str>` for extension classes, which keeps common render paths static.
+
+## Next steps
+
+- [HTML rendering](/docs/core/html-rendering)
+  - Put the composed classes into a `class={...}` attribute.
+- [Writing performant pages](/docs/guides/performance)
+  - Find the other allocations a render path can hide.
+- [Escaping and raw HTML](/docs/core/escaping)
+  - See how Proa escapes attribute values it writes.
+- [Tailwind](/docs/guides/tailwind-intellisense)
+  - Get editor completion for class strings inside Rust constants.

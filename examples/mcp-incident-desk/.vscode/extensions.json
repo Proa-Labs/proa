@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "proa-labs.proa",
+    "tamasfe.even-better-toml",
+    "bradlc.vscode-tailwindcss"
+  ]
+}

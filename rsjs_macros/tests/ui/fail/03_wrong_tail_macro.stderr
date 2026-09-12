@@ -1,0 +1,5 @@
+error: `#[rsjs]` expects the render body's tail to invoke `html_sync!` (sync) or `html!` (async); other macros are not supported as the tail expression
+  --> tests/ui/fail/03_wrong_tail_macro.rs:13:9
+   |
+13 |         println!("hello").render(_cx)
+   |         ^^^^^^^

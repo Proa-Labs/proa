@@ -1,0 +1,125 @@
+---
+title: Static assets
+description: Serve static files, embedded assets, and external apps safely.
+---
+
+`FrameworkBuilder` nests your static router at `/static`, and you supply that router, so the service, cache headers, and deployment rules stay yours. This page covers [disk-backed assets](#serving-assets-from-disk), [embedded assets](#embedding-assets-in-the-binary), [the CSS manifest](#linking-the-css-manifest), and [external apps](#mounting-external-apps).
+
+## Serving assets from disk
+
+Use `tower_http::services::ServeDir` for files built into a directory:
+
+```rust filename="src/app.rs"
+use axum::Router;
+use tower::ServiceBuilder;
+use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
+use axum::http::header::{HeaderValue, CACHE_CONTROL, X_CONTENT_TYPE_OPTIONS};
+
+let static_router = Router::new().nest_service(
+    "/assets",
+    ServiceBuilder::new()
+        .layer(SetResponseHeaderLayer::if_not_present(
+            CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .service(ServeDir::new("frontend/dist/assets")),
+);
+
+let app = FrameworkBuilder::new(manifest)
+    .with_static_service(static_router)
+    .build();
+```
+
+The final URL for the nested example is `/static/assets/...`.
+
+A single-binary deploy skips the directory entirely and carries the files inside the executable.
+
+## Embedding assets in the binary
+
+Use `EmbeddedStaticService` when `include_dir` compiles assets into the binary.
+
+```rust filename="src/app.rs"
+use include_dir::{include_dir, Dir};
+use proa_framework_axum::EmbeddedStaticService;
+
+static PUBLIC: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/public");
+
+let static_router = Router::new().nest_service(
+    "/",
+    EmbeddedStaticService::new(PUBLIC),
+);
+```
+
+The embedded service sets a content type from the extension and adds `X-Content-Type-Options: nosniff`.
+
+Either service can host the stylesheet, but the page still needs a link to it.
+
+## Linking the CSS manifest
+
+`IslandManifest` can carry a CSS asset path:
+
+```rust filename="src/app.rs"
+use std::collections::HashMap;
+
+use proa_framework_axum::{CssAsset, IslandManifest, ManifestAssets};
+
+let manifest = IslandManifest {
+    islands: HashMap::new(),
+    assets: ManifestAssets {
+        css: Some(CssAsset {
+            path: "/static/assets/app.css".to_string(),
+            size: None,
+        }),
+    },
+    import_map: HashMap::new(),
+    ssr_bundle: None,
+};
+```
+
+Document layouts can call `render_css_link(cx)` to emit a stylesheet link for the current manifest.
+
+Whole applications mount the same way a stylesheet does, through the builder.
+
+## Mounting external apps
+
+Use `with_external_app` to mount another app under a path. This supports static apps and SSR apps that live beside the Proa server.
+
+```rust filename="src/app.rs"
+use proa_framework_axum::{ExternalApp, FrameworkBuilder};
+
+let app = FrameworkBuilder::new(manifest)
+    .with_external_app(ExternalApp::static_app("/docs", "./apps/docs/out"))
+    .with_external_app(ExternalApp::ssr_app(
+        "/admin",
+        "http://localhost:4000".to_string(),
+    ))
+    .build();
+```
+
+Mount external apps before deciding on cache and security headers. They share the same outer router and production hardening layers.
+
+Every path above serves files straight to the browser, which makes what you put in those directories a security decision.
+
+## Securing served directories
+
+- Serve **only** trusted build output from static directories.
+- Do not let untrusted users write files or symlinks into served asset directories.
+- Add `nosniff` headers for disk-backed services.
+- Prefer immutable cache headers only for fingerprinted asset names.
+- Keep uploads behind explicit authenticated handlers instead of a generic static file service.
+
+## Next steps
+
+- [Page caching](/docs/framework/page-caching)
+  - How static asset cache headers fit with HTML and endpoint caching.
+- [Images](/docs/framework/images)
+  - Serve responsive images from static assets, without a build pipeline.
+- [Fonts](/docs/framework/fonts)
+  - Self-host web fonts with metric-matched fallbacks and zero runtime requests.
+- [Configuration](/docs/framework/configuration)
+  - Configure FrameworkBuilder, security defaults, static mounts, and external apps.

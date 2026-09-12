@@ -1,0 +1,120 @@
+---
+title: Navigation
+description: Order the sidebar, group pages, and split it into sections.
+---
+
+The sidebar comes from `meta.json` files, one per folder. A source root without one falls back to frontmatter `nav_order`, then alphabetical order.
+
+## meta.json
+
+Each folder can include a `meta.json` file:
+
+```json
+{
+  "title": "Framework",
+  "icon": "Route",
+  "root": true,
+  "pages": [
+    "---Start Here---",
+    "index",
+    "---Request lifecycle---",
+    "routing",
+    "route-handlers",
+    "responses"
+  ]
+}
+```
+
+The compiler supports these `pages` entry types:
+
+| Entry | Meaning |
+|-------|---------|
+| `"index"` | Page file in the current folder. |
+| `"guides"` | Child folder; the child folder's `meta.json` controls its group. |
+| `"---Label---"` | Separator item with no path and no children. |
+| `{ "separator": "Label", "icon": "Database" }` | Separator with an optional nav icon. Unknown icon names fail the build. |
+| `{ "title": "Group", "pages": [...] }` | Inline group using the current folder as its lookup base. |
+
+If a `pages` entry names a folder, the folder must contain `meta.json`. If it names a page, the compiler resolves `.md`, `.mdx`, or `index` by convention.
+
+Set `"root": true` on a child folder to make it an independent navigation root. The generated section menu uses that folder's `title` and `icon`, links to its first page, and shows only its `pages` while one of its pages is active. Root folders appear in the section menu, not as groups inside another root's sidebar. The source-level `meta.json` remains the default root, and its non-root separators, pages, and groups stay visible on pages outside a child root.
+
+## Icons
+
+Pages can set `icon` in frontmatter. Folders can set `icon` in `meta.json`.
+
+The generated runtime stores the value in two places:
+
+- `Frontmatter.icon` on the page.
+- `NavItem.icon` on the generated nav item.
+
+`DocsNav` renders a `.proa-docs-nav-icon` span with `data-icon="<name>"`. The default runtime includes a small inline SVG map for common names such as `BookOpen`, `Cpu`, `FileText`, `Settings`, `Brain`, `Layers`, `ArrowRightLeft`, `Route`, `Terminal`, and `Zap`. Unknown names fall back to a file icon, and applications can still target the `data-icon` hook for custom styling or replacement.
+
+## Ordering pages
+
+When a folder contains `meta.json`, its `pages` array controls ordering and grouping:
+
+```json filename="src/docs/meta.json"
+{
+  "title": "Start Here",
+  "pages": ["index", "installation", "security"]
+}
+```
+
+If a `pages` entry names a folder, `proa_docs_build` reads that folder's `meta.json` and emits a nested nav group. If a `pages` entry names a Markdown file, it emits a page link.
+
+You can also use separator entries in `meta.json` by wrapping the label in `---`:
+
+```json filename="src/docs/meta.json"
+{
+  "pages": ["index", "---Reference---", "api"]
+}
+```
+
+Folder `meta.json` files may include an `icon` string. The compiler stores the icon on the generated group:
+
+```json filename="src/docs/reference/meta.json"
+{
+  "title": "Reference",
+  "icon": "BookOpen",
+  "pages": ["index", "api"]
+}
+```
+
+Inside each page, the Markdown parser decides which syntax reaches the rendered HTML.
+
+## Separators
+
+A `"---Label---"` entry renders as a non-clickable group heading:
+
+```json filename="meta.json"
+{
+  "pages": [
+    "---Getting started---",
+    "quickstart",
+    "---Reference---",
+    "configuration"
+  ]
+}
+```
+
+Prefer separators over nested folders. They group without adding a URL segment or an indent level, and a flat sidebar is easier to scan than a deep one.
+
+## Section roots
+
+A folder whose `meta.json` sets `"root": true` becomes its own sidebar. It disappears from the parent nav and appears in the section switcher instead.
+
+```json filename="cli/meta.json"
+{
+  "title": "CLI",
+  "icon": "Terminal",
+  "root": true,
+  "pages": ["index", "new-site"]
+}
+```
+
+Use a root for a section a reader enters and stays inside. Entering one replaces the whole sidebar, so a section people cross constantly is better left inline.
+
+## Related
+
+[Pages and routes](/docs/proa-docs/pages-and-routes) · [Rendering pages](/docs/proa-docs/runtime) · [Configuration](/docs/proa-docs/configuration)

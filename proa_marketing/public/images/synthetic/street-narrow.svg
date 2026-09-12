@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic narrow street illustration</title>
+  <desc id="desc">An original geometric illustration of a narrow historic street.</desc>
+  <rect width="1200" height="800" fill="#d9d1bf"/>
+  <path d="M0 0h430l100 800H0z" fill="#756c60"/>
+  <path d="M1200 0H770L670 800h530z" fill="#665e54"/>
+  <path d="M430 0h340L670 800H530z" fill="#bdc9c6"/>
+  <path d="M530 800h140L800 340H400z" fill="#a69275"/>
+  <g fill="#d8be88"><rect x="75" y="120" width="120" height="160"/><rect x="260" y="330" width="105" height="140"/><rect x="1005" y="105" width="120" height="160"/><rect x="835" y="320" width="105" height="140"/></g>
+</svg>

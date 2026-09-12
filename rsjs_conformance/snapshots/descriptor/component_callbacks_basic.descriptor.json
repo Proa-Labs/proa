@@ -1,0 +1,172 @@
+{
+  "asset_id": "<asset_id>",
+  "bindings": {
+    "attrs": [],
+    "conditionals": [],
+    "events": [
+      {
+        "event": "input",
+        "handler": 0,
+        "node": 1
+      }
+    ],
+    "inputs": [],
+    "refs": [],
+    "text": []
+  },
+  "callback_slots": [
+    {
+      "id": 0,
+      "name": "on_change"
+    }
+  ],
+  "client_ir_version": 3,
+  "client_origin_permission": "origin_capable",
+  "counts": {
+    "callback_slots": 1,
+    "crossings": 1,
+    "exprs": 0,
+    "fields": 1,
+    "handlers": 1,
+    "node_ref_fields": 0,
+    "node_refs": 0,
+    "nodes": 2,
+    "projection_fields": 0,
+    "prop_sites": 0,
+    "shared_state_provider_sites": 0,
+    "signals": 0,
+    "values": 1
+  },
+  "descriptor_hash": "sha256:<hash>",
+  "exprs": [],
+  "fields": [
+    {
+      "callback_shape": "required",
+      "callback_slot": 0,
+      "crossing_id": 0,
+      "dispatch": "resolve_current",
+      "id": 0,
+      "kind": "handler",
+      "name": "on_change",
+      "source": "callback_slot_usage",
+      "source_anchor": {
+        "start_column": 0,
+        "start_line": 0
+      },
+      "value_id": 0
+    }
+  ],
+  "format": "rsjs.component_descriptor",
+  "handlers": [
+    {
+      "body_ir": {
+        "kind": "block",
+        "stmts": [
+          {
+            "kind": "let",
+            "local": 0,
+            "name": "value",
+            "ty": {
+              "kind": "string"
+            },
+            "value": {
+              "kind": "event_read",
+              "value": "target_value"
+            }
+          },
+          {
+            "args": [
+              {
+                "kind": "local",
+                "local": 0
+              }
+            ],
+            "kind": "console",
+            "level": "log"
+          },
+          {
+            "callback": 0,
+            "kind": "callback_invoke",
+            "payload": {
+              "kind": "local",
+              "local": 0
+            }
+          }
+        ]
+      },
+      "body_ir_version": 3,
+      "id": 0,
+      "source_anchor": {
+        "start_column": 0,
+        "start_line": 0
+      },
+      "source_name": "on_input"
+    }
+  ],
+  "inbound_inputs": {
+    "crossings": [
+      {
+        "field_id": 0,
+        "id": 0,
+        "kind": "callback_resolve_current",
+        "source_anchor": {
+          "start_column": 0,
+          "start_line": 0
+        }
+      }
+    ],
+    "node_ref_fields": [],
+    "projection_fields": [],
+    "prop_sites": [],
+    "values": [
+      {
+        "field_id": 0,
+        "id": 0,
+        "source_anchor": {
+          "start_column": 0,
+          "start_line": 0
+        }
+      }
+    ]
+  },
+  "is_async": false,
+  "js_hash": "sha256:<hash>",
+  "mutations": [],
+  "node_refs": [],
+  "queries": [],
+  "schema_version": 9,
+  "self_ty": "ComponentCallbackInput",
+  "shared_state_provider_sites": [],
+  "shared_stores": [],
+  "signals": [],
+  "struct_name": "ComponentCallbackInput",
+  "view_tree": {
+    "nodes": [
+      {
+        "id": 0,
+        "node": {
+          "children": [
+            1
+          ],
+          "kind": "element",
+          "payload_attrs": [],
+          "server_attrs": [],
+          "static_attrs": [],
+          "tag": "div"
+        }
+      },
+      {
+        "id": 1,
+        "node": {
+          "children": [],
+          "kind": "element",
+          "payload_attrs": [],
+          "server_attrs": [],
+          "static_attrs": [],
+          "tag": "input"
+        }
+      }
+    ],
+    "root": 0
+  }
+}

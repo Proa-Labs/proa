@@ -1,0 +1,170 @@
+---
+title: Event handlers
+description: Attach named typed browser handlers and component callbacks in RSJS.
+keywords: [event_handler, on_click, on_input]
+---
+
+RSJS treats every `on_*` attribute as a browser origin, so the render-trait implementation holding one carries `#[rsjs(component, client)]`. This page covers [attaching a handler](#attaching-a-handler), [typing events](#typing-events), [calling event methods](#calling-event-methods), and [passing callbacks to children](#passing-callbacks-to-children).
+
+## Attaching a handler
+
+RSJS analyzes the `WebRenderSync` or `WebRender` method you author. It does not generate an inherent `fn render(self)` shorthand, and it does not invent the method's return type.
+
+A small control can use an inline closure:
+
+```rust filename="src/components/disclosure.rs"
+let open = signal(false);
+
+html_sync! {
+    <button type="button" on_click={|_| open.update(|value| !value)}>
+        {if open.get() { "Close" } else { "Open" }}
+    </button>
+}
+```
+
+For production components, declare a named typed `event_handler(...)` before the template. The template stays readable, Rust tooling can inspect a normal closure, and the event's `currentTarget` capabilities stay explicit.
+
+```rust filename="src/components/shipping_picker.rs"
+use rsjs::elem;
+
+let selected = signal("standard".to_string());
+let pick = rsjs::event_handler(
+    |event: rsjs::MouseEvent<elem::Button>, value: &'static str| {
+        event.prevent_default();
+        selected.set(value);
+    },
+);
+
+html_sync! {
+    <button type="button" on_click={pick("standard")}>"Standard"</button>
+    <button type="button" on_click={pick("express")}>"Express"</button>
+}
+```
+
+The first closure parameter is the browser event. An optional second parameter carries a payload the template supplies. Payloads that reach the browser must satisfy the client encoding contract, and they are public page data. The compiler encodes static payloads such as the labels above into marker data it owns, so keep secrets out of them.
+
+To say which element a handler runs on, give its event a type parameter.
+
+## Typing events
+
+Event generics describe the handler's `currentTarget`, not the raw bubbling target. Use `rsjs::elem` markers for element-specific helpers. Document handlers use `rsjs::web::dom::Document`; window handlers use `rsjs::web::dom::Window`.
+
+```rust filename="src/components/search_filters.rs"
+use rsjs::elem;
+
+let query = signal(String::new());
+let enabled = signal(false);
+
+let update_query = rsjs::event_handler(
+    |event: rsjs::InputEvent<elem::Input>| {
+        query.set(event.current_value());
+    },
+);
+
+let update_enabled = rsjs::event_handler(
+    |event: rsjs::ChangeEvent<elem::Input>| {
+        enabled.set(event.current_checked());
+    },
+);
+
+html_sync! {
+    <input type="search" value={query.get()} on_input={update_query()} />
+    <input type="checkbox" checked={enabled.get()} on_change={update_enabled()} />
+}
+```
+
+Reach for a [binding](/docs/rsjs/bindings) instead when the control maps directly to one writable cell. Do not combine `bind_value={query}` with an `on_input` handler whose only job is to write the same `query` value.
+
+A typed event also unlocks the element-specific methods below.
+
+## Calling event methods
+
+| Method | Use |
+| --- | --- |
+| `event.prevent_default()` | Stop native submit, link, or drag behavior. |
+| `event.stop_propagation()` | Stop the event from bubbling. |
+| `event.current_value()` | Read the handler element's current value. |
+| `event.current_checked()` | Read the handler element's checked state. |
+| `event.closest_attr("data-id")` | Read a static attribute from the event target or an ancestor. |
+| `event.key()` / `event.code()` | Read keyboard input. |
+
+Pass a string literal as the attribute name to `closest_attr`, `target_attr`, or `current_target_attr` so RSJS can emit a safe selector.
+
+On local bindings these methods read the element the handler runs on; a callback prop moves the resulting value up to the parent. Exact `Document` and `Window` current targets do not offer element-only reads.
+
+## Passing callbacks to children
+
+Use `rsjs::Handler<T>` when a reusable child owns markup but notifies state its direct parent owns. The child declares the DOM handler, and the parent creates the typed callback edge.
+
+```rust filename="src/components/search_input.rs"
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+use rsjs::rsjs;
+
+pub struct SearchInput {
+    pub value: String,
+    pub on_change: rsjs::Handler<String>,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for SearchInput {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let on_input = rsjs::event_handler(
+            |event: rsjs::InputEvent<rsjs::elem::Input>| {
+                self.on_change.call(event.current_value());
+            },
+        );
+
+        html_sync! {
+            <input value={self.value} on_input={on_input()} />
+        }
+        .render(cx)
+    }
+}
+```
+
+The parent creates a callback with `rsjs::handler(...)` and passes it through a direct component literal:
+
+```rust filename="src/pages/search.rs"
+let query = signal(String::new());
+let on_change = rsjs::handler(|next: String| query.set(next));
+
+html_sync! {
+    {SearchInput {
+        value: query.get(),
+        on_change,
+    }}
+    <p>"Query: "{query.get()}</p>
+}
+```
+
+The linker fuses the live parent/child graph into one owner. `self.value` is a `LiveRead`, so it observes the current parent value. `self.on_change.call(...)` invokes the current callback edge. If the child instead declares `let current = signal(self.value)`, that value is `SeedOnce`. `SeedOnce` state belongs to the child and initializes on mount; a later parent write does not reset it.
+
+Normal Rust imports, renamed imports, and re-exports of `SearchInput` work. rustc resolves a direct struct literal into a component edge, so you do not need to spell a canonical module path.
+
+An explicit `rsjs::island(...)` forces an independent owner boundary. Live parent signals and `Handler` callback props cannot cross it. Use independent state, typed [SharedState](/docs/rsjs/shared-state), [queries](/docs/rsjs/queries-mutations), or another explicit synchronization boundary instead.
+
+Use `Option<rsjs::Handler<T>>` for optional callbacks and call it with `call_if_some(...)` after importing `rsjs::OptionalHandlerExt`. Use `rsjs::noop_handler()` when you construct a child without a real callback.
+
+The table below collects the rules behind these patterns.
+
+## What rules do handlers follow?
+
+| Rule | Why |
+| --- | --- |
+| Prefer named typed handlers in production | They provide clearer markup, event capabilities, and diagnostics. |
+| Keep the event as the first parameter | A second parameter, when present, is the template payload. |
+| Treat payloads as public data | Browser handlers can read their encoded payloads. |
+| Use `Handler<T>` for direct composed callbacks | It preserves a typed live edge without a global event bus. |
+| Use `batch(...)` for one logical multi-cell write | Values update immediately while subscribers flush once. |
+
+## Next steps
+
+- [Signals](/docs/rsjs/signals)
+  - Model owner-local and typed cross-owner browser state in RSJS.
+- [Input bindings](/docs/rsjs/bindings)
+  - Bind form controls to writable RSJS signals and SharedState fields.
+- [Component props](/docs/rsjs/component-props)
+  - Pass RSJS callbacks and reactive values into child component structs.
+- [Hydration strategies](/docs/rsjs/hydration)
+  - Defer RSJS island hydration until it matters.

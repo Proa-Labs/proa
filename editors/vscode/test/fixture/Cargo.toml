@@ -1,0 +1,11 @@
+[package]
+name = "proa-editor-fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+proa_core = { path = "../../../../proa_core" }
+proa_macros = { path = "../../../../proa_macros" }

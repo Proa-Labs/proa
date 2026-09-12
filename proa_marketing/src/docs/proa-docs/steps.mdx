@@ -1,0 +1,48 @@
+---
+title: Steps
+description: Number a sequence the reader works through in order.
+---
+
+Use steps for a procedure where order matters and each item is a thing the reader does. Numbering is generated, so inserting a step never renumbers the rest by hand.
+
+```mdx filename="content/setup.mdx"
+<Steps>
+<Step>
+Add the dependencies to `Cargo.toml`.
+</Step>
+<Step>
+Write `build.rs` and call `proa_docs_build::compile`.
+</Step>
+<Step>
+Include the registry with `include_docs!` and mount a route.
+</Step>
+</Steps>
+```
+
+Rendered:
+
+<Steps>
+<Step>
+Add the dependencies to `Cargo.toml`.
+</Step>
+<Step>
+Write `build.rs` and call `proa_docs_build::compile`.
+</Step>
+<Step>
+Include the registry with `include_docs!` and mount a route.
+</Step>
+</Steps>
+
+Neither tag takes attributes.
+
+Steps nest: an inner `<Steps>` inside a `<Step>` opens its own numbering and closes back to the outer sequence.
+
+## When not to use it
+
+Reach for an ordered list when the items are facts rather than actions. Steps carry visual weight that a three-item list does not earn, and a reader reads them as "do this now."
+
+> **Good to know**: Markdown inside a `<Step>` is rendered normally, so code fences, callouts, and tabs all work inside one.
+
+## Related
+
+[Accordions](/docs/proa-docs/accordions) · [Tabs](/docs/proa-docs/tabs) · [Quickstart](/docs/proa-docs/quickstart)

@@ -1,0 +1,252 @@
+# Authoring components
+
+This guide covers render components owned by this repository or by an
+application built with Proa. It does not assume a component library, catalog,
+theme system, or neighboring checkout.
+
+The `proa_ui` design-system library is a downstream consumer of Proa. Its
+components and catalog follow the instructions in that repository.
+
+## Pick the render path
+
+Use `WebRenderSync` and `html_sync!` unless rendering must await data. Author
+the render trait explicitly:
+
+```rust
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+
+pub struct Notice<C = ()> {
+    pub tone: NoticeTone,
+    pub class: Option<&'static str>,
+    pub children: Option<C>,
+}
+
+impl<L, C> WebRenderSync<L> for Notice<C>
+where
+    L: DataLoader,
+    C: WebRenderSync<L>,
+{
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let classes = notice_classes(self.tone).add_opt(self.class);
+        html_sync! {
+            <aside
+                data-component="notice"
+                data-variant={self.tone.as_str()}
+                class={classes}
+            >
+                {self.children}
+            </aside>
+        }
+        .render(cx)
+    }
+}
+```
+
+`WebContext<L>` owns the default reusable `RenderBuffer`. Keep the second
+writer generic off ordinary components; add `B: WriteBuf` and use
+`WebContext<L, B>` only for an integration that deliberately supports custom
+writers.
+
+Use `proa_core::to_async(component)` when this sync component must compose
+inside an `html!` tree. Implement `WebRender` with its real
+`RenderOutcome<impl Future>` signature only when the component itself needs
+`.await`.
+
+For a declarative component that maps directly to one HTML tag,
+`#[derive(ProaComponent)]` remains available. Custom or multi-element renderers
+use the explicit traits above.
+
+An undecorated render-trait impl is deliberately opaque to RSJS. If a reusable
+component must participate in a parent's live client graph, annotate this same
+real trait impl with `#[rsjs(component)]` even when it emits no JavaScript.
+Add `client` only when the component originates browser behavior.
+
+Read
+[`api-reference/render-traits.md`](api-reference/render-traits.md) before
+choosing the async path.
+
+## File layout
+
+Small application components can live in one module. For a component with
+variants and tests, prefer:
+
+```text
+src/components/notice/
+├── mod.rs
+├── notice.rs
+└── recipe.rs
+```
+
+- `mod.rs` declares modules and re-exports public types.
+- `notice.rs` owns the component, render implementation, and focused tests.
+- `recipe.rs` owns variant enums, static class constants, and class selection.
+
+Register the module only in the crate that owns it. There is no framework-wide
+catalog registration step.
+
+## Variants and classes
+
+Keep class selection outside the HTML tree and allocation-free:
+
+```rust
+use proa_core::ClassList;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NoticeTone {
+    #[default]
+    Neutral,
+    Positive,
+    Critical,
+}
+
+impl NoticeTone {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Neutral => "neutral",
+            Self::Positive => "positive",
+            Self::Critical => "critical",
+        }
+    }
+
+    const fn classes(self) -> &'static str {
+        match self {
+            Self::Neutral => "border-zinc-300 bg-zinc-50 text-zinc-950",
+            Self::Positive => "border-emerald-300 bg-emerald-50 text-emerald-950",
+            Self::Critical => "border-red-300 bg-red-50 text-red-950",
+        }
+    }
+}
+
+const NOTICE_BASE: &str = "rounded-md border px-4 py-3";
+
+pub const fn notice_classes(tone: NoticeTone) -> ClassList<2> {
+    ClassList::new().add(NOTICE_BASE).add(tone.classes())
+}
+```
+
+Use a static string for classes known at compile time and `ClassList<N>` for a
+fixed number of conditional fragments. Do not use `format!`, `String`,
+`.join`, or `push_str` inside `render`.
+
+If an application defines a compile-time class concatenation helper, it may use
+that helper for its own constants. Proa itself does not require a particular
+CSS framework or theme-token module.
+
+## Children
+
+Use `C = ()` plus `Option<C>` for zero-cost generic children:
+
+```rust
+pub struct Card<C = ()> {
+    pub class: Option<&'static str>,
+    pub children: Option<C>,
+}
+
+impl Default for Card<()> {
+    fn default() -> Self {
+        Self {
+            class: None,
+            children: None,
+        }
+    }
+}
+```
+
+Add `WebRenderSync<L>` bounds only to generic types that flow into child
+positions. For multiple structural regions:
+
+```rust
+pub struct Shell<H = (), C = (), F = ()> {
+    pub header: Option<H>,
+    pub children: Option<C>,
+    pub footer: Option<F>,
+}
+
+impl<L, H, C, F> WebRenderSync<L> for Shell<H, C, F>
+where
+    L: DataLoader,
+    H: WebRenderSync<L>,
+    C: WebRenderSync<L>,
+    F: WebRenderSync<L>,
+{
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <div data-component="shell">
+                <header>{self.header}</header>
+                <main>{self.children}</main>
+                <footer>{self.footer}</footer>
+            </div>
+        }
+        .render(cx)
+    }
+}
+```
+
+## Root attributes
+
+Application components should expose a stable root hook:
+
+- `data-component="<kebab-name>"` identifies the component.
+- `data-variant="<token>"` identifies a public visual or behavioral variant.
+- `class: Option<&'static str>` lets a caller add classes without allocating.
+
+These attributes make DOM tests and integrations independent of generated or
+utility classes.
+
+## Testing
+
+Render the component through the normal buffer and assert public invariants:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proa_core::text::text;
+    use proa_core::{WebContext, WebRenderSync};
+
+    #[test]
+    fn notice_renders_variant_children_and_custom_class() {
+        let mut cx = WebContext::new();
+
+        Notice {
+            tone: NoticeTone::Positive,
+            class: Some("mt-4"),
+            children: Some(text("<saved>")),
+        }
+        .render(&mut cx)
+        .unwrap();
+
+        let html = cx.into_output().into_string();
+        assert!(html.contains(r#"data-component="notice""#));
+        assert!(html.contains(r#"data-variant="positive""#));
+        assert!(html.contains("mt-4"));
+        assert!(html.contains("&lt;saved&gt;"));
+        assert!(!html.contains("<saved>"));
+    }
+}
+```
+
+Test every variant mapping, optional field in both states, user-controlled text
+escaping, and stable ARIA/id relationships. Snapshot whole pages only when
+structural diffs are useful and deterministic.
+
+## Verification
+
+From the repository root:
+
+```bash
+cargo proa fmt --check --verify path/to/changed.rs
+cargo proa lint path/to/changed.rs --deny warnings
+cargo check -p <owning-package>
+cargo test -p <owning-package> --lib
+python3 scripts/proa_perf_lint.py
+```
+
+See also:
+
+- [`cookbook.md#7-generic-children-component`](cookbook.md#7-generic-children-component)
+- [`api-reference/conventions.md`](api-reference/conventions.md)
+- [`api-reference/slot-grammar.md`](api-reference/slot-grammar.md)
+- [`../../proa_core/tests/landing_page_example.rs`](../../proa_core/tests/landing_page_example.rs)
+- [`../../proa_macros/tests/proa_component_launch.rs`](../../proa_macros/tests/proa_component_launch.rs) for the separate declarative `#[derive(ProaComponent)]` path

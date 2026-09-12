@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic sports story illustration</title>
+  <desc id="desc">Abstract runners and score shapes created for Proa fixtures.</desc>
+  <rect width="1200" height="675" fill="#172c3a"/>
+  <circle cx="345" cy="210" r="74" fill="#e9aa57"/>
+  <path d="M342 287l-86 151 115 55 95-160m-110 88l-146 96m166-39l93 132" fill="none" stroke="#f7f2e8" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="670" y="128" width="360" height="86" rx="18" fill="#e9aa57"/>
+  <rect x="670" y="258" width="270" height="42" rx="12" fill="#88aeba"/>
+  <rect x="670" y="334" width="330" height="42" rx="12" fill="#88aeba"/>
+  <rect x="670" y="410" width="220" height="42" rx="12" fill="#88aeba"/>
+</svg>

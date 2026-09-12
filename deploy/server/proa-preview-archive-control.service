@@ -1,0 +1,56 @@
+[Unit]
+Description=Authenticated Proa preview archive control plane
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+ConditionPathExists=/var/run/docker.sock
+ConditionPathExists=/etc/proa/preview-archive-control.secret
+OnFailure=proa-preview-archive-alert@%n.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/proa/preview-archive.env
+Environment=PROA_ARCHIVE_STATE_DIR=/var/lib/proa-preview-archive
+Environment=PROA_ARCHIVE_CONTROL_SECRET_FILE=/etc/proa/preview-archive-control.secret
+Environment=PROA_ARCHIVE_CONTROL_PORT=8788
+ExecStart=/usr/local/sbin/proa-preview-archive-control
+Restart=always
+RestartSec=2s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+UMask=0077
+User=root
+Group=root
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectProc=invisible
+ProtectSystem=strict
+ReadOnlyPaths=/etc/proa/preview-archive-control.secret
+ReadWritePaths=/var/lib/proa-preview-archive
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+LimitNOFILE=1024
+TasksMax=64
+MemoryMax=192M
+
+[Install]
+WantedBy=multi-user.target

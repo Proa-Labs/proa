@@ -1,0 +1,132 @@
+---
+title: Linking and navigating
+description: Navigate between Proa pages with anchors, optional prefetching, and Turbo Drive.
+---
+
+Use an anchor tag.
+
+```rust filename="src/components/nav.rs"
+html_sync! {
+    <nav>
+        <a href="/blog">"Blog"</a>
+        <a href="/about">"About"</a>
+    </nav>
+}
+```
+
+There is no `<Link>` component or client router to configure. Proa pages are server-rendered HTML, so normal document navigation is the baseline. Prefetching and Turbo Drive are optional enhancements to those same anchors; neither changes your routes.
+
+## Why there is no Link component
+
+Client-side routing avoids a full document reload, but it does not eliminate network requests for server data. Proa keeps routing and rendering on the server, where a route can return useful HTML immediately.
+
+A framework-specific link and router add a JavaScript bundle, a scroll and focus restoration model to get right, and a second source of truth for what page you are on.
+
+A plain anchor has none of that, and it works before JavaScript loads, with JavaScript disabled, and in a crawler.
+
+| You want | Do this |
+|---|---|
+| Navigate to another page | `<a href="/path">` |
+| Prefetch a likely next page | `<link rel="prefetch" href="/path">` |
+| Add SPA-like page transitions | Add Turbo Drive; keep the same anchors and routes |
+| Keep a scroll position across navigation | CSS `overflow-anchor`, or an island that restores it |
+| Show progress on a slow page | Stream it. See [Streaming SSR](/docs/core/streaming-ssr) |
+| Update the URL without navigating | RSJS history helpers, below |
+| Preserve state across a navigation | Reconsider, that state probably belongs in the URL |
+
+> **Good to know**: Prefetching and Turbo can make the transition feel faster, but they do not make slow server work disappear. Stream a slow section so the destination can return its shell immediately.
+
+## Prefetching a likely next page
+
+For a high-confidence next destination, add a document prefetch hint to the current page's `<head>`:
+
+```rust filename="src/app/layout.rs" {4}
+html_sync! {
+    <html lang="en">
+        <head>
+            <link rel="prefetch" href="/checkout" />
+        </head>
+        <body>{content}</body>
+    </html>
+}
+```
+
+This is a low-priority browser hint, not a Proa-specific navigation system. The browser may ignore it, and cache headers on the response affect whether the prefetched document can be reused. Use it for a small number of likely, same-site destinations rather than every link. A prefetch is a real `GET` request, so `GET` routes must remain safe and free of side effects.
+
+## SPA-like navigation with Turbo Drive
+
+[Turbo Drive](https://turbo.hotwired.dev/handbook/drive) is not bundled with Proa. It is a backend-agnostic progressive enhancement that works with Proa's existing HTML responses. It intercepts eligible same-origin links, fetches the destination document, replaces the `<body>`, merges the `<head>`, and updates browser history. The server still owns routing and renders every destination; if JavaScript is unavailable, the anchors continue to perform normal document navigation.
+
+Install Turbo and import it once from your browser entry module:
+
+```shell
+npm install @hotwired/turbo
+```
+
+```javascript filename="src/client.js"
+import "@hotwired/turbo";
+```
+
+Bundle that entry module with your application's JavaScript and load it from the document `<head>`. Importing Turbo starts Drive; Proa routes and anchor markup do not need to change.
+
+Turbo 8 prefetches eligible links shortly after hover by default. You can preload a particularly important destination when the page loads, disable hover prefetch for an expensive destination, or opt a link out of Turbo entirely:
+
+```rust filename="src/components/nav.rs" {3-5}
+html_sync! {
+    <nav>
+        <a href="/dashboard" data-turbo-preload>"Dashboard"</a>
+        <a href="/reports" data-turbo-prefetch="false">"Reports"</a>
+        <a href="/downloads/archive.zip" data-turbo="false">"Download archive"</a>
+    </nav>
+}
+```
+
+Turbo changes the page lifecycle, so custom browser code that runs after every navigation should listen for `turbo:load` instead of only `DOMContentLoaded`. Keep the application bundle in `<head>`. RSJS observes detached island roots and tears down their resources when Turbo replaces the body; the destination response's body scripts hydrate its new islands. Test any state you intentionally preserve across forward, back, and cached Turbo visits. See Turbo's [installation](https://turbo.hotwired.dev/handbook/installing) and [application lifecycle](https://turbo.hotwired.dev/handbook/building) guidance for the integration details.
+
+## Updating the URL from an island
+
+Filtering, sorting, and tab state belong in the URL so they survive a reload and a shared link. RSJS exposes the browser history API for exactly this:
+
+```rust filename="src/components/sort_products.rs"
+use rsjs::{event_handler, rsjs};
+
+let sort_ascending = event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+    rsjs::history::push_state("?sort=asc");
+});
+```
+
+| Helper | Effect |
+|---|---|
+| `history::push_state(url)` | Adds a history entry. The user can go back |
+| `history::replace_state(url)` | Replaces the current entry. No back step |
+| `history::back()` / `history::forward()` | Moves through the stack |
+| `history::go(delta)` | Jumps by a relative offset |
+
+Use `push_state` when the change is a place the user might want to return to, and `replace_state` when it is a correction to where they already are.
+
+None of these fetch anything. They update the address bar; the page keeps whatever the server already rendered. To reflect new data, refetch it with a [query](/docs/rsjs/queries-mutations).
+
+## Linking to another origin
+
+Add `rel="noopener noreferrer"` whenever you open a new tab:
+
+```rust filename="src/components/external.rs"
+html_sync! {
+    <a href="https://example.com" target="_blank" rel="noopener noreferrer">
+        "Docs"
+    </a>
+}
+```
+
+Without it, the opened page can reach back through `window.opener` and redirect your tab. See [Escaping and raw HTML](/docs/core/escaping).
+
+## Next steps
+
+- [Routes and layouts](/docs/framework/routing)
+  - Define route trees, layouts, and static paths.
+- [Streaming SSR](/docs/core/streaming-ssr)
+  - Flush the page shell first and stream slow sections as they resolve.
+- [Queries and mutations](/docs/rsjs/queries-mutations)
+  - Seed browser queries from server-rendered data, refetch them, and run invalidating mutations.
+- [Browser APIs](/docs/rsjs/browser-apis)
+  - Reach browser capabilities through the analyzed RSJS surface.

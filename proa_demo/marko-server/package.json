@@ -1,0 +1,14 @@
+{
+  "name": "proa-demo-marko-server",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@marko/compiler": "^5.39.63",
+    "esbuild": "^0.25.0",
+    "marko": "6.0.150"
+  }
+}

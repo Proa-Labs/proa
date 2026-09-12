@@ -1,0 +1,5 @@
+error: event handlers inside keyed list bodies are not supported in v0.1: client-created items have no per-item delegation scope yet. Put the handler on the list's container (DOM events bubble), or render the rows with a static template loop
+  --> tests/ui/fail/47_keyed_list_handler_in_body.rs:30:37
+   |
+30 | ...                   <button on_click={|_| items.set(vec![])}>{item}</button>
+   |                               ^^^^^^^^

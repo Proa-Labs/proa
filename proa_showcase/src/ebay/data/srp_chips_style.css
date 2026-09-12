@@ -1,0 +1,4 @@
+/* Chips toolbar (rsjs island demo control); the rest of the page uses eBay's own CSS. */
+.srp-filter-chips{display:flex;gap:8px;margin:0 0 10px}
+.filter-chip{border:1px solid #ccc;border-radius:16px;background:#fff;padding:5px 12px;font-size:12px;cursor:pointer}
+.filter-chip-label--active{font-weight:700;color:#3665f3}

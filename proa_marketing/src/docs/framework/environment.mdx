@@ -1,0 +1,282 @@
+---
+title: Environment variables
+description: Configure a deployed Proa app without rebuilding the binary.
+---
+
+One release binary runs in every environment, and environment variables pick the bind address, static path, log level, and secrets for each one. This page covers the [runtime contract](#defining-the-runtime-contract), [loading config once at startup](#loading-config-once), [handling required secrets](#handling-required-secrets), and [exposing values to the browser](#exposing-values-to-the-browser).
+
+## Defining the runtime contract
+
+Keep the contract small and explicit:
+
+| Variable | Required | Use |
+|----------|----------|-----|
+| `HOST` | No | Bind host. Use `0.0.0.0` in containers and `127.0.0.1` behind a same-host reverse proxy. |
+| `PORT` | No | Bind port. Container platforms often inject this. |
+| `STATIC_DIR` | No | Directory the static asset service serves. |
+| `RUST_LOG` | No | `tracing_subscriber` filter, usually `info` in production. |
+| `PUBLIC_BASE_URL` | Usually | Absolute origin for metadata, canonical URLs, emails, and webhooks. |
+| `TRUSTED_ORIGIN` | If needed | Browser origin allowed to send unsafe cross-origin requests. |
+| `DATABASE_URL` | If needed | Database connection string or pool configuration input. |
+
+Do not reach for a runtime variable where render code wants a compile-time constant. Pass runtime values through handlers, app state, loaders, or explicit props.
+
+Read every variable in this table once, at startup, rather than scattering `env::var` through the request path.
+
+## Loading config once
+
+Read and validate environment variables during startup:
+
+```rust filename="src/config.rs"
+use std::{
+    env,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
+};
+
+#[derive(Clone, Debug)]
+pub struct RuntimeConfig {
+    pub bind: SocketAddr,
+    pub static_dir: PathBuf,
+    pub public_base_url: Option<String>,
+    pub trusted_origin: Option<String>,
+}
+
+impl RuntimeConfig {
+    pub fn from_env() -> anyhow::Result<Self> {
+        let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let host = host.parse::<IpAddr>()?;
+
+        let port = env::var("PORT")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(3000);
+
+        let static_dir = env::var_os("STATIC_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("public"));
+
+        Ok(Self {
+            bind: SocketAddr::new(host, port),
+            static_dir,
+            public_base_url: optional_env("PUBLIC_BASE_URL"),
+            trusted_origin: optional_env("TRUSTED_ORIGIN"),
+        })
+    }
+}
+
+fn optional_env(name: &str) -> Option<String> {
+    env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3000),
+            static_dir: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("public"),
+            public_base_url: None,
+            trusted_origin: None,
+        }
+    }
+}
+```
+
+Load it once in `main`:
+
+```rust filename="src/main.rs"
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
+
+    let config = RuntimeConfig::from_env()?;
+    let app = build_app(config.clone())?;
+
+    let listener = tokio::net::TcpListener::bind(config.bind).await?;
+    tracing::info!("listening on http://{}", listener.local_addr()?);
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+```
+
+That config value then travels to exactly one place: the application boundary.
+
+## Applying config to FrameworkBuilder
+
+Use runtime config where you build the router:
+
+```rust filename="src/app.rs"
+use axum::Router;
+use proa_framework_axum::{FrameworkBuilder, IslandManifest};
+use tower_http::services::ServeDir;
+
+pub fn build_app(config: RuntimeConfig) -> anyhow::Result<Router> {
+    let manifest = load_island_manifest()?;
+    let (routes, metadata) = build_routes();
+
+    let static_router = Router::new().nest_service("/", ServeDir::new(&config.static_dir));
+
+    let mut builder = FrameworkBuilder::new(manifest)
+        .with_static_service(static_router)
+        .with_dynamic_routes_and_metadata(routes, metadata);
+
+    if let Some(origin) = config.trusted_origin.as_deref() {
+        builder = builder.with_trusted_origin(origin);
+    }
+
+    Ok(builder.build())
+}
+```
+
+Prefer typed app state for values handlers need repeatedly:
+
+```rust filename="src/routes/robots.rs"
+use axum::{extract::State, routing::get, Router};
+
+#[derive(Clone)]
+pub struct AppState {
+    pub config: RuntimeConfig,
+}
+
+async fn robots(State(state): State<AppState>) -> String {
+    let origin = state
+        .config
+        .public_base_url
+        .as_deref()
+        .unwrap_or("http://localhost:3000");
+
+    format!("Sitemap: {origin}/sitemap.xml\n")
+}
+
+let state = AppState { config };
+let app = Router::new()
+    .route("/robots.txt", get(robots))
+    .with_state(state);
+```
+
+Optional values tolerate a fallback like this one. Secrets do not.
+
+## Handling required secrets
+
+Fail fast for required secrets:
+
+```rust filename="src/config.rs"
+fn required_env(name: &'static str) -> anyhow::Result<String> {
+    env::var(name).map_err(|_| anyhow::anyhow!("{name} must be set"))
+}
+
+let database_url = required_env("DATABASE_URL")?;
+let stripe_secret_key = required_env("STRIPE_SECRET_KEY")?;
+```
+
+Read secrets in startup code or request handlers. Do not read them inside `WebRenderSync` implementations, and do not pass secrets into page props.
+
+Some variables never reach the running process at all, because the build consumes them first.
+
+## Separating build-time from runtime
+
+Keep these separate:
+
+| Variable | Phase | Notes |
+|----------|-------|-------|
+| `GITHUB_TOKEN` | Build | Lets the git CLI fetch Proa git dependencies while the Proa repository is private. Never required at runtime. |
+| `STATIC_DIR` | Runtime | Points the running server at public assets. |
+| `DATABASE_URL` | Runtime | App startup or handlers read it. |
+| `PUBLIC_BASE_URL` | Runtime | Safe to expose only if you explicitly render it. |
+| `RUST_LOG` | Runtime | Controls logs without rebuilding. |
+
+If a variable changes how Rust code compiles, use Cargo features or build-time configuration. If it changes how one deployed artifact runs, use a runtime environment variable.
+
+Runtime variables stay on the server unless you render them yourself.
+
+## Exposing values to the browser
+
+Proa never copies environment variables into the browser on your behalf. Whitelist values explicitly:
+
+```rust filename="src/layouts/root.rs"
+pub struct PublicConfig {
+    pub base_url: &'static str,
+    pub analytics_enabled: bool,
+}
+
+html_sync! {
+    <meta name="app-base-url" content={public_config.base_url} />
+    <meta name="analytics-enabled" content={if public_config.analytics_enabled {
+        "true"
+    } else {
+        "false"
+    }} />
+}
+```
+
+Render a value only when it can safely appear in page HTML, view source, logs, caches, and browser devtools.
+
+Locally, the same variables come from your shell instead of a platform dashboard.
+
+## Working locally
+
+Use shell exports or a local `.env` loader:
+
+```bash filename="Terminal"
+HOST=127.0.0.1 PORT=3000 RUST_LOG=debug cargo run
+```
+
+```rust filename="src/main.rs"
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    #[cfg(debug_assertions)]
+    let _ = dotenvy::dotenv();
+
+    let config = RuntimeConfig::from_env()?;
+    // build and serve the app
+    Ok(())
+}
+```
+
+Keep `.env` out of git. Generated Proa projects already ignore `.env`.
+
+> **Good to know**: `dotenvy::dotenv()` sits behind `#[cfg(debug_assertions)]`, so the `.env` loader compiles out of any build with debug assertions off.
+
+In production, the platform supplies the same values through the container or the service unit.
+
+## Setting variables in production
+
+Set runtime variables on the container, not in the image:
+
+```bash filename="Terminal"
+docker run --rm \
+  -p 3000:3000 \
+  -e HOST=0.0.0.0 \
+  -e PORT=3000 \
+  -e STATIC_DIR=/app/public \
+  -e RUST_LOG=info \
+  -e PUBLIC_BASE_URL=https://example.com \
+  hello-proa
+```
+
+For Cloud Run and similar platforms, set `HOST=0.0.0.0`, read the injected `PORT`, and configure secrets through the platform secret manager.
+
+A systemd unit carries the same contract:
+
+```ini filename="/etc/systemd/system/hello-proa.service"
+[Service]
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=STATIC_DIR=/opt/hello-proa/public
+Environment=RUST_LOG=info
+Environment=PUBLIC_BASE_URL=https://example.com
+ExecStart=/opt/hello-proa/bin/hello-proa
+```
+
+Use `EnvironmentFile=/etc/hello-proa/env` if you manage variables outside the unit file.
+
+## Next steps
+
+- [Deploy](/docs/framework/deployment)
+  - Pick a deployment target, then follow the guide for it.
+- [Configuration](/docs/framework/configuration)
+  - Configure FrameworkBuilder, security defaults, static mounts, and response behavior.
+- [Static assets](/docs/framework/static-assets)
+  - Serve the directory `STATIC_DIR` points at, with cache headers and path boundaries.
+- [Security](/docs/guides/security)
+  - What Proa hardens by default, and what stays your job.

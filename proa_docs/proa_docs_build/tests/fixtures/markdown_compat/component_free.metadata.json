@@ -1,0 +1,8 @@
+{
+  "hashes": ["component-free-parity", "lists-tables"],
+  "toc": [
+    {"depth": 2, "id": "lists-tables", "title": "Lists & tables"}
+  ],
+  "links": ["https://example.com/a?b=1&c=2"],
+  "type_table_requests": 0
+}

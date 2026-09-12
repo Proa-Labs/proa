@@ -1,0 +1,38 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "args": [
+        {
+          "kind": "literal",
+          "value": {
+            "kind": "string",
+            "value": "today"
+          }
+        }
+      ],
+      "kind": "console",
+      "level": "log"
+    },
+    {
+      "kind": "signal_set",
+      "signal": 1,
+      "value": {
+        "kind": "literal",
+        "value": {
+          "kind": "string",
+          "value": "today"
+        }
+      }
+    },
+    {
+      "kind": "signal_set",
+      "signal": 0,
+      "value": {
+        "attr": "data-date",
+        "kind": "event_attribute",
+        "source": "closest"
+      }
+    }
+  ]
+}

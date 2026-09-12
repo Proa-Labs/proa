@@ -1,0 +1,5 @@
+error: rsjs/integer-domain-unproven: `rsjs::div_int(a, b)` cannot prove one fixed-width Rust integer domain for these operands; write `rsjs::div_int::<i32>(a, b)`, `::<u32>`, `::<i64>`, or `::<u64>` so division-by-zero and signed MIN / -1 overflow match Rust
+  --> tests/ui/fail/64_shared_state_div_int_order_independent.rs:24:27
+   |
+24 |                 value.set(rsjs::div_int(value.get(), divisor.get()));
+   |                           ^^^^

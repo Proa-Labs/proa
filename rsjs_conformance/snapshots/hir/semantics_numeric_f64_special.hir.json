@@ -1,0 +1,58 @@
+[
+  {
+    "kind": "signal_set",
+    "signal": 2,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    },
+    "value": {
+      "kind": "binary",
+      "lhs": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 34,
+            "line": 1
+          },
+          "start": {
+            "column": 30,
+            "line": 1
+          }
+        }
+      },
+      "op": "Div",
+      "rhs": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 34,
+            "line": 1
+          },
+          "start": {
+            "column": 30,
+            "line": 1
+          }
+        }
+      },
+      "span": {
+        "end": {
+          "column": 34,
+          "line": 1
+        },
+        "start": {
+          "column": 30,
+          "line": 1
+        }
+      }
+    }
+  }
+]

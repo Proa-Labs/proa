@@ -1,0 +1,336 @@
+---
+title: Queries and mutations
+description: Seed browser queries from server-rendered data, refetch them, and run invalidating mutations.
+keywords: [query, mutation, fetch]
+---
+
+An RSJS query starts from the value the server already rendered, so the first paint and the browser cache agree. This page covers [seeding a query](#seeding-a-query-from-server-data), [awaiting the initial value](#awaiting-the-initial-value), [query keys](#choosing-query-keys), [reads](#reading-query-state), and [mutations](#running-mutations).
+
+## Seeding a query from server data
+
+Use a **query** when the server renders data first and the browser later
+observes, refetches, or invalidates it. Use a **mutation** when a browser action
+writes to the server and updates related query entries.
+
+`query_with_initial(...)` does not make rendering asynchronous by itself. If
+the initial `serde::Serialize` value is already available, keep the component on
+the synchronous fast path:
+
+```rust filename="src/components/stock_tile.rs"
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+use rsjs::{event_handler, rsjs, QueryKey};
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct StockPrice {
+    pub value: f64,
+    pub currency: String,
+}
+
+pub struct StockTile {
+    pub initial: StockPrice,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for StockTile {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let price: rsjs::Query<StockPrice> = rsjs::query_with_initial(
+            QueryKey::new(("stock", "AAPL")),
+            self.initial,
+            rsjs::FetchRequest {
+                url: "/api/stocks/AAPL",
+                response: Some(rsjs::ResponseKind::Json),
+                headers: &[("Accept", "application/json")],
+                timeout_ms: Some(1_500),
+                ..Default::default()
+            },
+            rsjs::QueryOptions {
+                refetch_on_focus: true,
+                stale_time_ms: 2_000,
+                ..Default::default()
+            },
+        );
+        let refresh = event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+            price.refetch();
+        });
+
+        html_sync! {
+            <article>
+                <span>{price.data().value}</span>
+                <span>{price.data().currency}</span>
+                <button type="button" on_click={refresh()}>"Refresh"</button>
+            </article>
+        }
+        .render(cx)
+    }
+}
+```
+
+The initial value is ordinary server Rust. RSJS serializes it into the
+response's page-level query seed table, and the adjacent island metadata names
+the effective key. The server-rendered output and browser cache therefore begin
+with the same value.
+
+When producing that value needs an `.await`, the component moves to the async path covered next.
+
+## Awaiting the initial value
+
+Use `WebRender` and `html!` only when obtaining the initial value actually needs
+`.await`, such as a `DataLoader`, database, or service call. Author the real
+render trait and return `RenderOutcome::pending(async move { ... })`. RSJS does
+not support `async fn render` shorthand.
+
+```rust filename="src/components/async_stock_tile.rs"
+use std::future::Future;
+
+use proa_core::{
+    DataLoader, LoadKey, RenderOutcome, WebContext, WebRender, WriteError,
+};
+use proa_macros::html;
+use rsjs::{rsjs, QueryKey};
+
+pub struct AsyncStockTile {
+    pub load_key: LoadKey,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRender<L> for AsyncStockTile {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let initial: StockPrice = cx.load_json(self.load_key).await?;
+            let price: rsjs::Query<StockPrice> = rsjs::query_with_initial(
+                QueryKey::new(("stock", "AAPL")),
+                initial,
+                rsjs::FetchRequest {
+                    url: "/api/stocks/AAPL",
+                    response: Some(rsjs::ResponseKind::Json),
+                    ..Default::default()
+                },
+                rsjs::QueryOptions::default(),
+            );
+
+            html! {
+                <span>{price.data().value}</span>
+            }
+            .render(cx)
+            .resolve()
+            .await
+        })
+    }
+}
+```
+
+The important boundary is that the load happens through `cx` before its result
+enters `query_with_initial(...)`.
+
+Do not create a query only to fetch SSR data. If the browser will not observe,
+refetch, invalidate, or bind the value, load it as ordinary server data and
+render it without a query runtime.
+
+Every query, sync or async, reaches its cache entry through a key, which the next section covers.
+
+## Choosing query keys
+
+Use `QueryKey::new((...))` with tuple parts. Tuples support mixed Rust types and
+serialize to the same structural array shape used by the browser cache.
+
+```rust filename="src/components/product_reviews.rs"
+QueryKey::new(("stock", "AAPL"))
+QueryKey::new(("product", product_id, "reviews"))
+QueryKey::new(("search", query.get()))
+```
+
+The key identifies the cache entry. The `FetchRequest` describes the browser
+request and stays static.
+
+When a linked parent supplies a live value used in a child query key, RSJS keeps
+the query handle stable. It rebinds the observer to the entry for the new
+structural key, and it does not rename or mutate the old cache entry. Existing
+subscriptions move to the new entry.
+
+> **Good to know**: a request already in flight stays owned by the old entry.
+
+The next section covers what belongs in the descriptor next to the key.
+
+## Describing fetch requests
+
+`FetchRequest` is the client request descriptor. Keep dynamic state in the key
+or mutation payload; keep the endpoint shape in the descriptor.
+
+```rust filename="src/components/stock_tile.rs"
+rsjs::FetchRequest {
+    url: "/api/stocks/AAPL",
+    method: Some(rsjs::HttpMethod::Post),
+    credentials: Some(rsjs::FetchCredentials::SameOrigin),
+    response: Some(rsjs::ResponseKind::Json),
+    headers: &[("Accept", "application/json"), ("X-RSJS", "1")],
+    body: Some(rsjs::RequestBody::Json(r#"{"symbol":"AAPL"}"#)),
+    timeout_ms: Some(1_500),
+}
+```
+
+Available response decoders are `Json`, `Text`, `Bytes`, and `Empty`.
+`QueryOptions` also supports retry, polling, staleness, focus refetching,
+download progress, and streaming text for text responses.
+
+Once a query exists, components read it reactively, which the next section shows.
+
+## Reading query state
+
+Query handles are reactive. Use them in text, attributes, conditionals, and
+handlers. Use the template macro that matches the component's render trait.
+
+```rust filename="src/components/stock_tile.rs"
+let invalidate = event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+    price.invalidate();
+});
+
+html_sync! {
+    <span>{price.status()}</span>
+    <span>{price.data().value}</span>
+    <span>{price.download_percent()}</span>
+
+    {if price.is_refetching() {
+        html_sync! { <span>"Refreshing"</span> }
+    }}
+
+    <button type="button" on_click={invalidate()}>
+        "Invalidate"
+    </button>
+}
+```
+
+Common reads:
+
+| Read | Meaning |
+|------|---------|
+| `query.data().field` | Project typed JSON data. |
+| `query.status()` | Current status string. |
+| `query.is_loading()` / `query.is_success()` / `query.is_error()` | Status flags. |
+| `query.is_refetching()` / `query.is_stale()` | Cache state flags. |
+| `query.error()` | Error value projection. |
+| `query.download_loaded()` / `query.download_total()` / `query.download_percent()` | Progress values when enabled. |
+
+Several owners can read one key at the same time, so the next section covers who owns the entry.
+
+## How long do cache entries and observers live?
+
+Declarations with the same structural key share one page-scoped cache entry and
+one in-flight request. Options such as `stale_time_ms` remain observer-local.
+Active polling observers share the smallest positive interval. Focus refetching
+runs when any active observer that requested it considers the entry stale.
+
+Removing an owner disposes its observer and subscriptions, but does not evict
+the cache entry. A later owner in the same response epoch and navigation
+generation can reuse it. Full page-generation teardown cancels scheduled work
+and in-flight query requests, invalidates old handles, and clears the cache.
+
+Writes reach those entries through mutations, which the next section covers.
+
+## Running mutations
+
+Mutations are async-only. Declare them inside the canonical `WebRender` pending
+future and render with `html!`. The mutation key identifies the write operation;
+the invalidation list names the query keys the runtime refreshes after a
+successful run.
+
+```rust filename="src/components/cart_editor.rs"
+pub struct CartEditor;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRender<L> for CartEditor {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let draft = rsjs::signal(String::new());
+            let save = rsjs::mutation::<String, ()>(
+                QueryKey::new(("cart", "update")),
+                rsjs::FetchRequest {
+                    url: "/api/cart",
+                    method: Some(rsjs::HttpMethod::Patch),
+                    credentials: Some(rsjs::FetchCredentials::SameOrigin),
+                    response: Some(rsjs::ResponseKind::Empty),
+                    timeout_ms: Some(2_500),
+                    ..Default::default()
+                },
+                &[QueryKey::new(("cart", "summary"))],
+            );
+            let update_draft = rsjs::event_handler(
+                |event: rsjs::InputEvent<rsjs::elem::Input>| {
+                    draft.set(event.current_value());
+                },
+            );
+            let submit = rsjs::event_handler(
+                |_: rsjs::MouseEvent<rsjs::elem::Button>| {
+                    save.run(draft.get());
+                },
+            );
+
+            html! {
+                <input value={draft.get()} on_input={update_draft()} />
+                <button
+                    type="button"
+                    disabled={save.is_pending()}
+                    on_click={submit()}
+                >
+                    {if save.is_pending() { "Saving..." } else { "Save" }}
+                </button>
+            }
+            .render(cx)
+            .resolve()
+            .await
+        })
+    }
+}
+```
+
+Use `mutation_with_options(...)` when you need retry policy or a different
+invalidation strategy.
+
+```rust filename="src/components/cart_editor.rs"
+let save = rsjs::mutation_with_options::<String, ()>(
+    QueryKey::new(("cart", "update")),
+    rsjs::FetchRequest {
+        url: "/api/cart",
+        method: Some(rsjs::HttpMethod::Patch),
+        response: Some(rsjs::ResponseKind::Empty),
+        ..Default::default()
+    },
+    &[QueryKey::new(("cart", "summary"))],
+    rsjs::MutationOptions {
+        retry_count: 1,
+        on_success_invalidate_strategy: rsjs::InvalidationStrategy::Refetch,
+    },
+);
+```
+
+The table below condenses these choices into one pass.
+
+## When to use each form?
+
+| Rule | Why |
+|------|-----|
+| Use `WebRenderSync` when the query initial already exists | Declaring a query does not require an await. |
+| Use `WebRender` only for an awaited query initial or a mutation | The render trait reflects actual async work and the current mutation contract. |
+| Seed query data on the server | The first paint then matches the hydrated cache. |
+| Use tuple query keys | They handle mixed key parts and preserve structural identity. |
+| Keep `FetchRequest` static | Runtime request shape belongs to the component definition. |
+| Invalidate related query keys after writes | Otherwise the browser cache can show stale data. |
+
+## Next steps
+
+- [Handlers](/docs/rsjs/handlers)
+  - Type the events that call `refetch()`, `invalidate()`, and `run()`.
+- [Signals](/docs/rsjs/signals)
+  - Hold local client state such as a mutation draft.
+- [Hydration strategies](/docs/rsjs/hydration)
+  - Choose when an owner attaches its query and mutation runtime work.
+- [Data loading](/docs/framework/data-loading)
+  - Load the initial value on the server through `cx`.
+- [Component props](/docs/rsjs/component-props)
+  - Pass live values that rebind a child query key.

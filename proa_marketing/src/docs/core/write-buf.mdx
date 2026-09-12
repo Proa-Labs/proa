@@ -1,0 +1,108 @@
+---
+title: WriteBuf
+description: Pick the buffer a route renders into.
+keywords: [WriteBuf, RenderBuffer]
+---
+
+All web rendering writes into a `WriteBuf`. The buffer controls allocation behaviour, capacity handling, and how the response is finalized.
+
+Use `RenderBuffer` unless you have a reason not to.
+
+```rust filename="src/pages/about.rs"
+use proa_core::{WebContext, WebRenderSync};
+
+let mut cx = WebContext::new();
+page.render(&mut cx)?;
+let html = cx.into_output().into_string();
+```
+
+## Choosing a buffer
+
+| Buffer | Use when |
+|--------|----------|
+| `RenderBuffer` | Routes, tests, and adapters. The default. |
+| `ZeroCopyBuf` | A custom transport experiment preserves large static byte slices. |
+| `StreamingZeroCopyBuf` | You are building a manual checkpoint-based streaming response. |
+| `SinkWriter<N>` | A legacy adapter explicitly selected the deprecated page-pool writer. See [Sink](/docs/core/sink). |
+
+`RenderBuffer` grows by chaining reusable 4 KB pages, never relocates bytes it has already written, and recycles pages after `clear()`.
+
+The last two rows belong to the streaming path. [Sink](/docs/core/sink) covers them.
+
+## Reusing a buffer
+
+For a long-lived service, keep the writer request-local or worker-local and clear it between renders:
+
+```rust filename="src/render_worker.rs"
+use proa_core::{RenderBuffer, WebContext, WebRenderSync};
+
+pub struct RenderWorker {
+    out: RenderBuffer,
+}
+
+impl RenderWorker {
+    pub fn render_page<P>(&mut self, page: P) -> Result<&RenderBuffer, proa_core::WriteError>
+    where
+        P: WebRenderSync,
+    {
+        self.out.clear();
+        let mut cx = WebContext::with_buffer(std::mem::take(&mut self.out));
+        let result = page.render(&mut cx);
+        self.out = cx.into_output();
+        result?;
+        Ok(&self.out)
+    }
+}
+```
+
+The caller flattens or streams the returned slices before the next `clear()`.
+
+For most Axum handlers, creating a fresh `RenderBuffer` per request and calling `into_string()` is also fine. Reuse matters when profiling shows allocation churn in a high-throughput render loop.
+
+> **Good to know**: Fixed-capacity writers and contiguous byte-vector helpers exist for low-level tests, benchmarks, and narrow adapters. Normal routes should not depend on guessing an output size.
+
+## Context state
+
+`WebContext` carries the output buffer plus request-scoped render state: escape mode and dialect, request metadata and route params, an optional data loader, streaming recorders and flushers, and RSJS island usage records.
+
+Components treat `cx` as the place to render children and write output. Route and framework code choose the buffer and finalize the response.
+
+When the render tree needs request-scoped data loading:
+
+```rust filename="src/pages/blog.rs"
+use std::sync::Arc;
+use proa_core::WebContext;
+
+let mut cx = WebContext::with_loader(Arc::new(loader));
+```
+
+## At the route boundary
+
+`ZeroCopyBuf` stores large static template slices as static parts and dynamic bytes in an owned buffer. Reach for it only when a custom transport preserves scatter-gather response structure instead of flattening immediately:
+
+```rust filename="src/pages/home.rs"
+use proa_core::{WebContext, WebRenderSync, ZeroCopyBuf};
+
+let mut cx = WebContext::with_buffer(ZeroCopyBuf::with_capacity(128, 16 * 1024));
+page.render(&mut cx)?;
+let out = cx.into_output();
+```
+
+This is the advanced custom-writer path: the page tree must explicitly support
+`WebRenderSync<L, ZeroCopyBuf>`. If you flatten the result right away,
+`RenderBuffer` and the default `WebRenderSync<L>` form are simpler.
+
+Using `proa_framework_axum` directly? Return `RouteResponse::ssr(Page)` from the handler to use the standard `RenderBuffer` path. See [Route responses](/docs/framework/responses).
+
+Before you ship: use `RenderBuffer` for app routes and tests, call `render_static` first for docs routes, keep response finalization at the route boundary, and reach for zero-copy or sink-backed buffers only when the transport path actually uses them.
+
+## Next steps
+
+- [Sink](/docs/core/sink)
+  - Render streamed output into recycled pages instead of fresh allocations.
+- [Route responses](/docs/framework/responses)
+  - Return synchronous, buffered async, or streaming SSR with islands.
+- [Streaming SSR](/docs/core/streaming-ssr)
+  - Flush the page shell first and stream slow sections as they resolve.
+- [Writing performant pages](/docs/guides/performance)
+  - How to write zero-allocation Proa pages that render in microseconds. Covers format!() avoidance, SafeText, ClassList, numeric rendering, buffer selection, and pre-formatting patterns.

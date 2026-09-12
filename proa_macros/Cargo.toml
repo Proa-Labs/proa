@@ -1,0 +1,45 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_macros"
+version = "0.3.0"
+edition = "2021"
+rust-version.workspace = true
+publish.workspace = true
+description = "Compile-time HTML, Markdown, component, and island macros for Proa."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lib]
+proc-macro = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+no-perf-hints = ["proa_dsl/no-perf-hints"]
+
+[dependencies]
+heapless = { workspace = true }
+proa_core = { workspace = true }
+proa_dsl = { workspace = true }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+quote = { workspace = true }
+serde_json = { workspace = true }
+syn = { workspace = true, features = ["full", "parsing", "extra-traits", "visit"] }
+
+# Note: proa_ir is NOT a proc-macro dependency - the derive macro
+# generates code that references it, which is resolved in the user's crate
+
+[dev-dependencies]
+proa_actions = { workspace = true }
+proa_core = { workspace = true }
+proa_ir = { workspace = true }
+proa_react = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+trybuild = { workspace = true }

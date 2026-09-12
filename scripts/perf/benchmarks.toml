@@ -1,0 +1,34 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+schema_version = 1
+# Durable-baseline state was introduced with epoch 1. Once this appears in a
+# trusted base revision, a missing bot-managed baseline is an integrity error;
+# the workflow may only bootstrap from HEAD^ while introducing a new epoch.
+baseline_state_epoch = 1
+
+[[benchmarks]]
+id = "standard_page"
+render = "render_memcpy_floor/proa_html_safetext_stack"
+memcpy = "render_memcpy_floor/memcpy_page_floor"
+# Increase this integer only when the rendered fixture intentionally changes.
+# That produces an explicit, reviewable rebaseline instead of comparing two
+# different pages or allowing a hash drift to masquerade as a performance win.
+fixture_version = 1
+# Rebaselines use a two-change protocol. First advance this policy field in a
+# fixture-neutral PR. Once it is trusted on main, a later PR may advance
+# fixture_version to that exact value while changing the rendered bytes.
+approved_rebaseline_version = 1
+# A pre-approved fixture change still has to render within this absolute,
+# page-size-normalized budget. The pure memcpy benchmark copies the exact head
+# fixture, so this ceiling cannot be waived merely by changing its byte size.
+# Change this policy only in the fixture-neutral approval step; candidate values
+# are ignored until they have landed on the trusted base.
+rebaseline_max_render_to_memcpy = 8.0
+warn_percent = 8.0
+fail_percent = 15.0
+output_policy = "exact"
+# The workflow runs two Criterion rounds per revision with 60 samples per
+# benchmark in each round. Treat partial uploads as invalid measurements.
+expected_rounds = 2
+minimum_sample_count = 120

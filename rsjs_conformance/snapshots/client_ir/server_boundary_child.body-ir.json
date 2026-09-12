@@ -1,0 +1,16 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "callback": 0,
+      "kind": "callback_invoke",
+      "payload": {
+        "kind": "literal",
+        "value": {
+          "kind": "null",
+          "value": null
+        }
+      }
+    }
+  ]
+}

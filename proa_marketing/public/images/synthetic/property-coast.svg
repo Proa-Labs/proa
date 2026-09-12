@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic coastal home illustration</title>
+  <desc id="desc">A geometric house above a blue coast, created for Proa fixtures.</desc>
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#bfe5ee"/><stop offset="1" stop-color="#f4e4c7"/></linearGradient>
+    <linearGradient id="sea" x2="1"><stop stop-color="#4a93a5"/><stop offset="1" stop-color="#216a82"/></linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#sky)"/>
+  <circle cx="930" cy="145" r="78" fill="#fff4c7"/>
+  <path d="M0 480C170 410 320 435 490 492s330 54 710-82v390H0z" fill="url(#sea)"/>
+  <path d="M0 570c220-75 420-38 590 34s360 60 610-20v216H0z" fill="#d5bc8e"/>
+  <path d="M220 455h425v225H220z" fill="#f7f1e7"/>
+  <path d="M178 470l255-174 255 174z" fill="#6f5b4d"/>
+  <rect x="275" y="510" width="120" height="170" fill="#b66f50"/>
+  <rect x="438" y="505" width="150" height="96" rx="4" fill="#86bac8"/>
+  <path d="M438 553h150M513 505v96" stroke="#f7f1e7" stroke-width="10"/>
+</svg>

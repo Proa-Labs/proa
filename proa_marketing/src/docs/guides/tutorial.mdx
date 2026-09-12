@@ -1,0 +1,700 @@
+---
+title: "Tutorial: A Product Page"
+description: Server-render a catalog, then add a quantity stepper that still works with JavaScript off.
+---
+
+Here you'll be building a sample product page! Build a small product catalog and a product page whose add-to-cart form is a plain HTML form. Then add an interactive quantity stepper with a live subtotal.
+
+<Demo src="/demos/quantity-stepper" title="Quantity stepper" height="470" />
+
+
+Start from the project created in [Getting Started](/docs):
+
+```bash
+proa new site shop-demo --template marketing --docs proa_docs --tailwind --yes
+cd shop-demo
+bash scripts/dev.sh
+```
+
+`scripts/dev.sh` is generated with the project. It builds the Tailwind assets
+before starting the server, restarts on changes, and runs through `proa dev`.
+Open tabs reload themselves after each rebuild, and stylesheet edits are
+applied without navigating. See [Live reload](/docs/cli/new-site#live-reload)
+for the settings at the top of the script.
+
+## Target Files
+
+<Files>
+  <Folder name="src" defaultOpen>
+    <Folder name="components" defaultOpen>
+      <File name="mod.rs" />
+      <File name="product_card.rs" />
+      <File name="quantity_stepper.rs" />
+    </Folder>
+    <Folder name="data" defaultOpen>
+      <File name="mod.rs" />
+      <File name="products.rs" />
+    </Folder>
+    <Folder name="pages" defaultOpen>
+      <File name="mod.rs" />
+      <File name="products.rs" />
+      <File name="product.rs" />
+    </Folder>
+    <File name="rsjs_assets.rs" />
+    <File name="main.rs" />
+  </Folder>
+</Files>
+
+## Product Data
+
+Prices are whole dollars as `i64` so the browser can multiply them later without
+a money-formatting helper.
+
+<CodeExplorer>
+
+<CodeFile name="src/data/products.rs">
+
+```rust
+#[derive(Debug, Clone, Copy)]
+pub struct Product {
+    pub slug: &'static str,
+    pub path: &'static str,
+    pub name: &'static str,
+    pub category: &'static str,
+    pub price_usd: i64,
+    pub summary: &'static str,
+}
+
+pub const PRODUCTS: &[Product] = &[
+    Product {
+        slug: "atlas-jacket",
+        path: "/products/atlas-jacket",
+        name: "Atlas Jacket",
+        category: "Men's Weatherproof Shell",
+        price_usd: 248,
+        summary: "Weatherproof shell with a quiet technical finish.",
+    },
+    Product {
+        slug: "field-pack",
+        path: "/products/field-pack",
+        name: "Field Pack",
+        category: "Everyday Backpack",
+        price_usd: 168,
+        summary: "Structured everyday pack with laptop and camera storage.",
+    },
+    Product {
+        slug: "merino-tee",
+        path: "/products/merino-tee",
+        name: "Merino Tee",
+        category: "Men's Base Layer",
+        price_usd: 78,
+        summary: "Lightweight base layer for travel, training, and daily wear.",
+    },
+];
+
+pub fn find_product(slug: &str) -> Option<&'static Product> {
+    PRODUCTS.iter().find(|product| product.slug == slug)
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/data/mod.rs">
+
+```rust
+pub mod products;
+```
+
+</CodeFile>
+
+</CodeExplorer>
+
+## Product Card
+
+The whole card is the link, and the image slot is a placeholder box until you
+have real photography.
+
+<CodeExplorer>
+
+<CodeFile name="src/components/product_card.rs">
+
+```rust
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+
+use crate::data::products::Product;
+
+pub struct ProductCard {
+    pub product: &'static Product,
+}
+
+impl<L: DataLoader> WebRenderSync<L> for ProductCard {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let product = self.product;
+        html_sync! {
+            <a class="grid gap-3" href={product.path}>
+                <div class="flex aspect-square w-full items-center justify-center rounded-lg bg-zinc-100">
+                    <span class="text-xs uppercase tracking-[0.25em] text-zinc-400">
+                        {product.name}
+                    </span>
+                </div>
+                <div>
+                    <h2 class="text-base font-medium text-zinc-950">{product.name}</h2>
+                    <p class="text-sm text-zinc-500">{product.category}</p>
+                    <p class="mt-2 text-base font-medium text-zinc-950">"$"{product.price_usd}</p>
+                </div>
+            </a>
+        }
+        .render(cx)
+    }
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/components/mod.rs">
+
+```rust
+pub mod product_card;
+```
+
+</CodeFile>
+
+</CodeExplorer>
+
+## Routes
+
+Two pages: a listing that maps over `PRODUCTS`, and a detail page whose
+add-to-cart control is a native form posting `sku` and `qty`. There is no
+JavaScript in either one.
+
+A loop body is its own template, so it needs its own `html_sync!` block.
+
+<CodeExplorer>
+
+<CodeFile name="src/pages/products.rs">
+
+```rust
+use axum::response::Html;
+use proa_core::{
+    render_to_string, DataLoader, WebContext, WebRenderSync, WriteError,
+};
+use proa_macros::html_sync;
+
+use crate::components::product_card::ProductCard;
+use crate::data::products::PRODUCTS;
+use crate::layouts::root::{PageMeta, RootDocument};
+
+pub async fn handler() -> Html<String> {
+    Html(render())
+}
+
+pub fn render() -> String {
+    // proa-perf-ok: top-level Axum response finalization owns the HTML String
+    render_to_string(RootDocument {
+        meta: PageMeta {
+            title: "Products",
+            description: "Product catalog.",
+            path: "/products",
+        },
+        content: ProductsPage,
+    })
+}
+
+struct ProductsPage;
+
+impl<L: DataLoader> WebRenderSync<L> for ProductsPage {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <main class="mx-auto grid max-w-6xl gap-8 px-6 py-12">
+                <h1 class="text-3xl font-medium text-zinc-950">"Products"</h1>
+                <ul class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+                    {for product in PRODUCTS {
+                        html_sync! { <li>{ProductCard { product }}</li> }
+                    }}
+                </ul>
+            </main>
+        }
+        .render(cx)
+    }
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/pages/product.rs">
+
+```rust
+use axum::{extract::Path, http::StatusCode, response::Html};
+use proa_core::{
+    render_to_string, DataLoader, WebContext, WebRenderSync, WriteError,
+};
+use proa_macros::html_sync;
+
+use crate::data::products::{find_product, Product};
+use crate::layouts::root::{PageMeta, RootDocument};
+
+pub async fn handler(Path(slug): Path<String>) -> Result<Html<String>, StatusCode> {
+    let product = find_product(&slug).ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Html(render(product)))
+}
+
+pub fn render(product: &'static Product) -> String {
+    // proa-perf-ok: top-level Axum response finalization owns the HTML String
+    render_to_string(RootDocument {
+        meta: PageMeta {
+            title: product.name,
+            description: product.summary,
+            path: product.path,
+        },
+        content: ProductPage { product },
+    })
+}
+
+struct ProductPage {
+    product: &'static Product,
+}
+
+impl<L: DataLoader> WebRenderSync<L> for ProductPage {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let product = self.product;
+        html_sync! {
+            <main class="mx-auto max-w-6xl px-6 py-10">
+                <nav class="flex items-center gap-2 text-xs text-zinc-500">
+                    <a href="/products">"Products"</a>
+                    <span>"/"</span>
+                    <span class="text-zinc-900">{product.name}</span>
+                </nav>
+
+                <div class="mt-6 flex flex-col gap-10 lg:flex-row">
+                    <div class="lg:w-[55%]">
+                        <div class="flex aspect-square w-full items-center justify-center rounded-lg bg-zinc-100">
+                            <span class="text-xs uppercase tracking-[0.25em] text-zinc-400">
+                                {product.name}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="lg:w-[45%]">
+                        <h1 class="text-[28px] font-medium leading-tight text-zinc-950">
+                            {product.name}
+                        </h1>
+                        <p class="mt-1 text-base text-zinc-500">{product.category}</p>
+                        <p class="mt-4 text-xl font-medium text-zinc-950">
+                            "$"{product.price_usd}
+                        </p>
+                        <p class="mt-6 text-base leading-7 text-zinc-600">{product.summary}</p>
+
+                        <form method="post" action="/cart" class="mt-8">
+                            <input type="hidden" name="sku" value={product.slug} />
+                            <input type="hidden" name="qty" value="1" />
+                            <button
+                                class="mt-6 flex h-[60px] w-full items-center justify-center rounded-full bg-zinc-950 text-lg font-medium text-white transition hover:opacity-80"
+                                type="submit"
+                            >
+                                "Add to Bag"
+                            </button>
+                        </form>
+
+                        <div class="mt-8 border-t border-zinc-200 pt-2 text-sm text-zinc-600">
+                            <p class="py-2">"Free standard shipping on orders over $150."</p>
+                            <p class="py-2">"Free 60-day returns."</p>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        }
+        .render(cx)
+    }
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/pages/mod.rs">
+
+```rust
+pub mod product;
+pub mod products;
+```
+
+</CodeFile>
+
+</CodeExplorer>
+
+## Form Action
+
+Add the POST handler and register the routes.
+
+<CodeExplorer>
+
+<CodeFile name="src/main.rs">
+
+```rust
+use axum::{
+    extract::Form,
+    response::Redirect,
+    routing::{get, post},
+    Router,
+};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct AddToCart {
+    sku: String,
+    qty: u32,
+}
+
+async fn add_to_cart(Form(form): Form<AddToCart>) -> Redirect {
+    tracing::info!(sku = %form.sku, qty = form.qty, "add to cart");
+    Redirect::to("/products")
+}
+
+// ... and where the router is built:
+
+let app = Router::new()
+    .route("/", get(pages::home::handler))
+    .route("/products", get(pages::products::handler))
+    .route("/products/:slug", get(pages::product::handler))
+    .route("/cart", post(add_to_cart))
+    .nest_service("/static", static_assets::service());
+```
+
+</CodeFile>
+
+</CodeExplorer>
+
+Two pieces of Axum vocabulary are worth naming here, because they look unusual
+the first time:
+
+- `Form<T>` is a newtype wrapper, `struct Form<T>(pub T)`. The type is the
+  instruction: it tells Axum to parse the request body as
+  `application/x-www-form-urlencoded` into `T`. Swap it for `Json<T>`, `Path<T>`,
+  or `Query<T>` to read a different part of the request.
+- `Form(form):` is ordinary Rust pattern destructuring in the parameter
+  position, the same thing as `let Form(form) = ...` written inline. You can
+  write `form: Form<AddToCart>` instead and reach the value through `form.0`.
+
+Deserializing into a typed struct rather than a `HashMap` means a missing or
+non-numeric `qty` is rejected by the extractor with a 422 before your handler
+runs.
+
+Open `http://localhost:3000/products/atlas-jacket` and submit the form. It posts
+`sku=atlas-jacket` and `qty=1`, then redirects. No JavaScript has been involved
+so far.
+
+## The Island
+
+Now make the quantity adjustable in the browser, without giving up anything
+above.
+
+<CodeExplorer>
+
+<CodeFile name="Cargo.toml">
+
+```toml
+rsjs = { git = "https://github.com/Proa-Labs/proa.git" }
+rsjs_macros = { git = "https://github.com/Proa-Labs/proa.git" }
+serde = { version = "1", features = ["derive"] }
+```
+
+</CodeFile>
+
+<CodeFile name="src/components/quantity_stepper.rs">
+
+```rust
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+use rsjs::signal;
+use rsjs_macros::rsjs;
+
+pub struct QuantityStepper {
+    pub unit_price: i64,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for QuantityStepper {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let qty = signal(1_i64);
+        let unit_price: rsjs::Signal<i64> = signal(self.unit_price);
+        let subtotal = rsjs::computed(|| qty.get() * unit_price.get());
+
+        html_sync! {
+            <div>
+                <div class="flex items-center justify-between">
+                    <span class="text-base font-medium text-zinc-950">"Quantity"</span>
+                    <span class="text-sm text-zinc-500" aria-live="polite">
+                        "Subtotal $"{subtotal.get()}
+                    </span>
+                </div>
+                <div class="mt-3 flex items-center gap-2">
+                    <button
+                        type="button"
+                        class="h-12 w-12 rounded-lg border border-zinc-300 text-lg transition hover:border-zinc-950 disabled:border-zinc-100 disabled:bg-zinc-100 disabled:text-zinc-400"
+                        aria-label="Decrease quantity"
+                        disabled={qty.get() == 1}
+                        on_click={|_| qty.update(|q| q - 1)}
+                    >
+                        "-"
+                    </button>
+                    <span class="flex h-12 w-16 items-center justify-center rounded-lg border border-zinc-300 text-base font-medium">
+                        {qty.get()}
+                    </span>
+                    <button
+                        type="button"
+                        class="h-12 w-12 rounded-lg border border-zinc-300 text-lg transition hover:border-zinc-950"
+                        aria-label="Increase quantity"
+                        on_click={|_| qty.update(|q| q + 1)}
+                    >
+                        "+"
+                    </button>
+                </div>
+                <input type="hidden" name="qty" value={qty.get()} />
+            </div>
+        }
+        .render(cx)
+    }
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/components/mod.rs">
+
+```rust
+pub mod product_card;
+pub mod quantity_stepper;
+```
+
+</CodeFile>
+
+<CodeFile name="src/pages/product.rs">
+
+```rust
+use crate::components::quantity_stepper::QuantityStepper;
+
+// ...
+
+<form method="post" action="/cart" class="mt-8">
+    <input type="hidden" name="sku" value={product.slug} />
+    {QuantityStepper { unit_price: product.price_usd }}
+    <button
+        class="mt-6 flex h-[60px] w-full items-center justify-center rounded-full bg-zinc-950 text-lg font-medium text-white transition hover:opacity-80"
+        type="submit"
+    >
+        "Add to Bag"
+    </button>
+</form>
+```
+
+</CodeFile>
+
+</CodeExplorer>
+
+Four things in `quantity_stepper.rs` carry the whole idea:
+
+- `#[rsjs(component, client)]` marks an otherwise ordinary `WebRenderSync` impl
+  for analysis. `component` asks the compiler to analyze it; `client` grants
+  permission to originate browser behavior.
+- `signal(1_i64)` is island-local state. `signal(self.unit_price)` seeds a prop
+  into browser-visible state once, at mount. The explicit
+  `rsjs::Signal<i64>` annotation gives the arithmetic a proven fixed-width
+  integer domain, which the compiler requires before it will lower `*` into
+  JavaScript; without it you get `rsjs/integer-domain-unproven`.
+- `rsjs::computed(...)` derives the subtotal. It recomputes in the browser when
+  either input changes, and it is evaluated once on the server for the initial
+  HTML.
+- The hidden input is the bridge back to the plain form. Its `value` is a
+  reactive attribute, and the runtime writes the DOM `value` property, so the
+  form submits the current quantity.
+
+In `product.rs` the stepper replaces the fixed hidden `qty` input. An island is
+invoked exactly like any other component: a struct literal in a slot. That is
+the component running in the demo at the top of this page.
+
+## Serving the Island
+
+The compiler emits a JavaScript module per island and a shared runtime. A
+hand-written Axum app has to do two things with them: announce the ones a
+response actually used, and serve them.
+
+`RsjsRuntimeTags` must render as the last thing in `<body>`. The snapshot only
+sees islands rendered so far, so these tags have to come after the page content.
+A page with no islands plans nothing and emits no tags.
+
+The `component_` fallback in `rsjs_assets.rs` matters: a component fragment is
+compiled separately from the island that mounts it, and the page preloads both.
+
+<CodeExplorer>
+
+<CodeFile name="src/layouts/root.rs">
+
+```rust
+pub struct RsjsRuntimeTags;
+
+impl<L: DataLoader> WebRenderSync<L> for RsjsRuntimeTags {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let artifacts = cx.rsjs_artifacts_snapshot();
+        let plan = rsjs::manifest()
+            .page_runtime_plan(artifacts.rendered_islands())
+            .expect("every rendered island resolves in the linked manifest");
+        plan.write_html(cx.out, None)
+    }
+}
+
+// ... and in the document body:
+
+<body>
+    <header class="mx-auto max-w-4xl px-6 pt-8">
+        <nav class="flex items-center gap-6">{SiteNav}</nav>
+    </header>
+    {self.content}
+    {RsjsRuntimeTags}
+</body>
+```
+
+</CodeFile>
+
+<CodeFile name="src/rsjs_assets.rs">
+
+```rust
+use axum::{
+    extract::Path,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
+    routing::get,
+    Router,
+};
+
+pub fn router() -> Router {
+    Router::new()
+        .route("/rsjs-runtime.js", get(runtime))
+        .route("/rsjs/island/:file", get(island))
+}
+
+async fn runtime() -> impl IntoResponse {
+    (js_headers(), rsjs::runtime_assets::CORE_JS)
+}
+
+async fn island(Path(file): Path<String>) -> Response {
+    let asset_id = file.strip_suffix(".js").unwrap_or(file.as_str());
+    let fragment_id = asset_id.strip_prefix("component_").unwrap_or(asset_id);
+    let manifest = rsjs::manifest();
+    let source = manifest
+        .islands
+        .iter()
+        .find(|entry| entry.asset_id == asset_id)
+        .map(|entry| entry.js_source)
+        .or_else(|| {
+            manifest
+                .component_fragments
+                .iter()
+                .find(|entry| entry.asset_id == asset_id || entry.asset_id == fragment_id)
+                .map(|entry| entry.js_source)
+        });
+
+    match source {
+        Some(source) => (js_headers(), source).into_response(),
+        None => (StatusCode::NOT_FOUND, "unknown rsjs asset").into_response(),
+    }
+}
+
+fn js_headers() -> [(header::HeaderName, &'static str); 2] {
+    [
+        (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
+        (header::CACHE_CONTROL, "no-store"),
+    ]
+}
+```
+
+</CodeFile>
+
+<CodeFile name="src/main.rs">
+
+```rust
+mod rsjs_assets;
+
+// ...
+
+let app = Router::new()
+    .route("/", get(pages::home::handler))
+    .route("/products", get(pages::products::handler))
+    .route("/products/:slug", get(pages::product::handler))
+    .route("/cart", post(add_to_cart))
+    .merge(rsjs_assets::router())
+    .nest_service("/static", static_assets::service());
+```
+
+</CodeFile>
+
+</CodeExplorer>
+
+## Verify
+
+Restart with `bash scripts/dev.sh`, open
+`http://localhost:3000/products/atlas-jacket`, and check three things.
+
+**The server sent working HTML.** View source. The stepper is real markup with
+the correct starting state, wrapped in an island boundary next to a small seed
+script:
+
+```html
+<rsjs-island data-rsjs-island-root="rsjs_owner_...">
+  <div>
+    <div class="flex items-center justify-between">
+      <span class="...">Quantity</span>
+      <span class="..." aria-live="polite">Subtotal $<span data-rsjs-bind="6">248</span></span>
+    </div>
+    <div class="mt-3 flex items-center gap-2">
+      <button type="button" class="..." aria-label="Decrease quantity" disabled data-rsjs-attr="8" data-rsjs-handler="8">-</button>
+      <span class="..." data-rsjs-bind="10">1</span>
+      <button type="button" class="..." aria-label="Increase quantity" data-rsjs-handler="11">+</button>
+    </div>
+    <input type="hidden" name="qty" value="1" data-rsjs-attr="13">
+  </div>
+</rsjs-island>
+<script type="application/json" data-rsjs-island="rsjs_owner_...">{"signals":["1","248"]}</script>
+```
+
+The `data-rsjs-*` attributes are compiler-owned markers that tell the runtime
+which nodes to bind on hydration. The seed script carries the exact initial
+signal values, so the browser rebuilds state without re-fetching anything.
+
+The minus button is already `disabled` because `qty` starts at 1. That state was
+computed on the server, not after hydration.
+
+**The island works.** Click `+` twice. The quantity reads `3`, the subtotal
+reads `$744`, the minus button re-enables, and the hidden input now submits
+`qty=3`.
+
+**It degrades.** Disable JavaScript in devtools and reload. The stepper buttons
+do nothing, but the hidden input still carries `value="1"`, so "Add to Bag"
+posts `sku=atlas-jacket` and `qty=1` exactly as it did before the island
+existed. Nothing on the page is blank or broken.
+
+That is the whole trade. The island is opt-in behavior layered onto HTML that
+already works, not the mechanism that makes the page appear.
+
+## Validate
+
+```bash
+cargo fmt --all
+cargo check
+proa fmt --check --verify src
+proa lint src
+```
+
+`cargo check` still works on a project with islands. `cargo build` and
+`cargo run` do not: the link step deliberately fails so that a binary is never
+shipped without its compiled island modules. Use `bash scripts/dev.sh` or
+`proa run` instead.
+
+## Next
+
+| Add | Read |
+|-----|------|
+| More island shapes | [Islands: when and why](/docs/guides/islands) |
+| Signal semantics and props | [RSJS Signals](/docs/rsjs/signals) and [Component props](/docs/rsjs/component-props) |
+| Server data loading | [Framework Data Loading](/docs/framework/data-loading) |
+| Richer forms and typed actions | [Forms and actions](/docs/guides/forms-actions) |
+| Production cache rules | [Page caching](/docs/framework/page-caching) |

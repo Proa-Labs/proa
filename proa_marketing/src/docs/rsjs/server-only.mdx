@@ -1,0 +1,187 @@
+---
+title: Server-rendered content
+description: Keep ordinary Rust values and renderables outside an RSJS client graph.
+---
+
+Ordinary Rust values remain server-rendered unless a browser obligation depends on them. This page covers [what stays on the server](#keeping-values-out-of-the-client-graph), [trusted static markup](#rendering-trusted-static-markup), [server-only attributes](#setting-server-only-attributes), [child props](#passing-props-to-a-child-component), and [struct literals](#when-is-a-struct-literal-a-component-edge).
+
+## Keeping values out of the client graph
+
+You do not need to annotate every static child in an interactive component. Common cases:
+
+| Need | Pattern |
+|------|---------|
+| Render a trusted SVG or other ordinary renderable | Construct it in the prelude and render the value |
+| Render a compiler-composable child | Use a direct struct literal in the template |
+| Render an arbitrary non-component struct | Construct it in the prelude and render the resulting local |
+| Render a static-per-request attribute | `rsjs::server_attr(...)` |
+
+An ordinary server renderable may emit zero, one, or many DOM nodes. RSJS keeps reactive addressing correct without parsing or buffering that output. The generated client code takes a fast speculative DOM path and verifies the compiler-owned marker it reached. When opaque output shifts a later target, the code falls back to an owner-scoped marker lookup. You do not need to add a single-element host to stabilize an arbitrary SSR fragment's node count.
+
+Raw HTML is the clearest case of output RSJS never inspects.
+
+## Rendering trusted static markup
+
+You must still trust raw HTML and sanitize it before rendering. That safety boundary is separate from client reachability.
+
+```rust filename="src/islands/icon_button.rs"
+use proa_core::{DataLoader, UnsafeRaw, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+use rsjs::{rsjs, signal};
+
+pub struct IconButton;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for IconButton {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let pressed = signal(false);
+        let icon =
+            UnsafeRaw(r##"<svg aria-hidden="true"><use href="#heart"></use></svg>"##);
+
+        html_sync! {
+            <button type="button" on_click={|_| pressed.set(!pressed.get())}>
+                {icon}
+                {if pressed.get() { "Saved" } else { "Save" }}
+            </button>
+        }
+        .render(cx)
+    }
+}
+```
+
+RSJS hydrates the button and reactive label. The SVG remains ordinary SSR. Attributes take the same server-or-client decision, with an explicit marker for the server side.
+
+## Setting server-only attributes
+
+Use `server_attr(...)` for static-per-render attributes that must **not** update after hydration.
+
+```rust filename="src/islands/decorated_button.rs"
+pub struct DecoratedButton {
+    pub label: &'static str,
+    pub class: &'static str,
+    pub on_press: rsjs::Handler<()>,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for DecoratedButton {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <button
+                type="button"
+                class={rsjs::server_attr(self.class)}
+                on_click={|_| self.on_press.call(())}
+            >
+                {self.label}
+            </button>
+        }
+        .render(cx)
+    }
+}
+```
+
+Use a normal dynamic attribute when the value must react to a signal:
+
+```rust filename="src/islands/toggle.rs"
+let selected = signal(false);
+
+html_sync! {
+    <button data_selected={selected.get()}>
+        "Toggle"
+    </button>
+}
+```
+
+Do not wrap `selected.get()` in `server_attr(...)`. RSJS rejects that capture at compile time because accepting it would silently freeze a reactive value at SSR time. A parent passing props into that component meets the same distinction.
+
+## Passing props to a child component
+
+Descriptor-backed RSJS child components can mix reactive props, callback props, and server-only props.
+
+```rust filename="src/islands/parent.rs"
+pub struct Parent;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for Parent {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let pressed = signal(0_i64);
+        let on_press = rsjs::handler(|_| pressed.set(1_i64));
+
+        html_sync! {
+            <section>
+                {DecoratedButton {
+                    label: "Press",
+                    class: "primary",
+                    on_press,
+                }}
+                <p>{pressed.get()}</p>
+            </section>
+        }
+        .render(cx)
+    }
+}
+```
+
+Both values appear in the server HTML, but their client semantics differ. `self.label` is a live inbound read, so it follows a live parent value whenever a parent connects one. `server_attr(self.class)` deliberately snapshots the class for that server render. A parent may pass a static server value there. Final linking rejects a live parent value rather than silently converting it into a snapshot. The callback's live edge fuses these parent and child occurrences into one final owner, whose owner module imports the child's linked fragment.
+
+If you force an explicit nested island with `rsjs::island(...)`, parent callbacks cannot cross that boundary. Pass independent state or `rsjs::noop_handler()` instead. The child edge above works because of how the template reads a struct literal.
+
+## When is a struct literal a component edge?
+
+A direct struct literal in an analyzed template has a deliberately strong meaning: it is a compiler-composable component edge.
+
+```rust filename="src/islands/parent.rs"
+html_sync! {
+    {DecoratedButton {
+        label: "Press",
+        class: "primary",
+        on_press,
+    }}
+}
+```
+
+If a struct is only an ordinary server renderer, construct it first:
+
+```rust filename="src/pages/docs.rs"
+let rendered_document = DocumentationBody { document };
+
+html_sync! {
+    <article>{rendered_document}</article>
+}
+```
+
+This lets normal Rust imports and aliases work for components. It also preserves an unambiguous escape route for arbitrary renderables.
+
+Renamed imports and re-exports work too because Rust resolves the component type before the linker authenticates its ABI:
+
+```rust filename="src/islands/status_row.rs"
+use crate::ui::StatusBadge as Badge;
+
+html_sync! {
+    {Badge { label: current_label.get() }}
+}
+```
+
+The alias spelling does not carry component identity. The table below collects every rule on this page.
+
+## Rules
+
+| Rule | Why |
+|------|-----|
+| Do not read signals inside `server_attr(...)` | RSJS rejects the capture because the attribute would otherwise freeze at SSR time. |
+| Do not pass live values into `server_only(...)` or a child snapshot field | Direct captures fail compilation and live parent crossings fail semantic linking. |
+| Use normal markup for reactive text and attributes | RSJS needs to emit client bindings for values that update. |
+| Construct a non-component struct in the prelude | Direct template struct literals are component edges. |
+| Keep `UnsafeRaw` explicit | Client-effect classification does not prove HTML safety. |
+
+`rsjs::server_only(...)` remains a compatibility escape hatch for syntax the tolerant frontend cannot yet classify. It is not the normal authoring path. If a browser-reachable value crosses an opaque operation, compilation fails instead of silently freezing the server value.
+
+## Next steps
+
+- [Component props](/docs/rsjs/component-props)
+  - Pass reactive, callback, and server-only props across island boundaries.
+- [Client helpers](/docs/rsjs/client-helpers)
+  - Compile pure Rust functions into the browser graph on demand.
+- [Escaping and raw HTML](/docs/core/escaping)
+  - Decide when `UnsafeRaw` is safe and how Proa escapes by default.
+- [Hydration strategies](/docs/rsjs/hydration)
+  - Control when an island claims its server HTML.

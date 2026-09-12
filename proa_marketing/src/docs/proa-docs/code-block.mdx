@@ -1,0 +1,59 @@
+---
+title: Code block
+description: Highlight, title, and annotate a fenced code block.
+---
+
+Every fenced block is highlighted at build time by Syntect (the `CodeHighlight` toggle in your pipeline, enabled in the quickstart setup). No highlighter ships to the reader.
+
+````mdx filename="content/example.mdx"
+```rust filename="src/pages/home.rs" {3,5-7}
+use proa_core::WebRenderSync;
+```
+````
+
+## Fence metadata
+
+| Metadata | Effect |
+|---|---|
+| `rust`, `toml`, `bash`, … | Language. Drives highlighting and the file icon |
+| `filename="src/main.rs"` | Renders a header above the block with a language icon |
+| `{1,3-5}` | Marks those lines with `data-highlighted-line` |
+| `proa-filetree` | Renders the block as a file tree instead of code |
+| `mermaid` | Marks the block for diagram rendering (opt-in). See [Mermaid](/docs/proa-docs/mermaid) |
+
+A filename header adds a copy button. Blocks without one still get the button; only the chrome differs.
+
+## Highlighting is semantic, not inline
+
+Tokens carry `hl-*` classes rather than inline colours, so your stylesheet owns the palette:
+
+```css filename="app.css"
+.proa-docs-body .hl-keyword { color: #c678dd; }
+.proa-docs-body .hl-string  { color: #98c379; }
+```
+
+This is why a Proa docs site can restyle its code blocks without rebuilding content, and why switching themes costs nothing at runtime.
+
+An unrecognized language is not an error. The block renders as escaped plain text with no `hl-*` classes. A recognized language that fails to parse also falls back to escaped text, and that case prints a build warning naming the file and the language.
+
+## File trees
+
+The `proa-filetree` language renders an indented tree:
+
+````mdx
+```proa-filetree
+Cargo.toml
+build.rs
+src/
+  pages/
+  main.rs
+```
+````
+
+For a tree with folder and file icons and richer structure, use [Files](/docs/proa-docs/files) instead.
+
+> **Good to know**: The copy button is the one component here that needs JavaScript. `proa_docs` ships it in `DEFAULT_SCRIPT`; without it the button renders and does nothing, and the code is still selectable.
+
+## Related
+
+[Code explorer](/docs/proa-docs/code-explorer) · [Files](/docs/proa-docs/files) · [Mermaid](/docs/proa-docs/mermaid) · [Styling contract](/docs/proa-docs/styling-contract)

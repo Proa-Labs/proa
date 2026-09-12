@@ -1,0 +1,55 @@
+use proa_core::MdRenderSync;
+use proa_macros::md_sync;
+
+pub struct Activity {
+    pub user_name: String,
+    pub note: String,
+}
+
+pub fn report(a: &Activity, rows: &[Activity], person: Option<&Activity>) -> String {
+    let client = "editor";
+    let mut bytes = Vec::new();
+    md_sync! { r###"
+        ### Activity
+
+        **{a.user_name.as_str()}** · via {client}
+
+        {a.note.as_str()}
+
+        {for row in rows {
+        - {row.user_name.as_str()}: {row.note.as_str()}
+        Read [docs](https://example.com) — don't forget {row.user_name.as_str()}
+        {if row.note.is_empty() {
+        No note.
+        } else {
+        Note: {row.note.as_str()}
+        }}
+        }}
+
+        {if let Some(person) = person {
+        Author: {person.user_name.as_str()}
+        } else {
+        Anonymous.
+        }}
+
+        ```rust
+        fn example() { literal_braces }
+        ```
+        "###
+    }
+    .render_md(&mut proa_core::md::MdContext::new(&mut bytes))
+    .unwrap();
+    String::from_utf8(bytes).unwrap()
+}
+
+#[test]
+fn renders_raw_templates_on_edition_2024() {
+    let a = Activity {
+        user_name: "**name**".into(),
+        note: "<script>".into(),
+    };
+    let result = report(&a, &[], Some(&a));
+    assert!(result.starts_with("### Activity\n"));
+    assert!(result.contains("\\*\\*name\\*\\*"));
+    assert!(result.contains("fn example() { literal_braces }"));
+}

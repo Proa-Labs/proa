@@ -1,0 +1,5 @@
+error: `default` configures the generated constructor; add `constructor` to the struct-level #[component(...)] attribute or remove this field default
+ --> tests/proa_component_fail/default_without_constructor.rs:7:5
+  |
+7 |     value: usize,
+  |     ^^^^^

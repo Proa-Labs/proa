@@ -1,0 +1,5 @@
+error: v0.1 of `signal.update(|c| ...)` requires a single expression body. Found a `let` binding here; move the binding outside the closure or inline the value into the expression.
+  --> tests/ui/fail/19_update_block_with_let.rs:38:58
+   |
+38 |                 <button on_click={|_| count.update(|c| { let x = 5_i64; c + x })}>"+5"</button>
+   |                                                          ^^^

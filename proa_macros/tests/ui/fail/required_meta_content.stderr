@@ -1,0 +1,5 @@
+error: <meta> is missing the `content` attribute. add content="..." with the appropriate value (HTML §4.2.5)
+ --> tests/ui/fail/required_meta_content.rs:5:19
+  |
+5 |     html_sync! { <meta name="description" /> };
+  |                   ^^^^

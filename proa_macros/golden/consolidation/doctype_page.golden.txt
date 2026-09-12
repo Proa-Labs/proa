@@ -1,0 +1,4 @@
+--- sync ---
+:: proa_core :: shared :: html_node :: static_html (b"<!DOCTYPE html><!-- Rendered with Proa --><html lang=\"en\"><body><main>Hello</main></body></html>")
+--- async ---
+:: proa_core :: shared :: html_node :: static_html (b"<!DOCTYPE html><!-- Rendered with Proa --><html lang=\"en\"><body><main>Hello</main></body></html>")

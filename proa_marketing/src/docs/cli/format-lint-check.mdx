@@ -1,0 +1,98 @@
+---
+title: proa fmt / lint / check
+description: Format macro bodies, run lints, and gate CI.
+---
+
+`rustfmt` formats Rust syntax, but it does not understand Proa template macro bodies. Use `proa fmt` for the inside of `html!`, `html_sync!`, `xml!`, `xml_sync!`, `md!`, and `md_sync!`.
+
+## Format
+
+```bash
+proa fmt src
+proa fmt --check --verify src
+```
+
+| Flag | Behavior |
+|------|----------|
+| `--check` | Do not write files. Print a unified diff and exit non-zero if formatting differs. |
+| `--verify` | Reparse formatted output and verify the template tree stayed structurally identical. Always on when writing; this flag adds the pass to `--check` runs. |
+| `--no-verify` | Skip the render-preserving verification before rewriting files. |
+
+Use `--check --verify` in CI and before large render-path changes.
+
+For multiline raw Markdown templates, the formatter removes excess common source indentation and places the closing macro brace on its own line at the invocation's indentation:
+
+```rust
+md_sync! { r###"
+    # {self.title}
+
+    {self.body}
+    "###
+}
+```
+
+`--verify` compares the dedented Markdown semantics before writing, so changing source alignment cannot silently change the rendered document. `proa lint` reports noncanonical raw-template layout as `format/markdown-layout`.
+
+## Lint
+
+```bash
+proa lint src
+proa lint --deny-warnings src
+proa lint --json --min-severity info src
+proa lint --github --changed --base origin/main
+```
+
+The linter checks template formatting, accessibility-sensitive markup, render-path performance, component composition, and `rsjs` slot restrictions.
+
+| Flag | Behavior |
+|------|----------|
+| `--deny-warnings` | Exit non-zero when warnings are found. |
+| `--deny <LEVEL_OR_CODE>` | `--deny warnings` is the equivalent warning-deny mode; a diagnostic code such as `--deny rsjs/client-crossing` fails the run when that code is found. Repeatable. |
+| `--json` | Emit stable JSON diagnostics. |
+| `--github` | Emit GitHub Actions annotations. |
+| `--min-severity error\|warning\|info` | Control printed diagnostics. Text defaults to warnings and errors. JSON and GitHub output default to all diagnostics. |
+| `--include-tests` | Include Rust test files and `#[cfg(test)]` modules. |
+
+## Changed Files
+
+`lint` supports Git-based file selection:
+
+```bash
+proa lint --changed
+proa lint --base origin/main
+proa lint --staged
+```
+
+`--base <REF>` implies changed-file selection against that ref. `--staged` cannot be combined with `--changed` or `--base`.
+
+## Suppressions
+
+Performance suppressions must include a reason:
+
+```rust
+// proa-perf-ok: static SVG is trusted and emitted as raw markup
+StaticRaw(ICON_HTML).render(cx)
+```
+
+For an item-level suppression, put the scoped marker directly above the item:
+
+```rust
+// proa-perf-ok(scope): integration shim allocates outside request render paths
+fn render_legacy_fragment(...) { ... }
+```
+
+Use suppressions for intentional low-level cases only. Prefer restructuring the component when the lint points to render-path allocation or avoidable copying.
+
+## Check
+
+`proa check` combines `fmt --check --verify` and `lint`, then fails on formatting differences, errors, or warnings (pass `--allow-warnings` to report warnings without failing):
+
+```bash
+proa check src
+proa check --changed --base origin/main
+proa check --staged
+```
+
+With explicit paths or Git selection, `check` runs only those source checks. Run with no file selection, it scans the project's `src` and then also runs the linked RSJS Cargo check of the whole project. The Cargo flags (`-p`, `--bin`, `--profile`, `--target`, `--features`, `--all-features`, `--no-default-features`, `--locked`, `--offline`) select the one exact target the linked check compiles; in a multi-package workspace pass `-p` or `--bin` explicitly. Pass `--source-only` to run only the formatter and lints; Cargo flags cannot be combined with file selection or `--source-only`.
+
+Use `check` for local pre-push validation and CI. Use `fmt` or `lint` directly when you need write mode, JSON diagnostics, GitHub annotations, or severity filtering.

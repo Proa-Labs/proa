@@ -1,0 +1,5 @@
+error: `children_builder` cannot replace `C` because field `fallback` also uses it; the child type parameter must be used only by the #[component(children)] field
+ --> tests/proa_component_fail/children_builder_reused_generic.rs:6:15
+  |
+6 |     fallback: Option<C>,
+  |               ^^^^^^^^^

@@ -1,0 +1,5 @@
+error: `#[rsjs(fallback = ...)]` is reserved for future client-only rendering; regular rsjs islands must produce SSR from their render body
+  --> tests/ui/fail/50_client_only_fallback_policy.rs:10:27
+   |
+10 | #[rsjs(component, client, fallback = "empty")]
+   |                           ^^^^^^^^

@@ -1,0 +1,15 @@
+{
+  "name": "proa-demo-react-lean-server",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "start": "node --import tsx server.tsx"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsx": "^4.19.0"
+  }
+}

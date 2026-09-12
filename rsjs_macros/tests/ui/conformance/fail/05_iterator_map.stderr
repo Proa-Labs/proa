@@ -1,0 +1,16 @@
+error: rsjs boundary: iterator or collection method `.map` cannot be lowered to client JS yet
+
+       Why:
+         Iterator adapters combine Rust closure semantics, collection ownership, and dynamic iteration. The current Client IR keeps those semantics explicit instead of guessing a JavaScript rewrite.
+
+       Use one of:
+         - Rewrite the handler using supported static array/range or numeric-range `for` loops when that matches the shape.
+         - Move the collection transform into a standalone helper annotated once with `#[rsjs::client]`; reachable calls are linked automatically.
+         - If it does not need client updates, precompute it on the server and render it through `rsjs::server_only(...)`.
+
+       Tracked feature:
+         iterator.map
+  --> tests/ui/conformance/fail/05_iterator_map.rs:20:34
+   |
+20 |                 count.set(values.map(|value| value + 1_i64));
+   |                                  ^^^

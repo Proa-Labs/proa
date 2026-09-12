@@ -1,0 +1,74 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "condition": {
+        "kind": "binary",
+        "left": {
+          "kind": "signal_read",
+          "signal": 0
+        },
+        "op": "eq",
+        "right": {
+          "kind": "literal",
+          "value": {
+            "kind": "bigint",
+            "value": "0"
+          }
+        }
+      },
+      "else": {
+        "kind": "block",
+        "stmts": [
+          {
+            "kind": "signal_set",
+            "signal": 1,
+            "value": {
+              "kind": "literal",
+              "value": {
+                "kind": "string",
+                "value": "nonzero"
+              }
+            }
+          }
+        ]
+      },
+      "kind": "if",
+      "then": {
+        "kind": "block",
+        "stmts": [
+          {
+            "kind": "signal_set",
+            "signal": 1,
+            "value": {
+              "kind": "literal",
+              "value": {
+                "kind": "string",
+                "value": "zero"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "signal_set",
+      "signal": 0,
+      "value": {
+        "kind": "binary",
+        "left": {
+          "kind": "signal_read",
+          "signal": 0
+        },
+        "op": "checked_i64_add",
+        "right": {
+          "kind": "literal",
+          "value": {
+            "kind": "bigint",
+            "value": "1"
+          }
+        }
+      }
+    }
+  ]
+}

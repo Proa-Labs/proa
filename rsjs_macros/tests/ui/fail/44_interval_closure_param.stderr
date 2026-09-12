@@ -1,0 +1,5 @@
+error: `rsjs::interval(...)` closures take no parameters: a timer tick has no event to receive. Read signals directly instead, e.g. `rsjs::interval(1000, || tick.update(|t| t + 1));`
+  --> tests/ui/fail/44_interval_closure_param.rs:24:31
+   |
+24 |         rsjs::interval(1000, |event| tick.update(|t| t + 1_i64));
+   |                               ^^^^^

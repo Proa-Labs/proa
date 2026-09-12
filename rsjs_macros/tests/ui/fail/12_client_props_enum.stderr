@@ -1,0 +1,5 @@
+error: #[derive(rsjs::ClientProps)] supports fieldless enums only; variant `Custom` carries data
+ --> tests/ui/fail/12_client_props_enum.rs:8:11
+  |
+8 |     Custom(String),
+  |           ^^^^^^^^

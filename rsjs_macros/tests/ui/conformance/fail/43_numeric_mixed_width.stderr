@@ -1,0 +1,5 @@
+error: rsjs/integer-domain-mismatch: this arithmetic mixes `i64` and `i32`; use one Rust integer type on both operands
+  --> tests/ui/conformance/fail/43_numeric_mixed_width.rs:24:29
+   |
+24 |                     big.set(big.get() + count.get());
+   |                             ^^^

@@ -1,0 +1,25 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_showcase_web"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+description = "Shared Axum routes and static asset handlers for Proa showcase pages"
+license-file.workspace = true
+
+[lib]
+name = "proa_showcase_web"
+path = "src/lib.rs"
+
+[dependencies]
+axum = { workspace = true }
+proa_core = { workspace = true }
+proa_showcase = { workspace = true, features = ["rsjs-pages"] }
+rsjs = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+
+[lints]
+workspace = true

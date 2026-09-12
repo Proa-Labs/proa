@@ -1,0 +1,22 @@
+error[E0277]: event current-target marker `rsjs::HtmlInputElement` does not match binding target `rsjs::web::dom::HtmlButtonElement`
+  --> tests/ui/fail/90_conditional_typed_event_target.rs:15:47
+   |
+15 |                         <button on_click={|_: rsjs::MouseEvent<rsjs::web::dom::HtmlInputElement>| {}}>
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this event target marker is incompatible with the `on_*` binding
+   |
+   = note: parameterize the event type with `rsjs::web::dom::Document` for `on_document_*`, `rsjs::web::dom::Window` for `on_window_*`, or the bound element marker for a local handler; `dom::Any` is element-local only
+help: the trait `EventCurrentTargetFor<rsjs::web::dom::HtmlButtonElement>` is not implemented for `rsjs::HtmlInputElement`
+      but trait `EventCurrentTargetFor<rsjs::HtmlInputElement>` is implemented for it
+  --> $WORKSPACE/rsjs_web/src/generated.rs
+   |
+   | impl EventCurrentTargetFor<dom::HtmlInputElement> for dom::HtmlInputElement {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `rsjs::HtmlInputElement`, found `rsjs::web::dom::HtmlButtonElement`
+note: required by a bound in `rsjs::__private::assert_event_type`
+  --> $WORKSPACE/rsjs/src/lib.rs
+   |
+   |     pub fn assert_event_type<Target, Interface, E>()
+   |            ----------------- required by a bound in this function
+...
+   |         <E as crate::EventParamStub>::CurrentTarget: EventCurrentTargetFor<Target>,
+   |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_event_type`

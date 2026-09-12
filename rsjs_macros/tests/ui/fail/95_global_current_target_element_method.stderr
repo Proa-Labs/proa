@@ -1,0 +1,13 @@
+error[E0599]: the method `id` exists for struct `rsjs::CurrentTarget<Document>`, but its trait bounds were not satisfied
+  --> tests/ui/fail/95_global_current_target_element_method.rs:13:50
+   |
+13 |                 let _id = event.current_target().id();
+   |                                                  ^^ method cannot be called on `rsjs::CurrentTarget<Document>` due to unsatisfied trait bounds
+   |
+  ::: $WORKSPACE/rsjs_web/src/generated.rs
+   |
+   |     pub struct Document;
+   |     ------------------- doesn't satisfy `Document: rsjs::web::dom::HasElementApi`
+   |
+   = note: the following trait bounds were not satisfied:
+           `Document: rsjs::web::dom::HasElementApi`

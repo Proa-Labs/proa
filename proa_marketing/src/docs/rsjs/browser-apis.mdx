@@ -1,0 +1,294 @@
+---
+title: Browser APIs
+description: Reach browser capabilities through the analyzed RSJS surface.
+---
+
+RSJS does not expose raw browser globals, so every browser capability reaches your island through an analyzed, typed surface. This page covers [the surface map](#mapping-browser-apis-to-rsjs-surfaces), [events](#handling-events), [node refs](#using-node-refs), [window and storage](#reading-window-url-and-storage), [observers](#which-observers-can-i-use), and [network calls](#fetching-data-in-the-browser).
+
+## Mapping browser APIs to RSJS surfaces
+
+Use the analyzed surface: event attributes, event accessors, node refs, `rsjs::` helpers, queries, mutations, typed shared state, and timers. A portable `#[rsjs::client]` helper extends pure computation, but it cannot hide DOM access, network I/O, or another browser capability. See [Client helpers](/docs/rsjs/client-helpers) for the one-annotation helper model.
+
+| API family | RSJS surface |
+|------------|--------------|
+| Events | `on_click`, `on_input`, `on_change`, pointer, touch, drag/drop, keyboard, wheel, animation, transition, document, and window events. |
+| DOM nodes | `node_ref::<T>()` plus typed reads/effects such as `value()`, `rect_width()`, `focus()`, `set_attribute(...)`, `show_modal()`, and `show_popover()`. |
+| Forms | `bind_value`, `bind_checked`, `bind_selected`, native validity reads/effects, file input metadata, dropped-file reads. |
+| Cross-island state | `SharedStateProvider`, `shared::<T>()`, typed field cells, and `batch(...)`. |
+| Window and URL | `rsjs::window`, `rsjs::location`, `rsjs::history`, and `rsjs::url` helpers. |
+| Storage | `rsjs::local_storage` and `rsjs::session_storage` string/bool/i64/f64 reads plus writes/removes. |
+| Clipboard | `write_text(...)`, `read_text_into(&signal)`, `read_text_into_or(&signal, fallback)` inside user-gesture handlers. |
+| Fetch | Use `query_with_initial(...)` and `mutation(...)`; RSJS rejects raw `fetch` and XHR. |
+| Encoding | `utf8_bytes`, `utf8_string`, `base64_*`, `base64url_*`. |
+| Timers | `rsjs::interval(...)` and `rsjs::debounce(...)`; RSJS does not expose raw `setTimeout`. |
+| WebAuthn | JSON ceremony helpers: `create_json_into(...)`, `get_json_into(...)`, and fallback variants. |
+
+The rest of this page works through the families in turn, starting with events.
+
+## Handling events
+
+```rust filename="src/islands/search_filters.rs"
+let query = signal(String::new());
+let dropped = signal(String::new());
+let update_query = rsjs::event_handler(
+    |event: rsjs::InputEvent<rsjs::elem::Input>| {
+        query.set(event.current_value());
+    },
+);
+let accept_drop = rsjs::event_handler(|event: rsjs::DragEvent| {
+    event.prevent_default();
+    dropped.set(event.data_transfer_first_file_name());
+});
+let allow_drop = rsjs::event_handler(|event: rsjs::DragEvent| {
+    event.prevent_default();
+});
+
+html_sync! {
+    <input
+        type="search"
+        on_input={update_query()}
+    />
+
+    <div
+        on_drop={accept_drop()}
+        on_dragover={allow_drop()}
+    >
+        {dropped.get()}
+    </div>
+}
+```
+
+Common event attributes:
+
+```rust filename="src/islands/events.rs"
+on_click
+on_input
+on_change
+on_submit
+on_keydown
+on_keyup
+on_pointerdown
+on_pointermove
+on_pointerup
+on_touchstart
+on_touchmove
+on_touchend
+on_dragstart
+on_dragover
+on_drop
+on_wheel
+on_scroll
+on_document_click
+on_document_keydown
+on_window_resize
+on_window_popstate
+on_window_hashchange
+on_window_storage
+```
+
+Global handlers use exact non-element current targets:
+
+```rust filename="src/islands/global_events.rs"
+use rsjs::web::dom;
+
+let close_on_escape = rsjs::event_handler(
+    |event: rsjs::KeyboardEvent<dom::Document>| {
+        if event.key() == "Escape" {
+            open.set(false);
+        }
+    },
+);
+let measure_on_resize = rsjs::event_handler(
+    |_: rsjs::Event<dom::Window>| width.set(panel.rect_width()),
+);
+```
+
+`current_target()` is the actual `Document` or `Window` for those bindings.
+It does not expose element methods; use event target accessors or a typed node
+ref when you need an element.
+
+Use `on_mouseover` and `on_mouseout` for delegated hover.
+
+> **Good to know**: RSJS rejects `on_mouseenter` and `on_mouseleave` because those events do not bubble.
+
+When a handler needs one specific element instead of the event target, reach for a node ref.
+
+## Using node refs
+
+Use `node_ref` when a handler needs a specific element.
+
+```rust filename="src/islands/checkout_form.rs"
+let input = rsjs::node_ref::<rsjs::HtmlInputElement>();
+let form = rsjs::node_ref::<rsjs::HtmlFormElement>();
+let dialog = rsjs::node_ref::<rsjs::HtmlDialogElement>();
+let panel = rsjs::node_ref::<rsjs::HtmlElement>();
+let width = signal(0.0_f64);
+let submit = rsjs::event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+    if input.check_validity() {
+        form.request_submit();
+    } else {
+        input.report_validity();
+    }
+});
+let open_dialog = rsjs::event_handler(
+    |_: rsjs::MouseEvent<rsjs::elem::Button>| dialog.show_modal(),
+);
+let measure = rsjs::event_handler(|_: rsjs::Event<rsjs::web::dom::Window>| {
+    width.set(panel.rect_width());
+});
+
+html_sync! {
+    <form ref={form}>
+        <input ref={input} required />
+        <button type="button" on_click={submit()}>
+            "Submit"
+        </button>
+    </form>
+
+    <dialog ref={dialog}>"Saved"</dialog>
+    <button type="button" on_click={open_dialog()}>"Open dialog"</button>
+
+    <section ref={panel} on_window_resize={measure()}>
+        {width.get()}
+    </section>
+}
+```
+
+Supported ref markers include `Element`, `HtmlElement`, `HtmlInputElement`, `HtmlTextAreaElement`, `HtmlSelectElement`, `HtmlFormElement`, and `HtmlDialogElement`. Handlers reach state outside the document through the window, URL, and storage helpers.
+
+## Reading window, URL, and storage
+
+```rust filename="src/islands/filter_bar.rs"
+let hash = signal(String::new());
+let apply = rsjs::event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+    hash.set(rsjs::url::search_param_or("filter", "all"));
+    rsjs::local_storage::set_item("filter", hash.get());
+    rsjs::url::push_search_param("filter", hash.get());
+    rsjs::document::dispatch_event_with_detail("filters:changed", hash.get());
+});
+
+html_sync! {
+    <button type="button" on_click={apply()}>
+        "Apply"
+    </button>
+}
+```
+
+Useful helpers:
+
+```rust filename="src/islands/filter_bar.rs"
+rsjs::window::{inner_width, inner_height, scroll_x, scroll_y, scroll_to, scroll_by, print}
+rsjs::navigator::language
+rsjs::location::{href, origin, pathname, search, hash, set_hash, assign, replace, reload}
+rsjs::history::{push_state, replace_state, back, forward, go}
+rsjs::url::{search_param, search_param_or, set_search_param, push_search_param, delete_search_param}
+rsjs::local_storage::{get_item, get_item_or, get_bool_or, get_i64_or, get_f64_or, set_item, remove_item}
+rsjs::session_storage::{get_item, get_item_or, get_bool_or, get_i64_or, get_f64_or, set_item, remove_item}
+```
+
+Observers work differently: the runtime drives them, and your handlers never touch them.
+
+## Which observers can I use?
+
+The runtime uses `IntersectionObserver` for visible hydration:
+
+```rust filename="src/islands/below_fold_chart.rs"
+#[rsjs(component, client, strategy = "visible")]
+impl<L: DataLoader> WebRenderSync<L> for BelowFoldChart {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let details = signal(false);
+        let show_details = rsjs::event_handler(
+            |_: rsjs::MouseEvent<rsjs::elem::Button>| {
+                details.set(!details.get());
+            },
+        );
+        html_sync! {
+            <section>
+                <button type="button" on_click={show_details()}>
+                    "Chart details"
+                </button>
+                <div hidden={!details.get()}>"Hydrates when visible"</div>
+            </section>
+        }
+        .render(cx)
+    }
+}
+```
+
+`matchMedia` powers `strategy = "media:(...)"`. `MutationObserver` powers detached-island cleanup.
+
+These observer APIs are not public island APIs yet:
+
+| Browser API | Current RSJS status |
+|-------------|---------------------|
+| `IntersectionObserver` | Internal only via `strategy = "visible"`. |
+| `ResizeObserver` | Not exposed. Use `on_window_resize` plus node-ref dimensions; custom observation requires application-owned JavaScript today. |
+| `MutationObserver` | Internal cleanup only. Custom observation requires application-owned JavaScript today. |
+| `PerformanceObserver` | Not exposed. Use application-owned JavaScript until RSJS has an explicit typed capability. |
+
+Network work has its own typed surface, described next.
+
+## Fetching data in the browser
+
+Use queries and mutations for browser fetch work. A query can stay synchronous when its serializable initial value already exists. Mutations use the async `WebRender` + `html!` surface, even when the browser performs the eventual request:
+
+```rust filename="src/islands/cart_updater.rs"
+use std::future::Future;
+
+use proa_core::{
+    DataLoader, RenderOutcome, WebContext, WebRender, WriteError,
+};
+use proa_macros::html;
+use rsjs::rsjs;
+
+pub struct CartUpdater;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRender<L> for CartUpdater {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let save = rsjs::mutation::<String, ()>(
+                rsjs::QueryKey::new(("cart", "update")),
+                rsjs::FetchRequest {
+                    url: "/api/cart",
+                    method: Some(rsjs::HttpMethod::Patch),
+                    credentials: Some(rsjs::FetchCredentials::SameOrigin),
+                    response: Some(rsjs::ResponseKind::Empty),
+                    ..Default::default()
+                },
+                &[rsjs::QueryKey::new(("cart", "summary"))],
+            );
+            let save_quantity = rsjs::event_handler(
+                |_: rsjs::MouseEvent<rsjs::elem::Button>| {
+                    save.run(r#"{"quantity":2}"#.to_string());
+                },
+            );
+
+            html! {
+                <button type="button" on_click={save_quantity()}>
+                    "Save"
+                </button>
+            }
+            .render(cx)
+            .resolve()
+            .await
+        })
+    }
+}
+```
+
+Raw `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, IndexedDB, Web Workers, WebCrypto, Geolocation, media capture, Canvas, and WebGL sit outside the analyzed RSJS surface today. Do not hide them in `#[rsjs::client]`: those helpers are origin-free and cannot access raw browser globals. Use the typed query/mutation surface where it applies; otherwise keep the capability in application-owned JavaScript until RSJS exposes an explicit typed helper.
+
+## Next steps
+
+- [Event handlers](/docs/rsjs/handlers)
+  - Write typed handlers and read event data through accessors.
+- [Input bindings](/docs/rsjs/bindings)
+  - Bind form values, checkboxes, and selects to signals.
+- [Queries and mutations](/docs/rsjs/queries-mutations)
+  - Fetch and write server data with typed keys and invalidation.
+- [Hydration strategies](/docs/rsjs/hydration)
+  - Choose when an island hydrates, including `visible` and media strategies.

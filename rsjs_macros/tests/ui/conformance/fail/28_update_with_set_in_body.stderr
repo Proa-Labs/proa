@@ -1,0 +1,5 @@
+error: `signal.update(|c| ...)` expects the closure body to compute the new value. To assign, use `signal.set(<value>)` at the handler-statement level
+  --> tests/ui/conformance/fail/28_update_with_set_in_body.rs:20:21
+   |
+20 |                     c.set(0_i64)
+   |                     ^

@@ -1,0 +1,203 @@
+---
+title: Page caching
+description: Cache pages at the edge and refresh them after deployment.
+---
+
+By default, Proa renders pages on every request; it does not enable page caching. Use your CDN for [static pages](#caching-static-pages) and [ISR](#enabling-isr), and configure [RSJS bundles](#caching-rsjs-bundles) separately.
+
+## Caching static pages
+
+Add a cache policy to a public route. `PageCache::new()` requires no provider credentials, application identity, or environment variables:
+
+```rust filename="src/pages/promo.rs" highlight={10}
+use axum::routing::get;
+use proa_framework_axum::{PageCache, Route, RouteResponse};
+use crate::pages::PromoPage;
+
+pub fn route() -> Route<()> {
+    Route::page(
+        "/promo/summer",
+        "Summer promotion",
+        get(promo_page),
+    ).with_page_cache(PageCache::new())
+}
+
+async fn promo_page() -> RouteResponse {
+    RouteResponse::ssr(PromoPage)
+}
+```
+
+Add the page's route to your router:
+
+```rust filename="src/routes.rs"
+use axum::Router;
+use crate::pages::promo;
+
+pub fn routes() -> Router {
+    Router::new().merge(promo::route().into_router())
+}
+```
+
+Pass the returned router to `FrameworkBuilder::with_dynamic_routes`.
+
+This configures response headers, not an in-process cache. Without a CDN, requests still reach Proa and render the page.
+
+Configure your CDN to use those headers:
+
+| Setting | Configuration |
+| --- | --- |
+| Public pages | Cache public HTML responses. Exclude account and personalized routes. |
+| Private requests | Bypass caching for requests containing `Cookie`, `Authorization`, or `Range`. |
+| Cache lifetime | Respect origin cache-control headers. Never force caching of `private` or `no-store` responses. |
+| Cache key | Preserve the hostname, path, and query string. Honor `Vary` for `Accept`, `Accept-Encoding`, `Accept-Language`, and `X-Proa-Client`, or include them in the cache key. |
+| Unsupported variants | Bypass caching when the response varies on headers your CDN cannot distinguish. |
+
+Proa also excludes private requests, non-HTML responses, streaming bodies, cookies, and per-request CSP nonces from caching. **The CDN's bypass rules are still required:** cached requests never reach Proa's checks.
+
+The first request without a cached copy reaches Proa. The CDN stores the rendered HTML near visitors and serves subsequent requests without contacting your server.
+
+The policy uses a one-year TTL. To keep pages until your next deployment, your deployment must invalidate the CDN cache. Eviction or TTL expiry can trigger an earlier render.
+
+![Visitors receive cached HTML from the CDN; misses reach Proa, and deployment invalidation removes old cached responses.](/page-cache-flow.svg)
+
+For content that changes between deployments, add ISR to the route.
+
+## Enabling ISR
+
+Let's say you want to re-render the page and cache it on an interval, like every hour or every day. Add `.revalidate(...)`:
+
+```rust filename="src/pages/promo.rs" highlight={11}
+use std::time::Duration;
+use axum::routing::get;
+use proa_framework_axum::{PageCache, Route, RouteResponse};
+use crate::pages::PromoPage;
+
+pub fn route() -> Route<()> {
+    Route::page(
+        "/promo/summer",
+        "Summer promotion",
+        get(promo_page),
+    ).with_page_cache(PageCache::new().revalidate(Duration::from_secs(3600)))
+}
+
+async fn promo_page() -> RouteResponse {
+    RouteResponse::ssr(PromoPage)
+}
+```
+
+Use `86400` seconds for daily refreshes.
+
+After the interval, the next request triggers a fresh render. A CDN supporting `stale-while-revalidate` can serve stale HTML during regeneration, then cache the replacement. This is **request-driven**, not a scheduled job.
+
+The default stale-serving window is one day. Override it after `.revalidate(...)` with `.stale_while_revalidate(Duration::from_secs(300))` for five minutes.
+
+Proa emits standard shared-cache headers and CDN-specific equivalents. Your CDN's cache policy must honor the requested TTL and stale-serving behavior.
+
+Both static caching and ISR need deployment invalidation when you want a new version to replace cached pages immediately.
+
+## Deploying with your CDN
+
+**A new build or server restart does not invalidate a remote CDN cache.** Response headers cannot notify a CDN that is still serving an old response.
+
+Use your hosting platform's deployment invalidation, or configure an integration for `proa deploy run`. Provider configuration belongs to deployment, not your route constructors.
+
+### Cloudflare
+
+For Cloudflare, proxy your hostname and create a Cache Rule for your public HTML routes:
+
+| Setting | Configuration |
+| --- | --- |
+| Cache eligibility | Mark public HTML routes **Eligible for cache**. |
+| Request bypass | Bypass requests containing `Cookie`, `Authorization`, or `Range`. Exclude personalized routes. |
+| Edge and browser TTLs | Respect origin cache-control headers. |
+| Stale-while-revalidate | Enable serving stale HTML during revalidation. |
+| [Vary](https://developers.cloudflare.com/cache/concepts/vary/) | Use `passthrough` for `Accept`, `Accept-Encoding`, `Accept-Language`, and `X-Proa-Client`. Bypass unsupported variation headers. |
+
+Add `cdn` to your existing `deploy` configuration, using your zone ID and application hostname:
+
+```json filename="proa.config.json"
+{
+  "deploy": {
+    "cdn": {
+      "provider": "cloudflare",
+      "zoneId": "your-cloudflare-zone-id",
+      "hostname": "www.example.com"
+    }
+  }
+}
+```
+
+Set `CLOUDFLARE_API_TOKEN` in the deployment job with **Cache Purge** permission scoped to that zone. The application does not need this credential.
+
+This integration [purges the configured hostname](https://developers.cloudflare.com/cache/how-to/purge-cache/purge-by-hostname/), including its cached assets. Use a hostname dedicated to this deployment; other hostnames in the zone remain untouched.
+
+### Other CDNs
+
+If your hosting platform already invalidates its cache on deployment, use that workflow. Proa does not require Cloudflare or `proa deploy run`.
+
+For a provider with an invalidation CLI, configure its command once. For example, with the [AWS CloudFront CLI](https://docs.aws.amazon.com/cli/latest/reference/cloudfront/create-invalidation.html):
+
+```json filename="proa.config.json"
+{
+  "deploy": {
+    "cdn": {
+      "provider": "command",
+      "command": [
+        "aws", "cloudfront", "create-invalidation",
+        "--distribution-id", "YOUR_DISTRIBUTION_ID",
+        "--paths", "/*",
+        "--no-cli-pager"
+      ]
+    }
+  }
+}
+```
+
+Configure the provider CLI and its credentials in the deployment job. This example invalidates the entire distribution, including assets; narrow the paths if needed.
+
+The command integration executes the argument array directly, without shell expansion. It does not require Cloudflare credentials.
+
+For CloudFront caching, [set minimum TTL to zero](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html) so private responses remain uncacheable. Include page variants in its cache key and allow the requested TTL within its maximum TTL.
+
+### Running deployment and invalidation
+
+After configuring one integration, wrap your deployment command with `proa deploy run`. The command must wait until all servers receiving traffic run the new version.
+
+For a Docker Compose application with a readiness health check:
+
+```bash filename="Terminal"
+proa deploy run -- \
+  docker compose up --build --wait --wait-timeout 300
+```
+
+Proa validates the selected configuration, runs your deployment command, then invokes CDN invalidation. A failed deployment skips invalidation; a failed invalidation makes the command fail.
+
+Success means the provider accepted the request or its configured command succeeded. Invalidation can take time to propagate; configure a command that waits if your deployment requires completion.
+
+A bare build, restart, or deployment outside this workflow does not invoke Proa's invalidation integration. Without an integration, pages can remain cached until expiry or eviction.
+
+Page invalidation is separate from JavaScript bundle versioning.
+
+## Caching RSJS bundles
+
+Proa's default RSJS URLs are stable, including `/rsjs-runtime.js` and `/rsjs/island/<asset_id>.js`. An asset ID is not a guarantee that the URL changes with its contents.
+
+Configure these headers on your static asset server:
+
+| Asset URL | `Cache-Control` |
+| --- | --- |
+| Stable URL | `public, no-cache` |
+| Content-hashed URL | `public, max-age=31536000, immutable` |
+
+For stable URLs, `no-cache` allows storage but requires revalidation before reuse. Do not give these files a long immutable lifetime: their contents can change at the same URL.
+
+For long-lived caching, content-hash the runtime files and every generated module. Rewrite their imports, HTML references, and preloads to those versioned URLs.
+
+`rsjs::manifest::rewrite_runtime_import_specifiers` rewrites the runtime imports only. It does not fingerprint the entire module graph.
+
+Keep previous bundles available for already-open tabs. New HTML references the new bundle URLs; invalidating HTML does not replace JavaScript in already-open tabs.
+
+## Next steps
+
+- [Routing](/docs/framework/routing): Register pages and compose routers.
+- [Streaming](/docs/framework/streaming): Stream responses instead of caching complete HTML pages.

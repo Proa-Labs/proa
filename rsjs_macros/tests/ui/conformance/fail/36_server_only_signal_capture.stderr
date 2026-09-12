@@ -1,0 +1,15 @@
+error: rsjs boundary: `rsjs::server_only(...)` cannot capture reactive signal `count`
+
+       Why:
+         Server-only slots emit static SSR content. Client hydration does not re-run that subtree, so a signal read there would never update.
+
+       Use one of:
+         - Move the signal read into a normal rsjs reactive slot outside `rsjs::server_only(...)`.
+         - If the value is intentionally static, pass plain server data into the server-only child.
+
+       Tracked feature:
+         server_boundary.server_only_signal_capture
+  --> tests/ui/conformance/fail/36_server_only_signal_capture.rs:19:47
+   |
+19 |             <div>{rsjs::server_only(UnsafeRaw(count.get()))}</div>
+   |                                               ^^^^^

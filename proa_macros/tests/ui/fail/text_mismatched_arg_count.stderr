@@ -1,0 +1,5 @@
+error: text!: placeholder count (2) does not match argument count (1); `{}` uses Proa render/attr behavior, while `{:...}` uses Rust fmt streamed through Proa escaping
+ --> tests/ui/fail/text_mismatched_arg_count.rs:4:19
+  |
+4 |     let _ = text!("{} {}", "only one arg");
+  |                   ^^^^^^^

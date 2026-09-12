@@ -1,0 +1,5 @@
+error: `#[rsjs(...)]` does not recognise `unknown`; expected `component`, `client`, or `strategy = "..."`
+  --> tests/ui/fail/16_clients_unknown_kwd.rs:11:27
+   |
+11 | #[rsjs(component, client, unknown(crate::foo))]
+   |                           ^^^^^^^

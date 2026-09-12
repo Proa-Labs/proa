@@ -1,0 +1,11 @@
+# Review ownership metadata for CI, release, deployment, and benchmark policy.
+/.github/actions/ @hariria
+/.github/workflows/ @hariria
+/deploy/ @hariria
+/scripts/perf/ @hariria
+/scripts/perf_alert.py @hariria
+/scripts/perf_report.py @hariria
+/scripts/test_perf_alert.py @hariria
+/scripts/test_perf_report.py @hariria
+/proa_bench/benches/render_memcpy_floor.rs @hariria
+/proa_marketing/Dockerfile @hariria

@@ -1,0 +1,5 @@
+error: `node_ref.get_attribute(...)` requires a static string literal attribute name, for example `node_ref.get_attribute("data-id")`. Dynamic attribute names are not supported because rsjs needs to emit safe DOM code.
+  --> tests/ui/conformance/fail/26_node_ref_dynamic_attribute_read.rs:22:69
+   |
+22 |                 <button on_click={|_| value.set(input.get_attribute(attr.get()))}> "Read" </button>
+   |                                                                     ^^^^

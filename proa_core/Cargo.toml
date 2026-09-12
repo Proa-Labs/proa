@@ -1,0 +1,71 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_core"
+version = "0.3.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Rendering traits, contexts, buffers, and HTML primitives for Proa."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+arrayvec = { workspace = true }
+bytes = { workspace = true }
+dashmap = { workspace = true }
+heapless = { workspace = true }
+http = { workspace = true }
+itoa_lut = { workspace = true }
+memchr = { version = "2.7" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+zmij = { version = "1.0" }
+
+[dev-dependencies]
+bytes = { workspace = true }
+criterion = { workspace = true, features = ["rayon"] }
+proa_macros = { workspace = true }
+proa_react = { workspace = true }
+proptest = { version = "1.5" }
+pulldown-cmark = { workspace = true, features = ["html"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[[bench]]
+name = "render_bench"
+harness = false
+
+[[bench]]
+name = "buffer_allocation"
+harness = false
+
+[[bench]]
+name = "inlining_test"
+harness = false
+
+[[bench]]
+name = "escape_bench"
+harness = false
+
+[[bench]]
+name = "scatter_gather"
+harness = false
+
+[[bench]]
+name = "tiled_rendering"
+harness = false
+
+[[bench]]
+name = "zcb_threshold"
+harness = false
+
+[[bench]]
+name = "numeric_format"
+harness = false
+
+[lints]
+workspace = true

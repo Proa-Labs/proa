@@ -1,0 +1,5 @@
+error: #[derive(rsjs::SharedState)] supports state structs only because top-level named fields define the independently reactive cells. Put a fieldless `#[derive(rsjs::ClientProps)]` enum in a named state field instead of deriving SharedState on the enum itself
+ --> tests/ui/fail/56_shared_state_enum.rs:6:5
+  |
+6 | pub enum Mode {
+  |     ^^^^

@@ -1,0 +1,21 @@
+error[E0599]: no method named `render` found for struct `OptimizedHtml<B, L, F>` in the current scope
+  --> tests/ui/fail/string_not_render.rs:16:7
+   |
+12 | /     html_sync! {
+13 | |         <div>
+14 | |             {name}
+15 | |         </div>
+16 | |     }.render(&mut cx);
+   | |      -^^^^^^ method not found in `OptimizedHtml<_, _, {closure@$DIR/tests/ui/fail/string_not_render.rs:12:5: 16:6}>`
+   | |______|
+   |
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: the following traits which provide `render` are implemented but not in scope; perhaps you want to import one of them
+   |
+ 3 + use proa_core::Render;
+   |
+ 3 + use proa_core::WebRender;
+   |
+ 3 + use proa_core::WebRenderSync;
+   |

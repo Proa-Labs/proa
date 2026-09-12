@@ -1,0 +1,5 @@
+error: <input type="image"> is missing the `alt` attribute. add alt="Submit" or alt="Search" describing the action (HTML §4.10.5.1.19, WCAG 1.1.1)
+ --> tests/ui/fail/required_input_image_alt.rs:5:19
+  |
+5 |     html_sync! { <input type="image" src="/btn.png" /> };
+  |                   ^^^^^

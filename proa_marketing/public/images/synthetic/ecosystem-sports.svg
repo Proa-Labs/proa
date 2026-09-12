@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" role="img" aria-label="Synthetic sports score page">
+  <rect width="1440" height="900" fill="#eef1f3"/><rect x="70" y="65" width="1300" height="770" rx="28" fill="#fff"/>
+  <rect x="70" y="65" width="1300" height="95" rx="28" fill="#243542"/><rect x="145" y="220" width="1150" height="260" rx="24" fill="#f4f5f6"/>
+  <circle cx="365" cy="350" r="72" fill="#4a7c8a"/><circle cx="1075" cy="350" r="72" fill="#d27b55"/>
+  <text x="720" y="390" text-anchor="middle" font-family="system-ui,sans-serif" font-size="120" font-weight="700" fill="#25343d">7–5</text>
+  <g fill="#dce3e7"><rect x="145" y="540" width="740" height="65" rx="16"/><rect x="145" y="630" width="740" height="65" rx="16"/><rect x="935" y="540" width="360" height="155" rx="16"/></g>
+</svg>

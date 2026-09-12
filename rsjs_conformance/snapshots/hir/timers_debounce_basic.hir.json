@@ -1,0 +1,92 @@
+[
+  {
+    "kind": "signal_set",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    },
+    "value": {
+      "kind": "event_value",
+      "span": {
+        "end": {
+          "column": 35,
+          "line": 1
+        },
+        "start": {
+          "column": 30,
+          "line": 1
+        }
+      },
+      "value": "TargetValue"
+    }
+  },
+  {
+    "closure": {
+      "body": {
+        "kind": "binary",
+        "lhs": {
+          "kind": "signal_read",
+          "signal": 1,
+          "span": {
+            "end": {
+              "column": 38,
+              "line": 2
+            },
+            "start": {
+              "column": 37,
+              "line": 2
+            }
+          }
+        },
+        "op": "Checked { op: Add, domain: I64 }",
+        "rhs": {
+          "kind": "literal",
+          "span": {
+            "end": {
+              "column": 38,
+              "line": 2
+            },
+            "start": {
+              "column": 37,
+              "line": 2
+            }
+          },
+          "value": {
+            "kind": "bigint",
+            "value": 1
+          }
+        },
+        "span": {
+          "end": {
+            "column": 38,
+            "line": 2
+          },
+          "start": {
+            "column": 37,
+            "line": 2
+          }
+        }
+      },
+      "param": "c"
+    },
+    "kind": "signal_update",
+    "signal": 1,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 2
+      },
+      "start": {
+        "column": 20,
+        "line": 2
+      }
+    }
+  }
+]

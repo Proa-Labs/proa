@@ -1,0 +1,19 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+log:
+  level: INFO
+entryPoints:
+  archive:
+    address: ":8082"
+  archive-health:
+    address: ":8083"
+ping:
+  entryPoint: archive-health
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true

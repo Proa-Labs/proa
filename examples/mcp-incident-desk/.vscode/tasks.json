@@ -1,0 +1,37 @@
+{
+  "tasks": [
+    {
+      "args": [
+        "dev",
+        "--open"
+      ],
+      "command": "proa",
+      "label": "proa: dev",
+      "problemMatcher": [],
+      "type": "process"
+    },
+    {
+      "args": [
+        "check",
+        "--all"
+      ],
+      "command": "proa",
+      "label": "proa: check",
+      "problemMatcher": [
+        "$rustc"
+      ],
+      "type": "process"
+    },
+    {
+      "args": [
+        "db",
+        "status"
+      ],
+      "command": "proa",
+      "label": "proa: db status",
+      "problemMatcher": [],
+      "type": "process"
+    }
+  ],
+  "version": "2.0.0"
+}

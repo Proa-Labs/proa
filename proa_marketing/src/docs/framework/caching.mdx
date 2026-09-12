@@ -1,0 +1,141 @@
+---
+title: Data caching
+description: Deduplicate loads, cache data across requests, and invalidate render dependencies.
+---
+
+Proa keeps data cache policy explicit. The framework does not silently cache data fetches for you. Choose the boundary that matches the work:
+
+| Resource | Cache at |
+|----------|----------|
+| Request-local data | `DataResolver` |
+| Cross-request data | application loader, `StandardDataLoader`, Redis, database, or origin service |
+
+For complete HTML responses, HTTP cache headers, ETags, and Cloudflare setup, see [Page caching](/docs/framework/page-caching).
+
+## Cache Boundaries
+
+Request-local dedupe prevents components in one render from loading the same key twice. Cross-request caching reduces origin reads across users or requests. Prefer the narrowest cache that removes real work without sharing user-specific data.
+
+Data caching reduces work when a request reaches the application. A fresh CDN page-cache hit skips the application entirely. Each cache needs its own freshness and invalidation policy.
+
+## Request-Local Dedupe
+
+Wrap your loader with `DataResolver` when multiple components can ask for the same key during one render:
+
+```rust
+use std::sync::Arc;
+
+use proa_stream::DataResolver;
+
+pub async fn product_handler() -> impl axum::response::IntoResponse {
+    let app_loader = Arc::new(AppLoader::new());
+    let loader = Arc::new(DataResolver::new_typed(app_loader));
+
+    RouteResponse::ssr_async_with_loader(ProductPage { id: "sku_1" }, loader)
+}
+```
+
+This is a per-render optimization. It does not persist values across requests.
+
+## Cross-Request Data Cache
+
+For a process-local cache, wrap an upstream loader with `StandardDataLoader`:
+
+```rust
+use std::sync::Arc;
+use std::time::Duration;
+
+use proa_core::StandardDataLoader;
+
+let cached_loader = Arc::new(StandardDataLoader::new(
+    AppLoader::new(),
+    Duration::from_secs(30),
+));
+```
+
+`StandardDataLoader` stores `LoadValue` by `LoadKey`, expires entries by TTL, and exposes manual invalidation:
+
+```rust
+use proa_core::LoadKey;
+
+cached_loader.invalidate(&LoadKey::named("product", "sku_1"));
+cached_loader.clear();
+```
+
+Use a process-local cache only when each instance can safely have its own copy. For horizontally scaled apps, put shared cache state in Redis, your database, your CDN, or the upstream service.
+
+## Load Hints
+
+`LoadHints` carry cache policy without changing the identity of the data:
+
+```rust
+use std::time::Duration;
+
+use proa_core::{CacheHint, CacheMode, LoadHints, LoadKey};
+
+let product = cx
+    .load_json_with::<Product>(
+        LoadKey::named("product", "sku_1"),
+        LoadHints::new().with_cache(
+            CacheHint::ttl(Duration::from_secs(60)).with_mode(CacheMode::Refresh),
+        ),
+    )
+    .await?;
+```
+
+The built-in cache modes are:
+
+| Mode | Meaning |
+|------|---------|
+| `UseLoaderDefault` | Let the loader apply its normal policy. |
+| `Bypass` | Skip the loader-managed cache and fetch from origin. |
+| `Refresh` | Fetch from origin and update the cache entry. |
+| `OnlyIfCached` | Return cached data or fail with `LoadError::CacheMiss`. |
+
+Custom loaders may honor hints, ignore them, or map them onto their own cache system. Keep `LoadKey` stable; put freshness policy in `LoadHints`.
+
+## Invalidation
+
+Choose invalidation at the same boundary as the cache:
+
+| Cache | Invalidate by |
+|-------|---------------|
+| `DataResolver` | end of request |
+| `StandardDataLoader` | TTL, `invalidate(&key)`, or `clear()` |
+| Redis/database cache | app-specific key, tag, or write transaction |
+
+When data changes through a form or API mutation, invalidate the data cache before redirecting or returning the success response.
+
+If that data appears in cached HTML, invalidate the affected CDN pages too. Clearing a loader cache does not remove an already rendered edge response. See [Page caching](/docs/framework/page-caching#purging-after-a-change).
+
+```rust
+pub async fn update_product(Form(form): Form<ProductForm>) -> Redirect {
+    save_product(&form).await;
+    cached_loader.invalidate(&LoadKey::named("product", form.id.as_str()));
+
+    Redirect::to("/products")
+}
+```
+
+## Cache Trace
+
+`WebContext` exposes `cache_trace_mut()` for render-time dependency recording:
+
+```rust
+cx.cache_trace_mut().set_ttl(Duration::from_secs(60));
+cx.cache_trace_mut().depend_tag("product:sku_1");
+cx.cache_trace_mut().depend_path("/products/sku_1");
+```
+
+Use this when your application wants to collect dependencies during render and map them to its own invalidation system. Proa records the trace; your app decides how to consume it. Recording a TTL or tag here does not automatically emit CDN headers or call Cloudflare's purge API.
+
+## Production Checklist
+
+- Wrap loaders with `DataResolver` when a render can load the same key repeatedly.
+- Use `StandardDataLoader` only when process-local cache state is acceptable.
+- Put cross-instance cache state in shared infrastructure.
+- Include the relevant user or tenant identity when caching private data across requests.
+- Invalidate on mutation before redirecting.
+- Invalidate any affected CDN pages separately.
+
+See [Data loading and streaming](/docs/framework/data-loading), [Route handlers](/docs/framework/route-handlers), and [Page caching](/docs/framework/page-caching).

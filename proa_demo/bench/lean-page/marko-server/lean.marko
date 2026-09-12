@@ -1,0 +1,11 @@
+<for|i| of=input.indices>
+  <let/watching = false/>
+  <button type="button" class="lean-watch" aria-label=("watch " + i) on-click() { watching = !watching }>
+    <if=watching>
+      <span class="heart heart--on" aria-hidden="true">♥</span>
+    </if>
+    <else>
+      <span class="heart heart--off" aria-hidden="true">♡</span>
+    </else>
+  </button>
+</for>

@@ -1,0 +1,255 @@
+---
+title: Quickstart
+description: Build a docs site and start authoring its common components.
+---
+
+Two crates, a build script, and one route.
+
+<Callout type="info">
+
+**Starting from scratch?**
+
+`proa new site my-docs --template docs --yes` scaffolds a site with this
+wiring already in place, and `proa new site my-app --template origin --yes`
+scaffolds ORIGIN, the full reference application, if you want to study a
+complete Proa app (data loading, islands, streamed sections, and Markdown
+representations) while you write your docs. The steps below wire `proa_docs`
+into an existing site by hand.
+
+</Callout>
+
+<Steps>
+<Step>
+
+**Add the dependencies.**
+
+```toml filename="Cargo.toml"
+[dependencies]
+proa_docs = { git = "https://github.com/Proa-Labs/proa.git" }
+
+[build-dependencies]
+proa_docs_build = { git = "https://github.com/Proa-Labs/proa.git" }
+```
+
+</Step>
+<Step>
+
+**Compile your content in `build.rs`.**
+
+```rust filename="build.rs"
+use proa_docs_build::{
+    CodeHighlight, Config, DocsSource, MarkdownPipeline, MdxConfig,
+};
+
+fn main() {
+    let markdown = MarkdownPipeline::default()
+        .code_highlighting(CodeHighlight::new())
+        .mdx(MdxConfig::proa());
+
+    let docs = DocsSource::new("src/docs")
+        .out_dir_name("docs")
+        .base_path("/docs")
+        .site_name("My Docs")
+        .markdown(markdown);
+
+    proa_docs_build::compile(Config::new().source(docs));
+}
+```
+
+</Step>
+<Step>
+
+**Write a page.**
+
+```mdx filename="src/docs/index.mdx"
+---
+title: Introduction
+description: What this site is about.
+---
+
+Hello from Proa Docs.
+```
+
+</Step>
+<Step>
+
+**Include the registry and mount a route.**
+
+```rust filename="src/pages/docs.rs"
+use proa_docs::{include_docs, Docs};
+
+pub fn docs() -> &'static Docs {
+    static DOCS: Docs = include_docs!("docs");
+    &DOCS
+}
+```
+
+</Step>
+</Steps>
+
+Run it and open `/docs`.
+
+## Styling
+
+`proa_docs` ships a default theme. Render it into `<head>` and every component is styled and wired:
+
+```rust filename="src/layouts/root.rs"
+use proa_docs::DocsAssets;
+
+html_sync! {
+    <head>
+        {DocsAssets::new()}
+    </head>
+}
+```
+
+On a site with many pages, serve `DEFAULT_STYLESHEET` and `DEFAULT_SCRIPT` as static files instead so they cache between navigations.
+
+Theming is 15 CSS custom properties — see [Styling contract](/docs/proa-docs/styling-contract).
+
+## Add components in MDX
+
+Components are authored directly in an `.mdx` page. There are no Rust imports and no runtime registration step. The `MdxConfig::proa()` preset in the build script above also enables the three opt-in helpers: Cards, Files, and Agent Terminal.
+
+### Code blocks and callouts
+
+Fenced code is highlighted during the build. Add `filename` for a header and `{...}` to mark lines. Use a Callout to separate a note or warning from the surrounding prose:
+
+````mdx filename="src/docs/deploy.mdx"
+```rust filename="src/main.rs" {2}
+fn main() {
+    println!("ready");
+}
+```
+
+<Callout type="warning">
+Deploy only after the health check passes.
+</Callout>
+````
+
+See [Code block](/docs/proa-docs/code-block) and [Callout](/docs/proa-docs/callout) for their complete options.
+
+### Cards
+
+Cards turn a list of destinations into a scannable grid:
+
+```mdx filename="src/docs/index.mdx"
+<Cards>
+  <Card title="Quickstart" description="Set up the site." href="/docs/quickstart" />
+  <Card title="Deploy" description="Ship the site." href="/docs/deploy" />
+</Cards>
+```
+
+Each Card is self-closing and requires `title` and `href`. See [Cards](/docs/proa-docs/cards).
+
+### Tabs, steps, and accordions
+
+Use Tabs for alternatives, Steps for ordered work, and Accordions for optional detail:
+
+```mdx filename="src/docs/install.mdx"
+<Tabs data-items="Cargo|cargo-binstall">
+<Tab value="Cargo">
+Run `cargo install proa-cli`.
+</Tab>
+<Tab value="cargo-binstall">
+Run `cargo binstall proa-cli`.
+</Tab>
+</Tabs>
+
+<Steps>
+<Step>
+Create the docs source directory.
+</Step>
+<Step>
+Mount the generated registry.
+</Step>
+</Steps>
+
+<Accordions>
+<Accordion title="Does this need JavaScript?">
+No. The disclosure behavior is CSS-only.
+</Accordion>
+</Accordions>
+```
+
+Read the full [Tabs](/docs/proa-docs/tabs), [Steps](/docs/proa-docs/steps), and [Accordions](/docs/proa-docs/accordions) guides for attributes and constraints.
+
+### Multi-file examples
+
+Code Explorer keeps related files together without stacking every listing down the page:
+
+````mdx filename="src/docs/setup.mdx"
+<CodeExplorer>
+<CodeFile name="Cargo.toml">
+```toml
+[build-dependencies]
+proa_docs_build = { git = "https://github.com/Proa-Labs/proa.git" }
+```
+</CodeFile>
+<CodeFile name="build.rs">
+```rust
+fn main() {
+    proa_docs_build::compile(config);
+}
+```
+</CodeFile>
+</CodeExplorer>
+````
+
+Each Code File requires a unique `name`, and one explorer supports up to eight files. See [Code explorer](/docs/proa-docs/code-explorer).
+
+### File trees
+
+Use Files when the directory structure itself is part of the explanation:
+
+```mdx filename="src/docs/structure.mdx"
+<Files>
+<Folder name="src">
+<Folder name="pages">
+<File name="docs.rs" />
+</Folder>
+<File name="main.rs" />
+</Folder>
+<File name="build.rs" />
+</Files>
+```
+
+See [Files](/docs/proa-docs/files). For a quick text-only tree, use a `proa-filetree` code fence instead.
+
+### Generated references, demos, and terminal output
+
+These components are self-closing:
+
+```mdx filename="src/docs/reference.mdx"
+<TypeTable path="src/config.ts" name="DocsConfig" />
+
+<Demo src="/demos/counter" title="Counter demo" height="320" />
+
+<AgentTerminal />
+```
+
+- Type Table currently reads TypeScript definitions and needs `TypeScriptDocgen` configured on the Markdown pipeline. See [Type table](/docs/proa-docs/type-table).
+- Demo embeds a same-origin route and requires an accessible title. See [Demo](/docs/proa-docs/demo).
+- Agent Terminal is enabled by `MdxConfig::proa()`. See [Agent terminal](/docs/proa-docs/agent-terminal).
+
+### Math and diagrams
+
+Math and Mermaid are Markdown-pipeline features rather than MDX tags. Enable Math with `.math(MathMode::MathMl)` and write dollar-delimited TeX. Mermaid uses a `mermaid` code fence and needs a renderer supplied by your application.
+
+See [Math](/docs/proa-docs/math) and [Mermaid](/docs/proa-docs/mermaid) for their build configuration.
+
+## What you get without doing anything else
+
+- File-routed pages, with routes derived from paths under your source root
+- A sidebar generated from `meta.json`
+- Syntax highlighting, compiled at build time
+- A table of contents per page, from the heading structure
+- A Markdown representation of every page, for agents
+
+## Next
+
+<Cards>
+  <Card title="Pages and routes" description="How files become routes, and what frontmatter controls." href="/docs/proa-docs/pages-and-routes" />
+  <Card title="Code block" description="Highlighting, filenames, line marks, and copy controls." href="/docs/proa-docs/code-block" />
+  <Card title="Navigation" description="Order the sidebar with meta.json." href="/docs/proa-docs/navigation" />
+</Cards>

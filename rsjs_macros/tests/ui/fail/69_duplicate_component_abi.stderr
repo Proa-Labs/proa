@@ -1,0 +1,10 @@
+error[E0119]: conflicting implementations of trait `rsjs::__private::ComponentAbi` for type `Duplicate`
+  --> tests/ui/fail/69_duplicate_component_abi.rs:22:1
+   |
+ 9 | #[rsjs(component)]
+   | ------------------ first implementation here
+...
+22 | #[rsjs(component)]
+   | ^^^^^^^^^^^^^^^^^^ conflicting implementation for `Duplicate`
+   |
+   = note: this error originates in the attribute macro `rsjs` (in Nightly builds, run with -Z macro-backtrace for more info)

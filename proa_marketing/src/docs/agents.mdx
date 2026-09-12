@@ -1,0 +1,142 @@
+---
+title: Agent setup
+description: Configure coding agents to edit Proa projects with local instructions.
+sidebar_title: Agent setup
+---
+
+A coding agent in a Proa repository reads the same files you do: `AGENTS.md`, an optional `SKILL.md`, and per-page docs Markdown. This page covers [writing `AGENTS.md`](#writing-agents-md), [writing a reusable skill](#writing-a-reusable-skill), [which context an agent needs](#which-context-does-an-agent-need), and [fetching page Markdown](#fetching-page-markdown).
+
+## Writing AGENTS.md
+
+`proa new site` scaffolds the file by default (pass `--no-agents-md` to skip it; `--agents-md` is the explicit spelling of the default):
+
+```bash filename="Terminal"
+proa new site my-site
+```
+
+Keep `AGENTS.md` at the project root. It describes the local project shape, render rules, validation commands, and safe edit boundaries.
+
+````md filename="AGENTS.md"
+# AGENTS.md
+
+## Project Shape
+
+- Pages live in `src/pages/`.
+- Shared shells live in `src/layouts/`.
+- Reusable render components live in `src/components/`.
+- Route metadata, navigation, and shared data live in `src/data/`.
+- Keep a component next to the route that owns it. Promote it into
+  `src/components/` once a second route needs it.
+- Keep route handlers, shared components, and content compilation in separate
+  modules, and keep request-specific data out of globals.
+
+## Rendering Rules
+
+- Use `WebRenderSync` by default.
+- Use `WebRender` only when the render body needs `.await`, `query_with_initial(...)`, or `mutation(...)`.
+- Use `html_sync!` for synchronous render trees and `html!` for async-capable render trees.
+- Opaque SSR components use no RSJS attribute. An analyzed component uses
+  `#[rsjs(component)]`; add `client` when it originates signals, event
+  handlers, queries, mutations, shared-state acquisition, node refs, or
+  browser work.
+- Always annotate a real render-trait impl. Do not use inherent render
+  shorthand, `async fn render` sugar, or component `clients(...)` allowlists.
+- A direct inbound read such as `self.label` can remain live when its parent
+  supplies a live value. Use `server_only(...)` or `server_attr(...)` only for
+  an intentional per-render snapshot.
+- Keep hot render paths allocation-clean. Prefer borrowed data, static class strings, and stack-allocated class composition.
+- Do not build child HTML strings just to concatenate them into a parent.
+
+## Validation
+
+Run these before handing work back:
+
+```bash
+cargo fmt --all
+cargo check
+cargo test
+proa site check
+```
+
+If a render-path change allocates intentionally, explain why.
+````
+
+`AGENTS.md` binds one project. To carry the same rules into every project an agent touches, write a skill.
+
+## Writing a reusable skill
+
+Some agents support reusable `SKILL.md` files. Use one when you want the Proa authoring rules to follow the agent across projects.
+
+```md filename="SKILL.md"
+# Proa Site Authoring
+
+Use this skill when adding or changing Proa pages, components, layouts, route handlers, or RSJS islands.
+
+## Rules
+
+- Read the local `AGENTS.md` first.
+- Prefer `WebRenderSync` unless the component must await data or declare RSJS query/mutation state.
+- Use `html_sync!` for sync markup and `html!` for async-capable markup.
+- Use `#[rsjs(component)]` on an authored render-trait impl for analyzed
+  participation. Add `client` when the component originates browser behavior.
+  Keep handlers as named locals when they are more than trivial.
+- Do not use inherent render shorthand, `async fn render` sugar, or component
+  `clients(...)` allowlists.
+- Treat direct inbound fields as potentially live. Use explicit server
+  boundaries only when the component contract intentionally snapshots them.
+- Preserve direct parent-child rendering. Do not render children into intermediate `String`s unless a non-hot-path API explicitly requires it.
+- Keep classes static where possible. Prefer compile-time class composition and existing project tokens.
+- After edits, run the validation commands from `AGENTS.md`.
+
+## Context To Fetch
+
+- `/docs/core/html-rendering.md`
+- `/docs/core/components.md`
+- `/docs/guides/islands.md`
+- `/docs/rsjs/handlers.md`
+- `/docs/rsjs/signals.md`
+- `/docs/rsjs/queries-mutations.md`
+- `/docs/guides/performance.md`
+
+Use `/llms-full.txt` only when the task needs broad recall across the whole docs site.
+```
+
+The skill fixes the rules. The next decision is how much documentation to load for a given task.
+
+## Which context does an agent need?
+
+Start small. Add more context only when the task needs it.
+
+| Task | Give the agent |
+|------|----------------|
+| Create or edit a page | `AGENTS.md`, `/docs/framework/routing.md`, `/docs/core/components.md` |
+| Add a reusable component | `AGENTS.md`, `/docs/core/html-rendering.md`, `/docs/guides/performance.md` |
+| Add browser interactivity | `AGENTS.md`, `/docs/guides/islands.md`, `/docs/rsjs/handlers.md`, `/docs/rsjs/signals.md` |
+| Add async data | `AGENTS.md`, `/docs/framework/data-loading.md`, `/docs/core/html-rendering.md` |
+| Debug a compile error | `AGENTS.md`, focused page Markdown, compiler output |
+| Answer broad questions | `/llms-full.txt` |
+
+Every row names Markdown files, and every docs route serves one.
+
+## Fetching page Markdown
+
+Every docs route exposes Markdown:
+
+```bash filename="Terminal"
+curl https://proa.so/docs/agents.md
+curl https://proa.so/docs/core/html-rendering.md
+curl https://proa.so/docs/rsjs/handlers.md
+```
+
+For persistent project behavior, keep instructions in `AGENTS.md` or `SKILL.md`. For one-off retrieval, use page Markdown or `/llms-full.txt`.
+
+## Next steps
+
+- [AI consumption](/docs/llms)
+  - Fetch docs context for an agent that reads but never edits the project.
+- [proa new site](/docs/cli/new-site)
+  - See where pages, layouts, components, and shared data live.
+- [HTML rendering](/docs/core/html-rendering)
+  - Learn the render traits and macros the rules above refer to.
+- [Writing performant pages](/docs/guides/performance)
+  - Keep the render paths an agent edits free of allocation.

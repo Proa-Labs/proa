@@ -1,0 +1,36 @@
+---
+title: Demo
+description: Embed a live page from your own site inside a doc.
+---
+
+A demo frames one of your own routes inside the page, so a reader sees the thing working next to the code that produces it.
+
+```mdx filename="content/islands.mdx"
+<Demo src="/demos/counter" title="Counter island" height="320" />
+```
+
+## Attributes
+
+| Attribute | Required | Meaning |
+|---|---|---|
+| `src` | **yes** | Same-origin path. Absolute URLs are rejected |
+| `title` | **yes** | Accessible frame title. Also the visible caption |
+| `height` | no | Frame height in pixels. Clamped to a sane range |
+
+## Two rules, both enforced at build time
+
+**Same-origin only.** `<Demo src="https://example.com/x" />` is rejected with a reason naming the origin constraint. A docs page cannot frame a third-party site — that is a security decision, not an oversight: an embedded external origin can size, track, and navigate inside your docs.
+
+**A title is required.** `<Demo src="/demos/x" />` with no title is rejected. An untitled iframe is unusable with a screen reader, so the build refuses to emit one.
+
+A rejected demo is **dropped, not rendered broken**, and reported with its `src` and the reason. The page still builds.
+
+## What renders
+
+The frame, plus a plain link to the same path. Readers who cannot use the embed — or who want the demo full-size — get a working route either way.
+
+> **Good to know**: Because the demo is a real route on your own site, it is covered by your own tests and deploys. There is no separate sandbox to keep alive.
+
+## Related
+
+[Code block](/docs/proa-docs/code-block) · [Agent terminal](/docs/proa-docs/agent-terminal)

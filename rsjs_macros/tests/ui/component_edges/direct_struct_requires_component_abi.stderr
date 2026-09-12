@@ -1,0 +1,18 @@
+error[E0277]: `UndecoratedDirectEdge` does not carry an RSJS component ABI witness
+  --> tests/ui/component_edges/direct_struct_requires_component_abi.rs:20:23
+   |
+20 |             <section>{UndecoratedDirectEdge {}}</section>
+   |                       ^^^^^^^^^^^^^^^^^^^^^ this type is not an analyzed RSJS component
+   |
+help: the trait `rsjs::__private::ComponentAbi` is not implemented for `UndecoratedDirectEdge`
+  --> tests/ui/component_edges/direct_struct_requires_component_abi.rs:3:1
+   |
+ 3 | struct UndecoratedDirectEdge;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: add `#[rsjs(component)]` to exactly one real `WebRenderSync` or `WebRender` impl; add `client` only when that component originates browser behavior
+help: the trait `rsjs::__private::ComponentAbi` is implemented for `Parent`
+  --> tests/ui/component_edges/direct_struct_requires_component_abi.rs:16:1
+   |
+16 | #[rsjs::rsjs(component)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: this error originates in the attribute macro `rsjs::rsjs` (in Nightly builds, run with -Z macro-backtrace for more info)

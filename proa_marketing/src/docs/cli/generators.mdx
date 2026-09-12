@@ -1,0 +1,68 @@
+---
+title: proa generate
+description: Generate components, layouts, and data modules.
+---
+
+The generator commands write files into an existing Proa project. By default, they locate the nearest parent directory that contains both `Cargo.toml` and `src/`. Pass `--root` when running from outside the project tree.
+
+## Components
+
+```bash
+proa generate component pricing/feature-row --children --recipe
+```
+
+This creates module entries under `src/components` and writes either a single component file or a component folder.
+
+| Flag | Behavior |
+|------|----------|
+| `--folder` | Use `components/<name>/mod.rs` plus a sibling implementation file. |
+| `--recipe` | Generate `recipe.rs` and a folder layout. |
+| `--children` | Add generic `children` support. |
+| `--no-test` | Omit the generated render test. |
+| `--root <DIR>` | Use an explicit project root. |
+| `--dry-run [text\|json]` | Print the plan without writing. |
+| `--force` | Overwrite generated files. |
+
+Names can include folders. `pricing/feature-row` becomes `src/components/pricing/feature_row.rs` or a folder-backed component when `--folder` or `--recipe` is used.
+
+## Layouts
+
+```bash
+proa generate layout marketing-shell --section
+proa generate layout root-document --document
+```
+
+| Flag | Behavior |
+|------|----------|
+| `--section` | Generate a section-level wrapper. |
+| `--document` | Generate a full document shell. |
+| `--root <DIR>` | Use an explicit project root. |
+| `--dry-run [text\|json]` | Print the plan without writing. |
+| `--force` | Overwrite generated files. |
+
+`--document` and `--section` cannot be combined.
+
+## Data Modules
+
+```bash
+proa generate data pricing-plans
+```
+
+Data modules are written under `src/data` and registered in the nearest module file.
+
+## Module Updates
+
+Generators append missing `pub mod ...;` lines to parent `mod.rs` files. Existing matching lines are left in place, so repeated dry runs and repeated generation do not duplicate module exports.
+
+## Safety Workflow
+
+Use this pattern when generating into a project with local edits:
+
+```bash
+proa generate component pricing/feature-row --children --recipe --dry-run
+proa generate component pricing/feature-row --children --recipe
+cargo fmt --all
+cargo test
+```
+
+Only use `--force` when you intend to replace generated files.

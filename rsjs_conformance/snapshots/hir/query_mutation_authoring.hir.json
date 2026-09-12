@@ -1,0 +1,32 @@
+[
+  {
+    "args": [
+      {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 70,
+            "line": 1
+          },
+          "start": {
+            "column": 65,
+            "line": 1
+          }
+        }
+      }
+    ],
+    "kind": "run_mutation",
+    "mutation": 0,
+    "span": {
+      "end": {
+        "column": 60,
+        "line": 1
+      },
+      "start": {
+        "column": 56,
+        "line": 1
+      }
+    }
+  }
+]

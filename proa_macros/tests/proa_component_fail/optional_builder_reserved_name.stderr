@@ -1,0 +1,5 @@
+error: optional builder method `new` conflicts with the generated constructor; choose a different explicit method name
+ --> tests/proa_component_fail/optional_builder_reserved_name.rs:6:36
+  |
+6 |     #[component(optional_builder = "new")]
+  |                                    ^^^^^

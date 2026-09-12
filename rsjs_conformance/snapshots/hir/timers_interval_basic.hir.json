@@ -1,0 +1,64 @@
+[
+  {
+    "closure": {
+      "body": {
+        "kind": "binary",
+        "lhs": {
+          "kind": "signal_read",
+          "signal": 0,
+          "span": {
+            "end": {
+              "column": 47,
+              "line": 1
+            },
+            "start": {
+              "column": 46,
+              "line": 1
+            }
+          }
+        },
+        "op": "Checked { op: Add, domain: I64 }",
+        "rhs": {
+          "kind": "literal",
+          "span": {
+            "end": {
+              "column": 47,
+              "line": 1
+            },
+            "start": {
+              "column": 46,
+              "line": 1
+            }
+          },
+          "value": {
+            "kind": "bigint",
+            "value": 1
+          }
+        },
+        "span": {
+          "end": {
+            "column": 47,
+            "line": 1
+          },
+          "start": {
+            "column": 46,
+            "line": 1
+          }
+        }
+      },
+      "param": "t"
+    },
+    "kind": "signal_update",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 34,
+        "line": 1
+      },
+      "start": {
+        "column": 30,
+        "line": 1
+      }
+    }
+  }
+]

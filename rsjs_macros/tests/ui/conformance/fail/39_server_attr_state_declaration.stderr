@@ -1,0 +1,15 @@
+error: rsjs boundary: `rsjs::server_attr(...)` cannot declare or read `signal(...)`
+
+       Why:
+         Server-only attributes are static SSR values, not reactive client state.
+
+       Use one of:
+         - Declare state before the template and use a normal dynamic attribute for reactive values.
+         - Use `rsjs::server_attr(...)` only for values that are intentionally static after hydration.
+
+       Tracked feature:
+         server_boundary.state_declaration
+  --> tests/ui/conformance/fail/39_server_attr_state_declaration.rs:16:46
+   |
+16 |             <button class={rsjs::server_attr(signal("active").get())}>"Save"</button>
+   |                                              ^^^^^^

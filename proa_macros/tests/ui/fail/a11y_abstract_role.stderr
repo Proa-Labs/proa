@@ -1,0 +1,5 @@
+error: a11y: "widget" is an abstract ARIA role and cannot be used in content. use a concrete role instead (e.g., "button", "checkbox", "slider") (WAI-ARIA 1.2 §5.4)
+ --> tests/ui/fail/a11y_abstract_role.rs:5:19
+  |
+5 |     html_sync! { <div role="widget">"thing"</div> };
+  |                   ^^^

@@ -1,0 +1,25 @@
+error[E0277]: the trait bound `rsjs::MouseEvent<rsjs::HtmlInputElement>: EventFor<rsjs::web::event_interface::InputEvent>` is not satisfied
+  --> tests/ui/fail/76_typed_event_interface_mismatch.rs:13:30
+   |
+13 |             <input on_input={on_input()} />
+   |                              ^^^^^^^^ the trait `EventFor<rsjs::web::event_interface::InputEvent>` is not implemented for `rsjs::MouseEvent<rsjs::HtmlInputElement>`
+   |
+help: the trait `EventFor<rsjs::web::event_interface::InputEvent>` is not implemented for `rsjs::MouseEvent<rsjs::HtmlInputElement>`
+      but trait `EventFor<rsjs::web::event_interface::MouseEvent>` is implemented for it
+  --> $WORKSPACE/rsjs/src/lib.rs
+   |
+   |             impl<E> EventFor<$interface> for $event where E: crate::web::dom::DomTargetMarker {}
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+   |     impl_event_for!(crate::MouseEvent<E> => event_interface::MouseEvent);
+   |     -------------------------------------------------------------------- in this macro invocation
+   = help: for that trait implementation, expected `rsjs::web::event_interface::MouseEvent`, found `rsjs::web::event_interface::InputEvent`
+note: required by a bound in `rsjs::__private::assert_event_binding`
+  --> $WORKSPACE/rsjs/src/lib.rs
+   |
+   |     pub fn assert_event_binding<Target, Interface, E>(_binding: &crate::EventBinding<E>)
+   |            -------------------- required by a bound in this function
+...
+   |         E: EventFor<Interface>,
+   |            ^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_event_binding`
+   = note: this error originates in the macro `impl_event_for` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic sports venue illustration</title>
+  <desc id="desc">A fictional ball field created for Proa fixtures.</desc>
+  <rect width="1200" height="675" fill="#cfe1e7"/>
+  <path d="M0 300h1200v375H0z" fill="#647a82"/>
+  <ellipse cx="600" cy="490" rx="500" ry="250" fill="#2f785d"/>
+  <path d="M600 295L875 540 600 650 325 540z" fill="#ba8a5d"/>
+  <path d="M600 360L760 515 600 590 440 515z" fill="#d9b47c"/>
+  <path d="M150 255h900M205 205h790" stroke="#fff" stroke-width="18" opacity=".75"/>
+</svg>

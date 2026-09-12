@@ -1,0 +1,45 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rsjs"
+version = "0.2.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Compile reactive UI islands written in Rust into tiny vanilla JavaScript."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+# These repository-level conformance targets intentionally share the root
+# `rsjs_conformance/` corpus. They remain in the source repository but are not
+# part of the independently packaged library archive.
+exclude = [
+    "examples/semantic_corpus.rs",
+    "tests/client_attr.rs",
+    "tests/client_module.rs",
+    "tests/conformance_snapshots.rs",
+    "tests/semantic_differential.rs",
+]
+
+[dependencies]
+base64 = { workspace = true }
+linkme = { workspace = true }
+proa_core = { workspace = true }
+rsjs_ir = { workspace = true }
+rsjs_macros = { workspace = true }
+rsjs_transport = { workspace = true }
+rsjs_web = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+# Used by integration tests that exercise the `#[rsjs::rsjs]`
+# attribute end-to-end (the macro emits `::proa_core::...` paths).
+proa_core = { workspace = true }
+proa_macros = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

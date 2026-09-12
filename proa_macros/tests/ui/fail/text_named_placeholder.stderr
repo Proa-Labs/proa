@@ -1,0 +1,5 @@
+error: named and positional placeholders are not supported in text! v1; use `{}` for Proa render/attr behavior or `{:...}` for Rust fmt streamed through Proa escaping
+ --> tests/ui/fail/text_named_placeholder.rs:4:19
+  |
+4 |     let _ = text!("{name}", "value");
+  |                   ^^^^^^^^

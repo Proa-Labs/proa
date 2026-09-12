@@ -1,0 +1,16 @@
+error: rsjs boundary: `rsjs::island(...)` cannot capture parent rsjs handler `on_press`
+
+       Why:
+         Explicit child islands hydrate as independent client scopes. A parent handler closes over parent client state, so it cannot be serialized into the child island as an ordinary prop.
+
+       Use one of:
+         - Render the component directly inside the parent island so callback slots can inline.
+         - Give the child island independent state and communicate through query, mutation, or a custom event.
+         - Pass `rsjs::noop_handler()` when the child boundary should be inert.
+
+       Tracked feature:
+         component.island_boundary_handler_prop
+  --> tests/ui/conformance/fail/20_island_boundary_handler_prop.rs:24:54
+   |
+24 |                 {rsjs::island(BoundaryHandlerChild { on_press })}
+   |                                                      ^^^^^^^^

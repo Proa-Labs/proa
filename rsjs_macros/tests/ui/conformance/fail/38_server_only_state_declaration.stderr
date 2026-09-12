@@ -1,0 +1,15 @@
+error: rsjs boundary: `rsjs::server_only(...)` cannot declare or read `signal(...)`
+
+       Why:
+         Server-only slots are opaque SSR content. Declaring or reading rsjs state there would create client state that the hydrated island cannot see.
+
+       Use one of:
+         - Declare `signal`, `query`, or `mutation` handles before the template or in a normal rsjs slot.
+         - Keep the server-only slot limited to plain server-rendered Proa content.
+
+       Tracked feature:
+         server_boundary.state_declaration
+  --> tests/ui/conformance/fail/38_server_only_state_declaration.rs:16:37
+   |
+16 |             <div>{rsjs::server_only(signal(0_i64).get())}</div>
+   |                                     ^^^^^^

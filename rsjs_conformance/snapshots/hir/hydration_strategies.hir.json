@@ -1,0 +1,33 @@
+[
+  {
+    "kind": "signal_set",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 53,
+        "line": 1
+      },
+      "start": {
+        "column": 48,
+        "line": 1
+      }
+    },
+    "value": {
+      "kind": "literal",
+      "span": {
+        "end": {
+          "column": 63,
+          "line": 1
+        },
+        "start": {
+          "column": 58,
+          "line": 1
+        }
+      },
+      "value": {
+        "kind": "bigint",
+        "value": 1
+      }
+    }
+  }
+]

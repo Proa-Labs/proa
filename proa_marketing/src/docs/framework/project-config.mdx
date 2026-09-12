@@ -1,0 +1,55 @@
+---
+title: proa.config.json
+description: Configure the dev server, asset build, and component registries.
+---
+
+`proa.config.json` is the CLI lifecycle and component registry config. `proa dev` reads it to build assets, run the server, and watch project files. `proa build` reads it to build assets before compiling the release binary.
+
+It sits at the project root, next to `Cargo.toml`.
+
+Keep local build orchestration and component registry aliases here instead of scattering them through README snippets:
+
+```json
+{
+  "$schema": "https://proa.so/schema/proa.config.json",
+  "paths": {
+    "components": "src/components",
+    "assets": "public/proa"
+  },
+  "registries": {
+    "@proa": "https://ui.proa.so/r/{name}.json",
+    "@proa-pro": "https://console.proa.so/r/{name}.json"
+  },
+  "dev": {
+    "command": ["cargo", "run"],
+    "host": "127.0.0.1",
+    "port": 3000,
+    "watch": ["src", "styles", "Cargo.toml", "build.rs", "proa.config.json"]
+  },
+  "build": {
+    "command": ["cargo", "build", "--release"],
+    "assets": [
+      {
+        "kind": "tailwind",
+        "input": "styles/input.css",
+        "output": "public/styles.css"
+      }
+    ]
+  }
+}
+```
+
+`proa.lock.json` is generated next to the config file. It is intentionally separate from Cargo.lock because it tracks vendored UI source files, not Rust crate dependency resolution.
+
+Both individual components and complete blocks install directly beneath
+`src/components/<slug>/`. Run `proa config validate` to catch unsafe paths,
+missing `{name}` placeholders, and invalid registry URLs before an install.
+
+## Next steps
+
+- [App configuration](/docs/framework/configuration)
+  - Configure FrameworkBuilder, security defaults, static mounts, external apps, and response behavior.
+- [Environment variables](/docs/framework/environment)
+  - Configure a deployed Proa app without rebuilding the binary.
+- [proa new site](/docs/cli/new-site)
+  - Scaffold an opinionated Proa project.

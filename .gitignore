@@ -1,0 +1,137 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Local env files (any variant)
+.env
+.env.*
+!.env.example
+
+# Local databases
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Testing
+coverage
+
+# Turbo
+.turbo
+.tools/
+.session-check/
+
+# Vercel
+.vercel
+
+# Cloudflare
+.wrangler
+.dev.vars
+
+# React Router
+.react-router/
+
+# Fumadocs
+.source
+
+# Build Outputs
+.next/
+out/
+build
+dist
+proa_marketing/public/styles.css.tmp.*
+
+# Marko / React SSR companion build artifacts (regenerated at server
+# startup by esbuild + the Marko compiler). These files are reproducible
+# build outputs and must never be committed.
+proa_demo/marko-server/*.compiled.mjs
+proa_demo/marko-server/*.hydrate.bundle.mjs
+proa_demo/marko-server/*.hydrate.input.mjs
+proa_demo/react-ssr/client.bundle.js
+proa_demo/react-ssr/espn-client.bundle.js
+proa_demo/react-ssr/sentry-otel-client.bundle.js
+proa_demo/bench/lean-page/react-server/client.bundle.js
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+__pycache__/
+*.py[cod]
+
+# Rust
+target/
+**/*.rs.bk
+*.pdb
+
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj
+*.xcworkspace
+proa_catalog/public/fonts/AirbnbCerealVF_*.woff2
+proa_bench/external/marko/public/ebay-mirror/
+proa_mobile_runtime/**/ProaRuntime.xcframework/
+proa_mobile_runtime/**/ProaRuntime.xcframework.zip
+DerivedData/
+*.xcuserstate
+*.xcuserdatad
+.DS_Store
+
+# Kotlin/Gradle
+.gradle/
+build/
+# The Gradle pattern above is unanchored and would swallow Rust module
+# directories named build/; keep proa_cli's rsjs::build tests tracked.
+!proa_cli/src/rsjs/build/
+*.iml
+*.ipr
+*.iws
+.kotlin/
+local.properties
+
+# Playwright
+.playwright-mcp/
+
+# Claude Design canvas scratch: artboards and published-canvas snapshots
+# for in-progress design exploration. Not build input and not documentation.
+.design/
+
+# Claude
+# `.claude/*` (not `.claude/`) so the directory itself is never excluded:
+# git cannot re-include a path inside an excluded directory, and the
+# negations below would silently stop working, untracking the shared skills.
+.claude/*
+!.claude/skills/
+!.claude/settings.json
+
+# Agent scratch directories: any sibling dir whose name starts with
+# `.claude` or `.codex` (worktrees, throwaway session dirs). The `?` in
+# `.claude?*/` requires at least one character after `.claude`, so the
+# tracked `.claude/` directory above is left alone.
+.claude?*/
+.codex*/
+/tmp/
+
+# Misc
+.DS_Store
+*.pem
+*.log
+
+# Rustrover
+.idea
+
+# Generated code
+**/generated/
+
+# Drizzle local state
+drizzle/meta/
+
+# Secrets (never commit)
+.token
+.patent/
+
+# Local-only working directories: machine state, private notes, scratch.
+.local/

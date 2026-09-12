@@ -1,0 +1,69 @@
+{
+  "version": "1.0.0",
+  "id": "pizza_order",
+  "title": "Create a pizza order",
+  "description": "Configures a pizza order and leaves final submission to the user.",
+  "root": {
+    "type": "object",
+    "unknown_keys": "strict",
+    "properties": {
+      "customer_name": {
+        "type": "string",
+        "label": "Your name",
+        "description": "Name for the pizza order",
+        "required": true,
+        "transforms": [
+          { "fn": "trim" },
+          { "fn": "collapse_whitespace" }
+        ],
+        "constraints": [
+          {
+            "pred": { "type": "min_len", "len": 2 },
+            "error": {
+              "code": "CUSTOMER_NAME_TOO_SHORT",
+              "message": "Enter at least two characters"
+            }
+          },
+          {
+            "pred": { "type": "max_len", "len": 80 },
+            "error": {
+              "code": "CUSTOMER_NAME_TOO_LONG",
+              "message": "Use no more than 80 characters"
+            }
+          }
+        ]
+      },
+      "size": {
+        "type": "enum",
+        "label": "Size",
+        "description": "Pizza size",
+        "required": true,
+        "values": ["small", "medium", "large"]
+      },
+      "topping": {
+        "type": "enum",
+        "label": "Topping",
+        "description": "Primary pizza topping",
+        "required": true,
+        "values": ["margherita", "pepperoni", "mushroom"]
+      },
+      "quantity": {
+        "type": "enum",
+        "label": "Quantity",
+        "description": "Number of pizzas to order",
+        "required": true,
+        "values": ["1", "2", "3", "4", "5", "6"]
+      },
+      "delivery_notes": {
+        "type": "string",
+        "label": "Delivery notes",
+        "description": "Optional delivery instructions",
+        "required": false,
+        "transforms": [
+          { "fn": "trim" },
+          { "fn": "collapse_whitespace" }
+        ]
+      }
+    }
+  }
+}

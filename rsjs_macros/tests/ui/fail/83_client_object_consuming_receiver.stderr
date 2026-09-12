@@ -1,0 +1,7 @@
+error: rsjs: client value-object methods must borrow their receiver
+         help: use `&self` or `&mut self`
+         note: the linked method receives a shared helper-internal object carrier
+ --> tests/ui/fail/83_client_object_consuming_receiver.rs:8:27
+  |
+8 |         pub fn into_value(self) -> i32 {
+  |                           ^^^^

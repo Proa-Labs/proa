@@ -1,0 +1,5 @@
+error: `#[rsjs]` conditions with a statically known type must be Rust `bool`, but this expression is `I64`; compare it explicitly
+  --> tests/ui/conformance/fail/44_non_bool_condition.rs:19:20
+   |
+19 |                 if count.get() {
+   |                    ^^^^^

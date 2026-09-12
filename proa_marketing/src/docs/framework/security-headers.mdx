@@ -1,0 +1,90 @@
+---
+title: Headers and CSP
+description: Set frame policy, HSTS, and a nonce-based Content Security Policy.
+keywords: [CSP, Content-Security-Policy, nonce, HSTS]
+---
+
+Framework responses get baseline hardening headers automatically, including a `DENY` frame policy. HSTS and CSP are configured here but off by default, because each deployment needs its own.
+
+```rust filename="src/main.rs"
+use proa_framework_axum::{FrameOptions, SecurityHeadersConfig};
+
+let security = SecurityHeadersConfig::new()
+    .with_frame_options(FrameOptions::SameOrigin)
+    .with_hsts_max_age_secs(63_072_000);
+
+let app = FrameworkBuilder::new(manifest)
+    .with_security_headers(security)
+    .build();
+```
+
+| Setting | Options |
+|------|---------|
+| `FrameOptions` | `Deny` (default), `SameOrigin`, `Disabled` |
+| HSTS | Off by default. Enable only when TLS terminates before the app |
+| CSP | Off by default. Each app needs its own script, style, image, and connect policy |
+
+## Use a nonce, not a static policy
+
+A static `Content-Security-Policy` string works only when the response has no inline scripts. RSJS islands, React islands, and out-of-order streaming each need a fresh nonce per response, so reach for the strict policy instead:
+
+```rust filename="src/main.rs"
+let app = FrameworkBuilder::new(manifest)
+    .with_strict_csp()
+    .build();
+```
+
+That mints a 128-bit nonce per request and sends:
+
+```text
+default-src 'self'; script-src 'nonce-…' 'strict-dynamic';
+style-src 'self' 'unsafe-inline'; object-src 'none';
+base-uri 'self'; frame-ancestors 'none'
+```
+
+Proa applies the same nonce to framework-emitted state, import-map, bootstrap, client-shell, and boundary-swap tags. So `script-src` needs no `'unsafe-inline'` and no host allowlist.
+
+Pairing the nonce with `'strict-dynamic'` means a script loaded by an already-trusted script inherits trust. That is what makes bundler-emitted chunks work without enumerating CDN hosts.
+
+**Two things the layer cannot do for you.** A raw `<script>` tag you write by hand needs an explicit `nonce` attribute, read from `cx.csp_nonce()` in a component or extracted with `Extension<CspNonce>` in a route handler (the layer stores the nonce in the request extensions). And inline event-handler attributes (`onclick="…"`) never execute under any nonce policy, move them to an RSJS island or an `addEventListener` call inside a nonced script.
+
+## Tuning directives
+
+Customize with `CspPolicy`:
+
+```rust filename="src/main.rs"
+use proa_framework_axum::CspPolicy;
+
+let app = FrameworkBuilder::new(manifest)
+    .with_csp_policy(
+        CspPolicy::strict()
+            .with_directive("img-src", "'self' data: https://cdn.example")
+            .with_directive("connect-src", "'self' https://api.example")
+            .report_only(true),
+    )
+    .build();
+```
+
+`report_only(true)` sends `Content-Security-Policy-Report-Only`, which is how to roll a strict policy onto a live app. Violations are reported but nothing is blocked. Switch it off once the report stream is clean.
+
+Style policy is separate from script policy. The default keeps `style-src 'unsafe-inline'` because inline `style` attributes are common and cannot execute code. Tighten it to `'self'` once those styles live in classes.
+
+## Conflicts the builder warns about
+
+The layer never overwrites a `Content-Security-Policy` header a handler already set, so a single route can opt out of the global policy.
+
+Two combinations produce a startup warning:
+
+- **`with_strict_csp()` together with `with_security_headers(..with_content_security_policy(..))`.** The static policy wins and the nonce directives are dropped. Pick one.
+- **`FrameOptions::SameOrigin` or `FrameOptions::Disabled` while CSP still sends `frame-ancestors 'none'`.** Relaxing `X-Frame-Options` for embedding does nothing if `frame-ancestors` still blocks framing. Replace the directive with one naming the allowed embedders.
+
+## Next steps
+
+- [Security](/docs/guides/security)
+  - What Proa hardens by default, and what stays your job.
+- [Cross-origin and CSRF](/docs/framework/cross-origin)
+  - Reject forged cross-origin writes, and add the CSRF defense Proa does not.
+- [App configuration](/docs/framework/configuration)
+  - Configure FrameworkBuilder, security defaults, static mounts, external apps, and response behavior.
+- [Escaping and raw HTML](/docs/core/escaping)
+  - How Proa encodes dynamic values, and the two ways to opt out.

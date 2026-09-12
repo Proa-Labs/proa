@@ -1,0 +1,21 @@
+# This file applies only when proa_marketing is the Docker build context.
+# The production image should be built from the repository root with:
+#   docker build -f proa_marketing/Dockerfile .
+
+.DS_Store
+.env
+.env.*
+*.log
+
+target/
+**/target/
+node_modules/
+**/node_modules/
+dist/
+coverage/
+
+.git/
+.github/
+.idea/
+.vscode/
+.local/

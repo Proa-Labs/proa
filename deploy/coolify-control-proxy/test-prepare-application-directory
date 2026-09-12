@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TEST_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly TEST_DIRECTORY
+readonly SUBJECT="${TEST_DIRECTORY}/prepare-application-directory"
+
+fail() {
+    printf 'not ok - %s\n' "$*" >&2
+    exit 1
+}
+
+expect_failure() {
+    if "$@" >/dev/null 2>&1; then
+        fail "command unexpectedly succeeded: $*"
+    fi
+}
+
+bash -n "$SUBJECT"
+printf 'ok - helper passes bash -n\n'
+
+if ((EUID != 0)); then
+    fail "ACL integration test requires root (current uid: ${EUID})"
+fi
+
+for command in getfacl mount mountpoint setfacl setpriv umount; do
+    command -v "$command" >/dev/null 2>&1 || fail "ACL integration test requires ${command}"
+done
+
+temporary_parent="${PROA_TEST_TMPDIR:-${TMPDIR:-/tmp}}"
+[[ -d "$temporary_parent" ]] || fail "temporary parent does not exist: ${temporary_parent}"
+temporary_root="$(mktemp -d --tmpdir="$temporary_parent" proa-acl-test.XXXXXX)"
+chmod 0711 "$temporary_root"
+mounted_path=""
+cleanup() {
+    if [[ -n "$mounted_path" ]] && mountpoint -q -- "$mounted_path"; then
+        umount -- "$mounted_path"
+    fi
+    rm -rf -- "$temporary_root"
+}
+trap cleanup EXIT
+
+application_root="${temporary_root}/applications"
+outside_directory="${temporary_root}/outside"
+application_uuid='a1B2c3'
+application_directory="${application_root}/${application_uuid}"
+owner_uid=12345
+coolify_gid=12346
+coolify_writer_uid=12347
+rogue_uid=12348
+
+mkdir -p -- "$application_root" "$outside_directory"
+chmod 0700 "$application_root"
+
+expect_failure "$SUBJECT" --root "$application_root" --owner "$owner_uid" \
+    --group "$coolify_gid" 'bad/uuid'
+
+ln -s -- "$outside_directory" "${application_root}/symlinkapp"
+expect_failure "$SUBJECT" --root "$application_root" --owner "$owner_uid" \
+    --group "$coolify_gid" symlinkapp
+rm -- "${application_root}/symlinkapp"
+
+ln -s -- "${temporary_root}/does-not-exist" "${application_root}/danglingapp"
+expect_failure "$SUBJECT" --root "$application_root" --owner "$owner_uid" \
+    --group "$coolify_gid" danglingapp
+rm -- "${application_root}/danglingapp"
+
+mkdir -p -- "${application_directory}/nested"
+ln -s -- "$outside_directory" "${application_directory}/nested/link"
+expect_failure "$SUBJECT" --root "$application_root" --owner "$owner_uid" \
+    --group "$coolify_gid" "$application_uuid"
+rm -- "${application_directory}/nested/link"
+
+# Exercise the mountpoint guard even in rootless/locked-down CI containers
+# that intentionally lack CAP_SYS_ADMIN. The shim only identifies this exact
+# directory as a mountpoint; all other mountpoint checks behave normally.
+mkdir -- "${application_directory}/simulated-mount"
+simulated_mount="${application_directory}/simulated-mount"
+shim_directory="${temporary_root}/shim"
+mkdir -- "$shim_directory"
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    '[[ "${!#}" == "${PROA_TEST_MOUNTPOINT:?}" ]]' \
+    >"${shim_directory}/mountpoint"
+chmod 0755 "${shim_directory}/mountpoint"
+expect_failure env PROA_TEST_MOUNTPOINT="$simulated_mount" \
+    PATH="${shim_directory}:${PATH}" \
+    "$SUBJECT" --root "$application_root" --owner "$owner_uid" \
+    --group "$coolify_gid" "$application_uuid"
+rm -rf -- "$shim_directory" "$simulated_mount"
+
+# Also use a real bind mount when the host grants that capability. This runs
+# on the deployment VPS, while the deterministic shim above keeps container
+# CI meaningful without making its runner privileged.
+mkdir -- "${application_directory}/nested-mount"
+mounted_path="${application_directory}/nested-mount"
+if mount --bind "$outside_directory" "$mounted_path" 2>/dev/null; then
+    expect_failure "$SUBJECT" --root "$application_root" --owner "$owner_uid" \
+        --group "$coolify_gid" "$application_uuid"
+    umount -- "$mounted_path"
+else
+    printf 'ok - real bind-mount case skipped (mount capability unavailable)\n'
+fi
+mounted_path=""
+rmdir -- "${application_directory}/nested-mount"
+
+printf 'plain\n' >"${application_directory}/plain.txt"
+printf '#!/bin/sh\nexit 0\n' >"${application_directory}/executable"
+chmod 0600 "${application_directory}/plain.txt"
+chmod 0700 "${application_directory}/executable"
+setfacl -m "u:${rogue_uid}:rwx,d:u:${rogue_uid}:rwx" "$application_directory"
+setfacl -m "u:${rogue_uid}:rw-" "${application_directory}/plain.txt"
+
+missing_uuid='DryRun1'
+"$SUBJECT" --dry-run --root "$application_root" --owner "$owner_uid" \
+    --group "$coolify_gid" "$missing_uuid" >/dev/null
+[[ ! -e "${application_root}/${missing_uuid}" ]] || fail 'dry-run created a directory'
+
+"$SUBJECT" --root "$application_root" --owner "$owner_uid" \
+    --group "$coolify_gid" "$application_uuid" >/dev/null
+"$SUBJECT" --root "$application_root" --owner "$owner_uid" \
+    --group "$coolify_gid" "$application_uuid" >/dev/null
+
+while IFS= read -r -d '' path; do
+    ownership="$(stat -c '%u:%g' "$path")"
+    [[ "$ownership" == "${owner_uid}:${coolify_gid}" ]] || \
+        fail "unexpected ownership on ${path}: ${ownership}"
+done < <(find "$application_directory" -print0)
+
+[[ -g "$application_directory" ]] || fail 'application directory is not setgid'
+[[ -g "${application_directory}/nested" ]] || fail 'nested directory is not setgid'
+[[ "$(stat -c '%a' "$application_directory")" == '2770' ]] || \
+    fail 'application directory permissions are not 2770'
+[[ ! -x "${application_directory}/plain.txt" ]] || fail 'plain file became executable'
+[[ -x "${application_directory}/executable" ]] || fail 'executable lost its execute bit'
+
+plain_acl="$(getfacl -cp "${application_directory}/plain.txt")"
+directory_acl="$(getfacl -cp "${application_directory}/nested")"
+executable_acl="$(getfacl -cp "${application_directory}/executable")"
+root_acl="$(getfacl -cp "$application_root")"
+
+grep -Fq "user:${owner_uid}:rw-" <<<"$plain_acl" || fail 'plain-file owner ACL missing'
+grep -Fq "group:${coolify_gid}:rw-" <<<"$plain_acl" || fail 'plain-file group ACL missing'
+grep -Fq "user:${owner_uid}:rwx" <<<"$directory_acl" || fail 'directory owner ACL missing'
+grep -Fq "group:${coolify_gid}:rwx" <<<"$directory_acl" || fail 'directory group ACL missing'
+grep -Fq "default:user:${owner_uid}:rwx" <<<"$directory_acl" || \
+    fail 'default owner ACL missing'
+grep -Fq "default:group:${coolify_gid}:rwx" <<<"$directory_acl" || \
+    fail 'default group ACL missing'
+grep -Fq 'other::---' <<<"$directory_acl" || fail 'directory other ACL is not closed'
+grep -Fq 'default:other::---' <<<"$directory_acl" || \
+    fail 'default directory other ACL is not closed'
+grep -Fq 'other::---' <<<"$plain_acl" || fail 'plain-file other ACL is not closed'
+grep -Fq "user:${owner_uid}:rwx" <<<"$executable_acl" || \
+    fail 'executable owner ACL missing execute permission'
+grep -Fq "group:${coolify_gid}:rwx" <<<"$executable_acl" || \
+    fail 'executable group ACL missing execute permission'
+grep -Fq "user:${owner_uid}:--x" <<<"$root_acl" || \
+    fail 'application root does not grant host-owner traversal'
+grep -Fq "group:${coolify_gid}:--x" <<<"$root_acl" || \
+    fail 'application root does not grant Coolify-group traversal'
+if getfacl -Rcp "$application_directory" | grep -Eq "^(default:)?user:${rogue_uid}:"; then
+    fail 'stale named-user ACL survived normalization'
+fi
+
+owner_file="${application_directory}/owner.env"
+group_file="${application_directory}/docker-compose-pr.yaml"
+owner_directory="${application_directory}/owner-created"
+group_directory="${application_directory}/group-created"
+setpriv --reuid "$owner_uid" --regid 22345 --clear-groups \
+    sh -c 'umask 077; printf "owner\n" > "$1"; mkdir "$2"' sh \
+    "$owner_file" "$owner_directory"
+setpriv --reuid "$coolify_writer_uid" --regid "$coolify_gid" --clear-groups \
+    sh -c 'umask 077; printf "group\n" > "$1"; mkdir "$2"; printf "group-overwrite\n" > "$3"' sh \
+    "$group_file" "$group_directory" "$owner_file"
+setpriv --reuid "$owner_uid" --regid 22345 --clear-groups \
+    sh -c 'printf "owner-overwrite\n" > "$1"; printf "owner-nested\n" > "$2/file"' sh \
+    "$group_file" "$group_directory"
+
+[[ "$(cat "$owner_file")" == 'group-overwrite' ]] || \
+    fail 'Coolify group writer could not overwrite host-owner metadata'
+[[ "$(cat "$group_file")" == 'owner-overwrite' ]] || \
+    fail 'host owner could not overwrite Coolify-group metadata'
+[[ "$(cat "${group_directory}/file")" == 'owner-nested' ]] || \
+    fail 'inherited directory ACL did not permit cross-writer creation'
+
+printf 'ok - helper is bounded, exact, inherited, idempotent, and preserves execute intent\n'

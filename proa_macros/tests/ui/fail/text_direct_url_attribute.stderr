@@ -1,0 +1,5 @@
+error: text!(...) with placeholders cannot be used directly in a URL-bearing attribute because its combined value cannot be validated; build a validated URL value before html! or use a typed URL helper
+ --> tests/ui/fail/text_direct_url_attribute.rs:6:18
+  |
+6 |         <a href={text!("{}script:alert(1)", scheme)}>"unsafe"</a>
+  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

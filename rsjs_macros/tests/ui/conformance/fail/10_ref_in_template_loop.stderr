@@ -1,0 +1,5 @@
+error: `ref={...}` inside template `for` loops is not supported yet; bind the ref on a stable element outside the loop
+  --> tests/ui/conformance/fail/10_ref_in_template_loop.rs:21:29
+   |
+21 |                         <li ref={item}>"Row"</li>
+   |                             ^^^

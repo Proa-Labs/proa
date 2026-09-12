@@ -1,0 +1,19 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Builds runner.Dockerfile without renaming it (gcloud builds submit --tag
+# only supports a context-root Dockerfile; there is no -f flag).
+# Usage: gcloud builds submit --config cloudbuild.yaml --substitutions _TAG=<toolchain>-vN .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - runner.Dockerfile
+      - -t
+      - us-west1-docker.pkg.dev/airy-cycle-504821-k9/ci-images/proa-runner:${_TAG}
+      - .
+images:
+  - us-west1-docker.pkg.dev/airy-cycle-504821-k9/ci-images/proa-runner:${_TAG}
+substitutions:
+  _TAG: 1.95.0-v5

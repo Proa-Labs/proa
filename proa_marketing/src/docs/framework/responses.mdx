@@ -1,0 +1,98 @@
+---
+title: Route responses
+description: Return synchronous, buffered async, or streaming SSR with islands.
+---
+
+Handlers return `RouteResponse` when they want Proa's framework finalizer to render a component and inject island/bootstrap data.
+
+Use ordinary Axum responses for JSON APIs, form handlers, early status codes, redirects, and handler-level errors. See [Route handlers](/docs/framework/route-handlers) for endpoint patterns and [Status, redirects, and errors](/docs/framework/errors) for 404 pages, response headers, streaming constraints, and public error bodies.
+
+## Synchronous SSR
+
+Use `RouteResponse::ssr` for ordinary `WebRenderSync` components.
+
+```rust
+use proa_framework_axum::RouteResponse;
+
+pub async fn handler() -> RouteResponse {
+    RouteResponse::ssr(HomePage)
+}
+```
+
+Write ordinary page components as `WebRenderSync<L>`; the framework supplies
+the owned `RenderBuffer` response writer.
+
+## Async SSR
+
+Use `RouteResponse::ssr_async` for components that implement `WebRender` and do not use a loader. The full render completes before the response begins, so root errors, status, and headers remain available to the HTTP layer.
+
+```rust
+pub async fn handler() -> RouteResponse {
+    RouteResponse::ssr_async(PageWithAwait)
+}
+```
+
+For typed data loaders, return `impl IntoResponse` and pass the loader explicitly:
+
+```rust
+use std::sync::Arc;
+
+pub async fn handler() -> impl axum::response::IntoResponse {
+    let loader = Arc::new(MyLoader::new());
+    RouteResponse::ssr_async_with_loader(Page, loader)
+}
+```
+
+Prefer typed loaders when the concrete loader type is known. Use the `*_dyn` constructors only at real dynamic boundaries.
+
+See [Data loading and streaming](/docs/framework/data-loading) for loader keys, cache hints, request-local dedupe, and preloading.
+
+## Streaming SSR
+
+Use `ssr_stream` or `ssr_stream_with_loader` when the page should flush work incrementally.
+
+```rust
+pub async fn handler() -> impl axum::response::IntoResponse {
+    let loader = Arc::new(MyLoader::new());
+    RouteResponse::ssr_stream_with_loader(StreamedPage, loader)
+}
+```
+
+Streaming responses default to out-of-order chunked rendering. Use `with_render_mode` when a route needs a different render mode.
+
+Use [Data loading and streaming](/docs/framework/data-loading) for `Suspense` boundaries, `PreparedLoader`, and streamed data patterns.
+
+`RouteResponse::ssr_stream*` is the HTML response surface. For generated `text/markdown` responses, use `proa_stream::render_md_in_order_to_flusher` or `InOrderMarkdownDriver` from a custom handler/adapter and set the response content type yourself. See [Streaming Markdown Output](/docs/framework/data-loading#streaming-markdown-output).
+
+## Responses outside the render pipeline
+
+Already-rendered HTML is an ordinary HTTP response, not a render plan. Return Axum's `Html` response directly:
+
+```rust
+use axum::response::Html;
+
+pub async fn handler() -> Html<&'static str> {
+    Html("<main>Already rendered</main>")
+}
+```
+
+If a compile-time HTML fragment must participate in Proa finalization or browser navigation, treat it as a renderable node instead of a response kind:
+
+```rust
+RouteResponse::ssr(proa_core::static_html(b"<main>Static fragment</main>"))
+```
+
+Mount a browser-rendered application with `ExternalApp::csr_app`, which owns SPA fallback and asset routing. Keeping these cases out of `RouteResponse` makes the type describe one job: deferred server rendering.
+
+## Islands
+
+Attach islands to SSR responses with `with_islands`.
+
+```rust
+pub async fn handler() -> RouteResponse {
+    RouteResponse::ssr(ProductPage)
+        .with_islands(["CartIsland"])
+}
+```
+
+The island names must exist in the `IslandManifest` passed to `FrameworkBuilder::new`.

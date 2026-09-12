@@ -1,0 +1,6 @@
+error: rsjs/reserved-identifier-prefix: identifiers beginning with `__rsjs_` are reserved for hygienic compiler state
+       help: rename this identifier
+  --> tests/ui/fail/73_reserved_rsjs_local_prefix.rs:11:13
+   |
+11 |         let __rsjs_initial_signal_0 = "authored";
+   |             ^^^^^^^^^^^^^^^^^^^^^^^

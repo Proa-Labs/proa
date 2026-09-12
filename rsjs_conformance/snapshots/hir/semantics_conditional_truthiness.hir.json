@@ -1,0 +1,185 @@
+[
+  {
+    "condition": {
+      "kind": "binary",
+      "lhs": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 28,
+            "line": 1
+          },
+          "start": {
+            "column": 23,
+            "line": 1
+          }
+        }
+      },
+      "op": "Eq",
+      "rhs": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 28,
+            "line": 1
+          },
+          "start": {
+            "column": 23,
+            "line": 1
+          }
+        },
+        "value": {
+          "kind": "bigint",
+          "value": 0
+        }
+      },
+      "span": {
+        "end": {
+          "column": 28,
+          "line": 1
+        },
+        "start": {
+          "column": 23,
+          "line": 1
+        }
+      }
+    },
+    "else": [
+      {
+        "kind": "signal_set",
+        "signal": 1,
+        "span": {
+          "end": {
+            "column": 35,
+            "line": 4
+          },
+          "start": {
+            "column": 24,
+            "line": 4
+          }
+        },
+        "value": {
+          "kind": "literal",
+          "span": {
+            "end": {
+              "column": 49,
+              "line": 4
+            },
+            "start": {
+              "column": 40,
+              "line": 4
+            }
+          },
+          "value": {
+            "kind": "string",
+            "value": "nonzero"
+          }
+        }
+      }
+    ],
+    "kind": "if",
+    "span": {
+      "end": {
+        "column": 22,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    },
+    "then": [
+      {
+        "kind": "signal_set",
+        "signal": 1,
+        "span": {
+          "end": {
+            "column": 35,
+            "line": 2
+          },
+          "start": {
+            "column": 24,
+            "line": 2
+          }
+        },
+        "value": {
+          "kind": "literal",
+          "span": {
+            "end": {
+              "column": 46,
+              "line": 2
+            },
+            "start": {
+              "column": 40,
+              "line": 2
+            }
+          },
+          "value": {
+            "kind": "string",
+            "value": "zero"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "kind": "signal_set",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 6
+      },
+      "start": {
+        "column": 20,
+        "line": 6
+      }
+    },
+    "value": {
+      "kind": "binary",
+      "lhs": {
+        "kind": "signal_read",
+        "signal": 0,
+        "span": {
+          "end": {
+            "column": 35,
+            "line": 6
+          },
+          "start": {
+            "column": 30,
+            "line": 6
+          }
+        }
+      },
+      "op": "Checked { op: Add, domain: I64 }",
+      "rhs": {
+        "kind": "literal",
+        "span": {
+          "end": {
+            "column": 35,
+            "line": 6
+          },
+          "start": {
+            "column": 30,
+            "line": 6
+          }
+        },
+        "value": {
+          "kind": "bigint",
+          "value": 1
+        }
+      },
+      "span": {
+        "end": {
+          "column": 35,
+          "line": 6
+        },
+        "start": {
+          "column": 30,
+          "line": 6
+        }
+      }
+    }
+  }
+]

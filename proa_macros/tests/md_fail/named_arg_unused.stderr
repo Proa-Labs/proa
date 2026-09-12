@@ -1,0 +1,5 @@
+error: named argument `extra` is never used by the template
+  --> tests/md_fail/named_arg_unused.rs:11:9
+   |
+11 |         extra = 1
+   |         ^^^^^

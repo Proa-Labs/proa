@@ -1,0 +1,5 @@
+error: shared-state field `label` is encode-only: shared fields are writable browser cells, so every #[derive(rsjs::SharedState)] field must use an owned client value rather than a one-way borrowed prop. Browser writes remain page-local and are not sent back to Rust automatically. Replace the borrowed string with an owned `String`
+ --> tests/ui/fail/56_shared_state_borrowed_field.rs:8:16
+  |
+8 |     pub label: &'static str,
+  |                ^

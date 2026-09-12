@@ -1,0 +1,7 @@
+error: rsjs: an exported client class constructor must be `pub fn new(...) -> Self`
+         help: make `new` public and keep it receiver-free
+         note: the generated ESM class exposes it as JavaScript's constructor
+ --> tests/ui/fail/86_client_class_missing_public_new.rs:8:12
+  |
+8 |         fn new(count: i32) -> Self {
+  |            ^^^
