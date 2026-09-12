@@ -13,11 +13,10 @@ struct CacheReuse {
     final_total: usize,
 }
 
-fn run_check(root: &Path, target: &Path, registry_index: &str) -> Output {
+fn run_check(root: &Path, target: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_cargo-proa"))
         .current_dir(root)
         .env("CARGO_TARGET_DIR", target)
-        .env("CARGO_REGISTRIES_PROA_INDEX", registry_index)
         .args([
             "check",
             "--root",
@@ -147,7 +146,6 @@ fn main() {
     fs::write(&source, initial_source).unwrap();
 
     let cargo_proa = env!("CARGO_BIN_EXE_cargo-proa");
-    let registry_index = "sparse+https://registry.proa.so/sparse/";
     let formatted = Command::new(cargo_proa)
         .current_dir(temp.path())
         .args(["fmt", "src/main.rs"])
@@ -161,7 +159,7 @@ fn main() {
     );
 
     let target = temp.path().join("outer-target");
-    let checked = run_check(temp.path(), &target, registry_index);
+    let checked = run_check(temp.path(), &target);
     assert_success(&checked);
     let first_cache = cache_reuse(&checked);
     assert!(first_cache.descriptor_total > 0, "{first_cache:?}");
@@ -178,7 +176,7 @@ fn main() {
     assert!(stdout.contains("proa_linked_check_fixture"), "{stdout}");
     assert!(stdout.contains("final Cargo check artifacts:"), "{stdout}");
 
-    let unchanged = run_check(temp.path(), &target, registry_index);
+    let unchanged = run_check(temp.path(), &target);
     assert_success(&unchanged);
     let unchanged_cache = cache_reuse(&unchanged);
     assert_eq!(
@@ -214,7 +212,7 @@ fn main() {
         .replace("strong", "em")
         .replace("label: \"ready\"", "label: \"changed\"");
     fs::write(&source, changed_source).unwrap();
-    let source_changed = run_check(temp.path(), &target, registry_index);
+    let source_changed = run_check(temp.path(), &target);
     assert_success(&source_changed);
     let changed_cache = cache_reuse(&source_changed);
     assert!(
@@ -231,7 +229,6 @@ fn main() {
     let plain_check_target = temp.path().join("plain-check-target");
     let plain_check = Command::new(&cargo)
         .current_dir(temp.path())
-        .env("CARGO_REGISTRIES_PROA_INDEX", registry_index)
         .args([
             "check",
             "--offline",
@@ -249,7 +246,6 @@ fn main() {
 
     let plain_build = Command::new(&cargo)
         .current_dir(temp.path())
-        .env("CARGO_REGISTRIES_PROA_INDEX", registry_index)
         .args([
             "build",
             "--offline",
@@ -271,7 +267,6 @@ fn main() {
     let plain_target = temp.path().join("plain-final-target");
     let plain_final = Command::new(cargo)
         .current_dir(temp.path())
-        .env("CARGO_REGISTRIES_PROA_INDEX", registry_index)
         .env("RSJS_FINAL_PHASE", "1")
         .env("RSJS_FINAL_CARGO_UNIT_STATUS", "mapped-v1")
         .env("RSJS_CARGO_UNIT_ID", "11".repeat(32))

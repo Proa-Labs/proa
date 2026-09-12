@@ -440,14 +440,14 @@ fn feature_manifest_covers_trybuild_conformance_fixtures() {
 
 #[test]
 fn supported_rsjs_dsl_surface_compiles() {
-    support::configure_trybuild_registry();
+    support::configure_trybuild_descriptor_phase();
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/conformance/pass/*.rs");
 }
 
 #[test]
 fn unsupported_rsjs_dsl_surface_has_guided_diagnostics() {
-    support::configure_trybuild_registry();
+    support::configure_trybuild_descriptor_phase();
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/conformance/fail/*.rs");
 }

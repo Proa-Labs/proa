@@ -40,10 +40,6 @@ fn imported_alias_edges_resolve_to_the_defining_witness_across_an_rlib() {
         .args(["build", "--workspace", "--offline", "--message-format=json"])
         .current_dir(fixture.path())
         .env("CARGO_TARGET_DIR", fixture.path().join("target"))
-        .env(
-            "CARGO_REGISTRIES_PROA_INDEX",
-            "sparse+https://registry.proa.so/sparse/",
-        )
         .output()
         .expect("run fixture Cargo build");
     assert!(
