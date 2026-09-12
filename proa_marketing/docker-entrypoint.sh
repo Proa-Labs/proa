@@ -33,8 +33,11 @@ start_companion() {
     fi
     echo "companions: starting $label on :$port"
     (
-        cd "$COMPANION_DIR" || exit 1
-        PORT="$port" exec "$@" hono-ssr/server.ts
+        # tsx discovers tsconfig.json from the working directory. Starting in
+        # the parent silently selects classic JSX and breaks components that
+        # rely on the configured automatic React runtime.
+        cd "$COMPANION_DIR/hono-ssr" || exit 1
+        PORT="$port" exec "$@" server.ts
     ) &
 }
 
