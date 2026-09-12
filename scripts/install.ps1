@@ -143,7 +143,6 @@ $script:Msrv = '1.93.0'
 # Index of the workspace's named cargo registry, mirroring the committed
 # .cargo/config.toml. Only the source build needs it, and only to make the name
 # resolvable; see Install-FromSource for why.
-$script:RegistryIndex = 'sparse+https://registry.proa.so/sparse/'
 # Sent on every request. Hosts in front of a release, github.com included,
 # answer 403 to requests without a User-Agent, and it is what identifies an
 # installer run in the download logs.
@@ -286,7 +285,7 @@ function Get-ElapsedText {
 }
 
 # Names that must never carry their value into a file people are encouraged to
-# paste into a public issue. CARGO_REGISTRIES_PROA_TOKEN is a real variable
+# paste into a public issue. CARGO_REGISTRY_TOKEN is a real variable
 # users export, and it is easy to write it on the same line as the install
 # command. Nothing here ever enumerates the environment; only the specific
 # PROA_* and NO_COLOR names are read by name and logged. This pattern is the
@@ -297,10 +296,10 @@ $script:SensitivePattern = '(?i)([A-Za-z0-9_]*(TOKEN|SECRET|KEY|PASSWORD|PASSWD|
 # A credential can also arrive inside a URL, as the userinfo of a cargo
 # registry index or of a private download mirror:
 #
-#     $env:CARGO_REGISTRIES_PROA_INDEX = 'sparse+https://bot:tok@registry.example/sparse/'
+#     $env:CARGO_REGISTRIES_EXAMPLE_INDEX = 'sparse+https://bot:tok@registry.example/sparse/'
 #
 # The name-based pattern above cannot catch that one, because the variable
-# carrying the secret is CARGO_REGISTRIES_PROA_INDEX and its name holds none of
+# carrying the secret is CARGO_REGISTRIES_EXAMPLE_INDEX and its name holds none of
 # the words listed there. It matters here and not in install.sh because the log
 # header records [Environment]::CommandLine, and the documented one liner is
 # exactly the shape that puts an assignment on the same line as the install.
@@ -2404,26 +2403,16 @@ function Install-FromSource {
     Write-StepStart 'building' 'proa-cli from source, this takes several minutes'
     Write-Blank
 
-    # Every workspace manifest names the 'proa' registry next to its path
-    # dependencies. "cargo install --git" reads configuration from the current
-    # directory and CARGO_HOME only, never from the checkout it just cloned, so
-    # the repository's .cargo/config.toml is invisible here and the manifest
-    # fails to parse with "could not find `proa-cli` ... with version `*`".
-    # Naming the index makes the registry resolvable; nothing is fetched from
-    # it, because every workspace crate still resolves by path.
-    $callerIndex = Get-EnvValue 'CARGO_REGISTRIES_PROA_INDEX'
-    if ([string]::IsNullOrEmpty($callerIndex)) {
-        Write-Diagnostic ('setting CARGO_REGISTRIES_PROA_INDEX to ' + $script:RegistryIndex + ' for this build')
-        $env:CARGO_REGISTRIES_PROA_INDEX = $script:RegistryIndex
-    } else {
-        Write-Diagnostic 'CARGO_REGISTRIES_PROA_INDEX was already exported, leaving it as it is'
+    # Use Git's existing credential helpers and proxy configuration when available.
+    $callerFetch = Get-EnvValue 'CARGO_NET_GIT_FETCH_WITH_CLI'
+    if ([string]::IsNullOrEmpty($callerFetch) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+        $env:CARGO_NET_GIT_FETCH_WITH_CLI = 'true'
     }
     try {
         $code = Invoke-NativeCommand 'cargo' @('install', '--git', ('https://github.com/' + $Repository), '--locked', 'proa-cli')
     } finally {
-        # An index the caller exported is left exactly as it was found.
-        if ([string]::IsNullOrEmpty($callerIndex)) {
-            Remove-Item -LiteralPath 'Env:\CARGO_REGISTRIES_PROA_INDEX' -ErrorAction SilentlyContinue
+        if ([string]::IsNullOrEmpty($callerFetch)) {
+            Remove-Item -LiteralPath 'Env:\CARGO_NET_GIT_FETCH_WITH_CLI' -ErrorAction SilentlyContinue
         }
     }
     if ($code -ne 0) {
@@ -2594,7 +2583,7 @@ function Invoke-Main {
     # These names, plus NO_COLOR, PROA_LOG and PROA_VERBOSE below, are the only
     # environment variables this installer reads or records. Nothing enumerates
     # the environment: a file people are asked to paste into a public issue must
-    # never carry a credential, and CARGO_REGISTRIES_PROA_TOKEN is a variable
+    # never carry a credential, and CARGO_REGISTRY_TOKEN is a variable
     # users really do export.
     Write-LogLine 'INFO' 'settings in effect:'
 

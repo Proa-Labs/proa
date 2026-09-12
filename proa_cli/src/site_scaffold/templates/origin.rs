@@ -20,7 +20,7 @@ use super::super::plan::SitePlan;
 /// Where the emitted manifest resolves its Proa dependencies from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManifestFlavor {
-    /// Registry dependencies for standalone scaffolds.
+    /// Git dependencies for standalone scaffolds.
     Standalone,
     /// Path dependencies for the in-repository example.
     #[cfg(test)]
@@ -572,16 +572,16 @@ anyhow = {{ version = "1" }}
 axum = {{ version = "0.7.9" }}
 const_format = {{ version = "0.2" }}
 heapless = {{ version = "0.8" }}
-proa_actions = {{ version = "0.3", registry = "proa" }}
-proa_core = {{ version = "0.3", registry = "proa" }}
-proa_fonts = {{ version = "0.1", registry = "proa" }}
-proa_fonts_macros = {{ version = "0.1", registry = "proa" }}
-proa_framework_axum = {{ version = "0.3", registry = "proa" }}
-proa_ir = {{ version = "0.1", registry = "proa" }}
-proa_macros = {{ version = "0.3", registry = "proa" }}
-proa_stream = {{ version = "0.3", registry = "proa" }}
+proa_actions = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_core = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_fonts = {{ version = "0.1", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_fonts_macros = {{ version = "0.1", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_framework_axum = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_ir = {{ version = "0.1", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_macros = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_stream = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
 reqwest = {{ version = "0.12", features = ["json"] }}
-rsjs = {{ version = "0.2", registry = "proa" }}
+rsjs = {{ version = "0.2", git = "https://github.com/Proa-Labs/proa.git" }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = {{ version = "1" }}
 thiserror = {{ version = "2" }}
@@ -591,7 +591,7 @@ tracing = {{ version = "0.1" }}
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 
 [build-dependencies]
-proa_fonts_build = {{ version = "0.1", registry = "proa" }}
+proa_fonts_build = {{ version = "0.1", git = "https://github.com/Proa-Labs/proa.git" }}
 
 [dev-dependencies]
 http-body-util = {{ version = "0.1" }}

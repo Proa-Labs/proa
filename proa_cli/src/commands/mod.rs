@@ -7,7 +7,6 @@
 
 mod add;
 mod app_generate;
-mod auth;
 mod build;
 mod check;
 mod chunks;
@@ -44,8 +43,6 @@ pub(crate) enum Command {
     Config(config::ConfigArgs),
     /// Add an application capability to an existing Proa project.
     Add(add::AddArgs),
-    /// Configure and diagnose Proa registry authentication through Cargo.
-    Auth(auth::AuthArgs),
     /// Create a new Proa project.
     New(new::NewArgs),
     /// Build one exact linked server and restart it from persistent caches when files change.
@@ -94,7 +91,6 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
         Command::Init(args) => init::run(args),
         Command::Config(args) => config::run(args),
         Command::Add(args) => add::run(args),
-        Command::Auth(args) => auth::run(args),
         Command::New(args) => new::run(args),
         Command::Dev(args) => dev::run(args),
         Command::Deploy(args) => deploy::run(args),

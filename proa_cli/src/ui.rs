@@ -2133,15 +2133,23 @@ fn with_registry_bearer_auth(
 }
 
 fn pro_registry_bearer_token() -> Result<Option<String>> {
-    let environment_token = match env::var("CARGO_REGISTRIES_PROA_TOKEN") {
-        Ok(token) => Some(token),
-        Err(env::VarError::NotPresent) => None,
-        Err(env::VarError::NotUnicode(_)) => {
-            bail!("CARGO_REGISTRIES_PROA_TOKEN is not valid UTF-8")
-        }
-    };
+    let environment_token = pro_token_from_environment(|name| env::var(name))?;
     let cargo_home = cargo_home_dir();
     pro_registry_bearer_token_from_sources(environment_token.as_deref(), cargo_home.as_deref())
+}
+
+fn pro_token_from_environment(
+    read: impl Fn(&str) -> std::result::Result<String, env::VarError>,
+) -> Result<Option<String>> {
+    // Keep the old token variable as a compatibility fallback for Pro catalogs.
+    for name in ["PROA_PRO_TOKEN", "CARGO_REGISTRIES_PROA_TOKEN"] {
+        match read(name) {
+            Ok(token) if !token.trim().is_empty() => return Ok(Some(token)),
+            Ok(_) | Err(env::VarError::NotPresent) => {}
+            Err(env::VarError::NotUnicode(_)) => bail!("{name} is not valid UTF-8"),
+        }
+    }
+    Ok(None)
 }
 
 fn cargo_home_dir() -> Option<PathBuf> {
@@ -2176,8 +2184,7 @@ fn pro_registry_bearer_token_from_sources(
     };
 
     // Cargo gives the legacy extensionless file precedence when both exist.
-    // Match that behavior so `proa ui add` uses the same token as
-    // `cargo login --registry proa`.
+    // Preserve existing Pro catalog credentials during migration.
     for name in ["credentials", "credentials.toml"] {
         let path = cargo_home.join(name);
         let contents = match fs::read_to_string(&path) {
@@ -2238,8 +2245,7 @@ fn fetch_error_to_anyhow(registry: &str, slug: &str, error: FetchError) -> anyho
     match error {
         FetchError::Unauthorized(detail) if registry == PRO_REGISTRY => anyhow::anyhow!(
             "Pro component `{slug}` requires authenticated `{PRO_REGISTRY}` access ({detail}). \
-             Provide its bearer token through CARGO_REGISTRIES_PROA_TOKEN or save it with \
-             `cargo login --registry proa`. No project files were changed."
+             Provide its bearer token through PROA_PRO_TOKEN. No project files were changed."
         ),
         FetchError::NotFound(detail) => anyhow::anyhow!(
             "component `{registry}/{slug}` was not found ({detail}). No project files were changed."

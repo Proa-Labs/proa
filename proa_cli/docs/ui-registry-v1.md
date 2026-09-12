@@ -111,11 +111,14 @@ installed files, dependencies, managed modules, and Cargo dependency options.
 
 ## Pro authentication
 
-The public `@proa` registry never receives an authentication header. Requests
-to `@proa-pro` use `CARGO_REGISTRIES_PROA_TOKEN` as a bearer token when it is
-set. Otherwise, the client reads the `registries.proa.token` value written to
-`$CARGO_HOME/credentials.toml` by `cargo login --registry proa` (including
-Cargo's legacy extensionless `credentials` file precedence).
+These are HTTP component catalogs, separate from Cargo package distribution.
+The public `@proa` catalog never receives an authentication header. Requests
+to `@proa-pro` use `PROA_PRO_TOKEN` as a bearer token when set. For existing
+installations, the client falls back to `CARGO_REGISTRIES_PROA_TOKEN`, then
+`registries.proa.token` in Cargo's existing credential files (legacy
+`credentials` takes precedence over `credentials.toml`). No private Cargo
+index configuration is required. The retired `proa auth login` command is no
+longer needed; Git dependencies use your Git credential helper.
 
 The default Pro manifest endpoint is
 `https://console.proa.so/r/{name}.json`. Authentication failures do not create

@@ -201,6 +201,37 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("--prebuilt-only", result.stdout)
         self.assertIn("PROA_PREBUILT_ONLY", result.stdout)
 
+    def test_unix_source_install_needs_no_private_cargo_index(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binaries = root / "bin"
+            binaries.mkdir()
+            cargo = binaries / "cargo"
+            cargo.write_text("""#!/bin/sh
+if [ "$1" = --version ]; then echo 'cargo 1.93.0'; exit 0; fi
+[ "$*" = 'install --git https://github.com/Proa-Labs/proa --locked proa-cli' ] || exit 91
+[ -z "${CARGO_REGISTRIES_PROA_INDEX+x}" ] || exit 92
+[ "$CARGO_NET_GIT_FETCH_WITH_CLI" = true ] || exit 93
+mkdir -p "$CARGO_HOME/bin"
+printf '#!/bin/sh\\necho proa 0.1.1\\n' > "$CARGO_HOME/bin/proa"
+cp "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
+chmod +x "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
+""")
+            cargo.chmod(0o755)
+            environment = {key: value for key, value in os.environ.items()
+                           if not key.startswith(("CARGO_REGISTRIES_", "PROA_"))}
+            environment.update(CARGO_HOME=str(root / "cargo-home"),
+                               PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                               PROA_HOME=str(root / "proa-home"), PROA_LOG="off",
+                               CARGO_NET_GIT_FETCH_WITH_CLI="true", NO_COLOR="1")
+            result = subprocess.run(
+                ["sh", str(ROOT / "scripts/install.sh"), "--build-from-source",
+                 "--no-modify-path", "--no-tailwind", "--yes"],
+                cwd=root, env=environment, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((root / "cargo-home/bin/proa").is_file())
+
     def test_unix_installer_rejects_opposing_source_modes(self) -> None:
         result = subprocess.run(
             [

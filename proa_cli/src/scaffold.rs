@@ -1370,7 +1370,7 @@ fn cargo_toml(project_name: &str, options: &NewSiteOptions) -> String {
 }
 
 fn cargo_config_toml() -> String {
-    "# Proa dependencies are git dependencies. Fetch them with the local git CLI\n# so existing GitHub credentials (SSH agent, keychain, gh auth) apply.\n[net]\ngit-fetch-with-cli = true\n\n# Proa workspace manifests tag internal dependencies with the `proa` registry\n# for publishing. The registry name must be defined for those manifests to\n# parse, but nothing is downloaded from it and no token is needed.\n[registries.proa]\nindex = \"sparse+https://registry.proa.so/sparse/\"\n".to_string()
+    "# Fetch Git dependencies using your Git credential helpers and proxy settings.\n[net]\ngit-fetch-with-cli = true\n".to_string()
 }
 
 fn dev_script() -> String {
@@ -1779,12 +1779,11 @@ COPY . .
 # `github_token`; drop the secret once the repository is public.
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN --mount=type=secret,id=github_token \
-    if [ -s /run/secrets/github_token ]; then \
-        git config --global \
-            url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf \
-            "https://github.com/"; \
-    fi \
-    && cargo build --release --bin {project_name}
+    set -eu; \
+    export GIT_CONFIG_COUNT=1; \
+    export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
+    export GIT_CONFIG_VALUE_0='!f() {{ if [ "$1" = get ] && [ -s /run/secrets/github_token ]; then printf "username=x-access-token\npassword=%s\n" "$(cat /run/secrets/github_token)"; fi; }}; f'; \
+    cargo build --release --bin {project_name}
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
@@ -2729,7 +2728,11 @@ mod tests {
         assert!(!cargo.contains("proa_core = { path ="));
         let cargo_config = fs::read_to_string(root.join(".cargo/config.toml")).unwrap();
         assert!(cargo_config.contains("git-fetch-with-cli = true"));
-        assert!(cargo_config.contains("[registries.proa]"));
+        assert!(cargo_config
+            .parse::<toml::Value>()
+            .unwrap()
+            .get("registries")
+            .is_none());
         assert!(!cargo.contains("proa_macros = { path ="));
         assert!(!cargo.contains("proa_framework_axum = { path ="));
         assert!(!cargo.contains("\"signal\""));
