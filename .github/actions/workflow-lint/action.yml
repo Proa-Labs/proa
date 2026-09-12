@@ -42,7 +42,9 @@ runs:
 
     - name: Test CLI binary distribution contract
       shell: bash
-      run: python3 scripts/test_cli_binary_distribution.py
+      run: |
+        python3 scripts/test_cli_binary_distribution.py
+        python3 scripts/test_publish.py
 
     - name: Test the linked-acceptance path classifier
       shell: bash
