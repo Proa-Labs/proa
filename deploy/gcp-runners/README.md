@@ -1,4 +1,4 @@
-# GCP CI runners (ARC on GKE Autopilot)
+# GCP CI runners (ARC on GKE Standard)
 
 Ephemeral, scale-to-zero GitHub Actions runners on spot pods. Scale-set names
 are the `runs-on` labels: `CI_RUNNER` selects the trusted-main pool and the
@@ -6,11 +6,11 @@ workflow's literal `gcp-pr-ci` label selects the unprivileged pull-request pool.
 
 | Piece | Where |
 |---|---|
-| Cluster | GKE Autopilot `proa-ci`, `us-west1`, project `airy-cycle-504821-k9` |
+| Cluster | GKE Standard `proa-ci`, `us-west1-a`, project `airy-cycle-504821-k9` |
 | Runner image | `us-west1-docker.pkg.dev/airy-cycle-504821-k9/ci-images/proa-runner` (build: `runner.Dockerfile`, rebuild on toolchain bump; v5 includes GitHub CLI plus ssh, rsync, and zstd for preview/deploy control) |
 | Trusted scale set | helm release `gcp` / label `gcp-ci`, values: `runner-scale-set-values.yaml` |
 | PR scale set | helm release `gcp-pr` / label `gcp-pr-ci`, values: `pr-runner-scale-set-values.yaml` |
-| Controller | helm release `arc` in ns `arc-systems` (gha-runner-scale-set-controller 0.9.3) |
+| Controller | helm release `arc` in ns `arc-systems` (gha-runner-scale-set-controller 0.14.2) |
 | GitHub auth | k8s secret `proa-github-token` in `arc-runners` (rotate: recreate secret, restart listener) |
 | sccache | bucket `gs://proa-ci-sccache` (30-day lifecycle), Workload Identity: KSA `arc-runners/runner` -> GSA `proa-ci-sccache@...` |
 
@@ -20,6 +20,27 @@ because Rust build scripts execute repository code and must not be able to
 poison cache objects later consumed by the `main` deployment job. The PR pool
 uses the namespace's unannotated default Kubernetes service account; never bind
 that account to the sccache GCP service account.
+
+The trusted scale set registers at **organization scope** in the
+`proa-trusted-main` runner group. GitHub restricts that group to repository
+`Proa-Labs/proa` and this exact workflow reference:
+
+```text
+Proa-Labs/proa/.github/workflows/ci.yml@refs/heads/main
+```
+
+Keep `restricted_to_workflows` enabled and public repository access disabled.
+Runner labels in a pull request are editable; the GitHub runner-group policy
+is what prevents a PR from selecting the cache-writing runner. Do not register
+`gcp-ci` at repository scope or move it to the default runner group. The PR
+pool stays repository-scoped and has no trusted cache identity. Releases use
+the unprivileged PR pool as well. Dispatch trusted CI only from `main`.
+
+Before provisioning, confirm the runner group's repository and workflow
+restrictions in organization Settings > Actions > Runner groups. Helm values
+select an existing group; they do not create or enforce its access policy.
+Changing a scale set's GitHub registration scope requires draining its jobs
+and reinstalling that scale set. Leave the other scale sets running.
 
 Rebuild image (`--tag` cannot select a non-root Dockerfile, hence the config):
   cd deploy/gcp-runners && gcloud builds submit --config cloudbuild.yaml --substitutions _TAG=<toolchain>-vN .
@@ -34,10 +55,11 @@ The trusted repository runner variable is `CI_RUNNER=gcp-ci`. Keep the PR
 label literal in `ci.yml`: this deliberately prevents a missing variable from
 falling through to the trusted runner pool.
 
-Rollback CI to VPS: set repo variable CI_RUNNER=vps. Public-repo note: keep
-"Require approval for all outside collaborators" enabled; runners are
-single-use JIT pods, but approved fork PRs still execute code inside this
-GCP project.
+Any replacement trusted pool must use the same repository and workflow
+restrictions before changing `CI_RUNNER`. Private fork PR workflows remain
+disabled. If fork contributions are enabled later, require approval and keep
+write tokens and secrets unavailable to fork workflows. Runners are single-use
+JIT pods, but approved PRs still execute code inside this GCP project.
 
 ## Quota notes (learned the hard way, 2026-08-07)
 

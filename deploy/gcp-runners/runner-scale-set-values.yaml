@@ -3,10 +3,11 @@
 
 # gha-runner-scale-set values for the Proa CI fleet on GKE (Standard mode,
 # spot node pool with local NVMe ephemeral storage). The scale-set name IS
-# the runs-on label: CI_RUNNER=gcp routes ci.yml here; CI_RUNNER=vps is the
-# rollback path.
-githubConfigUrl: https://github.com/Proa-Labs/proa
+# the runs-on label: CI_RUNNER=gcp-ci routes ci.yml here. Register at organization
+# scope so GitHub enforces the workflow restriction on proa-trusted-main.
+githubConfigUrl: https://github.com/Proa-Labs
 githubConfigSecret: proa-github-token
+runnerGroup: proa-trusted-main
 controllerServiceAccount:
   name: arc-gha-rs-controller
   namespace: arc-systems
