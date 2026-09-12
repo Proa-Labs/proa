@@ -60,7 +60,7 @@ fn empty_manifest() -> Arc<IslandManifest> {
     })
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn shutdown_deadline_starts_after_signal_and_drains_an_ordinary_request() {
     let state = SlowRequestState {
         started: Arc::new(Notify::new()),
@@ -82,15 +82,12 @@ async fn shutdown_deadline_starts_after_signal_and_drains_an_ordinary_request() 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let drain_timeout = Duration::from_millis(100);
-    let server = tokio::spawn(serve_with_shutdown(
-        listener,
-        app,
-        drain_timeout,
-        async move {
-            let _ = shutdown_rx.await;
-        },
-    ));
+    let drain_timeout = Duration::from_secs(30);
+    let io_timeout = Duration::from_secs(5);
+    let server = serve_with_shutdown(listener, app, drain_timeout, async move {
+        let _ = shutdown_rx.await;
+    });
+    tokio::pin!(server);
 
     let request = tokio::spawn(async move {
         reqwest::get(format!("http://{address}/slow"))
@@ -100,39 +97,47 @@ async fn shutdown_deadline_starts_after_signal_and_drains_an_ordinary_request() 
             .await
             .unwrap()
     });
-    tokio::time::timeout(Duration::from_secs(1), state.started.notified())
-        .await
-        .expect("slow request should start");
-
-    // If the drain deadline started with the server, this request would
-    // already be force-cancelled before the signal below.
-    tokio::time::sleep(drain_timeout + Duration::from_millis(30)).await;
-    shutdown_tx.send(()).unwrap();
-    tokio::time::timeout(Duration::from_millis(50), async {
-        while let Ok(stream) = tokio::net::TcpStream::connect(address).await {
-            drop(stream);
-            tokio::task::yield_now().await;
+    tokio::time::timeout(io_timeout, async {
+        tokio::select! {
+            () = state.started.notified() => {}
+            result = &mut server => panic!("server stopped before shutdown: {result:?}"),
         }
     })
     .await
-    .expect("the listener should stop admitting connections after shutdown");
+    .expect("slow request should start");
+
+    // Advance only the server's deadline checks with virtual time. Real HTTP
+    // setup and draining run with the clock resumed so idle I/O cannot
+    // automatically advance a paused clock past the drain deadline.
+    tokio::time::pause();
+    tokio::time::advance(drain_timeout + Duration::from_secs(1)).await;
+    assert!(
+        futures::poll!(&mut server).is_pending(),
+        "the drain deadline must not stop the server before shutdown"
+    );
+    shutdown_tx.send(()).unwrap();
+    // Poll the ready shutdown signal through listener closure before probing
+    // the socket. This avoids racing a spawned server against a 50 ms timer.
+    assert!(
+        futures::poll!(&mut server).is_pending(),
+        "the in-flight request must receive a new drain window after shutdown"
+    );
+    tokio::time::resume();
+    assert!(
+        tokio::time::timeout(io_timeout, tokio::net::TcpStream::connect(address))
+            .await
+            .expect("the listener closure should be observable")
+            .is_err(),
+        "the listener must stop admitting connections while the request drains"
+    );
     state.finish.notify_one();
 
-    assert_eq!(
-        tokio::time::timeout(Duration::from_secs(1), request)
+    let (outcome, response) =
+        tokio::time::timeout(io_timeout, async { tokio::join!(&mut server, request) })
             .await
-            .expect("ordinary request should drain")
-            .unwrap(),
-        "finished"
-    );
-    assert_eq!(
-        tokio::time::timeout(Duration::from_secs(1), server)
-            .await
-            .expect("server should finish after the request")
-            .unwrap()
-            .unwrap(),
-        ShutdownOutcome::Drained
-    );
+            .expect("server and ordinary request should drain");
+    assert_eq!(response.unwrap(), "finished");
+    assert_eq!(outcome.unwrap(), ShutdownOutcome::Drained);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
