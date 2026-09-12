@@ -9,9 +9,9 @@
 //! Opens http://localhost:5000 with a JSON editor + live preview + timing.
 
 use axum::{
-    extract::Json,
+    extract::{Json, OriginalUri},
     http::{header, HeaderMap},
-    response::{Html, IntoResponse},
+    response::{Html, IntoResponse, Redirect},
     routing::{get, post},
     Extension, Router,
 };
@@ -328,18 +328,26 @@ struct RenderRequest {
 #[derive(Debug, Clone, Copy)]
 pub struct PlaygroundOptions {
     pub load_tests_enabled: bool,
+    /// Engines offered by this deployment. None keeps all local comparisons.
+    pub available_engines: Option<&'static [&'static str]>,
 }
 
 impl PlaygroundOptions {
     pub const fn standalone() -> Self {
         Self {
             load_tests_enabled: true,
+            available_engines: None,
         }
     }
 
     pub fn marketing() -> Self {
         Self {
             load_tests_enabled: env_flag("PROA_CONSOLE_LOAD_TESTS", false),
+            available_engines: Some(if env_flag("PROA_COMPANIONS", true) {
+                &["proa", "node", "bun"]
+            } else {
+                &["proa"]
+            }),
         }
     }
 }
@@ -385,12 +393,34 @@ fn load_tests_disabled_html() -> String {
         )
 }
 
-async fn index(Extension(options): Extension<PlaygroundOptions>) -> Html<Cow<'static, str>> {
-    if options.load_tests_enabled {
-        Html(Cow::Borrowed(PLAYGROUND_HTML))
-    } else {
-        Html(Cow::Owned(load_tests_disabled_html()))
+// proa-perf-ok(scope): configure the console shell outside measured render paths
+async fn index(
+    OriginalUri(uri): OriginalUri,
+    Extension(options): Extension<PlaygroundOptions>,
+) -> axum::response::Response {
+    if matches!(
+        uri.path().trim_end_matches('/'),
+        "/playground/ebay-rsjs"
+            | "/playground/ebay-rsjs/ebay-srp-rsjs"
+            | "/playground/ebay/ebay-srp-rsjs"
+    ) {
+        return Redirect::permanent("/playground/ebay/ebay-srp").into_response();
     }
+
+    let mut html = if options.load_tests_enabled {
+        Cow::Borrowed(PLAYGROUND_HTML)
+    } else {
+        Cow::Owned(load_tests_disabled_html())
+    };
+    if let Some(engines) = options.available_engines {
+        let configuration = serde_json::to_string(engines).expect("engine names serialize");
+        html = Cow::Owned(html.replacen(
+            "const AVAILABLE_ENGINES = null;",
+            &format!("const AVAILABLE_ENGINES = {configuration};"),
+            1,
+        ));
+    }
+    Html(html).into_response()
 }
 
 async fn render_page(headers: HeaderMap, Json(req): Json<RenderRequest>) -> impl IntoResponse {
@@ -2927,6 +2957,79 @@ fn build_fragment_assets(
 }
 
 #[cfg(test)]
+mod playground_console_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn legacy_ebay_urls_redirect_to_one_canonical_page() {
+        for path in [
+            "/playground/ebay-rsjs",
+            "/playground/ebay-rsjs/ebay-srp-rsjs",
+            "/playground/ebay-rsjs/ebay-srp-rsjs/",
+            "/playground/ebay/ebay-srp-rsjs",
+        ] {
+            let response = index(
+                OriginalUri(path.parse().unwrap()),
+                Extension(PlaygroundOptions::standalone()),
+            )
+            .await;
+            assert_eq!(
+                response.status(),
+                axum::http::StatusCode::PERMANENT_REDIRECT
+            );
+            assert_eq!(
+                response.headers()[header::LOCATION],
+                "/playground/ebay/ebay-srp"
+            );
+        }
+
+        let canonical = index(
+            OriginalUri("/playground/ebay/ebay-srp".parse().unwrap()),
+            Extension(PlaygroundOptions::standalone()),
+        )
+        .await;
+        assert_eq!(canonical.status(), axum::http::StatusCode::OK);
+        assert!(!canonical.headers().contains_key(header::LOCATION));
+    }
+
+    #[tokio::test]
+    async fn engine_configuration_is_independent_of_load_test_configuration() {
+        for load_tests_enabled in [false, true] {
+            for engines in [
+                None,
+                Some(&["proa"][..]),
+                Some(&["proa", "node", "bun"][..]),
+            ] {
+                let response = index(
+                    OriginalUri("/playground/nike/nike-catalog".parse().unwrap()),
+                    Extension(PlaygroundOptions {
+                        load_tests_enabled,
+                        available_engines: engines,
+                    }),
+                )
+                .await;
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                let html = std::str::from_utf8(&body).unwrap();
+                let configuration = html
+                    .split_once("const AVAILABLE_ENGINES = ")
+                    .unwrap()
+                    .1
+                    .split_once(';')
+                    .unwrap()
+                    .0;
+                let actual: Option<Vec<String>> = serde_json::from_str(configuration).unwrap();
+                assert_eq!(
+                    actual,
+                    engines.map(|values| values.iter().map(|s| s.to_string()).collect())
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod rsjs_asset_pipeline_tests {
     use super::*;
 
@@ -4315,7 +4418,6 @@ main {
         <option value="airbnb">Airbnb</option>
         <option value="nike">Nike</option>
         <option value="ebay">eBay</option>
-        <option value="ebay-rsjs">eBay (rsjs islands)</option>
         <option value="github-pr">GitHub PR Diff</option>
         <option value="espn">ESPN Gamecast</option>
         <option value="sentry-otel">Sentry + OpenTelemetry</option>
@@ -4427,6 +4529,8 @@ async function updateBundleStat() {
   }
 }
 let currentEngine = 'proa';
+// The host supplies its deployed engines; standalone comparisons retain all.
+const AVAILABLE_ENGINES = null;
 
 // Showcase definitions: pages + routes per showcase
 const SHOWCASES = {
@@ -4459,34 +4563,13 @@ const SHOWCASES = {
   },
   ebay: {
     pages: [
-      { id: 'ebay-srp', label: 'Search Results', size: 'capture' },
-    ],
-    defaultPage: 'ebay-srp',
-    routes: {
-      proa: { 'ebay-srp': '/showcase/ebay/proa' },
-      'marko-node': { 'ebay-srp': '/showcase/ebay/proa' },
-      'react-ssr':  { 'ebay-srp': '/showcase/ebay/react' },
-      next: { 'ebay-srp': '/showcase/ebay/next' },
-      // Marko (Bun) intentionally commented out — see button above. Server
-      // still runs on :5400, just hidden from the eBay UI.
-      // 'marko-bun':  { 'ebay-srp': '/showcase/ebay/proa' },
-    },
-  },
-  // Interactive variant: same eBay page, but every watch-heart is an
-  // rsjs island and the toolbar carries three filter-chip islands.
-  // Compares apples-to-apples client-JS bundle against Marko 6 hybrid
-  // and React 19 SSR — see `proa_demo/bundle_size.mjs`.
-  //
-  // The page id `ebay-srp-rsjs` (not `ebay-srp`) is what /api/render
-  // dispatches on; using a distinct id lets the playground select the
-  // interactive code path without overloading the static page name.
-  'ebay-rsjs': {
-    pages: [
-      { id: 'ebay-srp-rsjs', label: 'Search Results (interactive)', size: 'capture' },
+      { id: 'ebay-srp-rsjs', slug: 'ebay-srp', label: 'Search Results', size: 'capture' },
     ],
     defaultPage: 'ebay-srp-rsjs',
     routes: {
+      // Keep the interactive renderer's API id while exposing one eBay URL.
       proa: { 'ebay-srp-rsjs': '/showcase/ebay/proa-rsjs' },
+      'marko-node': { 'ebay-srp-rsjs': '/showcase/ebay/proa' },
       'react-ssr': { 'ebay-srp-rsjs': '/showcase/ebay/react' },
       next: { 'ebay-srp-rsjs': '/showcase/ebay/next' },
     },
@@ -4541,7 +4624,7 @@ function getPageFromUrl() {
   const m = location.pathname.match(/^\/playground\/[^/]+\/(.+)/);
   if (m) {
     const sc = getShowcaseFromUrl();
-    const found = SHOWCASES[sc]?.pages.find(p => p.id === m[1]);
+    const found = SHOWCASES[sc]?.pages.find(p => (p.slug || p.id) === m[1]);
     if (found) return found.id;
   }
   return null;
@@ -4587,7 +4670,8 @@ function setCurrentPage(page) {
 }
 
 function pushPlaygroundUrl() {
-  const url = '/playground/' + currentShowcase + '/' + currentPage;
+  const page = SHOWCASES[currentShowcase].pages.find(p => p.id === currentPage);
+  const url = '/playground/' + currentShowcase + '/' + (page?.slug || currentPage);
   if (location.pathname !== url) {
     history.pushState(null, '', url);
   }
@@ -4608,7 +4692,8 @@ function setShowcase(showcase) {
 // Show only engine buttons supported by the current showcase. If the
 // active engine isn't supported, snap back to Proa.
 function syncEngineButtons() {
-  const supported = SHOWCASES[currentShowcase] ? Object.keys(SHOWCASES[currentShowcase].routes) : ['proa'];
+  const supported = (SHOWCASES[currentShowcase] ? Object.keys(SHOWCASES[currentShowcase].routes) : ['proa'])
+    .filter(engine => AVAILABLE_ENGINES === null || AVAILABLE_ENGINES.includes(engine));
   let needsRepick = !supported.includes(currentEngine);
   document.querySelectorAll('.engine-btn').forEach(btn => {
     const ok = supported.includes(btn.dataset.engine);
@@ -4675,6 +4760,7 @@ window.addEventListener('popstate', () => {
     showcaseSelect.value = sc;
     currentPage = pg;
     buildPageButtons();
+    syncEngineButtons();
     loadPropsForPage(currentPage);
     syncRouteLink();
     doRender();
