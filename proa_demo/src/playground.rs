@@ -328,18 +328,26 @@ struct RenderRequest {
 #[derive(Debug, Clone, Copy)]
 pub struct PlaygroundOptions {
     pub load_tests_enabled: bool,
+    /// Engines offered by this deployment. None keeps all local comparisons.
+    pub available_engines: Option<&'static [&'static str]>,
 }
 
 impl PlaygroundOptions {
     pub const fn standalone() -> Self {
         Self {
             load_tests_enabled: true,
+            available_engines: None,
         }
     }
 
     pub fn marketing() -> Self {
         Self {
             load_tests_enabled: env_flag("PROA_CONSOLE_LOAD_TESTS", false),
+            available_engines: Some(if env_flag("PROA_COMPANIONS", true) {
+                &["proa", "node", "bun"]
+            } else {
+                &["proa"]
+            }),
         }
     }
 }
@@ -399,11 +407,19 @@ async fn index(
         return Redirect::permanent("/playground/ebay/ebay-srp").into_response();
     }
 
-    let html = if options.load_tests_enabled {
+    let mut html = if options.load_tests_enabled {
         Cow::Borrowed(PLAYGROUND_HTML)
     } else {
         Cow::Owned(load_tests_disabled_html())
     };
+    if let Some(engines) = options.available_engines {
+        let configuration = serde_json::to_string(engines).expect("engine names serialize");
+        html = Cow::Owned(html.replacen(
+            "const AVAILABLE_ENGINES = null;",
+            &format!("const AVAILABLE_ENGINES = {configuration};"),
+            1,
+        ));
+    }
     Html(html).into_response()
 }
 
@@ -2975,6 +2991,42 @@ mod playground_console_tests {
         assert_eq!(canonical.status(), axum::http::StatusCode::OK);
         assert!(!canonical.headers().contains_key(header::LOCATION));
     }
+
+    #[tokio::test]
+    async fn engine_configuration_is_independent_of_load_test_configuration() {
+        for load_tests_enabled in [false, true] {
+            for engines in [
+                None,
+                Some(&["proa"][..]),
+                Some(&["proa", "node", "bun"][..]),
+            ] {
+                let response = index(
+                    OriginalUri("/playground/nike/nike-catalog".parse().unwrap()),
+                    Extension(PlaygroundOptions {
+                        load_tests_enabled,
+                        available_engines: engines,
+                    }),
+                )
+                .await;
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                let html = std::str::from_utf8(&body).unwrap();
+                let configuration = html
+                    .split_once("const AVAILABLE_ENGINES = ")
+                    .unwrap()
+                    .1
+                    .split_once(';')
+                    .unwrap()
+                    .0;
+                let actual: Option<Vec<String>> = serde_json::from_str(configuration).unwrap();
+                assert_eq!(
+                    actual,
+                    engines.map(|values| values.iter().map(|s| s.to_string()).collect())
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -4477,6 +4529,8 @@ async function updateBundleStat() {
   }
 }
 let currentEngine = 'proa';
+// The host supplies its deployed engines; standalone comparisons retain all.
+const AVAILABLE_ENGINES = null;
 
 // Showcase definitions: pages + routes per showcase
 const SHOWCASES = {
@@ -4638,7 +4692,8 @@ function setShowcase(showcase) {
 // Show only engine buttons supported by the current showcase. If the
 // active engine isn't supported, snap back to Proa.
 function syncEngineButtons() {
-  const supported = SHOWCASES[currentShowcase] ? Object.keys(SHOWCASES[currentShowcase].routes) : ['proa'];
+  const supported = (SHOWCASES[currentShowcase] ? Object.keys(SHOWCASES[currentShowcase].routes) : ['proa'])
+    .filter(engine => AVAILABLE_ENGINES === null || AVAILABLE_ENGINES.includes(engine));
   let needsRepick = !supported.includes(currentEngine);
   document.querySelectorAll('.engine-btn').forEach(btn => {
     const ok = supported.includes(btn.dataset.engine);

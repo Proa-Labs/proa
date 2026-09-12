@@ -180,6 +180,14 @@ on crates and build inputs across the repository, not just files under
 Set it to `1` only for local or internal deployments where `/api/loadtest`
 should be available.
 
+The public playground offers Proa and the deployed Hono React companions
+(Node and Bun), filtered by each showcase's supported engines. Setting
+`PROA_COMPANIONS=0` leaves only Proa in the selector. The standalone playground
+retains the other comparison engines for local benchmarking.
+
+The eBay playground lives at `/playground/ebay/ebay-srp` and uses the interactive
+renderer. The former `/playground/ebay-rsjs/ebay-srp-rsjs` URL redirects there.
+
 The public Coolify deployment guide under `src/docs/framework/` remains part of
 the Proa product documentation. The old repository-specific Coolify marketing
 preview workflow has been retired in favor of Railway PR environments.
