@@ -2,7 +2,7 @@
 # Copyright Proa Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Validate private registry and release-plz wiring for workspace crates."""
+"""Validate crates.io and release-plz wiring for workspace crates."""
 
 from __future__ import annotations
 
@@ -13,10 +13,9 @@ import subprocess
 import sys
 import tomllib
 
-ALLOWED_REGISTRY = "proa"
+ALLOWED_REGISTRY = "crates-io"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RELEASE_PLZ_CONFIG = REPO_ROOT / "release-plz.toml"
-RELEASE_PLZ_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release-plz.yml"
 RELEASE_PLZ_SCRIPT = REPO_ROOT / "scripts" / "release-plz.sh"
 WORKSPACE_MANIFEST = REPO_ROOT / "Cargo.toml"
 STANDALONE_BOOTSTRAP_BASELINES = {
@@ -160,32 +159,6 @@ def check_publishable_msrv(
             )
 
 
-def check_release_plz_workflow(errors: list[str]) -> None:
-    if not RELEASE_PLZ_WORKFLOW.exists():
-        errors.append(f"missing release-plz workflow: {RELEASE_PLZ_WORKFLOW}")
-        return
-
-    workflow = RELEASE_PLZ_WORKFLOW.read_text()
-    required_fragments = [
-        "scripts/release-plz.sh install",
-        "scripts/release-plz.sh release",
-        "scripts/release-plz.sh release-pr",
-        f"CARGO_REGISTRIES_{ALLOWED_REGISTRY.upper()}_TOKEN",
-        "GITHUB_TOKEN",
-    ]
-    for fragment in required_fragments:
-        if fragment not in workflow:
-            errors.append(
-                f"{RELEASE_PLZ_WORKFLOW}: missing required release-plz wiring `{fragment}`"
-            )
-    baseline_gate = "vars.PROA_STANDALONE_RELEASE_BASELINE == '0.3'"
-    if workflow.count(baseline_gate) != 2:
-        errors.append(
-            f"{RELEASE_PLZ_WORKFLOW}: both release-plz jobs must be gated by "
-            f"`{baseline_gate}` until the manual standalone baseline exists"
-        )
-
-
 def check_release_plz_script(errors: list[str]) -> None:
     if not RELEASE_PLZ_SCRIPT.exists():
         errors.append(f"missing release-plz script: {RELEASE_PLZ_SCRIPT}")
@@ -194,11 +167,11 @@ def check_release_plz_script(errors: list[str]) -> None:
     script = RELEASE_PLZ_SCRIPT.read_text()
     required_fragments = [
         "RELEASE_PLZ_VERSION",
-        f'REGISTRY="${{PROA_RELEASE_REGISTRY:-{ALLOWED_REGISTRY}}}"',
+        f'REGISTRY="{ALLOWED_REGISTRY}"',
         "scripts/check_publish_policy.py",
         "scripts/check_crate_archives.py",
         'exec release-plz "$command" --config "$CONFIG" --registry "$REGISTRY"',
-        "CARGO_REGISTRIES_PROA_TOKEN",
+        "CARGO_REGISTRY_TOKEN",
         "GIT_TOKEN",
     ]
     for fragment in required_fragments:
@@ -232,6 +205,13 @@ def main() -> int:
                 f"{name}: publish must be ['{ALLOWED_REGISTRY}'] or [] in {manifest}; got {publish!r}"
             )
 
+    for package in packages:
+        for dependency in package.get("dependencies", []):
+            if dependency.get("registry") is not None:
+                errors.append(
+                    f"{package['name']}: {dependency['name']} names an alternative registry"
+                )
+
     check_bootstrap_package_minimums(packages, publishable, errors)
     check_bootstrap_dependency_minimums(packages, publishable, errors)
     check_publishable_msrv(packages, publishable, errors)
@@ -247,7 +227,7 @@ def main() -> int:
             )
         if extra:
             errors.append(
-                f"{RELEASE_PLZ_CONFIG}: release=true entries are not publishable private crates: {', '.join(extra)}"
+                f"{RELEASE_PLZ_CONFIG}: release=true entries are not publishable crates.io crates: {', '.join(extra)}"
             )
         if release_config.get("workspace", {}).get("publish_no_verify") is not False:
             errors.append(
@@ -262,19 +242,18 @@ def main() -> int:
     else:
         errors.append(f"missing release-plz config: {RELEASE_PLZ_CONFIG}")
 
-    check_release_plz_workflow(errors)
     check_release_plz_script(errors)
 
     if errors:
         print(
-            "publish policy violation: private registry release flow is not fully wired",
+            "publish policy violation: crates.io release flow is not fully wired",
             file=sys.stderr,
         )
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
         print(
-            "Set publish.workspace = true for private registry crates, publish = false for local crates, "
-            "and keep release-plz.toml plus .github/workflows/release-plz.yml aligned.",
+            "Set publish.workspace = true for crates.io crates, publish = false for local crates, "
+            "and keep release-plz.toml aligned.",
             file=sys.stderr,
         )
         return 1

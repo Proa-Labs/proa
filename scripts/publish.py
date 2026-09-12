@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Publish Proa workspace crates to the registry configured as `proa`.
+Publish selected Proa workspace crates to crates.io after ownership review.
 
 Usage:
-    export CARGO_REGISTRIES_PROA_TOKEN=<publisher token>
+    export CARGO_REGISTRY_TOKEN=<publisher token>
     scripts/publish.py [--dry-run] [--skip-published] [--only crate1,crate2]
 
 Dry runs execute the policy/archive preflight and print the dependency order;
@@ -23,12 +23,14 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-REGISTRY = "proa"
-REGISTRY_URL = "https://registry.proa.so"
+REGISTRY = "crates-io"
+REGISTRY_URL = "https://crates.io"
 INDEX_POLL_SECONDS = 5
 INDEX_TIMEOUT_SECONDS = 30 * 60
 
@@ -96,20 +98,23 @@ def topo_sort(crates: dict) -> list[str]:
     return ordered
 
 
-def list_remote_versions() -> dict[str, str]:
-    """Query the registry for what's already published, to allow --skip-published."""
-    token = os.environ["CARGO_REGISTRIES_PROA_TOKEN"]
-    req = urllib.request.Request(
-        f"{REGISTRY_URL}/api/v1/crates?per_page=200",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-            return {c["name"]: c["max_version"] for c in data.get("crates", [])}
-    except Exception as e:
-        print(f"WARN: could not list remote crates ({e}); proceeding without skip", file=sys.stderr)
-        return {}
+def list_remote_versions(names: list[str]) -> dict[str, set[str]]:
+    """Read exact published versions, including older versions, without a token."""
+    published: dict[str, set[str]] = {}
+    for name in names:
+        request = urllib.request.Request(
+            f"{REGISTRY_URL}/api/v1/crates/{urllib.parse.quote(name, safe='')}",
+            headers={"User-Agent": "proa-publish (https://github.com/Proa-Labs/proa)"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = json.loads(response.read())
+                published[name] = {version["num"] for version in data["versions"]}
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            published[name] = set()
+    return published
 
 
 def publish_one(name: str, no_verify: bool = False) -> tuple[int, str]:
@@ -133,12 +138,9 @@ def publish_one(name: str, no_verify: bool = False) -> tuple[int, str]:
     # Detect "already published at this version" so re-runs are idempotent.
     combined = proc.stdout + proc.stderr
     already_markers = [
-        "UNIQUE constraint failed: crates.name, crates.version",
         "is already uploaded",
-        '"crate already exists',  # 409 body shape after Kellnr uniqueness pre-check
-        "already exists on",      # cargo client-side: "crate X@Y.Z already exists on `proa` index"
+        "already exists on",
         "already published version",
-        "got 409",                # any 409 from cargo's "got NNN OK response"
     ]
     if any(marker in combined for marker in already_markers):
         return proc.returncode, "already"
@@ -226,17 +228,21 @@ def main():
         )
         return 0
 
-    if "CARGO_REGISTRIES_PROA_TOKEN" not in os.environ:
+    if "CARGO_REGISTRY_TOKEN" not in os.environ:
         print(
-            "ERROR: set CARGO_REGISTRIES_PROA_TOKEN to an authorized publisher token",
+            "ERROR: set CARGO_REGISTRY_TOKEN to an authorized publisher token",
             file=sys.stderr,
         )
         return 2
 
     if args.skip_published:
-        published = list_remote_versions()
+        try:
+            published = list_remote_versions(order)
+        except (OSError, ValueError, KeyError) as error:
+            print(f"ERROR: cannot check crates.io versions: {error}", file=sys.stderr)
+            return 1
         before = len(order)
-        order = [n for n in order if published.get(n) != crates[n][1]]
+        order = [n for n in order if crates[n][1] not in published.get(n, set())]
         skipped = before - len(order)
         if skipped:
             print(f"\nSkipping {skipped} crate(s) already at target version on registry")

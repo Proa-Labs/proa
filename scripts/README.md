@@ -103,74 +103,44 @@ GitHub Release can publish. Exercise that contract locally with:
 python3 scripts/test_cli_binary_distribution.py
 ```
 
-## Registry release flow
+## Future crates.io releases
 
-Normal releases use [`release-plz.sh`](release-plz.sh). CI and local
-maintainers call the same entrypoint:
+GitHub releases and Git source installation are the current Proa distribution
+paths. The manual Cargo publishing tools target `crates-io`; no automatic
+Cargo publishing workflow is enabled. Before publishing, review package-name
+ownership and release readiness in [`docs/registry.md`](../docs/registry.md).
+
+```bash
+python3 scripts/check_publish_policy.py
+python3 scripts/check_crate_archives.py
+python3 scripts/publish.py --dry-run
+```
+
+The dry run runs policy/archive checks and prints dependency order without
+invoking `cargo publish`. It does not verify crates.io ownership or build
+unpublished dependent archives. Actual publication verifies each package and
+waits for its version to resolve before continuing with dependents:
+
+```bash
+# Supply CARGO_REGISTRY_TOKEN through your secret manager.
+python3 scripts/publish.py --skip-published
+```
+
+`--only crate1,crate2` selects packages. `--skip-published` checks exact versions
+through the public crates.io API without sending a token. `--no-verify` skips
+Cargo's package rebuild; prefer the default verification.
+
+After an initial crates.io release, maintainers can use the pinned release-plz
+wrapper and [`release-plz.toml`](../release-plz.toml) for release preparation:
 
 ```bash
 scripts/release-plz.sh install
-
-export GIT_TOKEN=<GitHub token>
-export CARGO_REGISTRIES_PROA_TOKEN=<publisher token>
+# Supply GIT_TOKEN for GitHub and CARGO_REGISTRY_TOKEN for Cargo publication.
 scripts/release-plz.sh release-pr
 scripts/release-plz.sh release
 ```
 
-The root [`release-plz.toml`](../release-plz.toml) selects released packages,
-and [`check_publish_policy.py`](check_publish_policy.py) verifies that manifests,
-release configuration, and CI all target the intended registry:
-
-```bash
-python3 scripts/check_publish_policy.py
-```
-
-The CI jobs run only when the repository variable
-`PROA_STANDALONE_RELEASE_BASELINE` equals `0.3`. Keep it unset for the manual
-standalone 0.3 bootstrap, verify those registry versions, and then set it to
-enable normal release-plz automation. See
-[`docs/registry.md`](../docs/registry.md) for package configuration and archive checks.
-
-Local-only examples, demos, and benchmarks must set `publish = false`.
-Publishable crates must inherit the workspace's explicit registry policy.
-
-## Manual publish fallback
-
-Use [`publish.py`](publish.py) only when release-plz is unavailable. The caller
-must explicitly provide the registry credential:
-
-```bash
-export CARGO_REGISTRIES_PROA_TOKEN=<publisher token>
-scripts/publish.py --skip-published
-```
-
-The script reads Cargo's locked workspace metadata, topologically orders
-publishable crates, and treats an already-published version as an idempotent
-skip. After an upload it waits for the exact version to become resolvable
-before moving to dependent crates. Both this fallback and `release-plz.sh` run
-the publish policy and crate-archive/license checks as a direct preflight. The
-script never reads a token from another repository or an infrastructure
-service.
-
-Useful flags:
-
-```bash
-scripts/publish.py --dry-run
-scripts/publish.py --only proa_core,proa_macros
-scripts/publish.py --no-verify
-scripts/publish.py --skip-published
-```
-
-`--dry-run` runs those preflight checks and prints the exact order without
-invoking `cargo publish`. A full bootstrap cannot Cargo-verify every dependent
-archive in advance because its fresh predecessors do not exist in the registry
-yet; the real publish verifies each crate after those predecessors become
-resolvable.
-
-`--no-verify` skips Cargo's local package rebuild. Prefer the default
-verification; the script's sparse-index wait is designed to avoid needing this
-escape hatch.
-
-See [`docs/registry.md`](../docs/registry.md) for the repository-side release
-policy. Registry deployment and credential-provisioning runbooks belong to the
-infrastructure repository that owns those systems.
+Both tools run policy and archive/license checks before publishing. They do
+not discover credentials in other repositories or infrastructure services.
+Demos and tools remain `publish = false`; release libraries inherit the
+workspace's explicit crates.io destination policy.

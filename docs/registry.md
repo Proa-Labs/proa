@@ -1,43 +1,64 @@
-# Package registry policy
+# Package distribution
 
-Selected workspace crates publish to the Cargo registry named `proa`,
-configured in [`.cargo/config.toml`](../.cargo/config.toml). That file contains
-the registry endpoint, not credentials.
+Proa currently distributes its CLI through GitHub releases and Git source
+installation. Applications use Proa crates from the same Git repository;
+third-party dependencies resolve from crates.io. No private Cargo registry,
+index variable, or Cargo registry token is required to install or build Proa.
 
-A source checkout does not need registry credentials. Workspace crates resolve
-one another through in-repository path dependencies. For dependency changes
-when upgrading, see the [0.3 migration guide](migrations/0.3-standalone.md).
+```bash
+CARGO_NET_GIT_FETCH_WITH_CLI=true \
+  cargo install --git https://github.com/proa-labs/proa --locked proa-cli
+```
 
-## Adding or changing a package
+While the repository is private, Git needs a credential with repository read
+access. The Git CLI option uses your configured Git credential helper.
+For reproducible installs, add `--rev <full-commit-sha>`. Generated projects
+use one canonical Git URL, `https://github.com/Proa-Labs/proa.git`; commit their
+`Cargo.lock` and use the same revision for every Proa dependency. Existing
+projects pinned to earlier commits need a dependency update to remove the old
+registry metadata. See the [migration guide](migrations/0.3-standalone.md).
 
-For a publishable crate:
+## crates.io publication
 
-1. Inherit the workspace's explicit `publish` policy.
-2. Give publishable path dependencies matching version and registry metadata.
-3. Add the crate to [`release-plz.toml`](../release-plz.toml).
-4. Run the publication checks below and inspect the archive contents.
+The Proa CLI and framework crates are not currently published on crates.io.
+Do not use `cargo install proa-cli` or version-only Proa dependencies yet.
+Selected library manifests restrict future publication to `crates-io`;
+this allowlist is a destination policy, not a claim that releases exist.
+The CLI, demos, and repository-only tools keep `publish = false`.
 
-Set `publish = false` for demos, benchmarks, and other repository-only packages.
+Before publishing, verify ownership of every package name and review the
+packaged contents. Some dependency names, including `const_json` and
+`tailwind-merge`, already exist on crates.io under other projects. Resolve
+ownership or rename those packages before attempting a release. Never replace
+a Git dependency with an unrelated package just because its name matches.
+
+For a library intended for publication:
+
+1. Inherit `publish.workspace = true` and the workspace license/MSRV.
+2. Give internal path dependencies matching versions without an alternative registry.
+3. Add the package to [`release-plz.toml`](../release-plz.toml).
+4. Inspect the archive and run the publication checks.
 
 ```bash
 python3 scripts/check_repository_boundary.py
 python3 scripts/check_publish_policy.py
 python3 scripts/check_crate_archives.py
-cargo package -p <crate> --list
+python3 scripts/publish.py --dry-run
 ```
 
-The policy check verifies package and release configuration. The archive check
-verifies the packaged source boundary, metadata, and canonical Apache-2.0
-license. See [`scripts/README.md`](../scripts/README.md) for the release tools.
+The dry run checks policy and archive boundaries and prints dependency order.
+It does not upload, verify name ownership, or prove that unpublished dependency
+archives can build on crates.io. Actual publication requires a separate release
+review and `CARGO_REGISTRY_TOKEN`. No automatic Cargo publishing workflow is
+enabled. See [`scripts/README.md`](../scripts/README.md) for manual tooling.
 
-## Maintainer operations
+## Component catalogs
 
-Release sequencing, bootstrap records, infrastructure details, and credential
-issuance or rotation procedures belong in the private knowledge base maintained
-by the release owner. They are not requirements for using or contributing to
-Proa.
+`proa registry` and `proa ui add` refer to HTTP component catalogs, not Cargo
+registries. Free components need no token; optional Pro components use
+`PROA_PRO_TOKEN`. Existing Pro catalog credentials remain supported during
+migration. See the [component catalog protocol](../proa_cli/docs/ui-registry-v1.md).
+The old Cargo-only `proa auth` helper has been retired.
 
-Publishers supply credentials through Cargo's standard credential mechanisms
-or the CI secret store. Never commit tokens, private account identifiers, or
-workstation-specific credential paths. Report vulnerabilities through
-[`SECURITY.md`](../SECURITY.md).
+Never commit credentials. Private release runbooks belong in the release
+owner's knowledge base. Report vulnerabilities through [`SECURITY.md`](../SECURITY.md).

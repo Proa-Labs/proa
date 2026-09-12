@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PUBLISH_REGISTRY = "proa"
+PUBLISH_REGISTRY = "crates-io"
 CANONICAL_LICENSE = REPO_ROOT / "LICENSE"
 ARCHIVE_LICENSE = "LICENSE"
 EXPECTED_REPOSITORY = "https://github.com/proa-labs/proa"

@@ -3,8 +3,8 @@
 
 [workspace]
 # Publishing is additionally constrained in package manifests:
-# publish.workspace = true resolves to [workspace.package].publish = ["proa"].
-# The GitHub workflow also passes `registry: proa`.
+# publish.workspace = true resolves to [workspace.package].publish = ["crates-io"].
+# The local release wrapper targets crates-io. No Cargo publish workflow is enabled.
 release = false
 dependencies_update = false
 git_release_enable = true
