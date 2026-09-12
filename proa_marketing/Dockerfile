@@ -133,11 +133,13 @@ COPY proa_demo/showcase-props.json ./showcase-props.json
 
 # Fail the build rather than the deployment. A companion that cannot boot is
 # indistinguishable at runtime from one that was never deployed, so prove it
-# serves /health here, where the failure is loud. Also require the live Nike
-# route to be byte-identical to the parity-checked React document; this catches
+# serves /health and renders every supported page here. Use the same working
+# directory as the entrypoint so tsx loads the companion's JSX configuration.
+# Also require the live Nike route to be byte-identical to the parity-checked
+# React document; this catches
 # server wiring that swaps in a different fixture after component validation.
 RUN set -eu; \
-    NODE_ENV=production PORT=5100 node --import tsx hono-ssr/server.ts & \
+    (cd hono-ssr && NODE_ENV=production PORT=5100 exec node --import tsx server.ts) & \
     pid=$!; \
     ok=""; \
     for _ in $(seq 1 60); do \
@@ -145,6 +147,7 @@ RUN set -eu; \
         sleep 0.5; \
     done; \
     test -n "$ok" || { echo "hono companion failed to serve /health under node"; exit 1; }; \
+    node hono-ssr/smoke.mjs; \
     expected_nike_sha="$(NODE_ENV=production node --import tsx react-ssr-shared/dump-nike-pdp.ts | sha256sum | cut -d ' ' -f 1)"; \
     actual_nike_sha="$(node -e "fetch('http://127.0.0.1:5100/nike/product').then(r=>{if(!r.ok)process.exit(1);return r.text()}).then(html=>process.stdout.write(html)).catch(()=>process.exit(1))" | sha256sum | cut -d ' ' -f 1)"; \
     test "$actual_nike_sha" = "$expected_nike_sha" || { echo "hono Nike PDP differs from the parity fixture"; exit 1; }; \
