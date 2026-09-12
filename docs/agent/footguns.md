@@ -518,6 +518,6 @@ cargo test -p rsjs_macros -p rsjs --all-targets
 cargo expand -p <your-crate> --lib <module>::<MyIsland>
 
 # Run the playground and inspect a real island's SSR HTML + per-island JS
-cargo run -p proa_demo --bin proa-playground --features server
-# then: open http://localhost:5000/playground/ebay-rsjs/ebay-srp-rsjs
+cargo proa run -p proa_demo --bin proa-playground --features server
+# then: open http://localhost:5000/playground/ebay/ebay-srp
 ```
