@@ -1,6 +1,13 @@
 # Review ownership metadata for CI, release, deployment, and benchmark policy.
-/.github/actions/ @hariria
-/.github/workflows/ @hariria
+/.github/ @hariria
+/.cargo/ @hariria
+/.gitignore @hariria
+/.dockerignore @hariria
+/Cargo.toml @hariria
+/Cargo.lock @hariria
+/SECURITY.md @hariria
+/deny.toml @hariria
+/release-plz.toml @hariria
 /deploy/ @hariria
 /scripts/perf/ @hariria
 /scripts/perf_alert.py @hariria
@@ -9,3 +16,11 @@
 /scripts/test_perf_report.py @hariria
 /proa_bench/benches/render_memcpy_floor.rs @hariria
 /proa_marketing/Dockerfile @hariria
+/scripts/install.sh @hariria
+/scripts/install.ps1 @hariria
+/scripts/publish.py @hariria
+/scripts/release-plz.sh @hariria
+/scripts/verify_cli_release_assets.py @hariria
+/scripts/check_publish_policy.py @hariria
+/scripts/check_git_install.py @hariria
+/scripts/check_repository_boundary.py @hariria
