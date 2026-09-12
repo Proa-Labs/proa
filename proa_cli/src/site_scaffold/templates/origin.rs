@@ -438,7 +438,7 @@ pub fn populate(
     plan.write(".env.example", env_example(&ident))?;
     plan.write(".gitignore", super::gitignore())?;
     plan.write(".gitattributes", "*.sql text eol=lf\n")?;
-    plan.write("README.md", readme(package, title))?;
+    plan.write("README.md", format!("{}\n## Dependency access\n\nProa dependencies come from GitHub. While the repository is private, configure your Git credential helper locally and set the `PROA_GITHUB_TOKEN` Actions secret to a token with repository read access. No private Cargo registry is required.\n", readme(package, title)))?;
     plan.write(".github/workflows/ci.yml", super::github_ci(package))?;
     plan.write(
         "proa.config.json",
