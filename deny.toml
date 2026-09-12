@@ -25,8 +25,8 @@ ignore = [
 multiple-versions = "warn"
 wildcards = "deny"
 # Workspace-internal path dependencies without a version requirement are
-# fine: these crates publish only to the private registry, and the path is
-# the source of truth. External wildcards remain denied.
+# fine for local-only crates. Publishable dependencies carry matching
+# version requirements. External wildcards remain denied.
 allow-wildcard-paths = true
 highlight = "all"
 
@@ -35,21 +35,14 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = [
     "https://github.com/rust-lang/crates.io-index",
-    # Proa private registry, named "proa" in .cargo/config.toml. The
-    # sparse+ URL must match the configured index exactly.
-    "sparse+https://registry.proa.so/sparse/",
 ]
 allow-git = []
 
 [licenses]
 version = 2
 confidence-threshold = 0.93
-# Workspace crates are first-party Apache-2.0 packages and currently publish
-# only to the "proa" registry ([workspace.package] publish = ["proa"] in the
-# root Cargo.toml). Skip dependency-license checks for our own packages; their
-# inherited license-file metadata and packaged LICENSE are validated
-# separately. The allow list below still applies to every external dependency.
-private = { ignore = true, registries = ["proa"] }
+# Local-only workspace packages are checked by the archive/license guard.
+private = { ignore = true }
 allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",

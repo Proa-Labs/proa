@@ -788,3 +788,28 @@ fn rejects_traversal_target() {
     assert!(error.contains("unsafe path component"), "{error}");
     assert!(!temp.path().join("outside.rs").exists());
 }
+
+#[test]
+fn pro_catalog_token_takes_precedence_over_legacy_cargo_token() {
+    let token = pro_token_from_environment(|name| match name {
+        "PROA_PRO_TOKEN" => Ok("catalog-token".to_string()),
+        "CARGO_REGISTRIES_PROA_TOKEN" => {
+            panic!("must not read legacy token when catalog token is set")
+        }
+        _ => unreachable!(),
+    })
+    .unwrap();
+    assert_eq!(token.as_deref(), Some("catalog-token"));
+    let token = pro_token_from_environment(|name| match name {
+        "PROA_PRO_TOKEN" => Ok(" ".to_string()),
+        "CARGO_REGISTRIES_PROA_TOKEN" => Ok("legacy-token".to_string()),
+        _ => unreachable!(),
+    })
+    .unwrap();
+    assert_eq!(token.as_deref(), Some("legacy-token"));
+    assert!(
+        pro_token_from_environment(|_| Err(env::VarError::NotPresent))
+            .unwrap()
+            .is_none()
+    );
+}

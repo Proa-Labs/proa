@@ -57,7 +57,6 @@ instead of silently recompiling the workspace. Add
 To build it from source instead:
 
 ```bash
-CARGO_REGISTRIES_PROA_INDEX="sparse+https://registry.proa.so/sparse/" \
 CARGO_NET_GIT_FETCH_WITH_CLI=true \
   cargo install --git https://github.com/proa-labs/proa --locked proa-cli
 ```
@@ -124,7 +123,7 @@ jobs:
         run: proa check src
 ```
 
-While the Proa source repository is private, the Cargo steps need GitHub access to it (a token with read access) to fetch the git dependencies. [Installation](/docs) covers the access requirements.
+While the Proa source repository is private, Cargo needs a GitHub token with read access to fetch it. Generated sites already include a scoped Git credential helper for their test and release-build steps: set the `PROA_GITHUB_TOKEN` Actions secret in the application repository. This is a GitHub credential, not a Cargo registry token. [Installation](/docs) covers local access requirements.
 
 ## Changed Files
 
@@ -229,12 +228,11 @@ COPY . .
 # `github_token`; drop the secret once the repository is public.
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN --mount=type=secret,id=github_token \
-    if [ -s /run/secrets/github_token ]; then \
-        git config --global \
-            url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf \
-            "https://github.com/"; \
-    fi \
-    && cargo build --release
+    set -eu; \
+    export GIT_CONFIG_COUNT=1; \
+    export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
+    export GIT_CONFIG_VALUE_0='!f() { if [ "$1" = get ] && [ -s /run/secrets/github_token ]; then printf "username=x-access-token\npassword=%s\n" "$(cat /run/secrets/github_token)"; fi; }; f'; \
+    cargo build --release
 ```
 
 Build with:
@@ -243,7 +241,7 @@ Build with:
 docker build --secret id=github_token,env=GITHUB_TOKEN .
 ```
 
-> **Security:** `--mount=type=secret` keeps the token out of image layers, and multi-stage builds keep build tooling and sources out of the final image. The example above uses `AS builder`, add a second `FROM` stage that copies only the compiled binary. [Docker](/docs/framework/docker) shows the full multi-stage build.
+> **Security:** The credential helper reads the BuildKit secret without writing its value into Git configuration, and multi-stage builds keep build tooling and sources out of the final image. The example above uses `AS builder`, add a second `FROM` stage that copies only the compiled binary. [Docker](/docs/framework/docker) shows the full multi-stage build.
 
 ## Other CI Systems
 

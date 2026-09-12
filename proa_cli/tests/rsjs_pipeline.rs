@@ -245,13 +245,10 @@ fn main() {
     .unwrap();
 
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let registry_environment = std::collections::BTreeMap::from([(
-        "CARGO_REGISTRIES_PROA_INDEX".into(),
-        "sparse+https://registry.proa.so/sparse/".into(),
-    )]);
+    let environment = std::collections::BTreeMap::new();
     let metadata = Command::new(&cargo)
         .current_dir(temp.path())
-        .envs(&registry_environment)
+        .envs(&environment)
         .args(["metadata", "--format-version=1", "--no-deps", "--offline"])
         .output()
         .unwrap();
@@ -271,7 +268,7 @@ fn main() {
             target_directory: temp.path().join("proa-generated/descriptor-target"),
             source_exclusion_directory: temp.path().join("proa-generated"),
             cargo_args: vec!["build".into(), "--offline".into()],
-            environment: registry_environment.clone(),
+            environment: environment.clone(),
         },
         root: DescriptorRootSelector {
             package_id,
@@ -286,7 +283,7 @@ fn main() {
         plan_directory: temp.path().join("proa-generated/plans"),
         final_target_root: temp.path().join("proa-generated/final-target"),
         final_cargo_args: vec!["build".into(), "--offline".into()],
-        final_environment: registry_environment,
+        final_environment: environment,
     })
     .unwrap();
 
@@ -460,13 +457,10 @@ fn main() {{
     fs::write(&source, source_text("same-source")).unwrap();
 
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let registry_environment = std::collections::BTreeMap::from([(
-        "CARGO_REGISTRIES_PROA_INDEX".into(),
-        "sparse+https://registry.proa.so/sparse/".into(),
-    )]);
+    let environment = std::collections::BTreeMap::new();
     let metadata = Command::new(&cargo)
         .current_dir(temp.path())
-        .envs(&registry_environment)
+        .envs(&environment)
         .args(["metadata", "--format-version=1", "--no-deps", "--offline"])
         .output()
         .unwrap();
@@ -478,7 +472,7 @@ fn main() {{
     let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout).unwrap();
     let package_id = metadata["packages"][0]["id"].as_str().unwrap().to_string();
     let make_request = |staging: &str, mode: &str| {
-        let mut environment = registry_environment.clone();
+        let mut environment = environment.clone();
         environment.insert("GEN_MODE".into(), mode.into());
         LinkedCargoRequest {
             descriptor: DescriptorCargoRequest {

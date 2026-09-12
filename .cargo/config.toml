@@ -1,16 +1,6 @@
 # Copyright Proa Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-# Proa private registry configuration. No secrets here; safe to commit.
-# Tokens live in ~/.cargo/credentials.toml (`cargo login --registry proa`)
-# or in CARGO_REGISTRIES_PROA_TOKEN for CI.
-
-[registries.proa]
-index = "sparse+https://registry.proa.so/sparse/"
-
-[registry]
-global-credential-providers = ["cargo:token"]
-
 [env]
 # aws-lc-sys 0.42 does not discover the macOS SDK when CC points directly at
 # Xcode's internal clang. Use the SDK-aware system driver for this target while

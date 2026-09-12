@@ -204,10 +204,10 @@ rust-version = "1.93"
 anyhow = "1"
 axum = "0.7.9"
 dotenvy = "0.15"
-proa_core = {{ version = "0.3", registry = "proa" }}
-proa_framework_axum = {{ version = "0.3", registry = "proa" }}
-proa_macros = {{ version = "0.3", registry = "proa" }}
-proa_stream = {{ version = "0.3", registry = "proa" }}
+proa_core = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_framework_axum = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_macros = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_stream = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
 serde = {{ version = "1", features = ["derive"] }}
 {database}thiserror = "2"
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "signal"] }}
@@ -231,12 +231,7 @@ fn rust_toolchain() -> &'static str {
 }
 
 fn cargo_config() -> &'static str {
-    r#"[registries.proa]
-index = "sparse+https://registry.proa.so/sparse/"
-
-[registry]
-global-credential-providers = ["cargo:token"]
-"#
+    "[net]\ngit-fetch-with-cli = true\n"
 }
 
 fn env_example(package: &str, has_database: bool) -> String {
@@ -375,7 +370,7 @@ fn components_mod(has_database: bool, has_ui: bool) -> String {
 
 fn readme(package: &str, title: &str, selection: CapabilitySelection) -> String {
     format!(
-        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa dev --open\n```\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
+        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa dev --open\n```\n\nProa dependencies come from GitHub. While that repository is private, configure your Git credential helper locally and set the `PROA_GITHUB_TOKEN` Actions secret to a token with repository read access. No private Cargo registry is required.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
         selection.template.as_str(),
         if selection.markdown { " and the same typed resource has semantic Markdown at `/index.md`" } else { "" }
     )
@@ -442,6 +437,11 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
   RUST_TEST_THREADS: "2"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: credential.https://github.com.helper
+  GIT_CONFIG_VALUE_0: >-
+    !f() {{ if [ "$1" = get ] && [ -n "$PROA_GITHUB_TOKEN" ]; then printf 'username=x-access-token\npassword=%s\n' "$PROA_GITHUB_TOKEN"; fi; }}; f
 
 jobs:
   ci:
@@ -513,9 +513,15 @@ jobs:
       # never bypass its descriptor/final compilation), so any wrapper the
       # runner environment sets is dropped here.
       - name: Test ({package}, linked pipeline)
+        # Required only while the Proa dependency repository is private.
+        env:
+          PROA_GITHUB_TOKEN: ${{{{ secrets.PROA_GITHUB_TOKEN }}}}
         run: env -u RUSTC_WRAPPER proa test
 
       - name: Release build
+        # Required only while the Proa dependency repository is private.
+        env:
+          PROA_GITHUB_TOKEN: ${{{{ secrets.PROA_GITHUB_TOKEN }}}}
         run: env -u RUSTC_WRAPPER proa build
 "#
     )
@@ -721,12 +727,11 @@ fn add_deploy(
         deployment_dockerfile(migration_copy, CLI_DISTRIBUTION_VERSION),
     )?;
     plan.write(".dockerignore", "target\n.git\n.env\ndata/*.db*\n")?;
+    let mut deployment = "# Deployment\n\nBuild the generated Dockerfile. Proa dependencies come from GitHub; while the repository is private, provide a read token as a BuildKit secret:\n\n```bash\ndocker build --secret id=github_token,env=PROA_GITHUB_TOKEN .\n```\n\nThe credential helper reads the secret only during the build and does not store its value in Git configuration. Configure the equivalent build secret on your deployment provider. Use `/readyz` for readiness and `/healthz` for liveness.\n".to_string();
     if has_database {
-        plan.write(
-            "DEPLOYMENT.md",
-            "# SQLite deployment\n\nMount persistent storage at `/app/data`, run one replica, and configure tested backups. Use `/readyz` for readiness and `/healthz` for liveness.\n",
-        )?;
+        deployment.push_str("\nMount persistent storage at `/app/data`, run one replica, and configure tested backups.\n");
     }
+    plan.write("DEPLOYMENT.md", deployment)?;
     if deploy == DeployChoice::Railway {
         plan.write(
             "railway.json",
@@ -781,7 +786,7 @@ FROM ubuntu:24.04 AS build
 ENV RUSTUP_HOME="/usr/local/rustup" CARGO_HOME="/usr/local/cargo" PATH="/usr/local/cargo/bin:$PATH" DEBIAN_FRONTEND="noninteractive"
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
 COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates curl libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates curl git libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV PROA_CLI_VERSION="{cli_version}"
 RUN set -eux; \
@@ -806,9 +811,12 @@ RUN set -eux; \
     install -m 0755 "$temp_dir/$tailwind_asset" "$install_dir/tailwindcss"; \
     rm -rf "$temp_dir"
 COPY . .
-RUN --mount=type=secret,id=proa_token \
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+RUN --mount=type=secret,id=github_token \
     set -eu; \
-    if [ -s /run/secrets/proa_token ]; then export CARGO_REGISTRIES_PROA_TOKEN="$(cat /run/secrets/proa_token)"; fi; \
+    export GIT_CONFIG_COUNT=1; \
+    export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
+    export GIT_CONFIG_VALUE_0='!f() {{ if [ "$1" = get ] && [ -s /run/secrets/github_token ]; then printf "username=x-access-token\npassword=%s\n" "$(cat /run/secrets/github_token)"; fi; }}; f'; \
     if [ -f Cargo.lock ]; then \
         proa build --locked --artifact-out /tmp/proa-app; \
     else \
@@ -829,6 +837,34 @@ CMD ["/usr/local/bin/app"]
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn standalone_manifests_share_one_git_source_without_a_private_registry() {
+        for source in [
+            cargo_toml("minimal", false),
+            cargo_toml("app", true),
+            origin::manifest("atlas", origin::ManifestFlavor::Standalone),
+        ] {
+            let manifest: toml::Value = source.parse().unwrap();
+            for section in ["dependencies", "build-dependencies"] {
+                if let Some(dependencies) = manifest.get(section).and_then(toml::Value::as_table) {
+                    for (name, dependency) in dependencies {
+                        if name.starts_with("proa_") || name == "rsjs" {
+                            assert_eq!(
+                                dependency.get("git").and_then(toml::Value::as_str),
+                                Some("https://github.com/Proa-Labs/proa.git"),
+                                "{name} must resolve from the same Git source"
+                            );
+                            assert!(dependency.get("registry").is_none());
+                        }
+                    }
+                }
+            }
+        }
+        let config: toml::Value = cargo_config().parse().unwrap();
+        assert!(config.get("registries").is_none());
+        assert_eq!(config["net"]["git-fetch-with-cli"].as_bool(), Some(true));
+    }
 
     #[test]
     fn generated_ci_uses_versioned_verified_binaries() {

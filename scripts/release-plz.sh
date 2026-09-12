@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
 RELEASE_PLZ_VERSION="${RELEASE_PLZ_VERSION:-0.3.158}"
-REGISTRY="${PROA_RELEASE_REGISTRY:-proa}"
+REGISTRY="crates-io"
 CONFIG="${PROA_RELEASE_PLZ_CONFIG:-release-plz.toml}"
 
 usage() {
@@ -22,10 +22,9 @@ Usage:
 
 Environment:
   RELEASE_PLZ_VERSION         release-plz crate version to install (default: ${RELEASE_PLZ_VERSION})
-  PROA_RELEASE_REGISTRY       cargo registry name (default: ${REGISTRY})
   PROA_RELEASE_PLZ_CONFIG     release-plz config path (default: ${CONFIG})
   GIT_TOKEN or GITHUB_TOKEN   token used by release-plz for GitHub operations
-  CARGO_REGISTRIES_PROA_TOKEN token used by cargo for the private proa registry
+  CARGO_REGISTRY_TOKEN token used by Cargo for crates.io
 USAGE
 }
 
@@ -68,8 +67,8 @@ run_release_plz() {
   # only after every preflight (and, for publish, the final main-tip check) has
   # succeeded.
   local release_git_token="${GIT_TOKEN:-${GITHUB_TOKEN:-}}"
-  local release_registry_token="${CARGO_REGISTRIES_PROA_TOKEN:-}"
-  unset GIT_TOKEN GITHUB_TOKEN CARGO_REGISTRIES_PROA_TOKEN
+  local release_registry_token="${CARGO_REGISTRY_TOKEN:-}"
+  unset GIT_TOKEN GITHUB_TOKEN CARGO_REGISTRY_TOKEN
 
   cd "$REPO_ROOT"
   scripts/check_publish_policy.py
@@ -115,7 +114,7 @@ run_release_plz() {
     export GIT_TOKEN="$release_git_token"
   fi
   if [[ -n "$release_registry_token" ]]; then
-    export CARGO_REGISTRIES_PROA_TOKEN="$release_registry_token"
+    export CARGO_REGISTRY_TOKEN="$release_registry_token"
   fi
 
   if [[ "$command" == "set-version" ]]; then

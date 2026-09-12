@@ -137,6 +137,36 @@ re-run the server component tree to make the page interactive. See the
 [RSJS guide](rsjs/README.md) for composition, queries, shared state, forms, and
 current limitations.
 
+## Markdown interfaces with MdRender
+
+A component can render Markdown for agents as well as HTML for people. Give
+the `Greeting` component above a Markdown implementation:
+
+```rust
+use proa_core::{md::MdContext, MdRenderSync, WriteBuf};
+use proa_macros::md_sync;
+
+impl<B: WriteBuf> MdRenderSync<B> for Greeting {
+    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            # Hello, {self.name}
+
+            Rendered by Proa.
+            "###
+        }
+        .render_md(cx)
+    }
+}
+```
+
+`MdRenderSync` and `md_sync!` are the synchronous path. Use `MdRender` and
+`md!` when a Markdown component needs to await work. Interpolated values are
+escaped, and typed children compose into larger documents. Both renderers
+use the same component data and define their own output.
+
+See the [Markdown rendering guide](https://proa.so/docs/core/markdown) for
+composition, async rendering, and serving Markdown alongside HTML.
+
 ## Technical Approach
 
 We treat web rendering as a serialization problem, not a component-tree
@@ -149,73 +179,6 @@ execute it—often on the main thread. That is expensive on desktop and worse on
 mobile CPUs; it can take [6-10x longer](https://github.com/GoogleChrome/lighthouse/blob/main/docs/throttling.md#benchmarking-cpu-power) to execute on lower tier android devices.
 It also consumes memory and battery. Proa treats every byte of
 client code as work that must justify itself. For more, see [Addy Osmani's "The Cost of JavaScript"](https://www.youtube.com/watch?v=X9eRLElSW1c)
-
-### Performance by construction
-
-We can reason about rendering performance from first principles.
-
-The theoretical minimum is a fully static page: no branching, no formatting, no allocation, no component traversal. The page already exists as bytes!
-
-That gives us a useful design target: a fast dynamic renderer should approach the cost of serving a static byte buffer.
-
-Proa is designed around that principle. The compiler tries to move as much work as possible out of the render path:
-
-1. Make static work actually static.
-`html! {}` and the Proa compiler identify HTML that can be determined ahead of time and lower it to static byte sequences. The remaining dynamic code is compiled to native code, where LLVM can inline calls, eliminate dead work, unroll loops, and optimize across component boundaries.
-
-2. Write directly to the output.
-Proa avoids intermediate render trees, temporary strings, unnecessary buffer allocations, and extra copies. Dynamic values are written into the final output stream as directly as possible.
-
-The result is a renderer whose cost is increasingly proportional to the amount of the page that is genuinely dynamic—not to the size or complexity of the component tree.
-
-
-Synchronous rendering remains the default, monomorphized fast path. Async work,
-streaming, heap allocation, and custom writers are explicit choices for the
-parts of an application that need them.
-
-The same compiler-first principle reaches beyond the render function. Proa's
-documentation pipeline can resolve routes, validate links, build search data,
-highlight code, and turn math into MathML ahead of time. Its font pipeline
-self-hosts and content-hashes font files and generates metric-matched fallbacks.
-If work can be proven once during the build, it should not be repeated on every
-request or in every browser.
-
-### Ship only what the route uses
-
-During server rendering, Proa records the hydrated islands that the route
-actually reached and derives the response's asset plan from that graph.
-Server-only components emit no island JavaScript. Interactive routes load only
-their rendered island modules, add the query and mutation runtime only when it
-is used, and preload only reachable client dependencies. Islands can hydrate
-immediately, when visible, while idle, on first interaction, or when a media
-query matches. The JavaScript shipped by a page scales with that page's
-behavior—not with the size of the application.
-
-### Load data without hidden waterfalls
-
-Components request data by stable keys through a request-scoped resolver, so
-repeated reads share one in-flight load instead of duplicating database or API
-work. Known loads can start before rendering, while independent `Suspense`
-boundaries resolve concurrently and stream behind useful fallbacks with
-explicit priority and timeout behavior. Components that do not await data stay
-on the synchronous path.
-
-### One interface, more than one representation
-
-A Proa component is a typed Rust value, not a browser-only description of a
-DOM tree. Matched HTML and Markdown render traits let the same interface model
-produce a complete page for a person and a dense text representation for a
-crawler or agent. The docs system already emits per-page Markdown and an
-`/llms-full.txt` artifact alongside its HTML output.
-
-### Keep the engine portable and the server production-ready
-
-Proa separates rendering and route contracts from sockets, threads, clocks,
-and a specific async runtime. The shipped Axum adapter adds the operational
-pieces at the boundary: buffered, async, and streaming responses;
-strict per-request nonce CSP; honest readiness probes; and bounded graceful
-draining that cancels unfinished streams. A different server adapter can reuse
-the same route, manifest, response, and streaming contracts.
 
 ## Benchmarks
 

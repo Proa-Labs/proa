@@ -537,10 +537,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Dashboard {
             temp.path().join("Cargo.toml").into_os_string(),
             "--offline".into(),
         ],
-        environment: std::collections::BTreeMap::from([(
-            OsString::from("CARGO_REGISTRIES_PROA_INDEX"),
-            OsString::from("sparse+https://registry.proa.so/sparse/"),
-        )]),
+        environment: std::collections::BTreeMap::new(),
     })
     .unwrap();
     let report = descriptor_run_report(&run);
@@ -684,10 +681,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Counter {
             temp.path().join("Cargo.toml").into_os_string(),
             "--offline".into(),
         ],
-        environment: std::collections::BTreeMap::from([(
-            OsString::from("CARGO_REGISTRIES_PROA_INDEX"),
-            OsString::from("sparse+https://registry.proa.so/sparse/"),
-        )]),
+        environment: std::collections::BTreeMap::new(),
     })
     .unwrap();
     let report = descriptor_run_report(&run);

@@ -93,11 +93,8 @@ fn main() {
 fn final_codegen_preserves_wide_range_domain_at_helper_call() {
     let temp = write_fixture();
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"));
-    let registry_environment = BTreeMap::from([(
-        "CARGO_REGISTRIES_PROA_INDEX".into(),
-        "sparse+https://registry.proa.so/sparse/".into(),
-    )]);
-    let package_id = fixture_package_id(temp.path(), &cargo, &registry_environment);
+    let environment = BTreeMap::new();
+    let package_id = fixture_package_id(temp.path(), &cargo, &environment);
 
     let output = run_linked_cargo(&LinkedCargoRequest {
         descriptor: DescriptorCargoRequest {
@@ -108,7 +105,7 @@ fn final_codegen_preserves_wide_range_domain_at_helper_call() {
             target_directory: temp.path().join("proa-generated/descriptor-target"),
             source_exclusion_directory: temp.path().join("proa-generated"),
             cargo_args: vec!["build".into(), "--offline".into()],
-            environment: registry_environment.clone(),
+            environment: environment.clone(),
         },
         root: DescriptorRootSelector {
             package_id,
@@ -123,7 +120,7 @@ fn final_codegen_preserves_wide_range_domain_at_helper_call() {
         plan_directory: temp.path().join("proa-generated/plans"),
         final_target_root: temp.path().join("proa-generated/final-target"),
         final_cargo_args: vec!["build".into(), "--offline".into()],
-        final_environment: registry_environment,
+        final_environment: environment,
     })
     .expect("the wide-range helper fixture must link and compile");
 

@@ -168,25 +168,14 @@ matching asset and compiles the CLI with Cargo instead. While the repository is
 private, that fallback requires GitHub access:
 
 ```bash
-CARGO_REGISTRIES_PROA_INDEX="sparse+https://registry.proa.so/sparse/" \
+CARGO_NET_GIT_FETCH_WITH_CLI=true \
   cargo install --git https://github.com/proa-labs/proa --locked proa-cli
 ```
 
-The installer sets `CARGO_REGISTRIES_PROA_INDEX` itself for that build, so
-there is nothing to export first; an index you exported already wins. The
-prefix matters when you run the command by hand: `proa-cli` depends on crates
-that name the `proa` registry, and `cargo install --git` reads configuration
-from the current directory and `CARGO_HOME` rather than from the checkout it
-clones, so without the index the build stops with
-`registry index was not found in any configuration: proa`.
-
-The installer also sets `CARGO_NET_GIT_FETCH_WITH_CLI=true` when a `git`
-binary is available, so the clone goes through git itself rather than Cargo's
-built-in fetcher. The built-in fetcher ignores credential helpers,
-`url.*.insteadOf` rewrites, `http.sslCAInfo`, and most proxy configuration
-from `~/.gitconfig`, which is why cloning used to fail for some setups until
-that variable was exported by hand. Running the Cargo command yourself behind
-a proxy or a corporate CA, prefix it the same way.
+No private Cargo index or Cargo token is required. The installer enables
+`CARGO_NET_GIT_FETCH_WITH_CLI=true` when Git is available so your Git
+credential helper and proxy settings apply. For private repository access,
+configure your GitHub credentials before running the source installer.
 
 That build takes several minutes and needs Rust 1.93.0 or newer plus a C
 toolchain. On Alpine, install the toolchain first:
@@ -220,21 +209,18 @@ back empty. Attach it if you report the detection as wrong.
 
 Generated projects declare Proa crates as git dependencies on
 `https://github.com/Proa-Labs/proa.git`. Confirm that your project has a
-`.cargo/config.toml` that fetches them with the git CLI and defines the
-`proa` registry name:
+`.cargo/config.toml` that fetches them with the Git CLI:
 
 ```toml
 [net]
 git-fetch-with-cli = true
-
-[registries.proa]
-index = "sparse+https://registry.proa.so/sparse/"
 ```
 
-`git-fetch-with-cli` makes Cargo run your git binary, so existing GitHub
-credentials (SSH agent, keychain, `gh auth`) apply. The `[registries.proa]`
-entry only defines the registry name that Proa workspace manifests reference;
-nothing is downloaded from it and no token is needed.
+`git-fetch-with-cli` makes Cargo use your Git credential helper and proxy
+settings. No `[registries.proa]` configuration is needed. If an existing
+project still reports a missing `proa` index, update its Proa Git dependencies
+with `cargo update`; its lockfile may pin a commit from before this migration.
+Use the same Git URL and revision for all Proa dependencies.
 
 While the repository is private, the git fetch needs GitHub access, on your
 machine and in CI. See [Installation](/docs) and [CI / GitHub Actions](/docs/guides/ci).

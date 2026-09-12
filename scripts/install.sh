@@ -76,8 +76,7 @@ set_defaults() {
     # Index of the workspace's named cargo registry, mirroring the committed
     # .cargo/config.toml. Only the source build needs it, and only to make the
     # name resolvable; see install_from_source for why.
-    REGISTRY_INDEX="sparse+https://registry.proa.so/sparse/"
-    PROA_ROOT="${PROA_HOME:-$HOME/.proa}"
+        PROA_ROOT="${PROA_HOME:-$HOME/.proa}"
     INSTALL_DIR="${PROA_INSTALL_DIR:-}"
     NO_MODIFY_PATH="${PROA_NO_MODIFY_PATH:-}"
     BUILD_FROM_SOURCE="${PROA_BUILD_FROM_SOURCE:-}"
@@ -274,7 +273,7 @@ setup_glyphs() {
 #
 # SECURITY: nothing here dumps the environment. Only the specific PROA_* and
 # NO_COLOR names documented in --help are recorded, by name. Users really do
-# export things like CARGO_REGISTRIES_PROA_TOKEN, and a file people are asked
+# export things like CARGO_REGISTRY_TOKEN, and a file people are asked
 # to paste into a public issue must never carry a credential.
 
 # Prints an ISO-8601 UTC timestamp, or nothing when this machine has no usable
@@ -2657,18 +2656,6 @@ install_from_source() {
     step_run "building" "proa-cli from source, this takes several minutes"
     blank
 
-    # Every workspace manifest names the `proa` registry next to its path
-    # dependencies. `cargo install --git` reads configuration from the current
-    # directory and CARGO_HOME only, never from the checkout it just cloned, so
-    # the repository's .cargo/config.toml is invisible here and the manifest
-    # fails to parse with "could not find `proa-cli` ... with version `*`".
-    # Naming the index makes the registry resolvable; nothing is fetched from
-    # it, because every workspace crate still resolves by path. An index the
-    # caller already exported wins, and the assignment lasts one command.
-    #
-    # This is the one place REPO is used. Downloads go through DOWNLOAD_BASE
-    # and never touch it.
-    #
     # The clone itself goes through the git CLI when one is available
     # (CARGO_NET_GIT_FETCH_WITH_CLI). Cargo's built-in fetcher speaks its own
     # git and its own TLS: it ignores credential helpers, url.*.insteadOf
@@ -2680,12 +2667,6 @@ install_from_source() {
     # who exported a value keeps it, and without a git binary the built-in
     # fetcher is the only option anyway.
     log_info "running: cargo install --git https://github.com/$REPO --locked proa-cli"
-    if [ -n "${CARGO_REGISTRIES_PROA_INDEX:-}" ]; then
-        # Redacted, because a caller-supplied index may carry a token.
-        log_debug "registry index: $(redact_url_userinfo "$CARGO_REGISTRIES_PROA_INDEX") (from the environment, credentials redacted)"
-    else
-        log_debug "registry index: $REGISTRY_INDEX (installer default)"
-    fi
     local fetch_with_cli
     if check_cmd git; then
         fetch_with_cli="${CARGO_NET_GIT_FETCH_WITH_CLI:-true}"
@@ -2694,8 +2675,7 @@ install_from_source() {
         log_info "git is not installed; cargo falls back to its built-in git fetcher"
     fi
     log_debug "CARGO_NET_GIT_FETCH_WITH_CLI=$fetch_with_cli"
-    CARGO_REGISTRIES_PROA_INDEX="${CARGO_REGISTRIES_PROA_INDEX:-$REGISTRY_INDEX}" \
-        CARGO_NET_GIT_FETCH_WITH_CLI="$fetch_with_cli" \
+    CARGO_NET_GIT_FETCH_WITH_CLI="$fetch_with_cli" \
         cargo install --git "https://github.com/$REPO" --locked proa-cli ||
         err "cargo install failed. The output above has the compiler error."
     log_info "cargo install finished, binaries are in $cargo_bin"

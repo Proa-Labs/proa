@@ -44,7 +44,7 @@ mod support;
 
 #[test]
 fn ui() {
-    support::configure_trybuild_registry();
+    support::configure_trybuild_descriptor_phase();
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/pass/*.rs");
     t.compile_fail("tests/ui/fail/*.rs");

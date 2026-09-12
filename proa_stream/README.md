@@ -183,14 +183,14 @@ for elapsed-time deadlines.
 
 ```toml
 [dependencies]
-proa_stream = { version = "0.3.0", registry = "proa" }
+proa_stream = { version = "0.3.0", git = "https://github.com/Proa-Labs/proa.git" }
 ```
 
 For a runtime-agnostic dependency:
 
 ```toml
 [dependencies]
-proa_stream = { version = "0.3.0", registry = "proa", default-features = false }
+proa_stream = { version = "0.3.0", git = "https://github.com/Proa-Labs/proa.git", default-features = false }
 ```
 
 Without `rt-tokio`, prepared loads begin lazily when first awaited and overlap
