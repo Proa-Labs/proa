@@ -2,7 +2,7 @@
 
 **Read the five decisions below first, about 90 seconds.** The implementation and downstream migration sequence is in section 4.
 
-Status: implemented and validated on `hariria/refactor-md-context`, September 17, 2026, against `1166812`. The downstream migration is prepared in its owning repository; integration order and verification are recorded below. The API is not publicly released, and the owner explicitly permits breaking changes without deprecation aliases. The expanded API/guard probe passes 14 tests; an expected compile failure verifies the HTTP `Send` boundary in section 3.5. This document records the accepted decisions and migration contract.
+Status: implemented and validated on `hariria/refactor-md-context`, September 17, 2026, against `1166812`. The implementation is committed in [Proa #8](https://github.com/Proa-Labs/proa/pull/8), with the downstream migration in [proa-ui #30](https://github.com/Proa-Labs/proa-ui/pull/30). Integration order and verification are recorded below. The API is not publicly released, and the owner explicitly permits breaking changes without deprecation aliases. The expanded API/guard probe passes 14 tests. Checked-in `MarkdownResponse` doctests verify that the unopened plan is `Send` and that its active finalization future is not; section 3.5 explains the HTTP boundary. This document records the accepted decisions and migration contract.
 
 **Scope adjustment:** keep eager context parts and remove `MdContext` outright. **Downstream work:** migrate `proa-ui` alongside the refactor, with a separate 8–12 hour budget. No deprecation cycle or version bump is required for this unreleased API.
 
@@ -225,9 +225,11 @@ In-order Markdown streaming remains available through the loader-aware driver. T
 
 ### Downstream migration
 
-The downstream `proa-ui` workspace currently points its Proa dependencies at Git `branch = "main"`, including `proa_core`. A fresh resolution or dependency update after this merge will adopt the breaking API. An existing committed Cargo.lock does not advance merely because main changes, but it is not a replacement for an explicit compatibility policy.
+**Merge [Proa #8](https://github.com/Proa-Labs/proa/pull/8) first, then [proa-ui #30](https://github.com/Proa-Labs/proa-ui/pull/30) in the same integration window.** The companion PR pins all Proa dependencies in both its root and `vm/` manifests, both lockfiles, and the CI framework checkout to one immutable refactor revision. It can build before the core PR merges and uses no local path overrides.
 
-**Migrate `proa-ui` alongside the refactor.** Prepare its changes against the refactor revision in its owning repository and validate component, catalog, application, and generated-code checks. Update its Proa dependency resolution and lockfile together. If the two repositories need to land at different times, a temporary pin to a verified compatible Proa revision can bridge the gap; pinning is an integration option, not a mandatory public-release gate. Update all dependencies from the Proa repository consistently.
+1. Finish review and validation of both PRs before merging either. After a core change, update the downstream manifest, lockfile, and CI pins together and verify the exact published Git revision.
+2. Merge Proa #8, then immediately merge proa-ui #30. Until the companion lands, proa-ui `main` still floats on Proa `main`; CI refreshes those dependencies and would pick up the incompatible API. A committed old lockfile alone does not protect that interval. If the companion cannot land in the same window, first pin proa-ui `main` and its CI checkout to the last compatible pre-refactor revision before merging Proa.
+3. Verify both downstream workspaces on the merged revision pair. Keep the explicit pin until a separate dependency refresh deliberately moves both manifests, both lockfiles, and CI back to a compatible Proa `main` revision.
 
 The reviewer supplied this planning inventory; counts depend on search scope and are not AST-derived effort estimates:
 
@@ -253,7 +255,7 @@ Audit the lint gates before migrating authors. The actual coupling is:
 |---|---|
 | Markdown implementation dispatch | `lint_markdown_render_impl` selects `MdRender` / `MdRenderSync` and `render_md`, independently of the context type. Preserve that path and its context identifier matching. |
 | Standalone render functions | `function_has_web_context_param` / `block_constructs_web_context` feed `function_is_standalone_render_entry`, which selects free `render_*` functions. They do not reclassify every trait method. A shared context proves render capability, not HTML format. |
-| Gated rules and helper traversal | These entries run `check_render_block_perf` (`PerfVisitor`) and `check_direct_helper_perf`. Keep format-neutral allocation/copy checks; make guidance for `perf/manual-escape`, `perf/manual-escape-helper`, and raw-HTML writes depend on HTML evidence. Context type alone must not recommend HTML escaping for Markdown. |
+| Gated rules and helper traversal | These entries run `check_render_block_perf` (`PerfVisitor`) and `check_direct_helper_perf`. Keep format-neutral allocation/copy checks. Standalone render helpers retain HTML checks by default, including helpers that only write bytes. Opt out of `perf/manual-escape`, `perf/manual-escape-helper`, and raw-HTML guidance when the function name, a Markdown macro, or a Markdown render/helper call supplies Markdown evidence. |
 | Renamed Markdown helper detection | Update `md/manual-write` matching for `write_md_prepared*` and the diagnostic at the current line 905 to name `WebContext` and its new Markdown helpers. Updating only the message would leave the rule stale. |
 | Regression fixtures | Cover Markdown impls, standalone `render_md_*` helpers, HTML helpers, generic shared helpers, and Markdown code literals containing HTML-looking text. Preserve the independent `perf/render-copy` composition pass, which already scans all functions. |
 
@@ -321,17 +323,23 @@ existing output scope and an independent suffix observer. No lazy parts state or
 new production unsafe block was introduced.
 
 The downstream `proa-ui` component library, catalog, and independent `vm/`
-workspace are migrated on the same branch name in their owning repository. Local
-Cargo overrides verified them against this checkout; those machine-specific
-paths are not committed. Integration must merge the core refactor first (or pin
-the downstream to its published Git revision), then refresh both downstream
-lockfiles to that revision. Until that happens, unpatched downstream resolution
-against old `main` cannot compile the new API. The VM migration also updates the
-framework package alias and streaming tests for the already-merged main API.
+workspace are migrated in proa-ui #30. Initial tests used local Cargo overrides;
+subsequent locked all-target checks resolve the published refactor commit from
+Git with no overrides. Both manifests, both lockfiles, and CI carry the same
+explicit pin. Follow the coordinated merge sequence in section 4. The VM
+migration also updates the framework package alias and streaming tests for the
+already-merged main API.
 Six component expectations were updated to the current core escaping rules;
 the core escaper itself is unchanged by this refactor.
 
 Validation evidence:
+
+The review follow-up migrates the published marketing docs, restores raw-byte
+HTML lint coverage with explicit Markdown opt-outs, and checks repeated headers
+through both sync and async HTML finalizers. The same header merge applies to
+HTML and Markdown and is recorded as a shared changelog entry. The showcase
+suite passes; no Markdown golden fixtures exist for the Airbnb home helper.
+Its newly escaped listing details are also called out in the changelog.
 
 - `cargo check --workspace --all-targets --locked` and Rust formatting pass.
 - The workspace unit/integration run completed with **3,209 passes** and one
@@ -343,6 +351,9 @@ Validation evidence:
   compile-fail suites: **561 passed**. Downstream workspace checks and VM Clippy
   complete; Clippy reports warnings without failing the check.
 - Core/framework/stream doctests: **18 passed**, eight existing examples ignored.
+- `MarkdownResponse` rustdoc includes a positive `Send` assertion for the unopened
+  plan and a `compile_fail,E0277` example for its active finalization future.
+  The multithreaded Axum route test separately exercises local renderer state.
 - Shared-context regressions: **14 passed**; allocation regressions: **3 passed**.
   The loader-aware Markdown driver test also proves that a catchable child
   failure cannot select a registered HTML error fallback.

@@ -405,19 +405,21 @@ Buffered/static HTML, in-order HTML, and Markdown preserve source order and inte
 The low-level driver lives in `proa_stream`:
 
 ```rust
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
-use proa_core::StreamChunkFlusher;
-use proa_stream::render_md_in_order_to_flusher;
+use proa_core::{DataLoader, MdRender, StreamChunkFlusher, WriteError};
+use proa_stream::render_md_in_order_to_flusher_with_loader;
 
-pub async fn render_markdown(
+pub async fn render_markdown<L: DataLoader, R: MdRender<L>>(
+    page: R,
+    loader: Arc<L>,
     flusher: Rc<dyn StreamChunkFlusher>,
-) -> Result<(), proa_core::WriteError> {
-    render_md_in_order_to_flusher(ProductPageMarkdown { id: "sku_1" }, flusher).await
+) -> Result<(), WriteError> {
+    render_md_in_order_to_flusher_with_loader(page, loader, flusher).await
 }
 ```
 
-The driver renders the root through an in-order `MdContext`, flushes parent Markdown before each streamed `Suspense` boundary, renders the child into the same buffer, then continues the document in order. Markdown-local state such as blank-line tracking is carried across the child boundary so streamed output matches buffered output.
+The driver renders the root through `WebContext<L>` in in-order mode with the supplied request-scoped loader, flushes parent Markdown before each streamed `Suspense` boundary, renders the child into the same buffer, then continues the document in order. Markdown-local state such as blank-line tracking is carried across the child boundary so streamed output matches buffered output.
 
 Markdown `Suspense` boundaries preserve document order. The fallback is an HTML shell concern and is not emitted by the Markdown stream driver.
 

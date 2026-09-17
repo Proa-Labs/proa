@@ -13,7 +13,12 @@ All notable public changes are tracked here.
   helpers use `md_*` / `write_md_*` names; `render_html_in_md` tracks HTML output
   through the live context without allocating another root.
 - Buffered Markdown HTTP responses transfer owned render pages without flattening
-  multi-page output and preserve response status and repeated headers.
+  multi-page output and preserve response status.
+- HTML and Markdown response finalization now retain every value of repeated
+  headers such as `Link` and `Vary`. Component headers replace framework defaults
+  once per name; `Set-Cookie` values continue to accumulate.
+- The Airbnb home showcase's Markdown listing details now escape interpolated
+  locations and ratings consistently with other Markdown component output.
 
 - **Breaking:** `RouteResponse` is now an opaque deferred-render plan with a
   synchronous plan and one async plan whose delivery policy is buffered or
