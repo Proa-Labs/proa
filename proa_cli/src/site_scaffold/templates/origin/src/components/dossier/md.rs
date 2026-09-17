@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use proa_core::{md::MdContext, MdRenderSync, WriteBuf, WriteError};
+use proa_core::{MdRenderSync, WebContext, WriteBuf, WriteError};
 use proa_macros::md_sync;
 
 use crate::model::{site_for, Dossier, Site};
@@ -37,9 +37,9 @@ struct LiveDossierMd<'a> {
 // Resources render as inline code spans via typed `cx.code` composition; the
 // interleaved static list/table bytes cannot be expressed in `md_sync!`
 // because slots inside backticks stay literal.
-// proa-perf-ok(scope): typed MdContext composition for inline code spans.
-impl<B: WriteBuf> MdRenderSync<B> for LiveDossierMd<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+// proa-perf-ok(scope): typed WebContext composition for inline code spans.
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for LiveDossierMd<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         // proa-perf-ok(scope): a handful of short row strings per markdown
         // response on a guided demo page.
         let dossier = self.dossier;
@@ -118,27 +118,27 @@ impl<B: WriteBuf> MdRenderSync<B> for LiveDossierMd<'_> {
         // Hostnames, addresses, and prefixes go through `cx.code` so they
         // arrive as inline code spans instead of backslash-escaped prose
         // (template slots inside backticks stay literal by design).
-        cx.heading_with(1, |cx| {
-            cx.code(self.host)?;
-            cx.write_text(" — network dossier")
+        cx.md_heading_with(1, |cx| {
+            cx.md_code(self.host)?;
+            cx.write_md_text(" — network dossier")
         })?;
-        cx.block_boundary()?;
+        cx.md_block_boundary()?;
         md_sync! { r###"
             ## How the internet reaches it
             "###
         }
         .render_md(cx)?;
-        cx.block_boundary()?;
-        cx.write_prepared_static(b"1. DNS resolves ")?;
-        cx.code(self.host)?;
-        cx.write_prepared_static(b" to ")?;
-        cx.code(address)?;
-        cx.write_prepared_static(b"\n2. That address sits inside ")?;
-        cx.code(&dossier.subject.prefix)?;
-        cx.write_prepared_static(b"\n3. That range is announced by AS")?;
-        cx.write_text(&dossier.subject.asn.to_string())?;
-        cx.write_prepared_static(b"\n")?;
-        cx.block_boundary()?;
+        cx.md_block_boundary()?;
+        cx.write_md_prepared_static(b"1. DNS resolves ")?;
+        cx.md_code(self.host)?;
+        cx.write_md_prepared_static(b" to ")?;
+        cx.md_code(address)?;
+        cx.write_md_prepared_static(b"\n2. That address sits inside ")?;
+        cx.md_code(&dossier.subject.prefix)?;
+        cx.write_md_prepared_static(b"\n3. That range is announced by AS")?;
+        cx.write_md_text(&dossier.subject.asn.to_string())?;
+        cx.write_md_prepared_static(b"\n")?;
+        cx.md_block_boundary()?;
         md_sync! { r###"
             ## Summary
 
@@ -151,7 +151,7 @@ impl<B: WriteBuf> MdRenderSync<B> for LiveDossierMd<'_> {
             "###
         }
         .render_md(cx)?;
-        cx.block_boundary()?;
+        cx.md_block_boundary()?;
         md_sync! { r###"
             ## At a glance
 
@@ -168,7 +168,7 @@ impl<B: WriteBuf> MdRenderSync<B> for LiveDossierMd<'_> {
             "###
         }
         .render_md(cx)?;
-        cx.block_boundary()?;
+        cx.md_block_boundary()?;
         if dossier.prefixes.is_empty() {
             md_sync! { r###"
                 Range list unavailable: it exceeded this page's data budget.
@@ -176,16 +176,16 @@ impl<B: WriteBuf> MdRenderSync<B> for LiveDossierMd<'_> {
             }
             .render_md(cx)?;
         } else {
-            cx.write_prepared_static(b"| prefix | observed |\n| --- | --- |\n")?;
+            cx.write_md_prepared_static(b"| prefix | observed |\n| --- | --- |\n")?;
             for (prefix, since) in &ranges {
-                cx.write_prepared_static(b"| ")?;
-                cx.code(prefix)?;
-                cx.write_prepared_static(b" | ")?;
-                cx.write_text(since)?;
-                cx.write_prepared_static(b" |\n")?;
+                cx.write_md_prepared_static(b"| ")?;
+                cx.md_code(prefix)?;
+                cx.write_md_prepared_static(b" | ")?;
+                cx.write_md_text(since)?;
+                cx.write_md_prepared_static(b" |\n")?;
             }
         }
-        cx.block_boundary()?;
+        cx.md_block_boundary()?;
         md_sync! { r###"
             ## Who carries its traffic
 
@@ -197,15 +197,15 @@ impl<B: WriteBuf> MdRenderSync<B> for LiveDossierMd<'_> {
             "###
         }
         .render_md(cx)?;
-        cx.block_boundary()?;
+        cx.md_block_boundary()?;
         for (collector, hops) in &routes {
-            cx.write_prepared_static(b"- ")?;
-            cx.code(collector)?;
-            cx.write_prepared_static(b": ")?;
-            cx.write_text(hops)?;
-            cx.write_prepared_static(b"\n")?;
+            cx.write_md_prepared_static(b"- ")?;
+            cx.md_code(collector)?;
+            cx.write_md_prepared_static(b": ")?;
+            cx.write_md_text(hops)?;
+            cx.write_md_prepared_static(b"\n")?;
         }
-        cx.block_boundary()?;
+        cx.md_block_boundary()?;
         if let Some(site) = self.site {
             md_sync! { r###"
                 ## Open routing situations
@@ -217,7 +217,7 @@ impl<B: WriteBuf> MdRenderSync<B> for LiveDossierMd<'_> {
             }
             .render_md(cx)?;
         }
-        cx.block_boundary()
+        cx.md_block_boundary()
     }
 }
 
@@ -225,16 +225,16 @@ struct CuratedDossierMd {
     site: &'static Site,
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for CuratedDossierMd {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for CuratedDossierMd {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         let site = self.site;
         // Same heading shape and row wording as the live dossier, so readers
         // (and tests) see one format regardless of which path served them.
-        cx.heading_with(1, |cx| {
-            cx.code(site.host)?;
-            cx.write_text(" — network dossier")
+        cx.md_heading_with(1, |cx| {
+            cx.md_code(site.host)?;
+            cx.write_md_text(" — network dossier")
         })?;
-        cx.block_boundary()?;
+        cx.md_block_boundary()?;
         md_sync! { r###"
             RIPEstat was unreachable; this is the curated dossier.
 
@@ -247,9 +247,9 @@ impl<B: WriteBuf> MdRenderSync<B> for CuratedDossierMd {
     }
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for DossierMd {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.block_boundary()?;
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for DossierMd {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        cx.md_block_boundary()?;
         let site = self.site();
         match (&self.dossier, site) {
             (Some(dossier), site) => {
@@ -267,8 +267,8 @@ impl<B: WriteBuf> MdRenderSync<B> for DossierMd {
             }
             (None, Some(site)) => CuratedDossierMd { site }.render_md(cx)?,
             (None, None) => {
-                cx.heading_with(1, |cx| cx.code(self.query.as_str()))?;
-                cx.block_boundary()?;
+                cx.md_heading_with(1, |cx| cx.md_code(self.query.as_str()))?;
+                cx.md_block_boundary()?;
                 md_sync! { r###"
                     This name did not resolve, or RIPEstat was unreachable. Check the
                     spelling, or retry shortly.
@@ -288,6 +288,6 @@ impl<B: WriteBuf> MdRenderSync<B> for DossierMd {
             "###
         }
         .render_md(cx)?;
-        cx.block_boundary()
+        cx.md_block_boundary()
     }
 }

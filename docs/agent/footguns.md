@@ -320,7 +320,7 @@ and removes the call-site adapter. Explicit custom components use
 
 ## Markdown render traits (proa_core)
 
-### "`AsyncMd<...>: MdRenderSync<B>` is not satisfied"
+### "`AsyncMd<...>: MdRenderSync<L>` is not satisfied"
 
 **Triggered by:** using async-capable `md!` inside an `MdRenderSync` component
 or passing its dynamic output to a synchronous Markdown renderer.
@@ -338,7 +338,7 @@ md_sync! { r###"
 If the component really needs async children, implement `MdRender` and drive
 the `md!` output with `render_md_child(...).await` or `.resolve().await`.
 
-### "`MyChild: MdRender<B>` is not satisfied" inside `md!`
+### "`MyChild: MdRender<L>` is not satisfied" inside `md!`
 
 **Triggered by:** interpolating a custom sync-only `MdRenderSync` child into
 the async-capable macro.

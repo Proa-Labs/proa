@@ -24,7 +24,6 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use proa_core::md::MdContext;
 use proa_core::{
     render_in_context_async, render_md_in_context_async, to_md_async, MdRender, MdRenderSync,
     NoLoader, RenderBuffer, RenderMode, RenderOutcome, StreamChunkFlusher, SyncToAsync, WebContext,
@@ -87,8 +86,8 @@ impl WebRender<NoLoader, RenderBuffer> for ScalingPage {
 
 struct TinyMarkdownChild;
 
-impl<B: WriteBuf> MdRenderSync<B> for TinyMarkdownChild {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for TinyMarkdownChild {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         MdRenderSync::render_md(
             md_sync! { r###"
                 x
@@ -104,15 +103,11 @@ struct MarkdownScalingPage {
     boundary_count: usize,
 }
 
-impl MdRender<RenderBuffer> for MarkdownScalingPage {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader> MdRender<Loader, RenderBuffer> for MarkdownScalingPage {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, RenderBuffer>,
-    ) -> RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, RenderBuffer>,
+    ) -> RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             for _ in 0..self.boundary_count {
                 proa_core::render_md_child(cx, Suspense::new(to_md_async(TinyMarkdownChild), ()))
@@ -228,12 +223,13 @@ fn bench_markdown_suspense_boundary_scaling(c: &mut Criterion) {
                 out.clear();
                 sink.reset();
                 let total_bytes = runtime.block_on(async {
-                    let mut cx = MdContext::with_buffer(&mut out)
+                    let mut cx = WebContext::with_buffer(std::mem::take(&mut out))
                         .with_render_mode(RenderMode::ChunkedInOrder)
                         .with_stream_chunk_flusher(Rc::clone(&flusher));
                     render_md_in_context_async(&mut cx, MarkdownScalingPage { boundary_count: n })
                         .await
                         .expect("Markdown scaling page should render");
+                    out = cx.into_output();
                     out.len() + sink.flushed_len.get()
                 });
                 black_box(total_bytes)

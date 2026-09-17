@@ -4,7 +4,6 @@
 use super::recipe::SECTION;
 use crate::components::{Badge, BadgeVariant};
 use crate::domain::IssueProjection;
-use proa_core::md::MdContext;
 use proa_core::{
     ClassList, DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
@@ -45,21 +44,21 @@ pub fn status_badge(status: &str) -> Badge<&str> {
 
 /// Adaptive delimiters preserve literal evidence, including embedded backticks.
 struct Telemetry<'a>(&'a str);
-impl<B: WriteBuf> MdRenderSync<B> for Telemetry<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.fenced_code("text", self.0)
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Telemetry<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        cx.md_fenced_code("text", self.0)
     }
 }
 struct InlineCode<'a>(&'a str);
-impl<B: WriteBuf> MdRenderSync<B> for InlineCode<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.write_inline_code(self.0)
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlineCode<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        cx.write_md_inline_code(self.0)
     }
 }
 struct ReportLink<'a>(&'a str);
-impl<B: WriteBuf> MdRenderSync<B> for ReportLink<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.link("Open in Incident Desk", self.0)
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ReportLink<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        cx.md_link("Open in Incident Desk", self.0)
     }
 }
 
@@ -92,8 +91,8 @@ impl<L: DataLoader> WebRenderSync<L> for IssueOverview<'_> {
         .render(cx)
     }
 }
-impl<B: WriteBuf> MdRenderSync<B> for IssueOverview<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for IssueOverview<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         let d = self.data;
         let id = InlineCode(&d.issue.id);
         let link = ReportLink(&d.url);
@@ -159,8 +158,8 @@ impl<L: DataLoader> WebRenderSync<L> for Impact<'_> {
         .render(cx)
     }
 }
-impl<B: WriteBuf> MdRenderSync<B> for Impact<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Impact<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         let d = self.data;
         md_sync! { r###"
             ## Impact
@@ -212,8 +211,8 @@ impl<L: DataLoader> WebRenderSync<L> for ReleaseEvidence<'_> {
         .render(cx)
     }
 }
-impl<B: WriteBuf> MdRenderSync<B> for ReleaseEvidence<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ReleaseEvidence<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         let d = self.data;
         let release = InlineCode(&d.issue.release_id);
         md_sync! { r###"
@@ -245,8 +244,8 @@ impl<L: DataLoader> WebRenderSync<L> for Runbook<'_> {
         .render(cx)
     }
 }
-impl<B: WriteBuf> MdRenderSync<B> for Runbook<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Runbook<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             ## Response playbook
 
@@ -262,7 +261,7 @@ impl<B: WriteBuf> MdRenderSync<B> for Runbook<'_> {
             }
             .render_md(cx)?;
         }
-        cx.block_boundary()
+        cx.md_block_boundary()
     }
 }
 impl<L: DataLoader> WebRenderSync<L> for ActionSummary<'_> {
@@ -285,8 +284,8 @@ impl<L: DataLoader> WebRenderSync<L> for ActionSummary<'_> {
         }.render(cx)
     }
 }
-impl<B: WriteBuf> MdRenderSync<B> for ActionSummary<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ActionSummary<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             ## Next step
 
@@ -346,8 +345,8 @@ impl<L: DataLoader> WebRenderSync<L> for ActivityLog<'_> {
         }.render(cx)
     }
 }
-impl<B: WriteBuf> MdRenderSync<B> for ActivityLog<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ActivityLog<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         if self.data.activity.is_empty() {
             return Ok(());
         }
@@ -386,8 +385,8 @@ impl<L: DataLoader> WebRenderSync<L> for IssueReport<'_> {
         .render(cx)
     }
 }
-impl<B: WriteBuf> MdRenderSync<B> for IssueReport<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for IssueReport<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         let overview = IssueOverview::new(self.data);
         let impact = Impact::new(self.data);
         let release = ReleaseEvidence::new(self.data);
@@ -399,6 +398,6 @@ impl<B: WriteBuf> MdRenderSync<B> for IssueReport<'_> {
 }
 pub fn markdown(data: &IssueProjection) -> Result<String, WriteError> {
     let mut out = Vec::new();
-    IssueReport::new(data).render_md(&mut MdContext::new(&mut out))?;
+    IssueReport::new(data).render_md(&mut WebContext::with_buffer(&mut out))?;
     Ok(String::from_utf8(out).expect("Markdown UTF-8"))
 }

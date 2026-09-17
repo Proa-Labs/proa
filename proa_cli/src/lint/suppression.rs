@@ -132,7 +132,7 @@ impl SuppressionComments {
                 "render/async-unneeded"
                     | "render/md-async-unneeded"
                     | "render/static-string-to-string"
-                    // Composed MdContext writes are sometimes the only way to
+                    // Composed WebContext writes are sometimes the only way to
                     // express a construct (template slots inside backticks
                     // stay literal); an annotated reason opts a scope out.
                     | "md/manual-write"

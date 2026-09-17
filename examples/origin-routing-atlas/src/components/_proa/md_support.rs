@@ -17,12 +17,12 @@
 //!
 //! instead of assuming the cursor sits on a fresh line.
 //!
-//! The boundary implementation lives in `MdContext`, whose compact suffix
+//! The boundary implementation lives in `WebContext`, whose compact suffix
 //! state survives static/shared zero-copy writes and streaming flushes. These
 //! helpers remain as crate-local shims so component call sites share one
 //! convention without depending on buffer contiguity.
 
-use proa_core::md::MdContext;
+use proa_core::WebContext;
 use proa_core::{WriteBuf, WriteError};
 
 /// Ensure the output sits at a block boundary (start of output or after a
@@ -31,8 +31,10 @@ use proa_core::{WriteBuf, WriteError};
 /// No-op in inline context — inline consumers (table cells, link labels)
 /// must never receive embedded newlines, so block components degrade
 /// gracefully there.
-pub(crate) fn block_boundary<B: WriteBuf>(cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-    cx.block_boundary()
+pub(crate) fn block_boundary<L: proa_core::DataLoader, B: WriteBuf>(
+    cx: &mut WebContext<L, B>,
+) -> Result<(), WriteError> {
+    cx.md_block_boundary()
 }
 
 /// Ensure the output sits at the start of a line (start of output or right
@@ -43,6 +45,8 @@ pub(crate) fn block_boundary<B: WriteBuf>(cx: &mut MdContext<'_, B>) -> Result<(
 /// list), so item emitters (checkbox, toggle, radio items) need a fresh
 /// LINE, not a full blank-line boundary. Like [`block_boundary`], it is
 /// buffer-accurate and a no-op in inline context.
-pub(crate) fn line_boundary<B: WriteBuf>(cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-    cx.line_boundary()
+pub(crate) fn line_boundary<L: proa_core::DataLoader, B: WriteBuf>(
+    cx: &mut WebContext<L, B>,
+) -> Result<(), WriteError> {
+    cx.md_line_boundary()
 }

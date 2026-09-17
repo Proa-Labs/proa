@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use proa_core::md::{MdContext, MdContextState};
+use proa_core::md::MdState;
 use proa_core::{
     DataLoader, MdRender, PendingBoundary, Priority, RenderBuffer, RenderMode, RenderOutcome,
     RenderedBoundary, SendPendingBoundary, SendWebContext, WebContext, WebRender, WebRenderSend,
@@ -82,17 +82,17 @@ impl Drop for ClearRenderBufferOnDrop {
 
 /// Restores the Markdown-local state that the old disposable child context
 /// isolated when a same-context boundary does not complete successfully.
-struct RestoreMarkdownBoundaryOnDrop<'out> {
-    cx: *mut MdContext<'out, RenderBuffer>,
-    state: MdContextState,
+struct RestoreMarkdownBoundaryOnDrop<L: DataLoader> {
+    cx: *mut WebContext<L, RenderBuffer>,
+    state: MdState,
     armed: bool,
 }
 
-impl<'out> RestoreMarkdownBoundaryOnDrop<'out> {
-    fn new(cx: &mut MdContext<'out, RenderBuffer>) -> Self {
+impl<L: DataLoader> RestoreMarkdownBoundaryOnDrop<L> {
+    fn new(cx: &mut WebContext<L, RenderBuffer>) -> Self {
         Self {
             cx: std::ptr::from_mut(cx),
-            state: cx.render_state(),
+            state: cx.md_state(),
             armed: true,
         }
     }
@@ -102,7 +102,7 @@ impl<'out> RestoreMarkdownBoundaryOnDrop<'out> {
     }
 }
 
-impl Drop for RestoreMarkdownBoundaryOnDrop<'_> {
+impl<L: DataLoader> Drop for RestoreMarkdownBoundaryOnDrop<L> {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
         if self.armed {
@@ -111,7 +111,7 @@ impl Drop for RestoreMarkdownBoundaryOnDrop<'_> {
             // owns the exclusive context borrow for the guard's lifetime.
             unsafe {
                 (*self.cx).out.clear();
-                (*self.cx).set_render_state(self.state);
+                (*self.cx).set_md_state(self.state);
             }
         }
     }
@@ -336,18 +336,14 @@ where
     }
 }
 
-impl<C, Fb> MdRender<RenderBuffer> for Suspense<C, Fb>
+impl<Loader: ::proa_core::DataLoader, C, Fb> MdRender<Loader, RenderBuffer> for Suspense<C, Fb>
 where
-    C: MdRender<RenderBuffer>,
+    C: MdRender<Loader, RenderBuffer>,
 {
-    fn render_md<'cx, 'out>(
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, RenderBuffer>,
-    ) -> RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, RenderBuffer>,
+    ) -> RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>> {
         let Self {
             child,
             fallback,
@@ -356,26 +352,28 @@ where
         } = self;
         let _ = fallback;
 
-        if matches!(cx.render_mode(), RenderMode::ChunkedInOrder)
+        // Flush eagerly, matching HTML's in-order contract. One concrete
+        // future captures both the child and context borrow without forcing
+        // either lifetime to outlive the other through an erased future.
+        let pre_flush = if matches!(cx.render_mode(), RenderMode::ChunkedInOrder)
             && cx.stream_chunk_flusher().is_some()
         {
-            let pre_flush = cx.flush_stream_chunk();
-            let future: std::pin::Pin<
-                Box<dyn std::future::Future<Output = Result<(), WriteError>> + '_>,
-            > = Box::pin(async move {
-                pre_flush?;
+            Some(cx.flush_stream_chunk())
+        } else {
+            None
+        };
+        RenderOutcome::pending(async move {
+            if let Some(result) = pre_flush {
+                result?;
                 let mut restore = RestoreMarkdownBoundaryOnDrop::new(cx);
                 proa_core::render_md_in_context_async(cx, child).await?;
                 cx.flush_stream_chunk()?;
                 restore.disarm();
                 Ok(())
-            });
-            return RenderOutcome::Pending(future);
-        }
-
-        RenderOutcome::Pending(Box::pin(async move {
-            proa_core::render_md_child(cx, child).await
-        }))
+            } else {
+                proa_core::render_md_child(cx, child).await
+            }
+        })
     }
 }
 

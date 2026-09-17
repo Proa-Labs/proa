@@ -4,6 +4,17 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- HTML and Markdown now share `WebContext<L, B>`. `MdRenderSync` and `MdRender`
+  take loader-first generics, default to `NoLoader` and `RenderBuffer`, and no
+  longer require context or render-method lifetimes. `MdContext` is removed
+  without a compatibility alias. See [the migration guide](docs/migrations/web-context.md).
+- Markdown supports the same request loader and metadata as HTML, including
+  loader-aware in-order streaming and deferred Axum responses. Format-specific
+  helpers use `md_*` / `write_md_*` names; `render_html_in_md` tracks HTML output
+  through the live context without allocating another root.
+- Buffered Markdown HTTP responses transfer owned render pages without flattening
+  multi-page output and preserve response status and repeated headers.
+
 - **Breaking:** `RouteResponse` is now an opaque deferred-render plan with a
   synchronous plan and one async plan whose delivery policy is buffered or
   streamed. The Axum type is a thin wrapper over `proa_framework_core` instead

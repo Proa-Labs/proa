@@ -1908,13 +1908,35 @@ impl WebContextParts {
     }
 }
 
-/// Context for rendering HTML to web browsers.
+/// Shared request context for rendering HTML and Markdown for the web.
 ///
 /// Generic first over the request-scoped data loader type `L`, then over the
 /// output type `B`. The standard writer defaults to [`RenderBuffer`], so
 /// application components normally customize only their loader.
+///
+/// # Why merge HTML and Markdown contexts?
+///
+/// HTML and Markdown are representations of the same web request. Both need
+/// output ownership, a request-scoped loader, response metadata, metering, and
+/// streaming machinery. Separate contexts duplicated that machinery and let
+/// Markdown fall behind changes such as loader support and lifetime-free
+/// render signatures. Sharing the implementation makes future fixes apply to
+/// both formats.
+///
+/// The refactor therefore chooses `WebContext<L, B>` as the common context.
+/// Owning `B` removes the context's output lifetime; borrowed writers remain
+/// possible through `B = &mut Writer`. HTML-in-Markdown bridges can reborrow
+/// the live loader and state instead of constructing a fresh `NoLoader`
+/// context, allocating another parts box and loader `Arc` on every bridge.
+///
+/// The HTML and Markdown render traits remain distinct: each format keeps its
+/// escaping, composition rules, and formatting state. Sharing a context does
+/// not make their output interchangeable. The `WebContext` name describes the
+/// shared web request environment; a future native renderer may need a
+/// separate context for graphics resources.
+///
 pub struct WebContext<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
-    /// The output buffer where HTML is written.
+    /// The owned output buffer for the selected representation.
     pub out: B,
 
     /// Current content mode (HTML, JavaScript, etc.) for proper escaping.
@@ -1925,6 +1947,9 @@ pub struct WebContext<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 
     /// Request render mode used by streaming-aware features.
     render_mode: RenderMode,
+
+    /// Format-local Markdown state, independent of output flushes.
+    pub(crate) md_state: crate::md::MdState,
 
     /// Each ordinary `WebContext` owns one of these roughly 680-byte bundles.
     /// It is boxed so those bytes are not stored inline in the `WebContext`
@@ -2034,6 +2059,7 @@ struct ScopedWebState<'scope, L: DataLoader> {
     mode: &'scope mut ContentMode,
     escape_dialect: &'scope mut EscapeDialect,
     render_mode: &'scope mut RenderMode,
+    md_state: &'scope mut crate::md::MdState,
     context_parts: &'scope mut Option<Box<WebContextParts>>,
     rsjs_artifact_transaction:
         &'scope mut OnceCell<Rc<RefCell<Option<Rc<RsjsArtifactTransaction>>>>>,
@@ -2067,6 +2093,7 @@ where
             mode: *parent.mode,
             escape_dialect: *parent.escape_dialect,
             render_mode: *parent.render_mode,
+            md_state: *parent.md_state,
             context_parts: std::mem::take(parent.context_parts),
             rsjs_artifact_transaction: std::mem::take(parent.rsjs_artifact_transaction),
             rsjs_shared_state_transaction: *parent.rsjs_shared_state_transaction,
@@ -2092,6 +2119,7 @@ where
         *self.parent.mode = child.mode;
         *self.parent.escape_dialect = child.escape_dialect;
         *self.parent.render_mode = child.render_mode;
+        *self.parent.md_state = child.md_state;
         *self.parent.context_parts = std::mem::take(&mut child.context_parts);
         *self.parent.rsjs_artifact_transaction =
             std::mem::take(&mut child.rsjs_artifact_transaction);
@@ -2125,6 +2153,27 @@ where
 {
     let mut scoped = ScopedWebOutput::new(parent, out);
     render(scoped.child_mut())
+}
+
+/// The observer owns its suffix separately from the child's Markdown state.
+/// Nested Markdown fragments may reset their own state without losing the
+/// physical suffix produced through the observer. Restore before output-state
+/// cleanup so even unwinding returns the observed suffix to the parent.
+struct HtmlInMdScope<'scope, L: DataLoader, B: WriteBuf> {
+    output: ScopedWebOutput<'scope, crate::md::context::ObservedMdWriteBuf<'scope, B>, L>,
+    saved: crate::md::MdState,
+    mode: ContentMode,
+    escape_dialect: EscapeDialect,
+}
+
+impl<L: DataLoader, B: WriteBuf> Drop for HtmlInMdScope<'_, L, B> {
+    fn drop(&mut self) {
+        let child = self.output.child_mut();
+        child.out.merge_suffix(&mut self.saved);
+        child.md_state = self.saved;
+        child.mode = self.mode;
+        child.escape_dialect = self.escape_dialect;
+    }
 }
 
 impl WebContext<NoLoader, RenderBuffer> {
@@ -2216,6 +2265,7 @@ impl<B: WriteBuf> WebContext<NoLoader, B> {
             mode: ContentMode::Html,
             escape_dialect: EscapeDialect::Html,
             render_mode: RenderMode::Static,
+            md_state: crate::md::MdState::default(),
             context_parts,
             rsjs_artifact_transaction: OnceCell::new(),
             rsjs_shared_state_transaction: None,
@@ -2276,6 +2326,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             mode: ContentMode::Html,
             escape_dialect: EscapeDialect::Html,
             render_mode: RenderMode::Static,
+            md_state: crate::md::MdState::default(),
             context_parts: Some(Box::new(context_parts)),
             rsjs_artifact_transaction,
             rsjs_shared_state_transaction,
@@ -2310,6 +2361,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             mode,
             escape_dialect,
             render_mode,
+            md_state,
             context_parts,
             rsjs_artifact_transaction,
             rsjs_shared_state_transaction,
@@ -2322,6 +2374,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             mode,
             escape_dialect,
             render_mode,
+            md_state,
             context_parts,
             rsjs_artifact_transaction,
             rsjs_shared_state_transaction,
@@ -2338,6 +2391,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             mode,
             escape_dialect,
             render_mode,
+            md_state,
             context_parts,
             rsjs_artifact_transaction,
             rsjs_shared_state_transaction,
@@ -2352,6 +2406,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
                 mode,
                 escape_dialect,
                 render_mode,
+                md_state,
                 context_parts,
                 rsjs_artifact_transaction,
                 rsjs_shared_state_transaction,
@@ -2403,6 +2458,33 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         let (out, parent) = self.output_and_state();
         let metered = MeteredWriteBuf::new(out, meter);
         with_scoped_web_output(parent, metered, render)
+    }
+
+    /// Render HTML into Markdown with the same loader and live request state.
+    ///
+    /// Every successful write updates the logical Markdown suffix, including
+    /// static, shared, and in-place writes. HTML escaping and the caller's
+    /// Markdown formatting are scoped independently of the observed suffix.
+    /// All scopes restore on errors and panics without allocating a context.
+    pub fn render_html_in_md<'scope, T>(&'scope mut self, node: T) -> Result<(), crate::WriteError>
+    where
+        T: crate::WebRenderSync<L, crate::md::context::ObservedMdWriteBuf<'scope, B>>,
+    {
+        let (out, parent) = self.output_and_state();
+        let saved = *parent.md_state;
+        let mode = *parent.mode;
+        let escape_dialect = *parent.escape_dialect;
+        let observed = crate::md::context::ObservedMdWriteBuf::new(out, saved);
+        let mut scope = HtmlInMdScope {
+            output: ScopedWebOutput::new(parent, observed),
+            saved,
+            mode,
+            escape_dialect,
+        };
+        let child = scope.output.child_mut();
+        child.mode = ContentMode::Html;
+        child.escape_dialect = EscapeDialect::Html;
+        node.render(child)
     }
 
     /// Async counterpart to [`Self::with_metered_output`].

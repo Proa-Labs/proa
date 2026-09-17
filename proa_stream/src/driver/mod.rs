@@ -9,7 +9,8 @@ pub mod out_of_order;
 pub mod supervised;
 
 pub use in_order_markdown::{
-    render_md_in_order_to_flusher, render_md_in_order_to_vec, InOrderMarkdownDriver,
+    render_md_in_order_to_flusher, render_md_in_order_to_flusher_with_loader,
+    render_md_in_order_to_vec, render_md_in_order_to_vec_with_loader, InOrderMarkdownDriver,
 };
 pub use out_of_order::{
     drain_pending_boundaries_with_artifacts, drain_pending_boundaries_with_nonce_and_artifacts,

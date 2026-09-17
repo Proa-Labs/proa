@@ -344,8 +344,8 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
     };
     let markdown_impl = if markdown {
         r####"
-impl<B: WriteBuf> MdRenderSync<B> for HomePage {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for HomePage {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             # Welcome to Proa
 
@@ -404,7 +404,7 @@ __MARKDOWN_IMPL__
     .replace(
         "__MD_IMPORTS__",
         if markdown {
-            "use proa_core::{md::MdContext, MdRenderSync, WriteBuf};\nuse proa_macros::md_sync;"
+            "use proa_core::{WebContext, MdRenderSync, WriteBuf};\nuse proa_macros::md_sync;"
         } else {
             ""
         },

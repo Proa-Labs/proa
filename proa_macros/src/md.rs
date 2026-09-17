@@ -83,7 +83,7 @@ fn flush(stmts: &mut Vec<TokenStream>, run: &mut String) {
         stmts.push(quote! {
             {
                 static BYTES: &[u8] = #bytes;
-                cx.write_prepared_static(BYTES)?;
+                cx.write_md_prepared_static(BYTES)?;
             }
         });
         run.clear();
@@ -110,7 +110,7 @@ fn wrap_render(stmts: &[TokenStream], mode: EmitMode) -> TokenStream {
     match mode {
         EmitMode::Sync => quote! {
             ::proa_core::OptimizedMd::new(
-                |cx: &mut ::proa_core::md::MdContext<'_, _>| {
+                |cx: &mut ::proa_core::WebContext<_, _>| {
                     use ::proa_core::MdRenderSyncExt as _;
                     #(#stmts)*
                     Ok(())
@@ -132,9 +132,9 @@ fn wrap_render(stmts: &[TokenStream], mode: EmitMode) -> TokenStream {
 fn static_fragment(bytes: proc_macro2::Literal) -> TokenStream {
     quote! {
         ::proa_core::OptimizedMd::new(
-            |cx: &mut ::proa_core::md::MdContext<'_, _>| {
+            |cx: &mut ::proa_core::WebContext<_, _>| {
                 static BYTES: &[u8] = #bytes;
-                cx.write_prepared_static(BYTES)?;
+                cx.write_md_prepared_static(BYTES)?;
                 Ok(())
             }
         )
@@ -993,7 +993,7 @@ pub fn generate_tokens(root: &MdRoot, mode: EmitMode) -> TokenStream {
     for node in &root.nodes {
         if node.starts_new_line {
             flush(&mut stmts, &mut run);
-            stmts.push(quote! { cx.block_boundary()?; });
+            stmts.push(quote! { cx.md_block_boundary()?; });
         }
         match &node.kind {
             MdNodeKind::Text { value, dedent } => run.push_str(&text_value(value, *dedent)),

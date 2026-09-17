@@ -366,7 +366,7 @@ mod tests {
         let home = std::fs::read_to_string(root.join("src/pages/home.rs")).unwrap();
         syn::parse_file(&home).unwrap();
         assert!(home.contains("DataResolver::request_scope"));
-        assert!(home.contains("MdRenderSync<B> for HomePage"));
+        assert!(home.contains("MdRenderSync<L, B> for HomePage"));
     }
 
     #[test]

@@ -1,27 +1,34 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::rc::Rc;
-
 use bytes::Bytes;
 
-use crate::render::WebRenderSync;
-use crate::render::{RenderMode, StreamChunkFlusher};
-use crate::shared::output_meter::{
-    MeteredWriteBuf, OutputMeterHandle, OutputReservation, ReservedWriteBuf,
-};
-use crate::shared::write_buf::{RenderBuffer, WriteBuf, WriteError};
+use crate::render::DataLoader;
+use crate::shared::write_buf::{WriteBuf, WriteError};
 use crate::web::WebContext;
 
-/// Opaque snapshot of Markdown render state used when a streamed boundary
-/// renders in a child context and then returns control to the parent context.
+/// Opaque snapshot of Markdown formatting and logical output suffix state.
+/// Fragment scopes and streamed boundaries use it to restore the caller's
+/// Markdown state without replacing the buffer or request environment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MdContextState {
+pub struct MdState {
     heading_offset: u8,
     list_depth: u8,
     inline: bool,
     trailing_line: TrailingLineState,
     pending_cr: bool,
+}
+
+impl Default for MdState {
+    fn default() -> Self {
+        Self {
+            heading_offset: 0,
+            list_depth: 0,
+            inline: false,
+            trailing_line: TrailingLineState::Start,
+            pending_cr: false,
+        }
+    }
 }
 
 /// Compact description of the Markdown output suffix.
@@ -113,25 +120,38 @@ fn state_after_write(
     (state, pending_cr)
 }
 
-/// Write-buffer adapter used by [`MdContext::render_web`] to keep Markdown's
+/// Write-buffer adapter used by [`WebContext::render_html_in_md`] to keep Markdown's
 /// logical suffix state coherent while an HTML renderer writes to the same
 /// physical buffer.
 ///
-/// The state references are updated after every successful write, so they are
-/// already correct if the renderer later returns an error or unwinds. Static,
+/// The observer tracks successful writes independently of fragment formatting
+/// state. Its scope merges the suffix even if rendering errors or unwinds. Static,
 /// shared, and in-place writes delegate to the matching inner fast path.
 #[doc(hidden)]
 pub struct ObservedMdWriteBuf<'a, B: WriteBuf> {
     inner: &'a mut B,
-    trailing_line: &'a mut TrailingLineState,
-    pending_cr: &'a mut bool,
+    trailing_line: TrailingLineState,
+    pending_cr: bool,
 }
 
-impl<B: WriteBuf> ObservedMdWriteBuf<'_, B> {
+impl<'a, B: WriteBuf> ObservedMdWriteBuf<'a, B> {
+    pub(crate) fn new(inner: &'a mut B, state: MdState) -> Self {
+        Self {
+            inner,
+            trailing_line: state.trailing_line,
+            pending_cr: state.pending_cr,
+        }
+    }
+
+    pub(crate) fn merge_suffix(&self, state: &mut MdState) {
+        state.trailing_line = self.trailing_line;
+        state.pending_cr = self.pending_cr;
+    }
+
     #[inline(always)]
     fn observe(&mut self, bytes: &[u8]) {
-        (*self.trailing_line, *self.pending_cr) =
-            state_after_write(*self.trailing_line, *self.pending_cr, bytes);
+        (self.trailing_line, self.pending_cr) =
+            state_after_write(self.trailing_line, self.pending_cr, bytes);
     }
 }
 
@@ -189,8 +209,8 @@ impl<B: WriteBuf> WriteBuf for ObservedMdWriteBuf<'_, B> {
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        let previous = *self.trailing_line;
-        let previous_pending_cr = *self.pending_cr;
+        let previous = self.trailing_line;
+        let previous_pending_cr = self.pending_cr;
         let mut next = None;
         self.inner.extend_with(max_len, |buffer| {
             let len = write(buffer);
@@ -202,8 +222,8 @@ impl<B: WriteBuf> WriteBuf for ObservedMdWriteBuf<'_, B> {
             len
         })?;
         if let Some((trailing_line, pending_cr)) = next {
-            *self.trailing_line = trailing_line;
-            *self.pending_cr = pending_cr;
+            self.trailing_line = trailing_line;
+            self.pending_cr = pending_cr;
         }
         Ok(())
     }
@@ -221,340 +241,67 @@ impl<B: WriteBuf> WriteBuf for ObservedMdWriteBuf<'_, B> {
     #[inline(always)]
     fn clear(&mut self) {
         self.inner.clear();
-        *self.trailing_line = TrailingLineState::Start;
-        *self.pending_cr = false;
+        self.trailing_line = TrailingLineState::Start;
+        self.pending_cr = false;
     }
 }
 
-/// Rendering context for Markdown output.
-///
-/// Tracks nesting state so components can produce properly indented
-/// and leveled markdown without knowing their position in the tree.
-///
-/// Generic over `B: WriteBuf`, mirroring [`WebContext`]'s design.
-pub struct MdContext<'a, B: WriteBuf = Vec<u8>> {
-    /// Output buffer.
-    pub out: &'a mut B,
-    /// Heading level offset — incremented when nesting (e.g. Card inside Card).
-    heading_offset: u8,
-    /// Current list indentation depth.
-    list_depth: u8,
-    /// When true, suppress block-level newlines (inline context).
-    inline: bool,
-    /// Compact state for the logical trailing line-break suffix.
-    trailing_line: TrailingLineState,
-    /// Whether the final byte was CR, allowing the next write's LF to complete
-    /// a CRLF without counting as a second logical break.
-    pending_cr: bool,
-    /// Request render mode used by streaming-aware Markdown boundaries.
-    render_mode: RenderMode,
-    /// Optional sink for pure Markdown chunk flushing in in-order streaming mode.
-    stream_chunk_flusher: Option<Rc<dyn StreamChunkFlusher>>,
-}
-
-/// Mutable slots for Markdown state that stay behind on the parent context.
-///
-/// Keeping these as disjoint field borrows lets a scoped child simultaneously
-/// reborrow the parent's output through a different [`WriteBuf`] adapter.
-struct ParentMdState<'scope> {
-    heading_offset: &'scope mut u8,
-    list_depth: &'scope mut u8,
-    inline: &'scope mut bool,
-    trailing_line: &'scope mut TrailingLineState,
-    pending_cr: &'scope mut bool,
-    render_mode: &'scope mut RenderMode,
-    stream_chunk_flusher: &'scope mut Option<Rc<dyn StreamChunkFlusher>>,
-}
-
-/// Owns Markdown render state moved into a scoped output-type reborrow.
-///
-/// Restoring from `Drop` keeps the parent context coherent when a renderer
-/// returns an error or unwinds. Only the temporary context points at the child
-/// output; the parent's output reference is never moved.
-struct ScopedMdOutput<'scope, 'child, C>
-where
-    C: WriteBuf,
-{
-    parent: ParentMdState<'scope>,
-    child: MdContext<'child, C>,
-}
-
-impl<'scope, 'child, C> ScopedMdOutput<'scope, 'child, C>
-where
-    C: WriteBuf,
-{
-    fn new(parent: ParentMdState<'scope>, out: &'child mut C) -> Self {
-        let child = MdContext {
-            out,
-            heading_offset: *parent.heading_offset,
-            list_depth: *parent.list_depth,
-            inline: *parent.inline,
-            trailing_line: *parent.trailing_line,
-            pending_cr: *parent.pending_cr,
-            render_mode: *parent.render_mode,
-            stream_chunk_flusher: parent.stream_chunk_flusher.take(),
-        };
-        Self { parent, child }
-    }
-}
-
-impl<C> Drop for ScopedMdOutput<'_, '_, C>
-where
-    C: WriteBuf,
-{
-    fn drop(&mut self) {
-        *self.parent.heading_offset = self.child.heading_offset;
-        *self.parent.list_depth = self.child.list_depth;
-        *self.parent.inline = self.child.inline;
-        *self.parent.trailing_line = self.child.trailing_line;
-        *self.parent.pending_cr = self.child.pending_cr;
-        *self.parent.render_mode = self.child.render_mode;
-        *self.parent.stream_chunk_flusher = self.child.stream_chunk_flusher.take();
-    }
-}
-
-impl<'a, I, H> MdContext<'a, MeteredWriteBuf<I, H>>
-where
-    I: WriteBuf,
-    H: OutputMeterHandle,
-{
-    /// Render one exactly measured semantic operation through pre-debited
-    /// reservation credit.
-    ///
-    /// The child bypasses the outer meter and writes directly to its inner
-    /// buffer, so the same bytes are not charged twice. A successful closure
-    /// must consume the reservation exactly. When the closure returns an
-    /// error, that original error wins and completion is deliberately not
-    /// validated. Markdown state is merged back in every exit mode, including
-    /// unwinding.
-    pub fn with_reserved_output<R>(
-        &mut self,
-        reservation: OutputReservation,
-        render: impl FnOnce(&mut MdContext<'_, ReservedWriteBuf<&mut I>>) -> Result<R, WriteError>,
-    ) -> Result<R, WriteError> {
-        let (metered, parent) = self.output_and_state();
-        let mut reserved = ReservedWriteBuf::new(metered.inner_mut(), reservation);
-        let mut scoped = ScopedMdOutput::new(parent, &mut reserved);
-        let result = render(&mut scoped.child);
-        drop(scoped);
-
-        match result {
-            Err(error) => Err(error),
-            Ok(value) => {
-                let _ = reserved.finish()?;
-                Ok(value)
-            }
-        }
-    }
-}
-
-impl<'a> MdContext<'a, Vec<u8>> {
-    /// Create a new markdown rendering context backed by a `Vec<u8>`.
-    pub fn new(out: &'a mut Vec<u8>) -> Self {
-        Self::with_buffer(out)
-    }
-}
-
-impl<'a, B: WriteBuf> MdContext<'a, B> {
-    /// Create a new markdown rendering context with a generic buffer.
-    pub fn with_buffer(out: &'a mut B) -> Self {
-        Self {
-            out,
-            heading_offset: 0,
-            list_depth: 0,
-            inline: false,
-            trailing_line: TrailingLineState::Start,
-            pending_cr: false,
-            render_mode: RenderMode::Static,
-            stream_chunk_flusher: None,
-        }
+impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
+    /// Snapshot Markdown formatting and logical suffix state, independently of
+    /// the physical buffer. Direct `out` writes bypass this bookkeeping; use
+    /// Markdown helpers or [`Self::render_html_in_md`] for tracked composition.
+    pub const fn md_state(&self) -> MdState {
+        self.md_state
     }
 
-    fn state_slots(&mut self) -> ParentMdState<'_> {
-        let Self {
-            out: _,
-            heading_offset,
-            list_depth,
-            inline,
-            trailing_line,
-            pending_cr,
-            render_mode,
-            stream_chunk_flusher,
-        } = self;
-        ParentMdState {
-            heading_offset,
-            list_depth,
-            inline,
-            trailing_line,
-            pending_cr,
-            render_mode,
-            stream_chunk_flusher,
-        }
+    /// Restore Markdown state without rolling back output or request metadata.
+    pub fn set_md_state(&mut self, state: MdState) {
+        self.md_state = state;
     }
 
-    fn output_and_state(&mut self) -> (&mut B, ParentMdState<'_>) {
-        let Self {
-            out,
-            heading_offset,
-            list_depth,
-            inline,
-            trailing_line,
-            pending_cr,
-            render_mode,
-            stream_chunk_flusher,
-        } = self;
-        (
-            &mut **out,
-            ParentMdState {
-                heading_offset,
-                list_depth,
-                inline,
-                trailing_line,
-                pending_cr,
-                render_mode,
-                stream_chunk_flusher,
-            },
-        )
-    }
-
-    /// Temporarily render through another output type while preserving all
-    /// Markdown-local and streaming state.
-    ///
-    /// State mutations made through the child context are moved back into the
-    /// parent on success, error, or panic. The optional flusher handle is moved
-    /// rather than cloned, and this ordinary path allocates nothing.
-    /// This is intended for metered and reservation-scoped buffer wrappers.
-    pub fn with_output<C, R>(
-        &mut self,
-        out: &mut C,
-        render: impl FnOnce(&mut MdContext<'_, C>) -> R,
-    ) -> R
-    where
-        C: WriteBuf,
-    {
-        let parent = self.state_slots();
-        let mut scoped = ScopedMdOutput::new(parent, out);
-        render(&mut scoped.child)
-    }
-
-    /// Render through a meter installed over this context's own output.
-    ///
-    /// The wrapper is constructed only after the parent output and Markdown
-    /// state have been split into disjoint reborrows, so callers never need an
-    /// unrepresentable simultaneous borrow of `self` and `self.out`. State is
-    /// merged back on success, error, or panic.
-    pub fn with_metered_output<H, R>(
-        &mut self,
-        meter: H,
-        render: impl FnOnce(&mut MdContext<'_, MeteredWriteBuf<&mut B, H>>) -> R,
-    ) -> R
-    where
-        H: OutputMeterHandle,
-    {
-        let (out, parent) = self.output_and_state();
-        let mut metered = MeteredWriteBuf::new(out, meter);
-        let mut scoped = ScopedMdOutput::new(parent, &mut metered);
-        render(&mut scoped.child)
-    }
-
-    /// Current request render mode.
-    pub const fn render_mode(&self) -> RenderMode {
-        self.render_mode
-    }
-
-    /// Set the current request render mode.
-    pub fn set_render_mode(&mut self, render_mode: RenderMode) {
-        self.render_mode = render_mode;
-    }
-
-    /// Builder-style render mode setter.
-    pub fn with_render_mode(mut self, render_mode: RenderMode) -> Self {
-        self.render_mode = render_mode;
-        self
-    }
-
-    /// Returns the configured in-order stream chunk flusher, if any.
-    pub fn stream_chunk_flusher(&self) -> Option<&Rc<dyn StreamChunkFlusher>> {
-        self.stream_chunk_flusher.as_ref()
-    }
-
-    /// Install the in-order stream chunk flusher on this context.
-    pub fn set_stream_chunk_flusher(&mut self, stream_chunk_flusher: Rc<dyn StreamChunkFlusher>) {
-        self.stream_chunk_flusher = Some(stream_chunk_flusher);
-    }
-
-    /// Builder-style in-order stream chunk flusher setter.
-    pub fn with_stream_chunk_flusher(
-        mut self,
-        stream_chunk_flusher: Rc<dyn StreamChunkFlusher>,
-    ) -> Self {
-        self.stream_chunk_flusher = Some(stream_chunk_flusher);
-        self
-    }
-
-    /// Snapshot Markdown-local render state for a child streaming context.
-    pub const fn render_state(&self) -> MdContextState {
-        MdContextState {
-            heading_offset: self.heading_offset,
-            list_depth: self.list_depth,
-            inline: self.inline,
-            trailing_line: self.trailing_line,
-            pending_cr: self.pending_cr,
-        }
-    }
-
-    /// Restore Markdown-local render state.
-    pub fn set_render_state(&mut self, state: MdContextState) {
-        self.heading_offset = state.heading_offset;
-        self.list_depth = state.list_depth;
-        self.inline = state.inline;
-        self.trailing_line = state.trailing_line;
-        self.pending_cr = state.pending_cr;
-    }
-
-    /// Builder-style render-state setter.
-    pub fn with_render_state(mut self, state: MdContextState) -> Self {
-        self.set_render_state(state);
+    /// Set the initial Markdown state for a detached render.
+    pub fn with_md_state(mut self, state: MdState) -> Self {
+        self.set_md_state(state);
         self
     }
 
     /// Write a heading at the given logical level (1-based).
     ///
-    /// The actual `#` count is `level + heading_offset`, clamped to 6.
-    pub fn heading(&mut self, level: u8, text: &str) -> Result<(), WriteError> {
-        self.heading_with(level, |cx| cx.write_heading_label(text))
+    /// The actual `#` count is `level + md_heading_offset`, clamped to 6.
+    pub fn md_heading(&mut self, level: u8, text: &str) -> Result<(), WriteError> {
+        self.md_heading_with(level, |cx| cx.write_md_heading_label(text))
     }
 
     /// Write a heading whose already-typed inline content renders directly.
     ///
-    /// Unlike [`MdContext::heading`], this accepts composed Markdown children.
+    /// Unlike [`WebContext::md_heading`], this accepts composed Markdown children.
     /// Runtime strings rendered by the closure still take the literal-text
     /// path, while trusted inline components retain their authored semantics.
-    pub fn heading_with<F>(&mut self, level: u8, render: F) -> Result<(), WriteError>
+    pub fn md_heading_with<F>(&mut self, level: u8, render: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut Self) -> Result<(), WriteError>,
     {
-        let actual = (level + self.heading_offset).min(6);
+        let actual = level.saturating_add(self.md_state.heading_offset).min(6);
         for _ in 0..actual {
-            self.write_prepared_static(b"#")?;
+            self.write_md_prepared_static(b"#")?;
         }
-        self.write_prepared_static(b" ")?;
-        let previous_inline = self.set_inline(true);
+        self.write_md_prepared_static(b" ")?;
+        let previous_inline = self.md_set_inline(true);
         let result = render(self);
-        self.set_inline(previous_inline);
+        self.md_set_inline(previous_inline);
         result?;
-        self.write_prepared_static(b"\n\n")
+        self.write_md_prepared_static(b"\n\n")
     }
 
     /// Write a blank line, deduplicating consecutive blank lines.
-    pub fn blank_line(&mut self) -> Result<(), WriteError> {
-        self.block_boundary()
+    pub fn md_blank_line(&mut self) -> Result<(), WriteError> {
+        self.md_block_boundary()
     }
 
     /// Write a horizontal rule.
-    pub fn hr(&mut self) -> Result<(), WriteError> {
+    pub fn md_hr(&mut self) -> Result<(), WriteError> {
         self.ensure_newline()?;
-        self.write_prepared_static(b"---\n\n")
+        self.write_md_prepared_static(b"---\n\n")
     }
 
     /// Write an explicitly trusted, already-authored Markdown document.
@@ -563,8 +310,8 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
     /// exists for APIs whose payload is Markdown source rather than literal
     /// runtime text. Prefer [`crate::md::TrustedMarkdown`] when composing.
     #[inline(always)]
-    pub fn write_trusted_markdown(&mut self, source: &str) -> Result<(), WriteError> {
-        self.write_prepared_str(source)
+    pub fn write_md_trusted(&mut self, source: &str) -> Result<(), WriteError> {
+        self.write_md_prepared_str(source)
     }
 
     /// Write trusted, target-prepared Markdown bytes.
@@ -573,7 +320,7 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
     /// prepared by a compiler or is a trusted component delimiter. Runtime
     /// data must use a semantic escaping helper instead.
     #[inline(always)]
-    pub fn write_prepared(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    pub fn write_md_prepared(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
         if bytes.is_empty() {
             return Ok(());
         }
@@ -584,14 +331,14 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
 
     /// Write a trusted, target-prepared Markdown string.
     #[inline(always)]
-    pub fn write_prepared_str(&mut self, value: &str) -> Result<(), WriteError> {
-        self.write_prepared(value.as_bytes())
+    pub fn write_md_prepared_str(&mut self, value: &str) -> Result<(), WriteError> {
+        self.write_md_prepared(value.as_bytes())
     }
 
     /// Write trusted static Markdown while preserving the buffer's static
     /// zero-copy fast path.
     #[inline(always)]
-    pub fn write_prepared_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
+    pub fn write_md_prepared_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
         if bytes.is_empty() {
             return Ok(());
         }
@@ -603,7 +350,7 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
     /// Write trusted shared Markdown while preserving the buffer's shared-run
     /// fast path.
     #[inline(always)]
-    pub fn write_prepared_shared(&mut self, bytes: &Bytes) -> Result<(), WriteError> {
+    pub fn write_md_prepared_shared(&mut self, bytes: &Bytes) -> Result<(), WriteError> {
         if bytes.is_empty() {
             return Ok(());
         }
@@ -612,69 +359,49 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
         Ok(())
     }
 
-    /// Write trusted, target-prepared Markdown bytes.
-    ///
-    /// Deprecated compatibility alias for [`MdContext::write_prepared`]. Data
-    /// from runtime values must never reach this API.
-    #[deprecated(note = "use write_prepared for trusted Markdown syntax")]
-    #[inline(always)]
-    pub fn write(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
-        self.write_prepared(bytes)
-    }
-
-    /// Write a trusted, target-prepared Markdown string.
-    ///
-    /// Deprecated compatibility alias for [`MdContext::write_prepared_str`].
-    /// Data from runtime values must never reach this API.
-    #[deprecated(note = "use write_prepared_str for trusted Markdown syntax")]
-    #[inline(always)]
-    pub fn write_str(&mut self, s: &str) -> Result<(), WriteError> {
-        self.write_prepared_str(s)
-    }
-
     /// Write literal text with the current Markdown escaping contract.
     ///
     /// The escaping contract is intentionally centralized here so it can be
     /// hardened without changing scalar render call sites.
-    pub fn write_text(&mut self, s: &str) -> Result<(), WriteError> {
+    pub fn write_md_text(&mut self, s: &str) -> Result<(), WriteError> {
         if s.is_empty() {
             return Ok(());
         }
-        super::escape::escape_md(self.out, s)?;
+        super::escape::escape_md(&mut self.out, s)?;
         // Literal text never contains a source-level Markdown line ending:
         // CRLF/CR/LF/tab are normalized to spaces by the escaper.
-        self.trailing_line = TrailingLineState::Text;
-        self.pending_cr = false;
+        self.md_state.trailing_line = TrailingLineState::Text;
+        self.md_state.pending_cr = false;
         Ok(())
     }
 
     /// Write a runtime heading label as literal, single-line Markdown text.
-    pub fn write_heading_label(&mut self, value: &str) -> Result<(), WriteError> {
+    pub fn write_md_heading_label(&mut self, value: &str) -> Result<(), WriteError> {
         if value.is_empty() {
             return Ok(());
         }
-        super::escape::write_heading_label(self.out, value)?;
-        self.trailing_line = TrailingLineState::Text;
-        self.pending_cr = false;
+        super::escape::write_heading_label(&mut self.out, value)?;
+        self.md_state.trailing_line = TrailingLineState::Text;
+        self.md_state.pending_cr = false;
         Ok(())
     }
 
     /// Write runtime blockquote content as literal, single-line Markdown text.
-    pub fn write_blockquote_text(&mut self, value: &str) -> Result<(), WriteError> {
+    pub fn write_md_blockquote_text(&mut self, value: &str) -> Result<(), WriteError> {
         if value.is_empty() {
             return Ok(());
         }
-        super::escape::write_blockquote_text(self.out, value)?;
-        self.trailing_line = TrailingLineState::Text;
-        self.pending_cr = false;
+        super::escape::write_blockquote_text(&mut self.out, value)?;
+        self.md_state.trailing_line = TrailingLineState::Text;
+        self.md_state.pending_cr = false;
         Ok(())
     }
 
     /// Write arbitrary runtime text as a delimiter-safe inline-code span.
-    pub fn write_inline_code(&mut self, value: &str) -> Result<(), WriteError> {
-        super::escape::write_inline_code(self.out, value)?;
-        self.trailing_line = TrailingLineState::Text;
-        self.pending_cr = false;
+    pub fn write_md_inline_code(&mut self, value: &str) -> Result<(), WriteError> {
+        super::escape::write_inline_code(&mut self.out, value)?;
+        self.md_state.trailing_line = TrailingLineState::Text;
+        self.md_state.pending_cr = false;
         Ok(())
     }
 
@@ -682,10 +409,10 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
     ///
     /// Dangerous schemes emit no bytes. Whitespace, controls, backslashes,
     /// and parentheses are neutralized for an unbracketed destination.
-    pub fn write_url(&mut self, value: &str) -> Result<(), WriteError> {
-        if super::escape::write_link_destination(self.out, value)? {
-            self.trailing_line = TrailingLineState::Text;
-            self.pending_cr = false;
+    pub fn write_md_url(&mut self, value: &str) -> Result<(), WriteError> {
+        if super::escape::write_link_destination(&mut self.out, value)? {
+            self.md_state.trailing_line = TrailingLineState::Text;
+            self.md_state.pending_cr = false;
         }
         Ok(())
     }
@@ -694,20 +421,12 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
     ///
     /// The content cannot close its generated fence. The method establishes a
     /// block boundary before the fence and leaves one after it.
-    pub fn fenced_code(&mut self, info: &str, value: &str) -> Result<(), WriteError> {
-        self.block_boundary()?;
-        super::escape::write_fenced_code(self.out, info, value)?;
-        self.trailing_line = TrailingLineState::Blank;
-        self.pending_cr = false;
+    pub fn md_fenced_code(&mut self, info: &str, value: &str) -> Result<(), WriteError> {
+        self.md_block_boundary()?;
+        super::escape::write_fenced_code(&mut self.out, info, value)?;
+        self.md_state.trailing_line = TrailingLineState::Blank;
+        self.md_state.pending_cr = false;
         Ok(())
-    }
-
-    /// Write literal text with Markdown escaping.
-    ///
-    /// Deprecated compatibility alias for [`MdContext::write_text`].
-    #[deprecated(note = "use write_text")]
-    pub fn write_escaped(&mut self, s: &str) -> Result<(), WriteError> {
-        self.write_text(s)
     }
 
     /// Ensure output is at a Markdown block boundary.
@@ -715,47 +434,47 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
     /// Emits the missing bytes in one write, which keeps bounded/metered
     /// buffers from observing a half-written boundary. Generated boundary
     /// bytes use LF even when preceding source used CR or CRLF.
-    pub fn block_boundary(&mut self) -> Result<(), WriteError> {
-        if self.inline {
+    pub fn md_block_boundary(&mut self) -> Result<(), WriteError> {
+        if self.md_state.inline {
             return Ok(());
         }
-        let missing: &'static [u8] = match (self.trailing_line, self.pending_cr) {
+        let missing: &'static [u8] = match (self.md_state.trailing_line, self.md_state.pending_cr) {
             (TrailingLineState::Start | TrailingLineState::Blank, _) => return Ok(()),
             (TrailingLineState::OneBreak, false) => b"\n",
             (TrailingLineState::OneBreak, true) | (TrailingLineState::Text, _) => b"\n\n",
         };
-        self.write_prepared_static(missing)
+        self.write_md_prepared_static(missing)
     }
 
     /// Ensure output is at the start of a line.
     ///
-    /// Unlike [`MdContext::block_boundary`], this never inserts a blank line,
+    /// Unlike [`WebContext::md_block_boundary`], this never inserts a blank line,
     /// so adjacent list items remain part of the same list.
-    pub fn line_boundary(&mut self) -> Result<(), WriteError> {
-        if self.inline || self.trailing_line != TrailingLineState::Text {
+    pub fn md_line_boundary(&mut self) -> Result<(), WriteError> {
+        if self.md_state.inline || self.md_state.trailing_line != TrailingLineState::Text {
             return Ok(());
         }
-        self.write_prepared_static(b"\n")
+        self.write_md_prepared_static(b"\n")
     }
 
     /// Ensure the buffer ends with at least one newline.
     fn ensure_newline(&mut self) -> Result<(), WriteError> {
-        if self.trailing_line == TrailingLineState::Text {
-            self.write_prepared_static(b"\n")?;
+        if self.md_state.trailing_line == TrailingLineState::Text {
+            self.write_md_prepared_static(b"\n")?;
         }
         Ok(())
     }
 
     #[inline(always)]
     fn observe_written(&mut self, bytes: &[u8]) {
-        (self.trailing_line, self.pending_cr) =
-            state_after_write(self.trailing_line, self.pending_cr, bytes);
+        (self.md_state.trailing_line, self.md_state.pending_cr) =
+            state_after_write(self.md_state.trailing_line, self.md_state.pending_cr, bytes);
     }
 
     /// Write generated numeric ASCII directly into spare output capacity while
     /// keeping Markdown suffix state accurate.
     #[inline(always)]
-    pub(crate) fn write_numeric_with<F>(
+    pub(crate) fn write_md_numeric_with<F>(
         &mut self,
         max_len: usize,
         write: F,
@@ -763,8 +482,8 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        let previous = self.trailing_line;
-        let previous_pending_cr = self.pending_cr;
+        let previous = self.md_state.trailing_line;
+        let previous_pending_cr = self.md_state.pending_cr;
         let mut next = None;
         self.out.extend_with(max_len, |buf| {
             let len = write(buf);
@@ -776,8 +495,8 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
             len
         })?;
         if let Some((trailing_line, pending_cr)) = next {
-            self.trailing_line = trailing_line;
-            self.pending_cr = pending_cr;
+            self.md_state.trailing_line = trailing_line;
+            self.md_state.pending_cr = pending_cr;
         }
         Ok(())
     }
@@ -785,173 +504,139 @@ impl<'a, B: WriteBuf> MdContext<'a, B> {
     /// Write already-formatted numeric ASCII without reformatting or
     /// allocating.
     #[inline(always)]
-    pub(crate) fn write_numeric_str(&mut self, value: &str) -> Result<(), WriteError> {
-        self.write_prepared_str(value)
+    pub(crate) fn write_md_numeric_str(&mut self, value: &str) -> Result<(), WriteError> {
+        self.write_md_prepared_str(value)
     }
 
     /// Push heading offset for nesting. Returns the previous offset to restore later.
-    pub fn push_heading_offset(&mut self, n: u8) -> u8 {
-        let prev = self.heading_offset;
-        self.heading_offset = self.heading_offset.saturating_add(n);
+    pub fn md_push_heading_offset(&mut self, n: u8) -> u8 {
+        let prev = self.md_state.heading_offset;
+        self.md_state.heading_offset = self.md_state.heading_offset.saturating_add(n);
         prev
     }
 
-    /// Restore heading offset from a previous `push_heading_offset` call.
-    pub fn pop_heading_offset(&mut self, prev: u8) {
-        self.heading_offset = prev;
+    /// Restore heading offset from a previous `md_push_heading_offset` call.
+    pub fn md_pop_heading_offset(&mut self, prev: u8) {
+        self.md_state.heading_offset = prev;
     }
 
     /// Current heading offset.
-    pub fn heading_offset(&self) -> u8 {
-        self.heading_offset
+    pub fn md_heading_offset(&self) -> u8 {
+        self.md_state.heading_offset
     }
 
     /// Current list depth.
-    pub fn list_depth(&self) -> u8 {
-        self.list_depth
+    pub fn md_list_depth(&self) -> u8 {
+        self.md_state.list_depth
     }
 
     /// Push list depth. Returns previous depth.
-    pub fn push_list_depth(&mut self) -> u8 {
-        let prev = self.list_depth;
-        self.list_depth = self.list_depth.saturating_add(1);
+    pub fn md_push_list_depth(&mut self) -> u8 {
+        let prev = self.md_state.list_depth;
+        self.md_state.list_depth = self.md_state.list_depth.saturating_add(1);
         prev
     }
 
     /// Restore list depth.
-    pub fn pop_list_depth(&mut self, prev: u8) {
-        self.list_depth = prev;
+    pub fn md_pop_list_depth(&mut self, prev: u8) {
+        self.md_state.list_depth = prev;
     }
 
     /// Write indentation for the current list depth.
-    pub fn write_list_indent(&mut self) -> Result<(), WriteError> {
-        for _ in 0..self.list_depth {
-            self.write_prepared_static(b"  ")?;
+    pub fn write_md_list_indent(&mut self) -> Result<(), WriteError> {
+        for _ in 0..self.md_state.list_depth {
+            self.write_md_prepared_static(b"  ")?;
         }
         Ok(())
     }
 
     /// Whether we're in inline mode.
-    pub fn inline(&self) -> bool {
-        self.inline
+    pub fn md_inline(&self) -> bool {
+        self.md_state.inline
     }
 
     /// Set inline mode. Returns previous value.
-    pub fn set_inline(&mut self, inline: bool) -> bool {
-        let prev = self.inline;
-        self.inline = inline;
+    pub fn md_set_inline(&mut self, inline: bool) -> bool {
+        let prev = self.md_state.inline;
+        self.md_state.inline = inline;
         prev
     }
 
     /// Write a blockquote-prefixed line.
-    pub fn blockquote(&mut self, text: &str) -> Result<(), WriteError> {
+    pub fn md_blockquote(&mut self, text: &str) -> Result<(), WriteError> {
         self.ensure_newline()?;
-        self.write_prepared_static(b"> ")?;
-        self.write_blockquote_text(text)?;
-        self.write_prepared_static(b"\n")
+        self.write_md_prepared_static(b"> ")?;
+        self.write_md_blockquote_text(text)?;
+        self.write_md_prepared_static(b"\n")
     }
 
     /// Write bold text inline: `**text**`.
-    pub fn bold(&mut self, text: &str) -> Result<(), WriteError> {
-        self.write_prepared_static(b"**")?;
-        self.write_text(text)?;
-        self.write_prepared_static(b"**")
+    pub fn md_bold(&mut self, text: &str) -> Result<(), WriteError> {
+        self.write_md_prepared_static(b"**")?;
+        self.write_md_text(text)?;
+        self.write_md_prepared_static(b"**")
     }
 
     /// Write inline code: `` `text` ``.
-    pub fn code(&mut self, text: &str) -> Result<(), WriteError> {
-        self.write_inline_code(text)
+    pub fn md_code(&mut self, text: &str) -> Result<(), WriteError> {
+        self.write_md_inline_code(text)
     }
 
     /// Write a markdown link: `[text](url)`.
-    pub fn link(&mut self, text: &str, url: &str) -> Result<(), WriteError> {
-        self.link_with(url, |cx| cx.write_text(text))
+    pub fn md_link(&mut self, text: &str, url: &str) -> Result<(), WriteError> {
+        self.md_link_with(url, |cx| cx.write_md_text(text))
     }
 
     /// Write a Markdown link with composed, already-typed inline label content.
-    pub fn link_with<F>(&mut self, url: &str, render_label: F) -> Result<(), WriteError>
+    pub fn md_link_with<F>(&mut self, url: &str, render_label: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut Self) -> Result<(), WriteError>,
     {
-        self.write_prepared_static(b"[")?;
-        let previous_inline = self.set_inline(true);
+        self.write_md_prepared_static(b"[")?;
+        let previous_inline = self.md_set_inline(true);
         let result = render_label(self);
-        self.set_inline(previous_inline);
+        self.md_set_inline(previous_inline);
         result?;
-        self.write_prepared_static(b"](")?;
-        self.write_url(url)?;
-        self.write_prepared_static(b")")
-    }
-
-    /// Render an [`MdRenderSync`](crate::render::MdRenderSync) component
-    /// (e.g. `md_sync!` output) into this context.
-    ///
-    /// This is the primary synchronous composition method — `md_sync!` output and other
-    /// `MdRenderSync` components compose naturally via `cx.render(child)`.
-    pub fn render<T: crate::render::MdRenderSync<B>>(&mut self, node: T) -> Result<(), WriteError> {
-        node.render_md(self)
-    }
-
-    /// Render a [`WebRenderSync`] component into this context.
-    ///
-    /// Bridges `WebRenderSync` output (e.g. from `html_sync!`) into markdown context
-    /// by creating a temporary `WebContext` wrapping the same buffer. Every
-    /// delegated write updates the Markdown suffix tracker, including static,
-    /// shared, and in-place fast paths.
-    pub fn render_web<'scope, T>(&'scope mut self, node: T) -> Result<(), WriteError>
-    where
-        T: WebRenderSync<::proa_core::NoLoader, ObservedMdWriteBuf<'scope, B>>,
-    {
-        let observed = ObservedMdWriteBuf {
-            inner: self.out,
-            trailing_line: &mut self.trailing_line,
-            pending_cr: &mut self.pending_cr,
-        };
-        let mut cx = WebContext::with_buffer(observed);
-        node.render(&mut cx)
+        self.write_md_prepared_static(b"](")?;
+        self.write_md_url(url)?;
+        self.write_md_prepared_static(b")")
     }
 }
 
-impl<'a> MdContext<'a, Vec<u8>> {
-    /// Flush the currently buffered Markdown bytes to the configured streamed
-    /// response sink, if any.
-    pub fn flush_stream_chunk(&mut self) -> Result<(), WriteError> {
-        let Some(flusher) = self.stream_chunk_flusher.as_ref().cloned() else {
-            return Ok(());
-        };
+/// A Markdown fragment entered through a web trait starts with fresh formatting
+/// state. A borrowed guard restores the complete outer state even when an
+/// awaited fragment is cancelled or panics. The output and request state stay
+/// live, so this scope neither allocates nor rolls back their mutations.
+pub(crate) struct MdFragmentScope<'cx, L: DataLoader, B: WriteBuf> {
+    cx: &'cx mut WebContext<L, B>,
+    saved: MdState,
+}
 
-        if self.out.is_empty() {
-            return Ok(());
-        }
+impl<'cx, L: DataLoader, B: WriteBuf> MdFragmentScope<'cx, L, B> {
+    pub(crate) fn new(cx: &'cx mut WebContext<L, B>) -> Self {
+        let saved = std::mem::take(&mut cx.md_state);
+        Self { cx, saved }
+    }
 
-        let capacity = self.out.capacity().max(128);
-        let chunk = std::mem::replace(self.out, Vec::with_capacity(capacity));
-        flusher.flush_chunk(chunk)
+    pub(crate) fn context(&mut self) -> &mut WebContext<L, B> {
+        self.cx
     }
 }
 
-impl<'a> MdContext<'a, RenderBuffer> {
-    /// Flush the currently buffered Markdown bytes to the configured streamed
-    /// response sink, then recycle the standard buffer's pages for reuse.
-    pub fn flush_stream_chunk(&mut self) -> Result<(), WriteError> {
-        let Some(flusher) = self.stream_chunk_flusher.as_ref().cloned() else {
-            return Ok(());
-        };
-
-        if self.out.is_empty() {
-            return Ok(());
-        }
-
-        let result = flusher.flush_chunk_view(self.out);
-        self.out.clear();
-        result
+impl<L: DataLoader, B: WriteBuf> Drop for MdFragmentScope<'_, L, B> {
+    fn drop(&mut self) {
+        self.cx.md_state = self.saved;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{MdRenderSync, OutputMeter, StreamingZeroCopyBuf, ZeroCopyBuf};
+    use crate::{
+        MdRenderSync, MeteredWriteBuf, OutputMeter, RenderMode, StreamChunkFlusher,
+        StreamingZeroCopyBuf, WebRenderSync, ZeroCopyBuf,
+    };
+    use std::rc::Rc;
 
     struct NoopFlusher;
 
@@ -1133,9 +818,9 @@ mod tests {
 
         for (input, expected) in cases {
             let mut out = Vec::new();
-            let mut cx = MdContext::new(&mut out);
-            cx.write_prepared(input).unwrap();
-            cx.block_boundary().unwrap();
+            let mut cx = WebContext::with_buffer(&mut out);
+            cx.write_md_prepared(input).unwrap();
+            cx.md_block_boundary().unwrap();
             assert_eq!(&out, expected, "input={input:?}");
         }
     }
@@ -1152,9 +837,9 @@ mod tests {
 
         for (input, expected) in cases {
             let mut out = Vec::new();
-            let mut cx = MdContext::new(&mut out);
-            cx.write_prepared(input).unwrap();
-            cx.line_boundary().unwrap();
+            let mut cx = WebContext::with_buffer(&mut out);
+            cx.write_md_prepared(input).unwrap();
+            cx.md_line_boundary().unwrap();
             assert_eq!(&out, expected, "input={input:?}");
         }
     }
@@ -1163,15 +848,15 @@ mod tests {
     fn split_crlf_survives_render_state_snapshot() {
         let mut prefix = Vec::new();
         let state = {
-            let mut cx = MdContext::new(&mut prefix);
-            cx.write_prepared(b"text\r").unwrap();
-            cx.render_state()
+            let mut cx = WebContext::with_buffer(&mut prefix);
+            cx.write_md_prepared(b"text\r").unwrap();
+            cx.md_state()
         };
 
         let mut suffix = Vec::new();
-        let mut cx = MdContext::new(&mut suffix).with_render_state(state);
-        cx.write_prepared(b"\n").unwrap();
-        cx.block_boundary().unwrap();
+        let mut cx = WebContext::with_buffer(&mut suffix).with_md_state(state);
+        cx.write_md_prepared(b"\n").unwrap();
+        cx.md_block_boundary().unwrap();
 
         prefix.extend_from_slice(&suffix);
         assert_eq!(prefix, b"text\r\n\n");
@@ -1182,10 +867,10 @@ mod tests {
         static LARGE_ZERO_COPY_RUN: [u8; 300] = [b'x'; 300];
         let mut out = ZeroCopyBuf::with_capacity(4, 8);
         {
-            let mut cx = MdContext::with_buffer(&mut out);
-            cx.write_prepared_static(&LARGE_ZERO_COPY_RUN).unwrap();
+            let mut cx = WebContext::with_buffer(&mut out);
+            cx.write_md_prepared_static(&LARGE_ZERO_COPY_RUN).unwrap();
             assert!(cx.out.as_slice().is_empty());
-            cx.block_boundary().unwrap();
+            cx.md_block_boundary().unwrap();
         }
         let bytes = out.to_vec();
         assert!(bytes.ends_with(b"x\n\n"));
@@ -1193,10 +878,10 @@ mod tests {
         static LARGE_STREAMING_RUN: [u8; 1100] = [b'y'; 1100];
         let mut out = StreamingZeroCopyBuf::with_capacity(4, 8);
         {
-            let mut cx = MdContext::with_buffer(&mut out);
-            cx.write_prepared_static(&LARGE_STREAMING_RUN).unwrap();
+            let mut cx = WebContext::with_buffer(&mut out);
+            cx.write_md_prepared_static(&LARGE_STREAMING_RUN).unwrap();
             assert!(cx.out.as_slice().is_empty());
-            cx.block_boundary().unwrap();
+            cx.md_block_boundary().unwrap();
         }
         let bytes = out.to_vec();
         assert!(bytes.ends_with(b"y\n\n"));
@@ -1206,16 +891,16 @@ mod tests {
     fn streaming_flush_keeps_suffix_state_in_snapshot() {
         let mut out = StreamingZeroCopyBuf::with_capacity(4, 8);
         let state = {
-            let mut cx = MdContext::with_buffer(&mut out);
-            cx.write_prepared_static(b"paragraph\r").unwrap();
-            cx.render_state()
+            let mut cx = WebContext::with_buffer(&mut out);
+            cx.write_md_prepared_static(b"paragraph\r").unwrap();
+            cx.md_state()
         };
         let flushed = out.flush_all().unwrap().to_vec();
         assert_eq!(flushed, b"paragraph\r");
 
-        let mut cx = MdContext::with_buffer(&mut out).with_render_state(state);
-        cx.write_prepared_static(b"\n").unwrap();
-        cx.block_boundary().unwrap();
+        let mut cx = WebContext::with_buffer(&mut out).with_md_state(state);
+        cx.write_md_prepared_static(b"\n").unwrap();
+        cx.md_block_boundary().unwrap();
         assert_eq!(out.to_vec(), b"\n\n");
     }
 
@@ -1223,11 +908,11 @@ mod tests {
     fn prepared_methods_preserve_write_buf_delegation() {
         let mut out = SpyBuf::default();
         {
-            let mut cx = MdContext::with_buffer(&mut out);
-            cx.write_prepared(b"borrowed").unwrap();
-            cx.write_prepared_str(" string").unwrap();
-            cx.write_prepared_static(b" static").unwrap();
-            cx.write_prepared_shared(&Bytes::from_static(b" shared"))
+            let mut cx = WebContext::with_buffer(&mut out);
+            cx.write_md_prepared(b"borrowed").unwrap();
+            cx.write_md_prepared_str(" string").unwrap();
+            cx.write_md_prepared_static(b" static").unwrap();
+            cx.write_md_prepared_shared(&Bytes::from_static(b" shared"))
                 .unwrap();
         }
         assert_eq!(out.borrowed_calls, 2);
@@ -1242,40 +927,40 @@ mod tests {
         let replacement_flusher: Rc<dyn StreamChunkFlusher> = Rc::new(NoopFlusher);
         let mut parent_out = Vec::new();
         let mut child_out = Vec::new();
-        let mut cx = MdContext::new(&mut parent_out);
-        cx.write_prepared_static(b"parent\n\n").unwrap();
-        cx.push_heading_offset(1);
-        cx.push_list_depth();
+        let mut cx = WebContext::with_buffer(&mut parent_out);
+        cx.write_md_prepared_static(b"parent\n\n").unwrap();
+        cx.md_push_heading_offset(1);
+        cx.md_push_list_depth();
         cx.set_render_mode(RenderMode::ChunkedInOrder);
         cx.set_stream_chunk_flusher(Rc::clone(&original_flusher));
 
         cx.with_output(&mut child_out, |child| {
-            assert_eq!(child.heading_offset(), 1);
-            assert_eq!(child.list_depth(), 1);
-            assert!(!child.inline());
-            assert_eq!(child.trailing_line, TrailingLineState::Blank);
-            assert!(!child.pending_cr);
+            assert_eq!(child.md_heading_offset(), 1);
+            assert_eq!(child.md_list_depth(), 1);
+            assert!(!child.md_inline());
+            assert_eq!(child.md_state.trailing_line, TrailingLineState::Blank);
+            assert!(!child.md_state.pending_cr);
             assert_eq!(child.render_mode(), RenderMode::ChunkedInOrder);
             assert!(Rc::ptr_eq(
                 child.stream_chunk_flusher().unwrap(),
                 &original_flusher
             ));
-            child.push_heading_offset(2);
-            child.push_list_depth();
-            child.set_inline(true);
+            child.md_push_heading_offset(2);
+            child.md_push_list_depth();
+            child.md_set_inline(true);
             child.set_render_mode(RenderMode::Agent);
-            child.write_prepared_static(b"child\r")?;
+            child.write_md_prepared_static(b"child\r")?;
             child.set_stream_chunk_flusher(Rc::clone(&replacement_flusher));
             Ok::<_, WriteError>(())
         })
         .unwrap();
 
         assert_eq!(child_out, b"child\r");
-        assert_eq!(cx.heading_offset(), 3);
-        assert_eq!(cx.list_depth(), 2);
-        assert!(cx.inline());
-        assert_eq!(cx.trailing_line, TrailingLineState::OneBreak);
-        assert!(cx.pending_cr);
+        assert_eq!(cx.md_heading_offset(), 3);
+        assert_eq!(cx.md_list_depth(), 2);
+        assert!(cx.md_inline());
+        assert_eq!(cx.md_state.trailing_line, TrailingLineState::OneBreak);
+        assert!(cx.md_state.pending_cr);
         assert_eq!(cx.render_mode(), RenderMode::Agent);
         assert!(Rc::ptr_eq(
             cx.stream_chunk_flusher().unwrap(),
@@ -1288,10 +973,10 @@ mod tests {
     #[test]
     fn render_web_updates_suffix_state_and_preserves_static_delegation() {
         let mut out = SpyBuf::default();
-        let mut cx = MdContext::with_buffer(&mut out);
+        let mut cx = WebContext::with_buffer(&mut out);
 
-        cx.render_web(WebBytes(b"bridged\r\n")).unwrap();
-        cx.block_boundary().unwrap();
+        cx.render_html_in_md(WebBytes(b"bridged\r\n")).unwrap();
+        cx.md_block_boundary().unwrap();
 
         assert_eq!(cx.out.bytes, b"bridged\r\n\n");
         assert_eq!(cx.out.static_calls, 2);
@@ -1300,13 +985,13 @@ mod tests {
     #[test]
     fn render_web_keeps_suffix_state_after_unwind() {
         let mut out = Vec::new();
-        let mut cx = MdContext::new(&mut out);
+        let mut cx = WebContext::with_buffer(&mut out);
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = cx.render_web(PanickingWebBytes(b"bridged\r"));
+            let _ = cx.render_html_in_md(PanickingWebBytes(b"bridged\r"));
         }));
         assert!(panic.is_err());
-        cx.block_boundary().unwrap();
+        cx.md_block_boundary().unwrap();
 
         drop(cx);
         assert_eq!(out, b"bridged\r\n\n");
@@ -1317,24 +1002,24 @@ mod tests {
         let flusher: Rc<dyn StreamChunkFlusher> = Rc::new(NoopFlusher);
         let mut parent_out = Vec::new();
         let mut child_out = Vec::new();
-        let mut cx = MdContext::new(&mut parent_out);
+        let mut cx = WebContext::with_buffer(&mut parent_out);
 
         let result = cx.with_output(&mut child_out, |child| {
-            child.push_heading_offset(4);
-            child.push_list_depth();
-            child.set_inline(true);
+            child.md_push_heading_offset(4);
+            child.md_push_list_depth();
+            child.md_set_inline(true);
             child.set_render_mode(RenderMode::ChunkedOutOfOrder);
-            child.write_prepared_static(b"error\r")?;
+            child.write_md_prepared_static(b"error\r")?;
             child.set_stream_chunk_flusher(Rc::clone(&flusher));
             Err::<(), _>(WriteError::OutOfCapacity)
         });
 
         assert_eq!(result, Err(WriteError::OutOfCapacity));
-        assert_eq!(cx.heading_offset(), 4);
-        assert_eq!(cx.list_depth(), 1);
-        assert!(cx.inline());
-        assert_eq!(cx.trailing_line, TrailingLineState::OneBreak);
-        assert!(cx.pending_cr);
+        assert_eq!(cx.md_heading_offset(), 4);
+        assert_eq!(cx.md_list_depth(), 1);
+        assert!(cx.md_inline());
+        assert_eq!(cx.md_state.trailing_line, TrailingLineState::OneBreak);
+        assert!(cx.md_state.pending_cr);
         assert_eq!(cx.render_mode(), RenderMode::ChunkedOutOfOrder);
         assert!(Rc::ptr_eq(cx.stream_chunk_flusher().unwrap(), &flusher));
     }
@@ -1344,26 +1029,26 @@ mod tests {
         let flusher: Rc<dyn StreamChunkFlusher> = Rc::new(NoopFlusher);
         let mut parent_out = Vec::new();
         let mut child_out = Vec::new();
-        let mut cx = MdContext::new(&mut parent_out);
+        let mut cx = WebContext::with_buffer(&mut parent_out);
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             cx.with_output(&mut child_out, |child| {
-                child.push_heading_offset(2);
-                child.push_list_depth();
-                child.set_inline(true);
+                child.md_push_heading_offset(2);
+                child.md_push_list_depth();
+                child.md_set_inline(true);
                 child.set_render_mode(RenderMode::Agent);
-                child.write_prepared_static(b"panic\n").unwrap();
+                child.write_md_prepared_static(b"panic\n").unwrap();
                 child.set_stream_chunk_flusher(Rc::clone(&flusher));
                 panic!("test unwind");
             });
         }));
 
         assert!(panic.is_err());
-        assert_eq!(cx.heading_offset(), 2);
-        assert_eq!(cx.list_depth(), 1);
-        assert!(cx.inline());
-        assert_eq!(cx.trailing_line, TrailingLineState::OneBreak);
-        assert!(!cx.pending_cr);
+        assert_eq!(cx.md_heading_offset(), 2);
+        assert_eq!(cx.md_list_depth(), 1);
+        assert!(cx.md_inline());
+        assert_eq!(cx.md_state.trailing_line, TrailingLineState::OneBreak);
+        assert!(!cx.md_state.pending_cr);
         assert_eq!(cx.render_mode(), RenderMode::Agent);
         assert!(Rc::ptr_eq(cx.stream_chunk_flusher().unwrap(), &flusher));
     }
@@ -1372,27 +1057,27 @@ mod tests {
     fn self_metered_output_reborrow_is_compile_safe_and_restores_state() {
         let meter = OutputMeter::new(32);
         let mut out = Vec::new();
-        let mut cx = MdContext::new(&mut out);
-        cx.push_heading_offset(1);
+        let mut cx = WebContext::with_buffer(&mut out);
+        cx.md_push_heading_offset(1);
 
         let value = cx
             .with_metered_output(meter.borrow(), |child| {
-                child.push_heading_offset(2);
-                child.push_list_depth();
-                child.set_inline(true);
+                child.md_push_heading_offset(2);
+                child.md_push_list_depth();
+                child.md_set_inline(true);
                 child.set_render_mode(RenderMode::Agent);
-                child.write_prepared_static(b"metered\r")?;
+                child.write_md_prepared_static(b"metered\r")?;
                 Ok::<_, WriteError>(17)
             })
             .unwrap();
 
         assert_eq!(value, 17);
         assert_eq!(meter.consumed(), 8);
-        assert_eq!(cx.heading_offset(), 3);
-        assert_eq!(cx.list_depth(), 1);
-        assert!(cx.inline());
-        assert_eq!(cx.trailing_line, TrailingLineState::OneBreak);
-        assert!(cx.pending_cr);
+        assert_eq!(cx.md_heading_offset(), 3);
+        assert_eq!(cx.md_list_depth(), 1);
+        assert!(cx.md_inline());
+        assert_eq!(cx.md_state.trailing_line, TrailingLineState::OneBreak);
+        assert!(cx.md_state.pending_cr);
         assert_eq!(cx.render_mode(), RenderMode::Agent);
         drop(cx);
         assert_eq!(out, b"metered\r");
@@ -1402,35 +1087,35 @@ mod tests {
     fn self_metered_output_reborrow_restores_state_during_unwind() {
         let meter = OutputMeter::new(8);
         let mut out = Vec::new();
-        let mut cx = MdContext::new(&mut out);
+        let mut cx = WebContext::with_buffer(&mut out);
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             cx.with_metered_output(meter.borrow(), |child| {
-                child.push_heading_offset(3);
-                child.push_list_depth();
-                child.set_inline(true);
+                child.md_push_heading_offset(3);
+                child.md_push_list_depth();
+                child.md_set_inline(true);
                 panic!("test metered unwind");
             });
         }));
 
         assert!(panic.is_err());
-        assert_eq!(cx.heading_offset(), 3);
-        assert_eq!(cx.list_depth(), 1);
-        assert!(cx.inline());
+        assert_eq!(cx.md_heading_offset(), 3);
+        assert_eq!(cx.md_list_depth(), 1);
+        assert!(cx.md_inline());
     }
 
     #[test]
     fn reserved_output_bypasses_outer_meter_and_validates_exact_completion() {
         let meter = OutputMeter::new(32);
-        let mut metered = MeteredWriteBuf::new(Vec::new(), meter.borrow());
-        let mut cx = MdContext::with_buffer(&mut metered);
+        let metered = MeteredWriteBuf::new(Vec::new(), meter.borrow());
+        let mut cx = WebContext::with_buffer(metered);
         let reservation = meter.reserve_exact(5).unwrap();
 
         let value = cx
             .with_reserved_output(reservation, |child| {
-                child.push_heading_offset(2);
-                child.set_inline(true);
-                child.write_prepared_static(b"hello")?;
+                child.md_push_heading_offset(2);
+                child.md_set_inline(true);
+                child.write_md_prepared_static(b"hello")?;
                 Ok(23)
             })
             .unwrap();
@@ -1441,22 +1126,21 @@ mod tests {
             5,
             "reserved bytes must not be double-debited"
         );
-        assert_eq!(cx.heading_offset(), 2);
-        assert!(cx.inline());
-        drop(cx);
-        assert_eq!(metered.as_slice(), b"hello");
+        assert_eq!(cx.md_heading_offset(), 2);
+        assert!(cx.md_inline());
+        assert_eq!(cx.into_output().as_slice(), b"hello");
     }
 
     #[test]
     fn reserved_output_reports_incomplete_success() {
         let meter = OutputMeter::new(8);
-        let mut metered = MeteredWriteBuf::new(Vec::new(), meter.borrow());
-        let mut cx = MdContext::with_buffer(&mut metered);
+        let metered = MeteredWriteBuf::new(Vec::new(), meter.borrow());
+        let mut cx = WebContext::with_buffer(metered);
         let reservation = meter.reserve_exact(4).unwrap();
 
         let error = cx
             .with_reserved_output(reservation, |child| {
-                child.write_prepared_static(b"ok")?;
+                child.write_md_prepared_static(b"ok")?;
                 Ok(())
             })
             .unwrap_err();
@@ -1474,33 +1158,33 @@ mod tests {
     #[test]
     fn reserved_output_preserves_underlying_error_before_validation() {
         let meter = OutputMeter::new(8);
-        let mut metered = MeteredWriteBuf::new(RejectingBuf, meter.borrow());
-        let mut cx = MdContext::with_buffer(&mut metered);
+        let metered = MeteredWriteBuf::new(RejectingBuf, meter.borrow());
+        let mut cx = WebContext::with_buffer(metered);
         let reservation = meter.reserve_exact(2).unwrap();
 
         let error = cx
             .with_reserved_output(reservation, |child| {
-                child.push_heading_offset(1);
-                child.write_prepared_static(b"x")?;
+                child.md_push_heading_offset(1);
+                child.write_md_prepared_static(b"x")?;
                 Ok(())
             })
             .unwrap_err();
 
         assert_eq!(error, WriteError::OutOfCapacity);
-        assert_eq!(cx.heading_offset(), 1);
+        assert_eq!(cx.md_heading_offset(), 1);
     }
 
     #[test]
     fn reserved_output_restores_state_during_unwind_without_validation() {
         let meter = OutputMeter::new(8);
-        let mut metered = MeteredWriteBuf::new(Vec::new(), meter.borrow());
-        let mut cx = MdContext::with_buffer(&mut metered);
+        let metered = MeteredWriteBuf::new(Vec::new(), meter.borrow());
+        let mut cx = WebContext::with_buffer(metered);
         let reservation = meter.reserve_exact(3).unwrap();
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = cx.with_reserved_output(reservation, |child| -> Result<(), WriteError> {
-                child.push_heading_offset(2);
-                child.push_list_depth();
+                child.md_push_heading_offset(2);
+                child.md_push_list_depth();
                 child.set_render_mode(RenderMode::Agent);
                 panic!("test reserved unwind");
             });
@@ -1508,18 +1192,18 @@ mod tests {
 
         assert!(panic.is_err());
         assert_eq!(meter.consumed(), 3);
-        assert_eq!(cx.heading_offset(), 2);
-        assert_eq!(cx.list_depth(), 1);
+        assert_eq!(cx.md_heading_offset(), 2);
+        assert_eq!(cx.md_list_depth(), 1);
         assert_eq!(cx.render_mode(), RenderMode::Agent);
     }
 
     #[test]
     fn prepared_shared_writes_update_boundary_state() {
         let mut out = Vec::new();
-        let mut cx = MdContext::new(&mut out);
-        cx.write_prepared_shared(&Bytes::from_static(b"shared\n"))
+        let mut cx = WebContext::with_buffer(&mut out);
+        cx.write_md_prepared_shared(&Bytes::from_static(b"shared\n"))
             .unwrap();
-        cx.block_boundary().unwrap();
+        cx.md_block_boundary().unwrap();
         assert_eq!(out, b"shared\n\n");
     }
 
@@ -1527,27 +1211,27 @@ mod tests {
     fn boundary_emits_missing_bytes_in_one_write() {
         let mut out = SpyBuf::default();
         {
-            let mut cx = MdContext::with_buffer(&mut out);
-            cx.write_prepared_str("text").unwrap();
-            cx.block_boundary().unwrap();
+            let mut cx = WebContext::with_buffer(&mut out);
+            cx.write_md_prepared_str("text").unwrap();
+            cx.md_block_boundary().unwrap();
         }
         assert_eq!(out.static_calls, 1);
         assert_eq!(out.bytes, b"text\n\n");
 
         let mut out = SpyBuf::default();
         {
-            let mut cx = MdContext::with_buffer(&mut out);
-            cx.write_prepared(b"text\n").unwrap();
-            cx.block_boundary().unwrap();
+            let mut cx = WebContext::with_buffer(&mut out);
+            cx.write_md_prepared(b"text\n").unwrap();
+            cx.md_block_boundary().unwrap();
         }
         assert_eq!(out.static_calls, 1);
         assert_eq!(out.bytes, b"text\n\n");
 
         let mut out = SpyBuf::default();
         {
-            let mut cx = MdContext::with_buffer(&mut out);
-            cx.write_prepared(b"text\r").unwrap();
-            cx.block_boundary().unwrap();
+            let mut cx = WebContext::with_buffer(&mut out);
+            cx.write_md_prepared(b"text\r").unwrap();
+            cx.md_block_boundary().unwrap();
         }
         assert_eq!(out.static_calls, 1);
         assert_eq!(out.bytes, b"text\r\n\n");
@@ -1557,98 +1241,86 @@ mod tests {
     fn numeric_render_uses_extend_with_and_updates_suffix_state() {
         let mut out = SpyBuf::default();
         {
-            let mut cx = MdContext::with_buffer(&mut out);
-            cx.write_prepared_static(b"\n\n").unwrap();
+            let mut cx = WebContext::with_buffer(&mut out);
+            cx.write_md_prepared_static(b"\n\n").unwrap();
             42_u32.render_md(&mut cx).unwrap();
-            cx.block_boundary().unwrap();
+            cx.md_block_boundary().unwrap();
         }
         assert_eq!(out.extend_with_calls, 1);
         assert_eq!(out.bytes, b"\n\n42\n\n");
     }
 
     #[test]
-    #[allow(deprecated)]
-    fn compatibility_write_aliases_remain_state_aware() {
-        let mut out = Vec::new();
-        let mut cx = MdContext::new(&mut out);
-        cx.write(b"text\r").unwrap();
-        cx.write_str("\n").unwrap();
-        cx.write_escaped("value").unwrap();
-        cx.block_boundary().unwrap();
-        assert_eq!(out, b"text\r\nvalue\n\n");
-    }
-
-    #[test]
     fn heading_basic() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.heading(2, "Hello").unwrap();
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.md_heading(2, "Hello").unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "## Hello\n\n");
     }
 
     #[test]
     fn heading_with_offset() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        let prev = cx.push_heading_offset(1);
-        cx.heading(2, "Nested").unwrap();
-        cx.pop_heading_offset(prev);
+        let mut cx = WebContext::with_buffer(&mut buf);
+        let prev = cx.md_push_heading_offset(1);
+        cx.md_heading(2, "Nested").unwrap();
+        cx.md_pop_heading_offset(prev);
         assert_eq!(String::from_utf8(buf).unwrap(), "### Nested\n\n");
     }
 
     #[test]
     fn heading_clamps_at_6() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.push_heading_offset(5);
-        cx.heading(3, "Deep").unwrap();
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.md_push_heading_offset(5);
+        cx.md_heading(3, "Deep").unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "###### Deep\n\n");
     }
 
     #[test]
     fn blank_line_dedup() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.write_prepared_str("text").unwrap();
-        cx.blank_line().unwrap();
-        cx.blank_line().unwrap(); // should be deduplicated
-        cx.write_prepared_str("more").unwrap();
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.write_md_prepared_str("text").unwrap();
+        cx.md_blank_line().unwrap();
+        cx.md_blank_line().unwrap(); // should be deduplicated
+        cx.write_md_prepared_str("more").unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "text\n\nmore");
     }
 
     #[test]
     fn hr() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.write_prepared_str("above").unwrap();
-        cx.hr().unwrap();
-        cx.write_prepared_str("below").unwrap();
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.write_md_prepared_str("above").unwrap();
+        cx.md_hr().unwrap();
+        cx.write_md_prepared_str("below").unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "above\n---\n\nbelow");
     }
 
     #[test]
     fn blockquote() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.blockquote("quoted text").unwrap();
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.md_blockquote("quoted text").unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "> quoted text\n");
     }
 
     #[test]
     fn bold_and_code() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.bold("important").unwrap();
-        cx.write_prepared_str(" and ").unwrap();
-        cx.code("code").unwrap();
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.md_bold("important").unwrap();
+        cx.write_md_prepared_str(" and ").unwrap();
+        cx.md_code("code").unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "**important** and `code`");
     }
 
     #[test]
     fn link() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.link("click here", "https://example.com").unwrap();
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.md_link("click here", "https://example.com").unwrap();
         assert_eq!(
             String::from_utf8(buf).unwrap(),
             "[click here](https://example.com)"
@@ -1658,8 +1330,8 @@ mod tests {
     #[test]
     fn literal_text_cannot_inject_markdown_blocks_links_or_html() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.write_text("safe\r\n# heading\r- item\n[x](javascript:bad)\t<div>")
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.write_md_text("safe\r\n# heading\r- item\n[x](javascript:bad)\t<div>")
             .unwrap();
         assert_eq!(
             String::from_utf8(buf).unwrap(),
@@ -1670,9 +1342,9 @@ mod tests {
     #[test]
     fn semantic_labels_are_single_line_and_unicode_preserving() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.heading(1, "世界\r\n# nested").unwrap();
-        cx.blockquote("引用\n> nested").unwrap();
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.md_heading(1, "世界\r\n# nested").unwrap();
+        cx.md_blockquote("引用\n> nested").unwrap();
         assert_eq!(
             String::from_utf8(buf).unwrap(),
             "# 世界 \\# nested\n\n> 引用 \\> nested\n"
@@ -1682,11 +1354,11 @@ mod tests {
     #[test]
     fn links_sanitize_destinations_and_keep_labels_literal() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.link("[click](elsewhere)", "javascript:alert(1)")
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.md_link("[click](elsewhere)", "javascript:alert(1)")
             .unwrap();
-        cx.write_prepared_static(b" ").unwrap();
-        cx.link("safe", "https://example.test/a (b)\\c").unwrap();
+        cx.write_md_prepared_static(b" ").unwrap();
+        cx.md_link("safe", "https://example.test/a (b)\\c").unwrap();
         assert_eq!(
             String::from_utf8(buf).unwrap(),
             "[\\[click\\]\\(elsewhere\\)]() [safe](https://example.test/a%20\\(b\\)\\\\c)"
@@ -1696,8 +1368,8 @@ mod tests {
     #[test]
     fn inline_code_payload_cannot_close_its_span() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.code("`a``b```c`\r\n# still code").unwrap();
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.md_code("`a``b```c`\r\n# still code").unwrap();
         assert_eq!(
             String::from_utf8(buf).unwrap(),
             "```` `a``b```c` # still code ````"
@@ -1707,9 +1379,9 @@ mod tests {
     #[test]
     fn normalized_crlf_updates_suffix_state_as_one_space() {
         let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
-        cx.write_text("\r\n").unwrap();
-        cx.block_boundary().unwrap();
+        let mut cx = WebContext::with_buffer(&mut buf);
+        cx.write_md_text("\r\n").unwrap();
+        cx.md_block_boundary().unwrap();
         assert_eq!(buf, b" \n\n");
     }
 }

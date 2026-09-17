@@ -109,3 +109,23 @@ fn self_scoped_web_reservation_allocates_no_heap_and_does_not_double_debit() {
     assert_eq!(cursor.as_slice(), b"abcdef");
     assert_eq!(meter.remaining(), 0);
 }
+
+#[test]
+fn repeated_html_markdown_bridges_reuse_root_state_without_allocating() {
+    let mut backing = [0u8; 256];
+    let mut cx = WebContext::with_buffer(WriteCursor::new(&mut backing));
+    start_counting();
+    for _ in 0..32 {
+        cx.render_html_in_md(StackOnlyComponent).unwrap();
+        proa_core::WebRenderSync::render(
+            proa_core::OptimizedMd::new(|child: &mut WebContext<_, _>| {
+                child.write_md_prepared_static(b"\n")
+            }),
+            &mut cx,
+        )
+        .unwrap();
+    }
+    let allocations = stop_counting();
+    assert_eq!(allocations, 0);
+    assert_eq!(cx.out.len(), 32 * 7);
+}

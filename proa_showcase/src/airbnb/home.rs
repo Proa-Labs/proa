@@ -7,8 +7,7 @@
 
 use super::image::{AirImage, AirImageFetchPriority, AirImageLoading};
 use super::shared;
-use proa_core::md::MdContext;
-use proa_core::{RenderBuffer, StaticRaw, WebContext, WebRenderSync};
+use proa_core::{MdRenderSync, RenderBuffer, StaticRaw, WebContext, WebRenderSync};
 use proa_macros::html_sync;
 
 const STAR_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="#FF385C"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>"##;
@@ -673,27 +672,28 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
 /// Render the Airbnb Home showcase as Markdown.
 pub fn render_md() -> String {
     let data = HomeData::default_la();
+    // proa-perf-ok: this root helper owns the contiguous buffer returned as a String
     let mut buf = Vec::new();
-    let mut cx = MdContext::new(&mut buf);
+    let mut cx = WebContext::with_buffer(&mut buf);
 
-    cx.heading(1, "Airbnb");
-    cx.write_prepared_static(
+    cx.md_heading(1, "Airbnb");
+    cx.write_md_prepared_static(
         b"Search for vacation rentals, cabins, beach houses, experiences, and services.\n\n",
     );
 
-    cx.heading(2, "Modes");
-    cx.write_prepared_static(b"Homes | Experiences | Services\n\n");
+    cx.md_heading(2, "Modes");
+    cx.write_md_prepared_static(b"Homes | Experiences | Services\n\n");
 
-    cx.heading(2, "Featured Rails");
+    cx.md_heading(2, "Featured Rails");
     for listing in data.listings.iter().take(6) {
-        cx.heading(3, listing.title);
-        let line = format!(
-            "{} · ${} per night · ★{}\n",
-            listing.location, listing.price_per_night, listing.rating,
-        );
-        cx.write_prepared_str(&line);
-        cx.link("View listing", "/showcase/airbnb/proa/listing");
-        cx.blank_line();
+        cx.md_heading(3, listing.title);
+        proa_macros::md_sync! { r###"
+            {listing.location} · ${listing.price_per_night} per night · ★{listing.rating}
+            "###
+        }
+        .render_md(&mut cx);
+        cx.md_link("View listing", "/showcase/airbnb/proa/listing");
+        cx.md_blank_line();
     }
 
     String::from_utf8(buf).unwrap()

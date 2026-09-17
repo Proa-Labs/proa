@@ -37,7 +37,7 @@ pub fn report(a: &Activity, rows: &[Activity], person: Option<&Activity>) -> Str
         ```
         "###
     }
-    .render_md(&mut proa_core::md::MdContext::new(&mut bytes))
+    .render_md(&mut proa_core::WebContext::with_buffer(&mut bytes))
     .unwrap();
     String::from_utf8(bytes).unwrap()
 }

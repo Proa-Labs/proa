@@ -231,7 +231,7 @@ Search defaults to 20 results, maximum 50. Bound event/activity samples and expo
 
 ### Rendering boundary
 
-**Load asynchronously, then render synchronously.** `IssueReport<'a>` borrows an authorized `IssueProjection` and implements `WebRenderSync<L>` and `MdRenderSync<B>`. Its overview, impact, release, runbook, and action components compose in both targets. Reuse the overview in issue/list views and the brief; allow runbooks to stand alone.
+**Load asynchronously, then render synchronously.** `IssueReport<'a>` borrows an authorized `IssueProjection` and implements `WebRenderSync<L>` and `MdRenderSync<L>`. Its overview, impact, release, runbook, and action components compose in both targets. Reuse the overview in issue/list views and the brief; allow runbooks to stand alone.
 
 The projection contains only permitted IDs, versions, evidence, events, runbook material, activity, and actions. Serialize that projection for JSON; raw telemetry and credential/session records are not public response models.
 
@@ -257,8 +257,8 @@ impl<L: DataLoader> WebRenderSync<L> for IssueReport<'_> {
     }
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for IssueReport<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: DataLoader> MdRenderSync<L> for IssueReport<'_> {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let overview = IssueOverview::new(self.issue);
         let impact = Impact::new(&self.issue.impact);
         let release = ReleaseEvidence::new(&self.issue.release);
@@ -274,9 +274,9 @@ impl<B: WriteBuf> MdRenderSync<B> for IssueReport<'_> {
 
 Each section owns its trailing block spacing. Use multiline raw templates, typed slots, and normal escaping. Dynamic inline code/links use typed Markdown builders; expressions inside literal code fences/backticks do not interpolate. Never wrap untrusted text in `TrustedMarkdown`. Label telemetry as observed data; generate action suggestions from trusted application code. Escaping preserves structure, not immunity to prompt injection.
 
-**Current API limit:** `MdContext` has render state but no loader, user, headers, or typed locals. Pass application context to loading; do not invent `MdContext::locals()` or `load_typed()`.
+**Shared request context:** HTML and Markdown both use `WebContext<L, B>`, including the same loader, request metadata, response headers, and typed locals. This example retains its explicit authorization and keyed loading phase before rendering.
 
-Keep an async composition example/test with `md!` and `to_md_async(...)`. Live MCP handlers use the sync path: `MdContext` contains `Rc`, while SDK handlers require `Send`. Do not retain it across an await, block on async rendering, or add unsafe `Send`. Async Markdown loading needs a bounded local render bridge and is deferred; no Proa core API changes are required for v1.
+Keep an async composition example/test with `md!` and `to_md_async(...)`. Live MCP handlers use the sync path: `WebContext` contains `Rc`, while SDK handlers require `Send`. Do not retain it across an await, block on async rendering, or add unsafe `Send`. Core Markdown supports async loading on a local render future. The Axum adapter offers deferred loader-aware Markdown responses; an MCP integration still needs an appropriate local execution boundary before it can await rendering from a `Send` handler.
 
 Source map: [Render traits](../../docs/agent/api-reference/render-traits.md), [Markdown traits](../../proa_core/src/render/md_render.rs), [Markdown context](../../proa_core/src/md/context.rs), [web context](../../proa_core/src/web/context.rs). Loading: [Typed values](../../proa_core/src/render/load_value.rs), [resolver](../../proa_stream/src/resolver.rs). Integration: [HTTP helpers](../../proa_framework/proa_framework_axum/src/route/representation.rs), [existing example](../origin-routing-atlas/src/lib.rs).
 

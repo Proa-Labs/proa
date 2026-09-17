@@ -38,7 +38,7 @@ implement `WebRenderSync<L>` and return
 real `WebRender<L>` signature. The default writer is the `RenderBuffer` owned by
 `WebContext<L>`; the extra `B` parameter is only for advanced custom writers.
 Markdown components implement
-`MdRenderSync<B>` (or its async-capable counterpart) and use the matching
+`MdRenderSync<L>` (or its async-capable counterpart) and use the matching
 macro pair. Analyzed components put `#[rsjs(component)]` on that real trait
 impl, adding `client` when they originate browser behavior. Those components
 compile to per-component vanilla JS and a small shared runtime, so the page

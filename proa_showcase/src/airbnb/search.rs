@@ -7,7 +7,6 @@
 
 use super::image::{AirImage, AirImageFetchPriority, AirImageLoading};
 use super::shared;
-use proa_core::md::MdContext;
 use proa_core::{
     MdRenderSync, RenderBuffer, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
@@ -267,7 +266,7 @@ pub fn render_into<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
 // Markdown rendering — `MdRenderSync` trait impls + `md_sync!` templates.
 //
 // Same composability story as the HTML side: each data type owns its
-// own Markdown shape via an `MdRenderSync<B>` impl, and `md_sync!` raw
+// own Markdown shape via an `MdRenderSync<::proa_core::NoLoader, B>` impl, and `md_sync!` raw
 // templates compose them through `{expr}` children. The page
 // render is a single template that iterates `{ for listing in ... }`
 // and the inner `{listing}` slot dispatches into the per-listing
@@ -280,8 +279,10 @@ pub fn render_into<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
 /// Implemented on `&SearchListing<'a>` rather than `SearchListing<'a>` so
 /// the page-level template can iterate `&'a [SearchListing<'a>]` without
 /// cloning or moving — the listing data is read-only for render.
-impl<'a, B: WriteBuf> MdRenderSync<B> for &SearchListing<'a> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B>
+    for &SearchListing<'a>
+{
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         let beds_suffix = if self.beds == 1 { "" } else { "s" };
         let baths_suffix = if self.baths == 1 { "" } else { "s" };
         md_sync! { r###"
@@ -295,7 +296,7 @@ impl<'a, B: WriteBuf> MdRenderSync<B> for &SearchListing<'a> {
             "###
         }
         .render_md(cx)?;
-        cx.block_boundary()
+        cx.md_block_boundary()
     }
 }
 
@@ -303,8 +304,8 @@ impl<'a, B: WriteBuf> MdRenderSync<B> for &SearchListing<'a> {
 /// `{ for listing in self.listings { listing } }` block dispatches
 /// into the per-listing impl above — pure composition, no procedural
 /// orchestration in this template.
-impl<'a, B: WriteBuf> MdRenderSync<B> for &SearchData<'a> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for &SearchData<'a> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             # {self.title}
 
@@ -328,7 +329,7 @@ impl<'a, B: WriteBuf> MdRenderSync<B> for &SearchData<'a> {
 pub fn render_md() -> String {
     let data = SearchData::default_malibu();
     let mut buf = RenderBuffer::new();
-    let mut cx = MdContext::with_buffer(&mut buf);
+    let mut cx = WebContext::with_buffer(&mut buf);
     (&data).render_md(&mut cx).unwrap();
     String::from_utf8(buf.to_vec()).expect("MdRenderSync writes UTF-8")
 }

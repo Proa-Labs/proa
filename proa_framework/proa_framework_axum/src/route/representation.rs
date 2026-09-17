@@ -3,13 +3,17 @@
 
 //! Shared HTML/Markdown representation negotiation for typed pages.
 
-use axum::body::Body;
+use super::response::{
+    block_on_current_runtime, current_framework_request_context, framework_response_to_axum,
+};
 use axum::http::{
-    header::{ACCEPT, CONTENT_TYPE, LINK, VARY},
-    HeaderMap, HeaderValue, Response,
+    header::{ACCEPT, LINK, VARY},
+    HeaderMap, HeaderValue, StatusCode,
 };
 use axum::response::IntoResponse;
-use proa_core::{md::MdContext, DataLoader, MdRenderSync, WriteError};
+use proa_core::{DataLoader, MdRenderSync, WriteError};
+use proa_framework_core::{render_sync_markdown_response, FrameworkResponse, MarkdownResponse};
+use std::sync::Arc;
 
 use super::RouteResponse;
 
@@ -40,7 +44,12 @@ pub enum RepresentationResponse<L: DataLoader> {
         alternate: MarkdownAlternate,
     },
     Markdown {
-        body: Vec<u8>,
+        response: FrameworkResponse,
+        canonical: bool,
+    },
+    /// A transferable root whose active render future stays local to finalization.
+    MarkdownAsync {
+        response: MarkdownResponse<L>,
         canonical: bool,
     },
 }
@@ -53,25 +62,48 @@ impl<L: DataLoader + 'static> IntoResponse for RepresentationResponse<L> {
                 alternate,
             } => {
                 let mut response = response.into_response();
-                response.headers_mut().insert(VARY, accept_vary());
+                merge_accept_vary(response.headers_mut());
                 response
                     .headers_mut()
-                    .insert(LINK, alternate_link(alternate));
+                    .append(LINK, alternate_link(alternate));
                 response
             }
-            Self::Markdown { body, canonical } => {
-                let mut response = Response::new(Body::from(body));
-                response.headers_mut().insert(
-                    CONTENT_TYPE,
-                    HeaderValue::from_static("text/markdown; charset=utf-8"),
-                );
-                if canonical {
-                    response.headers_mut().insert(VARY, accept_vary());
+            Self::Markdown {
+                response,
+                canonical,
+            } => markdown_into_response(response, canonical),
+            Self::MarkdownAsync {
+                response,
+                canonical,
+            } => {
+                let request = current_framework_request_context();
+                match block_on_current_runtime(response.finalize(&request)) {
+                    Ok(response) => markdown_into_response(response, canonical),
+                    Err(err) => {
+                        tracing::error!(?err, "Markdown route finalization failed");
+                        markdown_into_response(
+                            FrameworkResponse::plain_text(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                "render error",
+                            ),
+                            canonical,
+                        )
+                    }
                 }
-                response
             }
         }
     }
+}
+
+fn markdown_into_response(
+    response: FrameworkResponse,
+    canonical: bool,
+) -> axum::response::Response {
+    let mut response = framework_response_to_axum(response);
+    if canonical {
+        merge_accept_vary(response.headers_mut());
+    }
+    response
 }
 
 /// Negotiate a canonical page between browser HTML and semantic Markdown.
@@ -87,11 +119,14 @@ pub fn negotiate<L, M>(
 ) -> Result<RepresentationResponse<L>, WriteError>
 where
     L: DataLoader,
-    M: MdRenderSync<Vec<u8>>,
+    M: MdRenderSync,
 {
     if prefers_markdown(headers) {
         Ok(RepresentationResponse::Markdown {
-            body: render_markdown(markdown)?,
+            response: render_sync_markdown_response(
+                markdown,
+                &current_framework_request_context(),
+            )?,
             canonical: true,
         })
     } else {
@@ -108,21 +143,56 @@ pub fn explicit_markdown<M>(
     markdown: M,
 ) -> Result<RepresentationResponse<proa_core::NoLoader>, WriteError>
 where
-    M: MdRenderSync<Vec<u8>>,
+    M: MdRenderSync,
 {
     Ok(RepresentationResponse::Markdown {
-        body: render_markdown(markdown)?,
+        response: render_sync_markdown_response(markdown, &current_framework_request_context())?,
         canonical: false,
     })
 }
 
-fn render_markdown<M>(markdown: M) -> Result<Vec<u8>, WriteError>
+/// Negotiate before rendering, preserving the supplied request-scoped loader.
+///
+/// This constructs an unopened plan. The handler remains `Send` even when the
+/// renderer creates local state across `.await`. The selected render runs at
+/// response finalization; failures become the standard HTTP render error.
+pub fn negotiate_async_with_loader<L, M>(
+    headers: &HeaderMap,
+    html: RouteResponse<L>,
+    markdown: M,
+    loader: Arc<L>,
+    alternate: MarkdownAlternate,
+) -> RepresentationResponse<L>
 where
-    M: MdRenderSync<Vec<u8>>,
+    L: DataLoader + 'static,
+    M: proa_core::MdRender<L> + Send + 'static,
 {
-    let mut body = Vec::new();
-    markdown.render_md(&mut MdContext::new(&mut body))?;
-    Ok(body)
+    if prefers_markdown(headers) {
+        RepresentationResponse::MarkdownAsync {
+            response: MarkdownResponse::with_loader(markdown, loader),
+            canonical: true,
+        }
+    } else {
+        RepresentationResponse::Html {
+            response: html,
+            alternate,
+        }
+    }
+}
+
+/// Construct a loader-aware plan for a stable Markdown URL, without negotiation.
+pub fn explicit_markdown_async_with_loader<L, M>(
+    markdown: M,
+    loader: Arc<L>,
+) -> RepresentationResponse<L>
+where
+    L: DataLoader + 'static,
+    M: proa_core::MdRender<L> + Send + 'static,
+{
+    RepresentationResponse::MarkdownAsync {
+        response: MarkdownResponse::with_loader(markdown, loader),
+        canonical: false,
+    }
 }
 
 fn prefers_markdown(headers: &HeaderMap) -> bool {
@@ -232,8 +302,16 @@ fn parse_quality(raw: &str) -> Option<u16> {
     }
 }
 
-fn accept_vary() -> HeaderValue {
-    HeaderValue::from_static("Accept")
+fn merge_accept_vary(headers: &mut HeaderMap) {
+    let already_varies = headers.get_all(VARY).iter().any(|value| {
+        value.to_str().is_ok_and(|text| {
+            text.split(',')
+                .any(|token| token.trim() == "*" || token.trim().eq_ignore_ascii_case("accept"))
+        })
+    });
+    if !already_varies {
+        headers.append(VARY, HeaderValue::from_static("Accept"));
+    }
 }
 
 fn alternate_link(alternate: MarkdownAlternate) -> HeaderValue {
@@ -247,12 +325,15 @@ fn alternate_link(alternate: MarkdownAlternate) -> HeaderValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::header::CONTENT_TYPE;
     use axum::{
         http::{header, Request},
         routing::get,
         Router,
     };
     use http_body_util::BodyExt;
+    use proa_core::WebContext;
     use proa_core::{text::StaticRaw, WriteBuf, WriteError};
     use proa_macros::md_sync;
     use std::{collections::HashMap, sync::Arc};
@@ -263,8 +344,8 @@ mod tests {
     #[derive(Clone, Copy)]
     struct MarkdownPage;
 
-    impl<B: WriteBuf> MdRenderSync<B> for MarkdownPage {
-        fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+    impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for MarkdownPage {
+        fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
             md_sync! { r###"
                 # Route dossier
 
@@ -371,5 +452,286 @@ mod tests {
         let explicit = explicit.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(canonical, explicit);
         assert_eq!(canonical, "# Route dossier\n\nSemantic body.\n");
+    }
+}
+
+#[cfg(test)]
+mod shared_context_tests {
+    use super::*;
+    use crate::{
+        manifest::IslandManifest,
+        route::context::{RouteContextLayer, ROUTE_CONTEXT},
+    };
+    use axum::{
+        body::Body,
+        http::{header, Method, Request},
+        routing::get,
+        Router,
+    };
+    use http_body_util::BodyExt;
+    use proa_core::{
+        CspNonce, LoadError, LoadKey, LoadRequest, LoadValue, RenderOutcome, RouteParam,
+        RouteParams, WebContext, WebRender, WriteBuf,
+    };
+    use std::{
+        collections::HashMap,
+        future::Future,
+        rc::Rc,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Mutex,
+        },
+    };
+    use tower::ServiceExt;
+
+    struct Loader {
+        loads: AtomicUsize,
+    }
+    impl DataLoader for Loader {
+        fn load(
+            &self,
+            _: &LoadRequest,
+        ) -> impl Future<Output = Result<LoadValue, LoadError>> + Send {
+            async move {
+                tokio::task::yield_now().await;
+                self.loads.fetch_add(1, Ordering::Relaxed);
+                Ok(LoadValue::arc(Arc::new(String::from("*loaded*"))))
+            }
+        }
+    }
+
+    struct LoadedMarkdown {
+        loader: Arc<Loader>,
+    }
+    impl proa_core::MdRender<Loader> for LoadedMarkdown {
+        fn render_md(
+            self,
+            cx: &mut WebContext<Loader>,
+        ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            RenderOutcome::pending(async move {
+                assert!(Arc::ptr_eq(cx.loader(), &self.loader));
+                assert_eq!(cx.request().method(), Some(&Method::GET));
+                assert_eq!(cx.request().headers()["x-request"], "shared");
+                assert_eq!(cx.request_location().unwrap().path(), "/article");
+                assert_eq!(cx.route_params().unwrap().get("slug"), Some("article"));
+                assert_eq!(cx.csp_nonce().unwrap().as_str(), "test-nonce");
+                let local = Rc::new(7);
+                let value = cx
+                    .load_typed::<String>(LoadKey::named("article", "one"))
+                    .await?;
+                assert_eq!(*local, 7);
+                cx.response_mut().set_status(StatusCode::CREATED);
+                cx.response_mut()
+                    .append_set_cookie(HeaderValue::from_static("a=1"));
+                cx.response_mut()
+                    .append_set_cookie(HeaderValue::from_static("b=2"));
+                cx.response_mut()
+                    .append_header(VARY, HeaderValue::from_static("Origin"));
+                cx.response_mut()
+                    .append_header(LINK, HeaderValue::from_static("</one>; rel=preload"));
+                cx.response_mut()
+                    .append_header(LINK, HeaderValue::from_static("</two>; rel=preload"));
+                cx.head_mut().set_title("must not become an HTML shell");
+                cx.write_md_text(value.as_str())
+            })
+        }
+    }
+
+    struct HtmlCount(Arc<AtomicUsize>);
+    impl WebRender<Loader> for HtmlCount {
+        fn render(
+            self,
+            cx: &mut WebContext<Loader>,
+        ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            // proa-perf-ok: fixed trusted markup probes representation selection in this test
+            RenderOutcome::<std::future::Ready<_>>::Done(cx.out.extend_static(b"<p>selected</p>"))
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn negotiated_handler_defers_local_markdown_and_preserves_request_and_response() {
+        let loader = Arc::new(Loader {
+            loads: AtomicUsize::new(0),
+        });
+        let html_calls = Arc::new(AtomicUsize::new(0));
+        let handler_loader = Arc::clone(&loader);
+        let handler_html = Arc::clone(&html_calls);
+        let app = Router::new()
+            .route(
+                "/article",
+                get(move |headers: HeaderMap| {
+                    let loader = Arc::clone(&handler_loader);
+                    let calls = Arc::clone(&handler_html);
+                    async move {
+                        // The route matcher normally installs these before finalization.
+                        ROUTE_CONTEXT.with(|context| {
+                            context
+                                .borrow_mut()
+                                .swap_route_params(RouteParams::from_vec(vec![RouteParam::new(
+                                    "slug", "article",
+                                )]));
+                        });
+                        negotiate_async_with_loader(
+                            &headers,
+                            RouteResponse::ssr_async_with_loader(
+                                HtmlCount(calls),
+                                Arc::clone(&loader),
+                            ),
+                            LoadedMarkdown {
+                                loader: Arc::clone(&loader),
+                            },
+                            loader,
+                            MarkdownAlternate::new("/article.md"),
+                        )
+                    }
+                }),
+            )
+            .layer(RouteContextLayer::new(
+                Arc::new(IslandManifest {
+                    islands: Default::default(),
+                    assets: Default::default(),
+                    import_map: Default::default(),
+                    ssr_bundle: Default::default(),
+                }),
+                Arc::new(HashMap::new()),
+            ));
+        let request = |accept| {
+            let mut request = Request::builder()
+                .uri("/article")
+                .header(ACCEPT, accept)
+                .header("x-request", "shared")
+                .body(Body::empty())
+                .unwrap();
+            request
+                .extensions_mut()
+                .insert(CspNonce::new("test-nonce").unwrap());
+            request
+        };
+        let response = app.clone().oneshot(request("text/markdown")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/markdown; charset=utf-8"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .count(),
+            2
+        );
+        assert_eq!(response.headers().get_all(LINK).iter().count(), 2);
+        assert_eq!(
+            response.headers().get_all(VARY).iter().collect::<Vec<_>>(),
+            ["Origin", "Accept"]
+        );
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            "\\*loaded\\*"
+        );
+        assert_eq!(loader.loads.load(Ordering::Relaxed), 1);
+        assert_eq!(html_calls.load(Ordering::Relaxed), 0);
+        let html = app.oneshot(request("text/html")).await.unwrap();
+        assert_eq!(html.status(), StatusCode::OK);
+        assert_eq!(html_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(loader.loads.load(Ordering::Relaxed), 1);
+    }
+
+    struct Fails;
+    impl proa_core::MdRender for Fails {
+        fn render_md(
+            self,
+            _: &mut WebContext,
+        ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            RenderOutcome::pending(async {
+                tokio::task::yield_now().await;
+                Err(WriteError::render("private diagnostic"))
+            })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn explicit_async_errors_use_http_render_error_mapping() {
+        let app = Router::new().route(
+            "/failed.md",
+            get(|| async {
+                explicit_markdown_async_with_loader(Fails, Arc::new(proa_core::NoLoader))
+            }),
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/failed.md")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!response.headers().contains_key(VARY));
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            "render error"
+        );
+    }
+
+    struct Pages {
+        source: String,
+        pointers: Arc<Mutex<Vec<usize>>>,
+    }
+    impl MdRenderSync for Pages {
+        fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            cx.write_md_trusted(&self.source)?;
+            *self.pointers.lock().unwrap() = cx
+                .out
+                .slices()
+                .filter(|p| !p.is_empty())
+                .map(|p| p.as_ptr() as usize)
+                .collect();
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn standalone_buffered_response_transfers_pages_without_copying() {
+        let pointers = Arc::new(Mutex::new(Vec::new()));
+        let source = "page contents\n".repeat(900);
+        let response = explicit_markdown(Pages {
+            source: source.clone(),
+            pointers: Arc::clone(&pointers),
+        })
+        .unwrap()
+        .into_response();
+        assert_eq!(
+            response.headers()[header::CONTENT_LENGTH],
+            source.len().to_string()
+        );
+        let mut body = response.into_body();
+        let mut actual = Vec::new();
+        let mut bytes = Vec::new();
+        while let Some(frame) = body.frame().await {
+            let chunk = frame.unwrap().into_data().unwrap();
+            actual.push(chunk.as_ptr() as usize);
+            bytes.extend_from_slice(&chunk);
+        }
+        assert_eq!(actual, *pointers.lock().unwrap());
+        assert!(actual.len() > 1);
+        assert_eq!(bytes, source.as_bytes());
+    }
+
+    #[test]
+    fn vary_merging_keeps_existing_values_and_wildcard() {
+        for value in ["Origin", "*", "aCcEpT, Origin"] {
+            let mut headers = HeaderMap::new();
+            headers.append(VARY, HeaderValue::from_str(value).unwrap());
+            merge_accept_vary(&mut headers);
+            assert_eq!(headers[VARY], value);
+            assert_eq!(
+                headers.get_all(VARY).iter().count(),
+                if value == "Origin" { 2 } else { 1 }
+            );
+        }
     }
 }

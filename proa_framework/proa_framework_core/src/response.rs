@@ -794,6 +794,9 @@ pub struct FrameworkRequestContext {
 /// produced stream is directly pollable or requires a pinned local executor.
 pub enum FrameworkBody {
     Full(Bytes),
+    /// A fully rendered body whose owned pages can transfer to the transport
+    /// without flattening. This is independent of deferred streaming setup.
+    BufferedPages(RenderBuffer),
     Stream(FrameworkStreamFactory),
 }
 
@@ -805,6 +808,10 @@ impl std::fmt::Debug for FrameworkBody {
                 .field(&format!("{} bytes", bytes.len()))
                 .finish(),
             Self::Stream(factory) => f.debug_tuple("Stream").field(factory).finish(),
+            Self::BufferedPages(buffer) => f
+                .debug_tuple("BufferedPages")
+                .field(&proa_core::WriteBuf::len(buffer))
+                .finish(),
         }
     }
 }
@@ -893,7 +900,7 @@ impl FrameworkResponse {
     }
 }
 
-fn merge_response_context(response: &mut FrameworkResponse, context: &ResponseContext) {
+pub(crate) fn merge_response_context(response: &mut FrameworkResponse, context: &ResponseContext) {
     if context.is_empty() {
         return;
     }
@@ -903,12 +910,16 @@ fn merge_response_context(response: &mut FrameworkResponse, context: &ResponseCo
     }
 
     let headers = context.headers();
-    for (name, value) in headers.iter() {
-        if name == header::SET_COOKIE {
-            response.headers.append(name.clone(), value.clone());
-        } else {
-            response.headers.insert(name.clone(), value.clone());
+    // Replace defaults once per header name, then retain every supplied value.
+    // Cookies accumulate alongside those already installed by the framework.
+    for name in headers.keys() {
+        if name != header::SET_COOKIE {
+            response.headers.remove(name);
         }
+    }
+    for (name, value) in headers.iter() {
+        // proa-perf-ok: response finalization transfers borrowed metadata into the owned HTTP map
+        response.headers.append(name.clone(), value.clone());
     }
 }
 
@@ -1979,7 +1990,7 @@ impl<const N: usize> SendStreamChunkFlusher for ChannelSink<N> {
     }
 }
 
-fn install_request_context<B: proa_core::WriteBuf, L: DataLoader>(
+pub(crate) fn install_request_context<B: proa_core::WriteBuf, L: DataLoader>(
     ctx: &mut WebContext<L, B>,
     request: &FrameworkRequestContext,
 ) {
@@ -2534,7 +2545,9 @@ mod tests {
         );
         match response.body {
             FrameworkBody::Full(bytes) => assert_eq!(bytes, Bytes::from_static(b"<main>ok</main>")),
-            FrameworkBody::Stream(_) => panic!("expected full body"),
+            FrameworkBody::Stream(_) | FrameworkBody::BufferedPages(_) => {
+                panic!("expected full body")
+            }
         }
     }
 

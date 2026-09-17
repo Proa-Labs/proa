@@ -176,22 +176,24 @@ fn template_dedents_layout_indentation() {
         description: "Light and fast",
     };
     // Template aligned with the surrounding code, closing quote on its own line.
-    let out = r(md_sync! {"
+    let out = r(md_sync! { "
         ## {product.title}
 
         {product.description}
-    "});
+        "
+    });
     assert_eq!(out, "## Trail Runner\n\nLight and fast\n");
 }
 
 #[test]
 fn template_dedent_matches_flush_left_output() {
     let title = "Report";
-    let aligned = r(md_sync! {"
+    let aligned = r(md_sync! { "
         # {title}
 
         Body.
-    "});
+        "
+    });
     let flush = r(md_sync!(
         "
 # {title}
@@ -205,13 +207,14 @@ Body.
 #[test]
 fn template_dedent_preserves_relative_indentation() {
     let items = ["alpha", "beta"];
-    let out = r(md_sync! {"
+    let out = r(md_sync! { "
         # Nested
 
         - top
           - {items[0]}
           - {items[1]}
-    "});
+        "
+    });
     assert_eq!(out, "# Nested\n\n- top\n  - alpha\n  - beta\n");
 }
 
@@ -219,35 +222,38 @@ fn template_dedent_preserves_relative_indentation() {
 fn template_dedent_keeps_deeper_indentation_as_content() {
     // Only the common prefix is layout; the extra four spaces stay an
     // indented code block.
-    let out = r(md_sync! {"
+    let out = r(md_sync! { "
         Paragraph.
 
             code_line();
-    "});
+        "
+    });
     assert_eq!(out, "Paragraph.\n\n    code_line();\n");
 }
 
 #[test]
 fn template_dedent_applies_inside_control_flow() {
     let items = ["alpha", "beta"];
-    let out = r(md_sync! {"
+    let out = r(md_sync! { "
         # Items
 
         {for item in items.iter() {
         - {item}
         }}
-    "});
+        "
+    });
     // The newline after `}}` is part of the template, as in `template_nested_for`.
     assert_eq!(out, "# Items\n\n- alpha\n- beta\n\n");
 }
 
 #[test]
 fn template_dedent_ignores_blank_line_whitespace() {
-    let out = r(md_sync! {"
+    let out = r(md_sync! { "
             # Title
         \u{20}
             Body.
-    "});
+        "
+    });
     assert_eq!(out, "# Title\n\nBody.\n");
 }
 
@@ -353,57 +359,59 @@ fn escaped_newlines_preserve_intentional_indentation() {
 
 #[test]
 fn braced_source_lines_do_not_break_inline_contexts() {
-    use proa_core::md::MdContext;
+    use proa_core::WebContext;
     use proa_core::{MdRenderSync, WriteBuf};
 
     struct InlinePair;
 
-    impl<B: WriteBuf> MdRenderSync<B> for InlinePair {
-        fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), proa_core::WriteError> {
-            let previous_inline = cx.set_inline(true);
+    impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlinePair {
+        fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
+            let previous_inline = cx.md_set_inline(true);
             let result = md_sync! {
                 "Before"
                 "After"
             }
             .render_md(cx);
-            cx.set_inline(previous_inline);
+            cx.md_set_inline(previous_inline);
             result
         }
     }
 
     let mut buf = Vec::new();
-    InlinePair.render_md(&mut MdContext::new(&mut buf)).unwrap();
+    InlinePair
+        .render_md(&mut WebContext::with_buffer(&mut buf))
+        .unwrap();
     assert_eq!(String::from_utf8(buf).unwrap(), "BeforeAfter");
 }
 
 struct DelayedMd(&'static str);
 
-impl<B: proa_core::WriteBuf> proa_core::MdRender<B> for DelayedMd {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: proa_core::WriteBuf> proa_core::MdRender<Loader, B>
+    for DelayedMd
+{
+    fn render_md(
         self,
-        cx: &'cx mut proa_core::md::MdContext<'out, B>,
+        cx: &mut proa_core::WebContext<Loader, B>,
     ) -> proa_core::RenderOutcome<
-        impl core::future::Future<Output = Result<(), proa_core::WriteError>> + 'cx,
-    >
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        impl core::future::Future<Output = Result<(), proa_core::WriteError>>,
+    > {
         proa_core::RenderOutcome::Pending(async move {
             tokio::task::yield_now().await;
-            cx.write_text(self.0)
+            cx.write_md_text(self.0)
         })
     }
 }
 
 struct SyncOnlyMd(&'static str);
 
-impl<B: proa_core::WriteBuf> proa_core::MdRenderSync<B> for SyncOnlyMd {
+impl<Loader: ::proa_core::DataLoader, B: proa_core::WriteBuf> proa_core::MdRenderSync<Loader, B>
+    for SyncOnlyMd
+{
     fn render_md(
         self,
-        cx: &mut proa_core::md::MdContext<'_, B>,
+        cx: &mut proa_core::WebContext<Loader, B>,
     ) -> Result<(), proa_core::WriteError> {
-        cx.write_text(self.0)
+        cx.write_md_text(self.0)
     }
 }
 
@@ -485,7 +493,6 @@ fn md_renders_via_web_render() {
 }
 #[test]
 fn dual_trait_component() {
-    use proa_core::md::MdContext;
     use proa_core::render::MdRenderSync;
     use proa_core::{WebContext, WebRenderSync, WriteBuf};
     use proa_macros::html_sync;
@@ -504,12 +511,13 @@ fn dual_trait_component() {
             .render(cx)
         }
     }
-    impl<B: WriteBuf> MdRenderSync<B> for Card {
-        fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), proa_core::WriteError> {
-            cx.render(md_sync! {
+    impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Card {
+        fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
+            md_sync! {
                 "## " { self.title }
                 { self.body } "\n"
-            })?;
+            }
+            .render_md(cx)?;
             Ok(())
         }
     }
@@ -521,7 +529,7 @@ fn dual_trait_component() {
     assert!(html_out.contains("Hello"));
     let mut buf = Vec::new();
     {
-        let mut cx = MdContext::new(&mut buf);
+        let mut cx = WebContext::with_buffer(&mut buf);
         Card {
             title: "Hello",
             body: "World",
@@ -534,7 +542,6 @@ fn dual_trait_component() {
 }
 #[test]
 fn md_composes_md_render_children() {
-    use proa_core::md::MdContext;
     use proa_core::render::MdRenderSync;
     use proa_core::{WebContext, WebRenderSync, WriteBuf};
     use proa_macros::html_sync;
@@ -553,12 +560,13 @@ fn md_composes_md_render_children() {
             .render(cx)
         }
     }
-    impl<B: WriteBuf> MdRenderSync<B> for Card {
-        fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), proa_core::WriteError> {
-            cx.render(md_sync! {
+    impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Card {
+        fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
+            md_sync! {
                 "## " { self.title }
                 { self.body } "\n"
-            })?;
+            }
+            .render_md(cx)?;
             Ok(())
         }
     }
@@ -566,16 +574,17 @@ fn md_composes_md_render_children() {
         featured: Card,
         nearby: Vec<Card>,
     }
-    impl<B: WriteBuf> MdRenderSync<B> for Page {
-        fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), proa_core::WriteError> {
-            cx.render(md_sync! {
+    impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Page {
+        fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
+            md_sync! {
                 "# Featured"
                 { self.featured }
                 "# Nearby"
                 { for card in self.nearby {
                     card
                 }}
-            })?;
+            }
+            .render_md(cx)?;
             Ok(())
         }
     }
@@ -597,7 +606,7 @@ fn md_composes_md_render_children() {
     };
     let mut buf = Vec::new();
     {
-        let mut cx = MdContext::new(&mut buf);
+        let mut cx = WebContext::with_buffer(&mut buf);
         page.render_md(&mut cx).unwrap();
     }
     let out = String::from_utf8(buf).unwrap();
@@ -612,7 +621,7 @@ fn md_composes_md_render_children() {
 
 #[test]
 fn markdown_bridges_typed_html_with_normal_escaping() {
-    use proa_core::md::MdContext;
+    use proa_core::WebContext;
     use proa_core::{MdRenderSync, WriteBuf};
     use proa_macros::html_sync;
 
@@ -620,10 +629,10 @@ fn markdown_bridges_typed_html_with_normal_escaping() {
         label: &'a str,
     }
 
-    impl<B: WriteBuf> MdRenderSync<B> for Callout<'_> {
-        fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), proa_core::WriteError> {
+    impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Callout<'_> {
+        fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
             md_sync! { "Before\n\n" }.render_md(cx)?;
-            cx.render_web(html_sync! {
+            cx.render_html_in_md(html_sync! {
                 <strong>{self.label}</strong>
             })?;
             md_sync! { "\n\nAfter" }.render_md(cx)
@@ -632,7 +641,7 @@ fn markdown_bridges_typed_html_with_normal_escaping() {
 
     let mut buf = Vec::new();
     Callout { label: "<typed>" }
-        .render_md(&mut MdContext::new(&mut buf))
+        .render_md(&mut WebContext::with_buffer(&mut buf))
         .unwrap();
 
     assert_eq!(
@@ -643,25 +652,26 @@ fn markdown_bridges_typed_html_with_normal_escaping() {
 
 #[test]
 fn md_render_with_chained_bump_writer() {
-    use proa_core::md::MdContext;
     use proa_core::render::MdRenderSync;
+    use proa_core::WebContext;
     use proa_core::{ChainedBumpWriter, WriteBuf};
     struct Article {
         title: &'static str,
         body: &'static str,
     }
-    impl<B: WriteBuf> MdRenderSync<B> for Article {
-        fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), proa_core::WriteError> {
-            cx.render(md_sync! {
+    impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Article {
+        fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
+            md_sync! {
                 "# " { self.title }
                 { self.body } "\n"
-            })?;
+            }
+            .render_md(cx)?;
             Ok(())
         }
     }
     let mut buf = ChainedBumpWriter::<16>::new();
     {
-        let mut cx = MdContext::with_buffer(&mut buf);
+        let mut cx = WebContext::with_buffer(&mut buf);
         Article {
             title: "Hello",
             body: "World",
@@ -675,20 +685,21 @@ fn md_render_with_chained_bump_writer() {
 }
 #[test]
 fn md_render_chained_bump_large_output() {
-    use proa_core::md::MdContext;
     use proa_core::render::MdRenderSync;
+    use proa_core::WebContext;
     use proa_core::{ChainedBumpWriter, WriteBuf};
     struct Listing {
         items: Vec<&'static str>,
     }
-    impl<B: WriteBuf> MdRenderSync<B> for Listing {
-        fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), proa_core::WriteError> {
-            cx.render(md_sync! {
+    impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Listing {
+        fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
+            md_sync! {
                 "# Items"
                 { for item in self.items.iter() {
                     md_sync! { "- " { item } "\n" }
                 }}
-            })?;
+            }
+            .render_md(cx)?;
             Ok(())
         }
     }
@@ -697,7 +708,7 @@ fn md_render_chained_bump_large_output() {
     };
     let mut buf = ChainedBumpWriter::<32>::new();
     {
-        let mut cx = MdContext::with_buffer(&mut buf);
+        let mut cx = WebContext::with_buffer(&mut buf);
         listing.render_md(&mut cx).unwrap();
     }
     let out = String::from_utf8(buf.to_vec()).unwrap();
