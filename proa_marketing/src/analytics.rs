@@ -3,50 +3,51 @@
 
 use std::{env, sync::OnceLock};
 
-use proa_core::{DataLoader, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError};
+use proa_core::{
+    csp_nonce_attr, DataLoader, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
+};
 use proa_macros::html_sync;
+use proa_third_party::google::{AnalyticsConsent, GoogleAnalytics};
 
 static MEASUREMENT_ID: OnceLock<Option<String>> = OnceLock::new();
-const BOOTSTRAP: &str = include_str!("analytics.js");
 
-/// The measurement ID is public configuration, never an OAuth credential.
-pub(crate) fn google_analytics() -> Option<GoogleAnalytics> {
+/// Public runtime configuration and production-host policy are app-owned.
+pub(crate) fn google_analytics() -> Option<MarketingAnalytics> {
     let measurement_id = MEASUREMENT_ID
         .get_or_init(|| {
             let value = env::var("GOOGLE_ANALYTICS_MEASUREMENT_ID").ok()?;
-            let Some(value) = validate_measurement_id(&value) else {
+            let Ok(analytics) = GoogleAnalytics::new(&value) else {
                 tracing::warn!(
-                    "Google Analytics disabled: GOOGLE_ANALYTICS_MEASUREMENT_ID must be a G- prefixed measurement ID"
+                    "Google Analytics disabled: invalid GOOGLE_ANALYTICS_MEASUREMENT_ID"
                 );
                 return None;
             };
-            Some(value.to_owned())
+            Some(analytics.measurement_id().to_owned())
         })
         .as_deref()?;
-    Some(GoogleAnalytics { measurement_id })
+    Some(MarketingAnalytics {
+        analytics: GoogleAnalytics::new(measurement_id)
+            .ok()?
+            .consent(AnalyticsConsent::Granted),
+    })
 }
 
-fn validate_measurement_id(value: &str) -> Option<&str> {
-    let value = value.trim();
-    let suffix = value.strip_prefix("G-")?;
-    (!suffix.is_empty()
-        && suffix
-            .bytes()
-            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit()))
-    .then_some(value)
+pub(crate) struct MarketingAnalytics {
+    analytics: GoogleAnalytics<'static>,
 }
 
-pub(crate) struct GoogleAnalytics {
-    measurement_id: &'static str,
-}
-
-// Shared document heads support the owning shell's custom writer parameter.
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GoogleAnalytics {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingAnalytics {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let nonce = cx.csp_nonce_cloned();
         html_sync! {
-            <script data-proa-analytics data-measurement-id={self.measurement_id}>
-                {StaticRaw(BOOTSTRAP)}
+            <script
+                data-proa-analytics-policy
+                data-measurement-id={self.analytics.measurement_id()}
+                nonce={csp_nonce_attr(nonce.as_ref())}
+            >
+                {StaticRaw(include_str!("analytics.js"))}
             </script>
+            {self.analytics}
         }
         .render(cx)
     }
@@ -57,34 +58,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn measurement_id_accepts_ga4_ids_and_rejects_malformed_configuration() {
-        assert_eq!(
-            validate_measurement_id(" G-ABC1234567 \n"),
-            Some("G-ABC1234567")
+    fn browser_policy_excludes_previews_and_embedded_pages() {
+        let output = std::process::Command::new("node")
+            .arg("--test")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/analytics-policy.test.mjs"
+            ))
+            .output()
+            .expect("Node.js is required to test the browser analytics policy");
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
-        for invalid in [
-            "",
-            "G-",
-            "GTM-ABC123",
-            "G-abc123",
-            "G-ABC\"",
-            "G-ABC</script>",
-        ] {
-            assert_eq!(validate_measurement_id(invalid), None, "{invalid}");
-        }
     }
 
     #[test]
-    fn tag_passes_the_measurement_id_as_data_without_an_extra_script_request() {
+    fn host_policy_precedes_the_shared_analytics_component() {
         let mut cx = WebContext::new();
-        GoogleAnalytics {
-            measurement_id: "G-TEST123456",
+        MarketingAnalytics {
+            analytics: GoogleAnalytics::new("G-TEST123456")
+                .unwrap()
+                .consent(AnalyticsConsent::Granted),
         }
         .render(&mut cx)
         .unwrap();
         let html = cx.into_output().into_string();
-        assert_eq!(html.matches("<script").count(), 1);
-        assert!(html.contains(r#"data-measurement-id="G-TEST123456""#));
-        assert!(!html.contains(" src="));
+        assert!(
+            html.find("data-proa-analytics-policy").unwrap()
+                < html.find("data-proa-google-analytics").unwrap()
+        );
+        assert!(html.contains(r#"data-strategy="after-load""#));
+        assert_eq!(
+            html.matches(r#"data-measurement-id="G-TEST123456""#)
+                .count(),
+            2
+        );
     }
 }

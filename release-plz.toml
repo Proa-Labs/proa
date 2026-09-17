@@ -99,6 +99,10 @@ name = "proa_og"
 release = true
 
 [[package]]
+name = "proa_third_party"
+release = true
+
+[[package]]
 name = "itoa_lut"
 release = true
 

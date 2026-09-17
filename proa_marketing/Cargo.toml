@@ -22,6 +22,7 @@ proa_core = { workspace = true }
 proa_demo = { workspace = true, features = ["server"] }
 proa_docs = { workspace = true }
 proa_macros = { workspace = true }
+proa_third_party = { workspace = true, features = ["google-analytics"] }
 proa_showcase_web = { workspace = true }
 # json to read the GitHub release metadata, stream so an 11MB archive is
 # forwarded to the client instead of buffered in memory.

@@ -30,6 +30,7 @@ members = [
     "proa_showcase",
     "proa_showcase_web",
     "proa_og",
+    "proa_third_party",
     "itoa_lut",
     "rsjs",
     "rsjs_ir",
@@ -112,6 +113,7 @@ proa_react = { path = "proa_react", version = "0.3.0" }
 proa_showcase = { path = "proa_showcase", version = "0.2.1", default-features = false }
 proa_showcase_web = { path = "proa_showcase_web", version = "0.1.0" }
 proa_stream = { path = "proa_stream", version = "0.3.0", default-features = false }
+proa_third_party = { path = "proa_third_party", version = "0.1.0", default-features = false }
 proc-macro2 = { version = "1" }
 pulldown-cmark = { version = "0.13", default-features = false }
 quote = { version = "1.0.37" }
