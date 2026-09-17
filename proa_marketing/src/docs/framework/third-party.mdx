@@ -115,6 +115,12 @@ and serve `proa_third_party::youtube::YOUTUBE_CSS` as an external `text/css`
 asset when your CSP disallows inline styles or you want one cached stylesheet.
 Include that stylesheet before the embed to preserve its layout dimensions.
 
+For fully custom styling, combine `.class("my-video").inline_styles(false)`
+and style `.my-video` in your app. The internal `data-proa-youtube-frame`,
+`data-proa-youtube-play`, and `data-proa-youtube-play-icon` selectors identify
+the frame and controls. Your styles should reserve the player's dimensions
+before activation. Using `YOUTUBE_CSS` is optional.
+
 Both `MdRenderSync` and `MdRender` produce an escaped title and a normal YouTube
 link, with no HTML, scripts, or iframe. The start offset applies to embedded
 playback; the fallback and Markdown links point to the video itself.

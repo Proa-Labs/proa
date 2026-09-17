@@ -16,7 +16,7 @@ use proa_core::{
 };
 use proa_macros::{html_sync, md_sync};
 
-/// Serve as text/css when inline styles are disabled on the component.
+/// Optional default styles; serve as text/css when inline styles are disabled.
 pub const YOUTUBE_CSS: &str = include_str!("youtube.css");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -75,12 +75,13 @@ impl<'a> YouTubeEmbed<'a> {
         self
     }
 
-    /// Set false when serving YOUTUBE_CSS from an external stylesheet.
+    /// Set false when supplying your own styles or serving YOUTUBE_CSS externally.
     pub const fn inline_styles(mut self, enabled: bool) -> Self {
         self.inline_styles = enabled;
         self
     }
 
+    /// Add a class to the root figure for application-owned styling.
     pub const fn class(mut self, class: &'a str) -> Self {
         self.class = Some(class);
         self
