@@ -1270,37 +1270,53 @@ fn function_is_standalone_render_entry(item_fn: &syn::ItemFn) -> bool {
         && (function_has_web_context_param(item_fn) || block_constructs_web_context(&item_fn.block))
 }
 
-/// A shared context proves a render path, not its representation. Keep
-/// allocation checks for every render helper, but require HTML evidence before
-/// recommending HTML escaping or interpreting a code sample as raw HTML.
+/// Preserve HTML checks for standalone render helpers, including raw byte
+/// writers. Markdown evidence opts out of HTML-specific guidance; allocation
+/// checks still apply to both representations.
 fn standalone_renders_html(item_fn: &syn::ItemFn) -> bool {
     let name = item_fn.sig.ident.to_string();
     if name.starts_with("render_md") || name.starts_with("render_markdown") {
         return false;
     }
-    if name.starts_with("render_html") || name.starts_with("render_web") {
-        return true;
+    fn is_markdown_operation(name: &str) -> bool {
+        name == "render_md"
+            || name == "render_markdown"
+            || name.starts_with("write_md_")
+            || name.starts_with("md_")
     }
-    struct HtmlUse(bool);
-    impl<'ast> Visit<'ast> for HtmlUse {
-        fn visit_expr_macro(&mut self, node: &'ast ExprMacro) {
-            if node.mac.path.segments.last().is_some_and(|segment| {
-                matches!(segment.ident.to_string().as_str(), "html" | "html_sync")
+    struct MarkdownUse(bool);
+    impl<'ast> Visit<'ast> for MarkdownUse {
+        fn visit_macro(&mut self, node: &'ast syn::Macro) {
+            if node.path.segments.last().is_some_and(|segment| {
+                matches!(segment.ident.to_string().as_str(), "md" | "md_sync")
             }) {
                 self.0 = true;
             }
-            visit::visit_expr_macro(self, node);
+            visit::visit_macro(self, node);
         }
         fn visit_expr_method_call(&mut self, node: &'ast ExprMethodCall) {
-            if node.method == "render" {
+            if is_markdown_operation(&node.method.to_string()) {
                 self.0 = true;
             }
             visit::visit_expr_method_call(self, node);
         }
+        fn visit_expr_call(&mut self, node: &'ast ExprCall) {
+            if let Expr::Path(path) = node.func.as_ref() {
+                if path
+                    .path
+                    .segments
+                    .last()
+                    .is_some_and(|segment| is_markdown_operation(&segment.ident.to_string()))
+                {
+                    self.0 = true;
+                }
+            }
+            visit::visit_expr_call(self, node);
+        }
     }
-    let mut evidence = HtmlUse(false);
+    let mut evidence = MarkdownUse(false);
     evidence.visit_block(&item_fn.block);
-    evidence.0
+    !evidence.0
 }
 
 fn function_has_web_context_param(item_fn: &syn::ItemFn) -> bool {

@@ -1782,11 +1782,11 @@ fn render_chart_inner<B: WriteBuf>(_cx: &mut WebContext<::proa_core::NoLoader, B
 #[test]
 fn lint_scans_standalone_render_functions() {
     let source = r#"
-pub(crate) fn render_html_fragment<B: WriteBuf>(cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
-    render_html_fragment_row(cx)
+pub(crate) fn render_fragment<B: WriteBuf>(cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
+    render_fragment_row(cx)
 }
 
-fn render_html_fragment_row<B: WriteBuf>(cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
+fn render_fragment_row<B: WriteBuf>(cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
     WriteBuf::extend(&mut cx.out, b"<div class=\"row\">")?;
     WriteBuf::extend(&mut cx.out, b"</div>")
 }
@@ -5047,6 +5047,52 @@ fn render_html_example<L: DataLoader>(cx: &mut WebContext<L>) -> Result<(), Writ
     assert!(!diagnostics
         .iter()
         .any(|d| matches!(d.code, "perf/manual-escape" | "perf/manual-escape-helper")));
+}
+
+#[test]
+fn standalone_markdown_evidence_disables_only_html_checks() {
+    for (name, operation) in [
+        ("render_md_example", ""),
+        ("render_markdown_example", ""),
+        ("render_fragment", "md_sync! { \"sample\" };"),
+        ("render_fragment", "let _ = md_sync! { \"sample\" };"),
+        (
+            "render_fragment",
+            "let _ = proa_macros::md! { \"sample\" };",
+        ),
+        ("render_fragment", "cx.write_md_text(\"sample\")?;"),
+        ("render_fragment", "cx.md_block_boundary()?;"),
+        ("render_fragment", "child.render_md(cx)?;"),
+        (
+            "render_fragment",
+            "WebContext::write_md_text(cx, \"sample\")?;",
+        ),
+        ("render_fragment", "MdRenderSync::render_md(child, cx)?;"),
+    ] {
+        let source = format!(
+            r#"
+fn {name}<L: DataLoader>(cx: &mut WebContext<L>) -> Result<(), WriteError> {{
+    {operation}
+    let caption = format!("{{}}", 42);
+    cx.out.extend_static(b"<section>code sample</section>")?;
+    escape_html(&caption);
+    Ok(())
+}}
+"#
+        );
+        let diagnostics = lint_file(Path::new("sample.rs"), &source);
+        assert!(
+            diagnostics.iter().any(|d| d.code == "perf/format"),
+            "{name}: {operation}: {diagnostics:#?}"
+        );
+        assert!(
+            !diagnostics.iter().any(|d| matches!(
+                d.code,
+                "perf/raw-write-html" | "perf/manual-escape" | "perf/manual-escape-helper"
+            )),
+            "{name}: {operation}: {diagnostics:#?}"
+        );
+    }
 }
 
 #[test]
