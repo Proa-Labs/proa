@@ -64,6 +64,7 @@
     "framework/fonts",
     "framework/images",
     "framework/static-assets",
+    "framework/third-party",
     {
       "separator": "Configuration",
       "icon": "Settings"
