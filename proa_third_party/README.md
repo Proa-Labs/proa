@@ -1,0 +1,159 @@
+# proa_third_party
+
+Optional third-party components for Proa: deferred external scripts, Google
+Analytics 4, and click-to-load YouTube embeds. Components render through
+`WebRenderSync<L, B>` and support custom writers. They work in plain SSR apps
+without an RSJS runtime. Unrendered integrations emit no browser code.
+
+The browser adapters here are the boundary to external SDKs and iframes;
+application state and interactive application components can continue using RSJS.
+
+## Install
+
+Until this crate is published on crates.io, use the workspace's Git source
+consistently for your Proa dependencies:
+
+```toml
+proa_third_party = { git = "https://github.com/proa-labs/proa", default-features = false, features = ["google-analytics", "youtube"] }
+```
+
+The default features include both providers. Disable defaults and select just
+the providers your application uses. `Script` is available without features.
+
+## Google Analytics
+
+```rust
+use proa_third_party::google::GoogleAnalytics;
+
+let analytics = GoogleAnalytics::new("G-XXXXXXXXXX")?;
+// Compose {analytics} into your shared html_sync! document layout.
+```
+
+In Markdown, `GoogleAnalytics` implements both `MdRenderSync` and `MdRender`
+as a no-op. Composing it into `md_sync!` or `md!` emits no text, scripts, or
+whitespace.
+
+The default is **consent required**: no Google SDK request and no retained
+tracking events until your application's consent UI grants permission. After
+the component has rendered, connect the UI to the browser API:
+
+```js
+window.proaThirdParty.googleAnalytics.setConsent(true);
+// Later, if the visitor withdraws permission:
+window.proaThirdParty.googleAnalytics.setConsent(false);
+```
+
+The decision applies to all GA measurement IDs rendered in this document.
+Applications own consent collection, persistence, and any cookie cleanup. A
+revocation disables subsequent tracking and cancels SDK downloads that have
+not started; it cannot retract data already sent or unload an existing SDK.
+This integration implements a basic loading gate, not a consent-management UI.
+
+If the application has already established permission to collect, render
+`GoogleAnalytics::new(id)?.consent(AnalyticsConsent::Granted)` instead, importing
+`AnalyticsConsent` from `proa_third_party::google`. Setting `Granted` does not
+obtain consent from the visitor. Google Signals and advertising personalization
+signals remain disabled; advertising consent states are denied.
+
+The default script strategy waits for `window.load`. Use
+`.strategy(ScriptStrategy::Async)` to load earlier or `ScriptStrategy::Idle`
+to wait for idle time after load. Longer delays can miss short visits.
+
+Track events after permission is granted:
+
+```js
+window.proaThirdParty.googleAnalytics.track("G-XXXXXXXXXX", "sign_up", {
+  method: "email",
+});
+```
+
+Events queue while the SDK downloads. The method returns `false` if that
+measurement ID is unregistered or disabled. Do not send personal information.
+An existing `window.dataLayer` or `window.gtag` is preserved. Multiple instances
+share one SDK; each measurement ID is configured once per document. A repeated
+ID uses its first declaration's settings.
+
+By default GA sends an automatic document page view. Use
+`.send_page_view(false)` if you send page views yourself, and configure the GA
+web stream's enhanced measurement settings accordingly to avoid duplicates.
+This crate does not add a second client-router page-view listener.
+
+Environment variables and production-host checks belong to your application.
+The component honors `window["ga-disable-" + measurementId] === true` when it
+starts, so applications can set the standard GA opt-out flag before rendering
+the bootstrap. No API secret, OAuth token, or service-account key is needed.
+
+## YouTube
+
+```rust
+use proa_third_party::youtube::YouTubeEmbed;
+
+let video = YouTubeEmbed::new("M7lc1UVf-VE", "YouTube player demonstration")?
+    .start_at(10)
+    .class("my-video");
+// Compose {video} into html_sync! or render it through MdRenderSync.
+```
+
+HTML initially contains a lazy thumbnail, a keyboard-operable Play button, and
+a persistent link to the video. No player iframe or YouTube player SDK loads
+until activation. The iframe uses `youtube-nocookie.com`, preserves a referrer
+for player compatibility, and receives focus when inserted. Autoplay is
+requested only after activation and remains subject to browser policy.
+
+The default thumbnail comes from `i.ytimg.com`, which can receive a request
+before playback. Use `.poster("/images/my-video.webp")?` for a locally hosted
+poster and no YouTube request before activation. A privacy-enhanced iframe is
+still a third-party connection once the visitor plays the video.
+
+The supplied CSS reserves a 16:9 frame with a minimum height of 200px. It does
+not require Tailwind. Styles are inline by default; use `.inline_styles(false)`
+and serve `proa_third_party::youtube::YOUTUBE_CSS` as an external `text/css`
+asset when your CSP disallows inline styles or you want one cached stylesheet.
+Include that stylesheet before the embed to preserve its layout dimensions.
+
+For fully custom styling, combine `.class("my-video").inline_styles(false)`
+and style `.my-video` in your app. The internal `data-proa-youtube-frame`,
+`data-proa-youtube-play`, and `data-proa-youtube-play-icon` selectors identify
+the frame and controls. Your styles should reserve the player's dimensions
+before activation. Using `YOUTUBE_CSS` is optional.
+
+Both `MdRenderSync` and `MdRender` produce an escaped title and a normal YouTube
+link, with no HTML, scripts, or iframe. The start offset applies to embedded
+playback; the fallback and Markdown links point to the video itself.
+
+## Other scripts
+
+```rust
+use proa_third_party::{Script, ScriptStrategy};
+
+let widget = Script::new("https://cdn.example.com/widget.js")?
+    .strategy(ScriptStrategy::Idle);
+```
+
+Only use script URLs whose code you trust. HTTPS and root-relative URLs are
+accepted. `.integrity("sha384-...")` enables Subresource Integrity and anonymous
+CORS. The loader deduplicates resolved URLs within this API; it does not adopt
+unrelated script tags inserted by other libraries. The first declaration's
+options win. Failed requests dispatch `proa:script-error`; calling
+`window.proaThirdParty.loadScript(url, options)` again explicitly retries them.
+The returned promise resolves to the loaded script. There is no automatic
+retry loop. Do not initialize GA both here and through a separate tag manager.
+
+## CSP
+
+Install the response nonce on `WebContext`. Components copy it to their inline
+bootstrap and any scripts they create. Use a matching nonce-based `script-src`
+policy; `strict-dynamic` permits scripts subsequently loaded by the trusted SDK.
+Configure `connect-src`/`img-src` for the GA destinations you enable. YouTube
+needs `frame-src https://www.youtube-nocookie.com` and, for default posters,
+`img-src https://i.ytimg.com`.
+
+Inline YouTube styles carry the same nonce, which must also be permitted by
+`style-src`. Alternatively serve `YOUTUBE_CSS` from your own allowed origin.
+The crate never relaxes your response's security headers.
+
+## Development
+
+Run `cargo test -p proa_third_party --all-features`. Browser-adapter tests use
+Node.js 22+ and run without contacting Google or YouTube. The integration
+example in `examples/preview.rs` renders a local page for browser testing.

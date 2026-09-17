@@ -2842,6 +2842,7 @@ dependencies = [
  "proa_docs_build",
  "proa_macros",
  "proa_showcase_web",
+ "proa_third_party",
  "reqwest 0.12.24",
  "rsjs",
  "rsjs_macros",
@@ -2946,6 +2947,16 @@ dependencies = [
  "proa_core",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "proa_third_party"
+version = "0.1.0"
+dependencies = [
+ "http",
+ "proa_core",
+ "proa_macros",
+ "thiserror",
 ]
 
 [[package]]

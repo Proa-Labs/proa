@@ -114,6 +114,33 @@ RSJS client-helper edges used by browser hydration.
 
 ## Railway
 
+### Google Analytics
+
+Set `GOOGLE_ANALYTICS_MEASUREMENT_ID` to the GA4 web stream's public `G-...`
+measurement ID in the production service's runtime variables. Restart or
+redeploy after changing it. No Google OAuth token, service-account key, or
+Analytics API secret belongs in the site configuration.
+
+The shared document head uses `proa_third_party::google::GoogleAnalytics` on
+marketing, docs, and ecosystem pages. The Google SDK waits until `window.load`
+so it does not compete with the page's initial resources. The application
+explicitly enables collection with `AnalyticsConsent::Granted`; the shared
+crate otherwise requires a consent decision from its caller. An unset or malformed ID disables it. The browser bootstrap
+only loads Google's script on `proa.so` and `www.proa.so`, outside iframes, so
+localhost, Railway previews, and embedded demos do not add production page
+views. Google Signals and advertising personalization signals are disabled.
+The normal GA4 configuration sends one automatic page view per document load.
+See [third-party integration docs](src/docs/framework/third-party.mdx) for the
+reusable API, consent handling, and loading tradeoffs.
+
+To verify a deployment, open a production page and check for the
+`googletagmanager.com/gtag/js` request and a `google-analytics.com/g/collect`
+request with the configured measurement ID. Confirm the visit in the
+property's Realtime report. Browser tracking protection may block these
+requests.
+
+### Deployment
+
 The checked-in `railway.toml` selects this crate's production Dockerfile while
 keeping the repository root as the Docker build context. This is required for
 the shared Cargo workspace:
