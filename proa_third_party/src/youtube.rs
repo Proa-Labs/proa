@@ -8,13 +8,13 @@ use std::{
     future::{Future, Ready},
 };
 
-use proa_core::md::MdContext;
+use proa_core::md::{MdContext, TrustedMarkdown};
 use proa_core::shared::attr_value::display_attr;
 use proa_core::{
     csp_nonce_attr, DataLoader, MdRender, MdRenderSync, RenderOutcome, StaticRaw, WebContext,
     WebRenderSync, WriteBuf, WriteError,
 };
-use proa_macros::html_sync;
+use proa_macros::{html_sync, md_sync};
 
 /// Serve as text/css when inline styles are disabled on the component.
 pub const YOUTUBE_CSS: &str = include_str!("youtube.css");
@@ -149,14 +149,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for YouTubeEmbed<'_> {
 
 impl<B: WriteBuf> MdRenderSync<B> for YouTubeEmbed<'_> {
     fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        // The constructor proves the ID is 11 ASCII bytes. Compose this fixed
-        // URL on the stack and let the Markdown writer escape the title.
-        let mut url = *b"https://www.youtube.com/watch?v=___________";
-        url[32..].copy_from_slice(self.video_id.as_bytes());
-        cx.link(
-            self.title,
-            std::str::from_utf8(&url).expect("validated ASCII video ID"),
-        )
+        // The constructor validates URL-safe IDs; the title uses Markdown escaping.
+        let video_id = TrustedMarkdown(self.video_id);
+        cx.render(md_sync! { r###"[{self.title}](https://www.youtube.com/watch?v={video_id})"### })
     }
 }
 
@@ -228,22 +223,30 @@ mod tests {
 
     #[test]
     fn markdown_renders_an_escaped_title_and_video_link() {
-        for asynchronous in [false, true] {
-            let video = YouTubeEmbed::new("M7lc1UVf-VE", "Title [one]").unwrap();
-            let mut out = Vec::new();
-            let mut cx = MdContext::with_buffer(&mut out);
-            if asynchronous {
-                assert!(matches!(
-                    MdRender::render_md(video, &mut cx),
-                    RenderOutcome::Done(Ok(()))
-                ));
-            } else {
-                MdRenderSync::render_md(video, &mut cx).unwrap();
+        for (video_id, expected) in [
+            (
+                "M7lc1UVf-VE",
+                "[Title \\[one\\]](https://www.youtube.com/watch?v=M7lc1UVf-VE)",
+            ),
+            (
+                "AbCd_eF-g12",
+                "[Title \\[one\\]](https://www.youtube.com/watch?v=AbCd_eF-g12)",
+            ),
+        ] {
+            for asynchronous in [false, true] {
+                let video = YouTubeEmbed::new(video_id, "Title [one]").unwrap();
+                let mut out = Vec::new();
+                let mut cx = MdContext::with_buffer(&mut out);
+                if asynchronous {
+                    assert!(matches!(
+                        MdRender::render_md(video, &mut cx),
+                        RenderOutcome::Done(Ok(()))
+                    ));
+                } else {
+                    MdRenderSync::render_md(video, &mut cx).unwrap();
+                }
+                assert_eq!(String::from_utf8(out).unwrap(), expected);
             }
-            assert_eq!(
-                String::from_utf8(out).unwrap(),
-                "[Title \\[one\\]](https://www.youtube.com/watch?v=M7lc1UVf-VE)"
-            );
         }
     }
 }
