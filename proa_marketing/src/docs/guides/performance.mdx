@@ -259,13 +259,17 @@ html! {
                     <span>{SafeText::from_trusted(product.title)}</span>
                     <span>{SafeText::from_trusted(product.price)}</span>
                 </li>
-            }.render(cx)?;
+            }
         }}
     </ul>
 }
 ```
 
 **Do not** collect into a `Vec<String>` and then render. Each iteration should write directly.
+
+The macro renders the loop body's final expression automatically. Leave off the
+semicolon and `.render(cx)?`; explicit rendering is still needed in ordinary
+Rust code outside a template slot.
 
 ## Compile-time performance hints
 
@@ -279,7 +283,7 @@ Proa's `html!` macro detects common allocation patterns at compile time and emit
 | `.to_string()` | Unnecessary allocation, primitives render directly | Remove the call: `{count}` not `{count.to_string()}` |
 | `.to_owned()` | Clones a `&str` into a `String` for no reason | Use the `&str` directly |
 | `String::from()` | Same as above | Use a string literal or `&str` |
-| `.join()` | Collects into a `String` | Use a `for` loop with `.render(cx)?` |
+| `.join()` | Collects into a `String` | Use a template `for` loop with a renderable final expression |
 | `.collect()` | Allocates a `Vec` then iterates | Iterate the original iterator directly |
 | `vec![...]` | Heap-allocates a `Vec` | Use `&[...]` (a stack-allocated slice) |
 | `{"literal"}` | String literal in braces gets runtime-escaped | Use `"literal"` as a text node (compile-time escaped) |
@@ -327,7 +331,7 @@ html! { <span>{perf_ok(format!("${}", price))}</span> }
 
 **When NOT to use it:**
 - Hot paths (product listings, search results, home pages), pre-compute instead
-- Inside `for` loops, N allocations per render, use `.render(cx)?` pattern instead
+- Inside `for` loops, N allocations per render, compose typed children directly instead
 
 ### Disabling all hints
 

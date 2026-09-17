@@ -53,6 +53,19 @@ inside an `html!` tree. Implement `WebRender` with its real
 `RenderOutcome<impl Future>` signature only when the component itself needs
 `.await`.
 
+Inside a template's `if`, `for`, or `match` slot, leave the final child as an
+expression without `.render(cx)?;`:
+
+```rust
+{if show {
+    Child { value }
+}}
+```
+
+The macro renders that final expression and propagates errors. Explicit calls
+are still needed in ordinary Rust code, in closures, or before later statements
+in the same block. Keep the outer `.render(cx)` that executes the whole template.
+
 For a declarative component that maps directly to one HTML tag,
 `#[derive(ProaComponent)]` remains available. Custom or multi-element renderers
 use the explicit traits above.
