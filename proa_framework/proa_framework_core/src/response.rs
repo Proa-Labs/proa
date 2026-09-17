@@ -2552,6 +2552,61 @@ mod tests {
     }
 
     #[test]
+    fn html_finalization_preserves_repeated_response_headers() {
+        struct HeaderPage;
+        impl proa_core::WebRenderSync for HeaderPage {
+            fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+                let response = cx.response_mut();
+                response.set_status(StatusCode::CREATED);
+                for value in ["</one>; rel=preload", "</two>; rel=preload"] {
+                    response.append_header(header::LINK, HeaderValue::from_static(value));
+                }
+                for value in ["Origin", "Accept-Language"] {
+                    response.append_header(header::VARY, HeaderValue::from_static(value));
+                }
+                for value in ["strict-origin", "no-referrer"] {
+                    response
+                        .append_header(header::REFERRER_POLICY, HeaderValue::from_static(value));
+                }
+                for value in ["a=1", "b=2"] {
+                    response.append_set_cookie(HeaderValue::from_static(value));
+                }
+                html_sync! { <main /> }.render(cx)
+            }
+        }
+
+        let manifest = IslandManifest {
+            islands: HashMap::new(),
+            assets: ManifestAssets::default(),
+            import_map: HashMap::new(),
+            ssr_bundle: None,
+        };
+        let request = FrameworkRequestContext::default();
+        for plan in [
+            RouteResponse::ssr(HeaderPage),
+            RouteResponse::ssr_async(proa_core::to_async(HeaderPage)),
+        ] {
+            let response =
+                futures::executor::block_on(plan.into_framework_response(&manifest, &request))
+                    .unwrap();
+            assert_eq!(response.status, StatusCode::CREATED);
+            assert_eq!(
+                response.headers[header::CONTENT_TYPE],
+                "text/html; charset=utf-8"
+            );
+            for (name, expected) in [
+                (header::LINK, ["</one>; rel=preload", "</two>; rel=preload"]),
+                (header::VARY, ["Origin", "Accept-Language"]),
+                (header::REFERRER_POLICY, ["strict-origin", "no-referrer"]),
+                (header::SET_COOKIE, ["a=1", "b=2"]),
+            ] {
+                let actual: Vec<_> = response.headers.get_all(&name).iter().collect();
+                assert_eq!(actual, expected, "{name}");
+            }
+        }
+    }
+
+    #[test]
     fn default_security_headers_do_not_clobber_existing_values() {
         let mut headers = HeaderMap::new();
         headers.insert("x-frame-options", HeaderValue::from_static("SAMEORIGIN"));

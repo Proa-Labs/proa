@@ -35,6 +35,32 @@ impl<L: DataLoader + 'static, M: MdRender<L> + 'static> DynMdRender<L> for M {
 ///
 /// Only the root and loader are transferred. Finalization creates the context
 /// and drives its local future on the host's render executor, just like HTML.
+///
+/// The unopened plan is `Send`, even though its renderer may use local state:
+///
+/// ```
+/// use std::sync::Arc;
+/// use proa_core::{to_md_async, NoLoader};
+/// use proa_framework_core::MarkdownResponse;
+///
+/// fn require_send(_: impl Send) {}
+/// let response = MarkdownResponse::with_loader(to_md_async("hello"), Arc::new(NoLoader));
+/// require_send(response);
+/// ```
+///
+/// Its active finalization future is local. Return the unopened plan from a
+/// `Send` handler and let the HTTP adapter drive finalization:
+///
+/// ```compile_fail,E0277
+/// use std::sync::Arc;
+/// use proa_core::{to_md_async, NoLoader};
+/// use proa_framework_core::{FrameworkRequestContext, MarkdownResponse};
+///
+/// fn require_send(_: impl Send) {}
+/// let response = MarkdownResponse::with_loader(to_md_async("hello"), Arc::new(NoLoader));
+/// let request = FrameworkRequestContext::default();
+/// require_send(response.finalize(&request));
+/// ```
 pub struct MarkdownResponse<L: DataLoader = NoLoader> {
     component: Box<dyn DynMdRender<L> + Send>,
     loader: Arc<L>,
