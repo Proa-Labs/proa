@@ -5069,6 +5069,7 @@ fn standalone_markdown_evidence_disables_only_html_checks() {
         ),
         ("render_fragment", "MdRenderSync::render_md(child, cx)?;"),
     ] {
+        // proa-perf-ok: lint fixtures assemble Rust source containing intentional raw HTML
         let source = format!(
             r#"
 fn {name}<L: DataLoader>(cx: &mut WebContext<L>) -> Result<(), WriteError> {{

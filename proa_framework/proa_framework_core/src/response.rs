@@ -2571,7 +2571,10 @@ mod tests {
                 for value in ["a=1", "b=2"] {
                     response.append_set_cookie(HeaderValue::from_static(value));
                 }
-                html_sync! { <main /> }.render(cx)
+                html_sync! {
+                    <main />
+                }
+                .render(cx)
             }
         }
 

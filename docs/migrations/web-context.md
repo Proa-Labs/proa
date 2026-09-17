@@ -350,7 +350,7 @@ Its newly escaped listing details are also called out in the changelog.
 - Downstream component tests: **1,118 passed**. VM unit, integration, and
   compile-fail suites: **561 passed**. Downstream workspace checks and VM Clippy
   complete; Clippy reports warnings without failing the check.
-- Core/framework/stream doctests: **18 passed**, eight existing examples ignored.
+- Core/framework/stream doctests: **20 passed**, eight existing examples ignored.
 - `MarkdownResponse` rustdoc includes a positive `Send` assertion for the unopened
   plan and a `compile_fail,E0277` example for its active finalization future.
   The multithreaded Axum route test separately exercises local renderer state.
@@ -361,9 +361,10 @@ Its newly escaped listing details are also called out in the changelog.
   suite passes **five tests**, including its live Markdown route; showcase
   library tests pass **22 tests**.
 - Focused allocation lint passes in both repositories. The source CLI check
-  passes with `--allow-warnings`; strict mode reports 12 existing warnings in
-  generator fixtures and finalizers. Running the current lint
-  against the same files from `1166812` reproduces those findings.
+  passes with `--allow-warnings`; strict mode reports 18 existing warnings in
+  generator fixtures and finalizers after restoring raw-HTML coverage. The same
+  lint reports 22 warnings on the baseline files from `1166812`, including all
+  current findings. The 184-test lint suite passes with the review regressions.
 - The HTML context-parts benchmark's allocation assertions still pass:
   **zero allocations** for a warmed full-page render, with detached-boundary
   rendering exercised separately. HTML and Markdown Suspense scaling cases
