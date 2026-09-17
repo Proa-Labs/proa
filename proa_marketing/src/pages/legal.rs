@@ -19,6 +19,7 @@ pub async fn privacy_handler() -> Html<String> {
             title: "Privacy Policy",
             intro: "This Privacy Policy explains how Proa Labs handles information when you use Proa websites, documentation, downloads, playgrounds, search, demos, waitlists, and related public pages.",
             sections: PRIVACY_SECTIONS,
+            analytics_disclosure: true,
         },
     )
 }
@@ -35,6 +36,7 @@ pub async fn terms_handler() -> Html<String> {
             title: "Terms and Conditions",
             intro: "These Terms and Conditions govern access to and use of Proa websites, documentation, downloads, playgrounds, demos, benchmarks, and related public pages. Separate written agreements or repository licenses govern paid products, source code, services, support, and commercial licenses.",
             sections: TERMS_SECTIONS,
+            analytics_disclosure: false,
         },
     )
 }
@@ -44,6 +46,7 @@ struct LegalPage {
     title: &'static str,
     intro: &'static str,
     sections: &'static [LegalSection],
+    analytics_disclosure: bool,
 }
 
 struct LegalSection {
@@ -243,10 +246,50 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LegalPage {
                         {self.intro}
                     </p>
                     <div class="mt-12 space-y-10">
+                        {if self.analytics_disclosure {
+                            GoogleAnalyticsDisclosure.render(cx)?;
+                        }}
                         {for section in self.sections {
                             LegalSectionView { section }.render(cx)?;
                         }}
                     </div>
+                </div>
+            </section>
+        }
+        .render(cx)
+    }
+}
+
+struct GoogleAnalyticsDisclosure;
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GoogleAnalyticsDisclosure {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <section data-google-analytics-disclosure>
+                <h2 class="font-display text-2xl font-semibold tracking-[-0.03em] text-zinc-950 dark:text-zinc-50">
+                    "Google Analytics"
+                </h2>
+                <div class="mt-4 space-y-4 text-base leading-8 text-zinc-700 dark:text-zinc-300">
+                    <p>
+                        "We use Google Analytics to understand visits and interactions on our website. Google Analytics uses cookies and similar technologies to collect information such as pages viewed, referring sites, browser and device details, and interactions. Google processes this information to provide usage reports to Proa Labs, Inc. We disable Google Signals and advertising personalization signals in our website's Analytics configuration."
+                    </p>
+                    <p>
+                        "Learn "
+                        <a
+                            class="underline underline-offset-4"
+                            href="https://policies.google.com/technologies/partner-sites"
+                        >
+                            "how Google uses information from sites that use its services"
+                        </a>
+                        ". You can control cookies in your browser or use the "
+                        <a
+                            class="underline underline-offset-4"
+                            href="https://tools.google.com/dlpage/gaoptout"
+                        >
+                            "Google Analytics opt-out browser add-on"
+                        </a>
+                        "."
+                    </p>
                 </div>
             </section>
         }

@@ -10,7 +10,7 @@ use proa_core::{
 };
 use proa_macros::{html, html_sync};
 
-use crate::utils::site_url::public_site_url;
+use crate::{analytics::google_analytics, utils::site_url::public_site_url};
 
 use crate::components::{
     landing_shell::{LandingFooter, LandingHeader, MarketingNavActive},
@@ -222,6 +222,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocumentMetadata {
                     content={display_attr(format_args!("{origin}{SOCIAL_IMAGE_SRC}"))}
                 />
                 <meta name="twitter:image:alt" content={SOCIAL_IMAGE_ALT} />
+                {google_analytics()}
             },
             cx,
         )

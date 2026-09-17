@@ -18,6 +18,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
+mod analytics;
 mod components;
 mod data;
 mod endpoints;
