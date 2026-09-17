@@ -46,7 +46,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TypeTable<'_> {
                     </thead>
                     <tbody>
                         {for row in self.rows {
-                            TypeTableRowView { row }.render(cx)?;
+                            TypeTableRowView { row }
                         }}
                     </tbody>
                 </table>

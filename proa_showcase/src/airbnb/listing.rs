@@ -531,7 +531,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                     {for (index, photo) in data.photos.iter().enumerate().skip(5) {
                         html_sync! {
                             <span class="hidden" data-gallery-src={photo.src} data-gallery-alt={photo.alt} data-gallery-index={index}></span>
-                        }.render(cx)?;
+                        }
                     }}
                 </section>
             </div>
@@ -658,7 +658,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                             <p class="mt-1 text-[15px] leading-6 text-[var(--air-muted)]">{highlight.description}</p>
                                         </div>
                                     </div>
-                                }.render(cx)?;
+                                }
                             }}
                         </section>
 
@@ -668,7 +668,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                             <h2 class="mb-5 text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"About this place"</h2>
                             <div class="space-y-4 text-[16px] leading-7 text-[#222]">
                                 {for paragraph in data.description.split("\n\n") {
-                                    html_sync! { <p>{paragraph}</p> }.render(cx)?;
+                                    html_sync! { <p>{paragraph}</p> }
                                 }}
                             </div>
                             <button class="mt-5 inline-flex items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold underline underline-offset-4">
@@ -692,7 +692,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                             </div>
                                             <span class="text-[15px]">{*amenity}</span>
                                         </div>
-                                    }.render(cx)?;
+                                    }
                                 }}
                             </div>
                             <button class="mt-8 rounded-xl border border-[#222] px-6 py-3 text-sm font-semibold text-[#222] hover:bg-[var(--air-soft)]">
@@ -808,7 +808,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                                         <div class="text-sm text-[var(--air-muted)]">"Co-host"</div>
                                                     </div>
                                                 </div>
-                                            }.render(cx)?;
+                                            }
                                         }}
                                         <div class="text-sm text-[var(--air-muted)]">"Response rate: "{data.host.response_rate}" · Responds within "{data.host.response_time}</div>
                                     </div>
@@ -832,7 +832,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                     <h3 class="text-lg font-semibold text-[#222]">"House rules"</h3>
                                     <div class="mt-4 space-y-3 text-sm text-[var(--air-muted)]">
                                         {for item in data.house_rules.iter() {
-                                            html_sync! { <p>{*item}</p> }.render(cx)?;
+                                            html_sync! { <p>{*item}</p> }
                                         }}
                                     </div>
                                 </div>
@@ -841,7 +841,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                     <h3 class="text-lg font-semibold text-[#222]">"Safety & property"</h3>
                                     <div class="mt-4 space-y-3 text-sm text-[var(--air-muted)]">
                                         {for item in data.safety_items.iter() {
-                                            html_sync! { <p>{*item}</p> }.render(cx)?;
+                                            html_sync! { <p>{*item}</p> }
                                         }}
                                     </div>
                                 </div>
@@ -850,7 +850,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                     <h3 class="text-lg font-semibold text-[#222]">"Cancellation policy"</h3>
                                     <div class="mt-4 space-y-3 text-sm text-[var(--air-muted)]">
                                         {for item in data.cancellation_items.iter() {
-                                            html_sync! { <p>{*item}</p> }.render(cx)?;
+                                            html_sync! { <p>{*item}</p> }
                                         }}
                                     </div>
                                 </div>
@@ -1051,7 +1051,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                             <div class="airbnb-rating-bar-fill" style={proa_core::style_ok(WidthPct(*value))}></div>
                                         </div>
                                     </div>
-                                }.render(cx)?;
+                                }
                             }}
                         </div>
                     </div>
@@ -1064,7 +1064,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                 <div class="airbnb-ratings-card-score">{item.1}</div>
                                 <div class="airbnb-ratings-card-icon">{StaticRaw(item.2)}</div>
                             </div>
-                        }.render(cx)?;
+                        }
                     }}
                 </div>
 
@@ -1092,7 +1092,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                         <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-[var(--air-muted)]">
                                             <div class="airbnb-review-stars">
                                                 {for _ in 0..5 {
-                                                    html_sync! { <span aria-hidden="true">{StaticRaw(STAR_SVG)}</span> }.render(cx)?;
+                                                    html_sync! { <span aria-hidden="true">{StaticRaw(STAR_SVG)}</span> }
                                                 }}
                                             </div>
                                             <span>{review.date}</span>
@@ -1106,7 +1106,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                     "Show more"
                                 </button>
                             </div>
-                        }.render(cx)?;
+                        }
                     }}
                 </div>
 
@@ -1129,7 +1129,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                 <a href="#explore" class="rounded-[20px] border border-[var(--air-line)] bg-white px-5 py-4 text-sm font-medium text-[#222] transition-colors hover:bg-[#fcfcfc]">
                                     {*link}
                                 </a>
-                            }.render(cx)?;
+                            }
                         }}
                     </div>
                 </div>

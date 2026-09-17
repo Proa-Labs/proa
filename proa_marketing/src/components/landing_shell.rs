@@ -220,7 +220,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingEcosystemPanel
             {for item in ECOSYSTEM_NAV_ITEMS {
                 MarketingEcosystemItem {
                     item: *item,
-                }.render(cx)?;
+                }
             }}
         }
         .render(cx)

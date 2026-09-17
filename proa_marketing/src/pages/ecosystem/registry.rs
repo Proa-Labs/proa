@@ -274,7 +274,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemRegistryPage<'
                                     RegistryFilterButton {
                                         filter,
                                         active: filter.key == "all",
-                                    }.render(cx)?;
+                                    }
                                 }}
                             </div>
                             <div class="ml-auto flex items-center gap-3 max-[560px]:ml-0 max-[560px]:w-full">
@@ -304,7 +304,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemRegistryPage<'
                             class="overflow-hidden rounded-2xl border border-[#00000014] bg-white divide-y divide-[#00000014]"
                         >
                             {for request in self.data.registry_requests {
-                                RegistryRequestRow { request }.render(cx)?;
+                                RegistryRequestRow { request }
                             }}
                         </div>
                         <div id="registry-empty-state" class="hidden py-20 text-center">

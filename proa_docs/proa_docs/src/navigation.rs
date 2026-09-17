@@ -23,7 +23,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsNav<'_> {
                         DocsNavItem {
                             item,
                             active_path: self.active_path,
-                        }.render(cx)?;
+                        }
                     }}
                 </ul>
             </nav>
@@ -138,7 +138,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsNavChildren<'_> {
                     DocsNavItem {
                         item: child,
                         active_path: self.active_path,
-                    }.render(cx)?;
+                    }
                 }}
             </ul>
         }

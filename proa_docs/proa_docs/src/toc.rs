@@ -26,7 +26,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsToc<'_> {
                     <div class="proa-docs-toc-title">"On this page"</div>
                     <ul>
                         {for item in self.items {
-                            TocListItem { item }.render(cx)?;
+                            TocListItem { item }
                         }}
                     </ul>
                 </nav>

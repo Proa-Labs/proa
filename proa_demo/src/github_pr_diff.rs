@@ -551,7 +551,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GithubPrDiffPage<'_> {
                                             props: self.props,
                                             file_idx,
                                             lines: self.props.file_lines(file_idx),
-                                        }.render(cx)?;
+                                        }
                                     }}
                                 </section>
                             </div>
@@ -1147,7 +1147,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Header<'_> {
                         <span class="diff-squares">
                             {for idx in 0..5 {
                                 let class = if self.deletions == 0 || idx < 4 { "square add-square" } else { "square neutral-square" };
-                                html_sync! { <span class={class}></span> }.render(cx)?;
+                                html_sync! { <span class={class}></span> }
                             }}
                         </span>
                         <span class="rendered-count sr-only">
@@ -1581,7 +1581,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FileSection<'_> {
                                 } else {
                                     "change-square empty-square"
                                 };
-                                html_sync! { <span class={class}></span> }.render(cx)?;
+                                html_sync! { <span class={class}></span> }
                             }}
                         </span>
                     </div>
@@ -1652,20 +1652,20 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FileSection<'_> {
                                     if prop_lines_match_fixture(self.file_idx, lines) {
                                         FixtureFileRows {
                                             file_idx: self.file_idx,
-                                        }.render(cx)?;
+                                        }
                                     } else {
                                         for line_idx in 0..lines.len() {
                                             PropDiffLine {
                                                 file_idx: self.file_idx,
                                                 line_idx,
                                                 line: &lines[line_idx],
-                                            }.render(cx)?;
+                                            }
                                         }
                                     }
                                 } else if fixture_lines.is_some() {
                                     FixtureFileRows {
                                         file_idx: self.file_idx,
-                                    }.render(cx)?;
+                                    }
                                 } else {
                                     if self.lines > 0 {
                                         HunkRow { file_idx: self.file_idx }.render(cx)?;
@@ -1674,13 +1674,13 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FileSection<'_> {
                                         DiffLine {
                                             file_idx: self.file_idx,
                                             line_idx,
-                                        }.render(cx)?;
+                                        }
                                     }
                                 }
                             } else if fixture_lines.is_some() {
                                 FixtureFileRows {
                                     file_idx: self.file_idx,
-                                }.render(cx)?;
+                                }
                             } else {
                                 if self.lines > 0 {
                                     HunkRow { file_idx: self.file_idx }.render(cx)?;
@@ -1689,7 +1689,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FileSection<'_> {
                                     DiffLine {
                                         file_idx: self.file_idx,
                                         line_idx,
-                                    }.render(cx)?;
+                                    }
                                 }
                             }}
                         </tbody>

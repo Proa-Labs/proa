@@ -279,7 +279,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PlatformDownloadCta {
                                 "Native binary"
                             </p>
                             {for option in PLATFORM_DOWNLOAD_OPTIONS.iter().filter(|option| option.kind != PlatformDownloadKind::Docker) {
-                                PlatformDownloadMenuItem { option: *option }.render(cx)?;
+                                PlatformDownloadMenuItem { option: *option }
                             }}
                             <div class="my-1.5 h-px bg-[#00000014] dark:bg-white/10"></div>
                             <p class="px-3 pb-1.5 pt-1 font-mono text-[11px] uppercase tracking-[0.18em] text-[#a59f97] dark:text-zinc-500">
@@ -526,7 +526,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemAppsPage<'_> {
                                     AppFilterButton {
                                         filter,
                                         active: filter.key == "all",
-                                    }.render(cx)?;
+                                    }
                                 }}
                             </div>
                             <div class="ml-auto flex items-center gap-3 max-[560px]:ml-0 max-[560px]:w-full max-[560px]:flex-wrap">
@@ -568,7 +568,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemAppsPage<'_> {
                             class="grid grid-cols-3 gap-4 max-[920px]:grid-cols-2 max-[560px]:grid-cols-1"
                         >
                             {for app in self.data.apps {
-                                EcosystemAppCard { app }.render(cx)?;
+                                EcosystemAppCard { app }
                             }}
                         </div>
                         <div id="empty-state" class="hidden py-20 text-center">

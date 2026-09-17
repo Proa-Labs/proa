@@ -1994,7 +1994,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CapabilityColumnView {
                     </p>
                 </div>
                 {for item in column.supporting {
-                    CapabilitySupportView { card: item }.render(cx)?;
+                    CapabilitySupportView { card: item }
                 }}
             </div>
         }
@@ -2136,7 +2136,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomePage {
                         </div>
                         <div class="mt-12 grid gap-4 sm:mt-14 lg:grid-cols-3">
                             {for column in CAPABILITY_COLUMNS {
-                                CapabilityColumnView { column }.render(cx)?;
+                                CapabilityColumnView { column }
                             }}
                         </div>
                     </div>

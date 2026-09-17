@@ -247,10 +247,10 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LegalPage {
                     </p>
                     <div class="mt-12 space-y-10">
                         {if self.analytics_disclosure {
-                            GoogleAnalyticsDisclosure.render(cx)?;
+                            GoogleAnalyticsDisclosure
                         }}
                         {for section in self.sections {
-                            LegalSectionView { section }.render(cx)?;
+                            LegalSectionView { section }
                         }}
                     </div>
                 </div>
@@ -310,7 +310,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LegalSectionView<'_> {
                 </h2>
                 <div class="mt-4 space-y-4 text-base leading-8 text-zinc-700 dark:text-zinc-300">
                     {for &paragraph in self.section.body {
-                        LegalParagraphView { paragraph }.render(cx)?;
+                        LegalParagraphView { paragraph }
                     }}
                 </div>
             </section>

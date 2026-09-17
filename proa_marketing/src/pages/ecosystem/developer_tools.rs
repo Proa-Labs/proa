@@ -282,7 +282,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemDeveloperTools
                                     ToolFilterButton {
                                         filter,
                                         active: filter.key == "all",
-                                    }.render(cx)?;
+                                    }
                                 }}
                             </div>
                             <div class="ml-auto flex items-center gap-3 max-[560px]:ml-0 max-[560px]:w-full max-[560px]:flex-wrap">
@@ -324,7 +324,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemDeveloperTools
                             class="grid grid-cols-3 gap-4 max-[920px]:grid-cols-2 max-[560px]:grid-cols-1"
                         >
                             {for tool in self.data.tools {
-                                EcosystemToolCard { tool }.render(cx)?;
+                                EcosystemToolCard { tool }
                             }}
                         </div>
                         <div id="empty-state" class="hidden py-20 text-center">
