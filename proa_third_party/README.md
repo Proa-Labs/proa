@@ -29,6 +29,10 @@ let analytics = GoogleAnalytics::new("G-XXXXXXXXXX")?;
 // Compose {analytics} into your shared html_sync! document layout.
 ```
 
+In Markdown, `GoogleAnalytics` implements both `MdRenderSync` and `MdRender`
+as a no-op. Composing it into `md_sync!` or `md!` emits no text, scripts, or
+whitespace.
+
 The default is **consent required**: no Google SDK request and no retained
 tracking events until your application's consent UI grants permission. After
 the component has rendered, connect the UI to the browser API:
@@ -107,9 +111,9 @@ and serve `proa_third_party::youtube::YOUTUBE_CSS` as an external `text/css`
 asset when your CSP disallows inline styles or you want one cached stylesheet.
 Include that stylesheet before the embed to preserve its layout dimensions.
 
-`MdRenderSync` produces an escaped title and a normal YouTube link, with no
-HTML, scripts, or iframe. The start offset applies to embedded playback; the
-fallback and Markdown links point to the video itself.
+Both `MdRenderSync` and `MdRender` produce an escaped title and a normal YouTube
+link, with no HTML, scripts, or iframe. The start offset applies to embedded
+playback; the fallback and Markdown links point to the video itself.
 
 ## Other scripts
 

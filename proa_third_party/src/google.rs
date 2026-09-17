@@ -4,8 +4,12 @@
 //! Google Analytics 4. Consent is controlled by the application; this crate
 //! does not display a consent banner or infer consent from a page visit.
 
+use std::future::{Future, Ready};
+
+use proa_core::md::MdContext;
 use proa_core::{
-    csp_nonce_attr, DataLoader, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
+    csp_nonce_attr, DataLoader, MdRender, MdRenderSync, RenderOutcome, StaticRaw, WebContext,
+    WebRenderSync, WriteBuf, WriteError,
 };
 use proa_macros::html_sync;
 
@@ -27,6 +31,7 @@ pub struct InvalidMeasurementId;
 
 /// A GA4 integration. Construction validates public configuration without
 /// allocating; rendering reads the request's CSP nonce from WebContext.
+/// Markdown rendering intentionally emits nothing.
 #[derive(Debug, Clone, Copy)]
 pub struct GoogleAnalytics<'a> {
     measurement_id: &'a str,
@@ -102,6 +107,25 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GoogleAnalytics<'_> {
     }
 }
 
+impl<B: WriteBuf> MdRenderSync<B> for GoogleAnalytics<'_> {
+    fn render_md(self, _cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+        Ok(())
+    }
+}
+
+impl<B: WriteBuf> MdRender<B> for GoogleAnalytics<'_> {
+    fn render_md<'cx, 'out>(
+        self,
+        cx: &'cx mut MdContext<'out, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
+    where
+        Self: 'cx,
+        'out: 'cx,
+    {
+        RenderOutcome::<Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(self, cx))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,6 +183,23 @@ mod tests {
             r#"data-page-view="false""#,
         ] {
             assert!(html.contains(attr), "{attr}");
+        }
+    }
+
+    #[test]
+    fn markdown_ignores_analytics_and_preserves_existing_content() {
+        for consent in [AnalyticsConsent::Required, AnalyticsConsent::Granted] {
+            let analytics = GoogleAnalytics::new("G-TEST123456")
+                .unwrap()
+                .consent(consent);
+            let mut out = b"Existing Markdown".to_vec();
+            let mut cx = MdContext::with_buffer(&mut out);
+            MdRenderSync::render_md(analytics, &mut cx).unwrap();
+            assert!(matches!(
+                MdRender::render_md(analytics, &mut cx),
+                RenderOutcome::Done(Ok(()))
+            ));
+            assert_eq!(out, b"Existing Markdown");
         }
     }
 }

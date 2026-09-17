@@ -3,13 +3,16 @@
 
 //! Server-rendered YouTube previews. The player is created only on activation.
 
-use std::fmt;
+use std::{
+    fmt,
+    future::{Future, Ready},
+};
 
 use proa_core::md::MdContext;
 use proa_core::shared::attr_value::display_attr;
 use proa_core::{
-    csp_nonce_attr, DataLoader, MdRenderSync, StaticRaw, WebContext, WebRenderSync, WriteBuf,
-    WriteError,
+    csp_nonce_attr, DataLoader, MdRender, MdRenderSync, RenderOutcome, StaticRaw, WebContext,
+    WebRenderSync, WriteBuf, WriteError,
 };
 use proa_macros::html_sync;
 
@@ -157,6 +160,19 @@ impl<B: WriteBuf> MdRenderSync<B> for YouTubeEmbed<'_> {
     }
 }
 
+impl<B: WriteBuf> MdRender<B> for YouTubeEmbed<'_> {
+    fn render_md<'cx, 'out>(
+        self,
+        cx: &'cx mut MdContext<'out, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
+    where
+        Self: 'cx,
+        'out: 'cx,
+    {
+        RenderOutcome::<Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(self, cx))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,14 +228,22 @@ mod tests {
 
     #[test]
     fn markdown_renders_an_escaped_title_and_video_link() {
-        let mut out = Vec::new();
-        YouTubeEmbed::new("M7lc1UVf-VE", "Title [one]")
-            .unwrap()
-            .render_md(&mut MdContext::with_buffer(&mut out))
-            .unwrap();
-        assert_eq!(
-            String::from_utf8(out).unwrap(),
-            "[Title \\[one\\]](https://www.youtube.com/watch?v=M7lc1UVf-VE)"
-        );
+        for asynchronous in [false, true] {
+            let video = YouTubeEmbed::new("M7lc1UVf-VE", "Title [one]").unwrap();
+            let mut out = Vec::new();
+            let mut cx = MdContext::with_buffer(&mut out);
+            if asynchronous {
+                assert!(matches!(
+                    MdRender::render_md(video, &mut cx),
+                    RenderOutcome::Done(Ok(()))
+                ));
+            } else {
+                MdRenderSync::render_md(video, &mut cx).unwrap();
+            }
+            assert_eq!(
+                String::from_utf8(out).unwrap(),
+                "[Title \\[one\\]](https://www.youtube.com/watch?v=M7lc1UVf-VE)"
+            );
+        }
     }
 }
