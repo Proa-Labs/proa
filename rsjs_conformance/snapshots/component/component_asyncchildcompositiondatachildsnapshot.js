@@ -1,11 +1,11 @@
 import { signal, bind_text, bind_conditional, bind_attr, bind_delegated_events, walk_path, dispose_all } from "/rsjs-runtime.js";
 import { rsjs, dispose_query, register_query, register_mutation } from "/rsjs-runtime-query.js";
 
-export function mount_asyncchildcompositiondatachildsnapshot_cf5db08b(root, options = {}) {
+export function mount_asyncchildcompositiondatachildsnapshot_ca62ef17(root, options = {}) {
     const __rsjs_disposers = [];
     try {
     const __rsjs_query_0 = register_query({
-        island: "asyncchildcompositiondatachildsnapshot_cf5db08b",
+        island: "asyncchildcompositiondatachildsnapshot_ca62ef17",
         query_id: 0,
         root: options.seedRoot ?? root,
         key: [null],
@@ -14,7 +14,7 @@ export function mount_asyncchildcompositiondatachildsnapshot_cf5db08b(root, opti
     });
     __rsjs_disposers.push(() => dispose_query(__rsjs_query_0));
     const __rsjs_mutation_0 = register_mutation({
-        island: "asyncchildcompositiondatachildsnapshot_cf5db08b",
+        island: "asyncchildcompositiondatachildsnapshot_ca62ef17",
         mutation_id: 0,
         root: options.seedRoot ?? root,
         key: [null],

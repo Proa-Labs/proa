@@ -506,9 +506,9 @@ fn generate_text_value(segments: Vec<Segment>, args: Vec<Expr>, span: Span) -> T
         quote! { <#(#type_idents),*> }
     };
     let impl_generics = if type_idents.is_empty() {
-        quote! { B, L }
+        quote! { L, B }
     } else {
-        quote! { #(#type_idents,)* B, L }
+        quote! { #(#type_idents,)* L, B }
     };
     let attr_impl_generics = if type_idents.is_empty() {
         quote! {}

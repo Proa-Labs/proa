@@ -47,7 +47,7 @@ fn builder_with_routes(routes: Vec<Route<()>>) -> FrameworkBuilder {
 
 struct ReadySection;
 
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ReadySection {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReadySection {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {
@@ -60,7 +60,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ReadySection
 
 struct DelayedSection;
 
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for DelayedSection
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for DelayedSection
 where
     ReadySection: WebRenderSync<L, B>,
 {

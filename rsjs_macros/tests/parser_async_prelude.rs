@@ -43,7 +43,7 @@ fn some_helper() -> i32 {
 pub struct WithPrelude;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for WithPrelude {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for WithPrelude {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         // This let-binding is a non-`signal(...)` prelude let. The
         // analyser silently skipped it before the fix; the emitter

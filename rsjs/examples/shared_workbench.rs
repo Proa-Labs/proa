@@ -21,7 +21,7 @@ struct WorkbenchState {
 struct CanvasToolbar;
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for CanvasToolbar {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CanvasToolbar {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<WorkbenchState>();
 
@@ -40,7 +40,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for CanvasToolba
 struct CanvasPreview;
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for CanvasPreview {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CanvasPreview {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<WorkbenchState>();
         let label = rsjs::computed(|| workbench.button_bg().get());

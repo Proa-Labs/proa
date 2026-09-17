@@ -10,7 +10,7 @@ use support::*;
 pub struct NodeRefs;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NodeRefs {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NodeRefs {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let input = rsjs::node_ref::<rsjs::HtmlInputElement>();
         let form = rsjs::node_ref::<rsjs::HtmlFormElement>();

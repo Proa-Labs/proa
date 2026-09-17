@@ -1231,7 +1231,7 @@ pub fn render() -> String {
 
 struct AirbnbParityPage;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AirbnbParityPage {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AirbnbParityPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <!DOCTYPE html>
@@ -1262,7 +1262,7 @@ struct ParityRailSection {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ParityRailSection {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParityRailSection {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let rail = self.rail;
         let scroller = rsjs::node_ref::<rsjs::HtmlElement>();
@@ -1364,7 +1364,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ParityRailSection {
 struct AirbnbParityApp;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AirbnbParityApp {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AirbnbParityApp {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let mode = signal("homes");
         let open_panel = signal("");

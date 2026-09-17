@@ -10,7 +10,7 @@ use support::*;
 pub struct ComputedSignals;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComputedSignals {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComputedSignals {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let price = signal(10_i64);
         let qty = signal(2_i64);

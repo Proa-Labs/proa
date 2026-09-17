@@ -6,7 +6,7 @@ pub struct ButtonRefParticipant {
 }
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ButtonRefParticipant {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ButtonRefParticipant {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <button ref={self.target}>"Exact button"

@@ -10,7 +10,7 @@ use support::*;
 pub struct NumericI64Precision;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NumericI64Precision {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NumericI64Precision {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         // 9007199254740993 = 2^53 + 1, the first i64 a JS Number cannot
         // represent exactly.

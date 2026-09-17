@@ -1,11 +1,11 @@
 import { signal, bind_text, bind_conditional, read_signal_initials, signal_initial, bind_attr, bind_delegated_events, walk_path, hydrate, dispose_all } from "/rsjs-runtime.js";
 import { rsjs, dispose_query, register_query, register_mutation } from "/rsjs-runtime-query.js";
 
-hydrate("querymutationsnapshot_61bcf5b7", (root, __rsjs_disposers = []) => {
+hydrate("querymutationsnapshot_eeeeea2d", (root, __rsjs_disposers = []) => {
     const __rsjs_signal_initials = read_signal_initials(root);
     const __sig_0 = signal(signal_initial(__rsjs_signal_initials, 0, ""));
     const __rsjs_query_0 = register_query({
-        island: "querymutationsnapshot_61bcf5b7",
+        island: "querymutationsnapshot_eeeeea2d",
         query_id: 0,
         root,
         key: ["stock", "AAPL"],
@@ -14,7 +14,7 @@ hydrate("querymutationsnapshot_61bcf5b7", (root, __rsjs_disposers = []) => {
     });
     __rsjs_disposers.push(() => dispose_query(__rsjs_query_0));
     const __rsjs_query_1 = register_query({
-        island: "querymutationsnapshot_61bcf5b7",
+        island: "querymutationsnapshot_eeeeea2d",
         query_id: 1,
         root,
         key: ["feed"],
@@ -23,7 +23,7 @@ hydrate("querymutationsnapshot_61bcf5b7", (root, __rsjs_disposers = []) => {
     });
     __rsjs_disposers.push(() => dispose_query(__rsjs_query_1));
     const __rsjs_mutation_0 = register_mutation({
-        island: "querymutationsnapshot_61bcf5b7",
+        island: "querymutationsnapshot_eeeeea2d",
         mutation_id: 0,
         root,
         key: ["update_cart", "AAPL"],

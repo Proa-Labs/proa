@@ -8,7 +8,7 @@ use rsjs::rsjs;
 pub struct Counter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for Counter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = rsjs::signal(0_i64);
         println!("hello from render");

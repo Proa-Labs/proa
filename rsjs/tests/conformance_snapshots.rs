@@ -17,7 +17,7 @@ use rsjs::{console, QueryKey};
 pub struct BasicHandlerSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for BasicHandlerSnapshot
 {
     fn render(
@@ -50,7 +50,7 @@ pub struct QueryMutationSnapshot;
 pub struct SyncQuerySnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for SyncQuerySnapshot
 {
     fn render(
@@ -89,7 +89,7 @@ pub struct ServerDecoratedButtonSnapshot {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for ServerDecoratedButtonSnapshot
 {
     fn render(
@@ -112,7 +112,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct BrowserEffectsSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for BrowserEffectsSnapshot
 {
     fn render(
@@ -171,7 +171,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRender<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRender<L, B>
     for QueryMutationSnapshot
 {
     fn render(
@@ -267,7 +267,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for NodeRefsSnapshot
 {
     fn render(
@@ -329,7 +329,7 @@ pub struct LiveInboundFieldsSnapshot {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for LiveInboundFieldsSnapshot
 {
     fn render(
@@ -361,7 +361,7 @@ pub struct RepeatedButtonsSnapshot {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for RepeatedButtonsSnapshot
 {
     fn render(
@@ -403,7 +403,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for CallbackTextInputSnapshot
 {
     fn render(
@@ -430,7 +430,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for NamedEventHandlerSnapshot
 {
     fn render(
@@ -457,7 +457,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for BranchingHandlerSnapshot
 {
     fn render(
@@ -491,7 +491,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct StrategyVisibleSnapshot;
 
 #[rsjs::rsjs(component, client, strategy = "visible")]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for StrategyVisibleSnapshot
 {
     fn render(
@@ -512,7 +512,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct StrategyIdleSnapshot;
 
 #[rsjs::rsjs(component, client, strategy = "idle")]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for StrategyIdleSnapshot
 {
     fn render(
@@ -533,7 +533,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct StrategyInteractionSnapshot;
 
 #[rsjs::rsjs(component, client, strategy = "interaction:click")]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for StrategyInteractionSnapshot
 {
     fn render(
@@ -554,7 +554,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct StrategyMediaSnapshot;
 
 #[rsjs::rsjs(component, client, strategy = "media:(min-width: 768px)")]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for StrategyMediaSnapshot
 {
     fn render(
@@ -581,7 +581,7 @@ pub struct AsyncChildCompositionStockPrice {
 pub struct AsyncChildCompositionDataChildSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRender<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRender<L, B>
     for AsyncChildCompositionDataChildSnapshot
 {
     fn render(
@@ -647,7 +647,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct RepeatedGlobalEventsSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for RepeatedGlobalEventsSnapshot
 {
     fn render(
@@ -690,7 +690,7 @@ pub struct ServerInitialQueryStockPrice {
 pub struct ServerInitialQuerySnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRender<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRender<L, B>
     for ServerInitialQuerySnapshot
 {
     fn render(
@@ -1720,7 +1720,7 @@ fn workspace_dir() -> std::path::PathBuf {
 pub struct NumericI64DivisionModuloSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for NumericI64DivisionModuloSnapshot
 {
     fn render(
@@ -1769,7 +1769,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct NumericI64PrecisionSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for NumericI64PrecisionSnapshot
 {
     fn render(
@@ -1815,7 +1815,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct NumericF64SpecialSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for NumericF64SpecialSnapshot
 {
     fn render(
@@ -1855,7 +1855,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct NumericI32OverflowSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for NumericI32OverflowSnapshot
 {
     fn render(
@@ -1881,7 +1881,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct ConditionalTruthinessSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for ConditionalTruthinessSnapshot
 {
     fn render(
@@ -1923,7 +1923,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct ComputedSignalsSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for ComputedSignalsSnapshot
 {
     fn render(
@@ -1983,7 +1983,7 @@ fn computed_signals_hir_sidecar_matches_conformance_snapshot() {
 pub struct TimerIntervalSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for TimerIntervalSnapshot
 {
     fn render(
@@ -2007,7 +2007,7 @@ impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRende
 pub struct DebouncedHandlerSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for DebouncedHandlerSnapshot
 {
     fn render(
@@ -2269,7 +2269,7 @@ const QUERY_MUTATION_INITIAL_PRICE: QueryMutationStockPrice = QueryMutationStock
 pub struct KeyedListSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for KeyedListSnapshot
 {
     fn render(
@@ -2348,7 +2348,7 @@ fn keyed_list_hir_sidecar_matches_conformance_snapshot() {
 pub struct NavigatorLanguageSnapshot;
 
 #[rsjs::rsjs(component, client)]
-impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader> ::proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
     for NavigatorLanguageSnapshot
 {
     fn render(

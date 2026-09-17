@@ -11,7 +11,7 @@ pub struct ChildWithServerValue<V> {
     pub value: V,
 }
 
-impl<B: WriteBuf, L: proa_core::DataLoader, V> WebRenderSync<L, B> for ChildWithServerValue<V> {
+impl<L: proa_core::DataLoader, B: WriteBuf, V> WebRenderSync<L, B> for ChildWithServerValue<V> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <span>"Child"</span>
@@ -23,7 +23,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader, V> WebRenderSync<L, B> for ChildWith
 pub struct IslandStateDeclaration;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for IslandStateDeclaration {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for IslandStateDeclaration {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <div>

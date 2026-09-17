@@ -28,7 +28,7 @@ const SEARCH_INPUT_ICON_HTML: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" 
 pub struct SearchModal;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for SearchModal {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for SearchModal {
     fn render(
         self,
         cx: &mut proa_core::WebContext<L, B>,

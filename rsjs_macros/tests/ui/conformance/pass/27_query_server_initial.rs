@@ -17,7 +17,7 @@ pub struct StockPrice {
 pub struct ServerInitialQuery;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for ServerInitialQuery {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for ServerInitialQuery {
     fn render(
         self,
         cx: &mut WebContext<L, B>,

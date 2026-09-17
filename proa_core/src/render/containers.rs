@@ -34,7 +34,7 @@ pub struct TwoSync<A, B> {
     pub second: B,
 }
 
-impl<A, B, Buf, L> WebRenderSync<L, Buf> for TwoSync<A, B>
+impl<A, B, L, Buf> WebRenderSync<L, Buf> for TwoSync<A, B>
 where
     A: WebRenderSync<L, Buf>,
     B: WebRenderSync<L, Buf>,

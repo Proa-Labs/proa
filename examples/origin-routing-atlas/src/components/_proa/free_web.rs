@@ -76,7 +76,7 @@ struct JsonAttrWriter<'cx, B: WriteBuf, L: DataLoader> {
     err: Option<WriteError>,
 }
 
-impl<B: WriteBuf, L: DataLoader> io::Write for JsonAttrWriter<'_, B, L> {
+impl<L: DataLoader, B: WriteBuf> io::Write for JsonAttrWriter<'_, B, L> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let s = std::str::from_utf8(buf).map_err(io::Error::other)?;

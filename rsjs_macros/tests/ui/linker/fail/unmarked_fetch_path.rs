@@ -14,7 +14,7 @@ mod fetch {
 pub struct RawFetchCall;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RawFetchCall {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RawFetchCall {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <button on_click={|_| {

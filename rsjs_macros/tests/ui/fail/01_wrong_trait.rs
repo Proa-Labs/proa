@@ -11,7 +11,7 @@ trait SomeOtherTrait<B: WriteBuf, L: DataLoader> {
 pub struct Counter;
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> SomeOtherTrait<B, L> for Counter {
+impl<L: DataLoader, B: WriteBuf> SomeOtherTrait<B, L> for Counter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <div>"hi"</div>

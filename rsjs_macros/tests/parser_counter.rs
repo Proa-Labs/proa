@@ -71,7 +71,7 @@ async fn async_child_label() -> Result<&'static str, WriteError> {
 pub struct AsyncServerPreludeChild;
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for AsyncServerPreludeChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for AsyncServerPreludeChild {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -92,7 +92,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for Async
 pub struct ParentWithAsyncServerPreludeChild;
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
     for ParentWithAsyncServerPreludeChild
 {
     fn render(
@@ -125,7 +125,7 @@ struct SaveResult {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for QueryMutationIsland {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for QueryMutationIsland {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -197,7 +197,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for Query
 pub struct LiveQueryKeyIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for LiveQueryKeyIsland {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for LiveQueryKeyIsland {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -233,7 +233,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for LiveQ
 pub struct MutationProjectionIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
     for MutationProjectionIsland
 {
     fn render(
@@ -267,7 +267,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
 pub struct QueryMutationChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for QueryMutationChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for QueryMutationChild {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -314,7 +314,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for Query
 pub struct ParentWithQueryMutationChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
     for ParentWithQueryMutationChild
 {
     fn render(
@@ -335,7 +335,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
 pub struct ServerLocalMutationKeyIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
     for ServerLocalMutationKeyIsland
 {
     fn render(
@@ -369,7 +369,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
 pub struct ServerLocalMutationKeyChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
     for ServerLocalMutationKeyChild
 {
     fn render(
@@ -403,7 +403,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
 pub struct ParentWithServerLocalMutationChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
     for ParentWithServerLocalMutationChild
 {
     fn render(
@@ -720,7 +720,7 @@ fn descriptor_compilation_keeps_server_local_mutation_metadata_with_child() {
 pub struct QueryInitialIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for QueryInitialIsland {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for QueryInitialIsland {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -786,7 +786,7 @@ struct SearchPayload {
 pub struct QueryArrayProjectionIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
     for QueryArrayProjectionIsland
 {
     fn render(
@@ -839,7 +839,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
 pub struct DynamicQueryUrlIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for DynamicQueryUrlIsland {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for DynamicQueryUrlIsland {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -875,7 +875,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for Dynam
 pub struct QueryBackedListIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for QueryBackedListIsland {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for QueryBackedListIsland {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -981,7 +981,7 @@ fn assert_stock_query_seed(seed_table: &str, namespace: &str) {
 pub struct DataLoaderQueryInitialIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
     for DataLoaderQueryInitialIsland
 {
     fn render(
@@ -1018,7 +1018,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
 pub struct DataLoaderQueryInitialChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
     for DataLoaderQueryInitialChild
 {
     fn render(
@@ -1055,7 +1055,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
 pub struct ParentWithDataLoaderQueryChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
     for ParentWithDataLoaderQueryChild
 {
     fn render(
@@ -1341,7 +1341,7 @@ pub struct Counter {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for Counter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         proa_macros::html_sync! {
@@ -1416,7 +1416,7 @@ fn counter_seed_script_uses_request_csp_nonce() {
 pub struct StaticContent;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for StaticContent {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticContent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         proa_macros::html_sync! {
@@ -1439,7 +1439,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for StaticConten
 pub struct StaticChildPanel;
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for StaticChildPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticChildPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <aside class="child-panel">
@@ -1453,7 +1453,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for StaticChildP
 pub struct ParentWithStaticChildPanel;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithStaticChildPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithStaticChildPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
 
@@ -1543,7 +1543,7 @@ fn rsjs_inlines_server_only_child_without_fragment_runtime() {
 pub struct SvgUseTag;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for SvgUseTag {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SvgUseTag {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         proa_macros::html_sync! {
@@ -1572,7 +1572,7 @@ fn rsjs_accepts_keyword_like_svg_use_tag() {
 pub struct ServerOnlySlot;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ServerOnlySlot {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ServerOnlySlot {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         proa_macros::html_sync! {
@@ -1602,7 +1602,7 @@ fn rsjs_preserves_explicit_server_only_slot() {
 pub struct HandlerRefCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerRefCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerRefCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         let increment = rsjs::handler(|_| count.update(|c| c + 1));
@@ -1641,7 +1641,7 @@ fn rsjs_accepts_direct_handler_ref_calls() {
 pub struct HandlerClientHelper;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerClientHelper {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerClientHelper {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let total = signal(21_i64);
         proa_macros::html_sync! {
@@ -1686,7 +1686,7 @@ fn rsjs_records_symbolic_client_helper_edges_from_handlers() {
 pub struct HandlerPayloadCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerPayloadCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerPayloadCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let source = signal(41_i64);
         let selected = signal(0_i64);
@@ -1730,7 +1730,7 @@ fn rsjs_substitutes_handler_ref_payloads_inside_block_handlers() {
 pub struct NamedEventHandlerRefButton;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NamedEventHandlerRefButton {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NamedEventHandlerRefButton {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let picked = signal(String::new());
         let on_pick = rsjs::event_handler(
@@ -1773,7 +1773,7 @@ fn rsjs_accepts_named_event_handler_ref_calls_with_payloads() {
 pub struct EventOpsForm;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for EventOpsForm {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for EventOpsForm {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal(String::new());
         let checked = signal(false);
@@ -1864,7 +1864,7 @@ fn rsjs_lowers_typed_event_operations() {
 pub struct RichEventOpsForm;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RichEventOpsForm {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RichEventOpsForm {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let mouse_x = signal(0.0_f64);
         let input_data = signal(String::new());
@@ -1953,7 +1953,7 @@ fn rsjs_lowers_richer_typed_event_accessors() {
 pub struct CommonDomEventsForm;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for CommonDomEventsForm {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CommonDomEventsForm {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let key = signal(String::new());
         let pointer_x = signal(0.0_f64);
@@ -2399,7 +2399,7 @@ fn rsjs_lowers_common_dom_event_names() {
 pub struct BrowserEffects;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for BrowserEffects {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for BrowserEffects {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let hash = signal("filters=open".to_string());
         let clipboard_default = signal(String::new());
@@ -2598,7 +2598,7 @@ fn rsjs_lowers_browser_api_effects() {
 pub struct BrowserReads;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for BrowserReads {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for BrowserReads {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal(String::new());
         let viewport_width = signal(0_i32);
@@ -2722,7 +2722,7 @@ fn rsjs_lowers_browser_api_reads() {
 pub struct EncodingHelpers;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for EncodingHelpers {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for EncodingHelpers {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let text = signal(String::from("hi"));
         let decoded = signal(String::new());
@@ -2781,7 +2781,7 @@ fn rsjs_lowers_encoding_helpers() {
 pub struct ConditionalValues;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ConditionalValues {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ConditionalValues {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let active = signal(true);
         proa_macros::html_sync! {
@@ -2801,7 +2801,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ConditionalV
 pub struct TemplateElseIfSections;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for TemplateElseIfSections {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TemplateElseIfSections {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = signal("idle".to_string());
         proa_macros::html_sync! {
@@ -2893,7 +2893,7 @@ fn rsjs_lowers_template_else_if_chains() {
 pub struct NodeRefOpsForm;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NodeRefOpsForm {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NodeRefOpsForm {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let input = rsjs::node_ref::<rsjs::HtmlInputElement>();
         let form = rsjs::node_ref::<rsjs::HtmlFormElement>();
@@ -3035,7 +3035,7 @@ fn rsjs_lowers_node_ref_bindings_and_dom_methods() {
 pub struct SearchableLabels;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for SearchableLabels {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SearchableLabels {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let query = signal(String::new());
 
@@ -3087,7 +3087,7 @@ fn rsjs_lowers_string_search_expressions() {
 pub struct StringMethodPanel;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for StringMethodPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for StringMethodPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let query = signal(String::from("  proa rocks  "));
         proa_macros::html_sync! {
@@ -3155,7 +3155,7 @@ fn rsjs_lowers_extended_string_methods() {
 pub struct DocumentEventPanel;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for DocumentEventPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentEventPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let root = rsjs::node_ref::<rsjs::HtmlElement>();
         let open = signal(true);
@@ -3211,7 +3211,7 @@ fn rsjs_lowers_document_events_and_event_target_containment() {
 pub struct HandlerIfCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerIfCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerIfCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         let enabled = signal(true);
@@ -3236,7 +3236,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerIfCou
 pub struct HandlerBoolMatchCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerBoolMatchCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerBoolMatchCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         let enabled = signal(true);
@@ -3258,7 +3258,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerBoolM
 pub struct HandlerStaticForLoopCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerStaticForLoopCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerStaticForLoopCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         proa_macros::html_sync! {
@@ -3280,7 +3280,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerStati
 pub struct HandlerLiteralMatchCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerLiteralMatchCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerLiteralMatchCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         proa_macros::html_sync! {
@@ -3302,7 +3302,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerLiter
 pub struct HandlerGuardedLiteralMatchCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for HandlerGuardedLiteralMatchCounter
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -3326,7 +3326,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct HandlerRangeMatchCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerRangeMatchCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerRangeMatchCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         proa_macros::html_sync! {
@@ -3348,7 +3348,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerRange
 pub struct HandlerOptionMatchCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerOptionMatchCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerOptionMatchCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let maybe = signal::<Option<i64>>(None);
         let count = signal(0_i64);
@@ -3371,7 +3371,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerOptio
 pub struct HandlerOptionPayloadMatchCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for HandlerOptionPayloadMatchCounter
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -3396,7 +3396,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct HandlerGuardedOptionPayloadMatchCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for HandlerGuardedOptionPayloadMatchCounter
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -3421,7 +3421,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct HandlerStaticRangeForLoopCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for HandlerStaticRangeForLoopCounter
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -3445,7 +3445,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct HandlerDynamicRangeForLoopCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for HandlerDynamicRangeForLoopCounter
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -3469,7 +3469,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct HandlerLocalReassignmentCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for HandlerLocalReassignmentCounter
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -3493,7 +3493,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct HandlerLocalCompoundAssignmentCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for HandlerLocalCompoundAssignmentCounter
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -3518,7 +3518,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct InlineClosureReactiveCounter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for InlineClosureReactiveCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for InlineClosureReactiveCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         proa_macros::html_sync! {
@@ -3945,7 +3945,7 @@ pub struct ComponentCallbackInput {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentCallbackInput {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComponentCallbackInput {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <div>
@@ -3965,7 +3965,7 @@ pub struct ComponentDateCallback {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentDateCallback {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComponentDateCallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <button
@@ -3984,7 +3984,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentDat
 pub struct ParentWithDateCallback;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithDateCallback {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithDateCallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal(String::new());
         let on_select = rsjs::handler(|date: String| selected.set(date));
@@ -4002,7 +4002,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithDa
 pub struct ParentWithComponentCallback;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithComponentCallback {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithComponentCallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal(String::new());
         let on_change = rsjs::handler(|next: String| value.set(next));
@@ -4020,7 +4020,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithCo
 pub struct SecondParentWithComponentCallback;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for SecondParentWithComponentCallback
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -4042,7 +4042,7 @@ pub struct ComponentOptionalCallbackInput {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentOptionalCallbackInput {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComponentOptionalCallbackInput {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <input on_input={|event| {
@@ -4056,7 +4056,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentOpt
 pub struct ParentWithOptionalCallbackSome;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithOptionalCallbackSome {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithOptionalCallbackSome {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal(String::new());
         let on_change = rsjs::handler(|next: String| value.set(next));
@@ -4076,7 +4076,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithOp
 pub struct ParentWithOptionalCallbackNone;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithOptionalCallbackNone {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithOptionalCallbackNone {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <section>
@@ -4095,7 +4095,7 @@ pub struct ComponentCallbackValue {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentCallbackValue {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComponentCallbackValue {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let current = signal(self.value);
 
@@ -4117,7 +4117,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentCal
 pub struct ParentWithComponentProp;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithComponentProp {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithComponentProp {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal(String::new());
         let on_change = rsjs::handler(|next: String| value.set(next));
@@ -4140,7 +4140,7 @@ pub struct ComponentOptionalSignalProp {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentOptionalSignalProp {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComponentOptionalSignalProp {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal::<u32>(self.selected.unwrap_or(0_u32));
 
@@ -4162,7 +4162,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentOpt
 pub struct ParentWithOptionalSignalProp;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithOptionalSignalProp {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithOptionalSignalProp {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal(7_u32);
         let on_select = rsjs::handler(|next: u32| selected.set(next));
@@ -4186,7 +4186,7 @@ pub struct ComponentServerLabel {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentServerLabel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComponentServerLabel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <button
@@ -4207,7 +4207,7 @@ pub struct NaturalServerOnlyPanel {
 }
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NaturalServerOnlyPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NaturalServerOnlyPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <section class={self.class}>
@@ -4225,7 +4225,7 @@ pub struct ComponentInferredServerLabel {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentInferredServerLabel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComponentInferredServerLabel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <button type="button" class={self.class} on_click={|_| self.on_press.call(())}>
@@ -4248,7 +4248,7 @@ pub struct ComponentInferredServerUser {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentInferredServerUser {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComponentInferredServerUser {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <button type="button" class={self.user.class} on_click={|_| self.on_press.call(())}>
@@ -4262,7 +4262,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentInf
 pub struct ParentWithInferredServerProp;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithInferredServerProp {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithInferredServerProp {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         let on_press = rsjs::handler(|_| count.set(1));
@@ -4285,7 +4285,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithIn
 pub struct ParentWithInferredServerPathProp;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for ParentWithInferredServerPathProp
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -4319,7 +4319,7 @@ struct ComponentServerPreludeClassNames {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentServerPreludeLocal {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComponentServerPreludeLocal {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let class_names = ComponentServerPreludeClassNames {
             root: "base-action",
@@ -4341,7 +4341,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComponentSer
 pub struct ServerAttrStyle;
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ServerAttrStyle {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ServerAttrStyle {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let swatch_style = "background:#fff;";
 
@@ -4355,7 +4355,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ServerAttrSt
 pub struct ParentWithServerProp;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithServerProp {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithServerProp {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let pressed = signal(0_i64);
         let on_press = rsjs::handler(|_| pressed.set(1_i64));
@@ -4377,7 +4377,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithSe
 pub struct ParentWithServerPreludeLocalProp;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for ParentWithServerPreludeLocalProp
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -4401,7 +4401,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct ParentWithExplicitChildIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithExplicitChildIsland {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithExplicitChildIsland {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let pressed = signal(0_i64);
 
@@ -4422,7 +4422,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithEx
 pub struct RepeatedEventButtons;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedEventButtons {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedEventButtons {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         let labels = ["A", "B"];
@@ -4448,7 +4448,7 @@ pub struct RepeatedPayloadButtons {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedPayloadButtons {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedPayloadButtons {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let labels = ["A", "B"];
 
@@ -4473,7 +4473,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedPayl
 pub struct RepeatedSubmitForms;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedSubmitForms {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedSubmitForms {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal(String::new());
         let labels = ["draft", "final"];
@@ -4500,7 +4500,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedSubm
 pub struct RepeatedGlobalEventRows;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedGlobalEventRows {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedGlobalEventRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let labels = ["A", "B"];
 
@@ -4529,7 +4529,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedGlob
 pub struct ParentWithRepeatedPayloadComponent;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for ParentWithRepeatedPayloadComponent
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -4549,7 +4549,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct ParentWithTwoRepeatedPayloadComponents;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for ParentWithTwoRepeatedPayloadComponents
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -4573,7 +4573,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct ParentWithLoopedRepeatedPayloadComponents;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for ParentWithLoopedRepeatedPayloadComponents
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -4597,7 +4597,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
 pub struct RepeatedDynamicRows;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedDynamicRows {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedDynamicRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal("A".to_string());
         let labels = ["A", "B"];
@@ -4638,7 +4638,7 @@ impl RepeatedProjectedRow {
 pub struct RepeatedProjectedRows;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedProjectedRows {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedProjectedRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal(1_u32);
         let rows = [
@@ -4679,7 +4679,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedProj
 pub struct RepeatedDerivedServerRows;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedDerivedServerRows {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedDerivedServerRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal(0_u32);
         let rows = [
@@ -4721,7 +4721,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedDeri
 pub struct RepeatedShadowedSignalRows;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedShadowedSignalRows {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedShadowedSignalRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let row = signal("client".to_string());
         let rows = ["Server A", "Server B"];
@@ -4745,7 +4745,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedShad
 pub struct RepeatedPayloadCseScopeRows;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedPayloadCseScopeRows {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedPayloadCseScopeRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal(0_u32);
         let rows = [
@@ -4796,7 +4796,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedPayl
 pub struct RepeatedInputRows;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedInputRows {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedInputRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal("seed".to_string());
         let enabled = signal(true);
@@ -4820,7 +4820,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedInpu
 pub struct RepeatedConditionalRows;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedConditionalRows {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedConditionalRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal("A".to_string());
         let labels = ["A", "B"];
@@ -4851,7 +4851,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedCond
 pub struct SuffixedSignalRows;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for SuffixedSignalRows {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SuffixedSignalRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal(2_u32);
 

@@ -117,7 +117,7 @@ struct LatentHelperChild {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LatentHelperChild {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LatentHelperChild {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal(self.value);
         proa_macros::html_sync! {
@@ -130,7 +130,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LatentHelperChild {
 struct CalendarProbe;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CalendarProbe {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CalendarProbe {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let view = signal(1_i32);
         // This helper call has no local DOM consumer. It becomes browser-live

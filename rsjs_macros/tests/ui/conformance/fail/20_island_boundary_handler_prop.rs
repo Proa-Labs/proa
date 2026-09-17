@@ -14,7 +14,7 @@ pub struct BoundaryHandlerChild<F> {
 pub struct IslandBoundaryHandlerProp;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for IslandBoundaryHandlerProp {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for IslandBoundaryHandlerProp {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let pressed = signal(0_i64);
         let on_press = rsjs::handler(|_| pressed.set(1_i64));

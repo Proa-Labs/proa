@@ -339,7 +339,7 @@ pub const PRODUCTS: &[Product] = &[
     },
 ];
 pub struct ComplexPage;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ComplexPage {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComplexPage {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
@@ -364,7 +364,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ComplexPag
     }
 }
 struct ProductCount;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ProductCount {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProductCount {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let in_stock = PRODUCTS
@@ -400,7 +400,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ProductCou
     }
 }
 struct ProductList;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ProductList {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProductList {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         // proa-perf-ok: benchmark page intentionally exercises allocation-heavy sort setup
@@ -424,7 +424,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ProductLis
 struct ProductCard<'a> {
     product: &'a Product,
 }
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ProductCard<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProductCard<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let p = self.product;
@@ -472,7 +472,7 @@ impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Produc
 struct BadgeRow {
     badges: &'static [Badge],
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for BadgeRow {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for BadgeRow {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if self.badges.is_empty() {
@@ -487,7 +487,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for BadgeRow {
 struct BadgeItems {
     badges: &'static [Badge],
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for BadgeItems {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for BadgeItems {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for badge in self.badges {
@@ -524,7 +524,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for BadgeItems
 struct CategoryHeader<'a> {
     product: &'a Product,
 }
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for CategoryHeader<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CategoryHeader<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let p = self.product;
@@ -573,7 +573,7 @@ impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Catego
 struct PriceDisplay<'a> {
     product: &'a Product,
 }
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for PriceDisplay<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for PriceDisplay<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let p = self.product;
@@ -613,7 +613,7 @@ impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for PriceD
 struct StockIndicator<'a> {
     stock: &'a StockStatus,
 }
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for StockIndicator<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for StockIndicator<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         match self.stock {
@@ -704,7 +704,7 @@ struct RatingDisplay {
     rating: f64,
     count: u32,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for RatingDisplay {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RatingDisplay {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let full_stars = self.rating as u32;
@@ -730,7 +730,7 @@ struct Stars {
     full: u32,
     partial_pct: u32,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Stars {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Stars {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for i in 0..5u32 {
@@ -762,7 +762,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Stars {
 struct TagList {
     tags: &'static [&'static str],
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for TagList {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TagList {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if self.tags.is_empty() {
@@ -797,7 +797,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for TagList {
 struct TagItems<'a> {
     tags: &'a [&'static str],
 }
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for TagItems<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TagItems<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for tag in self.tags {
@@ -815,7 +815,7 @@ struct VariantSelector<'a> {
     variants: &'static [Variant],
     stock: &'a StockStatus,
 }
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for VariantSelector<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for VariantSelector<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let is_orderable = !matches!(self.stock, StockStatus::OutOfStock);
@@ -833,7 +833,7 @@ struct VariantButtons {
     variants: &'static [Variant],
     orderable: bool,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for VariantButtons {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for VariantButtons {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for v in self.variants {
@@ -877,7 +877,7 @@ struct Description {
     text: &'static str,
     featured: bool,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Description {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Description {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let display = if self.featured || self.text.len() <= 80 {

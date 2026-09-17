@@ -4,7 +4,7 @@ use rsjs::rsjs;
 pub struct WrongEventInterface;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for WrongEventInterface {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for WrongEventInterface {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let on_input =
             rsjs::event_handler(|_: rsjs::MouseEvent<rsjs::elem::Input>| {});

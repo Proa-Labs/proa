@@ -13,7 +13,7 @@ pub struct NumericState {
 pub struct OrderIndependent;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for OrderIndependent {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for OrderIndependent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = rsjs::shared::<NumericState>();
         let value = state.value();

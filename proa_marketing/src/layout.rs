@@ -144,7 +144,7 @@ pub(crate) const SEARCH_SCRIPT_SRC: &str =
 /// missed by the snapshot.
 pub(crate) struct RsjsRuntimeTags;
 
-impl<B, L> WebRenderSync<L, B> for RsjsRuntimeTags
+impl<L, B> WebRenderSync<L, B> for RsjsRuntimeTags
 where
     B: WriteBuf,
     L: DataLoader,
@@ -173,7 +173,7 @@ impl DocumentMetadata {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocumentMetadata {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let origin = self.origin;
         WebRenderSync::render(
@@ -235,7 +235,7 @@ struct PageHead {
     meta: PageMeta,
 }
 
-impl<B, L> WebRenderSync<L, B> for PageHead
+impl<L, B> WebRenderSync<L, B> for PageHead
 where
     B: WriteBuf,
     L: DataLoader,
@@ -277,7 +277,7 @@ struct PageBody<C> {
     content: C,
 }
 
-impl<B, L, C> WebRenderSync<L, B> for PageBody<C>
+impl<L, B, C> WebRenderSync<L, B> for PageBody<C>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -303,7 +303,7 @@ where
     }
 }
 
-impl<B, L, C> WebRender<L, B> for Document<C>
+impl<L, B, C> WebRender<L, B> for Document<C>
 where
     B: WriteBuf,
     L: DataLoader,

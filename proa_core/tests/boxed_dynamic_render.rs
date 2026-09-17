@@ -17,7 +17,7 @@ use proa_macros::{html, html_sync};
 
 struct Alpha;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Alpha {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Alpha {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.out.extend(b"alpha")
     }
@@ -25,7 +25,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Alpha {
 
 struct Beta;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Beta {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Beta {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.out.extend(b"beta")
     }
@@ -35,7 +35,7 @@ struct DynamicSync {
     alpha: bool,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DynamicSync {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DynamicSync {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         // Both branches have one erased type even though their concrete leaf
         // types differ. B and L are inferred from the surrounding render.
@@ -55,7 +55,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DynamicSync {
 
 struct AsyncAlpha;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for AsyncAlpha {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for AsyncAlpha {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -69,7 +69,7 @@ impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for AsyncAlpha {
 
 struct AsyncBeta;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for AsyncBeta {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for AsyncBeta {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -85,7 +85,7 @@ struct DynamicAsync {
     alpha: bool,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for DynamicAsync {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for DynamicAsync {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -106,7 +106,7 @@ impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for DynamicAsync {
 
 struct LocalFuture;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for LocalFuture {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for LocalFuture {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -134,7 +134,7 @@ struct NeverReady {
     dropped: Arc<AtomicBool>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for NeverReady {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for NeverReady {
     fn render(
         self,
         _cx: &mut WebContext<L, B>,

@@ -284,7 +284,7 @@ pub fn emit_rust_with_prelude_and_asset_id(
         if island.is_async {
             return quote! {
                 #[automatically_derived]
-                impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader>
+                impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf>
                     ::proa_core::WebRender<L, B> for #struct_path
                 {
                     fn render(
@@ -319,7 +319,7 @@ pub fn emit_rust_with_prelude_and_asset_id(
 
         return quote! {
             #[automatically_derived]
-            impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader>
+            impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf>
                 ::proa_core::WebRenderSync<L, B> for #struct_path
             {
                 fn render(
@@ -352,7 +352,7 @@ pub fn emit_rust_with_prelude_and_asset_id(
         // contains an `.await`.
         quote! {
             #[automatically_derived]
-            impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader>
+            impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf>
                 ::proa_core::WebRender<L, B> for #struct_path
             {
                 fn render(
@@ -401,7 +401,7 @@ pub fn emit_rust_with_prelude_and_asset_id(
     } else {
         quote! {
             #[automatically_derived]
-            impl<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader>
+            impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf>
                 ::proa_core::WebRenderSync<L, B> for #struct_path
             {
                 fn render(
@@ -448,7 +448,7 @@ pub fn emit_rust_with_prelude_and_asset_id(
 /// Macro-path emitter that preserves the user's impl header.
 ///
 /// The legacy emitter above still rebuilds the canonical
-/// `impl<B, L> ... for Struct` shape because the old hand-built
+/// `impl<L, B> ... for Struct` shape because the old hand-built
 /// fixtures and golden tests depend on that output. The proc macro
 /// path uses this entry point so generic impl parameters, const
 /// parameters, lifetime parameters, trait arguments, and where

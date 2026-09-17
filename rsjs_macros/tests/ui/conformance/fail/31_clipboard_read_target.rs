@@ -10,7 +10,7 @@ use support::*;
 pub struct ClipboardReadTarget;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ClipboardReadTarget {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ClipboardReadTarget {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal(String::new());
 

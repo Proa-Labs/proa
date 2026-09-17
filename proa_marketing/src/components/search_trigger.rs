@@ -19,7 +19,7 @@ impl SearchTrigger {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SearchTrigger {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SearchTrigger {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let classes = ClassList::<2>::new()
             .add(SEARCH_TRIGGER_CLASS)
@@ -69,7 +69,7 @@ impl SearchIconButton {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SearchIconButton {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SearchIconButton {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <button

@@ -10,7 +10,7 @@ use support::*;
 pub struct NumericF64Special;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NumericF64Special {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NumericF64Special {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let zero = signal(0.0_f64);
         let one = signal(1.0_f64);

@@ -1930,7 +1930,7 @@ pub struct SharedStateProvider<S, C> {
     pub children: C,
 }
 
-impl<B, L, S, C> proa_core::WebRenderSync<L, B> for SharedStateProvider<S, C>
+impl<L, B, S, C> proa_core::WebRenderSync<L, B> for SharedStateProvider<S, C>
 where
     B: proa_core::WriteBuf,
     L: proa_core::DataLoader,
@@ -1952,7 +1952,7 @@ where
     }
 }
 
-impl<B, L, S, C> proa_core::WebRender<L, B> for SharedStateProvider<S, C>
+impl<L, B, S, C> proa_core::WebRender<L, B> for SharedStateProvider<S, C>
 where
     B: proa_core::WriteBuf,
     L: proa_core::DataLoader,

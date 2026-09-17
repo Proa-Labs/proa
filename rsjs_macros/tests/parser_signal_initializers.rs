@@ -34,7 +34,7 @@ pub struct FilterChip {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for FilterChip {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FilterChip {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let checked = signal(self.initial_checked);
         proa_macros::html_sync! {
@@ -106,7 +106,7 @@ pub struct InitialLabel<'a> {
 }
 
 #[rsjs(component, client)]
-impl<'a, B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for InitialLabel<'a> {
+impl<'a, L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for InitialLabel<'a> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let label = signal(self.label);
         proa_macros::html_sync! {
@@ -141,7 +141,7 @@ pub struct RuntimeExprLabel {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RuntimeExprLabel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RuntimeExprLabel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let label = signal(build_label(self.prefix));
         proa_macros::html_sync! {

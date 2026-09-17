@@ -181,7 +181,7 @@ struct Probe {
     seen: SeenScopes,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Probe {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Probe {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let (state, scope) = cx.rsjs_shared_state_acquire::<WorkbenchState>(
             WorkbenchState::TYPE_KEY,
@@ -198,7 +198,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Probe {
 
 struct AsyncProbe;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for AsyncProbe {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for AsyncProbe {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -262,7 +262,7 @@ pub struct NestedCartState {
 
 struct CartSeedProbe;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CartSeedProbe {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CartSeedProbe {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.rsjs_shared_state_acquire::<CartState>(
             CartState::TYPE_KEY,
@@ -276,7 +276,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CartSeedProbe {
 
 struct WorkbenchSeedProbe;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for WorkbenchSeedProbe {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for WorkbenchSeedProbe {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.rsjs_shared_state_acquire::<WorkbenchState>(
             WorkbenchState::TYPE_KEY,

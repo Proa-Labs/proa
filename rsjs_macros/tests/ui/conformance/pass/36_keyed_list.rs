@@ -10,7 +10,7 @@ use support::*;
 pub struct KeyedTodoList;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for KeyedTodoList {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for KeyedTodoList {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let items = signal(vec!["Alpha".to_string(), "Beta".to_string()]);
 

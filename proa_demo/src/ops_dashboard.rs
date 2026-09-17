@@ -202,7 +202,7 @@ pub struct OpsDashboard<'a> {
     pub data: &'a DashboardData<'a>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for OpsDashboard<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for OpsDashboard<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let _ = html_sync! {
             <!DOCTYPE html>
@@ -327,7 +327,7 @@ struct ServerPill<'a> {
     label: &'a str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ServerPill<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ServerPill<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <span class="ops-server-pill">{self.label}</span>
@@ -340,7 +340,7 @@ struct ServerCount {
     count: usize,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ServerCount {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ServerCount {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <span class="ops-server-pill">{self.count}" total"</span>
@@ -357,7 +357,7 @@ pub struct DashboardControls<'a> {
 }
 
 #[rsjs(component, client)]
-impl<'a, B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DashboardControls<'a> {
+impl<'a, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DashboardControls<'a> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let query = signal(self.initial_query);
         let urgent_only = signal(self.initial_urgent_only);
@@ -442,7 +442,7 @@ pub struct RowActions<'a> {
 }
 
 #[rsjs(component, client)]
-impl<'a, B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RowActions<'a> {
+impl<'a, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RowActions<'a> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let menu_open = signal(false);
         let acknowledged = signal(self.initially_acknowledged);

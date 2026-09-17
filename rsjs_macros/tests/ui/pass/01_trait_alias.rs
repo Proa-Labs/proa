@@ -10,7 +10,7 @@ use rsjs::rsjs;
 pub struct Counter;
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WRS<L, B> for Counter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WRS<L, B> for Counter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <div>"hi"</div>

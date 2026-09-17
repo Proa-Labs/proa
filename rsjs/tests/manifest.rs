@@ -45,7 +45,7 @@ pub struct ManifestProbe {
 }
 
 #[rsjs(component, client)]
-impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: proa_core::WriteBuf> proa_core::WebRenderSync<L, B>
     for ManifestProbe
 {
     fn render(self, cx: &mut proa_core::WebContext<L, B>) -> Result<(), proa_core::WriteError> {
@@ -64,7 +64,7 @@ impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<
 pub struct VisibleManifestProbe;
 
 #[rsjs(component, client, strategy = "visible")]
-impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: proa_core::WriteBuf> proa_core::WebRenderSync<L, B>
     for VisibleManifestProbe
 {
     fn render(self, cx: &mut proa_core::WebContext<L, B>) -> Result<(), proa_core::WriteError> {
@@ -81,7 +81,7 @@ impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<
 pub struct IdleManifestProbe;
 
 #[rsjs(component, client, strategy = "idle")]
-impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: proa_core::WriteBuf> proa_core::WebRenderSync<L, B>
     for IdleManifestProbe
 {
     fn render(self, cx: &mut proa_core::WebContext<L, B>) -> Result<(), proa_core::WriteError> {
@@ -98,7 +98,7 @@ impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<
 pub struct InteractionManifestProbe;
 
 #[rsjs(component, client, strategy = "interaction:click")]
-impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: proa_core::WriteBuf> proa_core::WebRenderSync<L, B>
     for InteractionManifestProbe
 {
     fn render(self, cx: &mut proa_core::WebContext<L, B>) -> Result<(), proa_core::WriteError> {
@@ -115,7 +115,7 @@ impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<
 pub struct MediaManifestProbe;
 
 #[rsjs(component, client, strategy = "media:(min-width: 768px)")]
-impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: proa_core::WriteBuf> proa_core::WebRenderSync<L, B>
     for MediaManifestProbe
 {
     fn render(self, cx: &mut proa_core::WebContext<L, B>) -> Result<(), proa_core::WriteError> {

@@ -17,7 +17,7 @@ pub struct CartState {
 pub struct AveragePanel;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for AveragePanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for AveragePanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let cart = rsjs::shared::<CartState>();
         let total = cart.total();

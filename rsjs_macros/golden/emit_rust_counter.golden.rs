@@ -2,8 +2,8 @@
 // proa-perf-ok(scope): generated fixture embeds trusted serialized island state
 #[automatically_derived]
 impl<
-    B: ::proa_core::WriteBuf,
     L: ::proa_core::DataLoader,
+    B: ::proa_core::WriteBuf,
 > ::proa_core::WebRenderSync<L, B> for Counter {
     fn render(
         self,

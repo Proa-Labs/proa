@@ -231,7 +231,7 @@ const TERMS_SECTIONS: &[LegalSection] = &[
     },
 ];
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LegalPage {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LegalPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section class="px-4 py-16 sm:px-6 lg:px-8">
@@ -301,7 +301,7 @@ struct LegalSectionView<'a> {
     section: &'a LegalSection,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LegalSectionView<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LegalSectionView<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section>
@@ -323,7 +323,7 @@ struct LegalParagraphView {
     paragraph: &'static str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LegalParagraphView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LegalParagraphView {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <p>{self.paragraph}</p>

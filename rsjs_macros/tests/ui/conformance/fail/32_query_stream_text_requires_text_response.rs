@@ -11,7 +11,7 @@ use support::*;
 pub struct QueryStreamTextRequiresTextResponse;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRender<L, B>
     for QueryStreamTextRequiresTextResponse
 {
     fn render(

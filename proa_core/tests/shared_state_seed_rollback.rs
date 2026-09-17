@@ -130,7 +130,7 @@ impl<L: DataLoader> WebRender<L> for AsyncProviderThenError {
 #[derive(Clone)]
 struct Fallback;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Fallback {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Fallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WriteBuf::extend_static(&mut cx.out, b"<p>fallback</p>")
     }

@@ -56,7 +56,7 @@ struct RegistryDifficultyBadge<'a> {
 
 struct RegistrySearchIcon;
 struct RegistryVoteIcon;
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistrySearchIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RegistrySearchIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -77,7 +77,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistrySearchIcon {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryVoteIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RegistryVoteIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -99,7 +99,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryVoteIcon {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryFilterButton<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RegistryFilterButton<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let active = if self.active { "true" } else { "false" };
         html_sync! {
@@ -116,7 +116,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryFilterButton<'_
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryDifficultyBadge<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RegistryDifficultyBadge<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <span class="rounded-full border border-[#00000014] px-2 py-0.5 font-mono text-[10px] text-[#a59f97]">
@@ -127,7 +127,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryDifficultyBadge
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryRequestBadges<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RegistryRequestBadges<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let request = self.request;
         if request.claimed {
@@ -160,7 +160,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryRequestBadges<'
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryRequestDescription<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RegistryRequestDescription<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let request = self.request;
         if let Some(builder) = request.builder {
@@ -183,7 +183,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryRequestDescript
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryRequestAction<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RegistryRequestAction<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if self.request.claimed {
             html_sync! {
@@ -208,7 +208,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryRequestAction<'
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryRequestRow<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RegistryRequestRow<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let request = self.request;
         let row_class = if request.claimed {
@@ -245,7 +245,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RegistryRequestRow<'_> 
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemRegistryPage<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemRegistryPage<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let request_count = self.data.registry_requests.len();
 

@@ -166,7 +166,7 @@ impl<L: ::proa_core::DataLoader> WebRender<L, RenderBuffer> for MarketplaceBuffe
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for MarketplaceLoadedSyncPage
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketplaceLoadedSyncPage
 where
     MarketplaceHero: WebRenderSync<L, B>,
     LoadedPanels: WebRenderSync<L, B>,
@@ -214,7 +214,7 @@ impl<L: ::proa_core::DataLoader + 'static> WebRender<L, RenderBuffer> for Stream
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRender<L, B> for LoadedPanel
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for LoadedPanel
 where
     ReadyPanel: WebRenderSync<L, B>,
 {
@@ -230,7 +230,7 @@ where
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for MarketplaceHero {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketplaceHero {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {
@@ -266,7 +266,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Marketplac
 #[derive(Clone, Copy, Debug)]
 struct MarketplaceHero;
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ReadyPanel {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReadyPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {
@@ -285,7 +285,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ReadyPanel
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FallbackPanel {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FallbackPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {
@@ -309,7 +309,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FallbackPa
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for LoadedPanels {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for LoadedPanels {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         for spec in MARKETPLACE_PANEL_SPECS {
             ReadyPanel { spec }.render(cx)?;

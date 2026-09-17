@@ -10,7 +10,7 @@ use support::*;
 pub struct ConditionalTruthiness;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ConditionalTruthiness {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ConditionalTruthiness {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         let count_state = signal("unset");

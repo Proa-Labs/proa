@@ -11,7 +11,7 @@ use rsjs_macros::rsjs;
 
 pub struct ShowcaseIndexPage;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ShowcaseIndexPage {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShowcaseIndexPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <!DOCTYPE html>
@@ -34,7 +34,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ShowcaseIndexPage {
 struct ShowcaseDirectory;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ShowcaseDirectory {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShowcaseDirectory {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let proa_only = signal(false);
 

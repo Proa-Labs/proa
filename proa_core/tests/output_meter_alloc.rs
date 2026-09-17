@@ -60,7 +60,7 @@ fn stop_counting() -> usize {
 
 struct StackOnlyComponent;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StackOnlyComponent {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StackOnlyComponent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.out.extend_static(b"abc")?;
         cx.out.push(b'd')?;

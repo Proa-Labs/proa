@@ -426,7 +426,7 @@ pub mod ui {
     pub struct StatusBadge;
 
     #[rsjs::rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StatusBadge {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StatusBadge {
         fn render(
             self,
             cx: &mut WebContext<L, B>,

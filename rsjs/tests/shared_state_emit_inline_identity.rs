@@ -20,7 +20,7 @@ pub struct InlineIdentityState {
 pub struct InlineIdentityBadge;
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for InlineIdentityBadge {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for InlineIdentityBadge {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = rsjs::shared::<InlineIdentityState>();
         let label = state.label();
@@ -35,7 +35,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for InlineIdenti
 pub struct InlineIdentityPage;
 
 #[rsjs::rsjs(component)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for InlineIdentityPage {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for InlineIdentityPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <section>{InlineIdentityBadge {}}</section>

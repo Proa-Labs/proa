@@ -31,7 +31,7 @@ fn format_ticket(ticket_id: &str) -> String {
 }
 
 #[rsjs(component, client)]
-impl<'a, B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RowMenu<'a> {
+impl<'a, L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RowMenu<'a> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let open = signal(true);
         proa_macros::html_sync! {

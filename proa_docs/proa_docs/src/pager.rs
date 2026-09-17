@@ -10,7 +10,7 @@ pub struct DocsPager<'a> {
     pub page: &'a DocPage,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsPager<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsPager<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
             <nav class="proa-docs-pager" aria-label="Docs pagination">
@@ -36,7 +36,7 @@ struct PagerLink {
     label: &'static str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PagerLink {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PagerLink {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if let Some(link) = self.link {
             html_sync! {

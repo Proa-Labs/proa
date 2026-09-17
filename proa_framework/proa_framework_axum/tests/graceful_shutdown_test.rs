@@ -34,7 +34,7 @@ impl Drop for DropNotification {
     }
 }
 
-impl<B, L> WebRender<L, B> for NeverBoundary
+impl<L, B> WebRender<L, B> for NeverBoundary
 where
     B: WriteBuf,
     L: DataLoader,

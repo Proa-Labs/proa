@@ -4,7 +4,7 @@
 //! Regression coverage for generic `#[rsjs(component, client)]` impl headers.
 //!
 //! The macro used to reject generic self types and impl-level where
-//! clauses because the Rust emitter rebuilt a fresh `impl<B, L> ...`
+//! clauses because the Rust emitter rebuilt a fresh `impl<L, B> ...`
 //! header. This test exercises lifetimes, type parameters, const
 //! parameters, renamed buffer/loader generics, and a where clause.
 

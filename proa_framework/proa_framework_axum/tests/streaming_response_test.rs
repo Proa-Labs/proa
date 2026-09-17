@@ -207,7 +207,7 @@ struct ConcurrencyTrackingLoader {
     max_active: Arc<AtomicUsize>,
 }
 
-impl<B: proa_core::WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ReadySection {
+impl<L: ::proa_core::DataLoader, B: proa_core::WriteBuf> WebRenderSync<L, B> for ReadySection {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {
@@ -218,7 +218,7 @@ impl<B: proa_core::WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRender<L, B> for FailingSection {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for FailingSection {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -269,7 +269,7 @@ impl<L: ::proa_core::DataLoader> WebRender<L, RenderBuffer> for StreamingRespons
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRender<L, B> for ImmediateAsyncSection
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for ImmediateAsyncSection
 where
     ReadySection: WebRenderSync<L, B>,
 {
@@ -283,7 +283,7 @@ where
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRender<L, B> for NeverSection {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for NeverSection {
     fn render(
         self,
         _cx: &mut WebContext<L, B>,
@@ -325,7 +325,7 @@ impl DataLoader for ConcurrencyTrackingLoader {
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRender<L, B> for DelayedSection
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for DelayedSection
 where
     ReadySection: WebRenderSync<L, B>,
 {
@@ -343,7 +343,7 @@ where
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRender<L, B> for LoadedSection
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for LoadedSection
 where
     ReadySection: WebRenderSync<L, B>,
 {

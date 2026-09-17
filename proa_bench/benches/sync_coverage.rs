@@ -30,7 +30,7 @@ use proa_core::{
 use proa_macros::html_sync;
 const TABLE_ROWS: usize = 1000;
 struct LargeTablePage;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for LargeTablePage {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for LargeTablePage {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
@@ -58,7 +58,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for LargeTable
     }
 }
 struct LargeTableRows;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for LargeTableRows {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for LargeTableRows {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for idx in 0..TABLE_ROWS {
@@ -70,7 +70,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for LargeTable
 struct LargeTableRow {
     idx: usize,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for LargeTableRow {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for LargeTableRow {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let row_class = if self.idx.is_multiple_of(2) {
@@ -123,7 +123,7 @@ struct Depth2;
 struct Depth1;
 macro_rules! depth_impl {
     ($name:ident, $child:ident) => {
-        impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for $name {
+        impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for $name {
             #[inline(always)]
             fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
                 html_sync! { < div class = "d" > { $child } </ div > }.render(cx)
@@ -150,7 +150,7 @@ depth_impl!(Depth5, Depth4);
 depth_impl!(Depth4, Depth3);
 depth_impl!(Depth3, Depth2);
 depth_impl!(Depth2, Depth1);
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Depth1 {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Depth1 {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
@@ -161,7 +161,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Depth1 {
 }
 const FANOUT: usize = 100;
 struct FanoutPage;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FanoutPage {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FanoutPage {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
@@ -171,7 +171,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FanoutPage
     }
 }
 struct FanoutChildren;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FanoutChildren {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FanoutChildren {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for _ in 0..FANOUT {
@@ -186,7 +186,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FanoutChil
     }
 }
 struct StaticHeavyPage;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for StaticHeavyPage {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticHeavyPage {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
@@ -275,7 +275,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for StaticHeav
 }
 const DYNAMIC_ITEMS: usize = 100;
 struct DynamicHeavyPage;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for DynamicHeavyPage {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DynamicHeavyPage {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
@@ -285,7 +285,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for DynamicHea
     }
 }
 struct DynamicItems;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for DynamicItems {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DynamicItems {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for idx in 0..DYNAMIC_ITEMS {
@@ -297,7 +297,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for DynamicIte
 struct DynamicItem {
     idx: usize,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for DynamicItem {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DynamicItem {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let kind: &str = match self.idx % 3 {

@@ -16,7 +16,7 @@ pub struct WorkbenchState {
 pub struct ThemePanel;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ThemePanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ThemePanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let mode = rsjs::shared::<WorkbenchState>().mode();
         proa_macros::html_sync! {

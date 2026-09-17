@@ -144,7 +144,7 @@ pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 /// [`WebRender`] surface.
 pub struct SyncToAsync<T>(pub T);
 
-impl<T, B, L> WebRender<L, B> for SyncToAsync<T>
+impl<T, L, B> WebRender<L, B> for SyncToAsync<T>
 where
     T: WebRenderSync<L, B>,
     B: WriteBuf,
@@ -164,7 +164,7 @@ pub type SyncAsAsync<T> = SyncToAsync<T>;
 /// Wrap a future that resolves to a `WebRender` child.
 pub struct AwaitComponent<F>(pub F);
 
-impl<F, B, L, R> WebRender<L, B> for AwaitComponent<F>
+impl<F, L, B, R> WebRender<L, B> for AwaitComponent<F>
 where
     F: Future<Output = R>,
     B: WriteBuf,
@@ -183,13 +183,13 @@ where
 }
 
 /// Unit type renders nothing - useful for components with optional children.
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for () {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for () {
     fn render(self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         Ok(())
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for () {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for () {
     fn render(
         self,
         _cx: &mut WebContext<L, B>,
@@ -199,7 +199,7 @@ impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for () {
 }
 
 /// `Option<T>` renders `T` if `Some`, nothing if `None` - useful for optional children.
-impl<B: WriteBuf, L: DataLoader, T: WebRenderSync<L, B>> WebRenderSync<L, B> for Option<T> {
+impl<L: DataLoader, B: WriteBuf, T: WebRenderSync<L, B>> WebRenderSync<L, B> for Option<T> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if let Some(inner) = self {
             inner.render(cx)?;

@@ -95,7 +95,7 @@ struct ReadySection {
     label: &'static str,
 }
 
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ReadySection {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReadySection {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {
@@ -111,7 +111,7 @@ struct DelayedSection {
     delay_ms: u64,
 }
 
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for DelayedSection
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for DelayedSection
 where
     ReadySection: WebRenderSync<L, B>,
 {

@@ -10,7 +10,7 @@ use support::*;
 pub struct NumericI32Overflow;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NumericI32Overflow {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NumericI32Overflow {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(2147483647_i32);
 

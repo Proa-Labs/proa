@@ -33,7 +33,7 @@ pub trait WebRenderSend<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuf
 /// Lift a send-safe synchronous component into [`WebRenderSend`].
 pub struct SendSyncToAsync<T>(pub T);
 
-impl<T, B, L> WebRenderSend<L, B> for SendSyncToAsync<T>
+impl<T, L, B> WebRenderSend<L, B> for SendSyncToAsync<T>
 where
     T: WebRenderSendSync<L, B>,
     B: WriteBuf + Send,
@@ -57,7 +57,7 @@ where
 /// implement [`WebRenderSendSync`] directly.
 pub struct StatelessSyncToSend<T>(pub T);
 
-impl<T, B, L> WebRenderSendSync<L, B> for StatelessSyncToSend<T>
+impl<T, L, B> WebRenderSendSync<L, B> for StatelessSyncToSend<T>
 where
     T: for<'a> WebRenderSync<NoLoader, &'a mut B> + Send,
     B: WriteBuf + Send,
@@ -73,7 +73,7 @@ where
 /// Await a `Send` future that resolves to a send-renderable child.
 pub struct AwaitSendComponent<F>(pub F);
 
-impl<F, B, L, R> WebRenderSend<L, B> for AwaitSendComponent<F>
+impl<F, L, B, R> WebRenderSend<L, B> for AwaitSendComponent<F>
 where
     F: Future<Output = R> + Send,
     B: WriteBuf + Send,
@@ -91,13 +91,13 @@ where
     }
 }
 
-impl<B: WriteBuf + Send, L: DataLoader> WebRenderSendSync<L, B> for () {
+impl<L: DataLoader, B: WriteBuf + Send> WebRenderSendSync<L, B> for () {
     fn render_send_sync(self, _cx: &mut SendWebContext<L, B>) -> Result<(), WriteError> {
         Ok(())
     }
 }
 
-impl<B: WriteBuf + Send, L: DataLoader> WebRenderSend<L, B> for () {
+impl<L: DataLoader, B: WriteBuf + Send> WebRenderSend<L, B> for () {
     fn render_send(
         self,
         _cx: &mut SendWebContext<L, B>,
@@ -106,7 +106,7 @@ impl<B: WriteBuf + Send, L: DataLoader> WebRenderSend<L, B> for () {
     }
 }
 
-impl<B, L, T> WebRenderSendSync<L, B> for Option<T>
+impl<L, B, T> WebRenderSendSync<L, B> for Option<T>
 where
     B: WriteBuf + Send,
     L: DataLoader,
@@ -120,7 +120,7 @@ where
     }
 }
 
-impl<B, L, T> WebRenderSend<L, B> for Option<T>
+impl<L, B, T> WebRenderSend<L, B> for Option<T>
 where
     B: WriteBuf + Send,
     L: DataLoader,
@@ -142,7 +142,7 @@ where
 macro_rules! impl_stateless_builtin_send {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<B, L> WebRenderSendSync<L, B> for $ty
+            impl<L, B> WebRenderSendSync<L, B> for $ty
             where
                 B: WriteBuf + Send,
                 L: DataLoader,
@@ -159,7 +159,7 @@ macro_rules! impl_stateless_builtin_send {
                 }
             }
 
-            impl<B, L> WebRenderSend<L, B> for $ty
+            impl<L, B> WebRenderSend<L, B> for $ty
             where
                 B: WriteBuf + Send,
                 L: DataLoader,
@@ -183,7 +183,7 @@ impl_stateless_builtin_send!(
     String, u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64,
 );
 
-impl<'value, B, L> WebRenderSendSync<L, B> for &'value str
+impl<'value, L, B> WebRenderSendSync<L, B> for &'value str
 where
     B: WriteBuf + Send,
     L: DataLoader,
@@ -194,7 +194,7 @@ where
     }
 }
 
-impl<'value, B, L> WebRenderSend<L, B> for &'value str
+impl<'value, L, B> WebRenderSend<L, B> for &'value str
 where
     B: WriteBuf + Send,
     L: DataLoader,
@@ -224,7 +224,7 @@ pub trait DynWebRenderSend<L: DataLoader = NoLoader, B: WriteBuf + Send = Render
     ) -> DynSendRenderOutcome<'a>;
 }
 
-impl<T, B, L> DynWebRenderSend<L, B> for T
+impl<T, L, B> DynWebRenderSend<L, B> for T
 where
     T: WebRenderSend<L, B> + Send + 'static,
     B: WriteBuf + Send,

@@ -39,7 +39,7 @@ fn wide_identity(value: i64) -> i64 {
 struct WideRangeHelper;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for WideRangeHelper {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for WideRangeHelper {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let current = signal(0_i64);
         proa_macros::html_sync! {

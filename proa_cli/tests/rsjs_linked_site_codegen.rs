@@ -91,7 +91,7 @@ mod async_ui {
     }
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderAsync<L, B> for AsyncStatusBadge {
+    impl<L: DataLoader, B: WriteBuf> RenderAsync<L, B> for AsyncStatusBadge {
         fn render(
             self,
             cx: &mut WebContext<L, B>,
@@ -144,7 +144,7 @@ mod async_page {
     pub struct AsyncPage;
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderAsync<L, B> for AsyncPage {
+    impl<L: DataLoader, B: WriteBuf> RenderAsync<L, B> for AsyncPage {
         fn render(
             self,
             cx: &mut WebContext<L, B>,
@@ -174,7 +174,7 @@ mod unit_ui {
     pub struct UnitBadge;
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for UnitBadge {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for UnitBadge {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <i data-unit-badge>"unit"</i>
@@ -196,7 +196,7 @@ mod unit_page {
     pub struct UnitPage;
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for UnitPage {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for UnitPage {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let rendered_value = "local-value";
             proa_macros::html_sync! {
@@ -221,7 +221,7 @@ mod live_ui {
     }
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for LiveButton {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for LiveButton {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let increment = rsjs::event_handler(|_: rsjs::Event| {
                 self.on_increment.call(self.value);
@@ -254,7 +254,7 @@ mod live_label {
     }
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for LiveLabel {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for LiveLabel {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let increment = rsjs::event_handler(|_: rsjs::Event| {
                 self.on_increment.call(self.value);
@@ -286,7 +286,7 @@ mod live_presenter {
     }
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for LivePresenter {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for LivePresenter {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <aside data-live-presenter>
@@ -314,7 +314,7 @@ mod seeded_ui {
     }
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for SeededCounter {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for SeededCounter {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let local = rsjs::signal::<u32>(self.initial);
 
@@ -345,7 +345,7 @@ mod conditional_label {
     }
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for ConditionalLabel {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for ConditionalLabel {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <strong data-conditional-label>{self.value}</strong>
@@ -371,7 +371,7 @@ mod conditional_ui {
     }
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for ConditionalChild {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for ConditionalChild {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let local = rsjs::signal::<u32>(self.initial);
             let change = rsjs::event_handler(|_: rsjs::Event| {
@@ -404,7 +404,7 @@ mod conditional_page {
     pub struct ConditionalPage;
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for ConditionalPage {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for ConditionalPage {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let visible = rsjs::signal(false);
             let value = rsjs::signal(7_u32);
@@ -446,7 +446,7 @@ mod query_ui {
     }
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderAsync<L, B> for QueryResults {
+    impl<L: DataLoader, B: WriteBuf> RenderAsync<L, B> for QueryResults {
         fn render(
             self,
             cx: &mut WebContext<L, B>,
@@ -492,7 +492,7 @@ mod query_page {
     pub struct QueryPage;
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderAsync<L, B> for QueryPage {
+    impl<L: DataLoader, B: WriteBuf> RenderAsync<L, B> for QueryPage {
         fn render(
             self,
             cx: &mut WebContext<L, B>,
@@ -532,7 +532,7 @@ mod mutation_ui {
     }
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderAsync<L, B> for MutationResults {
+    impl<L: DataLoader, B: WriteBuf> RenderAsync<L, B> for MutationResults {
         fn render(
             self,
             cx: &mut WebContext<L, B>,
@@ -590,7 +590,7 @@ mod mutation_page {
     pub struct MutationPage;
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderAsync<L, B> for MutationPage {
+    impl<L: DataLoader, B: WriteBuf> RenderAsync<L, B> for MutationPage {
         fn render(
             self,
             cx: &mut WebContext<L, B>,
@@ -631,7 +631,7 @@ mod live_page {
     pub struct LivePage;
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for LivePage {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for LivePage {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let count = rsjs::signal(String::from("seven"));
             let seed_source = rsjs::signal(7_u32);

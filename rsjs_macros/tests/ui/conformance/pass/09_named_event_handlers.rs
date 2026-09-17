@@ -10,7 +10,7 @@ use support::*;
 pub struct NamedEventHandlerRefs;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NamedEventHandlerRefs {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NamedEventHandlerRefs {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let picked = signal(String::new());
         let logged = signal(String::new());

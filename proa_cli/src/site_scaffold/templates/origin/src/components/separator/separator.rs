@@ -53,7 +53,7 @@ impl Default for Separator {
         Self::new()
     }
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Separator {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Separator {
     #[inline(always)]
     fn render(
         self,

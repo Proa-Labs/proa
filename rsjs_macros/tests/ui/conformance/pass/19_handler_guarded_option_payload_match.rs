@@ -10,7 +10,7 @@ use support::*;
 pub struct HandlerGuardedOptionPayloadMatch;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for HandlerGuardedOptionPayloadMatch
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {

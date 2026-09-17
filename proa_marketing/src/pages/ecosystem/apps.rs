@@ -104,7 +104,7 @@ struct PlatformDownloadBadge {
 struct ShowcaseChevronDownIcon;
 struct ShowcaseArrowUpRightIcon;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ShowcaseChevronDownIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShowcaseChevronDownIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -124,7 +124,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ShowcaseChevronDownIcon
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ShowcaseArrowUpRightIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShowcaseArrowUpRightIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -145,7 +145,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ShowcaseArrowUpRightIco
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PlatformDownloadBadge {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PlatformDownloadBadge {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         match self.kind {
             PlatformDownloadKind::AppleSilicon => html_sync! {
@@ -222,7 +222,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PlatformDownloadBadge {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PlatformDownloadMenuItem {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PlatformDownloadMenuItem {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let detail = match self.option.kind {
             PlatformDownloadKind::AppleSilicon => "aarch64-apple-darwin",
@@ -250,7 +250,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PlatformDownloadMenuIte
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PlatformDownloadCta {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PlatformDownloadCta {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let default = PLATFORM_DOWNLOAD_OPTIONS[0];
         html_sync! {
@@ -297,7 +297,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PlatformDownloadCta {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ReferenceShowcases {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReferenceShowcases {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section class="pb-16 pt-2" id="reference-showcases">
@@ -373,7 +373,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ReferenceShowcases {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AppFilterButton<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AppFilterButton<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let active = if self.active { "true" } else { "false" };
         html_sync! {
@@ -390,7 +390,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AppFilterButton<'_> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AppStatusBadge {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AppStatusBadge {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         match self.status {
             AppStatus::Live => html_sync! {
@@ -404,7 +404,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AppStatusBadge {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AppVisualPreview<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AppVisualPreview<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         match self.visual {
             AppVisual::Screenshot { src, alt } => html_sync! {
@@ -425,7 +425,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AppVisualPreview<'_> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemAppCardBody<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemAppCardBody<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let app = self.app;
         html_sync! {
@@ -452,7 +452,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemAppCardBody<'_
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemAppCard<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemAppCard<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let app = self.app;
         if app.external {
@@ -483,7 +483,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemAppCard<'_> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemAppsPage<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemAppsPage<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let app_count = self.data.apps.len();
 

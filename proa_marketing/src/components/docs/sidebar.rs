@@ -14,7 +14,7 @@ pub(super) struct DocsSidebar {
     pub(super) page: &'static DocPage,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsSidebar {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSidebar {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div data-component="docs-sidebar" class="docs-sidebar-inner">

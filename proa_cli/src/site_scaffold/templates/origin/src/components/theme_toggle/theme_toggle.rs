@@ -51,7 +51,7 @@ impl Default for ThemeToggle {
     }
 }
 
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ThemeToggle {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ThemeToggle {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let style = THEME_TOGGLE_RECIPE.resolve(ThemeToggleRecipeProps);
         html_sync! {

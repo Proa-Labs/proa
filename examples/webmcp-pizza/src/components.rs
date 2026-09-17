@@ -91,7 +91,7 @@ impl WebMcp for PizzaPage {
     }
 }
 
-impl<B, L> WebRenderSync<L, B> for PizzaPage
+impl<L, B> WebRenderSync<L, B> for PizzaPage
 where
     B: WriteBuf,
     L: DataLoader,
@@ -208,7 +208,7 @@ impl WebMcp for PizzaForm {
 }
 
 #[rsjs(component, client)]
-impl<B, L> WebRenderSync<L, B> for PizzaForm
+impl<L, B> WebRenderSync<L, B> for PizzaForm
 where
     B: WriteBuf,
     L: DataLoader,
@@ -409,7 +409,7 @@ struct FieldError {
     message: Option<String>,
 }
 
-impl<B, L> WebRenderSync<L, B> for FieldError
+impl<L, B> WebRenderSync<L, B> for FieldError
 where
     B: WriteBuf,
     L: DataLoader,
@@ -429,7 +429,7 @@ pub struct ReceiptPage {
     pub normalized_order: String,
 }
 
-impl<B, L> WebRenderSync<L, B> for ReceiptPage
+impl<L, B> WebRenderSync<L, B> for ReceiptPage
 where
     B: WriteBuf,
     L: DataLoader,

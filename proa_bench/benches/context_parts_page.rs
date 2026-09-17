@@ -91,7 +91,7 @@ fn allocated_bytes() -> usize {
 #[derive(Clone, Copy)]
 struct RequestAwarePage;
 
-impl<B, L> WebRenderSync<L, B> for RequestAwarePage
+impl<L, B> WebRenderSync<L, B> for RequestAwarePage
 where
     B: WriteBuf,
     L: DataLoader,
@@ -129,7 +129,7 @@ where
 #[derive(Clone, Copy)]
 struct RequestAwareSectionList;
 
-impl<B, L> WebRenderSync<L, B> for RequestAwareSectionList
+impl<L, B> WebRenderSync<L, B> for RequestAwareSectionList
 where
     B: WriteBuf,
     L: DataLoader,
@@ -148,7 +148,7 @@ struct RequestAwareSection {
     idx: usize,
 }
 
-impl<B, L> WebRenderSync<L, B> for RequestAwareSection
+impl<L, B> WebRenderSync<L, B> for RequestAwareSection
 where
     B: WriteBuf,
     L: DataLoader,
@@ -189,7 +189,7 @@ where
 #[derive(Clone, Copy)]
 struct RequestAwareCardGrid;
 
-impl<B, L> WebRenderSync<L, B> for RequestAwareCardGrid
+impl<L, B> WebRenderSync<L, B> for RequestAwareCardGrid
 where
     B: WriteBuf,
     L: DataLoader,
@@ -208,7 +208,7 @@ struct RequestAwareCard {
     idx: usize,
 }
 
-impl<B, L> WebRenderSync<L, B> for RequestAwareCard
+impl<L, B> WebRenderSync<L, B> for RequestAwareCard
 where
     B: WriteBuf,
     L: DataLoader,
@@ -258,7 +258,7 @@ where
 #[derive(Clone, Copy)]
 struct RequestAwareFeatureList;
 
-impl<B, L> WebRenderSync<L, B> for RequestAwareFeatureList
+impl<L, B> WebRenderSync<L, B> for RequestAwareFeatureList
 where
     B: WriteBuf,
     L: DataLoader,
@@ -317,7 +317,7 @@ where
 #[derive(Clone, Copy)]
 struct RequestAwareSectionFallback;
 
-impl<B, L> WebRenderSync<L, B> for RequestAwareSectionFallback
+impl<L, B> WebRenderSync<L, B> for RequestAwareSectionFallback
 where
     B: WriteBuf,
     L: DataLoader,
@@ -333,7 +333,7 @@ where
     }
 }
 
-impl<B, L> WebRenderSync<L, B> for RequestAwareFeature
+impl<L, B> WebRenderSync<L, B> for RequestAwareFeature
 where
     B: WriteBuf,
     L: DataLoader,

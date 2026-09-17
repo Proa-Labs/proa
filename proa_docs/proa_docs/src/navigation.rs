@@ -14,7 +14,7 @@ pub struct DocsNav<'a> {
     pub active_path: &'a str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsNav<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsNav<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
             <nav data-component="docs-nav" class="proa-docs-nav">
@@ -37,7 +37,7 @@ pub struct DocsNavItem<'a> {
     pub active_path: &'a str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsNavItem<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsNavItem<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if self.item.is_root() {
             return Ok(());
@@ -64,7 +64,7 @@ struct DocsNavLabel<'a> {
     active_path: &'a str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsNavLabel<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsNavLabel<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let active = if self.item.path == Some(self.active_path) {
             Some("true")
@@ -106,7 +106,7 @@ struct DocsNavIcon {
     icon: Option<&'static str>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsNavIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsNavIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if let Some(icon) = self.icon {
             let svg = nav_icon_svg(icon);
@@ -127,7 +127,7 @@ struct DocsNavChildren<'a> {
     active_path: &'a str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsNavChildren<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsNavChildren<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if self.children.is_empty() {
             return Ok(());

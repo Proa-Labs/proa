@@ -47,7 +47,7 @@ impl<T: Clone> Signal<T> {
 pub struct TodoList;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for TodoList {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TodoList {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let items = signal(vec!["Alpha".to_string(), "Beta".to_string()]); // proa-perf-ok: test fixture seeds a Vec signal
         proa_macros::html_sync! {
@@ -165,7 +165,7 @@ pub struct Row {
 pub struct RowTable;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RowTable {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RowTable {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let rows = signal(vec![Row {
             id: 1,

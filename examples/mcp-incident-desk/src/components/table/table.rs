@@ -31,7 +31,7 @@ impl<C> Default for Table<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for Table<C>
 {
     fn render(
@@ -75,7 +75,7 @@ impl<C> Default for TableHeader<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableHeader<C>
 {
     fn render(
@@ -111,7 +111,7 @@ impl<C> Default for TableBody<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableBody<C>
 {
     fn render(
@@ -147,7 +147,7 @@ impl<C> Default for TableFooter<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableFooter<C>
 {
     fn render(
@@ -183,7 +183,7 @@ impl<C> Default for TableRow<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableRow<C>
 {
     fn render(
@@ -219,7 +219,7 @@ impl<C> Default for TableHead<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableHead<C>
 {
     fn render(
@@ -255,7 +255,7 @@ impl<C> Default for TableCell<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableCell<C>
 {
     fn render(
@@ -291,7 +291,7 @@ impl<C> Default for TableCaption<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableCaption<C>
 {
     fn render(

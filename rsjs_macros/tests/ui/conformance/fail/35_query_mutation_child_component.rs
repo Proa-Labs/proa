@@ -10,7 +10,7 @@ use support::*;
 pub struct QueryChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for QueryChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for QueryChild {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -39,7 +39,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for Query
 pub struct Parent;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for Parent {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Parent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         use proa_core::WebRenderSync as _;
 

@@ -475,7 +475,7 @@ fn md_renders_via_web_render() {
     struct Page {
         title: &'static str,
     }
-    impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Page {
+    impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Page {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
             md_sync! { "# " { self.title } "\n" }.render(cx)
         }
@@ -493,7 +493,7 @@ fn dual_trait_component() {
         title: &'static str,
         body: &'static str,
     }
-    impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Card {
+    impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Card {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
             html_sync! {
                 <div data-card>
@@ -542,7 +542,7 @@ fn md_composes_md_render_children() {
         title: &'static str,
         body: &'static str,
     }
-    impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Card {
+    impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Card {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
             html_sync! {
                 <div data-card>

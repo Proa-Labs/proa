@@ -45,7 +45,7 @@ struct DivisionState {
 struct DivisionPanel;
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for WidePanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for WidePanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = rsjs::shared::<WideState>();
         let count = state.count();
@@ -64,7 +64,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for WidePanel {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for WideSetPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for WideSetPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = rsjs::shared::<WideState>();
         let count = state.count();
@@ -77,7 +77,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for WideSetPanel
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for DivisionPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DivisionPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = rsjs::shared::<DivisionState>();
         let value = state.value();
@@ -95,7 +95,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for DivisionPane
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ThemePanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ThemePanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<WorkbenchState>();
         let button_bg = workbench.button_bg();
@@ -112,7 +112,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ThemePanel {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for CanvasPreview {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CanvasPreview {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<WorkbenchState>();
         let button_bg = workbench.button_bg();
@@ -125,7 +125,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for CanvasPrevie
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for DirectComputedPreview {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DirectComputedPreview {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<WorkbenchState>();
         let label = rsjs::computed(|| workbench.button_bg().get());
@@ -145,7 +145,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for DirectComput
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for AliasedFieldPreview {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for AliasedFieldPreview {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<WorkbenchState>();
         let first = workbench.button_radius();
@@ -162,7 +162,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for AliasedField
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ShadowedRuntimeSignals {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShadowedRuntimeSignals {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = rsjs::signal(self.first);
         let count = rsjs::signal(self.second);

@@ -31,7 +31,7 @@ impl<C> Default for Card<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for Card<C>
 {
     fn render(
@@ -68,7 +68,7 @@ impl<C> Default for CardHeader<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for CardHeader<C>
 {
     fn render(
@@ -104,7 +104,7 @@ impl<C> Default for CardTitle<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for CardTitle<C>
 {
     fn render(
@@ -140,7 +140,7 @@ impl<C> Default for CardDescription<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for CardDescription<C>
 {
     fn render(
@@ -176,7 +176,7 @@ impl<C> Default for CardContent<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for CardContent<C>
 {
     fn render(
@@ -212,7 +212,7 @@ impl<C> Default for CardFooter<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for CardFooter<C>
 {
     fn render(

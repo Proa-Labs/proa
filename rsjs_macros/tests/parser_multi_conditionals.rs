@@ -28,7 +28,7 @@ impl<T: Clone + core::fmt::Display> Signal<T> {
 pub struct SiblingConditionals;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for SiblingConditionals {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SiblingConditionals {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let a = signal(true);
         let b = signal(false);

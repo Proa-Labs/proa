@@ -13,7 +13,7 @@ pub struct TextInput {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for TextInput {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TextInput {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let current = signal(self.value);
 
@@ -39,7 +39,7 @@ pub struct OptionalTextInput {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for OptionalTextInput {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for OptionalTextInput {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <input on_input={|event| {
@@ -53,7 +53,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for OptionalText
 pub struct Parent;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for Parent {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Parent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal(String::new());
         let on_change = rsjs::handler(|next: String| value.set(next));

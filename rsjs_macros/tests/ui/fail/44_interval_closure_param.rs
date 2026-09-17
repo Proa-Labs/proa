@@ -18,7 +18,7 @@ impl<T: Clone + core::fmt::Display> Signal<T> {
 pub struct UptimeTicker;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for UptimeTicker {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for UptimeTicker {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let tick = signal(0_i64);
         rsjs::interval(1000, |event| tick.update(|t| t + 1_i64));

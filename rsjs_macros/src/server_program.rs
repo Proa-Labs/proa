@@ -1159,7 +1159,7 @@ mod tests {
     #[test]
     fn linked_sync_impl_factors_the_authored_body_and_emits_exact_child_sites() {
         let authored: ItemImpl = syn::parse_quote! {
-            impl<B: proa_core::WriteBuf, L: proa_core::DataLoader>
+            impl<L: proa_core::DataLoader, B: proa_core::WriteBuf>
                 proa_core::WebRenderSync<L, B> for Page
             {
                 fn render(
@@ -1248,7 +1248,7 @@ mod tests {
     #[test]
     fn root_ineligible_component_emits_only_the_exact_site_render_impl() {
         let authored: ItemImpl = syn::parse_quote! {
-            impl<B: proa_core::WriteBuf, L: proa_core::DataLoader>
+            impl<L: proa_core::DataLoader, B: proa_core::WriteBuf>
                 proa_core::WebRenderSync<L, B> for Disclosure
             {
                 fn render(
@@ -1292,7 +1292,7 @@ mod tests {
     #[test]
     fn root_ineligible_trait_identity_probe_preserves_the_authored_generic_alias() {
         let authored: ItemImpl = syn::parse_quote! {
-            impl<B: proa_core::WriteBuf, L: proa_core::DataLoader>
+            impl<L: proa_core::DataLoader, B: proa_core::WriteBuf>
                 RenderSync<L, B> for Disclosure
             {
                 fn render(
@@ -1329,7 +1329,7 @@ mod tests {
     #[test]
     fn root_eligible_trait_identity_and_standalone_delegate_remain_on_self() {
         let authored: ItemImpl = syn::parse_quote! {
-            impl<B: proa_core::WriteBuf, L: proa_core::DataLoader>
+            impl<L: proa_core::DataLoader, B: proa_core::WriteBuf>
                 RenderSync<L, B> for Page
             {
                 fn render(

@@ -1,6 +1,6 @@
 import { signal, bind_text, bind_conditional, read_signal_initials, signal_initial, bind_delegated_events, walk_path, hydrate, dispose_all } from "/rsjs-runtime.js";
 
-hydrate("namedeventhandlersnapshot_35f3607b", (root, __rsjs_disposers = []) => {
+hydrate("namedeventhandlersnapshot_5d26a532", (root, __rsjs_disposers = []) => {
     const __rsjs_signal_initials = read_signal_initials(root);
     const __sig_0 = signal(signal_initial(__rsjs_signal_initials, 0, ""));
     const __sig_1 = signal(signal_initial(__rsjs_signal_initials, 1, ""));

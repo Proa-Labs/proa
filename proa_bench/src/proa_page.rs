@@ -8,7 +8,7 @@ use proa_core::{SafeText, WebContext, WebRenderSync, WriteBuf};
 use proa_macros::html_sync;
 /// A benchmark page rendered with Proa using html_sync! macro
 pub struct BenchmarkPage;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for BenchmarkPage {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
             <html lang="en">
@@ -33,7 +33,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for BenchmarkP
 }
 /// Helper component that renders all sections
 struct SectionList;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SectionList {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SectionList {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for section_idx in 0..NUM_SECTIONS {
             Section { idx: section_idx }.render(cx)?;
@@ -45,7 +45,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SectionLis
 struct Section {
     idx: usize,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Section {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Section {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let section_class = if self.idx.is_multiple_of(2) {
             "even"
@@ -69,7 +69,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Section {
 }
 /// Helper component that renders all cards in a section
 struct CardList;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for CardList {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CardList {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for card_idx in 0..CARDS_PER_SECTION {
             Card { idx: card_idx }.render(cx)?;
@@ -81,7 +81,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for CardList {
 struct Card {
     idx: usize,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Card {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Card {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let card_class = if self.idx.is_multiple_of(2) {
             "even"
@@ -123,7 +123,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Card {
 }
 /// Helper component that renders all feature items
 struct FeatureList;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FeatureList {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FeatureList {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for item_idx in 0..ITEMS_PER_CARD {
             FeatureItem { idx: item_idx }.render(cx)?;
@@ -135,7 +135,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FeatureLis
 struct FeatureItem {
     idx: usize,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FeatureItem {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FeatureItem {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let text = match self.idx {
             0 => "Sub-millisecond response times",
@@ -163,7 +163,7 @@ pub fn render_into(buffer: &mut Vec<u8>) {
 /// Generic over buffer type for maximum performance.
 #[derive(Clone, Copy)]
 pub struct SafeTextBenchmarkPage;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextBenchmarkPage {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SafeTextBenchmarkPage {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
@@ -189,7 +189,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextBe
 }
 /// Helper component that renders all sections (uses SafeText)
 struct SafeTextSectionList;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextSectionList {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SafeTextSectionList {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for section_idx in 0..NUM_SECTIONS {
@@ -202,7 +202,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextSe
 struct SafeTextSection {
     idx: usize,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextSection {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SafeTextSection {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let section_class = if self.idx.is_multiple_of(2) {
@@ -229,7 +229,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextSe
 struct SafeTextCardGrid {
     count: usize,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextCardGrid {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SafeTextCardGrid {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for card_idx in 0..self.count {
@@ -242,7 +242,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextCa
 struct SafeTextCard {
     idx: usize,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextCard {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SafeTextCard {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let card_class = if self.idx.is_multiple_of(2) {
@@ -276,7 +276,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextCa
 }
 /// Renders feature list items
 struct SafeTextFeatureList;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextFeatureList {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SafeTextFeatureList {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for item_idx in 0..ITEMS_PER_CARD {
@@ -289,7 +289,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextFe
 struct SafeTextFeatureItem {
     idx: usize,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SafeTextFeatureItem {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SafeTextFeatureItem {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let text = SafeText::from_trusted(match self.idx {
@@ -343,7 +343,7 @@ pub fn render_safetext_to_cursor(buffer: &mut [u8]) -> Option<usize> {
 /// A benchmark page using raw buffer writes (no macros).
 /// This represents the theoretical maximum performance.
 pub struct RawBenchmarkPage;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for RawBenchmarkPage {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RawBenchmarkPage {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         cx.out.extend(b"<html lang=\"en\">")?;

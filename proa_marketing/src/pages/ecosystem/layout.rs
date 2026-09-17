@@ -135,7 +135,7 @@ const ECOSYSTEM_SCRIPT: &str = r##"
 })();
 "##;
 
-impl<B, L, C> proa_core::WebRender<L, B> for EcosystemStandaloneDocument<C>
+impl<L, B, C> proa_core::WebRender<L, B> for EcosystemStandaloneDocument<C>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -176,7 +176,7 @@ where
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemMockLogo {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemMockLogo {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -220,7 +220,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemMockLogo {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemMockFooter {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemMockFooter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <footer class="border-t border-[#00000014] pb-14 pt-10">

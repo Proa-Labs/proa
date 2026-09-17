@@ -346,7 +346,7 @@ pub fn build_listings_with_overrides(n: usize, overrides: &serde_json::Value) ->
 
 #[derive(Clone, Copy)]
 struct Currency(i64);
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Currency {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Currency {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let cents = self.0;
@@ -363,7 +363,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Currency {
 
 #[derive(Clone, Copy)]
 pub(crate) struct Uint(pub(crate) u64);
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Uint {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Uint {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let mut buf = [0u8; 20];
@@ -374,7 +374,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Uint {
 
 #[derive(Clone, Copy)]
 pub(crate) struct Commas(pub(crate) u64);
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Commas {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Commas {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         write_with_commas(cx, self.0)
@@ -384,7 +384,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Commas {
 /// "99.9%" from 999
 #[derive(Clone, Copy)]
 struct FeedbackPct(u16);
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FeedbackPct {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FeedbackPct {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let v = self.0;
@@ -402,7 +402,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FeedbackPc
 /// "37.9K" from 37_912
 #[derive(Clone, Copy)]
 struct AbbrevCount(u32);
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for AbbrevCount {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for AbbrevCount {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let n = self.0;
@@ -570,7 +570,7 @@ struct SubtitleRow<'a> {
     parts: &'a [Cow<'static, str>],
 }
 
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SubtitleRow<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SubtitleRow<'a> {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let last = self.parts.len().saturating_sub(1);
@@ -592,7 +592,7 @@ struct StarRow {
     half: bool,
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for StarRow {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for StarRow {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for _ in 0..self.full {
@@ -616,7 +616,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for StarRow {
 }
 
 struct OriginalPriceCell(Option<i64>);
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for OriginalPriceCell {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for OriginalPriceCell {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         if let Some(orig) = self.0 {
@@ -633,7 +633,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for OriginalPr
 }
 
 struct CaptionBadge(CaptionSignal);
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for CaptionBadge {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CaptionBadge {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         if self.0 == CaptionSignal::None {
@@ -653,7 +653,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for CaptionBad
 }
 
 struct DeliveryCell(i64);
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for DeliveryCell {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DeliveryCell {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         if self.0 == 0 {
@@ -675,7 +675,7 @@ struct HeartIcons<'a> {
     aria_label: &'a str,
 }
 
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for HeartIcons<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeartIcons<'a> {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let label = self.aria_label;
@@ -698,7 +698,7 @@ impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for HeartI
 }
 
 struct CouponRow(Option<u8>);
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for CouponRow {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CouponRow {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         if let Some(pct) = self.0 {
@@ -738,7 +738,7 @@ pub struct Card<'a, H> {
     pub heart: H,
 }
 
-impl<'a, H, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Card<'a, H>
+impl<'a, H, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Card<'a, H>
 where
     H: WebRenderSync<L, B>,
 {
@@ -905,7 +905,7 @@ pub struct ListingsList<'a> {
     pub listings: &'a [Listing],
 }
 
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ListingsList<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ListingsList<'a> {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         cx.out
@@ -939,7 +939,7 @@ impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Listin
 pub const HEART_SENTINEL: &str = "<!--__rsjs_heart_slot__-->";
 
 pub struct HeartSentinelMarker;
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for HeartSentinelMarker {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeartSentinelMarker {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         cx.out.extend(HEART_SENTINEL.as_bytes())

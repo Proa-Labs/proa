@@ -4,7 +4,7 @@ use rsjs::rsjs;
 pub struct GlobalEventOwnerTarget;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for GlobalEventOwnerTarget {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for GlobalEventOwnerTarget {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <section>

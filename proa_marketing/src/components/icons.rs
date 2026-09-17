@@ -16,7 +16,7 @@ impl SearchIcon {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SearchIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SearchIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -53,7 +53,7 @@ impl PanelLeftIcon {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PanelLeftIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PanelLeftIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -90,7 +90,7 @@ impl CopyIcon {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CopyIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CopyIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -127,7 +127,7 @@ impl ExternalLinkIcon {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ExternalLinkIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ExternalLinkIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg

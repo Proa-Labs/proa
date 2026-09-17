@@ -59,7 +59,7 @@ pub struct SettingsConsole<'a> {
     pub audit_events: &'a [AuditEvent<'a>],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SettingsConsole<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SettingsConsole<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <!DOCTYPE html>
@@ -96,7 +96,7 @@ struct AuditList<'a> {
     events: &'a [AuditEvent<'a>],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AuditList<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AuditList<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <ul>
@@ -116,7 +116,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AuditList<'_> {
 }
 
 #[rsjs(component, client)]
-impl<'a, B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SettingsPanel<'a> {
+impl<'a, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SettingsPanel<'a> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let nav_open = signal(true);
         let nav_state = signal("expanded");

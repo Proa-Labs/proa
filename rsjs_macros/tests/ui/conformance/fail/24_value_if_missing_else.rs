@@ -10,7 +10,7 @@ use support::*;
 pub struct ValueIfMissingElse;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ValueIfMissingElse {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ValueIfMissingElse {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let active = signal(true);
 

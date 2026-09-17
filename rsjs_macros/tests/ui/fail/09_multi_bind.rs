@@ -16,7 +16,7 @@ impl<T: Clone + core::fmt::Display> Signal<T> {
 pub struct Counter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for Counter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let a = signal(String::new());
         let b = signal(false);

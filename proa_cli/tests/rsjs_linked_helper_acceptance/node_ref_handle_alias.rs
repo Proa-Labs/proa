@@ -51,7 +51,7 @@ mod input_component {
     // This component participates in its enclosing owner but does not
     // originate client behavior. Its required NodeRef is incoming context.
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for FocusInput {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for FocusInput {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <input
@@ -82,7 +82,7 @@ mod bridge_component {
     // The macro cannot guess its role from syntax; rustc-linked child metadata
     // must resolve this deferred projection as the same NodeRef identity.
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for FocusBridge {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for FocusBridge {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <section data-node-ref-bridge>
@@ -108,7 +108,7 @@ mod focus_page {
     pub struct FocusPage;
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for FocusPage {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for FocusPage {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let focus_target = rsjs::node_ref::<rsjs::HtmlInputElement>();
             let focus = rsjs::event_handler(

@@ -33,7 +33,7 @@ impl ThemeToggle {
 /// `prefers-color-scheme` before first paint), so a hydrated signal would
 /// start wrong on every page that loads dark.
 #[rsjs(component, client)]
-impl<B, L> WebRenderSync<L, B> for ThemeToggle
+impl<L, B> WebRenderSync<L, B> for ThemeToggle
 where
     B: WriteBuf,
     L: DataLoader,

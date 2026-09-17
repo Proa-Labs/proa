@@ -10,7 +10,7 @@ use support::*;
 pub struct TimerInterval;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for TimerInterval {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TimerInterval {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let tick = signal(0_i64);
         rsjs::interval(1000, || tick.update(|t| t + 1_i64));

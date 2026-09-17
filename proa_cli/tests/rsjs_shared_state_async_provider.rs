@@ -97,7 +97,7 @@ mod async_consumer {
     }
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderAsync<L, B> for AsyncSharedCounter {
+    impl<L: DataLoader, B: WriteBuf> RenderAsync<L, B> for AsyncSharedCounter {
         fn render(
             self,
             cx: &mut WebContext<L, B>,
@@ -175,7 +175,7 @@ mod async_page {
     }
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderAsync<L, B> for AsyncWorkbenchPage {
+    impl<L: DataLoader, B: WriteBuf> RenderAsync<L, B> for AsyncWorkbenchPage {
         fn render(
             self,
             cx: &mut WebContext<L, B>,

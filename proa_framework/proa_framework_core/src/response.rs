@@ -2553,7 +2553,7 @@ mod tests {
 
     struct QuerySeedComponent;
 
-    impl<B: proa_core::WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for QuerySeedComponent {
+    impl<L: DataLoader, B: proa_core::WriteBuf> proa_core::WebRenderSync<L, B> for QuerySeedComponent {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.rsjs_query_seed_json(
                 r#"["stock","AAPL"]"#,
@@ -2621,7 +2621,7 @@ mod tests {
         acquire: bool,
     }
 
-    impl<B: proa_core::WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for SharedSeedComponent {
+    impl<L: DataLoader, B: proa_core::WriteBuf> proa_core::WebRenderSync<L, B> for SharedSeedComponent {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             struct WorkbenchSeed;
             let _scope = cx.rsjs_shared_state_enter(
@@ -2972,7 +2972,7 @@ mod tests {
     /// Sync fallback rendered while an out-of-order boundary is pending.
     struct StreamFallback;
 
-    impl<B: proa_core::WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for StreamFallback {
+    impl<L: DataLoader, B: proa_core::WriteBuf> proa_core::WebRenderSync<L, B> for StreamFallback {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_core::shared::write_buf::WriteBuf::extend_static(&mut cx.out, b"<p>loading</p>")
         }
@@ -2985,7 +2985,7 @@ mod tests {
         witness: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     }
 
-    impl<B: proa_core::WriteBuf, L: DataLoader> proa_core::WebRender<L, B>
+    impl<L: DataLoader, B: proa_core::WriteBuf> proa_core::WebRender<L, B>
         for LateProviderBoundaryChild
     {
         fn render(
@@ -3141,7 +3141,7 @@ mod tests {
 
     struct DeferredSharedConsumer;
 
-    impl<B: proa_core::WriteBuf, L: DataLoader> proa_core::WebRender<L, B> for DeferredSharedConsumer {
+    impl<L: DataLoader, B: proa_core::WriteBuf> proa_core::WebRender<L, B> for DeferredSharedConsumer {
         fn render(
             self,
             cx: &mut WebContext<L, B>,
@@ -3193,7 +3193,7 @@ mod tests {
 
     struct DeferredFailingSharedConsumer;
 
-    impl<B: proa_core::WriteBuf, L: DataLoader> proa_core::WebRender<L, B>
+    impl<L: DataLoader, B: proa_core::WriteBuf> proa_core::WebRender<L, B>
         for DeferredFailingSharedConsumer
     {
         fn render(

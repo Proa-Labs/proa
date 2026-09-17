@@ -90,7 +90,7 @@ struct DemoDocument<C> {
     content: C,
 }
 
-impl<B, L, C> WebRenderSync<L, B> for DemoDocument<C>
+impl<L, B, C> WebRenderSync<L, B> for DemoDocument<C>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -126,7 +126,7 @@ where
 /// one would undercut it.
 struct Gallery;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Gallery {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Gallery {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="demo-gallery">
@@ -199,7 +199,7 @@ fn gallery_input_id(index: usize) -> &'static str {
 
 struct QuantityStepperDemo;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for QuantityStepperDemo {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for QuantityStepperDemo {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="demo-pdp">
@@ -247,7 +247,7 @@ struct CartReceipt {
     subtotal: i64,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CartReceipt {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CartReceipt {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="demo-receipt">

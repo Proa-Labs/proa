@@ -194,7 +194,7 @@ fn assert_every_script_has_nonce(html: &str, nonce: &str) {
 
 struct ServerOnly;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ServerOnly {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ServerOnly {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.out.extend_static(b"<main data-server-only></main>")
     }
@@ -202,7 +202,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ServerOnly {
 
 struct BasicIsland;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BasicIsland {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BasicIsland {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         // Repeated component instances must still produce one page asset graph.
         cx.rsjs_island_used(BASIC_ISLAND_ID);
@@ -213,7 +213,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BasicIsland {
 
 struct BasicDocument;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BasicDocument {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BasicDocument {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.rsjs_island_used(BASIC_ISLAND_ID);
         cx.out.extend_static(
@@ -224,7 +224,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BasicDocument {
 
 struct QueryIsland;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for QueryIsland {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for QueryIsland {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.rsjs_island_used(QUERY_ISLAND_ID);
         cx.rsjs_query_seed_json(
@@ -237,7 +237,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for QueryIsland {
 
 struct AsyncIsland;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for AsyncIsland {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for AsyncIsland {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -266,7 +266,7 @@ async fn yield_once() {
 
 struct SuccessfulDeferredChild;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for SuccessfulDeferredChild {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for SuccessfulDeferredChild {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -286,7 +286,7 @@ impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for SuccessfulDeferredChild {
 
 struct QueryDeferredChild;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for QueryDeferredChild {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for QueryDeferredChild {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -307,7 +307,7 @@ impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for QueryDeferredChild {
 #[derive(Clone, Copy)]
 struct LoadingFallback;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LoadingFallback {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LoadingFallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.out
             .extend_static(b"<section data-loading-fallback></section>")
@@ -317,7 +317,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LoadingFallback {
 #[derive(Clone, Copy)]
 struct RecoveryFallback;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RecoveryFallback {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RecoveryFallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.rsjs_island_used(RECOVERY_ISLAND_ID);
         cx.out
@@ -327,7 +327,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RecoveryFallback {
 
 struct LeakingFailedChild;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for LeakingFailedChild {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for LeakingFailedChild {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -344,7 +344,7 @@ impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for LeakingFailedChild {
 
 struct TimedOutChild;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for TimedOutChild {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for TimedOutChild {
     fn render(
         self,
         cx: &mut WebContext<L, B>,

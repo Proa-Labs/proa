@@ -11,7 +11,7 @@ use proa_core::{
 #[derive(Clone, Copy)]
 struct TypicalPage;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TypicalPage {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TypicalPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         el(
             Tag::Main,

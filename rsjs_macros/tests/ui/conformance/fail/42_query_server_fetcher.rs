@@ -11,7 +11,7 @@ use support::*;
 pub struct QueryServerFetcher;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for QueryServerFetcher {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for QueryServerFetcher {
     fn render(
         self,
         cx: &mut WebContext<L, B>,

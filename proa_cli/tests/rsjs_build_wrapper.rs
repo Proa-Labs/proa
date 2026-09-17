@@ -495,7 +495,7 @@ struct Badge {
 }
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Badge {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Badge {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <strong>{self.value}</strong>
@@ -508,7 +508,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Badge {
 struct Dashboard;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Dashboard {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Dashboard {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(2_i32);
         proa_macros::html_sync! {
@@ -655,7 +655,7 @@ fn ordinary_double(value: i32) -> i32 {
 struct Counter;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Counter {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(2_i32);
         proa_macros::html_sync! {

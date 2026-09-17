@@ -10,7 +10,7 @@ use support::*;
 pub struct TemplateElseIf;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for TemplateElseIf {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TemplateElseIf {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = signal("idle".to_string());
 

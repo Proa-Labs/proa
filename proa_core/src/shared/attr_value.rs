@@ -339,7 +339,7 @@ struct EscapingAttrWriter<'cx, B: WriteBuf, L: DataLoader> {
     err: Option<WriteError>,
 }
 
-impl<B: WriteBuf, L: DataLoader> fmt::Write for EscapingAttrWriter<'_, B, L> {
+impl<L: DataLoader, B: WriteBuf> fmt::Write for EscapingAttrWriter<'_, B, L> {
     #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if self.err.is_some() {

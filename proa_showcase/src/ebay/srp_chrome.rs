@@ -413,7 +413,7 @@ struct TopbarItem {
     href: &'static str,
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for TopbarItem {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TopbarItem {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         html_sync! {
@@ -430,7 +430,7 @@ struct RefineGroup<'a> {
     rows: &'a [(&'static str, u32)],
 }
 
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for RefineGroup<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RefineGroup<'a> {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         html_sync! {
@@ -447,7 +447,7 @@ struct RefineRows<'a> {
     rows: &'a [(&'static str, u32)],
 }
 
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for RefineRows<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RefineRows<'a> {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for (label, count) in self.rows {
@@ -468,7 +468,7 @@ impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Refine
 
 struct SearchCatOptions;
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SearchCatOptions {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SearchCatOptions {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for (idx, cat) in SEARCH_CATS.iter().enumerate() {
@@ -493,7 +493,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SearchCatO
 
 struct SortOptions;
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SortOptions {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SortOptions {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for (idx, opt) in SORT_OPTIONS.iter().enumerate() {
@@ -517,7 +517,7 @@ struct PerPageOptions {
     per_page: u64,
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for PerPageOptions {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for PerPageOptions {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for opt in PER_PAGE_OPTIONS {
@@ -539,7 +539,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for PerPageOpt
 
 struct NavCats;
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for NavCats {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NavCats {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for (label, href) in NAV_CATS {
@@ -556,7 +556,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for NavCats {
 
 struct MeganavSections;
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for MeganavSections {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for MeganavSections {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for (title, links) in MEGANAV {
@@ -576,7 +576,7 @@ struct MeganavLinks {
     links: [&'static str; 8],
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for MeganavLinks {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for MeganavLinks {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for link in self.links {
@@ -595,7 +595,7 @@ struct RailCats {
     n: u64,
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for RailCats {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RailCats {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for (label, weight) in RAIL_CATS {
@@ -613,7 +613,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for RailCats {
 
 struct RelatedChips;
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for RelatedChips {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RelatedChips {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for term in RELATED_SEARCHES {
@@ -630,7 +630,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for RelatedChi
 
 struct FooterCols;
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FooterCols {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FooterCols {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for (title, links) in FOOTER_COLS {
@@ -650,7 +650,7 @@ struct FooterLinks {
     links: [&'static str; 7],
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FooterLinks {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FooterLinks {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for link in self.links {
@@ -667,7 +667,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FooterLink
 
 struct FooterLegalLinks;
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for FooterLegalLinks {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FooterLegalLinks {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for label in FOOTER_LEGAL {
@@ -684,7 +684,7 @@ struct PaginationPages {
     pages: u64,
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for PaginationPages {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for PaginationPages {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let shown = self.pages.min(7);
@@ -716,7 +716,7 @@ pub struct SrpHeader<'a> {
     pub meta: &'a SrpMeta,
 }
 
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SrpHeader<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SrpHeader<'a> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         html_sync! {
             <header class="gh">
@@ -782,7 +782,7 @@ struct TopbarRow {
     items: &'static [(&'static str, &'static str)],
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for TopbarRow {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TopbarRow {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for (label, href) in self.items {
@@ -798,7 +798,7 @@ pub struct SrpControls<'a> {
     pub per_page: u64,
 }
 
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SrpControls<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SrpControls<'a> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         html_sync! {
             <div class="srp-controls">
@@ -848,7 +848,7 @@ pub struct SrpRail<'a> {
     pub meta: &'a SrpMeta,
 }
 
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SrpRail<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SrpRail<'a> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let n = self.meta.format_counts[0].1 as u64;
         html_sync! {
@@ -877,7 +877,7 @@ pub struct SrpPagination {
     pub per_page: u64,
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SrpPagination {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SrpPagination {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let pages = (self.total.div_ceil(self.per_page)).max(1);
         html_sync! {
@@ -903,7 +903,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SrpPaginat
 
 pub struct SrpRelated;
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SrpRelated {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SrpRelated {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         html_sync! {
             <section class="srp-related" aria-label="Related searches">
@@ -917,7 +917,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SrpRelated
 
 pub struct SrpFooter;
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SrpFooter {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SrpFooter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         html_sync! {
             <footer class="gh-footer">
@@ -946,7 +946,7 @@ pub struct SrpBody<'a, R> {
     pub river: R,
 }
 
-impl<'a, R, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SrpBody<'a, R>
+impl<'a, R, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SrpBody<'a, R>
 where
     R: WebRenderSync<L, B>,
 {
@@ -983,7 +983,7 @@ pub struct SrpDocument<'a, R, T> {
     pub tail: T,
 }
 
-impl<'a, R, T, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<'a, R, T, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for SrpDocument<'a, R, T>
 where
     R: WebRenderSync<L, B>,

@@ -195,7 +195,7 @@ mod ui {
     }
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StatusBadge {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StatusBadge {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <strong>{self.label}</strong>
@@ -216,7 +216,7 @@ struct DocumentationPage {
 }
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocumentationPage {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentationPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <section>
@@ -432,7 +432,7 @@ const BUILD_MODE: &str = env!("BUILD_SCRIPT_MODE");
 struct BuildScriptPage;
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BuildScriptPage {{
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BuildScriptPage {{
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {{
         let source_revision = SOURCE_REVISION;
         let generated_label = GENERATED_LABEL;

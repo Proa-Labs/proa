@@ -1,6 +1,6 @@
 import { signal, bind_text, bind_conditional, read_signal_initials, integer_signal, signal_initial_integer, computed, bind_delegated_events, walk_path, hydrate, dispose_all, checked_int_add, checked_int_mul } from "/rsjs-runtime.js";
 
-hydrate("computedsignalssnapshot_9ad08623", (root, __rsjs_disposers = []) => {
+hydrate("computedsignalssnapshot_a4ed22d7", (root, __rsjs_disposers = []) => {
     const __rsjs_signal_initials = read_signal_initials(root);
     const __sig_0 = integer_signal(signal_initial_integer(__rsjs_signal_initials, 0, 10n, "i64"), "i64");
     const __sig_1 = integer_signal(signal_initial_integer(__rsjs_signal_initials, 1, 2n, "i64"), "i64");

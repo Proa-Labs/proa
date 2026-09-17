@@ -11,7 +11,7 @@ pub struct HandlerPropChild {
     pub on_change: rsjs::Handler<()>,
 }
 
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerPropChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerPropChild {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let _ = self.on_change;
 
@@ -25,7 +25,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerPropC
 pub struct HandlerPropWithoutInlining;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerPropWithoutInlining {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerPropWithoutInlining {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let saved = signal(false);
         let on_change = rsjs::handler(|_| saved.set(true));

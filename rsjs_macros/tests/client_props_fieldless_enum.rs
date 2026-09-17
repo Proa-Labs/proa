@@ -18,7 +18,7 @@ struct FulfillmentPicker {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FulfillmentPicker {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FulfillmentPicker {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let mode = signal(self.initial);
         let inspect = event_handler(|_: rsjs::Event| {

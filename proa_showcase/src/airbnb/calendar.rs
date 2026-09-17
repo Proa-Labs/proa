@@ -71,7 +71,7 @@ impl AirbnbCalendar {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AirbnbCalendar {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AirbnbCalendar {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let month = self.month.clamp(1, 12);
         let month_name = MONTH_NAMES[(month - 1) as usize];

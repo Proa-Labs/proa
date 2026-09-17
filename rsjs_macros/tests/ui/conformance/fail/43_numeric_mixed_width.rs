@@ -10,7 +10,7 @@ use support::*;
 pub struct NumericMixedWidth;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NumericMixedWidth {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NumericMixedWidth {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         // `big` is an exact `i64`/BigInt cell while `count` is an exact
         // `i32`/Number cell. Rust does not implicitly combine those domains,

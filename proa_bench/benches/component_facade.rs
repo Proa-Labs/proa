@@ -94,7 +94,7 @@ fn stop_counting() -> usize {
 #[derive(Clone, Copy)]
 struct Label(&'static str);
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Label {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Label {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
@@ -139,7 +139,7 @@ impl<C> AuthoredCard<C> {
     }
 }
 
-impl<B, L, C> WebRenderSync<L, B> for AuthoredCard<C>
+impl<L, B, C> WebRenderSync<L, B> for AuthoredCard<C>
 where
     B: WriteBuf,
     L: DataLoader,

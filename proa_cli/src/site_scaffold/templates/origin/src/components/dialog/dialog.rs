@@ -49,10 +49,10 @@ impl<Trigger, Content> Default for Dialog<Trigger, Content> {
     }
 }
 impl<
+        L: ::proa_core::DataLoader,
         B: WriteBuf,
         Trigger: WebRenderSync<L, B>,
         Content: WebRenderSync<L, B>,
-        L: ::proa_core::DataLoader,
     > WebRenderSync<L, B> for Dialog<Trigger, Content>
 {
     fn render(
@@ -94,7 +94,7 @@ impl<C> Default for DialogTrigger<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogTrigger<C>
 {
     fn render(
@@ -168,7 +168,7 @@ impl<C> Default for DialogButtonTrigger<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogButtonTrigger<C>
 {
     fn render(
@@ -206,7 +206,7 @@ impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderS
 pub struct DialogOverlay {
     pub class: Option<&'static str>,
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for DialogOverlay {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DialogOverlay {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -242,7 +242,7 @@ impl<C> Default for DialogContent<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogContent<C>
 {
     fn render(
@@ -306,7 +306,7 @@ impl<C> Default for DialogHeader<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogHeader<C>
 {
     fn render(
@@ -339,7 +339,7 @@ impl<C> Default for DialogTitle<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogTitle<C>
 {
     fn render(
@@ -373,7 +373,7 @@ impl<C> Default for DialogDescription<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogDescription<C>
 {
     fn render(
@@ -407,7 +407,7 @@ impl<C> Default for DialogFooter<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogFooter<C>
 {
     fn render(
@@ -451,7 +451,7 @@ impl<C> Default for DialogClose<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogClose<C>
 {
     fn render(
@@ -524,7 +524,7 @@ impl<C> Default for DialogCloseButton<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogCloseButton<C>
 {
     fn render(

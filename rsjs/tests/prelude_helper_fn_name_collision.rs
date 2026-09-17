@@ -29,7 +29,7 @@ struct LabelPicker {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for LabelPicker {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for LabelPicker {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let label = selected_label(self.options, self.selected);
         let display_label = label.unwrap_or(self.placeholder);

@@ -194,7 +194,7 @@ impl Marker {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Marker {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Marker {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if let Some(island) = self.island {
             cx.rsjs_island_used(island);
@@ -208,7 +208,7 @@ struct FailingFallback {
     calls: Rc<Cell<usize>>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FailingFallback {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FailingFallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         self.calls.set(self.calls.get() + 1);
         cx.rsjs_island_used("failing-fallback-island");

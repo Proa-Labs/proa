@@ -12,7 +12,7 @@ pub struct RepeatedButtons {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedButtons {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedButtons {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let labels = ["Today", "Tomorrow"];
         let draft = signal("Today".to_string());
@@ -51,7 +51,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedButt
 pub struct Parent;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for Parent {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Parent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal(String::new());
         let on_select = rsjs::handler(|next: String| selected.set(next));

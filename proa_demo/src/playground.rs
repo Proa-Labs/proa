@@ -3840,7 +3840,7 @@ struct SrpRsjsRiver<'a> {
     listings: &'a [proa_demo::ebay_srp::Listing],
 }
 
-impl<'a, B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B>
+impl<'a, L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B>
     for SrpRsjsRiver<'a>
 {
     fn render(
@@ -3861,7 +3861,7 @@ struct SrpConsolidatedRiver<'a> {
     listings: &'a [proa_demo::ebay_srp::Listing; 60],
 }
 
-impl<'a, B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B>
+impl<'a, L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B>
     for SrpConsolidatedRiver<'a>
 {
     fn render(
@@ -3881,7 +3881,7 @@ impl<'a, B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B>
 /// The response owner emits the rsjs runtime plan separately after rendering.
 struct SrpUiEnhancements;
 
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B> for SrpUiEnhancements {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for SrpUiEnhancements {
     fn render(
         self,
         cx: &mut WebContext<L, B>,

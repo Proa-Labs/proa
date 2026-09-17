@@ -10,7 +10,7 @@ use support::*;
 pub struct HandlerLetElse;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerLetElse {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerLetElse {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let last_value = signal(String::new());
 
