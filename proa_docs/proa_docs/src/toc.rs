@@ -10,7 +10,7 @@ pub struct DocsToc<'a> {
     pub items: &'a [TocItem],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsToc<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsToc<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if self.items.is_empty() {
             html_sync! {
@@ -26,7 +26,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsToc<'_> {
                     <div class="proa-docs-toc-title">"On this page"</div>
                     <ul>
                         {for item in self.items {
-                            TocListItem { item }.render(cx)?;
+                            TocListItem { item }
                         }}
                     </ul>
                 </nav>
@@ -40,7 +40,7 @@ struct TocListItem<'a> {
     item: &'a TocItem,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TocListItem<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TocListItem<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let class = toc_item_class(self.item.depth);
         html_sync! {
@@ -54,7 +54,7 @@ struct TocLink<'a> {
     item: &'a TocItem,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TocLink<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TocLink<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let href = TocHref(self.item.id);
         let link = html_sync! {

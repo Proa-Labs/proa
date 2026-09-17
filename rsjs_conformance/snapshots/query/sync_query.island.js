@@ -1,9 +1,9 @@
 import { signal, bind_text, bind_conditional, bind_delegated_events, walk_path, hydrate, dispose_all } from "/rsjs-runtime.js";
 import { rsjs, dispose_query, register_query } from "/rsjs-runtime-query.js";
 
-hydrate("syncquerysnapshot_2ad7f00c", (root, __rsjs_disposers = []) => {
+hydrate("syncquerysnapshot_659d3b12", (root, __rsjs_disposers = []) => {
     const __rsjs_query_0 = register_query({
-        island: "syncquerysnapshot_2ad7f00c",
+        island: "syncquerysnapshot_659d3b12",
         query_id: 0,
         root,
         key: ["stock", "AAPL"],

@@ -224,7 +224,7 @@ where
 /// Bridge path: allows `render_to_string(md_sync!(...))` and
 /// `cx.render(md_sync!(...))` in WebRender.
 /// Creates a temporary `MdContext` wrapping the `WebContext`'s buffer.
-impl<B, L, F> WebRenderSync<L, B> for OptimizedMd<B, F>
+impl<L, B, F> WebRenderSync<L, B> for OptimizedMd<B, F>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -238,7 +238,7 @@ where
 }
 
 // proa-perf-ok(scope): intentional immediate sync-to-async composition bridge
-impl<B, L, F> WebRender<L, B> for OptimizedMd<B, F>
+impl<L, B, F> WebRender<L, B> for OptimizedMd<B, F>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -299,7 +299,7 @@ where
     }
 }
 
-impl<'env, B, L> WebRender<L, B> for AsyncMd<'env, B>
+impl<'env, L, B> WebRender<L, B> for AsyncMd<'env, B>
 where
     B: WriteBuf,
     L: DataLoader,

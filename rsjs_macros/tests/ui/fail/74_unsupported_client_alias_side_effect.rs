@@ -6,7 +6,7 @@ use rsjs::rsjs;
 pub struct UnsupportedAlias;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for UnsupportedAlias {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for UnsupportedAlias {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = rsjs::signal(0_i64);
         let _display = {

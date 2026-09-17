@@ -42,7 +42,7 @@ struct SyncGreeting {
     name: &'static str,
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SyncGreeting {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SyncGreeting {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.out.extend(b"<p>hello ")?;
         cx.out.extend(self.name.as_bytes())?;
@@ -137,7 +137,7 @@ struct AwaitedLeaf {
     name: &'static str,
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for AwaitedLeaf {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for AwaitedLeaf {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {

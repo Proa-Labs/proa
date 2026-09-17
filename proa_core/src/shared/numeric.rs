@@ -66,7 +66,7 @@ fn write_shortest_md<B: WriteBuf>(
 }
 macro_rules! impl_integer_render {
     ($unsigned:ty, $write_fn:ident, $max_len:expr) => {
-        impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for $unsigned {
+        impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for $unsigned {
             #[inline(always)]
             fn render(
                 self,
@@ -121,7 +121,7 @@ macro_rules! impl_integer_render {
 }
 macro_rules! impl_signed_render {
     ($signed:ty, $write_fn:ident, $max_len:expr) => {
-        impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for $signed {
+        impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for $signed {
             #[inline(always)]
             fn render(
                 self,
@@ -184,7 +184,7 @@ impl_signed_render!(i16, write_i16, 6);
 impl_signed_render!(i32, write_i32, 11);
 impl_signed_render!(i64, write_i64, 21);
 impl_signed_render!(i128, write_i128, 40);
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for usize {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for usize {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         <u64 as WebRenderSync<L, B>>::render(self as u64, cx)
@@ -223,7 +223,7 @@ impl<B: WriteBuf> MdRender<B> for usize {
         ))
     }
 }
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for isize {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for isize {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         <i64 as WebRenderSync<L, B>>::render(self as i64, cx)
@@ -265,7 +265,7 @@ impl<B: WriteBuf> MdRender<B> for isize {
 macro_rules! impl_float_render {
     ($($ty:ty),+) => {
         $(
-            impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for $ty {
+            impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for $ty {
                 #[inline(always)]
                 fn render(
                     self,

@@ -10,7 +10,7 @@ use support::{WebContext, WriteBuf, WriteError};
 pub struct AsyncChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for AsyncChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for AsyncChild {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -32,7 +32,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for Async
 pub struct Parent;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B> for Parent {
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for Parent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         use proa_core::WebRenderSync as _;
 

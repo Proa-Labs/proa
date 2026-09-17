@@ -21,7 +21,7 @@ async fn async_child_label() -> Result<&'static str, WriteError> {
 pub struct AsyncPreludeChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for AsyncPreludeChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for AsyncPreludeChild {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -43,7 +43,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for AsyncPreludeChil
 pub struct DataQueryMutationChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for DataQueryMutationChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for DataQueryMutationChild {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -106,7 +106,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for DataQueryMutatio
 pub struct AsyncCompositionParent;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for AsyncCompositionParent {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for AsyncCompositionParent {
     fn render(
         self,
         cx: &mut WebContext<L, B>,

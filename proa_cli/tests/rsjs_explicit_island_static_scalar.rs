@@ -49,7 +49,7 @@ mod counter {
     }
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for IndependentCounter {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for IndependentCounter {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let local = rsjs::signal::<u32>(self.initial);
             let increment =
@@ -83,7 +83,7 @@ mod shell {
     }
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for StaticShell {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for StaticShell {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <main data-static-shell>
@@ -176,7 +176,7 @@ mod counter {
     }
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for IndependentCounter {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for IndependentCounter {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let local = rsjs::signal::<u32>(self.initial);
             proa_macros::html_sync! {
@@ -199,7 +199,7 @@ mod shell {
     }
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for BoundaryShell {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for BoundaryShell {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <section>
@@ -221,7 +221,7 @@ mod page {
     pub struct LivePage;
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for LivePage {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for LivePage {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let source = rsjs::signal(7_u32);
             let increment =
@@ -260,7 +260,7 @@ mod disclosure {
     }
 
     #[rsjs(component, client)]
-    impl<B, L, C> RenderSync<L, B> for Disclosure<C>
+    impl<L, B, C> RenderSync<L, B> for Disclosure<C>
     where
         B: WriteBuf,
         L: DataLoader,
@@ -298,7 +298,7 @@ mod page {
     pub struct StaticSlotPage;
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for StaticSlotPage {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for StaticSlotPage {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <main data-static-slot-page>

@@ -73,7 +73,7 @@ struct Document<C> {
     content: C,
 }
 
-impl<B, C, L> WebRenderSync<L, B> for Document<C>
+impl<L, B, C> WebRenderSync<L, B> for Document<C>
 where
     B: WriteBuf,
     C: WebRenderSync<L, B>,
@@ -103,7 +103,7 @@ where
 
 struct RsjsRuntimeTags;
 
-impl<B, L> WebRenderSync<L, B> for RsjsRuntimeTags
+impl<L, B> WebRenderSync<L, B> for RsjsRuntimeTags
 where
     B: WriteBuf,
     L: DataLoader,

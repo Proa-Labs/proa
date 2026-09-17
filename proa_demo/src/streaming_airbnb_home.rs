@@ -193,7 +193,7 @@ pub async fn render_chunked_out_of_order_into(
     Ok(())
 }
 
-impl<T, B, L: ::proa_core::DataLoader> WebRender<L, B> for ImmediateAsync<T>
+impl<T, L: ::proa_core::DataLoader, B> WebRender<L, B> for ImmediateAsync<T>
 where
     T: WebRenderSync<L, B>,
     B: WriteBuf,
@@ -206,7 +206,7 @@ where
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for HomeTopBar {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomeTopBar {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {
@@ -286,14 +286,14 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for HomeTopBar
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for HomeFooter {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomeFooter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         shared::render_footer(cx);
         Ok(())
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for HomesPanel {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomesPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         render_panel_group(
             cx,
@@ -306,7 +306,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for HomesPanel
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ExperiencesPanel {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ExperiencesPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         render_panel_group(
             cx,
@@ -319,7 +319,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Experience
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for ServicesPanel {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ServicesPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         render_panel_group(
             cx,
@@ -351,7 +351,7 @@ impl<L: ::proa_core::DataLoader> WebRenderSync<L, RenderBuffer> for PanelFallbac
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for RailCard {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RailCard {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let listing = self.listing;
         match self.kind {
@@ -431,7 +431,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for RailCard {
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for SyncHomePage {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SyncHomePage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         shared::render_document_start(cx, TITLE_PARTS);
         WebRenderSync::render(

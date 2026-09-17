@@ -37,7 +37,7 @@ use proa_stream::Suspense;
 /// Sync, infallible, and generic over buffer + loader.
 struct TinyChild;
 
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for TinyChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TinyChild {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {
@@ -53,7 +53,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for TinyChild {
 /// parent buffer regardless of fallback content.
 struct TinyFallback;
 
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for TinyFallback {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TinyFallback {
     fn render(self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         Ok(())
     }

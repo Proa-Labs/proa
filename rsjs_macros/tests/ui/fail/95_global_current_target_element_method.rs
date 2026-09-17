@@ -4,7 +4,7 @@ use rsjs::rsjs;
 pub struct GlobalCurrentTargetElementMethod;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for GlobalCurrentTargetElementMethod
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {

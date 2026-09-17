@@ -12,7 +12,7 @@ pub struct NumericState {
 pub struct MissingRight;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for MissingRight {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for MissingRight {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = rsjs::shared::<NumericState>();
         let value = state.value();

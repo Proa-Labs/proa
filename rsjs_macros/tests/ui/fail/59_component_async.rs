@@ -3,7 +3,7 @@ use rsjs::rsjs;
 struct Counter;
 
 #[rsjs(component, client)]
-impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRender<L, B> for Counter {
+impl<L: proa_core::DataLoader, B: proa_core::WriteBuf> proa_core::WebRender<L, B> for Counter {
     async fn render(
         self,
         cx: &mut proa_core::WebContext<L, B>,

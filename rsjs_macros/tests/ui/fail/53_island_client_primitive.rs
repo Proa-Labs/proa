@@ -12,7 +12,7 @@ pub struct BoundaryChild<T> {
 pub struct IslandClientPrimitive;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for IslandClientPrimitive {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for IslandClientPrimitive {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <section>

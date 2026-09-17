@@ -48,7 +48,7 @@ mod child {
     pub struct StaticChild {}
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StaticChild {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticChild {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <span data-static-child>"child inside provider"</span>
@@ -69,7 +69,7 @@ mod provider {
     }
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for ProviderPanel {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for ProviderPanel {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <section data-provider-panel>
@@ -98,7 +98,7 @@ mod page {
     pub struct StaticPage;
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for StaticPage {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for StaticPage {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <main data-static-page>
@@ -160,7 +160,7 @@ mod child {
     pub struct StaticChild {}
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StaticChild {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticChild {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <span data-static-child>"child inside provider"</span>
@@ -181,7 +181,7 @@ mod provider {
     }
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for ProviderPanel {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for ProviderPanel {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <section data-provider-panel>
@@ -210,7 +210,7 @@ mod page {
     pub struct LivePage;
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for LivePage {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for LivePage {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let enabled = rsjs::signal(true);
             let toggle =

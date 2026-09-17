@@ -13,7 +13,7 @@ fn server_fragment() -> &'static str {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Counter {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = rsjs::signal(0_i64);
         proa_macros::html_sync! {

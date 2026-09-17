@@ -10,7 +10,7 @@ use support::*;
 pub struct EventAttrDynamic;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for EventAttrDynamic {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for EventAttrDynamic {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal(String::new());
         let attr = "data-id";

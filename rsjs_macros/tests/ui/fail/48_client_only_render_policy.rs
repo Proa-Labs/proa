@@ -9,7 +9,7 @@ use rsjs::rsjs;
 pub struct ClientOnlyCounter;
 
 #[rsjs(component, client, render = "client")]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ClientOnlyCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ClientOnlyCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <div>"hi"</div>

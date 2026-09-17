@@ -10,7 +10,7 @@ use support::*;
 pub struct WebAuthnTarget;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for WebAuthnTarget {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for WebAuthnTarget {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let options = signal(r#"{"challenge":"auth"}"#.to_string());
         let credential = signal(String::new());

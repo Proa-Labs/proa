@@ -517,7 +517,7 @@ impl GithubPrDiffPage<'_> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for GithubPrDiffPage<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GithubPrDiffPage<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <!DOCTYPE html>
@@ -551,7 +551,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for GithubPrDiffPage<'_> {
                                             props: self.props,
                                             file_idx,
                                             lines: self.props.file_lines(file_idx),
-                                        }.render(cx)?;
+                                        }
                                     }}
                                 </section>
                             </div>
@@ -577,7 +577,7 @@ struct TopAppHeader<'a> {
     props: &'a GithubPrDiffProps,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TopAppHeader<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TopAppHeader<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <header
@@ -1075,7 +1075,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TopAppHeader<'_> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Header<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Header<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="pr-header">
@@ -1147,7 +1147,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Header<'_> {
                         <span class="diff-squares">
                             {for idx in 0..5 {
                                 let class = if self.deletions == 0 || idx < 4 { "square add-square" } else { "square neutral-square" };
-                                html_sync! { <span class={class}></span> }.render(cx)?;
+                                html_sync! { <span class={class}></span> }
                             }}
                         </span>
                         <span class="rendered-count sr-only">
@@ -1168,7 +1168,7 @@ struct ReviewToolbar<'a> {
     line_count: usize,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ReviewToolbar<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReviewToolbar<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section
@@ -1371,7 +1371,7 @@ struct FileTree<'a> {
     props: &'a GithubPrDiffProps,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FileTree<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FileTree<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <aside class="file-tree" id="pr-file-tree" aria-label="Changed files">
@@ -1407,7 +1407,7 @@ struct FileTreeItems<'a> {
     props: &'a GithubPrDiffProps,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FileTreeItems<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FileTreeItems<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let mut last_top = "";
         let mut last_parent = "";
@@ -1448,7 +1448,7 @@ struct TreeDirectory<'a> {
     level: usize,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TreeDirectory<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TreeDirectory<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <li
@@ -1488,7 +1488,7 @@ struct TreeFile<'a> {
     level: usize,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TreeFile<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TreeFile<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let path = self.props.file_path(self.file_idx);
 
@@ -1528,7 +1528,7 @@ struct FileSection<'a> {
     lines: usize,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FileSection<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FileSection<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let additions = self.props.file_additions(self.file_idx);
         let deletions = self.props.file_deletions(self.file_idx);
@@ -1581,7 +1581,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FileSection<'_> {
                                 } else {
                                     "change-square empty-square"
                                 };
-                                html_sync! { <span class={class}></span> }.render(cx)?;
+                                html_sync! { <span class={class}></span> }
                             }}
                         </span>
                     </div>
@@ -1652,20 +1652,20 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FileSection<'_> {
                                     if prop_lines_match_fixture(self.file_idx, lines) {
                                         FixtureFileRows {
                                             file_idx: self.file_idx,
-                                        }.render(cx)?;
+                                        }
                                     } else {
                                         for line_idx in 0..lines.len() {
                                             PropDiffLine {
                                                 file_idx: self.file_idx,
                                                 line_idx,
                                                 line: &lines[line_idx],
-                                            }.render(cx)?;
+                                            }
                                         }
                                     }
                                 } else if fixture_lines.is_some() {
                                     FixtureFileRows {
                                         file_idx: self.file_idx,
-                                    }.render(cx)?;
+                                    }
                                 } else {
                                     if self.lines > 0 {
                                         HunkRow { file_idx: self.file_idx }.render(cx)?;
@@ -1674,13 +1674,13 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FileSection<'_> {
                                         DiffLine {
                                             file_idx: self.file_idx,
                                             line_idx,
-                                        }.render(cx)?;
+                                        }
                                     }
                                 }
                             } else if fixture_lines.is_some() {
                                 FixtureFileRows {
                                     file_idx: self.file_idx,
-                                }.render(cx)?;
+                                }
                             } else {
                                 if self.lines > 0 {
                                     HunkRow { file_idx: self.file_idx }.render(cx)?;
@@ -1689,7 +1689,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FileSection<'_> {
                                     DiffLine {
                                         file_idx: self.file_idx,
                                         line_idx,
-                                    }.render(cx)?;
+                                    }
                                 }
                             }}
                         </tbody>
@@ -1706,7 +1706,7 @@ struct FilePath<'a> {
     file_idx: usize,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FilePath<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FilePath<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let path = self.props.file_path(self.file_idx);
         let shard = if self.props.files.is_empty() {
@@ -1730,7 +1730,7 @@ struct HunkRow {
     file_idx: usize,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HunkRow {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HunkRow {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <tr class="diff-line-row hunk-row">
@@ -1831,7 +1831,7 @@ struct FixtureFileRows {
     file_idx: usize,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FixtureFileRows {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FixtureFileRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if let Some(rows) = fixture_file_rows(self.file_idx) {
             html_sync! {
@@ -1850,7 +1850,7 @@ struct PropDiffLine<'a> {
     line: &'a GithubPrDiffLineProps,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PropDiffLine<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PropDiffLine<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         RenderedDiffLine {
             file_idx: self.file_idx,
@@ -1875,7 +1875,7 @@ struct RenderedDiffLine<'a> {
     highlighted_html: Option<&'static str>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RenderedDiffLine<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderedDiffLine<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if self.kind == DiffLineKind::Hunk {
             return html_sync! {
@@ -1950,7 +1950,7 @@ struct HighlightedLine<'a> {
     html: Option<&'static str>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HighlightedLine<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HighlightedLine<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if let Some(html) = self.html {
             html_sync! {
@@ -1967,7 +1967,7 @@ struct HighlightedCode<'a> {
     text: &'a str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HighlightedCode<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HighlightedCode<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let bytes = self.text.as_bytes();
         let mut i = 0;
@@ -2242,7 +2242,7 @@ struct DiffLine {
     line_idx: usize,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DiffLine {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DiffLine {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let kind = DiffLineKind::for_line(self.line_idx);
         let (old_line, new_line) = generated_line_numbers(self.file_idx, self.line_idx);

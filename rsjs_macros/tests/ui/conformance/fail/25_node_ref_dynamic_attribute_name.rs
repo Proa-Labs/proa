@@ -10,7 +10,7 @@ use support::*;
 pub struct NodeRefDynamicAttributeName;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NodeRefDynamicAttributeName {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NodeRefDynamicAttributeName {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let input = rsjs::node_ref::<rsjs::HtmlInputElement>();
         let attr = signal("aria-expanded".to_string());

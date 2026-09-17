@@ -42,7 +42,7 @@ impl Spinner {
         }
     }
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Spinner {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Spinner {
     #[inline(always)]
     fn render(
         self,

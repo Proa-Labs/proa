@@ -21,7 +21,7 @@ const SEARCH_DEBOUNCE_MS: u32 = 300;
 pub struct DebouncedSearch;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for DebouncedSearch {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DebouncedSearch {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let query = signal(String::new());
         proa_macros::html_sync! {

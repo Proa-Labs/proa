@@ -17,7 +17,7 @@ struct StockPrice {
 pub struct QueryMutationAuthoring;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for QueryMutationAuthoring {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for QueryMutationAuthoring {
     fn render(
         self,
         cx: &mut WebContext<L, B>,

@@ -2247,7 +2247,7 @@ impl<B: WriteBuf> WebContext<DynLoaderHandle, B> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebContext<L, B> {
+impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     /// Create a context with a custom loader.
     pub fn with_loader_buffer(out: B, loader: Arc<L>) -> Self {
         Self::with_loader_buffer_and_context_parts(out, loader, WebContextParts::new())

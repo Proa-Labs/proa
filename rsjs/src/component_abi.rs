@@ -592,7 +592,7 @@ impl<T> LinkedComponent<T> {
     }
 }
 
-impl<T, B, L> proa_core::WebRenderSync<L, B> for LinkedComponent<T>
+impl<T, L, B> proa_core::WebRenderSync<L, B> for LinkedComponent<T>
 where
     T: ComponentSiteRenderSync<L, B>,
     B: proa_core::WriteBuf,
@@ -606,7 +606,7 @@ where
     }
 }
 
-impl<T, B, L> proa_core::WebRender<L, B> for LinkedComponent<T>
+impl<T, L, B> proa_core::WebRender<L, B> for LinkedComponent<T>
 where
     T: ComponentSiteRender<L, B>,
     B: proa_core::WriteBuf,
@@ -890,7 +890,7 @@ mod tests {
 
     struct SyncProbe(&'static str);
 
-    impl<B: WriteBuf, L: DataLoader> ComponentSiteRenderSync<L, B> for SyncProbe {
+    impl<L: DataLoader, B: WriteBuf> ComponentSiteRenderSync<L, B> for SyncProbe {
         fn linked_site(candidate_id: u32, plan_id: [u8; 32]) -> &'static LinkedRenderSitePlan {
             assert_eq!((plan_id, candidate_id), (PLAN_ID, 4));
             &SITE
@@ -937,7 +937,7 @@ mod tests {
 
     struct AsyncProbe;
 
-    impl<B: WriteBuf, L: DataLoader> ComponentSiteRender<L, B> for AsyncProbe {
+    impl<L: DataLoader, B: WriteBuf> ComponentSiteRender<L, B> for AsyncProbe {
         fn linked_site(candidate_id: u32, plan_id: [u8; 32]) -> &'static LinkedRenderSitePlan {
             assert_eq!((plan_id, candidate_id), (PLAN_ID, 4));
             &SITE
@@ -964,7 +964,7 @@ mod tests {
 
     struct WrongLookup;
 
-    impl<B: WriteBuf, L: DataLoader> ComponentSiteRenderSync<L, B> for WrongLookup {
+    impl<L: DataLoader, B: WriteBuf> ComponentSiteRenderSync<L, B> for WrongLookup {
         fn linked_site(_candidate_id: u32, _plan_id: [u8; 32]) -> &'static LinkedRenderSitePlan {
             static WRONG: LinkedRenderSitePlan = LinkedRenderSitePlan::new(
                 [8; 32],

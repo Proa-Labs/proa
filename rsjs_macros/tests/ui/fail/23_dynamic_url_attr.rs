@@ -25,7 +25,7 @@ impl<T: Clone + core::fmt::Display> Signal<T> {
 pub struct DynamicHref;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for DynamicHref {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DynamicHref {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let html = signal("<script>alert(1)</script>");
         proa_macros::html_sync! {

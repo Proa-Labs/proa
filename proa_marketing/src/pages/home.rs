@@ -649,7 +649,7 @@ const COMPOSABLE_CONNECTORS_SCRIPT: &str = r#"
 })();
 "#;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PenCircle {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PenCircle {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         // The stroke used to be drawn by an IntersectionObserver flipping
         // `stroke-dashoffset`. It sits in the above-the-fold hero, so it was
@@ -679,7 +679,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PenCircle {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ArrowRightIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ArrowRightIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -702,7 +702,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ArrowRightIcon {
 
 /// The opening statement of the page: one centered claim, one supporting
 /// sentence, and the two paths a first-time visitor takes from here.
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for InterfaceLayerHero {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section
@@ -739,7 +739,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for InterfaceLayerHero {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Direction18Hero {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18Hero {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section
@@ -790,7 +790,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Direction18Hero {
 
 /// Original benchmark SVGs, served locally and switched by one tab signal.
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BenchmarkHighlights {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal("render");
         let render_tab = rsjs::node_ref::<rsjs::HtmlElement>();
@@ -1034,7 +1034,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BenchmarkHighlights {
 /// metric readouts all derive from the same value and there is nothing to
 /// observe.
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Direction18HeroPreview {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal("repo");
 
@@ -1279,7 +1279,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Direction18HeroPreview 
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HeroTravelPanel {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroTravelPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="rounded-[14px] border border-black/10 bg-white p-4 text-zinc-950 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-50">
@@ -1408,7 +1408,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HeroTravelPanel {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HeroRepoPanel {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroRepoPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div
@@ -1643,7 +1643,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HeroRepoPanel {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HeroSentryPanel {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroSentryPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div
@@ -1789,7 +1789,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HeroSentryPanel {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ArrowUpRightIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ArrowUpRightIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -1816,7 +1816,7 @@ struct BarView {
     width: BarWidth,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BarView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BarView {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         match self.width {
             BarWidth::Pct1 => html_sync! {
@@ -1851,49 +1851,49 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BarView {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ComposableSourceCode {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableSourceCode {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         StaticRaw(COMPOSABLE_SOURCE_HTML).render(cx)
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ComposableMdRenderCode {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableMdRenderCode {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         StaticRaw(COMPOSABLE_MD_RENDER_HTML).render(cx)
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ComposableWebRenderCode {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableWebRenderCode {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         StaticRaw(COMPOSABLE_WEB_RENDER_HTML).render(cx)
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ComposableMdChildCode {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableMdChildCode {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         StaticRaw(COMPOSABLE_MD_CHILD_HTML).render(cx)
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ComposableWebChildCode {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableWebChildCode {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         StaticRaw(COMPOSABLE_WEB_CHILD_HTML).render(cx)
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ComposableConnectorLayer {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableConnectorLayer {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         StaticRaw(COMPOSABLE_CONNECTORS_HTML).render(cx)
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ConversionLatencyGraph {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ConversionLatencyGraph {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         StaticRaw(CONVERSION_LATENCY_GRAPH_HTML).render(cx)
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CapabilityIllustration {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CapabilityIllustration {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         match self.variant {
             CapabilityVariant::Framework => StaticRaw(CAPABILITY_FRAMEWORK_HTML).render(cx),
@@ -1908,7 +1908,7 @@ struct UseCaseCardView {
     card: &'static TextCard,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for UseCaseCardView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for UseCaseCardView {
 
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let card = self.card;
@@ -1929,7 +1929,7 @@ struct FrameworkRowView {
     row: &'static FrameworkRow,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FrameworkRowView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FrameworkRowView {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let row = self.row;
         html_sync! {
@@ -1959,7 +1959,7 @@ struct CapabilitySupportView {
     card: &'static TextCard,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CapabilitySupportView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CapabilitySupportView {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let card = self.card;
         html_sync! {
@@ -1976,7 +1976,7 @@ struct CapabilityColumnView {
     column: &'static CapabilityColumn,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CapabilityColumnView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CapabilityColumnView {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let column = self.column;
         html_sync! {
@@ -1994,7 +1994,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CapabilityColumnView {
                     </p>
                 </div>
                 {for item in column.supporting {
-                    CapabilitySupportView { card: item }.render(cx)?;
+                    CapabilitySupportView { card: item }
                 }}
             </div>
         }
@@ -2007,7 +2007,7 @@ struct SimplificationCardView {
     card: &'static TextCard,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SimplificationCardView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SimplificationCardView {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let card = self.card;
         html_sync! {
@@ -2028,7 +2028,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SimplificationCardView 
 /// Refresh the complete rail with `scripts/import-proa-ui-rail.mjs`.
 struct ProaUiSection;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ProaUiSection {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section
@@ -2078,7 +2078,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ProaUiSection {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HomePage {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomePage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div data-page="home" class="overflow-hidden">
@@ -2136,7 +2136,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HomePage {
                         </div>
                         <div class="mt-12 grid gap-4 sm:mt-14 lg:grid-cols-3">
                             {for column in CAPABILITY_COLUMNS {
-                                CapabilityColumnView { column }.render(cx)?;
+                                CapabilityColumnView { column }
                             }}
                         </div>
                     </div>

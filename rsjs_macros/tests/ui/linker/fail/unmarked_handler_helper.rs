@@ -17,7 +17,7 @@ fn ordinary_helper(value: i64) -> i64 {
 pub struct UnmarkedHelper;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for UnmarkedHelper {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for UnmarkedHelper {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
 

@@ -121,7 +121,7 @@ struct StatusBadge {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StatusBadge {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StatusBadge {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = rsjs::signal(String::new());
         let update = rsjs::event_handler(|event: rsjs::InputEvent<dom::HtmlInputElement>| {

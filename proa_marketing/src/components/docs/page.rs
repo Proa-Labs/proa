@@ -24,7 +24,7 @@ pub(crate) struct DocsPageView {
     pub(crate) label: &'static str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsPageView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsPageView {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <input
@@ -106,7 +106,7 @@ struct DocsHeader {
     active_path: &'static str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsHeader {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsHeader {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <header data-component="docs-header" class="docs-header" aria-label="Site navigation">

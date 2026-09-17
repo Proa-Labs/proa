@@ -16,7 +16,7 @@ mod pricing {
 pub struct UnmarkedReactiveHelper;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for UnmarkedReactiveHelper {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for UnmarkedReactiveHelper {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
 

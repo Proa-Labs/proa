@@ -77,7 +77,7 @@ impl DocsAssets {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsAssets {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsAssets {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if self.style {
             html_sync! {

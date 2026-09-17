@@ -106,7 +106,7 @@ fn mode_restored_after_script_element() {
 
 struct FailingChild;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FailingChild {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FailingChild {
     fn render(self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         Err(WriteError::InvalidAttribute("synthetic failure"))
     }

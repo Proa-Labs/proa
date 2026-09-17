@@ -10,7 +10,7 @@ use support::*;
 pub struct HandlerMatch;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerMatch {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerMatch {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         let enabled = signal(false);

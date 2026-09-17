@@ -46,7 +46,7 @@ pub trait DynWebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer>
     fn render_sync_dyn(self: Box<Self>, ctx: &mut WebContext<L, B>) -> Result<(), WriteError>;
 }
 
-impl<T, B, L> DynWebRenderSync<L, B> for T
+impl<T, L, B> DynWebRenderSync<L, B> for T
 where
     T: WebRenderSync<L, B> + Send + 'static,
     B: WriteBuf,
@@ -73,7 +73,7 @@ pub struct BoxedWebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuff
     inner: Box<dyn DynWebRenderSync<L, B>>,
 }
 
-impl<B: WriteBuf, L: DataLoader> BoxedWebRenderSync<L, B> {
+impl<L: DataLoader, B: WriteBuf> BoxedWebRenderSync<L, B> {
     /// Erase one synchronous component.
     pub fn new<T>(component: T) -> Self
     where
@@ -85,13 +85,13 @@ impl<B: WriteBuf, L: DataLoader> BoxedWebRenderSync<L, B> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BoxedWebRenderSync<L, B> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BoxedWebRenderSync<L, B> {
     fn render(self, ctx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         self.inner.render_sync_dyn(ctx)
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for BoxedWebRenderSync<L, B> {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for BoxedWebRenderSync<L, B> {
     fn render(
         self,
         ctx: &mut WebContext<L, B>,
@@ -177,7 +177,7 @@ pub trait DynWebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer>: Se
     fn render_dyn<'a>(self: Box<Self>, ctx: &'a mut WebContext<L, B>) -> DynRenderOutcome<'a>;
 }
 
-impl<T, B, L> DynWebRender<L, B> for T
+impl<T, L, B> DynWebRender<L, B> for T
 where
     T: WebRender<L, B> + Send + 'static,
     B: WriteBuf,
@@ -209,7 +209,7 @@ pub struct BoxedWebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> 
     inner: Box<dyn DynWebRender<L, B>>,
 }
 
-impl<B: WriteBuf, L: DataLoader> BoxedWebRender<L, B> {
+impl<L: DataLoader, B: WriteBuf> BoxedWebRender<L, B> {
     /// Erase one async-capable component.
     pub fn new<T>(component: T) -> Self
     where
@@ -245,7 +245,7 @@ impl Future for BoxedRenderFuture<'_> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for BoxedWebRender<L, B> {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for BoxedWebRender<L, B> {
     fn render(
         self,
         ctx: &mut WebContext<L, B>,

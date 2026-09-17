@@ -11,7 +11,7 @@ use crate::{
 use core::fmt;
 /// Text node wrapper using proper escaping.
 pub struct Text<'a>(pub &'a str);
-impl<'a, B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Text<'a> {
+impl<'a, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Text<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         let mode = cx.current_mode();
@@ -20,7 +20,7 @@ impl<'a, B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Text<'a> {
     }
 }
 // proa-perf-ok(scope): intentional immediate sync-to-async composition bridge
-impl<'a, B: WriteBuf, L: DataLoader> WebRender<L, B> for Text<'a> {
+impl<'a, L: DataLoader, B: WriteBuf> WebRender<L, B> for Text<'a> {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -96,7 +96,7 @@ struct EscapingTextWriter<'cx, B: WriteBuf, L: DataLoader> {
     err: Option<WriteError>,
 }
 
-impl<B: WriteBuf, L: DataLoader> fmt::Write for EscapingTextWriter<'_, B, L> {
+impl<L: DataLoader, B: WriteBuf> fmt::Write for EscapingTextWriter<'_, B, L> {
     #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if self.err.is_some() {
@@ -170,14 +170,14 @@ impl<B: WriteBuf, L: DataLoader> fmt::Write for EscapingTextWriter<'_, B, L> {
 /// // UnsafeRaw(&user_input).render(cx); // XSS!
 /// ```
 pub struct UnsafeRaw<'a>(pub &'a str);
-impl<'a, B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for UnsafeRaw<'a> {
+impl<'a, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for UnsafeRaw<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         cx.out.extend(self.0.as_bytes())
     }
 }
 // proa-perf-ok(scope): intentional immediate sync-to-async bridge for trusted raw output
-impl<'a, B: WriteBuf, L: DataLoader> WebRender<L, B> for UnsafeRaw<'a> {
+impl<'a, L: DataLoader, B: WriteBuf> WebRender<L, B> for UnsafeRaw<'a> {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -230,14 +230,14 @@ impl<'a, B: WriteBuf> MdRender<B> for UnsafeRaw<'a> {
 ///
 /// <https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html>
 pub struct StaticRaw(pub &'static str);
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StaticRaw {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticRaw {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         cx.out.extend_static(self.0.as_bytes())
     }
 }
 // proa-perf-ok(scope): intentional immediate sync-to-async bridge for static raw output
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for StaticRaw {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for StaticRaw {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -270,7 +270,7 @@ impl<B: WriteBuf> MdRender<B> for StaticRaw {
 }
 /// Impl WebRender for &str - allows dynamic text in html_optimized! blocks
 /// The text is escaped at runtime.
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for &str {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for &str {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         let mode = cx.current_mode();
@@ -279,7 +279,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for &str {
     }
 }
 // proa-perf-ok(scope): intentional immediate sync-to-async composition bridge
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for &str {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for &str {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -293,7 +293,7 @@ impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for &str {
 }
 /// Impl WebRender for String - allows dynamic text from format!() etc.
 /// The text is escaped at runtime.
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for String {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for String {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         let mode = cx.current_mode();
@@ -302,7 +302,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for String {
     }
 }
 // proa-perf-ok(scope): intentional immediate sync-to-async composition bridge
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for String {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for String {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -385,14 +385,14 @@ impl<'a> SafeText<'a> {
         SafeText(s)
     }
 }
-impl<'a, B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SafeText<'a> {
+impl<'a, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SafeText<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         cx.out.extend(self.0.as_bytes())
     }
 }
 // proa-perf-ok(scope): intentional immediate sync-to-async composition bridge
-impl<'a, B: WriteBuf, L: DataLoader> WebRender<L, B> for SafeText<'a> {
+impl<'a, L: DataLoader, B: WriteBuf> WebRender<L, B> for SafeText<'a> {
     fn render(
         self,
         cx: &mut WebContext<L, B>,

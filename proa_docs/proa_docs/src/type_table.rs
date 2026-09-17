@@ -31,7 +31,7 @@ pub struct TypeTableParam<'a> {
     pub description: Option<&'a str>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TypeTable<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TypeTable<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
             <div id={self.id} class="proa-docs-type-table" data-proa-docs-type-table>
@@ -46,7 +46,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TypeTable<'_> {
                     </thead>
                     <tbody>
                         {for row in self.rows {
-                            TypeTableRowView { row }.render(cx)?;
+                            TypeTableRowView { row }
                         }}
                     </tbody>
                 </table>
@@ -60,7 +60,7 @@ struct TypeTableRowView<'a> {
     row: &'a TypeTableRow<'a>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TypeTableRowView<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TypeTableRowView<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
             <tr>
@@ -103,7 +103,7 @@ struct TypeBadge<'a> {
     show: bool,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TypeBadge<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TypeBadge<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if self.show {
             let badge = html_sync! {
@@ -120,7 +120,7 @@ struct TypeRepr<'a> {
     row: &'a TypeTableRow<'a>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TypeRepr<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TypeRepr<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if let Some(href) = self.row.href {
             let type_repr = html_sync! {
@@ -144,7 +144,7 @@ struct OptionalSpan<'a> {
     prefix: Option<&'static str>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for OptionalSpan<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for OptionalSpan<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let Some(value) = self.value else {
             return Ok(());

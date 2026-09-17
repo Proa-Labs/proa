@@ -10,7 +10,7 @@ use support::*;
 pub struct EventUnknownMethod;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for EventUnknownMethod {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for EventUnknownMethod {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = signal(String::new());
 

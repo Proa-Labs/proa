@@ -8,7 +8,7 @@ use rsjs::rsjs;
 pub struct ClientOnlyFallbackCounter;
 
 #[rsjs(component, client, fallback = "empty")]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ClientOnlyFallbackCounter {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ClientOnlyFallbackCounter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <div>"hi"</div>

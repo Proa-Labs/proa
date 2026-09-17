@@ -4,7 +4,7 @@ use rsjs::rsjs;
 pub struct WrongCurrentTargetMethod;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for WrongCurrentTargetMethod {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for WrongCurrentTargetMethod {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let checked = rsjs::signal(false);
         let on_click =

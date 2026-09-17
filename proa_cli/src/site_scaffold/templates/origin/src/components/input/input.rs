@@ -104,7 +104,7 @@ impl Default for Input {
         Self::new()
     }
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Input {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Input {
     #[inline(always)]
     fn render(
         self,

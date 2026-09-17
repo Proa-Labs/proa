@@ -19,7 +19,7 @@ impl<T: Clone> Signal<T> {
 pub struct TodoList;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for TodoList {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TodoList {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let items = signal(vec!["Alpha".to_string()]);
         proa_macros::html_sync! {

@@ -37,7 +37,7 @@ mod public_api {
 struct HelperPathProbe;
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HelperPathProbe {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HelperPathProbe {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = rsjs::signal(1_i64);
 

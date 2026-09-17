@@ -36,7 +36,7 @@ use rsjs_macros::rsjs;
 pub struct WatchHeart;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for WatchHeart {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for WatchHeart {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let watching = signal(false);
         html_sync! {
@@ -109,7 +109,7 @@ pub struct WatchListings60<'a> {
 
 seq_macro::seq!(N in 0..60 {
     #[rsjs(component, client)]
-    impl<'a, B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for WatchListings60<'a> {
+    impl<'a, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for WatchListings60<'a> {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             #(let s~N = signal(false);)*
             #(let chunks~N = crate::ebay_srp::split_card_for_island(&self.listings[N]);)*
@@ -172,7 +172,7 @@ pub struct FilterChips {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FilterChips {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FilterChips {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let buy_it_now = signal::<bool>(self.initial_buy_it_now);
         let auction = signal::<bool>(self.initial_auction);

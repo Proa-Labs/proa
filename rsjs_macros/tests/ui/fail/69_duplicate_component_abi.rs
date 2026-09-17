@@ -7,7 +7,7 @@ use rsjs::rsjs;
 struct Duplicate;
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for Duplicate {
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for Duplicate {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         #[allow(unused_imports)]
         use proa_core::WebRenderSync as _;
@@ -20,7 +20,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for Duplicate {
 }
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRender<L, B> for Duplicate {
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for Duplicate {
     fn render(
         self,
         cx: &mut WebContext<L, B>,

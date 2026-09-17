@@ -15,7 +15,7 @@ pub(crate) struct QuantityStepper {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for QuantityStepper {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for QuantityStepper {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let qty = signal(1_i64);
         // The explicit `Signal<i64>` gives the multiply below a proven

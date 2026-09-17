@@ -65,7 +65,7 @@ impl<'a> Default for AirImage<'a> {
         Self::new("", "")
     }
 }
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for AirImage<'a> {
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for AirImage<'a> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let class = self.class.unwrap_or("");
         let loading = SafeAttr(self.loading.as_str());

@@ -4,7 +4,7 @@ use rsjs::rsjs;
 pub struct HandlerBorrowedTemporary;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerBorrowedTemporary {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerBorrowedTemporary {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let query = rsjs::signal(String::new());
         proa_macros::html_sync! {

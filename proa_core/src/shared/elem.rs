@@ -91,7 +91,7 @@ fn void_child<B: WriteBuf, L: DataLoader>(_: &mut WebContext<L, B>) -> Result<()
     Ok(())
 }
 
-impl<'a, const N: usize, B: WriteBuf, F, L: DataLoader> WebRenderSync<L, B>
+impl<'a, const N: usize, L: DataLoader, B: WriteBuf, F> WebRenderSync<L, B>
     for Elem<'a, Normal, N, B, F, L>
 where
     F: FnOnce(&mut WebContext<L, B>) -> Result<(), WriteError>,
@@ -109,7 +109,7 @@ where
     }
 }
 
-impl<'a, const N: usize, B: WriteBuf, F, L: DataLoader> WebRenderSync<L, B>
+impl<'a, const N: usize, L: DataLoader, B: WriteBuf, F> WebRenderSync<L, B>
     for Elem<'a, Void, N, B, F, L>
 where
     F: FnOnce(&mut WebContext<L, B>) -> Result<(), WriteError>,

@@ -10,7 +10,7 @@ use support::*;
 pub struct SelfNonCallbackMethod;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for SelfNonCallbackMethod {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SelfNonCallbackMethod {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <div>

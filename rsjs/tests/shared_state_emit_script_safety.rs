@@ -44,7 +44,7 @@ pub struct ProfileCard {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ProfileCard {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProfileCard {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let bio = rsjs::signal(self.bio);
 

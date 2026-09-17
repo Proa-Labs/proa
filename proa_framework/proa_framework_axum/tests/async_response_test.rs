@@ -83,7 +83,7 @@ struct CountingLoader {
     calls: Arc<AtomicUsize>,
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> proa_core::WebRenderSync<L, B> for SyncHtmlLeaf {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for SyncHtmlLeaf {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_core::WebRenderSync::render(
             html_sync! {
@@ -94,7 +94,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> proa_core::WebRenderSync<L, B> for
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> proa_core::WebRenderSync<L, B> for LocationEcho {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for LocationEcho {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let location = cx
             .request_location()
@@ -110,7 +110,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> proa_core::WebRenderSync<L, B> for
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> proa_core::WebRenderSync<L, B> for RouteParamEcho {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for RouteParamEcho {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let id = cx.param("id").unwrap_or("").to_owned();
         proa_core::WebRenderSync::render(
@@ -122,7 +122,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> proa_core::WebRenderSync<L, B> for
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> proa_core::WebRenderSync<L, B> for RequestEcho {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for RequestEcho {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let method = cx
             .request()
@@ -147,7 +147,7 @@ impl<B: WriteBuf, L: ::proa_core::DataLoader> proa_core::WebRenderSync<L, B> for
     }
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> proa_core::WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B>
     for ResponseContextEcho
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -424,7 +424,7 @@ struct SyncGreeting {
     name: &'static str,
 }
 
-impl<B: WriteBuf, L: ::proa_core::DataLoader> proa_core::WebRenderSync<L, B> for SyncGreeting {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for SyncGreeting {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.out.extend(b"<p>sync ")?;
         cx.out.extend(self.name.as_bytes())?;

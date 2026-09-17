@@ -4,7 +4,7 @@ use rsjs::rsjs;
 pub struct ConditionalTypedNodeRef;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ConditionalTypedNodeRef {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ConditionalTypedNodeRef {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let visible = rsjs::signal(true);
         let input = rsjs::node_ref::<rsjs::web::dom::HtmlInputElement>();

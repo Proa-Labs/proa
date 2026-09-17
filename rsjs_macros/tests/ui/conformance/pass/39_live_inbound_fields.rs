@@ -15,7 +15,7 @@ pub struct LiveInboundFields {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for LiveInboundFields {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for LiveInboundFields {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let activate = rsjs::event_handler(|_: rsjs::Event| {
             self.on_activate.call(self.label);
@@ -46,7 +46,7 @@ mod inbound_query_key {
     }
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: proa_core::DataLoader> WebRender<L, B> for InboundQueryKey {
+    impl<L: proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for InboundQueryKey {
         fn render(
             self,
             cx: &mut WebContext<L, B>,

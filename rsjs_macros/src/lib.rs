@@ -4900,7 +4900,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for IdeProbe {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for IdeProbe {
                     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                         let count = rsjs::signal(0_i64);
                         html_sync! {
@@ -4933,7 +4933,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LaunchCounter {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LaunchCounter {
                     fn render(
                         self,
                         output: &mut WebContext<L, B>,
@@ -4954,7 +4954,7 @@ mod tests {
         let compact = out.split_whitespace().collect::<String>();
 
         assert!(
-            compact.contains("impl<B:WriteBuf,L:DataLoader>WebRenderSync<L,B>forLaunchCounter"),
+            compact.contains("impl<L:DataLoader,B:WriteBuf>WebRenderSync<L,B>forLaunchCounter"),
             "component expansion should preserve the authored trait impl:\n{out}"
         );
         assert!(
@@ -4974,7 +4974,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for AbiCard {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AbiCard {
                     fn render(
                         self,
                         cx: &mut WebContext<L, B>,
@@ -5061,7 +5061,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B, L, C> WebRenderSync<L, B> for Disclosure<C>
+                impl<L, B, C> WebRenderSync<L, B> for Disclosure<C>
                 where
                     B: WriteBuf,
                     L: DataLoader,
@@ -5108,7 +5108,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B, L, T> WebRenderSync<L, B> for GenericValue<T>
+                impl<L, B, T> WebRenderSync<L, B> for GenericValue<T>
                 where
                     B: WriteBuf,
                     L: DataLoader,
@@ -5224,7 +5224,7 @@ mod tests {
             expand_rsjs(
                 quote! { component, client },
                 quote! {
-                    impl<B, L, T: Clone> WebRenderSync<L, B> for GenericFieldProbe<T>
+                    impl<L, B, T: Clone> WebRenderSync<L, B> for GenericFieldProbe<T>
                     where
                         B: WriteBuf,
                         L: DataLoader,
@@ -5291,7 +5291,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B, L> WebRenderSync<L, B> for InputRefParticipant
+                impl<L, B> WebRenderSync<L, B> for InputRefParticipant
                 where
                     B: WriteBuf,
                     L: DataLoader,
@@ -5438,7 +5438,7 @@ mod tests {
             expand_rsjs(
                 quote! { component },
                 quote! {
-                    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EdgeParentProbe {
+                    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EdgeParentProbe {
                         fn render(
                             self,
                             cx: &mut WebContext<L, B>,
@@ -5489,7 +5489,7 @@ mod tests {
         let output = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EdgeParentProbe {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EdgeParentProbe {
                     fn render(
                         self,
                         cx: &mut WebContext<L, B>,
@@ -5539,7 +5539,7 @@ mod tests {
         let output = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B>
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B>
                     for PresentationalParent
                 {
                     fn render(
@@ -5583,7 +5583,7 @@ mod tests {
         let output = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B>
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B>
                     for IndependentBoundaryParent
                 {
                     fn render(
@@ -6120,7 +6120,7 @@ mod tests {
             expand_rsjs(
                 quote! { component, client },
                 quote! {
-                    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for HelperEdgeProbe {
+                    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HelperEdgeProbe {
                         fn render(
                             self,
                             cx: &mut WebContext<L, B>,
@@ -6204,7 +6204,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StaticCallProbe {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticCallProbe {
                     fn render(
                         self,
                         cx: &mut WebContext<L, B>,
@@ -6240,7 +6240,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StaticPanel {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticPanel {
                     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                         html_sync! {
                             <section class="panel">
@@ -6269,7 +6269,7 @@ mod tests {
     fn shared_state_acquisition_transport_is_relocation_backed_and_deadness_neutral() {
         let attr = quote! { component, client };
         let item = quote! {
-            impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StaticSharedProbe {
+            impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticSharedProbe {
                 fn render(
                     self,
                     cx: &mut WebContext<L, B>,
@@ -6498,7 +6498,7 @@ mod tests {
         let output = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for WorkbenchPage {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for WorkbenchPage {
                     fn render(
                         self,
                         cx: &mut WebContext<L, B>,
@@ -6555,7 +6555,7 @@ mod tests {
         let error = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Counter {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
                     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                         let count = rsjs::signal(0_i64);
                         html_sync! {
@@ -6581,7 +6581,7 @@ mod tests {
         let error = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LocaleLabel {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LocaleLabel {
                     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                         html_sync! {
                             <output>{rsjs::navigator::language()}</output>
@@ -6604,7 +6604,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SeedOnlyCard {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SeedOnlyCard {
                     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                         let local = rsjs::signal(self.initial);
                         html_sync! {
@@ -7771,7 +7771,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for IdeProbe {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for IdeProbe {
                     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                         let count = rsjs::signal(0_i64);
                         let class_name = "rounded-md";
@@ -7815,7 +7815,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for IdeLoopProbe {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for IdeLoopProbe {
                     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                         let dim = 3_u8;
                         let month = 5_u8;
@@ -7859,7 +7859,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for IdeSelectProbe {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for IdeSelectProbe {
                     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                         let value = rsjs::signal(self.value);
                         html_sync! {
@@ -7937,7 +7937,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for IdeCalendarProbe {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for IdeCalendarProbe {
                     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                         let selected = rsjs::signal::<u32>(self.selected.unwrap_or(0_u32));
                         let dim = 31_u32;
@@ -8012,7 +8012,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for IdeIntervalShadowProbe {
+                impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for IdeIntervalShadowProbe {
                     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                         let tick = rsjs::signal(0_i32);
                         rsjs::interval(1000, || tick.update(|value| value + 1_i32));
@@ -8046,7 +8046,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for IdeQueryProbe {
+                impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for IdeQueryProbe {
                     fn render(
                         self,
                         cx: &mut WebContext<L, B>,
@@ -8108,7 +8108,7 @@ mod tests {
         let out = expand_rsjs(
             quote! { component, client },
             quote! {
-                impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for InboundQueryKeyProbe {
+                impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for InboundQueryKeyProbe {
                     fn render(
                         self,
                         cx: &mut WebContext<L, B>,

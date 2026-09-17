@@ -1,6 +1,6 @@
 import { signal, bind_text, bind_conditional, read_signal_initials, signal_initial, bind_delegated_events, walk_path, hydrate, dispose_all } from "/rsjs-runtime.js";
 
-hydrate("noderefssnapshot_e508b656", (root, __rsjs_disposers = []) => {
+hydrate("noderefssnapshot_1305cc46", (root, __rsjs_disposers = []) => {
     const __rsjs_signal_initials = read_signal_initials(root);
     const __sig_0 = signal(signal_initial(__rsjs_signal_initials, 0, ""));
     const __ref_0 = { current: null };

@@ -24,7 +24,7 @@ struct ShadowedReceiverPanel {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ShadowedReceiverPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShadowedReceiverPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = self.label.to_string();
         let n = state.len();

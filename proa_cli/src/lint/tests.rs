@@ -1252,7 +1252,7 @@ fn lint_allows_async_render_with_generic_async_child_bound() {
     // `C` is only known to be `WebRender`, so this impl cannot be lowered to
     // `WebRenderSync` even though its own body never awaits.
     let inline = r#"
-impl<B: WriteBuf, L: DataLoader, C: WebRender<L, B>> WebRender<L, B> for Card<C> {
+impl<L: DataLoader, B: WriteBuf, C: WebRender<L, B>> WebRender<L, B> for Card<C> {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -1263,7 +1263,7 @@ impl<B: WriteBuf, L: DataLoader, C: WebRender<L, B>> WebRender<L, B> for Card<C>
 }
 "#;
     let where_clause = r#"
-impl<B, L, C> WebRender<L, B> for Card<C>
+impl<L, B, C> WebRender<L, B> for Card<C>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -1327,7 +1327,7 @@ impl<B: WriteBuf> WebRender<::proa_core::NoLoader, B> for Page {
 #[test]
 fn lint_reports_static_html_subtree_in_a_truly_async_render() {
     let source = r#"
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for Price {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Price {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -1351,7 +1351,7 @@ fn lint_allows_async_html_with_an_unwrapped_component_child() {
     // An un-wrapped component child is presumed async; `render/sync-child-in-async`
     // owns the case where it is not.
     let source = r#"
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for Page {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Page {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -1371,7 +1371,7 @@ impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for Page {
 #[test]
 fn lint_allows_async_html_holding_a_suspense_boundary() {
     let source = r#"
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for Page {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Page {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -1391,7 +1391,7 @@ fn lint_allows_sync_completion_bridges() {
     // `SyncToAsync`-style adapters already implement the sync trait; the async
     // impl exists to lift them into an async tree.
     let source = r#"
-impl<T, B, L> WebRender<L, B> for SyncToAsync<T>
+impl<T, L, B> WebRender<L, B> for SyncToAsync<T>
 where
     T: WebRenderSync<L, B>,
     B: WriteBuf,
@@ -1415,7 +1415,7 @@ fn lint_allows_bodies_that_forward_a_foreign_render_outcome() {
     // `Pending(<call>)` hands back an erased future, and a tail `render*` call
     // forwards whatever the delegate decides. Neither body reveals the answer.
     let erased = r#"
-impl<'env, B, L> WebRender<L, B> for AsyncHtml<'env, B, L>
+impl<'env, L, B> WebRender<L, B> for AsyncHtml<'env, B, L>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -1430,7 +1430,7 @@ where
 }
 "#;
     let delegated = r#"
-impl<T, B, L> WebRender<L, B> for LinkedSite<T>
+impl<T, L, B> WebRender<L, B> for LinkedSite<T>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -1455,7 +1455,7 @@ where
 fn lint_reports_inline_pending_with_no_await() {
     // `pending(async move { .. })` is fully visible, unlike `Pending(<call>)`.
     let source = r#"
-impl<T, B, L> WebRender<L, B> for ImmediateAsync<T>
+impl<T, L, B> WebRender<L, B> for ImmediateAsync<T>
 where
     T: WebRenderSync<L, B>,
     B: WriteBuf,
@@ -1504,7 +1504,7 @@ fn lint_treats_screaming_case_slots_as_values_not_components() {
     // `{MAX_ITEMS}` is a const, not a unit-struct child. Reading it as an
     // opaque component would silence both rules on any template using one.
     let source = r#"
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for Page {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Page {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -1645,7 +1645,7 @@ impl<B: WriteBuf> MdRenderSync<B> for Note {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Card {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Card {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! { <div class="card">"hi"</div> }.render(cx)
     }

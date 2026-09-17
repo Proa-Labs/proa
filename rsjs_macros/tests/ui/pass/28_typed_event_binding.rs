@@ -4,7 +4,7 @@ use rsjs::rsjs;
 pub struct TypedEvents;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for TypedEvents {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TypedEvents {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let value = rsjs::signal(String::new());
         let aria_label = rsjs::signal(String::new());

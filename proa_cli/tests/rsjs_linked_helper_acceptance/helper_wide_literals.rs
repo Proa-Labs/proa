@@ -55,7 +55,7 @@ fn transitive_literal(tick: i32) -> i64 {
 struct WideLiteralProbe;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for WideLiteralProbe {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for WideLiteralProbe {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let tick = signal(0_i32);
         proa_macros::html_sync! {

@@ -10,7 +10,7 @@ use support::*;
 pub struct QueryInSyncIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for QueryInSyncIsland {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for QueryInSyncIsland {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let price: rsjs::Query<i64> = rsjs::query_with_initial(
             QueryKey::new(("stock", "AAPL")),

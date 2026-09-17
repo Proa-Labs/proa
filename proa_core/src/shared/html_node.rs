@@ -51,14 +51,14 @@ pub const fn static_html(bytes: &'static [u8]) -> StaticHtml {
     StaticHtml { bytes }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StaticHtml {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticHtml {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.out.extend_static(self.bytes)
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for StaticHtml {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for StaticHtml {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -69,14 +69,14 @@ impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for StaticHtml {
     }
 }
 
-impl<B: WriteBuf + Send, L: DataLoader> WebRenderSendSync<L, B> for StaticHtml {
+impl<L: DataLoader, B: WriteBuf + Send> WebRenderSendSync<L, B> for StaticHtml {
     #[inline(always)]
     fn render_send_sync(self, cx: &mut SendWebContext<L, B>) -> Result<(), WriteError> {
         cx.out.extend_static(self.bytes)
     }
 }
 
-impl<B: WriteBuf + Send, L: DataLoader> WebRenderSend<L, B> for StaticHtml {
+impl<L: DataLoader, B: WriteBuf + Send> WebRenderSend<L, B> for StaticHtml {
     fn render_send(
         self,
         cx: &mut SendWebContext<L, B>,
@@ -92,7 +92,7 @@ pub struct OptimizedHtml<B, L, F> {
     pub render_fn: F,
     pub _marker: PhantomData<fn(&mut B, &L)>,
 }
-impl<B, L, F> OptimizedHtml<B, L, F> {
+impl<L, B, F> OptimizedHtml<B, L, F> {
     /// Create a new OptimizedHtml wrapper.
     #[inline(always)]
     pub fn new(render_fn: F) -> Self {
@@ -117,7 +117,7 @@ where
 {
     OptimizedHtml::new(render_fn)
 }
-impl<B, L, F> WebRenderSync<L, B> for OptimizedHtml<B, L, F>
+impl<L, B, F> WebRenderSync<L, B> for OptimizedHtml<B, L, F>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -128,7 +128,7 @@ where
         (self.render_fn)(cx)
     }
 }
-impl<B, L, F> WebRender<L, B> for OptimizedHtml<B, L, F>
+impl<L, B, F> WebRender<L, B> for OptimizedHtml<B, L, F>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -175,7 +175,7 @@ where
     }
 }
 
-impl<'env, B, L> WebRender<L, B> for AsyncHtml<'env, B, L>
+impl<'env, L, B> WebRender<L, B> for AsyncHtml<'env, B, L>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -214,7 +214,7 @@ where
     }
 }
 
-impl<'env, B, L> WebRenderSend<L, B> for SendAsyncHtml<'env, B, L>
+impl<'env, L, B> WebRenderSend<L, B> for SendAsyncHtml<'env, B, L>
 where
     B: WriteBuf + Send,
     L: DataLoader,

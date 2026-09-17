@@ -6,7 +6,7 @@ use rsjs::rsjs;
 pub struct DependentSignalSeed;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DependentSignalSeed {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DependentSignalSeed {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let first = rsjs::signal(1_i64);
         let second = rsjs::signal(first.get() + 1_i64);

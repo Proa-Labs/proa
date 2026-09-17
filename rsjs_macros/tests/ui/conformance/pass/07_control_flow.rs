@@ -12,7 +12,7 @@ pub struct BranchingChild {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for BranchingChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for BranchingChild {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <button on_click={|event| {
@@ -36,7 +36,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for BranchingChi
 pub struct BranchingParent;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for BranchingParent {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for BranchingParent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let selected = signal("plain");
         let on_pick = rsjs::handler(|next: &'static str| {

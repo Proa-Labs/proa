@@ -109,7 +109,7 @@ impl<C> CaseRender<C> {
     }
 }
 
-impl<C: PageCase, B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CaseRender<C> {
+impl<C: PageCase, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CaseRender<C> {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         C::render(cx)
@@ -124,7 +124,7 @@ impl<C> SyncEnvelope<C> {
     }
 }
 
-impl<C: PageCase, B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SyncEnvelope<C> {
+impl<C: PageCase, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SyncEnvelope<C> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.out.extend_static(SHELL_OPEN)?;
         C::render(cx)?;
@@ -164,7 +164,7 @@ where
 #[derive(Clone, Copy)]
 struct EmptyFallback;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EmptyFallback {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EmptyFallback {
     fn render(self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         Ok(())
     }

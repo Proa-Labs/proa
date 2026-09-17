@@ -8,7 +8,7 @@ use proa_core::{render_to_string, DataLoader, WebContext, WebRenderSync, WriteBu
 struct SameModuleBadge;
 
 #[rsjs::rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SameModuleBadge {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SameModuleBadge {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <span data-edge-kind="same-module"></span>
@@ -25,7 +25,7 @@ mod definitions {
     pub struct ReexportSourceBadge;
 
     #[rsjs::rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for OrdinaryImportedBadge {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for OrdinaryImportedBadge {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <span data-edge-kind="ordinary-import"></span>
@@ -35,7 +35,7 @@ mod definitions {
     }
 
     #[rsjs::rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for RenamedSourceBadge {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenamedSourceBadge {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <span data-edge-kind="renamed-import"></span>
@@ -45,7 +45,7 @@ mod definitions {
     }
 
     #[rsjs::rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ReexportSourceBadge {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReexportSourceBadge {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <span data-edge-kind="re-export"></span>
@@ -65,7 +65,7 @@ mod public_api {
 struct EdgeParent;
 
 #[rsjs::rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EdgeParent {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EdgeParent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <section data-component-edge-parent>
@@ -82,7 +82,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EdgeParent {
 struct InteractiveEdgeChild;
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for InteractiveEdgeChild {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InteractiveEdgeChild {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = rsjs::signal(3_i64);
         proa_macros::html_sync! {
@@ -101,7 +101,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for InteractiveEdgeChild {
 struct OpaqueEdgeParent;
 
 #[rsjs::rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for OpaqueEdgeParent {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for OpaqueEdgeParent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <section data-opaque-edge-parent>{InteractiveEdgeChild {}}</section>

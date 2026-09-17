@@ -168,14 +168,14 @@ mod tests {
         // impl tokens into the hash so the two ids no longer collide.
         let path: syn::Path = syn::parse_quote!(Counter);
         let tokens_a: TokenStream = quote::quote! {
-            impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Counter {
+            impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
                 fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                     proa_macros::html_sync! { <div>{count.get()}</div> }.render(cx)
                 }
             }
         };
         let tokens_b: TokenStream = quote::quote! {
-            impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Counter {
+            impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
                 fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
                     proa_macros::html_sync! { <span>{counter.get()}</span> }.render(cx)
                 }

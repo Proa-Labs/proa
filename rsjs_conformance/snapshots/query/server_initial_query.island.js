@@ -1,9 +1,9 @@
 import { signal, bind_text, bind_conditional, bind_attr, bind_delegated_events, walk_path, hydrate, dispose_all } from "/rsjs-runtime.js";
 import { rsjs, dispose_query, register_query } from "/rsjs-runtime-query.js";
 
-hydrate("serverinitialquerysnapshot_f5dc7396", (root, __rsjs_disposers = []) => {
+hydrate("serverinitialquerysnapshot_35db9d2b", (root, __rsjs_disposers = []) => {
     const __rsjs_query_0 = register_query({
-        island: "serverinitialquerysnapshot_f5dc7396",
+        island: "serverinitialquerysnapshot_35db9d2b",
         query_id: 0,
         root,
         key: [null],

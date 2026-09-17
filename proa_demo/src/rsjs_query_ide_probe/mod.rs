@@ -48,7 +48,7 @@ pub async fn stock_query_handle_ide_probe<B: WriteBuf, L: DataLoader>(
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for StockTicker {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for StockTicker {
     fn render(
         self,
         cx: &mut WebContext<L, B>,

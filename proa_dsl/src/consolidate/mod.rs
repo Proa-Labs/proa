@@ -2449,7 +2449,7 @@ fn check_expr_perf(
                     span,
                     ".join() inside html! collects into a String on every render",
                     "allocates a String to concatenate the elements",
-                    "use a for loop with .render(cx)? to write each element directly to the buffer",
+                    "use a template for loop with a renderable final expression to write each element directly to the buffer",
                 ),
                 "collect" => perf_warn(
                     warnings,

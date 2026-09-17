@@ -63,7 +63,7 @@ mod participant {
     pub struct SharedCounter {}
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for SharedCounter {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for SharedCounter {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let workbench = rsjs::shared::<StateAlias>();
             let count = workbench.count();
@@ -117,7 +117,7 @@ mod page {
     }
 
     #[rsjs(component)]
-    impl<B: WriteBuf, L: DataLoader> RenderSync<L, B> for WorkbenchPage {
+    impl<L: DataLoader, B: WriteBuf> RenderSync<L, B> for WorkbenchPage {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             proa_macros::html_sync! {
                 <main data-workbench-page>
@@ -267,7 +267,7 @@ mod first {
     pub struct Consumer {}
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Consumer {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Consumer {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let state = rsjs::shared::<State>();
             let value = state.value();
@@ -294,7 +294,7 @@ mod second {
     pub struct Consumer {}
 
     #[rsjs(component, client)]
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Consumer {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Consumer {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let state = rsjs::shared::<State>();
             let value = state.value();
@@ -311,7 +311,7 @@ mod second {
 
 pub struct ConflictPage;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ConflictPage {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ConflictPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <main>

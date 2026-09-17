@@ -10,7 +10,7 @@ use support::*;
 pub struct NumericI64DivisionModulo;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NumericI64DivisionModulo {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NumericI64DivisionModulo {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let neg_lhs = signal(-7_i64);
         let pos_rhs = signal(3_i64);

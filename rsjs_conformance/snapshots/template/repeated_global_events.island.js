@@ -1,6 +1,6 @@
 import { signal, bind_text, bind_conditional, bind_document_event, bind_window_event, hydrate, dispose_all } from "/rsjs-runtime.js";
 
-hydrate("repeatedglobaleventssnapshot_e3e6de75", (root, __rsjs_disposers = []) => {
+hydrate("repeatedglobaleventssnapshot_6ffd6fb3", (root, __rsjs_disposers = []) => {
 
     function __handler_0(event) {
         console.log(JSON.parse(((event.__rsjsOwnerTarget?.getAttribute?.('data-rsjs-payload-p0')) ?? (event.__rsjsCurrentTarget?.getAttribute?.('data-rsjs-payload-p0')) ?? (event.target?.closest?.('[data-rsjs-payload-p0]')?.getAttribute('data-rsjs-payload-p0'))) ?? "null"), (event.key ?? ""));

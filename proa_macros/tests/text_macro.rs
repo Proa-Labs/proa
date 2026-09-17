@@ -49,7 +49,7 @@ fn text_macro_bare_placeholder_uses_proa_text_rendering() {
 fn text_macro_bare_placeholder_can_render_components() {
     struct Strong(&'static str);
 
-    impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for Strong {
+    impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Strong {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             html_sync! {
                 <strong>{self.0}</strong>

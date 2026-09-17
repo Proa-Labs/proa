@@ -27,7 +27,7 @@ struct ServerOverridePanel {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ServerOverridePanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ServerOverridePanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<ShadowState>();
         let bg = workbench.button_bg();
@@ -47,7 +47,7 @@ struct EarlyServerLocalPanel {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for EarlyServerLocalPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for EarlyServerLocalPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let bg = self.title;
         let label = format!("[{bg}]");

@@ -21,7 +21,7 @@ pub mod pricing_labels {
 pub struct HelperEarlyReturn;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HelperEarlyReturn {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HelperEarlyReturn {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let price = signal(100_i64);
 

@@ -17,7 +17,7 @@ pub struct DocsShell<'a> {
     pub page: &'a DocPage,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsShell<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsShell<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         html_sync! {
             <!DOCTYPE html>
@@ -68,7 +68,7 @@ struct MetaDescription {
     description: Option<&'static str>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MetaDescription {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MetaDescription {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if let Some(description) = self.description {
             let meta = html_sync! {

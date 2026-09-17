@@ -138,7 +138,7 @@ pub struct SentryOtelPage<'a> {
 }
 
 #[cfg(feature = "rsjs-pages")]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SentryOtelPage<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SentryOtelPage<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let log_stream = LogStream {
             row_count: self.props.row_count,
@@ -156,7 +156,7 @@ struct SentrySsrBenchmarkPage<'a> {
     props: SentryPageProps<'a>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SentrySsrBenchmarkPage<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SentrySsrBenchmarkPage<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let log_stream = StaticLogStream {
             row_count: self.props.row_count,
@@ -175,7 +175,7 @@ struct SentryDocument<'a, S> {
     log_stream: S,
 }
 
-impl<B, L, S> WebRenderSync<L, B> for SentryDocument<'_, S>
+impl<L, B, S> WebRenderSync<L, B> for SentryDocument<'_, S>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -210,7 +210,7 @@ where
 
 struct SideRail;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SideRail {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SideRail {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <aside class="side-rail" aria-label="Sentry navigation">
@@ -255,7 +255,7 @@ struct TopBar<'a> {
     trace_id: &'a str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TopBar<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TopBar<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <header class="top-bar">
@@ -285,7 +285,7 @@ struct TraceHeader<'a> {
     props: SentryPageProps<'a>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TraceHeader<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TraceHeader<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section class="trace-header">
@@ -346,7 +346,7 @@ pub struct LogStream<'a> {
 
 #[cfg(feature = "rsjs-pages")]
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LogStream<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LogStream<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let visible_batches = signal(1_i32);
         let auto_refresh = signal(true);
@@ -433,7 +433,7 @@ struct StaticLogStream<'a> {
     logs: Option<&'a [SentryLogEntry]>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StaticLogStream<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticLogStream<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let log_rows = LogRows {
             row_count: self.row_count,
@@ -466,7 +466,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for StaticLogStream<'_> {
 
 struct TraceTabsRow;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TraceTabsRow {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TraceTabsRow {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="trace-tabs-row">
@@ -504,7 +504,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TraceTabsRow {
 
 struct LoadingMore;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LoadingMore {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LoadingMore {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="loading-more">
@@ -521,7 +521,7 @@ struct LogRows<'a> {
     logs: Option<&'a [SentryLogEntry]>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LogRows<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LogRows<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if let Some(logs) = self.logs {
             for (index, entry) in logs.iter().enumerate() {
@@ -649,7 +649,7 @@ struct LogRow<'a> {
     data: LogRowData<'a>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LogRow<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LogRow<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let row_classes = ClassList::<2>::new()
             .add("log-row")

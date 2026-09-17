@@ -1,6 +1,6 @@
 import { signal, bind_text, bind_conditional, bind_delegated_events, dispose_all } from "/rsjs-runtime.js";
 
-export function mount_serverdecoratedbuttonsnapshot_d7f28fae(root, options = {}) {
+export function mount_serverdecoratedbuttonsnapshot_4a581eb0(root, options = {}) {
     const __rsjs_disposers = [];
     try {
 

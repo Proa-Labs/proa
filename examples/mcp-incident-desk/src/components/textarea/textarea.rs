@@ -116,7 +116,7 @@ impl Default for Textarea {
         Self::new()
     }
 }
-impl<B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B> for Textarea {
+impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Textarea {
     #[inline(always)]
     fn render(
         self,

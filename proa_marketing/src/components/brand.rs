@@ -16,7 +16,7 @@ impl Default for ProaLogoMark {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ProaLogoMark {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaLogoMark {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <svg
@@ -63,7 +63,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ProaLogoMark {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ProaBrand {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaBrand {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <span

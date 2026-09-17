@@ -16,7 +16,7 @@ use proa_macros::html_sync;
 
 struct ExamplePage;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ExamplePage {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ExamplePage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <main class="container">

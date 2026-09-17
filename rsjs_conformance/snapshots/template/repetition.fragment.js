@@ -1,6 +1,6 @@
 import { signal, bind_text, bind_conditional, read_signal_initials, signal_initial, bind_input, bind_delegated_events, dispose_all } from "/rsjs-runtime.js";
 
-export function mount_repeatedbuttonssnapshot_c5e5a417(root, options = {}) {
+export function mount_repeatedbuttonssnapshot_c0a2fa30(root, options = {}) {
     const __rsjs_disposers = [];
     try {
     const __rsjs_signal_initials = read_signal_initials(options.seedRoot ?? root);

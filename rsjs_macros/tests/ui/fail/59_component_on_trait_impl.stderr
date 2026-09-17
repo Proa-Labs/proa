@@ -1,5 +1,5 @@
 error: bare `#[rsjs]` render-trait analysis has been removed; use `#[rsjs(component)]` for a participant component or `#[rsjs(component, client)]` when this impl originates browser behavior
  --> tests/ui/fail/59_component_on_trait_impl.rs:6:1
   |
-6 | impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> proa_core::WebRenderSync<L, B> for Counter {
+6 | impl<L: proa_core::DataLoader, B: proa_core::WriteBuf> proa_core::WebRenderSync<L, B> for Counter {
   | ^^^^

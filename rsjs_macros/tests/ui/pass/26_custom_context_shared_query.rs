@@ -10,7 +10,7 @@ pub struct PageState {
 pub struct CustomContext;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for CustomContext {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for CustomContext {
     fn render(
         self,
         context: &mut WebContext<L, B>,

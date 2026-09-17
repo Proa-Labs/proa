@@ -137,7 +137,7 @@ where
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for Button<C>
 {
     #[inline(always)]

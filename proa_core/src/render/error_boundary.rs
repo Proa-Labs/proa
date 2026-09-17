@@ -103,7 +103,7 @@ where
     }
 }
 
-impl<B, L, C, Ef> WebRenderSync<L, B> for ErrorBoundary<C, Ef>
+impl<L, B, C, Ef> WebRenderSync<L, B> for ErrorBoundary<C, Ef>
 where
     B: CheckpointWriteBuf,
     L: DataLoader,
@@ -126,7 +126,7 @@ where
     }
 }
 
-impl<B, L, C, Ef> WebRender<L, B> for ErrorBoundary<C, Ef>
+impl<L, B, C, Ef> WebRender<L, B> for ErrorBoundary<C, Ef>
 where
     B: CheckpointWriteBuf,
     L: DataLoader + 'static,
@@ -194,7 +194,7 @@ mod tests {
         message: &'static str,
     }
 
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PartialThenErr {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PartialThenErr {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.out.extend_static(self.partial)?;
             Err(WriteError::render(self.message))
@@ -203,7 +203,7 @@ mod tests {
 
     struct InnerThenOuterErr;
 
-    impl<B: WriteBuf + CheckpointWriteBuf, L: DataLoader> WebRenderSync<L, B> for InnerThenOuterErr {
+    impl<L: DataLoader, B: WriteBuf + CheckpointWriteBuf> WebRenderSync<L, B> for InnerThenOuterErr {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             WebRenderSync::render(
                 ErrorBoundary::new(
@@ -222,7 +222,7 @@ mod tests {
 
     struct FatalAfterPartial;
 
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for FatalAfterPartial {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FatalAfterPartial {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.rsjs_island_used("fatal-island");
             cx.out.extend_static(b"<span>partial</span>")?;
@@ -235,7 +235,7 @@ mod tests {
         query_key: &'static str,
     }
 
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ArtifactThenErr {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ArtifactThenErr {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.rsjs_island_used(self.asset_id);
             cx.rsjs_query_seed_json(self.query_key, r#"{"value":"doomed"}"#);
@@ -246,7 +246,7 @@ mod tests {
 
     struct ArtifactFallback;
 
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ArtifactFallback {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ArtifactFallback {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.rsjs_island_used("fallback-island");
             cx.rsjs_query_seed_json(r#"["fallback"]"#, r#"{"value":"fallback"}"#);
@@ -256,7 +256,7 @@ mod tests {
 
     struct ArtifactThenFlushedErr;
 
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ArtifactThenFlushedErr {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ArtifactThenFlushedErr {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.rsjs_island_used("already-shipped-island");
             cx.out.extend_static(b"<span>already shipped</span>")?;
@@ -267,7 +267,7 @@ mod tests {
 
     struct PendingArtifact;
 
-    impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for PendingArtifact {
+    impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for PendingArtifact {
         fn render(
             self,
             cx: &mut WebContext<L, B>,

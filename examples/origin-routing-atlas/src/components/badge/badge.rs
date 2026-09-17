@@ -34,7 +34,7 @@ impl<C> Default for Badge<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for Badge<C>
 {
     fn render(

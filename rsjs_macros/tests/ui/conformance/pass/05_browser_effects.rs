@@ -10,7 +10,7 @@ use support::*;
 pub struct BrowserEffects;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for BrowserEffects {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for BrowserEffects {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let hash = signal("filters=open".to_string());
         let credential_options = signal(r#"{"challenge":"passkey"}"#.to_string());

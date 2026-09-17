@@ -47,7 +47,7 @@ struct BindPanel;
 struct PreludeOrderPanel;
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ProjectionPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProjectionPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = rsjs::shared::<ProjectionEmitState>();
         let count = state.count();
@@ -66,7 +66,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ProjectionPa
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for BindPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for BindPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let state = rsjs::shared::<BindEmitState>();
         let narrow = state.narrow();
@@ -85,7 +85,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for BindPanel {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for PreludeOrderPanel {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for PreludeOrderPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<PreludeOrderEmitState>();
         let button_bg = workbench.button_bg();

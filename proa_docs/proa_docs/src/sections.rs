@@ -11,7 +11,7 @@ pub struct DocsSectionMenu<'a> {
     pub active_path: &'a str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsSectionMenu<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSectionMenu<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if !self.docs.has_nav_roots() {
             return Ok(());
@@ -50,7 +50,7 @@ struct DocsSectionMenuRoots<'a> {
     default_href: &'static str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsSectionMenuRoots<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSectionMenuRoots<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         for item in self.items {
             if item.is_root() {
@@ -80,7 +80,7 @@ struct DocsSectionMenuItem {
     active: bool,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsSectionMenuItem {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSectionMenuItem {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let active = self.active.then_some("true");
         html_sync! {
@@ -102,7 +102,7 @@ struct DocsSectionIcon {
     icon: Option<&'static str>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for DocsSectionIcon {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSectionIcon {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let svg = self.icon.map(nav_icon_svg).unwrap_or("");
         html_sync! {

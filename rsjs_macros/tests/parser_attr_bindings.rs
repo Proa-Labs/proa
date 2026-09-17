@@ -32,7 +32,7 @@ impl<T: Clone + std::fmt::Display> Signal<T> {
 pub struct ReactiveAttrs;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ReactiveAttrs {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReactiveAttrs {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let open = signal(false);
         let panel_class = signal("panel panel--closed");
@@ -59,7 +59,7 @@ pub struct OwnedAttr {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for OwnedAttr {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for OwnedAttr {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let label = signal(self.label);
         proa_macros::html_sync! {

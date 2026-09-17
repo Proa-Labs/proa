@@ -116,7 +116,7 @@ impl MarketingNavVariant {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MarketingNav {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingNav {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let nav_class = self.variant.nav_class();
         html_sync! {
@@ -144,7 +144,7 @@ struct MarketingNavLink {
     variant: MarketingNavVariant,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MarketingNavLink {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingNavLink {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let class = self.variant.link_class();
         let active = self.active.then_some("true");
@@ -160,7 +160,7 @@ struct MarketingEcosystemNav {
     variant: MarketingNavVariant,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MarketingEcosystemNav {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingEcosystemNav {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let root_class = self.variant.dropdown_root_class();
         let trigger_class = self.variant.trigger_class();
@@ -187,7 +187,7 @@ struct MarketingEcosystemTrigger {
     active: bool,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MarketingEcosystemTrigger {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingEcosystemTrigger {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let link_class = self.variant.trigger_link_class(self.active);
         let chevron_class = self.variant.chevron_class();
@@ -214,13 +214,13 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MarketingEcosystemTrigg
 
 struct MarketingEcosystemPanel;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MarketingEcosystemPanel {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingEcosystemPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             {for item in ECOSYSTEM_NAV_ITEMS {
                 MarketingEcosystemItem {
                     item: *item,
-                }.render(cx)?;
+                }
             }}
         }
         .render(cx)
@@ -231,7 +231,7 @@ struct MarketingEcosystemItem {
     item: EcosystemNavEntry,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MarketingEcosystemItem {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingEcosystemItem {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div data-dropdown-item class="marketing-nav-dropdown-item">
@@ -248,7 +248,7 @@ struct MarketingEcosystemLink {
     item: EcosystemNavEntry,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MarketingEcosystemLink {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingEcosystemLink {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <a href={self.item.href} class="marketing-nav-dropdown-link">
@@ -269,7 +269,7 @@ struct MarketingEcosystemBadge {
     kind: EcosystemNavKind,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MarketingEcosystemBadge {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingEcosystemBadge {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let label = match self.kind {
             EcosystemNavKind::Apps => "app",
@@ -286,7 +286,7 @@ pub struct LandingHeader {
     pub active: MarketingNavActive,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LandingHeader {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingHeader {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <header class="sticky top-0 z-50 border-b border-black/10 bg-[#fdfcfc]/85 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/75">
@@ -364,7 +364,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LandingHeader {
 
 pub struct LandingFooter;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LandingFooter {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <footer

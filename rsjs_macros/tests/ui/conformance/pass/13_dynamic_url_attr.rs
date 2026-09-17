@@ -10,7 +10,7 @@ use support::*;
 pub struct DynamicUrlAttr;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for DynamicUrlAttr {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DynamicUrlAttr {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let url = signal("javascript:alert(1)");
 

@@ -25,7 +25,7 @@ struct ShadowedFieldLocal {
 }
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ShadowedFieldLocal {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShadowedFieldLocal {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<RegressionState>();
         let bg = workbench.button_bg();
@@ -100,7 +100,7 @@ mod ecs {
 struct ForeignSharedNames;
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ForeignSharedNames {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ForeignSharedNames {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let _flags = features::shared();
         let _world = ecs::shared::<ecs::Position>();

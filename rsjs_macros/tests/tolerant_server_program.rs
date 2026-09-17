@@ -134,7 +134,7 @@ mod ordinary {
 }
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for TolerantServerPage {
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for TolerantServerPage {
     #[allow(clippy::needless_return)] // The analyzer must accept an explicit tail return.
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         record("before");
@@ -152,7 +152,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for TolerantServ
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for HostedOpaqueHydrated {
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for HostedOpaqueHydrated {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = rsjs::signal(0_i64);
 
@@ -167,7 +167,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for HostedOpaque
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for HydratedServerProgram {
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for HydratedServerProgram {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         record("before");
         let _drop = TraceDrop("drop");
@@ -209,7 +209,7 @@ impl Future for YieldOnce {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRender<L, B> for AsyncHydratedServerProgram {
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for AsyncHydratedServerProgram {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -232,7 +232,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRender<L, B> for AsyncHydratedSer
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRender<L, B> for AsyncQueryMutationOrder {
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for AsyncQueryMutationOrder {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -271,7 +271,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRender<L, B> for AsyncQueryMutati
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B>
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B>
     for LexicallyShadowedServerStatement
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -289,7 +289,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B>
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B>
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B>
     for NestedLexicallyShadowedServerStatement
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -309,7 +309,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B>
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B>
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B>
     for OrdinaryFunctionsNamedLikePrimitives
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -325,7 +325,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B>
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for ReactiveThenOrdinaryShadow {
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for ReactiveThenOrdinaryShadow {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let shadowed = rsjs::signal(0_i64);
         let shadowed = 7_i64;
@@ -343,7 +343,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for ReactiveThen
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B>
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B>
     for ServerOnlyWithDeadClientDeclaration
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -360,7 +360,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B>
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for DualUseInboundAlias {
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for DualUseInboundAlias {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let title = self.title;
         let count = rsjs::signal(0_i64);
@@ -381,7 +381,7 @@ impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for DualUseInbou
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> proa_core::WebRenderSync<L, B> for LoopBodyServerLocal {
+impl<L: DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for LoopBodyServerLocal {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = rsjs::signal(0_i64);
 

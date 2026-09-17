@@ -69,10 +69,10 @@ impl<Trigger, Content> Default for Tooltip<Trigger, Content> {
     }
 }
 impl<
+        L: ::proa_core::DataLoader,
         B: WriteBuf,
         Trigger: WebRenderSync<L, B>,
         Content: WebRenderSync<L, B>,
-        L: ::proa_core::DataLoader,
     > WebRenderSync<L, B> for Tooltip<Trigger, Content>
 {
     fn render(
@@ -117,7 +117,7 @@ impl<C> Default for TooltipTrigger<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TooltipTrigger<C>
 {
     fn render(
@@ -152,7 +152,7 @@ impl<C> Default for TooltipContent<C> {
         }
     }
 }
-impl<B: WriteBuf, C: WebRenderSync<L, B>, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TooltipContent<C>
 {
     fn render(

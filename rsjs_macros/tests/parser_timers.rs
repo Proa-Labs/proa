@@ -45,7 +45,7 @@ impl<T: Clone + std::fmt::Display> Signal<T> {
 pub struct UptimeTicker;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for UptimeTicker {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for UptimeTicker {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let tick = signal(0_i64);
         rsjs::interval(1000, || tick.update(|t| t + 1_i64));
@@ -61,7 +61,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for UptimeTicker
 pub struct DebouncedSearch;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for DebouncedSearch {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DebouncedSearch {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let query = signal("");
         proa_macros::html_sync! {

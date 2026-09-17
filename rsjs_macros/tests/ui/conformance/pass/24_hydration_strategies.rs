@@ -10,7 +10,7 @@ use support::*;
 pub struct VisibleHydration;
 
 #[rsjs(component, client, strategy = "visible")]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for VisibleHydration {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for VisibleHydration {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let ready = signal(0_i64);
 
@@ -26,7 +26,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for VisibleHydra
 pub struct IdleHydration;
 
 #[rsjs(component, client, strategy = "idle")]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for IdleHydration {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for IdleHydration {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let ready = signal(0_i64);
 
@@ -42,7 +42,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for IdleHydratio
 pub struct InteractionHydration;
 
 #[rsjs(component, client, strategy = "interaction:click")]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for InteractionHydration {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for InteractionHydration {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let ready = signal(0_i64);
 
@@ -58,7 +58,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for InteractionH
 pub struct MediaHydration;
 
 #[rsjs(component, client, strategy = "media:(min-width: 768px)")]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for MediaHydration {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for MediaHydration {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let ready = signal(0_i64);
 

@@ -564,15 +564,15 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
     let (inherent_impl_generics, ty_generics, inherent_where_clause) = generics.split_for_impl();
 
     // The component's own generic parameters remain visible, while the
-    // buffer and loader parameters are generated here rather than leaking
+    // loader and buffer parameters are generated here rather than leaking
     // into routine component authoring.
     let mut render_generics = input.generics.clone();
     render_generics
         .params
-        .push(parse_quote!(__ProaBuffer: proa_core::WriteBuf));
+        .push(parse_quote!(__ProaLoader: proa_core::DataLoader));
     render_generics
         .params
-        .push(parse_quote!(__ProaLoader: proa_core::DataLoader));
+        .push(parse_quote!(__ProaBuffer: proa_core::WriteBuf));
 
     if let Some((_, Accessor::Field, child_ty)) = &children_field {
         render_generics

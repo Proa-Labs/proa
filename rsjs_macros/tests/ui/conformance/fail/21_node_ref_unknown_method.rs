@@ -10,7 +10,7 @@ use support::*;
 pub struct NodeRefUnknownMethod;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for NodeRefUnknownMethod {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NodeRefUnknownMethod {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let input = rsjs::node_ref::<rsjs::HtmlInputElement>();
 

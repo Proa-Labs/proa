@@ -1,5 +1,5 @@
 error: `#[rsjs]` impl block must define exactly one method named `render` (the `WebRenderSync::render` / `WebRender::render` method)
   --> tests/ui/fail/02_missing_render.rs:10:1
    |
-10 | impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for Counter {
+10 | impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
    | ^^^^

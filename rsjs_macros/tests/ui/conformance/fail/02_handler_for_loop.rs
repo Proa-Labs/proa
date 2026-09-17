@@ -10,7 +10,7 @@ use support::*;
 pub struct HandlerDynamicIteratorForLoop;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for HandlerDynamicIteratorForLoop {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HandlerDynamicIteratorForLoop {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
 

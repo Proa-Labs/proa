@@ -6,7 +6,7 @@ use rsjs::rsjs;
 pub struct ReservedLocal;
 
 #[rsjs(component)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ReservedLocal {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReservedLocal {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let __rsjs_initial_signal_0 = "authored";
 

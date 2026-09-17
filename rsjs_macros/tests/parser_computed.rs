@@ -44,7 +44,7 @@ impl<T: Clone + std::fmt::Display> Signal<T> {
 pub struct CartTotal;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for CartTotal {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CartTotal {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let price = signal(10_i64);
         let qty = signal(2_i64);
@@ -62,7 +62,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for CartTotal {
 pub struct ComputedChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComputedChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComputedChild {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let price = signal(3_i64);
         let qty = signal(4_i64);
@@ -80,7 +80,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ComputedChil
 pub struct ParentWithComputedChild;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ParentWithComputedChild {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ParentWithComputedChild {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <section>{ComputedChild {}}</section>

@@ -18,7 +18,7 @@ impl<T: Clone + core::fmt::Display> Signal<T> {
 pub struct CartTotal;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for CartTotal {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CartTotal {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let price = signal(10_i64);
         let qty = signal(2_i64);

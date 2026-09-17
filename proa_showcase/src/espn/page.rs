@@ -81,7 +81,7 @@ pub struct EspnGamePage<'a> {
 pub type SportsPageOverrides<'a> = EspnPageOverrides<'a>;
 pub type SportsGamePage<'a> = EspnGamePage<'a>;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EspnGamePage<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EspnGamePage<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <!DOCTYPE html>
@@ -123,7 +123,7 @@ struct TopChrome<'a> {
     data: &'a GameData,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TopChrome<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TopChrome<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <header class="espn-header">
@@ -220,7 +220,7 @@ struct Scoreboard<'a> {
     overrides: EspnPageOverrides<'a>,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Scoreboard<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Scoreboard<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section class="matchup-card" data-espn-scoreboard>
@@ -292,7 +292,7 @@ struct LineScore<'a> {
     home_score: &'a str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LineScore<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LineScore<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="line-score-wrap">
@@ -358,7 +358,7 @@ pub struct GameTabs<'a> {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for GameTabs<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GameTabs<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let active_tab = signal("box");
         let show_gamecast =
@@ -428,7 +428,7 @@ struct BoxScorePanel<'a> {
     data: &'a GameData,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BoxScorePanel<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BoxScorePanel<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="section-title">
@@ -457,7 +457,7 @@ struct TeamBox<'a> {
     pitching: &'a [Pitcher],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TeamBox<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamBox<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <article class="stat-card">
@@ -556,7 +556,7 @@ struct BatterRows<'a> {
     players: &'a [Batter],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BatterRows<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BatterRows<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         for player in self.players {
             html_sync! {
@@ -585,7 +585,7 @@ struct PitcherRows<'a> {
     players: &'a [Pitcher],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PitcherRows<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PitcherRows<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         for player in self.players {
             html_sync! {
@@ -615,7 +615,7 @@ struct GamecastPanel<'a> {
     data: &'a GameData,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for GamecastPanel<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GamecastPanel<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="section-title">
@@ -690,7 +690,7 @@ struct PlayByPlayPanel<'a> {
     game_status: &'a str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PlayByPlayPanel<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PlayByPlayPanel<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="section-title">
@@ -717,7 +717,7 @@ struct PlayList<'a> {
     scoring_only: bool,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for PlayList<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PlayList<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let mut previous = "";
         for play in self.plays {
@@ -748,7 +748,7 @@ struct GameInformation<'a> {
     items: &'a [GameInfoItem],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for GameInformation<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GameInformation<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <article class="panel-card game-info">
@@ -767,7 +767,7 @@ struct GameInfoRows<'a> {
     items: &'a [GameInfoItem],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for GameInfoRows<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GameInfoRows<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         for item in self.items {
             html_sync! {
@@ -787,7 +787,7 @@ struct Sidebar<'a> {
     news: &'a [NewsItem],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Sidebar<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Sidebar<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <aside class="espn-sidebar">
@@ -817,7 +817,7 @@ struct TopPerformerRows<'a> {
     performers: &'a [TopPerformer],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for TopPerformerRows<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TopPerformerRows<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         for performer in self.performers {
             html_sync! {
@@ -843,7 +843,7 @@ struct NewsRows<'a> {
     news: &'a [NewsItem],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for NewsRows<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for NewsRows<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         for item in self.news {
             html_sync! {
@@ -863,7 +863,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for NewsRows<'_> {
 
 struct Footer;
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Footer {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Footer {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <footer class="espn-footer">

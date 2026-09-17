@@ -18,7 +18,7 @@ struct GenericLaunchCounter<'a, T, const N: usize> {
 }
 
 #[rsjs(component, client)]
-impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for LaunchCounter {
+impl<L: proa_core::DataLoader, B: proa_core::WriteBuf> WebRenderSync<L, B> for LaunchCounter {
     fn render(self, cx: &mut proa_core::WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let count = signal::<i32>(self.initial);
         let increment = event_handler(|_: rsjs::Event| count.update(|value| value + 1));
@@ -37,7 +37,7 @@ impl<B: proa_core::WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for L
 }
 
 #[rsjs(component, client)]
-impl<'a, T, const N: usize, B, L> WebRenderSync<L, B> for GenericLaunchCounter<'a, T, N>
+impl<'a, T, const N: usize, L, B> WebRenderSync<L, B> for GenericLaunchCounter<'a, T, N>
 where
     T: AsRef<str>,
     B: proa_core::WriteBuf,

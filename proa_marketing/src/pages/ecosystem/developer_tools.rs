@@ -50,7 +50,7 @@ struct ToolVersionBadge<'a> {
     tone: ToolVersionTone,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ToolFilterButton<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ToolFilterButton<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let active = if self.active { "true" } else { "false" };
         html_sync! {
@@ -67,7 +67,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ToolFilterButton<'_> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ToolVersionBadge<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ToolVersionBadge<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         match self.tone {
             ToolVersionTone::Default => html_sync! {
@@ -82,7 +82,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ToolVersionBadge<'_> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ToolVisualPreview<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ToolVisualPreview<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         match self.visual {
             ToolVisual::Island { label } => html_sync! {
@@ -212,7 +212,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ToolVisualPreview<'_> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemToolCard<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemToolCard<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let tool = self.tool;
         html_sync! {
@@ -253,7 +253,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemToolCard<'_> {
     }
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemDeveloperToolsPage<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemDeveloperToolsPage<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let tool_count = self.data.tools.len();
 
@@ -282,7 +282,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemDeveloperTools
                                     ToolFilterButton {
                                         filter,
                                         active: filter.key == "all",
-                                    }.render(cx)?;
+                                    }
                                 }}
                             </div>
                             <div class="ml-auto flex items-center gap-3 max-[560px]:ml-0 max-[560px]:w-full max-[560px]:flex-wrap">
@@ -324,7 +324,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for EcosystemDeveloperTools
                             class="grid grid-cols-3 gap-4 max-[920px]:grid-cols-2 max-[560px]:grid-cols-1"
                         >
                             {for tool in self.data.tools {
-                                EcosystemToolCard { tool }.render(cx)?;
+                                EcosystemToolCard { tool }
                             }}
                         </div>
                         <div id="empty-state" class="hidden py-20 text-center">

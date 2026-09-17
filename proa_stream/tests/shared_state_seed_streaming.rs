@@ -53,7 +53,7 @@ impl StreamChunkFlusher for CollectingSink {
 #[derive(Clone)]
 struct Marker(&'static str);
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Marker {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Marker {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WriteBuf::extend(&mut cx.out, self.0.as_bytes())
     }
@@ -62,7 +62,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Marker {
 /// Async leaf that resolves after a yield and writes one element.
 struct SlowPanel;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for SlowPanel {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for SlowPanel {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -115,7 +115,7 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for ProviderIslandThenS
 /// while every byte it wrote is still buffered.
 struct ProviderThenFail;
 
-impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for ProviderThenFail {
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for ProviderThenFail {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -213,7 +213,7 @@ async fn error_boundary_keeps_seeds_streamed_by_a_suspense_childs_own_flush() {
 
     struct ProviderIslandPanel;
 
-    impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for ProviderIslandPanel {
+    impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for ProviderIslandPanel {
         fn render(
             self,
             cx: &mut WebContext<L, B>,
@@ -302,7 +302,7 @@ async fn streamed_suspense_recovery_drops_the_discarded_subtrees_seeds() {
 async fn streamed_suspense_success_keeps_the_childs_seeds() {
     struct ProviderThenOk;
 
-    impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for ProviderThenOk {
+    impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for ProviderThenOk {
         fn render(
             self,
             cx: &mut WebContext<L, B>,

@@ -21,7 +21,7 @@
 //! use proa_core::{DataLoader, WebRenderSync, WebContext, text};
 //!
 //! struct SmallPage;
-//! impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SmallPage {
+//! impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SmallPage {
 //!     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
 //!         text("Hello, stack!").render(cx)
 //!     }
@@ -65,7 +65,7 @@ use crate::{WebContext, WebRenderSync};
 /// use proa_core::{DataLoader, WebRenderSync, WebContext};
 ///
 /// struct MyComponent;
-/// impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for MyComponent {
+/// impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MyComponent {
 ///     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
 ///         cx.out.extend(b"Hello")
 ///     }
@@ -98,7 +98,7 @@ mod tests {
     use super::*;
     use crate::text;
     struct SmallComponent;
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for SmallComponent {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SmallComponent {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             text("Hello, stack!").render(cx)
         }

@@ -14,7 +14,7 @@ pub struct InteractiveListingsList<'a> {
     pub listings: &'a [Listing],
 }
 
-impl<'a, B: WriteBuf, L: ::proa_core::DataLoader> WebRenderSync<L, B>
+impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     for InteractiveListingsList<'a>
 {
     #[inline]

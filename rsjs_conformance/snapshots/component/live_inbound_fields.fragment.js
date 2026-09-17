@@ -1,6 +1,6 @@
 import { signal, bind_text, bind_conditional, read_signal_initials, signal_initial, bind_attr, bind_delegated_events, walk_path, dispose_all } from "/rsjs-runtime.js";
 
-export function mount_liveinboundfieldssnapshot_36d2970d(root, options = {}) {
+export function mount_liveinboundfieldssnapshot_79734c02(root, options = {}) {
     const __rsjs_disposers = [];
     try {
     const __rsjs_signal_initials = read_signal_initials(options.seedRoot ?? root);

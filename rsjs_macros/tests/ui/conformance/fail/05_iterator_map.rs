@@ -10,7 +10,7 @@ use support::*;
 pub struct IteratorMap;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for IteratorMap {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for IteratorMap {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let count = signal(0_i64);
         let values = [1_i64, 2_i64];

@@ -47,7 +47,7 @@ type Ctx<B, L> = WebContext<L, B>;
 pub struct LatePanel;
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LatePanel {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LatePanel {
     fn render(self, cx: &mut Ctx<B, L>) -> Result<(), WriteError> {
         let cart = rsjs::shared::<LateState>();
         let count = cart.count();
@@ -118,7 +118,7 @@ pub struct FeedState {
 pub struct CollisionPanel;
 
 #[rsjs::rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for CollisionPanel {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CollisionPanel {
     fn render(self, cx: &mut Ctx<B, L>) -> Result<(), WriteError> {
         let feed = rsjs::shared::<FeedState>();
         let total = feed.total();

@@ -11,7 +11,7 @@ use support::*;
 pub struct RepeatedGlobalEvents;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RepeatedGlobalEvents {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedGlobalEvents {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let labels = ["A", "B"];
 

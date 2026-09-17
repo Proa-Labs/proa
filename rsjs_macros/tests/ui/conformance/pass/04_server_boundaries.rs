@@ -14,7 +14,7 @@ pub struct ServerDecoratedButton {
 }
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ServerDecoratedButton {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ServerDecoratedButton {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <button
@@ -32,7 +32,7 @@ impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for ServerDecora
 pub struct Parent;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for Parent {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Parent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let pressed = signal(0_i64);
         let on_press = rsjs::handler(|_| pressed.set(1_i64));

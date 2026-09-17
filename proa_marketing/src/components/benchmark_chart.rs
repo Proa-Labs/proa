@@ -46,7 +46,7 @@ pub struct BenchmarkTypeSelector {
     pub airbnb_tail_entries: &'static [BenchmarkChartEntry],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BenchmarkTypeSelector {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkTypeSelector {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let root_classes = ClassList::<2>::new().add(ROOT_CLASS).add_opt(self.class);
 
@@ -122,7 +122,7 @@ struct BenchmarkChartPanel {
     caption: &'static str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BenchmarkChartPanel {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkChartPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <p class="mb-3 text-xs leading-5 text-white/55">{self.description}</p>
@@ -139,7 +139,7 @@ struct ChartRows {
     entries: &'static [BenchmarkChartEntry],
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ChartRows {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ChartRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         for entry in self.entries {
             ChartRow { entry }.render(cx)?;
@@ -153,7 +153,7 @@ struct ChartRow {
     entry: &'static BenchmarkChartEntry,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for ChartRow {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ChartRow {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let entry = self.entry;
 

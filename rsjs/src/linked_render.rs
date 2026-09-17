@@ -136,7 +136,7 @@ impl<C> LinkedSharedStateProviderChildren<C> {
     }
 }
 
-impl<C, B, L> WebRenderSync<L, B> for LinkedSharedStateProviderChildren<C>
+impl<C, L, B> WebRenderSync<L, B> for LinkedSharedStateProviderChildren<C>
 where
     C: WebRenderSync<L, B>,
     B: WriteBuf,
@@ -149,7 +149,7 @@ where
     }
 }
 
-impl<C, B, L> WebRender<L, B> for LinkedSharedStateProviderChildren<C>
+impl<C, L, B> WebRender<L, B> for LinkedSharedStateProviderChildren<C>
 where
     C: WebRender<L, B>,
     B: WriteBuf,
@@ -191,7 +191,7 @@ impl<T> LinkedTextBinding<T> {
     }
 }
 
-impl<T, B, L> WebRenderSync<L, B> for LinkedTextBinding<T>
+impl<T, L, B> WebRenderSync<L, B> for LinkedTextBinding<T>
 where
     T: WebRenderSync<L, B>,
     B: WriteBuf,
@@ -214,7 +214,7 @@ where
     }
 }
 
-impl<T, B, L> WebRender<L, B> for LinkedTextBinding<T>
+impl<T, L, B> WebRender<L, B> for LinkedTextBinding<T>
 where
     T: WebRender<L, B>,
     B: WriteBuf,
@@ -277,7 +277,7 @@ impl<'state, C> LinkedRenderBoundary<'state, C> {
     }
 }
 
-impl<C, B, L> WebRenderSync<L, B> for LinkedRenderBoundary<'_, C>
+impl<C, L, B> WebRenderSync<L, B> for LinkedRenderBoundary<'_, C>
 where
     C: WebRenderSync<L, B>,
     B: WriteBuf,
@@ -310,7 +310,7 @@ where
     }
 }
 
-impl<C, B, L> WebRender<L, B> for LinkedRenderBoundary<'_, C>
+impl<C, L, B> WebRender<L, B> for LinkedRenderBoundary<'_, C>
 where
     C: WebRender<L, B>,
     B: WriteBuf,
@@ -544,7 +544,7 @@ mod tests {
 
     struct Bytes(&'static [u8]);
 
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for Bytes {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Bytes {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.out.extend(self.0)
         }
@@ -564,7 +564,7 @@ mod tests {
 
     struct LinkedProviderSyncProbe;
 
-    impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LinkedProviderSyncProbe {
+    impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LinkedProviderSyncProbe {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             let (value, _) = cx.rsjs_shared_state_acquire_linked::<u8>(
                 linked_provider_occurrence(),
@@ -579,7 +579,7 @@ mod tests {
 
     struct LinkedProviderAsyncProbe;
 
-    impl<B: WriteBuf, L: DataLoader> WebRender<L, B> for LinkedProviderAsyncProbe {
+    impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for LinkedProviderAsyncProbe {
         fn render(
             self,
             cx: &mut WebContext<L, B>,

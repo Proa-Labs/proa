@@ -10,7 +10,7 @@ use support::*;
 pub struct MutationInSyncIsland;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for MutationInSyncIsland {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for MutationInSyncIsland {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let save = rsjs::mutation::<(), ()>("stock:AAPL", "/api/stocks/AAPL", ["stock:AAPL"]);
 

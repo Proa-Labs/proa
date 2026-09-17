@@ -231,7 +231,7 @@ const TERMS_SECTIONS: &[LegalSection] = &[
     },
 ];
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LegalPage {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LegalPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section class="px-4 py-16 sm:px-6 lg:px-8">
@@ -247,10 +247,10 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LegalPage {
                     </p>
                     <div class="mt-12 space-y-10">
                         {if self.analytics_disclosure {
-                            GoogleAnalyticsDisclosure.render(cx)?;
+                            GoogleAnalyticsDisclosure
                         }}
                         {for section in self.sections {
-                            LegalSectionView { section }.render(cx)?;
+                            LegalSectionView { section }
                         }}
                     </div>
                 </div>
@@ -301,7 +301,7 @@ struct LegalSectionView<'a> {
     section: &'a LegalSection,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LegalSectionView<'_> {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LegalSectionView<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <section>
@@ -310,7 +310,7 @@ impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LegalSectionView<'_> {
                 </h2>
                 <div class="mt-4 space-y-4 text-base leading-8 text-zinc-700 dark:text-zinc-300">
                     {for &paragraph in self.section.body {
-                        LegalParagraphView { paragraph }.render(cx)?;
+                        LegalParagraphView { paragraph }
                     }}
                 </div>
             </section>
@@ -323,7 +323,7 @@ struct LegalParagraphView {
     paragraph: &'static str,
 }
 
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for LegalParagraphView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LegalParagraphView {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <p>{self.paragraph}</p>

@@ -10,7 +10,7 @@ use support::*;
 pub struct RefInTemplateLoop;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: proa_core::DataLoader> WebRenderSync<L, B> for RefInTemplateLoop {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RefInTemplateLoop {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let item = rsjs::node_ref::<rsjs::HtmlElement>();
 

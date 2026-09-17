@@ -6,7 +6,7 @@ use rsjs::rsjs;
 pub struct BrowserRead;
 
 #[rsjs(component, client)]
-impl<B: WriteBuf, L: DataLoader> WebRenderSync<L, B> for BrowserRead {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BrowserRead {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let _ = rsjs::location::href();
 
