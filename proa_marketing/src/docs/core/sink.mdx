@@ -14,7 +14,7 @@ Most app code should never name it. Use framework streaming responses or the Mar
 A page moves through four states, and the fourth returns it to the first:
 
 1. **Checkout.** `SinkWriter` takes a `SinkPage<N>` from the pool.
-2. **Write.** The child renders into that page through a `WebContext` or `MdContext`.
+2. **Write.** The child renders into that page through the shared `WebContext`.
 3. **Flush.** The transport sees a `StreamChunkView`, a borrowed view over ordered page slices.
 4. **Return.** The page goes back to the pool, ready for the next boundary.
 
@@ -32,7 +32,7 @@ fn flush_boundary(flusher: Rc<dyn StreamChunkFlusher>) -> Result<(), WriteError>
     let page_pool = Rc::new(InOrderPagePool::new());
     let mut out: InOrderSinkWriter = SinkWriter::new(page_pool);
 
-    // Render into `out` through a WebContext or MdContext, then flush pages.
+    // Render into `out` through the shared WebContext, then flush pages.
     out.flush_into_flusher(flusher.as_ref())
 }
 ```

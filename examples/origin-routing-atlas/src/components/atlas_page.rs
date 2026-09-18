@@ -10,8 +10,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use proa_core::{
-    md::MdContext, DataLoader, MdRenderSync, RenderOutcome, WebContext, WebRender, WriteBuf,
-    WriteError,
+    DataLoader, MdRenderSync, RenderOutcome, WebContext, WebRender, WriteBuf, WriteError,
 };
 use proa_macros::html;
 
@@ -54,7 +53,7 @@ impl AtlasPage {
 pub fn markdown_string(query: &str, dossier: Option<Arc<Dossier>>) -> String {
     let mut out = Vec::new();
     {
-        let mut cx = MdContext::new(&mut out);
+        let mut cx = WebContext::with_buffer(&mut out);
         let _ = AtlasMd {
             query: query.to_string(),
             host: None,
@@ -140,8 +139,8 @@ pub struct AtlasMd {
     pub dossier: Option<Arc<Dossier>>,
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for AtlasMd {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for AtlasMd {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         crate::components::site_header::SiteHeaderMd.render_md(cx)?;
         HeroMd.render_md(cx)?;
         let query = self.query.clone();

@@ -13,6 +13,7 @@
 
 pub mod bootstrap;
 pub mod manifest;
+pub mod markdown;
 pub mod metadata;
 pub mod response;
 pub mod route_snapshot;
@@ -22,6 +23,7 @@ pub use bootstrap::render_bootstrap_for_islands;
 pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
 };
+pub use markdown::{render_sync_markdown_response, MarkdownResponse};
 pub use metadata::{
     css_asset_path, render_css_link, render_metadata_head, resolve_metadata_stack,
     resolved_metadata_from_computed, CascadeOpenGraph, CascadeValue, ComputedOpenGraph,

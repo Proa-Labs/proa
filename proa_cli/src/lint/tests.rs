@@ -180,9 +180,9 @@ fn render() {
 #[test]
 fn lint_reports_manual_static_writes_in_markdown_renderers() {
     let source = r#"
-impl<B: WriteBuf> MdRenderSync<B> for Callout {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.write_prepared_static(b"> **Note:** ")?;
+impl<B: WriteBuf> MdRenderSync<::proa_core::NoLoader, B> for Callout {
+    fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
+        cx.write_md_prepared_static(b"> **Note:** ")?;
         self.children.render_md(cx)
     }
 }
@@ -207,17 +207,17 @@ impl<B: WriteBuf> MdRenderSync<B> for Callout {
 fn lint_reports_manual_writes_in_markdown_helpers() {
     let source = r#"
 fn render_prefix<B: WriteBuf>(
-    cx: &mut MdContext<'_, B>,
+    cx: &mut WebContext<::proa_core::NoLoader, B>,
     prefix: &[u8],
 ) -> Result<(), WriteError> {
-    cx.write_prepared(prefix)?;
+    cx.write_md_prepared(prefix)?;
     cx.out.extend_static(b": ");
     WriteBuf::extend_static(&mut cx.out, b"!")?;
     Ok(())
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for Callout {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<B: WriteBuf> MdRenderSync<::proa_core::NoLoader, B> for Callout {
+    fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
         render_prefix(cx, b"Note")?;
         self.children.render_md(cx)
     }
@@ -242,14 +242,14 @@ fn lint_reports_manual_writes_in_markdown_helper_methods() {
 impl Callout {
     fn render_prefix<B: WriteBuf>(
         &self,
-        cx: &mut MdContext<'_, B>,
+        cx: &mut WebContext<::proa_core::NoLoader, B>,
     ) -> Result<(), WriteError> {
-        cx.write_prepared_static(b"> **Note:** ")
+        cx.write_md_prepared_static(b"> **Note:** ")
     }
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for Callout {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<B: WriteBuf> MdRenderSync<::proa_core::NoLoader, B> for Callout {
+    fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
         self.render_prefix(cx)?;
         self.children.render_md(cx)
     }
@@ -267,8 +267,8 @@ impl<B: WriteBuf> MdRenderSync<B> for Callout {
 #[test]
 fn lint_allows_md_sync_in_markdown_renderers() {
     let source = r#"
-impl<B: WriteBuf> MdRenderSync<B> for Callout {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<B: WriteBuf> MdRenderSync<::proa_core::NoLoader, B> for Callout {
+    fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
         md_sync! { "> **Note:** " { self.children } }.render_md(cx)
     }
 }
@@ -285,12 +285,12 @@ impl<B: WriteBuf> MdRenderSync<B> for Callout {
 #[test]
 fn lint_allows_typed_markdown_context_helpers() {
     let source = r#"
-impl<B: WriteBuf> MdRenderSync<B> for Link {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.write_text(self.label)?;
-        cx.write_url(self.href)?;
-        cx.code(self.code)?;
-        cx.link(self.href, self.label)
+impl<B: WriteBuf> MdRenderSync<::proa_core::NoLoader, B> for Link {
+    fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
+        cx.write_md_text(self.label)?;
+        cx.write_md_url(self.href)?;
+        cx.md_code(self.code)?;
+        cx.md_link(self.href, self.label)
     }
 }
 "#;
@@ -327,7 +327,7 @@ fn render() {
 #[test]
 fn lint_warns_about_noncanonical_raw_markdown_layout() {
     let source = r####"
-fn render(self, cx: &mut MdContext<'_, B>) {
+fn render(self, cx: &mut WebContext<::proa_core::NoLoader, B>) {
     md_sync! { r###"
             # {self.title}
 
@@ -357,7 +357,7 @@ fn render(self, cx: &mut MdContext<'_, B>) {
 #[test]
 fn lint_accepts_canonical_raw_markdown_layout() {
     let source = r####"
-fn render(self, cx: &mut MdContext<'_, B>) {
+fn render(self, cx: &mut WebContext<::proa_core::NoLoader, B>) {
     md_sync! { r###"
         # {self.title}
 
@@ -1553,18 +1553,14 @@ impl<L: DataLoader> WebRender<L, Vec<u8>> for MarketplaceLoadedPage {
 #[test]
 fn lint_allows_md_bodies_that_forward_a_foreign_render_outcome() {
     let source = r#"
-impl<'env, B> MdRender<B> for AsyncMd<'env, B>
+impl<'env, B> MdRender<::proa_core::NoLoader, B> for AsyncMd<'env, ::proa_core::NoLoader, B>
 where
     B: WriteBuf,
 {
-    fn render_md<'cx, 'out>(
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<::proa_core::NoLoader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::Pending((self.render_fn)(cx))
     }
 }
@@ -1576,15 +1572,11 @@ where
 #[test]
 fn lint_reports_md_async_unneeded_and_static_md_body() {
     let source = r####"
-impl<B: WriteBuf> MdRender<B> for Note {
-    fn render_md<'cx, 'out>(
+impl<B: WriteBuf> MdRender<::proa_core::NoLoader, B> for Note {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<::proa_core::NoLoader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         md! { r###"# Title"### }.render_md(cx)
     }
 }
@@ -1597,15 +1589,11 @@ impl<B: WriteBuf> MdRender<B> for Note {
 #[test]
 fn lint_allows_md_render_that_awaits_in_a_template_slot() {
     let source = r####"
-impl<B: WriteBuf> MdRender<B> for Note {
-    fn render_md<'cx, 'out>(
+impl<B: WriteBuf> MdRender<::proa_core::NoLoader, B> for Note {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<::proa_core::NoLoader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         md! { r###"# {self.title.load().await?}"### }.render_md(cx)
     }
 }
@@ -1618,15 +1606,11 @@ impl<B: WriteBuf> MdRender<B> for Note {
 #[test]
 fn lint_allows_md_render_with_a_generic_async_child_bound() {
     let source = r####"
-impl<B: WriteBuf, C: MdRender<B>> MdRender<B> for Section<C> {
-    fn render_md<'cx, 'out>(
+impl<B: WriteBuf, C: MdRender<::proa_core::NoLoader, B>> MdRender<::proa_core::NoLoader, B> for Section<C> {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<::proa_core::NoLoader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         md! { r###"# Title"### }.render_md(cx)
     }
 }
@@ -1639,8 +1623,8 @@ impl<B: WriteBuf, C: MdRender<B>> MdRender<B> for Section<C> {
 #[test]
 fn lint_leaves_md_sync_and_html_sync_alone() {
     let source = r####"
-impl<B: WriteBuf> MdRenderSync<B> for Note {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<B: WriteBuf> MdRenderSync<::proa_core::NoLoader, B> for Note {
+    fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
         md_sync! { r###"# Title"### }.render_md(cx)
     }
 }
@@ -5025,4 +5009,104 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for AmbiguousPanel {
                 .any(|diag| diag.code == "rsjs/unnecessary-island"),
             "strict ambiguous-cache error should own this impl instead of falling back: {diagnostics:#?}"
         );
+}
+
+#[test]
+fn shared_context_does_not_imply_html_escaping() {
+    let source = r###"
+fn render_md_example<L: DataLoader>(cx: &mut WebContext<L>) -> Result<(), WriteError> {
+    let caption = format!("{}", 42);
+    cx.write_md_inline_code("<section>example</section>")?;
+    cx.out.extend_static(b"<section>example</section>")?;
+    escape_html(&caption);
+    Ok(())
+}
+fn render_shared<L: DataLoader>(cx: &mut WebContext<L>) -> Result<(), WriteError> {
+    let text = format!("{}", 1);
+    cx.out.extend(text.as_bytes())
+}
+fn render_html_example<L: DataLoader>(cx: &mut WebContext<L>) -> Result<(), WriteError> {
+    cx.out.extend_static(b"<section>html</section>")
+}
+"###;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|d| d.code == "perf/raw-write-html")
+            .count(),
+        1
+    );
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|d| d.code == "perf/format")
+            .count(),
+        2
+    );
+    assert!(!diagnostics
+        .iter()
+        .any(|d| matches!(d.code, "perf/manual-escape" | "perf/manual-escape-helper")));
+}
+
+#[test]
+fn standalone_markdown_evidence_disables_only_html_checks() {
+    for (name, operation) in [
+        ("render_md_example", ""),
+        ("render_markdown_example", ""),
+        ("render_fragment", "md_sync! { \"sample\" };"),
+        ("render_fragment", "let _ = md_sync! { \"sample\" };"),
+        (
+            "render_fragment",
+            "let _ = proa_macros::md! { \"sample\" };",
+        ),
+        ("render_fragment", "cx.write_md_text(\"sample\")?;"),
+        ("render_fragment", "cx.md_block_boundary()?;"),
+        ("render_fragment", "child.render_md(cx)?;"),
+        (
+            "render_fragment",
+            "WebContext::write_md_text(cx, \"sample\")?;",
+        ),
+        ("render_fragment", "MdRenderSync::render_md(child, cx)?;"),
+    ] {
+        // proa-perf-ok: lint fixtures assemble Rust source containing intentional raw HTML
+        let source = format!(
+            r#"
+fn {name}<L: DataLoader>(cx: &mut WebContext<L>) -> Result<(), WriteError> {{
+    {operation}
+    let caption = format!("{{}}", 42);
+    cx.out.extend_static(b"<section>code sample</section>")?;
+    escape_html(&caption);
+    Ok(())
+}}
+"#
+        );
+        let diagnostics = lint_file(Path::new("sample.rs"), &source);
+        assert!(
+            diagnostics.iter().any(|d| d.code == "perf/format"),
+            "{name}: {operation}: {diagnostics:#?}"
+        );
+        assert!(
+            !diagnostics.iter().any(|d| matches!(
+                d.code,
+                "perf/raw-write-html" | "perf/manual-escape" | "perf/manual-escape-helper"
+            )),
+            "{name}: {operation}: {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
+fn markdown_trait_lints_follow_shared_context_and_renamed_helpers() {
+    let source = r###"
+impl<L: DataLoader> MdRenderSync<L> for Markdown {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        cx.write_md_prepared_static(b"# Handwritten\n")?;
+        cx.write_md_inline_code("<section>literal</section>")
+    }
+}
+"###;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    assert!(diagnostics.iter().any(|d| d.code == "md/manual-write"));
+    assert!(!diagnostics.iter().any(|d| d.code == "perf/raw-write-html"));
 }

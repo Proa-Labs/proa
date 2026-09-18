@@ -18,7 +18,6 @@
 //! escaping pass is needed.
 use core::fmt;
 
-use crate::md::MdContext;
 use crate::render::DataLoader;
 use crate::render::{MdRender, MdRenderSync, RenderOutcome, WebRenderSync};
 use crate::shared::attr_value::AttrValue;
@@ -48,20 +47,20 @@ fn write_shortest<B: WriteBuf>(out: &mut B, formatted: &str) -> Result<(), Write
 }
 
 #[inline(always)]
-fn write_shortest_md<B: WriteBuf>(
-    cx: &mut MdContext<'_, B>,
+fn write_shortest_md<Loader: DataLoader, B: WriteBuf>(
+    cx: &mut WebContext<Loader, B>,
     formatted: &str,
 ) -> Result<(), WriteError> {
     let bytes = formatted.as_bytes();
     if let Some(plus) = memchr::memchr(b'+', bytes) {
         debug_assert!(plus > 0 && bytes[plus - 1] == b'e');
-        cx.write_numeric_with(bytes.len() - 1, |dest| {
+        cx.write_md_numeric_with(bytes.len() - 1, |dest| {
             dest[..plus].copy_from_slice(&bytes[..plus]);
             dest[plus..bytes.len() - 1].copy_from_slice(&bytes[plus + 1..]);
             bytes.len() - 1
         })
     } else {
-        cx.write_numeric_str(formatted)
+        cx.write_md_numeric_str(formatted)
     }
 }
 macro_rules! impl_integer_render {
@@ -94,24 +93,20 @@ macro_rules! impl_integer_render {
                 })
             }
         }
-        impl<B: WriteBuf> MdRenderSync<B> for $unsigned {
+        impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for $unsigned {
             #[inline(always)]
-            fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+            fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
                 let v = self;
-                cx.write_numeric_with($max_len, |buf| {
+                cx.write_md_numeric_with($max_len, |buf| {
                     itoa_lut::$write_fn(v, buf.try_into().unwrap())
                 })
             }
         }
-        impl<B: WriteBuf> MdRender<B> for $unsigned {
-            fn render_md<'cx, 'out>(
+        impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for $unsigned {
+            fn render_md(
                 self,
-                cx: &'cx mut MdContext<'out, B>,
-            ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-            where
-                Self: 'cx,
-                'out: 'cx,
-            {
+                cx: &mut WebContext<Loader, B>,
+            ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
                 RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
                     MdRenderSync::render_md(self, cx),
                 )
@@ -149,24 +144,20 @@ macro_rules! impl_signed_render {
                 })
             }
         }
-        impl<B: WriteBuf> MdRenderSync<B> for $signed {
+        impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for $signed {
             #[inline(always)]
-            fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+            fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
                 let v = self;
-                cx.write_numeric_with($max_len, |buf| {
+                cx.write_md_numeric_with($max_len, |buf| {
                     itoa_lut::$write_fn(v, buf.try_into().unwrap())
                 })
             }
         }
-        impl<B: WriteBuf> MdRender<B> for $signed {
-            fn render_md<'cx, 'out>(
+        impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for $signed {
+            fn render_md(
                 self,
-                cx: &'cx mut MdContext<'out, B>,
-            ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-            where
-                Self: 'cx,
-                'out: 'cx,
-            {
+                cx: &mut WebContext<Loader, B>,
+            ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
                 RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
                     MdRenderSync::render_md(self, cx),
                 )
@@ -203,21 +194,17 @@ impl AttrValue for usize {
         (*self as u64).render_attr_value(cx)
     }
 }
-impl<B: WriteBuf> MdRenderSync<B> for usize {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for usize {
     #[inline(always)]
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         MdRenderSync::render_md(self as u64, cx)
     }
 }
-impl<B: WriteBuf> MdRender<B> for usize {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for usize {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))
@@ -242,21 +229,17 @@ impl AttrValue for isize {
         (*self as i64).render_attr_value(cx)
     }
 }
-impl<B: WriteBuf> MdRenderSync<B> for isize {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for isize {
     #[inline(always)]
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         MdRenderSync::render_md(self as i64, cx)
     }
 }
-impl<B: WriteBuf> MdRender<B> for isize {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for isize {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))
@@ -287,21 +270,18 @@ macro_rules! impl_float_render {
                     write_shortest(&mut cx.out, buf.format(*self))
                 }
             }
-            impl<B: WriteBuf> MdRenderSync<B> for $ty {
+            impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for $ty {
                 #[inline(always)]
-                fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+                fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
                     let mut buf = zmij::Buffer::new();
                     write_shortest_md(cx, buf.format(self))
                 }
             }
-            impl<B: WriteBuf> MdRender<B> for $ty {
-                fn render_md<'cx, 'out>(
+            impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for $ty {
+                fn render_md(
                     self,
-                    cx: &'cx mut MdContext<'out, B>,
-                ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
+                    cx: &mut WebContext<Loader, B>,
+                ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>>
     {
                     RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
                         MdRenderSync::render_md(self, cx),
@@ -663,11 +643,10 @@ mod tests {
         val.render_attr_value(&mut cx).unwrap();
         String::from_utf8(buf).unwrap()
     }
-    fn render_md<T: MdRenderSync<Vec<u8>>>(val: T) -> String {
-        let mut buf = Vec::new();
-        let mut cx = MdContext::new(&mut buf);
+    fn render_md<T: MdRenderSync<::proa_core::NoLoader, Vec<u8>>>(val: T) -> String {
+        let mut cx = WebContext::with_buffer(Vec::new());
         MdRenderSync::render_md(val, &mut cx).unwrap();
-        String::from_utf8(buf).unwrap()
+        String::from_utf8(cx.into_output()).unwrap()
     }
     fn render_fixed64(val: f64, precision: usize) -> String {
         let mut buf = Vec::new();

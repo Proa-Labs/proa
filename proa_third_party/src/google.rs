@@ -6,7 +6,6 @@
 
 use std::future::{Future, Ready};
 
-use proa_core::md::MdContext;
 use proa_core::{
     csp_nonce_attr, DataLoader, MdRender, MdRenderSync, RenderOutcome, StaticRaw, WebContext,
     WebRenderSync, WriteBuf, WriteError,
@@ -107,21 +106,17 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GoogleAnalytics<'_> {
     }
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for GoogleAnalytics<'_> {
-    fn render_md(self, _cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for GoogleAnalytics<'_> {
+    fn render_md(self, _cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         Ok(())
     }
 }
 
-impl<B: WriteBuf> MdRender<B> for GoogleAnalytics<'_> {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for GoogleAnalytics<'_> {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(self, cx))
     }
 }
@@ -193,7 +188,7 @@ mod tests {
                 .unwrap()
                 .consent(consent);
             let mut out = b"Existing Markdown".to_vec();
-            let mut cx = MdContext::with_buffer(&mut out);
+            let mut cx = WebContext::with_buffer(&mut out);
             MdRenderSync::render_md(analytics, &mut cx).unwrap();
             assert!(matches!(
                 MdRender::render_md(analytics, &mut cx),

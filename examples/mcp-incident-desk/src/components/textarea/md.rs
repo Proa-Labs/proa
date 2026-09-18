@@ -4,24 +4,24 @@
 //! Markdown rendering for the textarea component.
 
 use super::Textarea;
-use proa_core::md::MdContext;
+use proa_core::WebContext;
 use proa_core::{MdRenderSync, WriteBuf, WriteError};
 use proa_macros::md_sync;
 
 /// Textarea renders its value — as a fenced code block when multiline,
 /// as plain text otherwise. With no value, the placeholder is shown in
 /// brackets (matching Input's convention).
-impl<B: WriteBuf> MdRenderSync<B> for Textarea {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Textarea {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         if let Some(value) = self.value {
             if value
                 .as_bytes()
                 .iter()
                 .any(|byte| matches!(byte, b'\r' | b'\n'))
             {
-                cx.fenced_code("", value)?;
+                cx.md_fenced_code("", value)?;
             } else {
-                cx.write_text(value)?;
+                cx.write_md_text(value)?;
             }
         } else if let Some(placeholder) = self.placeholder {
             md_sync! { "[" { placeholder } "]" }.render_md(cx)?;

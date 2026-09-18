@@ -68,5 +68,9 @@ name = "context_parts_page"
 harness = false
 
 [[bench]]
+name = "markdown_render"
+harness = false
+
+[[bench]]
 name = "in_order_streaming_pages"
 harness = false

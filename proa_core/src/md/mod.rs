@@ -12,7 +12,8 @@ use crate::render::DataLoader;
 use crate::render::{MdRender, MdRenderSync, RenderOutcome, WebRender, WebRenderSync};
 use crate::shared::write_buf::{WriteBuf, WriteError};
 use crate::web::WebContext;
-pub use context::{MdContext, MdContextState};
+use context::MdFragmentScope;
+pub use context::MdState;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
@@ -25,23 +26,21 @@ use std::borrow::Cow;
 /// normal string path unless the caller intentionally accepts raw Markdown.
 pub struct TrustedMarkdown<'a>(pub &'a str);
 
-impl<'a, B: WriteBuf> MdRenderSync<B> for TrustedMarkdown<'a> {
+impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B>
+    for TrustedMarkdown<'a>
+{
     #[inline(always)]
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.write_trusted_markdown(self.0)
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        cx.write_md_trusted(self.0)
     }
 }
 
-impl<'a, B: WriteBuf> MdRender<B> for TrustedMarkdown<'a> {
+impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for TrustedMarkdown<'a> {
     #[inline(always)]
-    fn render_md<'cx, 'out>(
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))
@@ -173,14 +172,14 @@ pub fn fmt_err_to_write(_: core::fmt::Error) -> WriteError {
 }
 /// Wrapper for synchronous `md_sync!` macro output.
 ///
-/// Contains a closure that renders markdown into an [`MdContext`].
+/// Contains a closure that renders markdown into an [`WebContext`].
 /// Implements the synchronous render traits directly and can also complete
 /// immediately in async composition.
-pub struct OptimizedMd<B, F> {
+pub struct OptimizedMd<L, B, F> {
     pub render_fn: F,
-    pub _marker: PhantomData<fn(&mut B)>,
+    pub _marker: PhantomData<fn(&L, &mut B)>,
 }
-impl<B, F> OptimizedMd<B, F> {
+impl<L: DataLoader, B, F> OptimizedMd<L, B, F> {
     #[inline(always)]
     pub fn new(render_fn: F) -> Self {
         OptimizedMd {
@@ -190,31 +189,27 @@ impl<B, F> OptimizedMd<B, F> {
     }
 }
 /// Primary path: compose inside `MdRenderSync` impls via `.render_md(cx)`.
-impl<B, F> MdRenderSync<B> for OptimizedMd<B, F>
+impl<L: DataLoader, B, F> MdRenderSync<L, B> for OptimizedMd<L, B, F>
 where
     B: WriteBuf,
-    F: FnOnce(&mut MdContext<'_, B>) -> Result<(), WriteError>,
+    F: FnOnce(&mut WebContext<L, B>) -> Result<(), WriteError>,
 {
     #[inline(always)]
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         (self.render_fn)(cx)
     }
 }
 
-impl<B, F> MdRender<B> for OptimizedMd<B, F>
+impl<L: DataLoader, B, F> MdRender<L, B> for OptimizedMd<L, B, F>
 where
     B: WriteBuf,
-    F: FnOnce(&mut MdContext<'_, B>) -> Result<(), WriteError>,
+    F: FnOnce(&mut WebContext<L, B>) -> Result<(), WriteError>,
 {
     #[inline(always)]
-    fn render_md<'cx, 'out>(
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))
@@ -222,27 +217,27 @@ where
 }
 
 /// Bridge path: allows `render_to_string(md_sync!(...))` and
-/// `cx.render(md_sync!(...))` in WebRender.
-/// Creates a temporary `MdContext` wrapping the `WebContext`'s buffer.
-impl<L, B, F> WebRenderSync<L, B> for OptimizedMd<B, F>
+/// Markdown children in WebRender. Reuses the live context while isolating
+/// the fragment's Markdown formatting state.
+impl<L, B, F> WebRenderSync<L, B> for OptimizedMd<L, B, F>
 where
     B: WriteBuf,
     L: DataLoader,
-    F: FnOnce(&mut MdContext<'_, B>) -> Result<(), WriteError>,
+    F: FnOnce(&mut WebContext<L, B>) -> Result<(), WriteError>,
 {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        let mut md_cx = MdContext::with_buffer(&mut cx.out);
-        (self.render_fn)(&mut md_cx)
+        let mut scope = MdFragmentScope::new(cx);
+        (self.render_fn)(scope.context())
     }
 }
 
 // proa-perf-ok(scope): intentional immediate sync-to-async composition bridge
-impl<L, B, F> WebRender<L, B> for OptimizedMd<B, F>
+impl<L, B, F> WebRender<L, B> for OptimizedMd<L, B, F>
 where
     B: WriteBuf,
     L: DataLoader,
-    F: FnOnce(&mut MdContext<'_, B>) -> Result<(), WriteError>,
+    F: FnOnce(&mut WebContext<L, B>) -> Result<(), WriteError>,
 {
     #[inline(always)]
     fn render(
@@ -259,21 +254,23 @@ where
 pub type AsyncMdFuture<'a> = Pin<Box<dyn Future<Output = Result<(), WriteError>> + 'a>>;
 
 /// Type-erased async Markdown render continuation.
-pub type AsyncMdRenderFn<'env, B> =
-    dyn for<'a, 'out> FnOnce(&'a mut MdContext<'out, B>) -> AsyncMdFuture<'a> + Send + 'env;
+pub type AsyncMdRenderFn<'env, L, B> =
+    dyn for<'a> FnOnce(&'a mut WebContext<L, B>) -> AsyncMdFuture<'a> + Send + 'env;
 
 /// Wrapper for dynamic async-capable `md!` macro output.
 ///
 /// The macro emits the template-specific closure. This shared wrapper carries
 /// the `MdRender` and `WebRender` implementations once in `proa_core`.
-pub struct AsyncMd<'env, B: WriteBuf> {
-    pub render_fn: Box<AsyncMdRenderFn<'env, B>>,
-    pub _marker: PhantomData<fn(&mut B)>,
+pub struct AsyncMd<'env, L: DataLoader, B: WriteBuf> {
+    pub render_fn: Box<AsyncMdRenderFn<'env, L, B>>,
+    pub _marker: PhantomData<fn(&L, &mut B)>,
 }
 
 /// Construct an [`AsyncMd`] from an async render closure.
 #[inline(always)]
-pub fn async_md_from_fn<'env, B>(render_fn: Box<AsyncMdRenderFn<'env, B>>) -> AsyncMd<'env, B>
+pub fn async_md_from_fn<'env, L: DataLoader, B>(
+    render_fn: Box<AsyncMdRenderFn<'env, L, B>>,
+) -> AsyncMd<'env, L, B>
 where
     B: WriteBuf,
 {
@@ -283,23 +280,19 @@ where
     }
 }
 
-impl<'env, B> MdRender<B> for AsyncMd<'env, B>
+impl<'env, L: DataLoader, B> MdRender<L, B> for AsyncMd<'env, L, B>
 where
     B: WriteBuf,
 {
-    fn render_md<'cx, 'out>(
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::Pending((self.render_fn)(cx))
     }
 }
 
-impl<'env, L, B> WebRender<L, B> for AsyncMd<'env, B>
+impl<'env, L, B> WebRender<L, B> for AsyncMd<'env, L, B>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -309,8 +302,8 @@ where
         cx: &mut WebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::Pending(async move {
-            let mut md_cx = MdContext::with_buffer(&mut cx.out);
-            (self.render_fn)(&mut md_cx).await
+            let mut scope = MdFragmentScope::new(cx);
+            (self.render_fn)(scope.context()).await
         })
     }
 }

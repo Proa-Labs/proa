@@ -808,6 +808,26 @@ impl<const N: usize> ChainedBumpWriter<N> {
         self.full.len() + 1
     }
 
+    /// Consume the written pages without copying their bytes.
+    ///
+    /// Each chunk owns its original page allocation and exposes only written
+    /// bytes. Empty and spare pages are dropped. Dropping the iterator releases
+    /// pages that the transport has not consumed yet.
+    pub fn into_pages(self) -> impl Iterator<Item = Bytes> + Send + 'static {
+        self.full
+            .into_iter()
+            .chain(std::iter::once(self.current))
+            .filter_map(|page| {
+                if page.len == 0 {
+                    return None;
+                }
+                let owned: Box<[u8]> = page.buf;
+                let mut bytes = Bytes::from(owned);
+                bytes.truncate(page.len);
+                Some(bytes)
+            })
+    }
+
     #[inline]
     fn take_spare_page(&mut self) -> BumpWriter<N> {
         self.spare.pop().unwrap_or_default()
@@ -2254,6 +2274,36 @@ mod tests {
         buf.extend(b"123456789").unwrap();
 
         assert_eq!(buf.into_vec(), b"123456789");
+    }
+
+    #[test]
+    fn chained_into_pages_transfers_allocations_and_written_lengths() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend(b"123456789").unwrap();
+        let pointers: Vec<_> = buf
+            .slices()
+            .filter(|page| !page.is_empty())
+            .map(|page| page.as_ptr())
+            .collect();
+        let pages: Vec<_> = buf.into_pages().collect();
+        assert_eq!(
+            pages.iter().map(|page| page.as_ptr()).collect::<Vec<_>>(),
+            pointers
+        );
+        assert_eq!(pages.iter().map(Bytes::len).collect::<Vec<_>>(), [4, 4, 1]);
+        assert_eq!(pages.concat(), b"123456789");
+    }
+
+    #[test]
+    fn chained_into_pages_omits_empty_and_recycled_pages() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend(b"old pages to recycle").unwrap();
+        buf.clear();
+        buf.extend(b"new").unwrap();
+        let pages: Vec<_> = buf.into_pages().collect();
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0], b"new"[..]);
+        assert_eq!(ChainedBumpWriter::<4>::new().into_pages().count(), 0);
     }
 
     #[test]

@@ -12,7 +12,7 @@ Proa's goal is to bring the latency of the web as close to zero as possible, for
 Markdown interfaces have been an afterthought until now: scraped, converted from HTML, or hand-maintained beside the real templates. Proa makes rendering a trait rather than a fixed output format, so one component implements `WebRender` for HTML and `MdRender` for Markdown. One typed tree, two outputs, neither derived from the other.
 
 ```rust filename="src/components/product_summary.rs"
-use proa_core::{md::MdContext, MdRenderSync, WriteBuf, WriteError};
+use proa_core::{DataLoader, MdRenderSync, WebContext, WriteError};
 use proa_macros::md_sync;
 
 pub struct ProductSummary {
@@ -20,8 +20,8 @@ pub struct ProductSummary {
     pub description: &'static str,
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for ProductSummary {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: DataLoader> MdRenderSync<L> for ProductSummary {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         md_sync! { r###"
             ## {self.title}
 
@@ -49,8 +49,19 @@ and other LSP editors.
 
 | Trait | Template macro | Use it when |
 |-------|----------------|-------------|
-| `MdRenderSync<B>` | `md_sync!` | The component writes Markdown without `.await`. |
-| `MdRender<B>` | `md!` | The component may await, or composes async Markdown children. |
+| `MdRenderSync<L, B>` | `md_sync!` | The component writes Markdown without `.await`. |
+| `MdRender<L, B>` | `md!` | The component may await, or composes async Markdown children. |
+
+HTML and Markdown share `WebContext<L, B>`. Both Markdown traits default to
+`L = NoLoader` and `B = RenderBuffer`, in that order. Application components
+usually implement `MdRenderSync<L>` or `MdRender<L>` and take
+`&mut WebContext<L>`; the owned buffer needs no lifetime parameter. Keep `B` as
+the second generic only when a component needs to support custom writers.
+
+Create an owned root with `WebContext::new()`, render with
+`component.render_md(&mut cx)`, and consume `cx.into_output()` afterward.
+`WebContext::with_buffer(&mut out)` also accepts a borrowed writer for components
+implemented over that writer type.
 
 Use `md_sync!` by default:
 
@@ -119,8 +130,8 @@ The body of a loop or branch is Markdown, not a quoted string, so `- {feature}` 
 A slot holds a component, not a string. Give the child an `MdRenderSync` impl:
 
 ```rust filename="src/components/listing.rs"
-impl<B: WriteBuf> MdRenderSync<B> for &Listing {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: DataLoader> MdRenderSync<L> for &Listing {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         md_sync! { r###"
             ### {self.title}
 
@@ -135,8 +146,8 @@ impl<B: WriteBuf> MdRenderSync<B> for &Listing {
 Then interpolate it. The `{listing}` slot dispatches into that impl, the same way an `html_sync!` slot dispatches into a `WebRenderSync` child:
 
 ```rust filename="src/pages/search.rs"
-impl<B: WriteBuf> MdRenderSync<B> for &SearchPage {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: DataLoader> MdRenderSync<L> for &SearchPage {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         md_sync! { r###"
             # {self.title}
 
@@ -191,8 +202,8 @@ impl<L: DataLoader> WebRenderSync<L> for &Callout {
     }
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for &Callout {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: DataLoader> MdRenderSync<L> for &Callout {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         md_sync! { r###"
             > **{self.label}:** {self.body}
             "###
@@ -218,14 +229,14 @@ A component with no text form renders its content instead: a button becomes its 
 
 Markdown is whitespace-sensitive, which is what usually makes it uncomposable. A heading is only a heading at the start of a line, and a component cannot know what its previous sibling wrote.
 
-So a component that emits block-level Markdown calls `block_boundary()` before its first block byte and after its last:
+So a component that emits block-level Markdown calls `md_block_boundary()` before its first block byte and after its last:
 
 ```rust filename="src/components/section.rs"
-impl<B: WriteBuf> MdRenderSync<B> for Heading {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.block_boundary()?;
+impl<L: DataLoader> MdRenderSync<L> for Heading {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        cx.md_block_boundary()?;
         md_sync! { r###"## {self.0}"### }.render_md(cx)?;
-        cx.block_boundary()
+        cx.md_block_boundary()
     }
 }
 ```
@@ -245,12 +256,12 @@ That is what lets any block component sit next to any other, in any order.
 Inline context is the other half. A newline would break a table cell or a link label, so a parent marks the span inline and boundaries become no-ops:
 
 ```rust filename="src/components/button/md.rs"
-let prev = cx.set_inline(true);
+let prev = cx.md_set_inline(true);
 self.children.render_md(cx)?;
-cx.set_inline(prev);
+cx.md_set_inline(prev);
 ```
 
-The same `Heading` that emits `\n\n## Inline\n\n` at block level emits `## Inline` there. Components degrade instead of corrupting the document. `set_inline` returns the previous value, so a nested span restores what it found rather than assuming it started at block level.
+The same `Heading` that emits `\n\n## Inline\n\n` at block level emits `## Inline` there. Components degrade instead of corrupting the document. `md_set_inline` returns the previous value, so a nested span restores what it found rather than assuming it started at block level.
 
 ## Embedded HTML
 
@@ -259,16 +270,30 @@ Markdown permits inline HTML, but keep it on the typed HTML path instead of mixi
 ```rust filename="src/components/callout.rs"
 use proa_macros::html_sync;
 
-cx.render_web(html_sync! {
+cx.render_html_in_md(html_sync! {
     <aside data-callout>
         <strong>{self.title}</strong>
     </aside>
 })?;
 ```
 
-`MdContext::render_web(...)` preserves the Markdown writer state while `html_sync!` applies the normal compile-time HTML validation and escaping rules.
+`WebContext::render_html_in_md(...)` reuses the current loader, output, and request metadata while tracking Markdown boundaries. Its child receives an observed writer; custom HTML components used here must support generic `B: WriteBuf`. `html_sync!` applies the normal compile-time HTML validation and escaping rules.
 
 > **Good to know**: Slots, children, and branching behave identically to the HTML macros. See [Components](/docs/core/components); everything there applies with `md_sync!` in place of `html_sync!`.
+
+## Data loading
+
+Markdown uses the same `DataLoader` API as HTML. An `MdRender<L>` implementation
+can await `cx.load_typed(...)`, `cx.load_bytes(...)`, or `cx.load_json(...)`.
+Start the root with `WebContext::with_loader(Arc::clone(&loader))`; nested
+Markdown children and tracked HTML bridges keep that same loader instance.
+`MdRenderSync<L>` can participate in the same tree, but cannot await a load.
+See [Data loading](/docs/framework/data-loading) for request-scoped loaders.
+
+For an async Axum route, return the plan from
+`negotiate_async_with_loader(...)` or `explicit_markdown_async_with_loader(...)`.
+The adapter creates the local render future during finalization, so the handler
+can remain `Send` without requiring a `Send` Markdown render future.
 
 ## Streaming Markdown
 
@@ -285,7 +310,7 @@ let flusher: Rc<dyn StreamChunkFlusher> = Rc::new(MyMarkdownFlusher::new());
 render_md_in_order_to_flusher(PageMd, flusher).await?;
 ```
 
-The driver renders into the standard `RenderBuffer`, flushes through `StreamChunkFlusher`, and preserves Markdown-local state across `Suspense` boundaries.
+The driver renders through the shared `WebContext` into the standard `RenderBuffer`, flushes through `StreamChunkFlusher`, and preserves Markdown-local state across `Suspense` boundaries. Pass an existing request loader with `render_md_in_order_to_flusher_with_loader(PageMd, loader, flusher)` when the page loads data.
 
 Use it for `text/markdown` responses where a generated document should stream top to bottom instead of buffering the whole body first.
 

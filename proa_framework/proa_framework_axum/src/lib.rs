@@ -33,11 +33,12 @@ pub use manifest::{
 pub use proa_core::CspNonce;
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
-    css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown, negotiate,
-    render_css_link, render_metadata_head, resolved_metadata, router_from_spec, CascadeOpenGraph,
-    CascadeValue, ComputedRouteMeta, DynRenderOutcome, DynSendRenderOutcome, DynWebRender,
-    DynWebRenderSend, Layout, LayoutRef, LocalStreamExecutorConfig, MarkdownAlternate, Metadata,
-    MetadataRef, OpenGraph, OpenGraphImage, OpenGraphMedia, PageCacheLayer, PageCacheService,
+    css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
+    explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader, render_css_link,
+    render_metadata_head, resolved_metadata, router_from_spec, CascadeOpenGraph, CascadeValue,
+    ComputedRouteMeta, DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend,
+    Layout, LayoutRef, LocalStreamExecutorConfig, MarkdownAlternate, Metadata, MetadataRef,
+    OpenGraph, OpenGraphImage, OpenGraphMedia, PageCacheLayer, PageCacheService,
     RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage, ResolvedOpenGraphMedia,
     Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec, StaticPathsFn,
 };

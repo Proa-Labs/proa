@@ -40,7 +40,6 @@ pub mod web_render;
 
 // Re-export primary types for convenience
 pub use crate::email::EmailContext;
-pub use crate::md::MdContext;
 pub use crate::web::{
     CacheDependency, CacheTrace, HeadContext, HeadEntry, Locals, RenderArtifacts, RenderTelemetry,
     RequestContext, ResponseContext, RsjsArtifactBranch, RsjsArtifactCheckpoint,

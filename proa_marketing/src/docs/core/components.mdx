@@ -177,23 +177,22 @@ A component is not tied to HTML. Implement `MdRenderSync` on the same struct and
 Most interactive chrome has no Markdown equivalent, so the Markdown impl usually renders the meaning rather than the widget. A button is its label:
 
 ```rust filename="src/components/button/md.rs"
-use proa_core::md::MdContext;
-use proa_core::{MdRenderSync, WriteBuf, WriteError};
+use proa_core::{DataLoader, MdRenderSync, WebContext, WriteError};
 
 /// Button renders as just its label text; the visual chrome is meaningless in Markdown.
-impl<B: WriteBuf, C: MdRenderSync<B>> MdRenderSync<B> for Button<C> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        let prev = cx.set_inline(true);
+impl<L: DataLoader, C: MdRenderSync<L>> MdRenderSync<L> for Button<C> {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let prev = cx.md_set_inline(true);
         self.children.render_md(cx)?;
-        cx.set_inline(prev);
+        cx.md_set_inline(prev);
         Ok(())
     }
 }
 ```
 
-`set_inline(true)` marks the span as inline so nested block components degrade instead of injecting newlines into a table cell or a link label. It returns the previous value, which the impl restores rather than assuming the context started inline.
+`md_set_inline(true)` marks the span as inline so nested block components degrade instead of injecting newlines into a table cell or a link label. It returns the previous value, which the impl restores rather than assuming the context started inline.
 
-A component that emits block-level Markdown (a heading, a table, a list) has the opposite obligation: call `cx.block_boundary()` before its first block byte and after its last, because it cannot know what its previous sibling wrote. `block_boundary` is a no-op in inline context, so the same impl stays correct in both.
+A component that emits block-level Markdown (a heading, a table, a list) has the opposite obligation: call `cx.md_block_boundary()` before its first block byte and after its last, because it cannot know what its previous sibling wrote. `md_block_boundary` is a no-op in inline context, so the same impl stays correct in both.
 
 > **Good to know**: The two impls are independent. A component can implement `WebRenderSync` only, both, or add `WebRender` when it needs to `.await`. See [HTML rendering](/docs/core/html-rendering) for the sync and async split, and [Markdown rendering](/docs/core/markdown) for the Markdown macros.
 

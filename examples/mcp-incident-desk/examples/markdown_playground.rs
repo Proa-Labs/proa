@@ -19,7 +19,7 @@
 use std::{future::Future, path::PathBuf};
 
 use proa_core::{
-    md::MdContext, render_md_to_string_async, to_md_async, MdRenderSync, RenderOutcome, WriteBuf,
+    render_md_to_string_async, to_md_async, MdRenderSync, RenderOutcome, WebContext, WriteBuf,
     WriteError,
 };
 use proa_macros::{md, md_sync};
@@ -43,8 +43,8 @@ struct Feature<'a> {
 /// A custom synchronous component with a nested custom link component.
 struct PersonCard<'a>(Person<'a>);
 
-impl<B: WriteBuf> MdRenderSync<B> for PersonCard<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for PersonCard<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             ### {self.0.name}
 
@@ -64,25 +64,25 @@ struct MarkdownLink<'a> {
     href: &'a str,
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for MarkdownLink<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.link(self.label, self.href)
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for MarkdownLink<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        cx.md_link(self.label, self.href)
     }
 }
 
 /// The core inline-code writer chooses a delimiter that fits the dynamic text.
 struct InlineCode<'a>(&'a str);
 
-impl<B: WriteBuf> MdRenderSync<B> for InlineCode<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.write_inline_code(self.0)
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlineCode<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        cx.write_md_inline_code(self.0)
     }
 }
 
 struct FeatureTable<'a>(&'a [Feature<'a>]);
 
-impl<B: WriteBuf> MdRenderSync<B> for FeatureTable<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for FeatureTable<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             | Feature | Checks | Ready |
             | :--- | ---: | :---: |
@@ -97,8 +97,8 @@ impl<B: WriteBuf> MdRenderSync<B> for FeatureTable<'_> {
 
 struct ConditionalNote(bool);
 
-impl<B: WriteBuf> MdRenderSync<B> for ConditionalNote {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ConditionalNote {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             {if self.0 {
             > [!NOTE]
@@ -119,15 +119,13 @@ struct AsyncRelease<'a> {
     checks: u32,
 }
 
-impl<B: WriteBuf> proa_core::MdRender<B> for AsyncRelease<'_> {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> proa_core::MdRender<Loader, B>
+    for AsyncRelease<'_>
+{
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::Pending(async move {
             tokio::task::yield_now().await;
             let content = md_sync! { r###"
@@ -527,7 +525,7 @@ mod tests {
     #[tokio::test]
     async fn custom_async_component_is_awaited() {
         let mut out = Vec::new();
-        let mut cx = MdContext::new(&mut out);
+        let mut cx = WebContext::with_buffer(&mut out);
         let result = proa_core::MdRender::render_md(
             AsyncRelease {
                 version: "test-release",
@@ -543,9 +541,11 @@ mod tests {
         assert!(text.contains("73"));
     }
 
-    fn sync_markdown(child: impl MdRenderSync<Vec<u8>>) -> String {
+    fn sync_markdown(child: impl MdRenderSync<::proa_core::NoLoader, Vec<u8>>) -> String {
         let mut bytes = Vec::new();
-        child.render_md(&mut MdContext::new(&mut bytes)).unwrap();
+        child
+            .render_md(&mut WebContext::with_buffer(&mut bytes))
+            .unwrap();
         String::from_utf8(bytes).unwrap()
     }
 

@@ -338,15 +338,15 @@ fn insert_before_marker(source: &mut String, marker: &str, line: &str) -> Result
 
 fn page_source(route: &RouteName, markdown: bool) -> String {
     let imports = if markdown {
-        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa_core::{md::MdContext, DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError};\nuse proa_framework_axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};\nuse proa_macros::{html_sync, md_sync};"
+        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa_core::{WebContext, DataLoader, MdRenderSync, WebRenderSync, WriteBuf, WriteError};\nuse proa_framework_axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};\nuse proa_macros::{html_sync, md_sync};"
     } else {
         "use axum::response::IntoResponse;\nuse proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};\nuse proa_framework_axum::RouteResponse;\nuse proa_macros::html_sync;"
     };
     let markdown_impl = if markdown {
         format!(
             r####"
-impl<B: WriteBuf> MdRenderSync<B> for {ty} {{
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {{
+impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {{
         md_sync! {{ r###"
             # {ty}
 

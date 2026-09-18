@@ -259,18 +259,23 @@ trees.
 
 ## Markdown has the same split
 
+Markdown rendering uses the same `WebContext<L, B>` as HTML. Both Markdown
+traits default to `L = NoLoader` and `B = RenderBuffer`; application components
+usually customize only `L`. Loaders, response metadata, metering, and streaming
+state are shared, while the chosen trait controls representation and escaping.
+
 Markdown rendering deliberately mirrors HTML:
 
 | Markdown component | Template macro | Child trait |
 |---|---|---|
-| `MdRenderSync<B>` | `md_sync!` | `MdRenderSync<B>` |
-| `MdRender<B>` | `md!` | `MdRender<B>` |
+| `MdRenderSync<L>` | `md_sync!` | `MdRenderSync<L>` |
+| `MdRender<L>` | `md!` | `MdRender<L>` |
 
 Use `md_sync!` by default:
 
 ```rust
-impl<B: WriteBuf> MdRenderSync<B> for Article {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: DataLoader> MdRenderSync<L> for Article {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         md_sync! { r###"
             # {self.title}
 
@@ -285,14 +290,11 @@ impl<B: WriteBuf> MdRenderSync<B> for Article {
 Use `md!` when a child may await:
 
 ```rust
-impl<B: WriteBuf> MdRender<B> for Article {
-    fn render_md<'a, 'out>(
+impl<L: DataLoader> MdRender<L> for Article {
+    fn render_md(
         self,
-        cx: &'a mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'a>
-    where
-        Self: 'a,
-        'out: 'a,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>>
     {
         RenderOutcome::Pending(async move {
             proa_core::render_md_child(

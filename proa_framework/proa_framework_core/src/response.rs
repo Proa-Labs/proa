@@ -794,6 +794,9 @@ pub struct FrameworkRequestContext {
 /// produced stream is directly pollable or requires a pinned local executor.
 pub enum FrameworkBody {
     Full(Bytes),
+    /// A fully rendered body whose owned pages can transfer to the transport
+    /// without flattening. This is independent of deferred streaming setup.
+    BufferedPages(RenderBuffer),
     Stream(FrameworkStreamFactory),
 }
 
@@ -805,6 +808,10 @@ impl std::fmt::Debug for FrameworkBody {
                 .field(&format!("{} bytes", bytes.len()))
                 .finish(),
             Self::Stream(factory) => f.debug_tuple("Stream").field(factory).finish(),
+            Self::BufferedPages(buffer) => f
+                .debug_tuple("BufferedPages")
+                .field(&proa_core::WriteBuf::len(buffer))
+                .finish(),
         }
     }
 }
@@ -893,7 +900,7 @@ impl FrameworkResponse {
     }
 }
 
-fn merge_response_context(response: &mut FrameworkResponse, context: &ResponseContext) {
+pub(crate) fn merge_response_context(response: &mut FrameworkResponse, context: &ResponseContext) {
     if context.is_empty() {
         return;
     }
@@ -903,12 +910,16 @@ fn merge_response_context(response: &mut FrameworkResponse, context: &ResponseCo
     }
 
     let headers = context.headers();
-    for (name, value) in headers.iter() {
-        if name == header::SET_COOKIE {
-            response.headers.append(name.clone(), value.clone());
-        } else {
-            response.headers.insert(name.clone(), value.clone());
+    // Replace defaults once per header name, then retain every supplied value.
+    // Cookies accumulate alongside those already installed by the framework.
+    for name in headers.keys() {
+        if name != header::SET_COOKIE {
+            response.headers.remove(name);
         }
+    }
+    for (name, value) in headers.iter() {
+        // proa-perf-ok: response finalization transfers borrowed metadata into the owned HTTP map
+        response.headers.append(name.clone(), value.clone());
     }
 }
 
@@ -1979,7 +1990,7 @@ impl<const N: usize> SendStreamChunkFlusher for ChannelSink<N> {
     }
 }
 
-fn install_request_context<B: proa_core::WriteBuf, L: DataLoader>(
+pub(crate) fn install_request_context<B: proa_core::WriteBuf, L: DataLoader>(
     ctx: &mut WebContext<L, B>,
     request: &FrameworkRequestContext,
 ) {
@@ -2534,7 +2545,67 @@ mod tests {
         );
         match response.body {
             FrameworkBody::Full(bytes) => assert_eq!(bytes, Bytes::from_static(b"<main>ok</main>")),
-            FrameworkBody::Stream(_) => panic!("expected full body"),
+            FrameworkBody::Stream(_) | FrameworkBody::BufferedPages(_) => {
+                panic!("expected full body")
+            }
+        }
+    }
+
+    #[test]
+    fn html_finalization_preserves_repeated_response_headers() {
+        struct HeaderPage;
+        impl proa_core::WebRenderSync for HeaderPage {
+            fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+                let response = cx.response_mut();
+                response.set_status(StatusCode::CREATED);
+                for value in ["</one>; rel=preload", "</two>; rel=preload"] {
+                    response.append_header(header::LINK, HeaderValue::from_static(value));
+                }
+                for value in ["Origin", "Accept-Language"] {
+                    response.append_header(header::VARY, HeaderValue::from_static(value));
+                }
+                for value in ["strict-origin", "no-referrer"] {
+                    response
+                        .append_header(header::REFERRER_POLICY, HeaderValue::from_static(value));
+                }
+                for value in ["a=1", "b=2"] {
+                    response.append_set_cookie(HeaderValue::from_static(value));
+                }
+                html_sync! {
+                    <main />
+                }
+                .render(cx)
+            }
+        }
+
+        let manifest = IslandManifest {
+            islands: HashMap::new(),
+            assets: ManifestAssets::default(),
+            import_map: HashMap::new(),
+            ssr_bundle: None,
+        };
+        let request = FrameworkRequestContext::default();
+        for plan in [
+            RouteResponse::ssr(HeaderPage),
+            RouteResponse::ssr_async(proa_core::to_async(HeaderPage)),
+        ] {
+            let response =
+                futures::executor::block_on(plan.into_framework_response(&manifest, &request))
+                    .unwrap();
+            assert_eq!(response.status, StatusCode::CREATED);
+            assert_eq!(
+                response.headers[header::CONTENT_TYPE],
+                "text/html; charset=utf-8"
+            );
+            for (name, expected) in [
+                (header::LINK, ["</one>; rel=preload", "</two>; rel=preload"]),
+                (header::VARY, ["Origin", "Accept-Language"]),
+                (header::REFERRER_POLICY, ["strict-origin", "no-referrer"]),
+                (header::SET_COOKIE, ["a=1", "b=2"]),
+            ] {
+                let actual: Vec<_> = response.headers.get_all(&name).iter().collect();
+                assert_eq!(actual, expected, "{name}");
+            }
         }
     }
 

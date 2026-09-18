@@ -63,7 +63,7 @@ fn md_lowered(source: &str) -> Vec<String> {
 #[test]
 fn anchors_md_template_to_the_macro_indentation() {
     let source = "impl A {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+    fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
         md_sync! {\"
 ## {self.title}
 

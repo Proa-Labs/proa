@@ -3,7 +3,6 @@
 
 use crate::render::DataLoader;
 use crate::{
-    md::MdContext,
     render::{MdRender, MdRenderSync, RenderOutcome, WebContext, WebRender, WebRenderSync},
     shared::escape::escape_text_for_dialect,
     shared::write_buf::{WriteBuf, WriteError},
@@ -32,20 +31,16 @@ impl<'a, L: DataLoader, B: WriteBuf> WebRender<L, B> for Text<'a> {
         )
     }
 }
-impl<'a, B: WriteBuf> MdRenderSync<B> for Text<'a> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.write_text(self.0)
+impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Text<'a> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        cx.write_md_text(self.0)
     }
 }
-impl<'a, B: WriteBuf> MdRender<B> for Text<'a> {
-    fn render_md<'cx, 'out>(
+impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for Text<'a> {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))
@@ -190,20 +185,16 @@ impl<'a, L: DataLoader, B: WriteBuf> WebRender<L, B> for UnsafeRaw<'a> {
     }
 }
 /// Raw HTML/SVG is meaningless in markdown — renders nothing.
-impl<'a, B: WriteBuf> MdRenderSync<B> for UnsafeRaw<'a> {
-    fn render_md(self, _cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for UnsafeRaw<'a> {
+    fn render_md(self, _cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         Ok(())
     }
 }
-impl<'a, B: WriteBuf> MdRender<B> for UnsafeRaw<'a> {
-    fn render_md<'cx, 'out>(
+impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for UnsafeRaw<'a> {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))
@@ -249,20 +240,16 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for StaticRaw {
         )
     }
 }
-impl<B: WriteBuf> MdRenderSync<B> for StaticRaw {
-    fn render_md(self, _cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for StaticRaw {
+    fn render_md(self, _cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         Ok(())
     }
 }
-impl<B: WriteBuf> MdRender<B> for StaticRaw {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for StaticRaw {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))
@@ -314,43 +301,31 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for String {
         )
     }
 }
-impl<B: WriteBuf> MdRender<B> for &str {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for &str {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))
     }
 }
-impl<B: WriteBuf> MdRender<B> for String {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for String {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))
     }
 }
-impl<B: WriteBuf> MdRender<B> for &String {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for &String {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))
@@ -406,20 +381,16 @@ impl<'a, L: DataLoader, B: WriteBuf> WebRender<L, B> for SafeText<'a> {
 }
 /// SafeText in markdown — the text is HTML-safe but may contain markdown chars,
 /// so we still escape for markdown.
-impl<'a, B: WriteBuf> MdRenderSync<B> for SafeText<'a> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
-        cx.write_text(self.0)
+impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for SafeText<'a> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        cx.write_md_text(self.0)
     }
 }
-impl<'a, B: WriteBuf> MdRender<B> for SafeText<'a> {
-    fn render_md<'cx, 'out>(
+impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for SafeText<'a> {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
             self, cx,
         ))

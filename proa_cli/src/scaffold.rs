@@ -2142,15 +2142,15 @@ impl<L: DataLoader> WebRender<L> for __STRUCT__ {
     let markdown_source = if markdown {
         if children {
             r####"
-use proa_core::{md::MdContext, MdRenderSync, WriteBuf};
+use proa_core::{WebContext, MdRenderSync, WriteBuf};
 use proa_macros::md_sync;
 
-impl<B, C> MdRenderSync<B> for __STRUCT__<C>
+impl<L: proa_core::DataLoader, B, C> MdRenderSync<L, B> for __STRUCT__<C>
 where
     B: WriteBuf,
-    C: MdRenderSync<B>,
+    C: MdRenderSync<L, B>,
 {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         md_sync! { r###"
 ### __STRUCT__
 
@@ -2163,11 +2163,11 @@ where
 "####
         } else {
             r####"
-use proa_core::{md::MdContext, MdRenderSync, WriteBuf};
+use proa_core::{WebContext, MdRenderSync, WriteBuf};
 use proa_macros::md_sync;
 
-impl<B: WriteBuf> MdRenderSync<B> for __STRUCT__ {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for __STRUCT__ {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         md_sync! { r###"__STRUCT__"### }.render_md(cx)
     }
 }

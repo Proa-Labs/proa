@@ -3,7 +3,7 @@ use proa_macros::md;
 
 fn require_sync<T>(value: T)
 where
-    T: MdRenderSync<Vec<u8>>,
+    T: MdRenderSync<::proa_core::NoLoader, Vec<u8>>,
 {
     let _ = value;
 }

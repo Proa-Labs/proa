@@ -11,7 +11,8 @@ use std::task::Poll;
 
 use futures::future::poll_fn;
 use futures::FutureExt;
-use proa_core::md::{MdContext, MdContextState};
+use proa_core::md::MdState;
+use proa_core::WebContext;
 use proa_core::{
     render_md_in_context_async, MdRender, RenderBuffer, RenderMode, RenderOutcome,
     StreamChunkFlusher, StreamChunkView, WriteBuf, WriteError,
@@ -67,12 +68,12 @@ struct Snapshot {
     result: Result<(), String>,
     chunks: Vec<Vec<u8>>,
     tail: Vec<u8>,
-    state: MdContextState,
+    state: MdState,
     flush_attempts: usize,
 }
 
 fn snapshot<B: WriteBuf>(
-    cx: &MdContext<'_, B>,
+    cx: &WebContext<::proa_core::NoLoader, B>,
     sink: &CollectingSink,
     result: Result<(), WriteError>,
 ) -> Snapshot {
@@ -80,30 +81,28 @@ fn snapshot<B: WriteBuf>(
         result: result.map_err(|error| error.to_string()),
         chunks: sink.chunks.borrow().clone(),
         tail: cx.out.to_vec(),
-        state: cx.render_state(),
+        state: cx.md_state(),
         flush_attempts: sink.attempts.get(),
     }
 }
 
-fn state_after_shell() -> MdContextState {
-    let mut out = RenderBuffer::new();
-    let mut cx = MdContext::with_buffer(&mut out);
-    cx.push_heading_offset(1);
-    cx.write_prepared_static(b"shell\n")
+fn state_after_shell() -> MdState {
+    let mut cx = WebContext::new();
+    cx.md_push_heading_offset(1);
+    cx.write_md_prepared_static(b"shell\n")
         .expect("state fixture should render");
-    cx.render_state()
+    cx.md_state()
 }
 
 async fn run_suspense<R>(root: R, sink: Rc<CollectingSink>) -> Snapshot
 where
-    R: MdRender<RenderBuffer>,
+    R: MdRender<::proa_core::NoLoader, RenderBuffer>,
 {
     let flusher: Rc<dyn StreamChunkFlusher> = sink.clone();
-    let mut out = RenderBuffer::new();
-    let mut cx = MdContext::with_buffer(&mut out)
+    let mut cx = WebContext::new()
         .with_render_mode(RenderMode::ChunkedInOrder)
         .with_stream_chunk_flusher(flusher);
-    cx.push_heading_offset(1);
+    cx.md_push_heading_offset(1);
     let result = match render_md_in_context_async(&mut cx, root).await {
         Ok(()) => cx.flush_stream_chunk(),
         Err(error) => Err(error),
@@ -113,59 +112,47 @@ where
 
 struct SuccessfulChild;
 
-impl<B: WriteBuf> MdRender<B> for SuccessfulChild {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for SuccessfulChild {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.push_heading_offset(1);
-            cx.heading(1, "child")?;
+            cx.md_push_heading_offset(1);
+            cx.md_heading(1, "child")?;
             tokio::task::yield_now().await;
-            cx.write_prepared_static(b"body\n")
+            cx.write_md_prepared_static(b"body\n")
         })
     }
 }
 
 struct SuccessRoot;
 
-impl MdRender<RenderBuffer> for SuccessRoot {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader> MdRender<Loader, RenderBuffer> for SuccessRoot {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, RenderBuffer>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, RenderBuffer>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.write_prepared_static(b"before\n")?;
+            cx.write_md_prepared_static(b"before\n")?;
             proa_core::render_md_child(cx, Suspense::new(SuccessfulChild, ())).await?;
-            cx.blank_line()?;
-            cx.write_prepared_static(b"after\n")
+            cx.md_blank_line()?;
+            cx.write_md_prepared_static(b"after\n")
         })
     }
 }
 
 struct InnerChild;
 
-impl<B: WriteBuf> MdRender<B> for InnerChild {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for InnerChild {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.write_prepared_static(b"inner\n")?;
+            cx.write_md_prepared_static(b"inner\n")?;
             tokio::task::yield_now().await;
-            cx.push_heading_offset(2);
+            cx.md_push_heading_offset(2);
             Ok(())
         })
     }
@@ -173,20 +160,16 @@ impl<B: WriteBuf> MdRender<B> for InnerChild {
 
 struct NestedThenFail;
 
-impl MdRender<RenderBuffer> for NestedThenFail {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader> MdRender<Loader, RenderBuffer> for NestedThenFail {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, RenderBuffer>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, RenderBuffer>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.write_prepared_static(b"outer\n")?;
+            cx.write_md_prepared_static(b"outer\n")?;
             proa_core::render_md_child(cx, Suspense::new(InnerChild, ())).await?;
-            cx.write_prepared_static(b"discarded\n")?;
-            cx.push_heading_offset(3);
+            cx.write_md_prepared_static(b"discarded\n")?;
+            cx.md_push_heading_offset(3);
             Err(WriteError::render("outer failed"))
         })
     }
@@ -194,17 +177,13 @@ impl MdRender<RenderBuffer> for NestedThenFail {
 
 struct NestedFailureRoot;
 
-impl MdRender<RenderBuffer> for NestedFailureRoot {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader> MdRender<Loader, RenderBuffer> for NestedFailureRoot {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, RenderBuffer>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, RenderBuffer>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.write_prepared_static(b"shell\n")?;
+            cx.write_md_prepared_static(b"shell\n")?;
             proa_core::render_md_child(cx, Suspense::new(NestedThenFail, ())).await
         })
     }
@@ -212,18 +191,14 @@ impl MdRender<RenderBuffer> for NestedFailureRoot {
 
 struct FailingChild;
 
-impl<B: WriteBuf> MdRender<B> for FailingChild {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for FailingChild {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.push_heading_offset(4);
-            cx.write_prepared_static(b"partial\n")?;
+            cx.md_push_heading_offset(4);
+            cx.write_md_prepared_static(b"partial\n")?;
             tokio::task::yield_now().await;
             Err(WriteError::render("child failed"))
         })
@@ -232,17 +207,13 @@ impl<B: WriteBuf> MdRender<B> for FailingChild {
 
 struct FailureRoot;
 
-impl MdRender<RenderBuffer> for FailureRoot {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader> MdRender<Loader, RenderBuffer> for FailureRoot {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, RenderBuffer>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, RenderBuffer>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.write_prepared_static(b"shell\n")?;
+            cx.write_md_prepared_static(b"shell\n")?;
             proa_core::render_md_child(cx, Suspense::new(FailingChild, ())).await
         })
     }
@@ -252,18 +223,14 @@ struct PendingChild {
     started: Rc<Cell<bool>>,
 }
 
-impl<B: WriteBuf> MdRender<B> for PendingChild {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for PendingChild {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.push_heading_offset(5);
-            cx.write_prepared_static(b"cancelled\n")?;
+            cx.md_push_heading_offset(5);
+            cx.write_md_prepared_static(b"cancelled\n")?;
             self.started.set(true);
             pending::<()>().await;
             Ok(())
@@ -275,17 +242,13 @@ struct PendingRoot {
     started: Rc<Cell<bool>>,
 }
 
-impl MdRender<RenderBuffer> for PendingRoot {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader> MdRender<Loader, RenderBuffer> for PendingRoot {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, RenderBuffer>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, RenderBuffer>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.write_prepared_static(b"shell\n")?;
+            cx.write_md_prepared_static(b"shell\n")?;
             proa_core::render_md_child(
                 cx,
                 Suspense::new(
@@ -302,18 +265,14 @@ impl MdRender<RenderBuffer> for PendingRoot {
 
 struct PanickingChild;
 
-impl<B: WriteBuf> MdRender<B> for PanickingChild {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for PanickingChild {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.push_heading_offset(5);
-            cx.write_prepared_static(b"panicking\n")?;
+            cx.md_push_heading_offset(5);
+            cx.write_md_prepared_static(b"panicking\n")?;
             tokio::task::yield_now().await;
             panic!("injected markdown panic")
         })
@@ -322,17 +281,13 @@ impl<B: WriteBuf> MdRender<B> for PanickingChild {
 
 struct PanickingRoot;
 
-impl MdRender<RenderBuffer> for PanickingRoot {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader> MdRender<Loader, RenderBuffer> for PanickingRoot {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, RenderBuffer>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, RenderBuffer>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.write_prepared_static(b"shell\n")?;
+            cx.write_md_prepared_static(b"shell\n")?;
             proa_core::render_md_child(cx, Suspense::new(PanickingChild, ())).await
         })
     }
@@ -341,11 +296,10 @@ impl MdRender<RenderBuffer> for PanickingRoot {
 async fn cancel_suspense(sink: Rc<CollectingSink>) -> Snapshot {
     let started = Rc::new(Cell::new(false));
     let flusher: Rc<dyn StreamChunkFlusher> = sink.clone();
-    let mut out = RenderBuffer::new();
-    let mut cx = MdContext::with_buffer(&mut out)
+    let mut cx = WebContext::new()
         .with_render_mode(RenderMode::ChunkedInOrder)
         .with_stream_chunk_flusher(flusher);
-    cx.push_heading_offset(1);
+    cx.md_push_heading_offset(1);
     let mut future = Box::pin(render_md_in_context_async(
         &mut cx,
         PendingRoot {
@@ -360,11 +314,10 @@ async fn cancel_suspense(sink: Rc<CollectingSink>) -> Snapshot {
 
 async fn unwind_suspense(sink: Rc<CollectingSink>) -> Snapshot {
     let flusher: Rc<dyn StreamChunkFlusher> = sink.clone();
-    let mut out = RenderBuffer::new();
-    let mut cx = MdContext::with_buffer(&mut out)
+    let mut cx = WebContext::new()
         .with_render_mode(RenderMode::ChunkedInOrder)
         .with_stream_chunk_flusher(flusher);
-    cx.push_heading_offset(1);
+    cx.md_push_heading_offset(1);
     let panic = AssertUnwindSafe(render_md_in_context_async(&mut cx, PanickingRoot))
         .catch_unwind()
         .await;

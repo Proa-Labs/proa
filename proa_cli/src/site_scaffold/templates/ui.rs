@@ -43,12 +43,12 @@ pub fn badge_classes() -> ClassList<1> {
 }
 
 pub fn badge_md_rs() -> &'static str {
-    r#"use proa_core::{md::MdContext, MdRenderSync, WriteBuf, WriteError};
+    r#"use proa_core::{WebContext, MdRenderSync, WriteBuf, WriteError};
 
 use super::Badge;
 
-impl<B: WriteBuf> MdRenderSync<B> for Badge {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Badge {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_core::MdRenderSync::render_md(self.label, cx)
     }
 }
@@ -103,13 +103,13 @@ pub fn button_classes() -> ClassList<1> {
 }
 
 pub fn button_md_rs() -> &'static str {
-    r#"use proa_core::{md::MdContext, MdRenderSync, WriteBuf, WriteError};
+    r#"use proa_core::{WebContext, MdRenderSync, WriteBuf, WriteError};
 use proa_macros::md_sync;
 
 use super::Button;
 
-impl<B: WriteBuf> MdRenderSync<B> for Button {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Button {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if let Some(href) = self.href {
             md_sync! { "[" { self.label } "](" { href } ")" }.render_md(cx)
         } else {
@@ -166,13 +166,13 @@ pub fn card_classes() -> ClassList<1> {
 }
 
 pub fn card_md_rs() -> &'static str {
-    r###"use proa_core::{md::MdContext, MdRenderSync, WriteBuf, WriteError};
+    r###"use proa_core::{WebContext, MdRenderSync, WriteBuf, WriteError};
 use proa_macros::md_sync;
 
 use super::Card;
 
-impl<B: WriteBuf> MdRenderSync<B> for Card {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Card {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         md_sync! { "## " { self.title } "\n\n" { self.body } }.render_md(cx)
     }
 }

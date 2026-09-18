@@ -571,7 +571,7 @@ fn lint_render_impl(
         if line_in_ranges(line, ignored_ranges) {
             continue;
         }
-        check_render_block_perf(path, &method.block, suppressions, diagnostics);
+        check_render_block_perf(path, &method.block, suppressions, diagnostics, true);
         check_render_api_perf(path, item_impl, method, suppressions, diagnostics);
         check_owned_view_model_perf(path, &method.block, structs, suppressions, diagnostics);
         check_large_render_clone_perf(path, &method.block, suppressions, diagnostics);
@@ -582,6 +582,7 @@ fn lint_render_impl(
             suppressions,
             ignored_ranges,
             diagnostics,
+            true,
         );
     }
 }
@@ -869,10 +870,10 @@ impl<'ast> Visit<'ast> for MarkdownRenderVisitor<'_> {
         let method = node.method.to_string();
         let is_raw_context_write = matches!(
             method.as_str(),
-            "write_prepared_static"
-                | "write_prepared"
-                | "write_prepared_str"
-                | "write_prepared_shared"
+            "write_md_prepared_static"
+                | "write_md_prepared"
+                | "write_md_prepared_str"
+                | "write_md_prepared_shared"
         ) || (matches!(method.as_str(), "write" | "write_str")
             && expr_is_markdown_context(&node.receiver));
         let is_raw_output_write = matches!(
@@ -902,7 +903,7 @@ fn push_manual_markdown_write(
         Severity::Warning,
         "md/manual-write",
         "Markdown bytes are written by hand inside a Markdown renderer",
-        "render static and interpolated Markdown with `md_sync! { r###\"...\"### }.render_md(cx)`; use typed `MdContext` helpers such as `write_text`, `write_url`, `code`, or `link` when the value needs Markdown-specific escaping",
+        "render static and interpolated Markdown with `md_sync! { r###\"...\"### }.render_md(cx)`; use typed `WebContext` helpers such as `write_md_text`, `write_md_url`, `md_code`, or `md_link` when the value needs Markdown-specific escaping",
     );
 }
 
@@ -1236,7 +1237,8 @@ fn lint_render_function_items(
                 if line_in_ranges(line, ignored_ranges) {
                     continue;
                 }
-                check_render_block_perf(path, &item_fn.block, suppressions, diagnostics);
+                let html = standalone_renders_html(item_fn);
+                check_render_block_perf(path, &item_fn.block, suppressions, diagnostics, html);
                 check_direct_helper_perf(
                     path,
                     &item_fn.block,
@@ -1244,6 +1246,7 @@ fn lint_render_function_items(
                     suppressions,
                     ignored_ranges,
                     diagnostics,
+                    html,
                 );
             }
             Item::Mod(item_mod) => {
@@ -1265,6 +1268,55 @@ fn lint_render_function_items(
 fn function_is_standalone_render_entry(item_fn: &syn::ItemFn) -> bool {
     item_fn.sig.ident.to_string().starts_with("render_")
         && (function_has_web_context_param(item_fn) || block_constructs_web_context(&item_fn.block))
+}
+
+/// Preserve HTML checks for standalone render helpers, including raw byte
+/// writers. Markdown evidence opts out of HTML-specific guidance; allocation
+/// checks still apply to both representations.
+fn standalone_renders_html(item_fn: &syn::ItemFn) -> bool {
+    let name = item_fn.sig.ident.to_string();
+    if name.starts_with("render_md") || name.starts_with("render_markdown") {
+        return false;
+    }
+    fn is_markdown_operation(name: &str) -> bool {
+        name == "render_md"
+            || name == "render_markdown"
+            || name.starts_with("write_md_")
+            || name.starts_with("md_")
+    }
+    struct MarkdownUse(bool);
+    impl<'ast> Visit<'ast> for MarkdownUse {
+        fn visit_macro(&mut self, node: &'ast syn::Macro) {
+            if node.path.segments.last().is_some_and(|segment| {
+                matches!(segment.ident.to_string().as_str(), "md" | "md_sync")
+            }) {
+                self.0 = true;
+            }
+            visit::visit_macro(self, node);
+        }
+        fn visit_expr_method_call(&mut self, node: &'ast ExprMethodCall) {
+            if is_markdown_operation(&node.method.to_string()) {
+                self.0 = true;
+            }
+            visit::visit_expr_method_call(self, node);
+        }
+        fn visit_expr_call(&mut self, node: &'ast ExprCall) {
+            if let Expr::Path(path) = node.func.as_ref() {
+                if path
+                    .path
+                    .segments
+                    .last()
+                    .is_some_and(|segment| is_markdown_operation(&segment.ident.to_string()))
+                {
+                    self.0 = true;
+                }
+            }
+            visit::visit_expr_call(self, node);
+        }
+    }
+    let mut evidence = MarkdownUse(false);
+    evidence.visit_block(&item_fn.block);
+    !evidence.0
 }
 
 fn function_has_web_context_param(item_fn: &syn::ItemFn) -> bool {
@@ -1290,6 +1342,9 @@ fn block_constructs_web_context(block: &Block) -> bool {
         fn visit_expr_call(&mut self, node: &'ast ExprCall) {
             if call_path_ends(node, &["StaticWebContext", "new"])
                 || call_path_ends(node, &["WebContext", "new"])
+                || call_path_ends(node, &["WebContext", "with_buffer"])
+                || call_path_ends(node, &["WebContext", "with_loader"])
+                || call_path_ends(node, &["WebContext", "with_loader_buffer"])
                 || call_path_ends(node, &["LatencyWebContext", "new"])
                 || call_path_ends(node, &["RouteWebContext", "new"])
             {
@@ -3545,6 +3600,7 @@ fn check_render_block_perf(
     block: &Block,
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
+    html: bool,
 ) {
     let mut visitor = PerfVisitor {
         path,
@@ -3555,6 +3611,7 @@ fn check_render_block_perf(
         format_locals: HashSet::new(),
         static_markup_locals: HashSet::new(),
         handled_spans: HashSet::new(),
+        html,
     };
     visitor.visit_block(block);
 }
@@ -3566,6 +3623,7 @@ fn check_direct_helper_perf(
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
+    html: bool,
 ) {
     let mut visited = HashSet::new();
     check_direct_helper_perf_inner(
@@ -3575,6 +3633,7 @@ fn check_direct_helper_perf(
         suppressions,
         ignored_ranges,
         diagnostics,
+        html,
         &mut visited,
     );
 }
@@ -3587,6 +3646,7 @@ fn check_direct_helper_perf_inner(
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
+    html: bool,
     visited: &mut HashSet<String>,
 ) {
     for helper_call in DirectHelperCalls::collect(block) {
@@ -3600,9 +3660,11 @@ fn check_direct_helper_perf_inner(
         if line_in_ranges(line, ignored_ranges) {
             continue;
         }
-        check_manual_escape_helper_perf(path, &helper_call, helper, suppressions, diagnostics);
+        if html {
+            check_manual_escape_helper_perf(path, &helper_call, helper, suppressions, diagnostics);
+        }
         check_string_display_helper_perf(path, &helper_call, helper, suppressions, diagnostics);
-        check_render_block_perf(path, helper.block, suppressions, diagnostics);
+        check_render_block_perf(path, helper.block, suppressions, diagnostics, html);
         check_direct_helper_perf_inner(
             path,
             helper.block,
@@ -3610,6 +3672,7 @@ fn check_direct_helper_perf_inner(
             suppressions,
             ignored_ranges,
             diagnostics,
+            html,
             visited,
         );
     }
@@ -4448,6 +4511,7 @@ fn check_expr_perf(
         format_locals: HashSet::new(),
         static_markup_locals: HashSet::new(),
         handled_spans: HashSet::new(),
+        html: true,
     };
     visitor.visit_expr(expr);
 }
@@ -4969,6 +5033,7 @@ impl<'ast> Visit<'ast> for AttrValueVisitor<'_> {
 }
 
 struct PerfVisitor<'a> {
+    html: bool,
     path: &'a Path,
     origin: SpanOrigin<'a>,
     suppressions: &'a SuppressionComments,
@@ -5174,7 +5239,7 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
                 help,
             );
         }
-        if call_path_is_manual_escape(node) {
+        if self.html && call_path_is_manual_escape(node) {
             push_expr_diag(
                 self.path,
                 self.origin,
@@ -5186,7 +5251,7 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
                 "let html_sync! escape text and attributes, or implement a focused AttrValue wrapper",
             );
         }
-        if call_path_is_raw_write(node) && node.args.iter().any(expr_is_html_literal) {
+        if self.html && call_path_is_raw_write(node) && node.args.iter().any(expr_is_html_literal) {
             push_expr_diag(
                 self.path,
                 self.origin,
@@ -5344,7 +5409,8 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
                 "render the child directly into the existing WebContext",
             );
         }
-        if matches!(node.method.to_string().as_str(), "extend" | "extend_static")
+        if self.html
+            && matches!(node.method.to_string().as_str(), "extend" | "extend_static")
             && node.args.iter().any(expr_is_html_literal)
         {
             push_expr_diag(

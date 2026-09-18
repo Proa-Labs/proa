@@ -8,7 +8,7 @@ use std::{
     future::{Future, Ready},
 };
 
-use proa_core::md::{MdContext, TrustedMarkdown};
+use proa_core::md::TrustedMarkdown;
 use proa_core::shared::attr_value::display_attr;
 use proa_core::{
     csp_nonce_attr, DataLoader, MdRender, MdRenderSync, RenderOutcome, StaticRaw, WebContext,
@@ -148,23 +148,22 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for YouTubeEmbed<'_> {
     }
 }
 
-impl<B: WriteBuf> MdRenderSync<B> for YouTubeEmbed<'_> {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for YouTubeEmbed<'_> {
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         // The constructor validates URL-safe IDs; the title uses Markdown escaping.
         let video_id = TrustedMarkdown(self.video_id);
-        cx.render(md_sync! { r###"[{self.title}](https://www.youtube.com/watch?v={video_id})"### })
+        MdRenderSync::render_md(
+            md_sync! { r###"[{self.title}](https://www.youtube.com/watch?v={video_id})"### },
+            cx,
+        )
     }
 }
 
-impl<B: WriteBuf> MdRender<B> for YouTubeEmbed<'_> {
-    fn render_md<'cx, 'out>(
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for YouTubeEmbed<'_> {
+    fn render_md(
         self,
-        cx: &'cx mut MdContext<'out, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + 'cx>
-    where
-        Self: 'cx,
-        'out: 'cx,
-    {
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::<Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(self, cx))
     }
 }
@@ -237,7 +236,7 @@ mod tests {
             for asynchronous in [false, true] {
                 let video = YouTubeEmbed::new(video_id, "Title [one]").unwrap();
                 let mut out = Vec::new();
-                let mut cx = MdContext::with_buffer(&mut out);
+                let mut cx = WebContext::with_buffer(&mut out);
                 if asynchronous {
                     assert!(matches!(
                         MdRender::render_md(video, &mut cx),

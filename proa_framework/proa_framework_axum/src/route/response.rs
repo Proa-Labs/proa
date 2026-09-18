@@ -20,7 +20,7 @@ use proa_framework_core::{
 use proa_react::ReactBootstrapConfig;
 use tracing::error;
 
-use super::context::ROUTE_CONTEXT;
+use super::context::{RouteContext, ROUTE_CONTEXT};
 use super::local_executor::{LocalStreamExecutor, LocalStreamPrepareError};
 pub use proa_framework_core::{
     drive_dyn_render, drive_dyn_send_render, DynRenderOutcome, DynSendRenderOutcome, DynWebRender,
@@ -247,7 +247,7 @@ impl RouteResponse<DynLoaderHandle> {
     }
 }
 
-fn framework_response_to_axum(response: FrameworkResponse) -> Response {
+pub(super) fn framework_response_to_axum(response: FrameworkResponse) -> Response {
     let FrameworkResponse {
         status,
         headers,
@@ -258,6 +258,12 @@ fn framework_response_to_axum(response: FrameworkResponse) -> Response {
             .status(status)
             .body(Body::from(bytes))
             .expect("framework full response should build"),
+        FrameworkBody::BufferedPages(buffer) => Response::builder()
+            .status(status)
+            .body(Body::from_stream(stream::iter(
+                buffer.into_pages().map(Ok::<_, std::convert::Infallible>),
+            )))
+            .expect("framework buffered pages response should build"),
         FrameworkBody::Stream(factory) => {
             let mut response = Response::builder()
                 .status(status)
@@ -373,60 +379,51 @@ async fn prepare_stream(
     }
 }
 
+fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
+    let request_location = ctx.current_uri().cloned().map(RequestLocation::from);
+    let route_params = Some(ctx.current_route_params().clone());
+    let mut request = RequestContext::new();
+    if let Some(method) = ctx.current_method().cloned() {
+        request.set_method(method);
+    }
+    request.set_headers(ctx.current_headers().clone());
+    if let Some(location) = request_location.clone() {
+        request.set_original_pathname(location.path());
+        request.set_location(location);
+    }
+    if let Some(params) = route_params.clone() {
+        request.set_route_params(params);
+    }
+    FrameworkRequestContext {
+        request,
+        request_location,
+        route_params,
+        render_mode: RenderMode::Static,
+        csp_nonce: ctx.csp_nonce().cloned(),
+    }
+}
+
+pub(super) fn current_framework_request_context() -> FrameworkRequestContext {
+    ROUTE_CONTEXT
+        .try_with(|ctx| framework_request_context(&ctx.borrow()))
+        .unwrap_or_default()
+}
+
 impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
     fn into_response(self) -> Response {
         ROUTE_CONTEXT
             .try_with(|ctx| {
-                let (
-                    manifest,
-                    is_client_request,
-                    request_location,
-                    route_params,
-                    request_context,
-                    csp_nonce,
-                    page_title,
-                ) = {
+                let (manifest, is_client_request, page_title, request) = {
                     let mut ctx_ref = ctx.borrow_mut();
                     let manifest = ctx_ref.manifest_arc();
                     let is_client = ctx_ref.is_client_request();
-                    let request_location =
-                        ctx_ref.current_uri().cloned().map(RequestLocation::from);
-                    let route_params = Some(ctx_ref.current_route_params().clone());
-                    let mut request_context = RequestContext::new();
-                    if let Some(method) = ctx_ref.current_method().cloned() {
-                        request_context.set_method(method);
-                    }
-                    request_context.set_headers(ctx_ref.current_headers().clone());
-                    if let Some(request_location) = request_location.clone() {
-                        request_context.set_original_pathname(request_location.path());
-                        request_context.set_location(request_location);
-                    }
-                    if let Some(route_params) = route_params.clone() {
-                        request_context.set_route_params(route_params);
-                    }
+                    let request = framework_request_context(&ctx_ref);
                     let page_title = if is_client {
                         ctx_ref.resolve_metadata().and_then(|meta| meta.title)
                     } else {
                         None
                     };
-                    let csp_nonce = ctx_ref.csp_nonce().cloned();
-                    (
-                        manifest,
-                        is_client,
-                        request_location,
-                        route_params,
-                        request_context,
-                        csp_nonce,
-                        page_title,
-                    )
-                };
-
-                let request: FrameworkRequestContext = FrameworkRequestContext {
-                    request: request_context,
-                    request_location,
-                    route_params,
-                    render_mode: proa_core::RenderMode::Static,
-                    csp_nonce,
+                    (manifest, is_client, page_title, request)
                 };
 
                 let mode = if is_client_request {
@@ -468,7 +465,7 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
     }
 }
 
-fn block_on_current_runtime<F>(fut: F) -> F::Output
+pub(super) fn block_on_current_runtime<F>(fut: F) -> F::Output
 where
     F: Future,
 {

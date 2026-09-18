@@ -32,7 +32,10 @@ pub use metadata::{
 };
 pub use page_cache::{PageCacheLayer, PageCacheService};
 pub use proa_framework_core::{ComputedOpenGraph, ResolvedOpenGraph};
-pub use representation::{explicit_markdown, negotiate, MarkdownAlternate, RepresentationResponse};
+pub use representation::{
+    explicit_markdown, explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader,
+    MarkdownAlternate, RepresentationResponse,
+};
 pub use response::{
     drive_dyn_render, drive_dyn_send_render, DynRenderOutcome, DynSendRenderOutcome, DynWebRender,
     DynWebRenderSend, RouteResponse,

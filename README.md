@@ -143,11 +143,11 @@ A component can render Markdown for agents as well as HTML for people. Give
 the `Greeting` component above a Markdown implementation:
 
 ```rust
-use proa_core::{md::MdContext, MdRenderSync, WriteBuf};
+use proa_core::{DataLoader, WebContext, MdRenderSync};
 use proa_macros::md_sync;
 
-impl<B: WriteBuf> MdRenderSync<B> for Greeting {
-    fn render_md(self, cx: &mut MdContext<'_, B>) -> Result<(), WriteError> {
+impl<L: DataLoader> MdRenderSync<L> for Greeting {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         md_sync! { r###"
             # Hello, {self.name}
 

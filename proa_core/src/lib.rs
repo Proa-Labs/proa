@@ -367,26 +367,24 @@ pub fn await_md_component<F>(future: F) -> AwaitMdComponent<F> {
 
 /// Drive any async-capable Markdown child to completion inside an async
 /// Markdown render path.
-pub async fn render_md_child<'a, 'out, B, R>(
-    cx: &'a mut md::MdContext<'out, B>,
-    child: R,
-) -> Result<(), WriteError>
+pub async fn render_md_child<L, B, R>(cx: &mut WebContext<L, B>, child: R) -> Result<(), WriteError>
 where
     B: WriteBuf,
-    R: MdRender<B>,
+    L: DataLoader,
+    R: MdRender<L, B>,
 {
     child.render_md(cx).resolve().await
 }
 
-/// Drive a [`MdRender`] root to completion inside an existing [`md::MdContext`].
-pub async fn render_md_in_context_async<'cx, 'out, B, R>(
-    cx: &'cx mut md::MdContext<'out, B>,
+/// Drive a [`MdRender`] root to completion inside an existing [`WebContext`].
+pub async fn render_md_in_context_async<L, B, R>(
+    cx: &mut WebContext<L, B>,
     root: R,
 ) -> Result<(), WriteError>
 where
     B: WriteBuf,
-    R: MdRender<B>,
-    'out: 'cx,
+    L: DataLoader,
+    R: MdRender<L, B>,
 {
     root.render_md(cx).resolve().await
 }
@@ -394,14 +392,12 @@ where
 /// Render an async-capable Markdown component to a `Vec<u8>` buffer.
 pub async fn render_md_to_vec_async<R>(root: R) -> Vec<u8>
 where
-    R: MdRender<Vec<u8>>,
+    R: MdRender<NoLoader, Vec<u8>>,
 {
-    let mut out = Vec::new();
-    {
-        let mut cx = md::MdContext::with_buffer(&mut out);
-        render_md_in_context_async(&mut cx, root).await.unwrap();
-    }
-    out
+    // proa-perf-ok: this root helper intentionally owns its returned Vec without flattening pages
+    let mut cx = WebContext::with_buffer(Vec::new());
+    render_md_in_context_async(&mut cx, root).await.unwrap();
+    cx.into_output()
 }
 
 /// Render an async-capable Markdown component to a UTF-8 `String`.
@@ -411,7 +407,7 @@ where
 /// Panics if the rendered output contains invalid UTF-8.
 pub async fn render_md_to_string_async<R>(root: R) -> String
 where
-    R: MdRender<Vec<u8>>,
+    R: MdRender<NoLoader, Vec<u8>>,
 {
     let bytes = render_md_to_vec_async(root).await;
     String::from_utf8(bytes).expect("markdown render produced invalid UTF-8")
