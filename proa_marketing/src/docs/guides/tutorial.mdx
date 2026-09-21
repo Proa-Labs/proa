@@ -11,16 +11,20 @@ Here you'll be building a sample product page! Build a small product catalog and
 Start from the project created in [Getting Started](/docs):
 
 ```bash
-proa new site shop-demo --template marketing --docs proa_docs --tailwind --yes
+proa new site shop-demo --template marketing --tailwind --yes
 cd shop-demo
-bash scripts/dev.sh
+proa dev --open
 ```
 
-`scripts/dev.sh` is generated with the project. It builds the Tailwind assets
-before starting the server, restarts on changes, and runs through `proa dev`.
-Open tabs reload themselves after each rebuild, and stylesheet edits are
-applied without navigating. See [Live reload](/docs/cli/new-site#live-reload)
-for the settings at the top of the script.
+`proa dev` builds the Tailwind assets before starting the server, runs the
+binary through the linked pipeline, and restarts on changes. Open tabs reload
+themselves after each rebuild, and stylesheet edits are applied without
+navigating. See [Live reload](/docs/cli/new-site#live-reload) for the flags.
+
+The generated site already has a home page, a `RootDocument` layout in
+`src/layouts/root.rs`, a router in `src/routes.rs`, and health endpoints. You
+will add files beside them and register new routes between the
+`proa:route-specs` markers.
 
 ## Target Files
 
@@ -35,12 +39,20 @@ for the settings at the top of the script.
       <File name="mod.rs" />
       <File name="products.rs" />
     </Folder>
+    <Folder name="endpoints" defaultOpen>
+      <File name="mod.rs" />
+      <File name="cart.rs" />
+    </Folder>
+    <Folder name="layouts" defaultOpen>
+      <File name="root.rs" />
+    </Folder>
     <Folder name="pages" defaultOpen>
       <File name="mod.rs" />
       <File name="products.rs" />
       <File name="product.rs" />
     </Folder>
     <File name="rsjs_assets.rs" />
+    <File name="routes.rs" />
     <File name="main.rs" />
   </Folder>
 </Files>
@@ -107,6 +119,15 @@ pub mod products;
 
 </CodeFile>
 
+<CodeFile name="src/main.rs">
+
+```rust
+// The generated main.rs declares each module explicitly. Add the new one:
+mod data;
+```
+
+</CodeFile>
+
 </CodeExplorer>
 
 ## Product Card
@@ -155,12 +176,22 @@ impl<L: DataLoader> WebRenderSync<L> for ProductCard {
 <CodeFile name="src/components/mod.rs">
 
 ```rust
+pub mod badge;
+pub mod button;
+pub mod card;
 pub mod product_card;
+
+pub use badge::Badge;
+pub use button::Button;
+pub use card::Card;
 ```
 
 </CodeFile>
 
 </CodeExplorer>
+
+The scaffold's `mod.rs` already declares the vendored `Badge`, `Button`, and
+`Card`, which the home page uses, so append to it rather than replacing it.
 
 ## Routes
 
@@ -168,36 +199,30 @@ Two pages: a listing that maps over `PRODUCTS`, and a detail page whose
 add-to-cart control is a native form posting `sku` and `qty`. There is no
 JavaScript in either one.
 
-A loop body is its own template, so it needs its own `html_sync!` block.
+Each handler wraps its page in the generated `RootDocument` layout and hands it
+to `RouteResponse::ssr_async`, the same shape as the generated `src/pages/home.rs`.
+`RootDocument` is async-capable, so a synchronous page goes in through
+`proa_core::to_async`. A loop body is its own template, so it needs its own
+`html_sync!` block.
 
 <CodeExplorer>
 
 <CodeFile name="src/pages/products.rs">
 
 ```rust
-use axum::response::Html;
-use proa_core::{
-    render_to_string, DataLoader, WebContext, WebRenderSync, WriteError,
-};
+use axum::response::IntoResponse;
+use proa_core::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_framework_axum::RouteResponse;
 use proa_macros::html_sync;
 
 use crate::components::product_card::ProductCard;
 use crate::data::products::PRODUCTS;
-use crate::layouts::root::{PageMeta, RootDocument};
+use crate::layouts::RootDocument;
 
-pub async fn handler() -> Html<String> {
-    Html(render())
-}
-
-pub fn render() -> String {
-    // proa-perf-ok: top-level Axum response finalization owns the HTML String
-    render_to_string(RootDocument {
-        meta: PageMeta {
-            title: "Products",
-            description: "Product catalog.",
-            path: "/products",
-        },
-        content: ProductsPage,
+pub async fn handler() -> impl IntoResponse {
+    RouteResponse::ssr_async(RootDocument {
+        title: "Products",
+        content: to_async(ProductsPage),
     })
 }
 
@@ -225,30 +250,20 @@ impl<L: DataLoader> WebRenderSync<L> for ProductsPage {
 <CodeFile name="src/pages/product.rs">
 
 ```rust
-use axum::{extract::Path, http::StatusCode, response::Html};
-use proa_core::{
-    render_to_string, DataLoader, WebContext, WebRenderSync, WriteError,
-};
+use axum::{extract::Path, http::StatusCode, response::IntoResponse};
+use proa_core::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_framework_axum::RouteResponse;
 use proa_macros::html_sync;
 
 use crate::data::products::{find_product, Product};
-use crate::layouts::root::{PageMeta, RootDocument};
+use crate::layouts::RootDocument;
 
-pub async fn handler(Path(slug): Path<String>) -> Result<Html<String>, StatusCode> {
+pub async fn handler(Path(slug): Path<String>) -> Result<impl IntoResponse, StatusCode> {
     let product = find_product(&slug).ok_or(StatusCode::NOT_FOUND)?;
-    Ok(Html(render(product)))
-}
-
-pub fn render(product: &'static Product) -> String {
-    // proa-perf-ok: top-level Axum response finalization owns the HTML String
-    render_to_string(RootDocument {
-        meta: PageMeta {
-            title: product.name,
-            description: product.summary,
-            path: product.path,
-        },
-        content: ProductPage { product },
-    })
+    Ok(RouteResponse::ssr_async(RootDocument {
+        title: product.name,
+        content: to_async(ProductPage { product }),
+    }))
 }
 
 struct ProductPage {
@@ -314,6 +329,7 @@ impl<L: DataLoader> WebRenderSync<L> for ProductPage {
 <CodeFile name="src/pages/mod.rs">
 
 ```rust
+pub mod home;
 pub mod product;
 pub mod products;
 ```
@@ -324,40 +340,55 @@ pub mod products;
 
 ## Form Action
 
-Add the POST handler and register the routes.
+Add the POST handler beside the generated health endpoints, then register all
+three routes in `src/routes.rs`.
 
 <CodeExplorer>
 
-<CodeFile name="src/main.rs">
+<CodeFile name="src/endpoints/cart.rs">
 
 ```rust
-use axum::{
-    extract::Form,
-    response::Redirect,
-    routing::{get, post},
-    Router,
-};
+use axum::{extract::Form, response::Redirect};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-struct AddToCart {
+pub struct AddToCart {
     sku: String,
     qty: u32,
 }
 
-async fn add_to_cart(Form(form): Form<AddToCart>) -> Redirect {
+pub async fn add_to_cart(Form(form): Form<AddToCart>) -> Redirect {
     tracing::info!(sku = %form.sku, qty = form.qty, "add to cart");
     Redirect::to("/products")
 }
+```
 
-// ... and where the router is built:
+</CodeFile>
 
-let app = Router::new()
-    .route("/", get(pages::home::handler))
-    .route("/products", get(pages::products::handler))
-    .route("/products/:slug", get(pages::product::handler))
-    .route("/cart", post(add_to_cart))
-    .nest_service("/static", static_assets::service());
+<CodeFile name="src/endpoints/mod.rs">
+
+```rust
+pub mod cart;
+pub mod health;
+```
+
+</CodeFile>
+
+<CodeFile name="src/routes.rs">
+
+```rust
+use axum::routing::{get, post};
+
+// ... inside router(), between the markers the generator maintains:
+
+let (router, metadata) = router_from_spec(vec![
+    // proa:route-specs:start
+    Route::endpoint("/", get(pages::home::handler)),
+    Route::endpoint("/products", get(pages::products::handler)),
+    Route::endpoint("/products/:slug", get(pages::product::handler)),
+    Route::endpoint("/cart", post(endpoints::cart::add_to_cart)),
+    // proa:route-specs:end
+]);
 ```
 
 </CodeFile>
@@ -393,10 +424,11 @@ above.
 <CodeFile name="Cargo.toml">
 
 ```toml
-rsjs = { git = "https://github.com/Proa-Labs/proa.git" }
-rsjs_macros = { git = "https://github.com/Proa-Labs/proa.git" }
-serde = { version = "1", features = ["derive"] }
+rsjs = { version = "0.2", git = "https://github.com/Proa-Labs/proa.git" }
 ```
+
+`rsjs` re-exports the `#[rsjs]` attribute, so no separate macro crate is
+needed, and the scaffold already depends on `serde`.
 
 </CodeFile>
 
@@ -405,8 +437,7 @@ serde = { version = "1", features = ["derive"] }
 ```rust
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
 use proa_macros::html_sync;
-use rsjs::signal;
-use rsjs_macros::rsjs;
+use rsjs::{rsjs, signal};
 
 pub struct QuantityStepper {
     pub unit_price: i64,
@@ -462,8 +493,15 @@ impl<L: DataLoader> WebRenderSync<L> for QuantityStepper {
 <CodeFile name="src/components/mod.rs">
 
 ```rust
+pub mod badge;
+pub mod button;
+pub mod card;
 pub mod product_card;
 pub mod quantity_stepper;
+
+pub use badge::Badge;
+pub use button::Button;
+pub use card::Card;
 ```
 
 </CodeFile>
@@ -530,6 +568,8 @@ compiled separately from the island that mounts it, and the page preloads both.
 <CodeFile name="src/layouts/root.rs">
 
 ```rust
+use proa_core::{to_async, WebRenderSync};
+
 pub struct RsjsRuntimeTags;
 
 impl<L: DataLoader> WebRenderSync<L> for RsjsRuntimeTags {
@@ -538,18 +578,15 @@ impl<L: DataLoader> WebRenderSync<L> for RsjsRuntimeTags {
         let plan = rsjs::manifest()
             .page_runtime_plan(artifacts.rendered_islands())
             .expect("every rendered island resolves in the linked manifest");
-        plan.write_html(cx.out, None)
+        plan.write_html(&mut cx.out, None)
     }
 }
 
-// ... and in the document body:
+// ... and in the generated document body, which is an async `html!` template:
 
 <body>
-    <header class="mx-auto max-w-4xl px-6 pt-8">
-        <nav class="flex items-center gap-6">{SiteNav}</nav>
-    </header>
-    {self.content}
-    {RsjsRuntimeTags}
+    {content}
+    {to_async(RsjsRuntimeTags)}
 </body>
 ```
 
@@ -566,7 +603,11 @@ use axum::{
     Router,
 };
 
-pub fn router() -> Router {
+/// Generic over the app state so it merges into the generated `Router<AppState>`.
+pub fn router<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
     Router::new()
         .route("/rsjs-runtime.js", get(runtime))
         .route("/rsjs/island/:file", get(island))
@@ -613,16 +654,26 @@ fn js_headers() -> [(header::HeaderName, &'static str); 2] {
 
 ```rust
 mod rsjs_assets;
+```
 
-// ...
+</CodeFile>
 
-let app = Router::new()
-    .route("/", get(pages::home::handler))
-    .route("/products", get(pages::products::handler))
-    .route("/products/:slug", get(pages::product::handler))
-    .route("/cart", post(add_to_cart))
+<CodeFile name="src/routes.rs">
+
+```rust
+use crate::rsjs_assets;
+
+// ... in the chain after router_from_spec, before .with_state(state):
+
+router
+    .route("/healthz", get(endpoints::health::live))
+    .route("/readyz", get(endpoints::health::ready))
     .merge(rsjs_assets::router())
-    .nest_service("/static", static_assets::service());
+    // proa:explicit-routes:start
+    .route("/index.md", get(pages::home::markdown))
+    // proa:explicit-routes:end
+    .nest_service("/static", static_assets::service())
+    .with_state(state)
 ```
 
 </CodeFile>
@@ -631,8 +682,9 @@ let app = Router::new()
 
 ## Verify
 
-Restart with `bash scripts/dev.sh`, open
-`http://localhost:3000/products/atlas-jacket`, and check three things.
+`proa dev` restarts on its own after the change; if you stopped it, run it
+again. Open `http://localhost:3000/products/atlas-jacket` and check three
+things.
 
 **The server sent working HTML.** View source. The stepper is real markup with
 the correct starting state, wrapped in an island boundary next to a small seed
@@ -686,8 +738,8 @@ proa lint src
 
 `cargo check` still works on a project with islands. `cargo build` and
 `cargo run` do not: the link step deliberately fails so that a binary is never
-shipped without its compiled island modules. Use `bash scripts/dev.sh` or
-`proa run` instead.
+shipped without its compiled island modules. Use `proa dev`, `proa run`, or
+`proa build` instead.
 
 ## Next
 

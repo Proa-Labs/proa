@@ -11,7 +11,7 @@ Keep the contract small and explicit:
 
 | Variable | Required | Use |
 |----------|----------|-----|
-| `HOST` | No | Bind host. Use `0.0.0.0` in containers and `127.0.0.1` behind a same-host reverse proxy. |
+| `HOST` | No | Bind host. Use `0.0.0.0` in containers and `127.0.0.1` behind a same-host reverse proxy. Sites from `proa new site` read `PROA_HOST` instead, which is what `proa start --host` sets. |
 | `PORT` | No | Bind port. Container platforms often inject this. |
 | `STATIC_DIR` | No | Directory the static asset service serves. |
 | `RUST_LOG` | No | `tracing_subscriber` filter, usually `info` in production. |
@@ -179,7 +179,7 @@ Keep these separate:
 
 | Variable | Phase | Notes |
 |----------|-------|-------|
-| `GITHUB_TOKEN` | Build | Lets the git CLI fetch Proa git dependencies while the Proa repository is private. Never required at runtime. |
+| `GITHUB_TOKEN` | Build | Lets the git CLI fetch Proa git dependencies while the Proa repository is private. Never required at runtime. Generated sites name this secret `PROA_GITHUB_TOKEN` in their Actions workflow (see [CI](/docs/guides/ci)). |
 | `STATIC_DIR` | Runtime | Points the running server at public assets. |
 | `DATABASE_URL` | Runtime | App startup or handlers read it. |
 | `PUBLIC_BASE_URL` | Runtime | Safe to expose only if you explicitly render it. |

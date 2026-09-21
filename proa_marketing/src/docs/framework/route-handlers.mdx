@@ -248,6 +248,7 @@ use axum::{
     http::{Request, StatusCode},
     routing::get,
 };
+use proa_framework_axum::{router_from_spec, FrameworkBuilder, Route};
 use tower::ServiceExt;
 
 #[tokio::test]

@@ -265,7 +265,7 @@ use std::future::Future;
 use proa_core::{
     DataLoader, RenderOutcome, WebContext, WebRender, WriteError,
 };
-use proa_macros::html_sync;
+use proa_macros::html;
 
 pub struct AsyncPrice;
 
@@ -276,10 +276,12 @@ impl<L: DataLoader> WebRender<L> for AsyncPrice {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let amount = 42_u32;
-            html_sync! {
+            html! {
                 <span>"$"{amount}</span>
             }
             .render(cx)
+            .resolve()
+            .await
         })
     }
 }
@@ -324,7 +326,7 @@ let mut cx = WebContext::with_loader_buffer(
 render_in_context_async(&mut cx, PageWithData).await?;
 ```
 
-> **Good to know**: Streaming render modes also need the matching framework state installed, stream recorders, chunk flushers, and page pools. Use the framework response helpers unless you are writing that adapter layer. See [Streaming SSR](/docs/core/streaming-ssr).
+> **Good to know**: Streaming render modes also need the matching framework state installed, stream recorders and chunk flushers. Use the framework response helpers unless you are writing that adapter layer. See [Streaming SSR](/docs/core/streaming-ssr).
 
 ## Next steps
 

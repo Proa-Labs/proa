@@ -24,7 +24,7 @@ originate browser behavior:
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
 use proa_macros::html_sync;
 use rsjs::signal;
-use rsjs_macros::rsjs;
+use rsjs::rsjs;
 
 pub struct FavoriteButton {
     pub label: &'static str,
@@ -44,9 +44,9 @@ impl<L: DataLoader> WebRenderSync<L> for FavoriteButton {
                 class="rounded-md border px-3 py-2 text-sm"
             >
                 {if saved.get() {
-                    html_sync! { "Saved" }
+                    html_sync! { <span>"Saved"</span> }
                 } else {
-                    html_sync! { {label} }
+                    html_sync! { <span>{label}</span> }
                 }}
             </button>
         }
@@ -54,6 +54,8 @@ impl<L: DataLoader> WebRenderSync<L> for FavoriteButton {
     }
 }
 ```
+
+Two shape rules apply inside an analyzed template, and the compiler reports each as an error: the body must have a single top-level element, so wrap siblings in a containing element, and each branch of a conditional must have an element as its root, which is why the branches above wrap their text in `<span>`.
 
 Use it from any page or component:
 
@@ -153,7 +155,7 @@ html_sync! {
     <input
         type="search"
         value={query.get()}
-        on_input={|event| query.set(event.value().trim().to_string())}
+        on_input={|event| query.set(event.value().trim())}
     />
 }
 ```
@@ -277,7 +279,7 @@ Use sync islands for local browser state. Switch to async `WebRender` when the i
 ```rust
 use proa_core::{DataLoader, LoadKey, WebContext, WebRender, WriteError};
 use proa_macros::html;
-use rsjs_macros::rsjs;
+use rsjs::rsjs;
 use std::future::Future;
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]

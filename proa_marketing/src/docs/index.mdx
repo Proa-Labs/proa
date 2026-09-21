@@ -48,9 +48,9 @@ CARGO_NET_GIT_FETCH_WITH_CLI=true \
   cargo install --git https://github.com/proa-labs/proa --locked proa-cli
 ```
 
-The prefixes matter: the workspace names the `proa` registry, and the git CLI
-fetch picks up credential helpers and proxy settings that Cargo's built-in
-fetcher does not. [Troubleshooting](/docs/guides/troubleshooting) has the
+The prefix matters: Proa crates are git dependencies, and the git CLI fetch
+picks up credential helpers and proxy settings that Cargo's built-in fetcher
+does not. [Troubleshooting](/docs/guides/troubleshooting) has the
 details.
 
 </Accordion>
@@ -156,10 +156,14 @@ retune it with `--no-reload`, `--no-css-hot-swap`, and `--debounce-ms`; see
 Set up [your editor](/docs/guides/editor-setup) for Rust navigation and
 completion, including expressions inside raw Markdown templates.
 
-Open `src/pages/home.rs` and find the `HomePage` render implementation. Replace the placeholder copy inside the `<main>` with content for your first route:
+Open `src/pages/home.rs` and find the `HomePage` render implementation. The
+default site ships with a database, so the page is an async `WebRender` impl
+built with `html!`; sites scaffolded without one use `WebRenderSync` and
+`html_sync!`. Either way, replace the placeholder copy inside the `<main>`
+with content for your first route, keeping the macro the file already uses:
 
 ```rust
-html_sync! {
+html! {
     <main class="mx-auto max-w-4xl px-6 py-16">
         <p class="font-mono text-sm uppercase tracking-[0.18em] text-zinc-500">"Proa"</p>
         <h1 class="mt-4 text-5xl font-semibold">"Fast SSR, typed in Rust"</h1>
@@ -177,36 +181,20 @@ Refresh the browser. You have now edited a server-rendered Proa route and seen t
 Create `src/pages/about.rs`:
 
 ```rust
-use axum::{
-    http::header,
-    response::{Html, IntoResponse},
-};
-use proa_core::{
-    render_to_string, DataLoader, WebContext, WebRenderSync, WriteError,
-};
+use axum::response::IntoResponse;
+use proa_core::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_framework_axum::RouteResponse;
 use proa_macros::html_sync;
 
-use crate::layouts::root::{PageMeta, RootDocument};
+use crate::layouts::RootDocument;
 
 pub async fn handler() -> impl IntoResponse {
-    (
-        [(header::CACHE_CONTROL, "public, max-age=300")],
-        Html(render()),
-    )
-}
-
-pub fn render() -> String {
-    // proa-perf-ok: top-level Axum response finalization owns the HTML String
-    render_to_string(RootDocument {
-        meta: PageMeta {
-            title: "About",
-            description: "About this Proa site.",
-            path: "/about",
-        },
-        content: AboutPage {
+    RouteResponse::ssr_async(RootDocument {
+        title: "About",
+        content: to_async(AboutPage {
             heading: "About",
             body: "This route renders from src/pages/about.rs.",
-        },
+        }),
     })
 }
 
@@ -228,25 +216,30 @@ impl<L: DataLoader> WebRenderSync<L> for AboutPage {
 }
 ```
 
-Export it from `src/pages/mod.rs`:
+Export it from `src/pages/mod.rs`, keeping the generated `home` module:
 
 ```rust
 pub mod about;
+pub mod home;
 ```
 
-Register it in `src/main.rs`:
+Register it in `src/routes.rs`, between the markers the generator maintains:
 
 ```rust
-let app = Router::new()
-    .route("/", get(pages::home::handler))
-    .route("/about", get(pages::about::handler))
-    // Keep the generated /docs and /blog routes here if your site has them.
-    .nest_service("/static", static_assets::service());
+let (router, metadata) = router_from_spec(vec![
+    // proa:route-specs:start
+    Route::endpoint("/", get(pages::home::handler)),
+    Route::endpoint("/about", get(pages::about::handler)),
+    // proa:route-specs:end
+]);
 ```
 
-That is the whole route flow. The handler chooses the response headers,
-`RootDocument` supplies the shared page shell, and the fields passed to
-`AboutPage` are compile-time-checked props. Add Axum extractors such as `Path`,
+That is the whole route flow. `RouteResponse` renders the page and finalizes
+the HTTP response, `RootDocument` supplies the shared page shell (it is
+async-capable, so a synchronous page goes in through `to_async`), and the
+fields passed to `AboutPage` are compile-time-checked props. Add
+[page caching](/docs/framework/page-caching) to the route spec when the
+response should carry CDN cache headers. Add Axum extractors such as `Path`,
 `Query`, or `State` to `handler` when the route needs request data.
 
 Open [http://localhost:3000/about](http://localhost:3000/about). Check the route table:

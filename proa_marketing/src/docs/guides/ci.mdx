@@ -71,11 +71,11 @@ proa --help
 
 ```bash
 cargo fmt --all --check
-cargo test --workspace
+proa test
 proa check src
 ```
 
-`cargo fmt` keeps Rust syntax stable. `proa check` keeps template macro bodies canonical and catches Proa-specific render, accessibility, composition, performance, and RSJS issues.
+`cargo fmt` keeps Rust syntax stable. `proa test` runs the application suite through the linked pipeline, which is what the generated CI workflow does; a plain `cargo test` binary that links RSJS islands fails at link time by design (see [Testing](/docs/guides/testing)). In a workspace with several targets, name one with `-p my_app --bin my_app` or `--test <name>`. `proa check` keeps template macro bodies canonical and catches Proa-specific render, accessibility, composition, performance, and RSJS issues.
 
 ## GitHub Actions
 
@@ -117,7 +117,7 @@ jobs:
       - name: Rust checks
         run: |
           cargo fmt --all --check
-          cargo test --workspace
+          proa test
 
       - name: Proa checks
         run: proa check src
@@ -232,8 +232,10 @@ RUN --mount=type=secret,id=github_token \
     export GIT_CONFIG_COUNT=1; \
     export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
     export GIT_CONFIG_VALUE_0='!f() { if [ "$1" = get ] && [ -s /run/secrets/github_token ]; then printf "username=x-access-token\npassword=%s\n" "$(cat /run/secrets/github_token)"; fi; }; f'; \
-    cargo build --release
+    proa build --locked --artifact-out /tmp/proa-app
 ```
+
+`proa build` runs the linked RSJS pipeline and the configured asset build, then exports the binary and its assets to the `--artifact-out` directory; a plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The Dockerfile that `proa new site --deploy docker` writes uses the same command.
 
 Build with:
 
@@ -249,7 +251,7 @@ The pattern is the same for any CI:
 
 1. Install a checksum-verified CLI binary (or build it from source) as shown above
 2. While the Proa repository is private, store a GitHub token with read access as a secret, set `CARGO_NET_GIT_FETCH_WITH_CLI=true`, and configure git to authenticate with it for all cargo commands
-3. Run the gate: `cargo fmt --all --check`, `cargo test --workspace`, `proa check src`
+3. Run the gate: `cargo fmt --all --check`, `proa test`, `proa check src`
 
 ## Next steps
 

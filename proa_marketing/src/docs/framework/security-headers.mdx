@@ -37,10 +37,12 @@ let app = FrameworkBuilder::new(manifest)
 That mints a 128-bit nonce per request and sends:
 
 ```text
-default-src 'self'; script-src 'nonce-…' 'strict-dynamic';
-style-src 'self' 'unsafe-inline'; object-src 'none';
-base-uri 'self'; frame-ancestors 'none'
+base-uri 'self'; default-src 'self'; frame-ancestors 'none';
+object-src 'none'; script-src 'nonce-…' 'strict-dynamic';
+style-src 'self' 'unsafe-inline'
 ```
+
+Directives are emitted in alphabetical order, so a captured header reads exactly like this.
 
 Proa applies the same nonce to framework-emitted state, import-map, bootstrap, client-shell, and boundary-swap tags. So `script-src` needs no `'unsafe-inline'` and no host allowlist.
 

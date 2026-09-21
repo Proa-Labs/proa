@@ -67,7 +67,7 @@ Pass the data through a `data-*` attribute instead, and read it from the DOM:
 use proa_core::StaticRaw;
 
 html_sync! {
-    <div id="app" data-config={&serde_json::to_string(&config).unwrap()}></div>
+    <div id="app" data-config={serde_json::to_string(&config).unwrap()}></div>
     <script>
         {StaticRaw(r#"
             const config = JSON.parse(

@@ -79,7 +79,7 @@ Inside a document layout, call the helpers while route context is installed:
 ```rust
 use proa_framework_axum::{render_css_link, render_metadata_head};
 
-fn render_head(cx: &mut proa_core::ctx::Ctx) {
+fn render_head(cx: &mut proa_core::WebContext) {
     render_metadata_head(cx);
     render_css_link(cx);
 }

@@ -1,6 +1,6 @@
 ---
 title: All commands
-description: Every proa subcommand, and where each one is explained.
+description: The main proa subcommands, and where each one is explained.
 ---
 
 The Proa CLI is developer tooling for Proa templates and opinionated Proa sites. It scaffolds projects, generates typed Rust modules, formats template macro bodies, runs Proa-specific lints, inspects site structure, and reports how `html!` or `html_sync!` bodies consolidate into static byte runs.
@@ -72,7 +72,7 @@ cargo proa fmt --check --verify src
 | `proa test` | Compile and execute one exact test target through the linked RSJS pipeline. |
 | `proa generate component` | Generate reusable render components under `src/components`. |
 | `proa generate layout` | Generate shared page layouts under `src/layouts`. |
-| `proa generate data` | Generate typed data modules under `src/data`. |
+| `proa generate data` | Generate typed data modules under `src/static_data`. |
 | `proa registry list` | Print configured component registry aliases. |
 | `proa ui add` | Install a source component or block from the Proa UI registries. |
 | `proa rsjs explain` | Explain why an rsjs impl emitted browser JS or stayed server-only. |
@@ -140,7 +140,8 @@ Several commands support machine-readable output:
 | `init`, `registry list` | `--json` |
 | `config validate`, `ui add` | `--json` |
 | `rsjs explain`, `rsjs crossings`, `font list` | `--json` |
-| `new site`, `generate *` | `--dry-run json` |
+| `new site` | `--dry-run --json` |
+| `generate *` | `--dry-run json` |
 | `site check`, `site routes` | `--json` |
 | `lint` | `--json` or `--github` |
 | `chunks` | `--json` |

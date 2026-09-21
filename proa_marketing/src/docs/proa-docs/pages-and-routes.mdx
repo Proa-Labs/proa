@@ -29,7 +29,7 @@ Supported page fields:
 | `icon` | string | Stored on `Frontmatter` and copied to the generated `NavItem`. |
 | `slug` | string | Overrides the route slug after base path normalization. |
 | `sidebar_title` | string | Overrides the label used in navigation. |
-| `nav_order` | integer | Fallback ordering when no `meta.json` controls a folder. |
+| `nav_order` | integer | Fallback ordering when the source root has no `meta.json`. With a root `meta.json`, unlisted pages compile but never enter the nav. |
 | `hidden` | boolean | Compiles the page and static Markdown, but omits it from nav. |
 | `draft` | boolean | Omits the page unless `include_drafts(true)` is set. |
 | `search` | boolean | Includes or excludes the page from generated search documents. |

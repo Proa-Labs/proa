@@ -41,7 +41,7 @@ html_sync! {
 }
 ```
 
-The first closure parameter is the browser event. An optional second parameter carries a payload the template supplies. Payloads that reach the browser must satisfy the client encoding contract, and they are public page data. The compiler encodes static payloads such as the labels above into marker data it owns, so keep secrets out of them.
+The first closure parameter is the browser event. An optional second parameter carries a payload the template supplies. Payloads that reach the browser must satisfy the client encoding contract, and they are public page data. The compiler inlines static payloads such as the labels above into the generated handler module and serializes loop-local payloads into marker attributes it owns; either way they are visible page data, so keep secrets out of them.
 
 To say which element a handler runs on, give its event a type parameter.
 

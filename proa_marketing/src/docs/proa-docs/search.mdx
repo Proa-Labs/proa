@@ -106,7 +106,7 @@ Use `hash` to decide whether to rebuild a cached client index. It is a SHA-256 h
 }
 ```
 
-The compiler extracts `content` while rendering Markdown. It includes heading text, paragraph text, inline code, and fenced code block text. `description` is the frontmatter description, or `null` when the page has none. `section` is the title of the nearest `meta.json` separator above the page in the navigation, or `null` for pages outside a separator. `keywords` is the frontmatter `keywords` list: identifiers and API names the page canonically documents, which a client should boost above body text. The `headings` array mirrors the page table of contents, including heading depth and generated anchor ids. Your app decides how those two files reach the browser.
+The compiler extracts `content` while rendering Markdown. It includes heading text, paragraph text, inline code, and fenced code block text. `description` is the frontmatter description, else the page's first prose line (skipping headings, fences, and rules), else `null`. `section` is the title of the nearest `meta.json` separator above the page in the navigation, or `null` for pages outside a separator. `keywords` is the frontmatter `keywords` list: identifiers and API names the page canonically documents, which a client should boost above body text. The `headings` array mirrors the page table of contents, including heading depth and generated anchor ids. Your app decides how those two files reach the browser.
 
 ## Serving artifacts to a client
 
@@ -203,8 +203,6 @@ Keep them separate if the UI has scoped search. Merge their `documents` arrays a
 - [Runtime](/docs/proa-docs/runtime)
   - Include generated Docs registries, serve static artifacts, and render docs pages.
 - [Configuration](/docs/proa-docs/configuration)
-  - Configure sources, Markdown processing, schemas, search, and output paths.
-- [Config reference](/docs/proa-docs/configuration)
-  - Every option for sources, schemas, Markdown, search, link validation, and plugins.
+  - Configure sources, Markdown processing, schemas, search, link validation, and output paths.
 - [Authoring](/docs/proa-docs/pages-and-routes)
   - Structure files with Markdown, frontmatter, and meta.json navigation.
