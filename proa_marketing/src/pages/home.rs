@@ -479,7 +479,7 @@ const BENCHMARK_PANEL: &str = "overflow-x-auto rounded-[20px] border border-blac
 
 const COMPOSABLE_SOURCE_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-white/10 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="block whitespace-pre"><span class="text-[#8ec5ff]">ProductCard</span><span class="text-white/45">::</span><span class="text-[#ffd166]">new</span>(product)</code></pre>"##;
 
-const COMPOSABLE_MD_RENDER_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-[#dd7627]/35 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="block whitespace-pre"><span class="text-[#ffb070]">impl</span>&lt;L: <span class="text-[#d8b4fe]">DataLoader</span>&gt; <span class="text-[#d8b4fe]">MdRenderSync<::proa_core::NoLoader, /span>&lt;L&gt; <span class="text-[#ffb070]">for</span> <span class="text-[#8ec5ff]">ProductCard</span> {
+const COMPOSABLE_MD_RENDER_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-[#dd7627]/35 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="block whitespace-pre"><span class="text-[#ffb070]">impl</span>&lt;L: <span class="text-[#d8b4fe]">DataLoader</span>&gt; <span class="text-[#d8b4fe]">MdRenderSync</span>&lt;L&gt; <span class="text-[#ffb070]">for</span> <span class="text-[#8ec5ff]">ProductCard</span> {
     <span class="text-[#ffb070]">fn</span> <span class="text-[#ffd166]">render_md</span>(self, cx: &amp;mut <span class="text-[#8ec5ff]">WebContext</span>&lt;L&gt;) -&gt; <span class="text-[#8ec5ff]">Result</span>&lt;(), <span class="text-[#8ec5ff]">WriteError</span>&gt; {
         <span class="text-[#ff8a8a]">md_sync!</span> { <span class="text-[#a7e3a1]">r###&quot;
             # </span>{self.product.name}<span class="text-[#a7e3a1]">
@@ -514,7 +514,7 @@ const COMPOSABLE_WEB_CHILD_HTML: &str = r##"<pre class="overflow-x-auto rounded-
     &lt;/a&gt;
 }</code></pre>"##;
 
-const COMPOSABLE_CONNECTORS_HTML: &str = r##"<svg data-composable-connectors class="pointer-events-none absolute inset-0 z-20 hidden h-full w-full overflow-visible text-[#dd7627] dark:text-[#ff9d5a] lg:block" viewBox="0 0 1 1" preserveAspectRatio="none" fill="none" aria-hidden="true">
+const COMPOSABLE_CONNECTORS_HTML: &str = r##"<svg data-composable-connectors class="pointer-events-none absolute inset-0 z-20 h-full w-full overflow-visible text-[#dd7627] dark:text-[#ff9d5a]" viewBox="0 0 1 1" preserveAspectRatio="none" fill="none" aria-hidden="true">
     <defs>
         <marker id="composable-arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
             <path d="M1.5 1 L7 4 L1.5 7 Z" fill="currentColor" />
@@ -576,6 +576,23 @@ const COMPOSABLE_CONNECTORS_SCRIPT: &str = r#"
     return 'M ' + from.right + ' ' + from.midY + ' H ' + to.left;
   }
 
+  function entryY(to) {
+    // Enter beside the card's first code line rather than its middle, so the
+    // arrow reads as "this impl applies to the object" instead of pointing at
+    // whichever line happens to sit at mid-height.
+    return Math.min(to.midY, round(to.top + 22));
+  }
+
+  function branch(railX, fromY, to) {
+    return 'M ' + railX + ' ' + fromY + ' V ' + entryY(to) + ' H ' + to.left;
+  }
+
+  function rail(outer, inner) {
+    // Hug the left of the gutter so the arrowhead (11px at stroke width 2)
+    // fits between the rail and the card edge instead of straddling the rail.
+    return round(outer.left + Math.min(3, (inner.left - outer.left) / 2));
+  }
+
   function setPath(svg, name, d) {
     var path = svg.querySelector('[data-flow-path=\"' + name + '\"]');
     if (!path) return;
@@ -611,6 +628,20 @@ const COMPOSABLE_CONNECTORS_SCRIPT: &str = r#"
     var webRender = rect(rootRect, nodes.webRender);
     var webChildOrigin = nodes.webChildOrigin ? rect(rootRect, nodes.webChildOrigin) : webRender;
     var webChild = rect(rootRect, nodes.webChild);
+
+    if (mdRender.top >= source.bottom) {
+      // Below lg the grid stacks into one column, so draw a top-down tree:
+      // one rail drops from the source through the gutter left of both
+      // target cards, and each target drops a rail to its own child. The
+      // second source branch starts where the first turned, so the rail is
+      // drawn once instead of twice on top of itself.
+      var sourceRail = rail(source, mdRender);
+      setPath(svg, 'source-md', branch(sourceRail, source.bottom, mdRender));
+      setPath(svg, 'source-web', branch(sourceRail, entryY(mdRender), webRender));
+      setPath(svg, 'md-child', branch(rail(mdRender, mdChild), mdRender.bottom, mdChild));
+      setPath(svg, 'web-child', branch(rail(webRender, webChild), webRender.bottom, webChild));
+      return;
+    }
 
     setPath(svg, 'source-md', elbow(source, mdRender));
     setPath(svg, 'source-web', elbow(source, webRender));
