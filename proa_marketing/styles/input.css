@@ -3087,30 +3087,31 @@ rsjs-island {
   }
 }
 
-/* Phone layout for the composable flow. The connector arrows only draw at lg,
-   so on a phone the two child panels arrive with nothing to explain what they
-   belong to: a rule and an indent do the arrows' job, and smaller code type
-   fits more of each line before the reader has to scroll one sideways. */
+/* Phone and tablet layout for the composable flow. Below lg the grid stacks
+   into one column and the connector script draws a top-down tree instead of
+   the desktop left-to-right layout: each target card is indented under the
+   source and each child under its target, and the arrows run down the gutters
+   those indents leave. Smaller code type fits each card's impl line at 390px
+   without a sideways scroll. */
 @media (max-width: 1023px) {
   [data-page="home"] #render-targets [data-composable-flow] {
-    gap: 14px;
+    gap: 18px;
+  }
+
+  [data-page="home"] #render-targets [data-flow-node="md-render"],
+  [data-page="home"] #render-targets [data-flow-node="web-render"] {
+    margin-left: 20px;
   }
 
   [data-page="home"] #render-targets [data-flow-node="md-child"],
   [data-page="home"] #render-targets [data-flow-node="web-child"] {
-    margin-left: 14px;
-    padding-left: 16px;
-    border-left: 2px solid rgba(24, 24, 27, 0.14);
-  }
-
-  .dark [data-page="home"] #render-targets [data-flow-node="md-child"],
-  .dark [data-page="home"] #render-targets [data-flow-node="web-child"] {
-    border-left-color: rgba(255, 255, 255, 0.16);
+    margin-left: 40px;
   }
 
   [data-page="home"] #render-targets pre {
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1.7;
-    padding: 16px;
+    padding: 12px;
+    border-radius: 16px;
   }
 }
