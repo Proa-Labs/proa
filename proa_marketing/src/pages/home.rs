@@ -2151,9 +2151,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomePage {
                         </div>
                     </div>
                 </section>
-                {ProaUiSection}
                 {Direction18Hero}
                 {BenchmarkHighlights}
+                {ProaUiSection}
                 <script>{StaticRaw(COMPOSABLE_CONNECTORS_SCRIPT)}</script>
                 <section class={SECTION_SHELL}>
                     <div class={SECTION_CONTAINER}>
@@ -2410,8 +2410,14 @@ mod tests {
             .find("data-hero-inner")
             .expect("benchmark hero renders");
         let render_targets = html.find("id=\"render-targets\"").unwrap();
+        let benchmark_highlights = html.find("id=\"benchmark-highlights\"").unwrap();
         let ui_components = html.find("id=\"proa-ui-components\"").unwrap();
-        assert!(render_targets < ui_components && ui_components < benchmark_hero);
+        assert!(
+            render_targets < benchmark_hero
+                && benchmark_hero < benchmark_highlights
+                && benchmark_highlights < ui_components,
+            "render targets, then the two performance sections, then the design system rail"
+        );
         assert!(
             hero < benchmark_hero,
             "the statement hero must render above the benchmark hero"
