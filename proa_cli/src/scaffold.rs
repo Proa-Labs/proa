@@ -2142,7 +2142,7 @@ impl<L: DataLoader> WebRender<L> for __STRUCT__ {
     let markdown_source = if markdown {
         if children {
             r####"
-use proa_core::{WebContext, MdRenderSync, WriteBuf};
+use proa_core::{MdRenderSync, WriteBuf};
 use proa_macros::md_sync;
 
 impl<L: proa_core::DataLoader, B, C> MdRenderSync<L, B> for __STRUCT__<C>
@@ -2163,7 +2163,7 @@ where
 "####
         } else {
             r####"
-use proa_core::{WebContext, MdRenderSync, WriteBuf};
+use proa_core::{MdRenderSync, WriteBuf};
 use proa_macros::md_sync;
 
 impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for __STRUCT__ {
