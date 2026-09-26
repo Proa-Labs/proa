@@ -32,7 +32,7 @@ The practical consequences:
 | `proa_docs_build` | `build.rs` | Parsing, frontmatter schemas, the Markdown pipeline, components, search index, link validation |
 | `proa_docs` | request time | The static data model, render primitives, and the default theme |
 
-`proa_docs` is deliberately small. It holds the compiled registry and renders a shell around generated article HTML — and ships the CSS and JavaScript that make the components work, so a site is styled on a fresh install.
+`proa_docs` is deliberately small. It holds the compiled registry and renders a shell around generated article HTML. It also ships the CSS and JavaScript that make the components work, so a site that links `DocsAssets` from its head is styled on a fresh install.
 
 You can also ignore the default theme entirely and write your own against the [styling contract](/docs/proa-docs/styling-contract). That is the headless path, and it is a supported one.
 
@@ -44,7 +44,7 @@ You can also ignore the default theme entirely and write your own against the [s
 | Runtime cost | None — static HTML | React hydration | React hydration | None |
 | Components | 13, build-time | Large, React | MDX | Limited |
 | Theming | 15 CSS properties | CSS variables + presets | Themes | Handlebars |
-| Agent output | Per-page Markdown, `llms-full.txt` | `llms.txt`, per-page `.md` | — | — |
+| Agent output | Per-page Markdown | `llms.txt`, per-page `.md` | — | — |
 
 **Choose Fumadocs or Nextra** if your site is already React and you want the largest component library and ecosystem.
 

@@ -19,11 +19,11 @@ The tag name is the `component_name` configured on `TypeScriptDocgen`; `auto-typ
 | `name` | Named type inside that file |
 | `type` | An inline type literal, instead of `path` + `name` |
 
-The tag is deferred: the build records the request, emits a pending placeholder in the page, and leaves resolution to the external docgen command configured on `TypeScriptDocgen`. Enabling docgen without a command fails the build as soon as any page requests a table, so with docgen enabled an unresolved placeholder is never published silently. With docgen disabled (the default), a matched tag still lowers to its pending placeholder without a diagnostic.
+The tag is deferred: the build records the request and emits a pending placeholder (`<div data-proa-docs-type-table-pending>`) holding the escaped directive. Nothing replaces that placeholder today: `TypeScriptDocgen::command` is only checked for presence, never run. Enabling docgen without a command fails the build as soon as any page requests a table, so the unconfigured case is never published silently; with a command configured, or with docgen disabled (the default), the placeholder ships as is.
 
 ## Current limitation
 
-**Type extraction reads TypeScript only.** `proa_docs_build` shells the type through its TypeScript docgen path, so a Rust struct cannot currently be a source.
+**Type extraction is TypeScript-shaped and not yet wired.** The directive names a TypeScript file and type, and the build records the request without resolving it, so neither a TypeScript nor a Rust type produces a table today.
 
 For Rust APIs, write the table by hand:
 

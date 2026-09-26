@@ -29,7 +29,8 @@ pub use context::{SendStreamContext, StreamContext};
 pub use discovery::CollectLoadKeys;
 pub use driver::{
     drain_pending_boundaries_with_artifacts, drain_pending_boundaries_with_nonce_and_artifacts,
-    render_md_in_order_to_flusher, render_md_in_order_to_vec, InOrderMarkdownDriver,
+    render_md_in_order_to_flusher, render_md_in_order_to_flusher_with_loader,
+    render_md_in_order_to_vec, render_md_in_order_to_vec_with_loader, InOrderMarkdownDriver,
     OutOfOrderBoundaryChunk,
 };
 pub use handle::StreamHandle;

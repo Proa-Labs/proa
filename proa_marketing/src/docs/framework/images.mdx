@@ -3,7 +3,7 @@ title: Images
 description: Serve responsive images from static assets, without a build pipeline.
 ---
 
-Proa has no image optimization pipeline. It renders the `<img>` tag you write, with typed attribute support for `srcset`, `sizes`, `imagesrcset`, and `imagesizes`, and serves the files from `STATIC_DIR`.
+Proa has no image optimization pipeline. It renders the `<img>` tag you write, with typed attribute support for `srcset`, `sizes`, `imagesrcset`, and `imagesizes`, and serves the files from your static directory.
 
 ```rust filename="src/components/hero.rs"
 html_sync! {
@@ -61,7 +61,7 @@ html_sync! {
 
 ## Serving them
 
-Images live under the directory `STATIC_DIR` points at, usually `public/`. See [Static assets](/docs/framework/static-assets) for mounting and cache headers.
+Images live under the directory your static service points at, `public/` in scaffolded sites. The framework does not read a `STATIC_DIR` variable; [Environment variables](/docs/framework/environment) shows that as an app-level convention you can adopt. See [Static assets](/docs/framework/static-assets) for mounting and cache headers.
 
 Give generated filenames a content hash and a long `max-age`. Stable names such as `hero.avif` need a shorter window or a cache-busting query string, because you cannot invalidate a name you keep reusing.
 

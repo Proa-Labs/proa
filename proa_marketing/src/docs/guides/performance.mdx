@@ -112,7 +112,7 @@ Available methods:
 
 ## Numeric rendering
 
-Primitive numeric types implement Proa's render traits directly. Integers use a lookup-table algorithm (`itoa_lut`) that formats digits in pairs. Floats use `ryu`. Both write directly to the output buffer.
+Primitive numeric types implement Proa's render traits directly. Integers use a lookup-table algorithm (`itoa_lut`) that formats digits in pairs. Floats use `zmij`, which produces the shortest round-trip representation with Ryu-style exponent spelling. Both write directly to the output buffer.
 
 ```rust
 // Good: direct numeric rendering, zero allocation

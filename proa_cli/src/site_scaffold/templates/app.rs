@@ -404,7 +404,7 @@ __MARKDOWN_IMPL__
     .replace(
         "__MD_IMPORTS__",
         if markdown {
-            "use proa_core::{WebContext, MdRenderSync, WriteBuf};\nuse proa_macros::md_sync;"
+            "use proa_core::{MdRenderSync, WriteBuf};\nuse proa_macros::md_sync;"
         } else {
             ""
         },

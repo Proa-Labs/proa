@@ -11,9 +11,11 @@ use proa_docs::DocsShell;
 DocsShell { docs, page }.render(cx)?;
 ```
 
-`DocsShell` does not inject the default theme: serve `DEFAULT_STYLESHEET` and
-`DEFAULT_SCRIPT` as static files, or render `DocsAssets` when composing your
-own head, as shown in [Styling](/docs/proa-docs/quickstart#styling).
+`DocsShell` writes its own `<head>` (charset, viewport, title, description)
+and has no slot for a stylesheet link, so the default theme only applies when
+you compose your own head and render `DocsAssets` there, as shown in
+[Styling](/docs/proa-docs/quickstart#styling). `DEFAULT_STYLESHEET` and
+`DEFAULT_SCRIPT` are the bytes to serve for it.
 
 When you want your own chrome, compose the pieces yourself.
 
@@ -27,10 +29,10 @@ When you want your own chrome, compose the pieces yourself.
 | `DocsSectionMenu` | The section switcher, when any folder is a root |
 | `DocsToc` | On-this-page headings |
 | `DocsPager` | Previous and next links |
-| `TypeTable` | An API table from a compiled type-table request |
+| `TypeTable` | An API table from rows your app supplies; the build does not produce them |
 | `nav_icon_svg` | An icon by name, for your own chrome |
 
-Each takes data from the compiled `Docs` registry, so they stay in sync with content without threading state.
+Apart from `TypeTable`, each takes data from the compiled `Docs` registry, so they stay in sync with content without threading state.
 
 ## Replacing one piece
 

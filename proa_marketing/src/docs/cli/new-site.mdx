@@ -102,10 +102,17 @@ The default `app` preset generates:
 ```proa-filetree
 .cargo/
   config.toml
+.github/
+  workflows/
+    ci.yml
+.env.example
 Cargo.toml
 proa.config.json
 proa.lock.json
 build.rs
+rust-toolchain.toml
+README.md
+AGENTS.md
 src/
   components/
   endpoints/
@@ -114,6 +121,7 @@ src/
   app.rs
   config.rs
   db.rs
+  error.rs
   loader.rs
   main.rs
   routes.rs
@@ -142,13 +150,14 @@ What each directory holds:
 | `migrations/`, `data/` | SQL migrations and the local SQLite database location. |
 | `public/` | Pre-built browser assets: CSS output, images, downloads. |
 | `tests/` | Integration tests, including the representation and data-loading contracts. |
-| `build.rs` | Build-time wiring, including the `proa_fonts_build` collector for `google_font!`/`local_font!` declarations (see [Fonts](/docs/framework/fonts)). |
+| `build.rs` | Build-time wiring. The `origin` template also runs the `proa_fonts_build` collector for `google_font!`/`local_font!` declarations (see [Fonts](/docs/framework/fonts)). |
 
 `proa.config.json` controls the `proa dev` and `proa build` lifecycle commands
 and records component registry aliases. `proa.lock.json` records the scaffold
 capabilities and every component installed by `proa ui add`. The generated
-Cargo dependencies on Proa crates resolve from the `proa` registry named in
-`.cargo/config.toml`.
+Cargo dependencies on Proa crates are git dependencies on the Proa repository;
+`.cargo/config.toml` only turns on `git-fetch-with-cli` so your Git credential
+helper can fetch it.
 
 ## Live reload
 
@@ -189,18 +198,16 @@ Server-Sent Events connection per tab, and browsers allow six per origin, so
 responses to embedded frames are left uninjected rather than spending a
 connection each.
 
-The settings can be exported from your shell:
+The controls are `proa dev` flags:
 
-| Setting | Default | Effect |
+| Flag | Default | Effect |
 |---|---|---|
-| `PROA_DEV_RELOAD` | `on` | `off`, `no`, `false`, or `0` turns live reload off. |
-| `PROA_DEV_RELOAD_PORT` | operating-system assigned | Port for the event stream. Set it only if you want a predictable one. |
-| `PROA_DEV_CSS_HOT_SWAP` | `on` | Off restarts the server for stylesheet changes instead of swapping them in place. Use it when stylesheets are compiled into the binary rather than served from disk. |
-| `PROA_DEV_DEBOUNCE_MS` | `300` | Quiet window a change must survive before a rebuild starts. Raise it if a formatter or code generator triggers extra cycles. |
+| `--no-reload` | reload on | Turns live reload off. |
+| `--reload-port <PORT>` | operating-system assigned | Port for the event stream. Set it only if you want a predictable one. `proa dev` passes it to the server as `PROA_DEV_RELOAD_PORT`. |
+| `--no-css-hot-swap` | hot swap on | Restarts the server for stylesheet changes instead of swapping them in place. Use it when stylesheets are compiled into the binary rather than served from disk. |
+| `--debounce-ms <MILLISECONDS>` | `300` | Quiet window a change must survive before a rebuild starts. Raise it if a formatter or code generator triggers extra cycles. |
 
-The same controls exist as `proa dev` flags: `--no-reload`,
-`--reload-port <PORT>`, `--no-css-hot-swap`, and `--debounce-ms <MILLISECONDS>`.
-The debounce window cannot go below the 100ms file-watch poll interval.
+The debounce window cannot go below the 100ms file-watch poll interval. `proa dev` reads no `PROA_DEV_*` variables from your shell.
 
 The event stream takes an operating-system assigned port by default. A fixed
 offset from the dev port would claim the port your next site wants, and that

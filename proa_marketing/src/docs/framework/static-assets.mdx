@@ -44,6 +44,7 @@ A single-binary deploy skips the directory entirely and carries the files inside
 Use `EmbeddedStaticService` when `include_dir` compiles assets into the binary.
 
 ```rust filename="src/app.rs"
+use axum::Router;
 use include_dir::{include_dir, Dir};
 use proa_framework_axum::EmbeddedStaticService;
 
@@ -51,9 +52,11 @@ static PUBLIC: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/public");
 
 let static_router = Router::new().nest_service(
     "/",
-    EmbeddedStaticService::new(PUBLIC),
+    EmbeddedStaticService::new(PUBLIC.clone()),
 );
 ```
+
+`Dir` holds only `'static` slices, so the clone copies references, not file bytes.
 
 The embedded service sets a content type from the extension and adds `X-Content-Type-Options: nosniff`.
 

@@ -10,7 +10,7 @@ A Proa app runs on Coolify as an ordinary Dockerized Rust HTTP server, and Cooli
 Generate a site with the Coolify deployment preset:
 
 ```bash filename="Terminal"
-proa new site my-site --template marketing --server axum --deploy coolify --tailwind --yes
+proa new site my-site --template marketing --deploy coolify --tailwind --yes
 cd my-site
 ```
 
@@ -26,7 +26,7 @@ src/main.rs
 public/
 ```
 
-The generated server reads `HOST`, `PORT`, `STATIC_DIR`, and `RUST_LOG`. The Dockerfile sets `HOST=0.0.0.0`, exposes port `3000`, copies `public/`, and keeps the GitHub token that fetches Proa's git dependencies in the build stage only.
+The generated server reads `PROA_HOST`, `PORT`, and `RUST_LOG`, and serves `public/` relative to its working directory. The Dockerfile installs a pinned, checksum-verified Proa CLI, builds with `proa build --locked --artifact-out`, sets `PROA_HOST=0.0.0.0`, exposes port `3000`, copies `public/` beside the binary, and keeps the GitHub token that fetches Proa's git dependencies in the build stage only.
 
 Coolify needs matching application settings before it can build that image.
 
@@ -38,7 +38,7 @@ Coolify needs matching application settings before it can build that image.
 4. Set the exposed port to `3000`.
 5. While the Proa repository is private, add a GitHub token with read access to `Proa-Labs/proa` as Docker build secret `github_token`.
 6. Add runtime variables from `coolify.env.example`.
-7. Set the health check path to `/healthz`.
+7. Set the health check path to `/healthz` for liveness. The generated `/readyz` also probes the database, so use it as the readiness check when one is configured.
 8. Deploy.
 
 Proa dependencies are fetched from the Proa git repository at build time, so keep the token scoped to the build. The runtime container does not need `GITHUB_TOKEN`, and once the repository is public the build needs no credentials at all.
@@ -47,18 +47,19 @@ Docker BuildKit secrets keep that token out of the final image.
 
 ## Passing build secrets
 
-The generated Dockerfile expects Docker BuildKit secrets:
+The generated Dockerfile expects a Docker BuildKit secret named `github_token`, which it exposes to git through a credential helper for the duration of the build step only:
 
 ```dockerfile filename="Dockerfile"
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN --mount=type=secret,id=github_token \
-    if [ -s /run/secrets/github_token ]; then \
-        git config --global \
-            url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf \
-            "https://github.com/"; \
-    fi \
-    && cargo build --release --bin my-site
+    set -eu; \
+    export GIT_CONFIG_COUNT=1; \
+    export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
+    export GIT_CONFIG_VALUE_0='!f() { if [ "$1" = get ] && [ -s /run/secrets/github_token ]; then printf "username=x-access-token\npassword=%s\n" "$(cat /run/secrets/github_token)"; fi; }; f'; \
+    proa build --locked --artifact-out /tmp/proa-app
 ```
+
+The token never lands in Git configuration or an image layer. `proa build` runs the asset build and the linked RSJS pipeline; a plain `cargo build --release` would skip the assets and fail at link time on any crate with islands.
 
 If your Coolify setup cannot pass Docker build secrets directly, use a GitHub Actions image pipeline instead:
 
@@ -75,14 +76,11 @@ Either path produces the same container, and that container reads its configurat
 Use these runtime variables in Coolify:
 
 ```dotenv filename="coolify.env.example"
-HOST=0.0.0.0
 PORT=3000
-STATIC_DIR=/app/public
-RUST_LOG=info
-
-# Build-only secret while the Proa git repository is private.
-# GITHUB_TOKEN=ghp_...
+PROA_HOST=0.0.0.0
 ```
+
+Add `RUST_LOG=info` if you want the log filter set from the environment; the generated file lists only the two the server needs.
 
 Do not set `GITHUB_TOKEN` as a runtime variable. Set it only when you build from source inside Coolify and cannot use build secrets.
 

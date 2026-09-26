@@ -172,15 +172,21 @@ owner module until the trigger fires:
 
 ```html filename="index.html"
 <script type="module">
-  import { hydrate_when_visible } from "/rsjs-runtime.js";
-  hydrate_when_visible("belowfoldfilters_...", () => {
-    import("/rsjs/island/belowfoldfilters_....js?rsjs-triggered=1");
-  });
+  import { hydrate_when_visible, defer_island_module } from "/rsjs-runtime.js";
+  defer_island_module(
+    "belowfoldfilters_...",
+    "/rsjs/island/belowfoldfilters_....js?rsjs-triggered=1",
+    hydrate_when_visible,
+  );
 </script>
 ```
 
-The `?rsjs-triggered=1` flag tells the imported owner module not to wait a
-second time.
+This is the bootstrap the page runtime plan emits for you; `media` adds the
+query as a fourth argument. `defer_island_module` registers the module with
+the runtime so the import it performs later is authorized, and the
+`?rsjs-triggered=1` flag tells the imported owner module not to wait a second
+time. A bare dynamic `import()` inside the trigger callback skips that
+registration.
 
 These hydration primitives are runtime internals. Use the strategy attribute in
 island code, and pick between the strategies with the table below.

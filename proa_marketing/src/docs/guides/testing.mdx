@@ -262,8 +262,8 @@ test("listing card matches screenshot", async ({ page }) => {
 ### Running the browser suite
 
 ```bash filename="Terminal"
-# Start Proa server
-cargo run -p my_app &
+# Start Proa server through the linked pipeline
+proa run &
 
 # Run Playwright tests
 npx playwright test
@@ -374,17 +374,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Unit tests
-        run: cargo test --workspace --lib
+      - name: Tests
+        run: proa test
 
-      # Island-bearing crates run integration targets through the linked
-      # pipeline instead: cargo proa test -p my_app --test pages
+      # proa test runs the application suite through the linked pipeline.
+      # Name one target in a multi-target workspace: proa test -p my_app --test pages
 
       - name: Benchmarks (check for regressions)
         run: cargo bench --no-run  # compile only in CI; run nightly
 
       - name: Start server
-        run: cargo run -p my_app &
+        run: proa run &
 
       - name: Playwright a11y + visual
         run: npx playwright test

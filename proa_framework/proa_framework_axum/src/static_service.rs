@@ -40,6 +40,11 @@ fn content_type_for(path: &str) -> &'static str {
 }
 
 /// A simple static asset service backed by an embedded directory.
+///
+/// `Clone` lets the service be nested into an axum `Router`, which requires
+/// cloneable services; the embedded directory is a set of `'static` slices, so
+/// cloning copies only references.
+#[derive(Clone)]
 pub struct EmbeddedStaticService {
     dir: Dir<'static>,
 }

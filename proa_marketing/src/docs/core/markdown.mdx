@@ -183,7 +183,7 @@ impl<L: DataLoader> MdRenderSync<L> for &SearchPage {
 
 The page never learns that a listing renders as an `h3`, and never allocates a `String` for one.
 
-Note the `4\.9`: interpolated values are escaped, so data cannot inject structure. A title of `# Free money` arrives as text, not a heading.
+Note the `4\.9`: `rating` is a string here, and string interpolations are Markdown-escaped, so data cannot inject structure. A title of `# Free money` arrives as text, not a heading. Numbers are written verbatim, so an `f64` rating would print `4.9`.
 
 ## One component, two representations
 

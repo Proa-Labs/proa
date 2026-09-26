@@ -26,15 +26,16 @@ let config = Config::new().source(source.markdown(pipeline.mermaid(MermaidConfig
 |---|---|
 | `enabled` | Turn Mermaid handling on |
 | `code_fences` | Treat ```` ```mermaid ```` fences as diagrams |
-| `renderer` | Which renderer receives the source |
+| `renderer` | Recorded for a future renderer; the emitted markup is the same for every value today |
 | `fallback` | What to show when rendering does not happen |
 
-The build emits the diagram source in `data-proa-docs-mermaid-source` and an output slot in `data-proa-docs-mermaid-output`, then leaves rendering to the renderer you configure.
+The build emits the diagram source in a hidden `data-proa-docs-mermaid-source` block and an empty output slot in `data-proa-docs-mermaid-output`, then leaves rendering to a script you ship.
 
 <Callout type="warning">
 `proa_docs` does not currently ship a Mermaid renderer. The build emits the
-source and the slot; supplying a renderer is yours. Until you do, a Mermaid
-fence renders only its `<noscript>` fallback.
+source and the slot; supplying a renderer is yours. Until you do, the figure
+is blank with scripting on, and the `<noscript>` fallback appears only when
+JavaScript is disabled.
 </Callout>
 
 ## Diagram or picture?

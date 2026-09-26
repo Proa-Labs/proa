@@ -128,7 +128,7 @@ use crate::{
 
 pub async fn product_handler() -> impl axum::response::IntoResponse {
     let app_loader = Arc::new(AppLoader {});
-    let loader = Arc::new(DataResolver::new_typed(app_loader));
+    let loader = DataResolver::request_scope(app_loader);
 
     RouteResponse::ssr_async_with_loader(ProductPage { id: "sku_1" }, loader)
 }
@@ -358,7 +358,7 @@ use proa_macros::{html, html_sync};
 use proa_stream::Suspense;
 
 pub async fn product_handler() -> impl axum::response::IntoResponse {
-    let loader = Arc::new(DataResolver::new_typed(Arc::new(AppLoader {})));
+    let loader = DataResolver::request_scope(Arc::new(AppLoader {}));
 
     RouteResponse::ssr_stream_with_loader(
         html! {
@@ -436,7 +436,7 @@ use proa_core::LoadKey;
 use proa_stream::{DataResolver, PreparedLoader};
 
 let app_loader = Arc::new(AppLoader {});
-let resolver = Arc::new(DataResolver::new_typed(app_loader));
+let resolver = DataResolver::request_scope(app_loader);
 let loader = Arc::new(PreparedLoader::new_typed(
     resolver,
     [
@@ -652,7 +652,7 @@ pub async fn document(
     Path(id): Path<String>,
     State(app_loader): State<Arc<AppLoader>>,
 ) -> impl IntoResponse {
-    let loader = Arc::new(DataResolver::new_typed(app_loader));
+    let loader = DataResolver::request_scope(app_loader);
     RouteResponse::ssr_async_with_loader(
         VerificationPanel { document_id: id },
         loader,

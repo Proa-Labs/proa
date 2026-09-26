@@ -29,7 +29,7 @@ use proa_stream::DataResolver;
 
 pub async fn product_handler() -> impl axum::response::IntoResponse {
     let app_loader = Arc::new(AppLoader::new());
-    let loader = Arc::new(DataResolver::new_typed(app_loader));
+    let loader = DataResolver::request_scope(app_loader);
 
     RouteResponse::ssr_async_with_loader(ProductPage { id: "sku_1" }, loader)
 }
@@ -106,7 +106,7 @@ Choose invalidation at the same boundary as the cache:
 
 When data changes through a form or API mutation, invalidate the data cache before redirecting or returning the success response.
 
-If that data appears in cached HTML, invalidate the affected CDN pages too. Clearing a loader cache does not remove an already rendered edge response. See [Page caching](/docs/framework/page-caching#purging-after-a-change).
+If that data appears in cached HTML, invalidate the affected CDN pages too. Clearing a loader cache does not remove an already rendered edge response. See [Page caching](/docs/framework/page-caching#running-deployment-and-invalidation).
 
 ```rust
 pub async fn update_product(Form(form): Form<ProductForm>) -> Redirect {

@@ -209,8 +209,6 @@ Before publishing a docs site:
 
 ## Next steps
 
-- [Config reference](/docs/proa-docs/configuration)
-  - Every builder on `Config`, `DocsSource`, and the Markdown pipeline.
 - [Runtime](/docs/proa-docs/runtime)
   - Include the registry, serve static artifacts, and render your own shell.
 - [Markdown pipeline](/docs/proa-docs/markdown)
@@ -284,7 +282,7 @@ let schema = proa_docs_build::PageSchema::new()
 | `.required_string(name)` | Field must exist and be a string. |
 | `.optional_string(name)` | Field may exist and must be a string. |
 | `.bool_with_default(name, default)` | Field may exist and must be a boolean. |
-| `.date(name)` | Field may exist and must parse as a date-like string. |
+| `.date(name)` | Field may exist and must be a string. The value is not parsed as a date. |
 
 Schema validation checks the fields you configure. The compiler allows unknown fields, so app-specific frontmatter passes through.
 
@@ -340,7 +338,7 @@ let markdown = proa_docs_build::MarkdownPipeline::default()
 |---------|---------|
 | `.code_highlighting(CodeHighlight)` | Highlight recognized code fences with Syntect during the docs build. |
 | `.math(MathMode)` | Configure math handling. |
-| `.component_indexing(ComponentIndexing)` | Preserve or index component-shaped inline HTML. |
+| `.component_indexing(ComponentIndexing)` | Reserved. Accepted and stored, but nothing reads it yet. |
 | `.mdx(MdxConfig)` | Configure deterministic MDX-to-Markdown lowering. |
 | `.mermaid(MermaidConfig)` | Turn Mermaid fences into diagram placeholders. |
 | `.typescript(TypeScriptDocgen)` | Configure TypeScript type-table extraction. |
@@ -453,9 +451,7 @@ Components the lowerer leaves alone can still reach an app-level pass through `C
 | `.preserve(names)` | Preserve named component directives for app-level processing. |
 | `.children_only_default(bool)` | Treat unconfigured components as children-only by default. |
 
-Use this when an app runs an additional external MDX lowering pass and wants component-shaped inline HTML preserved for that pass.
-
-TypeScript docgen is one such external pass.
+This is reserved configuration surface: the builder is accepted and stored, but no compile step reads `preserve` or `children_only_default` yet. Inline HTML that is not a recognized container tag or type-table directive is always escaped.
 
 ## TypeScriptDocgen
 
@@ -470,9 +466,9 @@ TypeScript docgen is one such external pass.
 | `.component_name(name)` | Change the directive component name. |
 | `.hide_internal(bool)` | Hide internal API items. |
 | `.annotation(Annotation)` | Add a JSDoc annotation mapping. |
-| `.command(command)` | Configure the external docgen command. |
+| `.command(command)` | Record an external docgen command. The build checks that one is set; it does not run it. |
 
-Compilation fails when Markdown requests type tables and you enable TypeScript docgen **without** a command. That avoids silently publishing unresolved type API placeholders.
+Compilation fails when Markdown requests type tables and you enable TypeScript docgen **without** a command. With a command set, requests still ship as pending placeholders; resolution is not implemented yet.
 
 With the pages compiled, `SearchConfig` decides how readers find them.
 
@@ -492,7 +488,7 @@ Every enabled mode emits a search manifest and documents JSON today. Your app de
 
 ## LinkValidation
 
-`LinkValidation::default()` collects broken internal links and hashes as warnings. `LinkValidation::strict()` turns them into build errors, the only mode `compile` enforces.
+`LinkValidation::default()` uses `Warn` mode, which `compile` does not act on: no validation runs and nothing is printed. `LinkValidation::strict()` (`Error` mode) validates during `compile` and fails the build, printing each broken link first. To get a report without failing, call `validate_links` yourself.
 
 | Method | Purpose |
 |--------|---------|
@@ -535,8 +531,6 @@ The plugin API stays small while docs compilation stabilizes.
 
 ## Next steps
 
-- [Configuration](/docs/proa-docs/configuration)
-  - Wire these builders into a production `build.rs`.
 - [Markdown pipeline](/docs/proa-docs/markdown)
   - Follow a page through MDX lowering, fences, Mermaid, and search text.
 - [Link validation](/docs/proa-docs/link-validation)

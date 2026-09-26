@@ -76,13 +76,27 @@ Hello from Proa Docs.
 **Include the registry and mount a route.**
 
 ```rust filename="src/pages/docs.rs"
+use axum::{extract::Path, response::IntoResponse, routing::get, Router};
 use proa_docs::{include_docs, Docs};
 
 pub fn docs() -> &'static Docs {
     static DOCS: Docs = include_docs!("docs");
     &DOCS
 }
+
+async fn docs_page(Path(path): Path<String>) -> impl IntoResponse {
+    let path = format!("/docs/{path}");
+    proa_docs::adapter::axum::response(docs(), &path)
+}
+
+pub fn router() -> Router {
+    Router::new()
+        .route("/docs", get(|| async { docs_page(Path(String::new())).await }))
+        .route("/docs/*path", get(docs_page))
+}
 ```
+
+The adapter needs the `axum` feature on `proa_docs`. [Runtime](/docs/proa-docs/runtime) shows the same handler written by hand.
 
 </Step>
 </Steps>
@@ -131,7 +145,7 @@ See [Code block](/docs/proa-docs/code-block) and [Callout](/docs/proa-docs/callo
 
 ### Cards
 
-Cards turn a list of destinations into a scannable grid:
+Cards turn a list of destinations into a consistent link list, one entry per card:
 
 ```mdx filename="src/docs/index.mdx"
 <Cards>
@@ -221,14 +235,14 @@ See [Files](/docs/proa-docs/files). For a quick text-only tree, use a `proa-file
 These components are self-closing:
 
 ```mdx filename="src/docs/reference.mdx"
-<TypeTable path="src/config.ts" name="DocsConfig" />
+<auto-type-table path="src/config.ts" name="DocsConfig" />
 
 <Demo src="/demos/counter" title="Counter demo" height="320" />
 
 <AgentTerminal />
 ```
 
-- Type Table currently reads TypeScript definitions and needs `TypeScriptDocgen` configured on the Markdown pipeline. See [Type table](/docs/proa-docs/type-table).
+- Type Table records a request for a TypeScript type and emits a pending placeholder; the build does not resolve it yet. See [Type table](/docs/proa-docs/type-table).
 - Demo embeds a same-origin route and requires an accessible title. See [Demo](/docs/proa-docs/demo).
 - Agent Terminal is enabled by `MdxConfig::proa()`. See [Agent terminal](/docs/proa-docs/agent-terminal).
 

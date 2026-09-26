@@ -37,10 +37,10 @@ axum::serve(listener, app).await?;
 
 ## Generate the Dockerfile
 
-Proa's Coolify preset writes a Dockerfile that Railway can use almost unchanged:
+Proa's Railway preset writes the Dockerfile and the Railway config for you:
 
 ```bash
-proa new site my-site --template marketing --server axum --deploy coolify --tailwind --yes
+proa new site my-site --template marketing --deploy railway --tailwind --yes
 cd my-site
 ```
 
@@ -49,6 +49,8 @@ That gives you:
 ```proa-filetree
 Dockerfile
 .dockerignore
+railway.json
+RAILWAY.md
 src/main.rs
 public/
 ```
@@ -57,11 +59,19 @@ Already have a project? Copy the Dockerfile below instead.
 
 ## Adapt the Dockerfile
 
-Railway does not support BuildKit secret mounts, so replace the generated `--mount=type=secret` line with a build argument. The builder stage is discarded, so the token never reaches the published image.
+The generated Dockerfile installs a pinned, checksum-verified Proa CLI, builds through `proa build --locked --artifact-out`, and reads the GitHub token from a BuildKit secret. Railway does not support BuildKit secret mounts, so replace the `--mount=type=secret` block with a build argument. The builder stage is discarded, so the token never reaches the published image.
 
 ```dockerfile filename="Dockerfile"
 FROM rust:1.93-bookworm AS build
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG PROA_VERSION=0.1.1
+RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \
+    | PROA_VERSION=$PROA_VERSION PROA_INSTALL_DIR=/usr/local/bin PROA_TAILWIND=yes PROA_YES=1 sh
+
 COPY . .
 
 # Railway injects service variables at build time only when you declare them.
@@ -72,65 +82,56 @@ ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN --mount=type=cache,id=s/<service-id>-/usr/local/cargo/registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=s/<service-id>-/usr/local/cargo/git,target=/usr/local/cargo/git \
     --mount=type=cache,id=s/<service-id>-/app/target,target=/app/target \
-    if [ -n "$GITHUB_TOKEN" ]; then \
-        git config --global \
-            url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf \
-            "https://github.com/"; \
-    fi && \
-    cargo build --release && \
-    cp target/release/my-site /app/my-site
+    set -eu; \
+    export GIT_CONFIG_COUNT=1; \
+    export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
+    export GIT_CONFIG_VALUE_0='!f() { if [ "$1" = get ] && [ -n "$GITHUB_TOKEN" ]; then printf "username=x-access-token\npassword=%s\n" "$GITHUB_TOKEN"; fi; }; f'; \
+    proa build --locked --artifact-out /app/my-site
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/my-site /usr/local/bin/my-site
-COPY --from=build /app/public /app/public
+COPY --from=build /app/public ./public
 
-ENV HOST=::
-ENV STATIC_DIR=/app/public
+ENV PROA_HOST=::
 ENV RUST_LOG=info
 
 CMD ["my-site"]
 ```
 
-Three changes from the Coolify version:
+Three changes from the generated version:
 
 - **`ARG`** replaces the BuildKit secret mount.
-- **`HOST=::`** replaces `HOST=0.0.0.0`, so private networking works.
+- **`PROA_HOST=::`** replaces `PROA_HOST=0.0.0.0`, so private networking works.
 - **No `ENV PORT`, no `EXPOSE`.** Railway sets `PORT` and routes to it.
 
-The `cp` after `cargo build` matters: cache mounts do not persist into the final layer, so copy the binary out of `/app/target` inside the same `RUN`.
+`--artifact-out /app/my-site` matters: cache mounts do not persist into the final layer, so the binary must land outside `/app/target`. The generated server serves `public/` relative to its working directory, so keep `WORKDIR /app` and copy `public/` beside the binary.
 
 Replace `<service-id>` with the service ID shown by `railway status --json`.
 Railway requires that literal `s/<service-id>-` cache-key prefix and does not
 allow variables in cache-mount IDs.
 
 Railway detects a file named `Dockerfile` at the repository root. For a nested
-Dockerfile, set `dockerfilePath` in `railway.toml` (or set
+Dockerfile, set `dockerfilePath` in `railway.json` (or set
 `RAILWAY_DOCKERFILE_PATH` in the dashboard).
 
-## Add railway.toml
+## Add railway.json
 
-Config as code keeps deploy settings in review instead of in a dashboard:
+Config as code keeps deploy settings in review instead of in a dashboard. The preset writes this file; `railway.toml` with the same keys also works:
 
-```toml filename="railway.toml"
-[build]
-builder = "DOCKERFILE"
-# dockerfilePath = "path/to/Dockerfile" # only when it is not at the root
-
-[deploy]
-healthcheckPath = "/healthz"
-healthcheckTimeout = 300
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
+```json filename="railway.json"
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "deploy": {
+    "healthcheckPath": "/readyz",
+    "healthcheckTimeout": 120,
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
 ```
 
-Rust release builds are slow on a cold cache. Leave `healthcheckTimeout` at 300 seconds until you know your real startup time.
-
-Free and Trial plans have tighter builder resources and timeouts. Larger Rust
-workspaces can reach those limits during a cold release link even when the code
-is valid. Upgrade to Hobby or deploy a prebuilt image if the build stops at the
-plan's time limit without a Rust diagnostic.
+The generated site answers `/healthz` (liveness) and `/readyz` (readiness, which also checks the database when one is configured). Rust release builds are slow on a cold cache; raise `healthcheckTimeout` toward 300 seconds if the first deploy times out before the server is up.
 
 ## Deploy
 
@@ -151,11 +152,10 @@ Under **Variables**, add:
 
 ```dotenv
 GITHUB_TOKEN=<a token with read access to Proa-Labs/proa>
-STATIC_DIR=/app/public
 RUST_LOG=info
 ```
 
-Do not set `PORT` or `HOST`. Railway manages `PORT`, and the Dockerfile sets `HOST`.
+Do not set `PORT` or `PROA_HOST`. Railway manages `PORT`, and the Dockerfile sets `PROA_HOST`.
 
 ## Health checks
 
@@ -192,8 +192,8 @@ docker run --rm my-site env | grep -c GITHUB_TOKEN   # expect 0
 | Health check times out, logs look fine | App bound `127.0.0.1`, or ignored `PORT` |
 | Build succeeds, service unreachable | No domain generated under Networking |
 | Authentication failure fetching Proa git dependencies | `ARG GITHUB_TOKEN` missing from the build stage |
-| Binary missing in runtime stage | Cache-mounted `target/` not copied out inside the same `RUN` |
-| Another service cannot reach this one in a legacy environment | `HOST=0.0.0.0`; legacy IPv6-only private networking needs `::` |
+| Binary missing in runtime stage | `--artifact-out` pointed inside the cache-mounted `target/` |
+| Another service cannot reach this one in a legacy environment | `PROA_HOST=0.0.0.0`; legacy IPv6-only private networking needs `::` |
 | Every push rebuilds from scratch | No cache mounts, or `.dockerignore` omits `target/` |
 
 ## Next steps

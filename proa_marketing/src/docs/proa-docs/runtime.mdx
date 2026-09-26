@@ -218,7 +218,7 @@ Each of those `DocsResponse` values still needs a conversion into your framework
 
 ## Using the Axum adapter
 
-With the `axum` feature enabled, `proa_docs::adapter::axum::response(&DOCS, path)` converts a `DocsResponse` into an Axum response.
+With the `axum` feature enabled, `proa_docs::adapter::axum::response(&DOCS, path)` renders the path and returns an Axum `Response` with the status, content type, and body of the underlying `DocsResponse`.
 
 Use the adapter for a default docs site. Write your own adapter when the app needs custom status handling, metrics, headers, or route-level layout.
 
@@ -236,9 +236,7 @@ Run through the list below before you ship either one.
 ## Next steps
 
 - [Configuration](/docs/proa-docs/configuration)
-  - Produce the registry this page includes, from `build.rs`.
-- [Config reference](/docs/proa-docs/configuration)
-  - Every builder behind `out_dir_name`, `base_path`, and search.
+  - Produce the registry this page includes, from `build.rs`, and every builder behind `out_dir_name`, `base_path`, and search.
 - [Search](/docs/proa-docs/search)
   - Serve the search manifest and documents JSON to a client UI.
 - [Page conventions](/docs/proa-docs/pages-and-routes)

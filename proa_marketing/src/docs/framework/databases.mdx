@@ -3,11 +3,11 @@ title: Databases
 description: Connect SQLx, Diesel, or Toasty to a Proa DataLoader and render typed rows as components.
 ---
 
-Proa is database and ORM agnostic. It ships no driver, no query builder, and no opinion about your data layer.
+Proa is database and ORM agnostic. The framework crates ship no driver, no query builder, and no opinion about your data layer. The CLI offers a starting point you can keep or replace: `proa add database` wires SQLite through SQLx and `proa db` runs migrations.
 
 `DataLoader` is the seam. It is a trait you implement, not a driver Proa ships, and its one required method returns a future, so anything you can await composes behind one key: a pool checkout, an ORM query, an HTTP call, a cache read, or all four.
 
-This page connects [SQLx](https://github.com/launchbadge/sqlx), [Diesel](https://diesel.rs), and [Toasty](https://github.com/tokio-rs/toasty) to that trait. Everything above the loader is identical in all three, which is the point. Installing and configuring each library is its own documentation; this page starts once you have a pool.
+This page connects [SQLx](https://github.com/launchbadge/sqlx), [Diesel](https://diesel.rs), and [Toasty](https://github.com/tokio-rs/toasty) to that trait. Everything above the loader is the same in all three, which is the point; only the module that defines `Product` differs (`src/data/loader.rs` for SQLx, `src/data/schema.rs` for Diesel, `src/data/model.rs` for Toasty), so adjust that one import. Installing and configuring each library is its own documentation; this page starts once you have a pool.
 
 ## The part that does not change
 
@@ -171,14 +171,17 @@ impl DataLoader for AppLoader {
 use std::sync::Arc;
 
 use axum::extract::{Extension, Path};
+use axum::response::IntoResponse;
 use proa_framework_axum::RouteResponse;
+use proa_stream::DataResolver;
 
 use crate::data::loader::AppLoader;
 
 pub async fn product(
     Extension(loader): Extension<Arc<AppLoader>>,
     Path(id): Path<i64>,
-) -> RouteResponse<AppLoader> {
+) -> impl IntoResponse {
+    let loader = DataResolver::request_scope(loader);
     RouteResponse::ssr_async_with_loader(ProductPage { id }, loader)
 }
 ```
@@ -212,7 +215,7 @@ pub async fn update_price(db: &SqlitePool, id: i64, price_cents: i64) -> sqlx::R
 
 **`src/data/loader.rs`** — `.bind(...)` sends the id as a query parameter rather than interpolating it into the SQL. `fetch_optional` keeps a missing row distinct from a database failure.
 
-**`src/routes/products.rs`** — The handler hands the loader to the response and returns. It runs no query itself: the component asks for what it needs while rendering, and two components asking for the same key share one query.
+**`src/routes/products.rs`** — The handler wraps the shared loader in a request-scoped `DataResolver`, hands it to the response, and returns. It runs no query itself: the component asks for what it needs while rendering, and two components asking for the same key share one query because the resolver deduplicates within the request. Passing the bare `Arc<AppLoader>` also works, but then each component that asks runs its own query.
 
 **`src/routes/update_price.rs`** — Writes own their transaction and commit before a response is constructed.
 

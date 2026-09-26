@@ -9,13 +9,22 @@ Read [what self-managed Docker costs you](/docs/framework/deployment) first. Tak
 
 ## Build the image
 
-Multi-stage: compile in a Rust image, run from a slim base. The GitHub token that fetches Proa's git dependencies stays in the build stage, which never ships.
+Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. The GitHub token that fetches Proa's git dependencies stays in the build stage, which never ships. `proa new site --deploy docker` writes this Dockerfile for you; the version below is the same shape, using the installer script for the CLI.
 
 ```dockerfile filename="Dockerfile"
 # syntax=docker/dockerfile:1.7
 
 FROM rust:1.93-bookworm AS build
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install a pinned, checksum-verified Proa CLI and the Tailwind binary.
+ARG PROA_VERSION=0.1.1
+RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \
+    | PROA_VERSION=$PROA_VERSION PROA_INSTALL_DIR=/usr/local/bin PROA_TAILWIND=yes PROA_YES=1 sh
+
 COPY . .
 
 # Fetch Proa git dependencies through the git CLI. While the Proa repository
@@ -25,12 +34,11 @@ ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN --mount=type=secret,id=github_token \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    if [ -s /run/secrets/github_token ]; then \
-        git config --global \
-            url."https://x-access-token:$(cat /run/secrets/github_token)@github.com/".insteadOf \
-            "https://github.com/"; \
-    fi \
-    && cargo build --release
+    set -eu; \
+    export GIT_CONFIG_COUNT=1; \
+    export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
+    export GIT_CONFIG_VALUE_0='!f() { if [ "$1" = get ] && [ -s /run/secrets/github_token ]; then printf "username=x-access-token\npassword=%s\n" "$(cat /run/secrets/github_token)"; fi; }; f'; \
+    proa build --locked --artifact-out /tmp/proa-app
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
@@ -38,17 +46,18 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app/target/release/my-site /usr/local/bin/my-site
-COPY --from=build /app/public /app/public
+COPY --from=build /tmp/proa-app /usr/local/bin/my-site
+COPY --from=build /app/public ./public
 
-ENV HOST=0.0.0.0
+ENV PROA_HOST=0.0.0.0
 ENV PORT=3000
-ENV STATIC_DIR=/app/public
 ENV RUST_LOG=info
 
 EXPOSE 3000
 CMD ["my-site"]
 ```
+
+`proa build` runs the configured asset build and the linked RSJS pipeline, then copies the attested binary to `--artifact-out`. A plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The generated server reads `PROA_HOST` and `PORT` and serves `public/` relative to its working directory, which is why the runtime stage sets `WORKDIR /app` and copies `public/` beside it.
 
 ```bash
 docker build --secret id=github_token,env=GITHUB_TOKEN -t my-site:$(git rev-parse --short HEAD) .
@@ -66,9 +75,8 @@ services:
     image: ghcr.io/you/my-site:abc1234
     restart: unless-stopped
     environment:
-      HOST: 0.0.0.0
+      PROA_HOST: 0.0.0.0
       PORT: 3000
-      STATIC_DIR: /app/public
       RUST_LOG: info
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/healthz"]
@@ -97,7 +105,6 @@ services:
     expose: ["3000"]
     environment:
       PORT: 3000
-      STATIC_DIR: /app/public
 
   proxy:
     image: caddy:2
@@ -149,7 +156,7 @@ Start the new version alongside, prove it healthy, then move traffic:
 ```bash
 NEW=abc1234
 docker run -d --name my-site-$NEW -p 127.0.0.1:3001:3000 \
-  -e PORT=3000 -e STATIC_DIR=/app/public ghcr.io/you/my-site:$NEW
+  -e PORT=3000 -e PROA_HOST=0.0.0.0 ghcr.io/you/my-site:$NEW
 
 for i in $(seq 30); do
   curl -fsS http://127.0.0.1:3001/healthz && break

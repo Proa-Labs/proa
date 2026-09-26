@@ -29,10 +29,12 @@ impl<L: DataLoader> WebRenderSync<L> for Counter {
         });
 
         html_sync! {
-            <button type="button" on_click={increment()}>
-                {count.get()}
-            </button>
-            <output>{doubled.get()}</output>
+            <div>
+                <button type="button" on_click={increment()}>
+                    {count.get()}
+                </button>
+                <output>{doubled.get()}</output>
+            </div>
         }
         .render(cx)
     }

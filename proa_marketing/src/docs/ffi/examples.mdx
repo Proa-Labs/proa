@@ -3,7 +3,7 @@ title: Example payloads
 description: JSON prop shapes for the five benchmark render entry points.
 ---
 
-Each playground benchmark takes a JSON object. The function names are historical and stay stable for existing FFI callers; all rendered content is fictional and Proa-authored.
+Each playground benchmark takes a JSON object. The entry points render the playground's showcase recreations of a travel marketplace (the Airbnb home, search, and listing pages) and a footwear store (the Nike catalog and product pages); the checked-in default props in `proa_demo/showcase-props.json` carry that page data. The samples on this page use placeholder names to show the shapes.
 
 | Entry point | Renders |
 |---|---|
@@ -15,10 +15,8 @@ Each playground benchmark takes a JSON object. The function names are historical
 
 ## Travel home
 
-`render_airbnb_home` is the compatibility entry point for a dense travel-home
-benchmark. The rendered Coast Stays page uses fictional data and Proa-authored
-illustrations; the function name is retained so existing benchmark callers do
-not break.
+`render_airbnb_home` renders the dense travel-home benchmark. The default
+props under `showcase-props.json > home` are the showcase's listing data.
 
 ### Required shape
 
@@ -74,9 +72,8 @@ The full synthetic fixture lives at `proa_demo/showcase-props.json > home`.
 
 ## Travel search
 
-`render_airbnb_search` renders the fictional Coast Stays search benchmark. The
-historical function name remains part of the FFI compatibility surface; no
-third-party page data or imagery is required.
+`render_airbnb_search` renders the travel search benchmark. The default props
+live under `showcase-props.json > search`.
 
 ### Required shape
 
@@ -127,9 +124,7 @@ The full synthetic fixture lives at `proa_demo/showcase-props.json > search`.
 
 ## Travel listing
 
-`render_airbnb_listing_json` renders the fictional Coast Stays detail page.
-Its historical name is retained for FFI compatibility. The checked-in default
-contains Proa-authored copy, fictional people and places, and synthetic SVGs.
+`render_airbnb_listing_json` renders the travel listing detail page.
 
 The required object contains:
 
@@ -143,8 +138,8 @@ The required object contains:
 - nested `review_scores`, `host`, optional `cohost`, and `booking` objects.
 
 Start with `proa_demo/showcase-props.json > listing`. That file is the canonical
-complete example and is validated alongside the demo. Its image paths point to
-`/images/synthetic/*.svg`, which are included in this repository.
+complete example and is validated alongside the demo. Its image paths point at
+the showcase's `/images/airbnb/` assets, which the playground package serves.
 
 ```json
 {
@@ -163,9 +158,7 @@ when calling the renderer.
 
 ## Catalog
 
-`render_nike_catalog_json` is the compatibility entry point for the fictional
-Stride Supply catalog. Its function name remains stable for existing FFI
-callers, while all rendered products and illustrations are Proa-authored.
+`render_nike_catalog_json` renders the footwear catalog benchmark.
 
 ```ts
 type CatalogProps = {
@@ -198,17 +191,17 @@ type CatalogProps = {
 ```
 
 The full 117-card workload lives at
-`proa_demo/showcase-props.json > nike_catalog`.
+`proa_demo/showcase-props.json > nike-catalog`.
 
 ## Product detail
 
-`render_nike_pdp_json` is the compatibility entry point for the fictional
-Stride Supply product page. The default workload preserves a realistic product-detail
-shape without copied product copy, reviews, logos, or photography.
+`render_nike_pdp_json` renders the footwear product detail page.
 
-The object includes product identity and pricing, `benefits`, `whats_new`,
-`sizes`, `colorways`, review summary and `reviews`, `recommended` products,
-delivery details, and a primary `image`.
+The object includes product identity and pricing (`title`, `subtitle`,
+`current_price`, `original_price`, `discount_pct`, `color_name`, `style_code`,
+`description`, `reason_to_buy`, `weight`, `drop`), `benefits`, `whats_new`,
+`sizes`, `colorways`, the review summary (`avg_rating`, `review_count`) and
+`reviews`, and `recommended` products.
 
 ```json
 {
@@ -225,7 +218,7 @@ delivery details, and a primary `image`.
 ```
 
 This excerpt documents the primary scalar fields. Use the complete validated
-object at `proa_demo/showcase-props.json > nike_pdp` as a starting point.
+object at `proa_demo/showcase-props.json > nike-pdp` as a starting point.
 
 ## Next steps
 

@@ -89,9 +89,9 @@ Returns `0` on success, `-2` if the JSON is invalid.
 | `render_airbnb_search` | Airbnb search results (~49 KB) |
 | `render_airbnb_listing` | Airbnb listing detail (~92 KB) |
 | `render_airbnb_listing_json` | Airbnb listing with custom props |
-| `render_nike_catalog` | Fictional footwear catalog (~125 KB) |
+| `render_nike_catalog` | Footwear catalog, the Nike showcase (~125 KB) |
 | `render_nike_catalog_json` | Footwear catalog with custom props |
-| `render_nike_pdp` | Fictional footwear product detail (~58 KB) |
+| `render_nike_pdp` | Footwear product detail, the Nike showcase (~58 KB) |
 | `render_nike_pdp_json` | Footwear product detail with custom props |
 | `render_*_into` | Caller-provided-buffer variants for default-prop pages |
 | `proa_free` | Free a buffer from any allocating render |
@@ -385,9 +385,9 @@ The "Rust render" column is pure CPU time inside the render function. The "Pytho
 The `_json` variants accept JSON matching the structures in `showcase-props.json` (included in the playground download). Full default props for each page:
 
 <Cards>
-  <Card title="Airbnb Home" description="render_airbnb_home" href="/docs/ffi/home" />
-  <Card title="Airbnb Search" description="render_airbnb_search" href="/docs/ffi/search" />
-  <Card title="Airbnb Listing" description="render_airbnb_listing_json" href="/docs/ffi/listing" />
-  <Card title="Footwear Catalog" description="render_nike_catalog_json" href="/docs/ffi/nike-catalog" />
-  <Card title="Footwear Product Detail" description="render_nike_pdp_json" href="/docs/ffi/nike-pdp" />
+  <Card title="Airbnb Home" description="render_airbnb_home" href="/docs/ffi/examples#travel-home" />
+  <Card title="Airbnb Search" description="render_airbnb_search" href="/docs/ffi/examples#travel-search" />
+  <Card title="Airbnb Listing" description="render_airbnb_listing_json" href="/docs/ffi/examples#travel-listing" />
+  <Card title="Footwear Catalog" description="render_nike_catalog_json" href="/docs/ffi/examples#catalog" />
+  <Card title="Footwear Product Detail" description="render_nike_pdp_json" href="/docs/ffi/examples#product-detail" />
 </Cards>

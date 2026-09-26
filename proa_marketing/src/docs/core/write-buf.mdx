@@ -34,7 +34,7 @@ The last two rows belong to the streaming path. [Sink](/docs/core/sink) covers t
 For a long-lived service, keep the writer request-local or worker-local and clear it between renders:
 
 ```rust filename="src/render_worker.rs"
-use proa_core::{RenderBuffer, WebContext, WebRenderSync};
+use proa_core::{RenderBuffer, WebContext, WebRenderSync, WriteBuf};
 
 pub struct RenderWorker {
     out: RenderBuffer,

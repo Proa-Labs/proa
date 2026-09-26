@@ -7,13 +7,9 @@ The playground FFI artifact is a native shared library plus `proa.h`. The host p
 
 ## Build Outputs
 
-Build the demo library from the repository:
+The library is built and packaged by Proa's release pipeline; download the playground package rather than building it yourself. A plain `cargo build -p proa_demo --release` does not link, because the demo includes RSJS islands and the linked pipeline currently exposes only binary and example targets, not the cdylib.
 
-```bash
-cargo build -p proa_demo --release
-```
-
-Expected native outputs:
+Native outputs in the package:
 
 | Platform | Library |
 |----------|---------|

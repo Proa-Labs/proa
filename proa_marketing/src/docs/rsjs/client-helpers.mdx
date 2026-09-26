@@ -42,8 +42,10 @@ impl<L: DataLoader> WebRenderSync<L> for Results {
         });
 
         html_sync! {
-            <button type="button" on_click={increment()}>"Add"</button>
-            <p>{count.get()}" "{label_for_count(count.get())}</p>
+            <div>
+                <button type="button" on_click={increment()}>"Add"</button>
+                <p>{count.get()}" "{label_for_count(count.get())}</p>
+            </div>
         }
         .render(cx)
     }
