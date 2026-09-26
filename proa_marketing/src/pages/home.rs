@@ -654,21 +654,27 @@ const COMPOSABLE_CONNECTORS_SCRIPT: &str = r#"
   }
 
   function init() {
-    drawAll();
-
     if ('ResizeObserver' in window) {
-      var observer = new ResizeObserver(function() {
-        window.requestAnimationFrame(drawAll);
-      });
+      // Observer callbacks run right after the browser's own layout, so the
+      // geometry reads below are free instead of forcing a synchronous page
+      // layout before first paint. Rewriting the connector paths never
+      // resizes an observed node, so drawing here cannot loop.
+      var observer = new ResizeObserver(drawAll);
       document.querySelectorAll('[data-composable-flow], [data-flow-node]').forEach(function(node) {
         observer.observe(node);
       });
     } else {
+      drawAll();
       window.addEventListener('resize', drawAll);
     }
 
-    if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(drawAll);
+    // A font swap can move the inline child origins without resizing a node.
+    // `loadingdone` fires only when a font actually loads; `fonts.ready`
+    // resolves immediately when none are pending, which would force layout.
+    if (document.fonts && document.fonts.addEventListener) {
+      document.fonts.addEventListener('loadingdone', function() {
+        window.requestAnimationFrame(drawAll);
+      });
     }
   }
 
