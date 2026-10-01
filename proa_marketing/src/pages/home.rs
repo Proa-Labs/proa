@@ -2365,6 +2365,12 @@ mod tests {
             .unwrap()
             .0;
         assert!(!title.is_empty() && title.chars().count() <= 70);
+        // SEO auditors join every `<title>` in the document, inline SVG
+        // titles included, into one over-long page title.
+        assert_eq!(html.matches("<title>").count(), 1);
+        assert!(head.contains(
+            r#"<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v="#
+        ));
         assert!(!description.is_empty() && description.chars().count() <= 125);
         for name in ["og:description", "twitter:description"] {
             let tag = head.split_once(&format!(r#"name="{name}""#)).unwrap().1;

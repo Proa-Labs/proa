@@ -78,7 +78,6 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaBrand {
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
                 >
-                    <title>"Proa"</title>
                     <path
                         d="M13 36.5C17.6 25.7 25.5 18 36.2 13L34.8 33.5L13 36.5Z"
                         fill="var(--color-brand)"
