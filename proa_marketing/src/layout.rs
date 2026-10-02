@@ -127,7 +127,7 @@ const SOCIAL_IMAGE_ALT: &str =
     "Proa: a person and a robot in a boat with an orange sail, traveling through streams of HTML and Markdown.";
 const SOCIAL_IMAGE_SRC: &str = concat!("/static/og.jpg?v=", env!("MARKETING_ASSET_VERSION"));
 /// iOS fills transparent touch icons with black, so this PNG is opaque.
-const APPLE_TOUCH_ICON_HREF: &str = concat!(
+pub(crate) const APPLE_TOUCH_ICON_HREF: &str = concat!(
     "/static/apple-touch-icon.png?v=",
     env!("MARKETING_ASSET_VERSION")
 );
