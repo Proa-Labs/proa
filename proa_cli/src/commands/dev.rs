@@ -31,6 +31,9 @@ pub(crate) struct DevArgs {
     /// Skip configured asset builds before starting or restarting.
     #[arg(long)]
     no_assets: bool,
+    /// Enable experimental html_hot_sync! static text/attribute updates.
+    #[arg(long)]
+    hot_static: bool,
     /// Run once without watching for file changes.
     #[arg(long)]
     no_restart: bool,
@@ -63,6 +66,7 @@ pub(crate) fn run(args: DevArgs) -> Result<()> {
         open: args.open,
         offline: args.offline,
         no_assets: args.no_assets,
+        hot_static: args.hot_static,
         no_restart: args.no_restart,
         no_reload: args.no_reload,
         no_css_hot_swap: args.no_css_hot_swap,

@@ -27,5 +27,5 @@ mod golden_tests;
 
 pub use emit_tokens::{
     generate_optimized, generate_optimized_async, generate_optimized_async_xml,
-    generate_optimized_send_async, generate_optimized_xml,
+    generate_optimized_hot, generate_optimized_send_async, generate_optimized_xml,
 };

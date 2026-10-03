@@ -21,6 +21,7 @@ pub mod config;
 pub mod diagnostic;
 pub mod fmt;
 pub mod font;
+mod hot_static;
 pub mod lifecycle;
 pub mod lint;
 mod output;
