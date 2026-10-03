@@ -1,0 +1,2173 @@
+{
+  "command": [
+    "/Users/andrewhariri/Desktop/proa-dev-perf/target/release/cargo-proa-cache-snapshot",
+    "dev",
+    "--root",
+    "/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka",
+    "--no-assets",
+    "--port",
+    "39147",
+    "--debounce-ms",
+    "300",
+    "--",
+    "cargo",
+    "run",
+    "--offline",
+    "--profile",
+    "nodebug"
+  ],
+  "toolchain": null,
+  "rustflags": null,
+  "configuration": "default",
+  "samples": [
+    {
+      "sample": 0,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.3649024998303503,
+        "prepared": 0.5782806668430567,
+        "descriptor_finished": 1.5985374168958515,
+        "final_compiling": 2.5901244168635458,
+        "final_finished": 3.0205867919139564,
+        "validated": 3.058187832823023,
+        "launched": 3.162614499917254,
+        "response": 3.448477082885802
+      }
+    },
+    {
+      "sample": 1,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.3605323750525713,
+        "prepared": 0.5718079579528421,
+        "descriptor_finished": 1.544510917039588,
+        "final_compiling": 2.5587306250818074,
+        "final_finished": 2.990427125012502,
+        "validated": 3.038154667010531,
+        "launched": 3.1432232500519603,
+        "response": 3.166162374895066
+      }
+    },
+    {
+      "sample": 2,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.35608454095199704,
+        "prepared": 0.5752457908820361,
+        "descriptor_finished": 1.5197177908848971,
+        "final_compiling": 2.4919647078495473,
+        "final_finished": 2.9454771250020713,
+        "validated": 2.9953864158596843,
+        "launched": 3.100466415984556,
+        "response": 3.1146869158837944
+      }
+    }
+  ],
+  "events": [
+    {
+      "time": 1481558.563918291,
+      "stream": "stdout",
+      "line": "Proa dev root: /private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka"
+    },
+    {
+      "time": 1481558.563943666,
+      "stream": "stdout",
+      "line": "Proa dev URL: http://127.0.0.1:39147"
+    },
+    {
+      "time": 1481558.564049666,
+      "stream": "stdout",
+      "line": "Proa dev live reload: on (port 62167)"
+    },
+    {
+      "time": 1481558.737118583,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile nodebug"
+    },
+    {
+      "time": 1481559.177132833,
+      "stream": "stderr",
+      "line": "   Compiling proc-macro2 v1.0.107"
+    },
+    {
+      "time": 1481559.177154333,
+      "stream": "stderr",
+      "line": "   Compiling unicode-ident v1.0.26"
+    },
+    {
+      "time": 1481559.17715575,
+      "stream": "stderr",
+      "line": "   Compiling quote v1.0.47"
+    },
+    {
+      "time": 1481559.177157166,
+      "stream": "stderr",
+      "line": "   Compiling libc v0.2.190"
+    },
+    {
+      "time": 1481559.177161458,
+      "stream": "stderr",
+      "line": "   Compiling cfg-if v1.0.5"
+    },
+    {
+      "time": 1481559.177163375,
+      "stream": "stderr",
+      "line": "   Compiling pin-project-lite v0.2.17"
+    },
+    {
+      "time": 1481559.177192583,
+      "stream": "stderr",
+      "line": "   Compiling parking_lot_core v0.9.12"
+    },
+    {
+      "time": 1481559.177205208,
+      "stream": "stderr",
+      "line": "   Compiling memchr v2.8.3"
+    },
+    {
+      "time": 1481559.177206208,
+      "stream": "stderr",
+      "line": "   Compiling bytes v1.12.1"
+    },
+    {
+      "time": 1481559.177206833,
+      "stream": "stderr",
+      "line": "   Compiling scopeguard v1.2.0"
+    },
+    {
+      "time": 1481559.177229125,
+      "stream": "stderr",
+      "line": "   Compiling itoa v1.0.18"
+    },
+    {
+      "time": 1481559.177246708,
+      "stream": "stderr",
+      "line": "   Compiling once_cell v1.21.4"
+    },
+    {
+      "time": 1481559.177257125,
+      "stream": "stderr",
+      "line": "   Compiling stable_deref_trait v1.2.1"
+    },
+    {
+      "time": 1481559.177258208,
+      "stream": "stderr",
+      "line": "   Compiling smallvec v1.16.2"
+    },
+    {
+      "time": 1481559.177286833,
+      "stream": "stderr",
+      "line": "   Compiling serde v1.0.229"
+    },
+    {
+      "time": 1481559.177289291,
+      "stream": "stderr",
+      "line": "   Compiling futures-core v0.3.34"
+    },
+    {
+      "time": 1481559.24438475,
+      "stream": "stderr",
+      "line": "   Compiling lock_api v0.4.14"
+    },
+    {
+      "time": 1481559.249417375,
+      "stream": "stderr",
+      "line": "   Compiling find-msvc-tools v0.1.13"
+    },
+    {
+      "time": 1481559.268035,
+      "stream": "stderr",
+      "line": "   Compiling shlex v2.0.1"
+    },
+    {
+      "time": 1481559.286552291,
+      "stream": "stderr",
+      "line": "   Compiling zmij v1.0.23"
+    },
+    {
+      "time": 1481559.286760333,
+      "stream": "stderr",
+      "line": "   Compiling serde_core v1.0.229"
+    },
+    {
+      "time": 1481559.2953515,
+      "stream": "stderr",
+      "line": "   Compiling log v0.4.34"
+    },
+    {
+      "time": 1481559.326471958,
+      "stream": "stderr",
+      "line": "   Compiling tracing-core v0.1.36"
+    },
+    {
+      "time": 1481559.3355825,
+      "stream": "stderr",
+      "line": "   Compiling futures-sink v0.3.34"
+    },
+    {
+      "time": 1481559.354030375,
+      "stream": "stderr",
+      "line": "   Compiling crossbeam-utils v0.8.23"
+    },
+    {
+      "time": 1481559.411443875,
+      "stream": "stderr",
+      "line": "   Compiling thiserror v2.0.21"
+    },
+    {
+      "time": 1481559.449451083,
+      "stream": "stderr",
+      "line": "   Compiling slab v0.4.12"
+    },
+    {
+      "time": 1481559.44946525,
+      "stream": "stderr",
+      "line": "   Compiling version_check v0.9.5"
+    },
+    {
+      "time": 1481559.479176333,
+      "stream": "stderr",
+      "line": "   Compiling futures-channel v0.3.34"
+    },
+    {
+      "time": 1481559.553803708,
+      "stream": "stderr",
+      "line": "   Compiling http v1.5.0"
+    },
+    {
+      "time": 1481559.602065416,
+      "stream": "stderr",
+      "line": "   Compiling byteorder v1.5.0"
+    },
+    {
+      "time": 1481559.618399291,
+      "stream": "stderr",
+      "line": "   Compiling generic-array v0.14.7"
+    },
+    {
+      "time": 1481559.644958416,
+      "stream": "stderr",
+      "line": "   Compiling heapless v0.8.0"
+    },
+    {
+      "time": 1481559.657514708,
+      "stream": "stderr",
+      "line": "   Compiling hashbrown v0.14.5"
+    },
+    {
+      "time": 1481559.706037541,
+      "stream": "stderr",
+      "line": "   Compiling hash32 v0.3.1"
+    },
+    {
+      "time": 1481559.726880083,
+      "stream": "stderr",
+      "line": "   Compiling futures-task v0.3.34"
+    },
+    {
+      "time": 1481559.754284,
+      "stream": "stderr",
+      "line": "   Compiling typenum v1.20.1"
+    },
+    {
+      "time": 1481559.767994875,
+      "stream": "stderr",
+      "line": "   Compiling futures-io v0.3.34"
+    },
+    {
+      "time": 1481559.799402708,
+      "stream": "stderr",
+      "line": "   Compiling itoa_lut v0.1.2 (/Users/andrewhariri/Desktop/proa-dev-perf/itoa_lut)"
+    },
+    {
+      "time": 1481559.831573125,
+      "stream": "stderr",
+      "line": "   Compiling serde_json v1.0.151"
+    },
+    {
+      "time": 1481559.887635625,
+      "stream": "stderr",
+      "line": "   Compiling arrayvec v0.7.8"
+    },
+    {
+      "time": 1481559.915112708,
+      "stream": "stderr",
+      "line": "   Compiling pkg-config v0.3.34"
+    },
+    {
+      "time": 1481560.020795041,
+      "stream": "stderr",
+      "line": "   Compiling const-oid v0.9.6"
+    },
+    {
+      "time": 1481560.040202416,
+      "stream": "stderr",
+      "line": "   Compiling writeable v0.6.4"
+    },
+    {
+      "time": 1481560.054060833,
+      "stream": "stderr",
+      "line": "   Compiling litemap v0.8.3"
+    },
+    {
+      "time": 1481560.117725416,
+      "stream": "stderr",
+      "line": "   Compiling http-body v1.1.0"
+    },
+    {
+      "time": 1481560.146068375,
+      "stream": "stderr",
+      "line": "   Compiling icu_properties_data v2.3.0"
+    },
+    {
+      "time": 1481560.148570958,
+      "stream": "stderr",
+      "line": "   Compiling utf8_iter v1.0.4"
+    },
+    {
+      "time": 1481560.155796875,
+      "stream": "stderr",
+      "line": "   Compiling base64 v0.22.1"
+    },
+    {
+      "time": 1481560.188760833,
+      "stream": "stderr",
+      "line": "   Compiling percent-encoding v2.3.2"
+    },
+    {
+      "time": 1481560.225343583,
+      "stream": "stderr",
+      "line": "   Compiling icu_normalizer_data v2.3.0"
+    },
+    {
+      "time": 1481560.284760125,
+      "stream": "stderr",
+      "line": "   Compiling httparse v1.10.1"
+    },
+    {
+      "time": 1481560.306064208,
+      "stream": "stderr",
+      "line": "   Compiling hashbrown v0.17.1"
+    },
+    {
+      "time": 1481560.347285875,
+      "stream": "stderr",
+      "line": "   Compiling alloc-no-stdlib v2.0.4"
+    },
+    {
+      "time": 1481560.435038208,
+      "stream": "stderr",
+      "line": "   Compiling crc32fast v1.5.2"
+    },
+    {
+      "time": 1481560.512660208,
+      "stream": "stderr",
+      "line": "   Compiling syn v3.0.6"
+    },
+    {
+      "time": 1481560.537131625,
+      "stream": "stderr",
+      "line": "   Compiling syn v2.0.119"
+    },
+    {
+      "time": 1481560.557765708,
+      "stream": "stderr",
+      "line": "   Compiling zstd-safe v8.0.0"
+    },
+    {
+      "time": 1481560.589330791,
+      "stream": "stderr",
+      "line": "   Compiling tower-service v0.3.3"
+    },
+    {
+      "time": 1481560.648083083,
+      "stream": "stderr",
+      "line": "   Compiling object v0.37.3"
+    },
+    {
+      "time": 1481560.669259625,
+      "stream": "stderr",
+      "line": "   Compiling equivalent v1.0.2"
+    },
+    {
+      "time": 1481560.71664025,
+      "stream": "stderr",
+      "line": "   Compiling zeroize v1.9.0"
+    },
+    {
+      "time": 1481560.718963166,
+      "stream": "stderr",
+      "line": "   Compiling indexmap v2.14.2"
+    },
+    {
+      "time": 1481560.800741666,
+      "stream": "stderr",
+      "line": "   Compiling rustls-pki-types v1.15.1"
+    },
+    {
+      "time": 1481561.409186583,
+      "stream": "stderr",
+      "line": "   Compiling jobserver v0.1.35"
+    },
+    {
+      "time": 1481561.446677833,
+      "stream": "stderr",
+      "line": "   Compiling errno v0.3.14"
+    },
+    {
+      "time": 1481561.522505375,
+      "stream": "stderr",
+      "line": "   Compiling cc v1.4.7"
+    },
+    {
+      "time": 1481561.546784,
+      "stream": "stderr",
+      "line": "   Compiling signal-hook-registry v1.4.8"
+    },
+    {
+      "time": 1481561.572660416,
+      "stream": "stderr",
+      "line": "   Compiling parking_lot v0.12.5"
+    },
+    {
+      "time": 1481561.593669666,
+      "stream": "stderr",
+      "line": "   Compiling socket2 v0.6.5"
+    },
+    {
+      "time": 1481561.654705875,
+      "stream": "stderr",
+      "line": "   Compiling mio v1.2.3"
+    },
+    {
+      "time": 1481561.783186583,
+      "stream": "stderr",
+      "line": "   Compiling cpufeatures v0.2.17"
+    },
+    {
+      "time": 1481561.843821833,
+      "stream": "stderr",
+      "line": "   Compiling getrandom v0.2.17"
+    },
+    {
+      "time": 1481561.873637125,
+      "stream": "stderr",
+      "line": "   Compiling synstructure v0.14.0"
+    },
+    {
+      "time": 1481561.93750925,
+      "stream": "stderr",
+      "line": "   Compiling alloc-stdlib v0.2.4"
+    },
+    {
+      "time": 1481561.94094175,
+      "stream": "stderr",
+      "line": "   Compiling simd-adler32 v0.3.10"
+    },
+    {
+      "time": 1481562.008831166,
+      "stream": "stderr",
+      "line": "   Compiling adler2 v2.0.1"
+    },
+    {
+      "time": 1481562.035679541,
+      "stream": "stderr",
+      "line": "   Compiling untrusted v0.9.0"
+    },
+    {
+      "time": 1481562.084293333,
+      "stream": "stderr",
+      "line": "   Compiling try-lock v0.2.5"
+    },
+    {
+      "time": 1481562.102353708,
+      "stream": "stderr",
+      "line": "   Compiling block-buffer v0.10.4"
+    },
+    {
+      "time": 1481562.115828375,
+      "stream": "stderr",
+      "line": "   Compiling crypto-common v0.1.7"
+    },
+    {
+      "time": 1481562.139337583,
+      "stream": "stderr",
+      "line": "   Compiling atomic-waker v1.1.2"
+    },
+    {
+      "time": 1481562.191854708,
+      "stream": "stderr",
+      "line": "   Compiling digest v0.10.7"
+    },
+    {
+      "time": 1481562.192651375,
+      "stream": "stderr",
+      "line": "   Compiling fnv v1.0.7"
+    },
+    {
+      "time": 1481562.209280625,
+      "stream": "stderr",
+      "line": "   Compiling httpdate v1.0.3"
+    },
+    {
+      "time": 1481562.22668375,
+      "stream": "stderr",
+      "line": "   Compiling want v0.3.1"
+    },
+    {
+      "time": 1481562.237412333,
+      "stream": "stderr",
+      "line": "   Compiling miniz_oxide v0.9.1"
+    },
+    {
+      "time": 1481562.262718083,
+      "stream": "stderr",
+      "line": "   Compiling brotli-decompressor v5.0.3"
+    },
+    {
+      "time": 1481562.266288708,
+      "stream": "stderr",
+      "line": "   Compiling zstd-sys v2.1.0+zstd.1.5.7"
+    },
+    {
+      "time": 1481562.2817955,
+      "stream": "stderr",
+      "line": "   Compiling ring v0.17.14"
+    },
+    {
+      "time": 1481562.319059958,
+      "stream": "stderr",
+      "line": "   Compiling sha2 v0.10.9"
+    },
+    {
+      "time": 1481562.328332,
+      "stream": "stderr",
+      "line": "   Compiling form_urlencoded v1.2.2"
+    },
+    {
+      "time": 1481562.338178791,
+      "stream": "stderr",
+      "line": "   Compiling sync_wrapper v1.0.2"
+    },
+    {
+      "time": 1481562.41046725,
+      "stream": "stderr",
+      "line": "   Compiling getrandom v0.4.3"
+    },
+    {
+      "time": 1481562.459850125,
+      "stream": "stderr",
+      "line": "   Compiling rustls v0.23.45"
+    },
+    {
+      "time": 1481562.49556875,
+      "stream": "stderr",
+      "line": "   Compiling getrandom v0.3.4"
+    },
+    {
+      "time": 1481562.609773708,
+      "stream": "stderr",
+      "line": "   Compiling tower-layer v0.3.3"
+    },
+    {
+      "time": 1481562.616560208,
+      "stream": "stderr",
+      "line": "   Compiling unicase v2.9.0"
+    },
+    {
+      "time": 1481562.6262665,
+      "stream": "stderr",
+      "line": "   Compiling mime v0.3.17"
+    },
+    {
+      "time": 1481562.734342583,
+      "stream": "stderr",
+      "line": "   Compiling zerocopy v0.8.57"
+    },
+    {
+      "time": 1481562.763489083,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_web v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_web)"
+    },
+    {
+      "time": 1481562.777337166,
+      "stream": "stderr",
+      "line": "   Compiling linkme-impl v0.3.37"
+    },
+    {
+      "time": 1481562.78780125,
+      "stream": "stderr",
+      "line": "   Compiling mime_guess v2.0.5"
+    },
+    {
+      "time": 1481562.872494333,
+      "stream": "stderr",
+      "line": "   Compiling brotli v8.0.4"
+    },
+    {
+      "time": 1481562.9217665,
+      "stream": "stderr",
+      "line": "   Compiling tracing-attributes v0.1.31"
+    },
+    {
+      "time": 1481562.926389166,
+      "stream": "stderr",
+      "line": "   Compiling serde_derive v1.0.229"
+    },
+    {
+      "time": 1481562.939856833,
+      "stream": "stderr",
+      "line": "   Compiling zerofrom-derive v0.1.8"
+    },
+    {
+      "time": 1481562.9399115,
+      "stream": "stderr",
+      "line": "   Compiling tokio-macros v2.7.2"
+    },
+    {
+      "time": 1481562.963447791,
+      "stream": "stderr",
+      "line": "   Compiling yoke-derive v0.8.3"
+    },
+    {
+      "time": 1481562.976796875,
+      "stream": "stderr",
+      "line": "   Compiling thiserror-impl v2.0.21"
+    },
+    {
+      "time": 1481563.012147375,
+      "stream": "stderr",
+      "line": "   Compiling zerovec-derive v0.11.6"
+    },
+    {
+      "time": 1481563.130541875,
+      "stream": "stderr",
+      "line": "   Compiling futures-macro v0.3.34"
+    },
+    {
+      "time": 1481563.194602041,
+      "stream": "stderr",
+      "line": "   Compiling displaydoc v0.2.7"
+    },
+    {
+      "time": 1481563.303600708,
+      "stream": "stderr",
+      "line": "   Compiling tokio v1.53.1"
+    },
+    {
+      "time": 1481563.437646125,
+      "stream": "stderr",
+      "line": "   Compiling flate2 v1.1.10"
+    },
+    {
+      "time": 1481563.590119541,
+      "stream": "stderr",
+      "line": "   Compiling futures-util v0.3.34"
+    },
+    {
+      "time": 1481563.639743833,
+      "stream": "stderr",
+      "line": "   Compiling zerofrom v0.1.8"
+    },
+    {
+      "time": 1481563.662204916,
+      "stream": "stderr",
+      "line": "   Compiling tracing v0.1.44"
+    },
+    {
+      "time": 1481563.720461125,
+      "stream": "stderr",
+      "line": "   Compiling http-body-util v0.1.5"
+    },
+    {
+      "time": 1481563.840674291,
+      "stream": "stderr",
+      "line": "   Compiling autocfg v1.5.1"
+    },
+    {
+      "time": 1481564.011327083,
+      "stream": "stderr",
+      "line": "   Compiling subtle v2.6.1"
+    },
+    {
+      "time": 1481564.087680541,
+      "stream": "stderr",
+      "line": "   Compiling compression-core v0.4.33"
+    },
+    {
+      "time": 1481564.169549083,
+      "stream": "stderr",
+      "line": "   Compiling ipnet v2.12.2"
+    },
+    {
+      "time": 1481564.26253975,
+      "stream": "stderr",
+      "line": "   Compiling rustversion v1.0.23"
+    },
+    {
+      "time": 1481564.422052708,
+      "stream": "stderr",
+      "line": "   Compiling linkme v0.3.37"
+    },
+    {
+      "time": 1481565.014678333,
+      "stream": "stderr",
+      "line": "   Compiling num-traits v0.2.19"
+    },
+    {
+      "time": 1481565.08685375,
+      "stream": "stderr",
+      "line": "   Compiling anyhow v1.0.104"
+    },
+    {
+      "time": 1481565.111845166,
+      "stream": "stderr",
+      "line": "   Compiling proa_react v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_react)"
+    },
+    {
+      "time": 1481565.206345708,
+      "stream": "stderr",
+      "line": "   Compiling ryu v1.0.23"
+    },
+    {
+      "time": 1481565.580520208,
+      "stream": "stderr",
+      "line": "   Compiling yoke v0.8.3"
+    },
+    {
+      "time": 1481566.065898208,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_transport v0.1.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_transport)"
+    },
+    {
+      "time": 1481566.341384208,
+      "stream": "stderr",
+      "line": "   Compiling ppv-lite86 v0.2.21"
+    },
+    {
+      "time": 1481566.820936833,
+      "stream": "stderr",
+      "line": "   Compiling dashmap v6.2.1"
+    },
+    {
+      "time": 1481566.851746916,
+      "stream": "stderr",
+      "line": "   Compiling futures-executor v0.3.34"
+    },
+    {
+      "time": 1481566.981748708,
+      "stream": "stderr",
+      "line": "   Compiling tokio-util v0.7.19"
+    },
+    {
+      "time": 1481567.031083875,
+      "stream": "stderr",
+      "line": "   Compiling proa_core v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_core)"
+    },
+    {
+      "time": 1481567.159274166,
+      "stream": "stderr",
+      "line": "   Compiling futures v0.3.34"
+    },
+    {
+      "time": 1481567.292853,
+      "stream": "stderr",
+      "line": "   Compiling h2 v0.4.19"
+    },
+    {
+      "time": 1481567.358257916,
+      "stream": "stderr",
+      "line": "   Compiling rustls-webpki v0.103.15"
+    },
+    {
+      "time": 1481567.479505166,
+      "stream": "stderr",
+      "line": "   Compiling tower v0.5.3"
+    },
+    {
+      "time": 1481567.553767833,
+      "stream": "stderr",
+      "line": "   Compiling serde_urlencoded v0.7.1"
+    },
+    {
+      "time": 1481567.643785625,
+      "stream": "stderr",
+      "line": "   Compiling uuid v1.26.1"
+    },
+    {
+      "time": 1481567.646607416,
+      "stream": "stderr",
+      "line": "   Compiling rand_core v0.9.5"
+    },
+    {
+      "time": 1481567.687626166,
+      "stream": "stderr",
+      "line": "   Compiling async-trait v0.1.92"
+    },
+    {
+      "time": 1481567.779912375,
+      "stream": "stderr",
+      "line": "   Compiling async-stream-impl v0.3.6"
+    },
+    {
+      "time": 1481567.808829916,
+      "stream": "stderr",
+      "line": "   Compiling webpki-roots v1.0.9"
+    },
+    {
+      "time": 1481567.838450041,
+      "stream": "stderr",
+      "line": "   Compiling bitflags v2.13.2"
+    },
+    {
+      "time": 1481567.842574041,
+      "stream": "stderr",
+      "line": "   Compiling core-foundation-sys v0.8.7"
+    },
+    {
+      "time": 1481567.868725708,
+      "stream": "stderr",
+      "line": "   Compiling proa_dsl v0.1.3 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_dsl)"
+    },
+    {
+      "time": 1481567.884392416,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_ir v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_ir)"
+    },
+    {
+      "time": 1481567.977472291,
+      "stream": "stderr",
+      "line": "   Compiling http-range-header v0.4.2"
+    },
+    {
+      "time": 1481568.072774666,
+      "stream": "stderr",
+      "line": "   Compiling iana-time-zone v0.1.65"
+    },
+    {
+      "time": 1481568.088860666,
+      "stream": "stderr",
+      "line": "   Compiling async-stream v0.3.6"
+    },
+    {
+      "time": 1481568.099805916,
+      "stream": "stderr",
+      "line": "   Compiling proa_stream v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_stream)"
+    },
+    {
+      "time": 1481568.126801125,
+      "stream": "stderr",
+      "line": "   Compiling zerovec v0.11.8"
+    },
+    {
+      "time": 1481568.172623833,
+      "stream": "stderr",
+      "line": "   Compiling zerotrie v0.2.5"
+    },
+    {
+      "time": 1481568.239080416,
+      "stream": "stderr",
+      "line": "   Compiling rand_chacha v0.9.0"
+    },
+    {
+      "time": 1481568.249092583,
+      "stream": "stderr",
+      "line": "   Compiling axum-core v0.4.5"
+    },
+    {
+      "time": 1481568.252396708,
+      "stream": "stderr",
+      "line": "   Compiling proa_macros v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_macros)"
+    },
+    {
+      "time": 1481568.3979845,
+      "stream": "stderr",
+      "line": "   Compiling pin-project-internal v1.1.13"
+    },
+    {
+      "time": 1481568.423194333,
+      "stream": "stderr",
+      "line": "   Compiling serde_path_to_error v0.1.20"
+    },
+    {
+      "time": 1481568.589960833,
+      "stream": "stderr",
+      "line": "   Compiling include_dir_macros v0.7.4"
+    },
+    {
+      "time": 1481568.757656458,
+      "stream": "stderr",
+      "line": "   Compiling matchit v0.7.3"
+    },
+    {
+      "time": 1481568.767648333,
+      "stream": "stderr",
+      "line": "   Compiling chrono v0.4.45"
+    },
+    {
+      "time": 1481568.801723,
+      "stream": "stderr",
+      "line": "   Compiling include_dir v0.7.4"
+    },
+    {
+      "time": 1481568.846749125,
+      "stream": "stderr",
+      "line": "   Compiling rand v0.9.5"
+    },
+    {
+      "time": 1481568.916053625,
+      "stream": "stderr",
+      "line": "   Compiling pin-project v1.1.13"
+    },
+    {
+      "time": 1481568.951762416,
+      "stream": "stderr",
+      "line": "   Compiling hyper v1.11.1"
+    },
+    {
+      "time": 1481568.996958541,
+      "stream": "stderr",
+      "line": "   Compiling tokio-stream v0.1.19"
+    },
+    {
+      "time": 1481569.403745,
+      "stream": "stderr",
+      "line": "   Compiling tinystr v0.8.4"
+    },
+    {
+      "time": 1481569.403764125,
+      "stream": "stderr",
+      "line": "   Compiling potential_utf v0.1.6"
+    },
+    {
+      "time": 1481569.462937291,
+      "stream": "stderr",
+      "line": "   Compiling icu_collections v2.3.0"
+    },
+    {
+      "time": 1481569.488067083,
+      "stream": "stderr",
+      "line": "   Compiling zstd v0.14.0"
+    },
+    {
+      "time": 1481569.574824375,
+      "stream": "stderr",
+      "line": "   Compiling hyper-util v0.1.20"
+    },
+    {
+      "time": 1481569.585925416,
+      "stream": "stderr",
+      "line": "   Compiling compression-codecs v0.4.43"
+    },
+    {
+      "time": 1481569.742958875,
+      "stream": "stderr",
+      "line": "   Compiling async-compression v0.4.48"
+    },
+    {
+      "time": 1481569.768777041,
+      "stream": "stderr",
+      "line": "   Compiling icu_locale_core v2.3.0"
+    },
+    {
+      "time": 1481569.876195666,
+      "stream": "stderr",
+      "line": "   Compiling tokio-rustls v0.26.5"
+    },
+    {
+      "time": 1481570.207860166,
+      "stream": "stderr",
+      "line": "   Compiling icu_provider v2.3.1"
+    },
+    {
+      "time": 1481570.298763833,
+      "stream": "stderr",
+      "line": "   Compiling hyper-rustls v0.27.10"
+    },
+    {
+      "time": 1481570.334156541,
+      "stream": "stderr",
+      "line": "   Compiling icu_properties v2.3.0"
+    },
+    {
+      "time": 1481570.334188458,
+      "stream": "stderr",
+      "line": "   Compiling icu_normalizer v2.3.0"
+    },
+    {
+      "time": 1481570.7751125,
+      "stream": "stderr",
+      "line": "   Compiling idna_adapter v1.2.2"
+    },
+    {
+      "time": 1481570.825128041,
+      "stream": "stderr",
+      "line": "   Compiling idna v1.1.0"
+    },
+    {
+      "time": 1481570.961636458,
+      "stream": "stderr",
+      "line": "   Compiling url v2.5.8"
+    },
+    {
+      "time": 1481571.166242458,
+      "stream": "stderr",
+      "line": "   Compiling tower-http v0.6.11"
+    },
+    {
+      "time": 1481571.670142375,
+      "stream": "stderr",
+      "line": "   Compiling axum v0.7.9"
+    },
+    {
+      "time": 1481571.940707791,
+      "stream": "stderr",
+      "line": "   Compiling reqwest v0.12.28"
+    },
+    {
+      "time": 1481571.983992833,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_macros v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_macros)"
+    },
+    {
+      "time": 1481578.987426916,
+      "stream": "stderr",
+      "line": "   Compiling rsjs v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs)"
+    },
+    {
+      "time": 1481579.922380041,
+      "stream": "stderr",
+      "line": "   Compiling proa_framework_core v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_framework/proa_framework_core)"
+    },
+    {
+      "time": 1481580.502947583,
+      "stream": "stderr",
+      "line": "   Compiling proa_framework_axum v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_framework/proa_framework_axum)"
+    },
+    {
+      "time": 1481582.326565833,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481583.151096458,
+      "stream": "stderr",
+      "line": "    Finished `nodebug` profile [unoptimized] target(s) in 24.36s"
+    },
+    {
+      "time": 1481589.610216666,
+      "stream": "stderr",
+      "line": "   Compiling proc-macro2 v1.0.107"
+    },
+    {
+      "time": 1481589.610234041,
+      "stream": "stderr",
+      "line": "   Compiling quote v1.0.47"
+    },
+    {
+      "time": 1481589.610235375,
+      "stream": "stderr",
+      "line": "   Compiling unicode-ident v1.0.26"
+    },
+    {
+      "time": 1481589.61024125,
+      "stream": "stderr",
+      "line": "   Compiling libc v0.2.190"
+    },
+    {
+      "time": 1481589.610243583,
+      "stream": "stderr",
+      "line": "   Compiling cfg-if v1.0.5"
+    },
+    {
+      "time": 1481589.610289666,
+      "stream": "stderr",
+      "line": "   Compiling pin-project-lite v0.2.17"
+    },
+    {
+      "time": 1481589.610308291,
+      "stream": "stderr",
+      "line": "   Compiling parking_lot_core v0.9.12"
+    },
+    {
+      "time": 1481589.610311208,
+      "stream": "stderr",
+      "line": "   Compiling itoa v1.0.18"
+    },
+    {
+      "time": 1481589.610324375,
+      "stream": "stderr",
+      "line": "   Compiling memchr v2.8.3"
+    },
+    {
+      "time": 1481589.610325791,
+      "stream": "stderr",
+      "line": "   Compiling scopeguard v1.2.0"
+    },
+    {
+      "time": 1481589.6103265,
+      "stream": "stderr",
+      "line": "   Compiling bytes v1.12.1"
+    },
+    {
+      "time": 1481589.61032725,
+      "stream": "stderr",
+      "line": "   Compiling once_cell v1.21.4"
+    },
+    {
+      "time": 1481589.610337375,
+      "stream": "stderr",
+      "line": "   Compiling stable_deref_trait v1.2.1"
+    },
+    {
+      "time": 1481589.610352208,
+      "stream": "stderr",
+      "line": "   Compiling smallvec v1.16.2"
+    },
+    {
+      "time": 1481589.610358,
+      "stream": "stderr",
+      "line": "   Compiling futures-core v0.3.34"
+    },
+    {
+      "time": 1481589.610376666,
+      "stream": "stderr",
+      "line": "   Compiling serde v1.0.229"
+    },
+    {
+      "time": 1481589.647667083,
+      "stream": "stderr",
+      "line": "   Compiling find-msvc-tools v0.1.13"
+    },
+    {
+      "time": 1481589.650026833,
+      "stream": "stderr",
+      "line": "   Compiling shlex v2.0.1"
+    },
+    {
+      "time": 1481589.661395166,
+      "stream": "stderr",
+      "line": "   Compiling lock_api v0.4.14"
+    },
+    {
+      "time": 1481589.665991125,
+      "stream": "stderr",
+      "line": "   Compiling zmij v1.0.23"
+    },
+    {
+      "time": 1481589.668911458,
+      "stream": "stderr",
+      "line": "   Compiling serde_core v1.0.229"
+    },
+    {
+      "time": 1481589.672044875,
+      "stream": "stderr",
+      "line": "   Compiling futures-sink v0.3.34"
+    },
+    {
+      "time": 1481589.705739458,
+      "stream": "stderr",
+      "line": "   Compiling tracing-core v0.1.36"
+    },
+    {
+      "time": 1481589.709703583,
+      "stream": "stderr",
+      "line": "   Compiling log v0.4.34"
+    },
+    {
+      "time": 1481589.709715583,
+      "stream": "stderr",
+      "line": "   Compiling thiserror v2.0.21"
+    },
+    {
+      "time": 1481589.717948666,
+      "stream": "stderr",
+      "line": "   Compiling crossbeam-utils v0.8.23"
+    },
+    {
+      "time": 1481589.741107625,
+      "stream": "stderr",
+      "line": "   Compiling slab v0.4.12"
+    },
+    {
+      "time": 1481589.761482291,
+      "stream": "stderr",
+      "line": "   Compiling version_check v0.9.5"
+    },
+    {
+      "time": 1481589.792573875,
+      "stream": "stderr",
+      "line": "   Compiling futures-channel v0.3.34"
+    },
+    {
+      "time": 1481589.815378791,
+      "stream": "stderr",
+      "line": "   Compiling http v1.5.0"
+    },
+    {
+      "time": 1481589.818014625,
+      "stream": "stderr",
+      "line": "   Compiling byteorder v1.5.0"
+    },
+    {
+      "time": 1481589.867607,
+      "stream": "stderr",
+      "line": "   Compiling hashbrown v0.14.5"
+    },
+    {
+      "time": 1481589.880067833,
+      "stream": "stderr",
+      "line": "   Compiling heapless v0.8.0"
+    },
+    {
+      "time": 1481589.882665,
+      "stream": "stderr",
+      "line": "   Compiling hash32 v0.3.1"
+    },
+    {
+      "time": 1481589.891468583,
+      "stream": "stderr",
+      "line": "   Compiling generic-array v0.14.7"
+    },
+    {
+      "time": 1481589.923773625,
+      "stream": "stderr",
+      "line": "   Compiling typenum v1.20.1"
+    },
+    {
+      "time": 1481589.926033958,
+      "stream": "stderr",
+      "line": "   Compiling futures-task v0.3.34"
+    },
+    {
+      "time": 1481589.98168525,
+      "stream": "stderr",
+      "line": "   Compiling futures-io v0.3.34"
+    },
+    {
+      "time": 1481590.028938916,
+      "stream": "stderr",
+      "line": "   Compiling itoa_lut v0.1.2 (/Users/andrewhariri/Desktop/proa-dev-perf/itoa_lut)"
+    },
+    {
+      "time": 1481590.048602541,
+      "stream": "stderr",
+      "line": "   Compiling arrayvec v0.7.8"
+    },
+    {
+      "time": 1481590.079331333,
+      "stream": "stderr",
+      "line": "   Compiling serde_json v1.0.151"
+    },
+    {
+      "time": 1481590.106381958,
+      "stream": "stderr",
+      "line": "   Compiling pkg-config v0.3.34"
+    },
+    {
+      "time": 1481590.190971791,
+      "stream": "stderr",
+      "line": "   Compiling writeable v0.6.4"
+    },
+    {
+      "time": 1481590.196578541,
+      "stream": "stderr",
+      "line": "   Compiling litemap v0.8.3"
+    },
+    {
+      "time": 1481590.225809916,
+      "stream": "stderr",
+      "line": "   Compiling const-oid v0.9.6"
+    },
+    {
+      "time": 1481590.263749541,
+      "stream": "stderr",
+      "line": "   Compiling http-body v1.1.0"
+    },
+    {
+      "time": 1481590.273756,
+      "stream": "stderr",
+      "line": "   Compiling icu_properties_data v2.3.0"
+    },
+    {
+      "time": 1481590.286374791,
+      "stream": "stderr",
+      "line": "   Compiling utf8_iter v1.0.4"
+    },
+    {
+      "time": 1481590.300511625,
+      "stream": "stderr",
+      "line": "   Compiling percent-encoding v2.3.2"
+    },
+    {
+      "time": 1481590.316387333,
+      "stream": "stderr",
+      "line": "   Compiling base64 v0.22.1"
+    },
+    {
+      "time": 1481590.333645541,
+      "stream": "stderr",
+      "line": "   Compiling icu_normalizer_data v2.3.0"
+    },
+    {
+      "time": 1481590.360830666,
+      "stream": "stderr",
+      "line": "   Compiling tower-service v0.3.3"
+    },
+    {
+      "time": 1481590.390349458,
+      "stream": "stderr",
+      "line": "   Compiling object v0.37.3"
+    },
+    {
+      "time": 1481590.43579625,
+      "stream": "stderr",
+      "line": "   Compiling httparse v1.10.1"
+    },
+    {
+      "time": 1481590.494470333,
+      "stream": "stderr",
+      "line": "   Compiling zeroize v1.9.0"
+    },
+    {
+      "time": 1481590.559705083,
+      "stream": "stderr",
+      "line": "   Compiling zstd-safe v8.0.0"
+    },
+    {
+      "time": 1481590.5694135,
+      "stream": "stderr",
+      "line": "   Compiling hashbrown v0.17.1"
+    },
+    {
+      "time": 1481590.6380125,
+      "stream": "stderr",
+      "line": "   Compiling equivalent v1.0.2"
+    },
+    {
+      "time": 1481590.665287875,
+      "stream": "stderr",
+      "line": "   Compiling alloc-no-stdlib v2.0.4"
+    },
+    {
+      "time": 1481590.666806458,
+      "stream": "stderr",
+      "line": "   Compiling crc32fast v1.5.2"
+    },
+    {
+      "time": 1481590.7795085,
+      "stream": "stderr",
+      "line": "   Compiling syn v3.0.6"
+    },
+    {
+      "time": 1481590.796522708,
+      "stream": "stderr",
+      "line": "   Compiling syn v2.0.119"
+    },
+    {
+      "time": 1481590.798565291,
+      "stream": "stderr",
+      "line": "   Compiling indexmap v2.14.2"
+    },
+    {
+      "time": 1481590.983995708,
+      "stream": "stderr",
+      "line": "   Compiling alloc-stdlib v0.2.4"
+    },
+    {
+      "time": 1481591.036073208,
+      "stream": "stderr",
+      "line": "   Compiling rustls-pki-types v1.15.1"
+    },
+    {
+      "time": 1481591.420579166,
+      "stream": "stderr",
+      "line": "   Compiling httpdate v1.0.3"
+    },
+    {
+      "time": 1481591.458361916,
+      "stream": "stderr",
+      "line": "   Compiling untrusted v0.9.0"
+    },
+    {
+      "time": 1481591.493916833,
+      "stream": "stderr",
+      "line": "   Compiling atomic-waker v1.1.2"
+    },
+    {
+      "time": 1481591.496869875,
+      "stream": "stderr",
+      "line": "   Compiling try-lock v0.2.5"
+    },
+    {
+      "time": 1481591.527165666,
+      "stream": "stderr",
+      "line": "   Compiling fnv v1.0.7"
+    },
+    {
+      "time": 1481591.530580083,
+      "stream": "stderr",
+      "line": "   Compiling simd-adler32 v0.3.10"
+    },
+    {
+      "time": 1481591.558010291,
+      "stream": "stderr",
+      "line": "   Compiling adler2 v2.0.1"
+    },
+    {
+      "time": 1481591.596961,
+      "stream": "stderr",
+      "line": "   Compiling miniz_oxide v0.9.1"
+    },
+    {
+      "time": 1481591.598938041,
+      "stream": "stderr",
+      "line": "   Compiling want v0.3.1"
+    },
+    {
+      "time": 1481591.648306791,
+      "stream": "stderr",
+      "line": "   Compiling brotli-decompressor v5.0.3"
+    },
+    {
+      "time": 1481591.800394458,
+      "stream": "stderr",
+      "line": "   Compiling form_urlencoded v1.2.2"
+    },
+    {
+      "time": 1481591.8409415,
+      "stream": "stderr",
+      "line": "   Compiling sync_wrapper v1.0.2"
+    },
+    {
+      "time": 1481591.855482541,
+      "stream": "stderr",
+      "line": "   Compiling zerocopy v0.8.57"
+    },
+    {
+      "time": 1481591.875117916,
+      "stream": "stderr",
+      "line": "   Compiling getrandom v0.4.3"
+    },
+    {
+      "time": 1481591.971157,
+      "stream": "stderr",
+      "line": "   Compiling synstructure v0.14.0"
+    },
+    {
+      "time": 1481592.034754125,
+      "stream": "stderr",
+      "line": "   Compiling jobserver v0.1.35"
+    },
+    {
+      "time": 1481592.053428083,
+      "stream": "stderr",
+      "line": "   Compiling errno v0.3.14"
+    },
+    {
+      "time": 1481592.068465291,
+      "stream": "stderr",
+      "line": "   Compiling socket2 v0.6.5"
+    },
+    {
+      "time": 1481592.126917708,
+      "stream": "stderr",
+      "line": "   Compiling cc v1.4.7"
+    },
+    {
+      "time": 1481592.139256291,
+      "stream": "stderr",
+      "line": "   Compiling signal-hook-registry v1.4.8"
+    },
+    {
+      "time": 1481592.172851708,
+      "stream": "stderr",
+      "line": "   Compiling parking_lot v0.12.5"
+    },
+    {
+      "time": 1481592.211355625,
+      "stream": "stderr",
+      "line": "   Compiling mio v1.2.3"
+    },
+    {
+      "time": 1481592.3090885,
+      "stream": "stderr",
+      "line": "   Compiling cpufeatures v0.2.17"
+    },
+    {
+      "time": 1481592.341233958,
+      "stream": "stderr",
+      "line": "   Compiling getrandom v0.2.17"
+    },
+    {
+      "time": 1481592.350645208,
+      "stream": "stderr",
+      "line": "   Compiling linkme-impl v0.3.37"
+    },
+    {
+      "time": 1481592.399971291,
+      "stream": "stderr",
+      "line": "   Compiling rustls v0.23.45"
+    },
+    {
+      "time": 1481592.42988425,
+      "stream": "stderr",
+      "line": "   Compiling mime v0.3.17"
+    },
+    {
+      "time": 1481592.44959625,
+      "stream": "stderr",
+      "line": "   Compiling crypto-common v0.1.7"
+    },
+    {
+      "time": 1481592.454588208,
+      "stream": "stderr",
+      "line": "   Compiling block-buffer v0.10.4"
+    },
+    {
+      "time": 1481592.461366291,
+      "stream": "stderr",
+      "line": "   Compiling tower-layer v0.3.3"
+    },
+    {
+      "time": 1481592.477419,
+      "stream": "stderr",
+      "line": "   Compiling unicase v2.9.0"
+    },
+    {
+      "time": 1481592.489748958,
+      "stream": "stderr",
+      "line": "   Compiling getrandom v0.3.4"
+    },
+    {
+      "time": 1481592.496894458,
+      "stream": "stderr",
+      "line": "   Compiling digest v0.10.7"
+    },
+    {
+      "time": 1481592.501390375,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_web v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_web)"
+    },
+    {
+      "time": 1481592.545592333,
+      "stream": "stderr",
+      "line": "   Compiling mime_guess v2.0.5"
+    },
+    {
+      "time": 1481592.565893416,
+      "stream": "stderr",
+      "line": "   Compiling sha2 v0.10.9"
+    },
+    {
+      "time": 1481592.643384333,
+      "stream": "stderr",
+      "line": "   Compiling tracing-attributes v0.1.31"
+    },
+    {
+      "time": 1481592.678454458,
+      "stream": "stderr",
+      "line": "   Compiling serde_derive v1.0.229"
+    },
+    {
+      "time": 1481592.683537625,
+      "stream": "stderr",
+      "line": "   Compiling zerofrom-derive v0.1.8"
+    },
+    {
+      "time": 1481592.685638291,
+      "stream": "stderr",
+      "line": "   Compiling tokio-macros v2.7.2"
+    },
+    {
+      "time": 1481592.767771833,
+      "stream": "stderr",
+      "line": "   Compiling yoke-derive v0.8.3"
+    },
+    {
+      "time": 1481592.774718,
+      "stream": "stderr",
+      "line": "   Compiling thiserror-impl v2.0.21"
+    },
+    {
+      "time": 1481592.946027416,
+      "stream": "stderr",
+      "line": "   Compiling tokio v1.53.1"
+    },
+    {
+      "time": 1481592.955533458,
+      "stream": "stderr",
+      "line": "   Compiling zerovec-derive v0.11.6"
+    },
+    {
+      "time": 1481593.102420416,
+      "stream": "stderr",
+      "line": "   Compiling displaydoc v0.2.7"
+    },
+    {
+      "time": 1481593.157606791,
+      "stream": "stderr",
+      "line": "   Compiling futures-macro v0.3.34"
+    },
+    {
+      "time": 1481593.160634416,
+      "stream": "stderr",
+      "line": "   Compiling tracing v0.1.44"
+    },
+    {
+      "time": 1481593.182224666,
+      "stream": "stderr",
+      "line": "   Compiling zerofrom v0.1.8"
+    },
+    {
+      "time": 1481593.204490541,
+      "stream": "stderr",
+      "line": "   Compiling zstd-sys v2.1.0+zstd.1.5.7"
+    },
+    {
+      "time": 1481593.38294075,
+      "stream": "stderr",
+      "line": "   Compiling ring v0.17.14"
+    },
+    {
+      "time": 1481593.4570965,
+      "stream": "stderr",
+      "line": "   Compiling futures-util v0.3.34"
+    },
+    {
+      "time": 1481593.8505085,
+      "stream": "stderr",
+      "line": "   Compiling flate2 v1.1.10"
+    },
+    {
+      "time": 1481593.998438166,
+      "stream": "stderr",
+      "line": "   Compiling brotli v8.0.4"
+    },
+    {
+      "time": 1481594.110541666,
+      "stream": "stderr",
+      "line": "   Compiling http-body-util v0.1.5"
+    },
+    {
+      "time": 1481594.210098625,
+      "stream": "stderr",
+      "line": "   Compiling ipnet v2.12.2"
+    },
+    {
+      "time": 1481594.330375791,
+      "stream": "stderr",
+      "line": "   Compiling rustversion v1.0.23"
+    },
+    {
+      "time": 1481594.37198675,
+      "stream": "stderr",
+      "line": "   Compiling linkme v0.3.37"
+    },
+    {
+      "time": 1481594.45659325,
+      "stream": "stderr",
+      "line": "   Compiling autocfg v1.5.1"
+    },
+    {
+      "time": 1481594.466308916,
+      "stream": "stderr",
+      "line": "   Compiling subtle v2.6.1"
+    },
+    {
+      "time": 1481594.513708166,
+      "stream": "stderr",
+      "line": "   Compiling compression-core v0.4.33"
+    },
+    {
+      "time": 1481594.599695375,
+      "stream": "stderr",
+      "line": "   Compiling num-traits v0.2.19"
+    },
+    {
+      "time": 1481595.0517635,
+      "stream": "stderr",
+      "line": "   Compiling proa_react v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_react)"
+    },
+    {
+      "time": 1481595.138046291,
+      "stream": "stderr",
+      "line": "   Compiling ryu v1.0.23"
+    },
+    {
+      "time": 1481595.15124775,
+      "stream": "stderr",
+      "line": "   Compiling anyhow v1.0.104"
+    },
+    {
+      "time": 1481595.157792875,
+      "stream": "stderr",
+      "line": "   Compiling yoke v0.8.3"
+    },
+    {
+      "time": 1481595.445029708,
+      "stream": "stderr",
+      "line": "   Compiling uuid v1.26.1"
+    },
+    {
+      "time": 1481595.576294291,
+      "stream": "stderr",
+      "line": "   Compiling rand_core v0.9.5"
+    },
+    {
+      "time": 1481595.602201458,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_transport v0.1.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_transport)"
+    },
+    {
+      "time": 1481595.903771916,
+      "stream": "stderr",
+      "line": "   Compiling ppv-lite86 v0.2.21"
+    },
+    {
+      "time": 1481596.01754175,
+      "stream": "stderr",
+      "line": "   Compiling async-trait v0.1.92"
+    },
+    {
+      "time": 1481596.408604375,
+      "stream": "stderr",
+      "line": "   Compiling tokio-util v0.7.19"
+    },
+    {
+      "time": 1481596.616693833,
+      "stream": "stderr",
+      "line": "   Compiling dashmap v6.2.1"
+    },
+    {
+      "time": 1481596.636798125,
+      "stream": "stderr",
+      "line": "   Compiling h2 v0.4.19"
+    },
+    {
+      "time": 1481596.784104458,
+      "stream": "stderr",
+      "line": "   Compiling proa_core v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_core)"
+    },
+    {
+      "time": 1481596.822409333,
+      "stream": "stderr",
+      "line": "   Compiling futures-executor v0.3.34"
+    },
+    {
+      "time": 1481596.855827875,
+      "stream": "stderr",
+      "line": "   Compiling tower v0.5.3"
+    },
+    {
+      "time": 1481596.881624291,
+      "stream": "stderr",
+      "line": "   Compiling serde_urlencoded v0.7.1"
+    },
+    {
+      "time": 1481596.896054375,
+      "stream": "stderr",
+      "line": "   Compiling futures v0.3.34"
+    },
+    {
+      "time": 1481596.924057208,
+      "stream": "stderr",
+      "line": "   Compiling async-stream-impl v0.3.6"
+    },
+    {
+      "time": 1481596.951035375,
+      "stream": "stderr",
+      "line": "   Compiling webpki-roots v1.0.9"
+    },
+    {
+      "time": 1481596.981748,
+      "stream": "stderr",
+      "line": "   Compiling bitflags v2.13.2"
+    },
+    {
+      "time": 1481596.995893208,
+      "stream": "stderr",
+      "line": "   Compiling core-foundation-sys v0.8.7"
+    },
+    {
+      "time": 1481597.05731875,
+      "stream": "stderr",
+      "line": "   Compiling http-range-header v0.4.2"
+    },
+    {
+      "time": 1481597.078237083,
+      "stream": "stderr",
+      "line": "   Compiling iana-time-zone v0.1.65"
+    },
+    {
+      "time": 1481597.095074166,
+      "stream": "stderr",
+      "line": "   Compiling axum-core v0.4.5"
+    },
+    {
+      "time": 1481597.118235625,
+      "stream": "stderr",
+      "line": "   Compiling rand_chacha v0.9.0"
+    },
+    {
+      "time": 1481597.129998291,
+      "stream": "stderr",
+      "line": "   Compiling pin-project-internal v1.1.13"
+    },
+    {
+      "time": 1481597.132199666,
+      "stream": "stderr",
+      "line": "   Compiling serde_path_to_error v0.1.20"
+    },
+    {
+      "time": 1481597.132212958,
+      "stream": "stderr",
+      "line": "   Compiling include_dir_macros v0.7.4"
+    },
+    {
+      "time": 1481597.152632083,
+      "stream": "stderr",
+      "line": "   Compiling async-stream v0.3.6"
+    },
+    {
+      "time": 1481597.248900041,
+      "stream": "stderr",
+      "line": "   Compiling matchit v0.7.3"
+    },
+    {
+      "time": 1481597.267725666,
+      "stream": "stderr",
+      "line": "   Compiling zerovec v0.11.8"
+    },
+    {
+      "time": 1481597.267745,
+      "stream": "stderr",
+      "line": "   Compiling zerotrie v0.2.5"
+    },
+    {
+      "time": 1481597.286877875,
+      "stream": "stderr",
+      "line": "   Compiling include_dir v0.7.4"
+    },
+    {
+      "time": 1481597.35007825,
+      "stream": "stderr",
+      "line": "   Compiling rand v0.9.5"
+    },
+    {
+      "time": 1481597.530088458,
+      "stream": "stderr",
+      "line": "   Compiling tokio-stream v0.1.19"
+    },
+    {
+      "time": 1481597.557150875,
+      "stream": "stderr",
+      "line": "   Compiling pin-project v1.1.13"
+    },
+    {
+      "time": 1481597.702082291,
+      "stream": "stderr",
+      "line": "   Compiling proa_dsl v0.1.3 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_dsl)"
+    },
+    {
+      "time": 1481597.73847025,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_ir v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_ir)"
+    },
+    {
+      "time": 1481598.08565425,
+      "stream": "stderr",
+      "line": "   Compiling hyper v1.11.1"
+    },
+    {
+      "time": 1481598.151219291,
+      "stream": "stderr",
+      "line": "   Compiling proa_macros v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_macros)"
+    },
+    {
+      "time": 1481598.225163583,
+      "stream": "stderr",
+      "line": "   Compiling proa_stream v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_stream)"
+    },
+    {
+      "time": 1481598.321713083,
+      "stream": "stderr",
+      "line": "   Compiling chrono v0.4.45"
+    },
+    {
+      "time": 1481598.5968025,
+      "stream": "stderr",
+      "line": "   Compiling hyper-util v0.1.20"
+    },
+    {
+      "time": 1481599.126693875,
+      "stream": "stderr",
+      "line": "   Compiling tinystr v0.8.4"
+    },
+    {
+      "time": 1481599.126712375,
+      "stream": "stderr",
+      "line": "   Compiling potential_utf v0.1.6"
+    },
+    {
+      "time": 1481599.168004125,
+      "stream": "stderr",
+      "line": "   Compiling icu_collections v2.3.0"
+    },
+    {
+      "time": 1481599.174980125,
+      "stream": "stderr",
+      "line": "   Compiling rustls-webpki v0.103.15"
+    },
+    {
+      "time": 1481599.196564333,
+      "stream": "stderr",
+      "line": "   Compiling icu_locale_core v2.3.0"
+    },
+    {
+      "time": 1481599.506896708,
+      "stream": "stderr",
+      "line": "   Compiling icu_provider v2.3.1"
+    },
+    {
+      "time": 1481599.609737041,
+      "stream": "stderr",
+      "line": "   Compiling icu_normalizer v2.3.0"
+    },
+    {
+      "time": 1481599.609754333,
+      "stream": "stderr",
+      "line": "   Compiling icu_properties v2.3.0"
+    },
+    {
+      "time": 1481599.798312791,
+      "stream": "stderr",
+      "line": "   Compiling zstd v0.14.0"
+    },
+    {
+      "time": 1481599.875917208,
+      "stream": "stderr",
+      "line": "   Compiling compression-codecs v0.4.43"
+    },
+    {
+      "time": 1481600.002306958,
+      "stream": "stderr",
+      "line": "   Compiling idna_adapter v1.2.2"
+    },
+    {
+      "time": 1481600.01002925,
+      "stream": "stderr",
+      "line": "   Compiling async-compression v0.4.48"
+    },
+    {
+      "time": 1481600.055546708,
+      "stream": "stderr",
+      "line": "   Compiling idna v1.1.0"
+    },
+    {
+      "time": 1481600.18101125,
+      "stream": "stderr",
+      "line": "   Compiling url v2.5.8"
+    },
+    {
+      "time": 1481600.193304208,
+      "stream": "stderr",
+      "line": "   Compiling axum v0.7.9"
+    },
+    {
+      "time": 1481600.226849166,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_macros v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_macros)"
+    },
+    {
+      "time": 1481600.375511333,
+      "stream": "stderr",
+      "line": "   Compiling tower-http v0.6.11"
+    },
+    {
+      "time": 1481601.067226875,
+      "stream": "stderr",
+      "line": "   Compiling tokio-rustls v0.26.5"
+    },
+    {
+      "time": 1481601.177086458,
+      "stream": "stderr",
+      "line": "   Compiling hyper-rustls v0.27.10"
+    },
+    {
+      "time": 1481601.291764708,
+      "stream": "stderr",
+      "line": "   Compiling reqwest v0.12.28"
+    },
+    {
+      "time": 1481604.567415666,
+      "stream": "stderr",
+      "line": "   Compiling rsjs v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs)"
+    },
+    {
+      "time": 1481605.432353958,
+      "stream": "stderr",
+      "line": "   Compiling proa_framework_core v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_framework/proa_framework_core)"
+    },
+    {
+      "time": 1481605.865347041,
+      "stream": "stderr",
+      "line": "   Compiling proa_framework_axum v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_framework/proa_framework_axum)"
+    },
+    {
+      "time": 1481607.280678541,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481607.941689958,
+      "stream": "stderr",
+      "line": "    Finished `nodebug` profile [unoptimized] target(s) in 18.46s"
+    },
+    {
+      "time": 1481607.987179791,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan 3e39fde66c92b397954e027fae8b89fd379275eca0460ccf4cbf8ef4d18bd60d (descriptor cache: 0/236 Cargo artifacts reused; final cache: 0/236 reused)"
+    },
+    {
+      "time": 1481607.98724525,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/ecf32ec8d3cb18e7c4d894d9363a850450ca0d7af41d2ed7a1e6f0238f6b03ac-mode-100755/proa_compile_probe` with plan 3e39fde66c92b397954e027fae8b89fd379275eca0460ccf4cbf8ef4d18bd60d (descriptor cache 0/236, final cache 0 reused)"
+    },
+    {
+      "time": 1481608.928814208,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1481609.142192375,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile nodebug"
+    },
+    {
+      "time": 1481609.348651916,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481610.162449125,
+      "stream": "stderr",
+      "line": "    Finished `nodebug` profile [unoptimized] target(s) in 0.97s"
+    },
+    {
+      "time": 1481611.154036125,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481611.5844985,
+      "stream": "stderr",
+      "line": "    Finished `nodebug` profile [unoptimized] target(s) in 0.51s"
+    },
+    {
+      "time": 1481611.622031166,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan 1bf780a9355113c7f49a07d97cc12732784582160df7ed2b5a100e44edd3b151 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+    },
+    {
+      "time": 1481611.622099541,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan 1bf780a9355113c7f49a07d97cc12732784582160df7ed2b5a100e44edd3b151"
+    },
+    {
+      "time": 1481611.726526208,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/f4988e7d7166a321a865134438a0e6353c6262ac1712737cc3c060a58b888275-mode-100755/proa_compile_probe` with plan 1bf780a9355113c7f49a07d97cc12732784582160df7ed2b5a100e44edd3b151 (descriptor cache 235/236, final cache 235 reused)"
+    },
+    {
+      "time": 1481612.678525333,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1481612.889800916,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile nodebug"
+    },
+    {
+      "time": 1481613.021539791,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481613.862503875,
+      "stream": "stderr",
+      "line": "    Finished `nodebug` profile [unoptimized] target(s) in 0.93s"
+    },
+    {
+      "time": 1481614.876723583,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481615.308420083,
+      "stream": "stderr",
+      "line": "    Finished `nodebug` profile [unoptimized] target(s) in 0.52s"
+    },
+    {
+      "time": 1481615.356092666,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan 3e39fde66c92b397954e027fae8b89fd379275eca0460ccf4cbf8ef4d18bd60d (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+    },
+    {
+      "time": 1481615.356147625,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan 3e39fde66c92b397954e027fae8b89fd379275eca0460ccf4cbf8ef4d18bd60d"
+    },
+    {
+      "time": 1481615.461216208,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/ecf32ec8d3cb18e7c4d894d9363a850450ca0d7af41d2ed7a1e6f0238f6b03ac-mode-100755/proa_compile_probe` with plan 3e39fde66c92b397954e027fae8b89fd379275eca0460ccf4cbf8ef4d18bd60d (descriptor cache 235/236, final cache 235 reused)"
+    },
+    {
+      "time": 1481616.145575291,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1481616.364736541,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile nodebug"
+    },
+    {
+      "time": 1481616.496788416,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481617.309208541,
+      "stream": "stderr",
+      "line": "    Finished `nodebug` profile [unoptimized] target(s) in 0.90s"
+    },
+    {
+      "time": 1481618.281455458,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481618.734967875,
+      "stream": "stderr",
+      "line": "    Finished `nodebug` profile [unoptimized] target(s) in 0.54s"
+    },
+    {
+      "time": 1481618.78481375,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan 1bf780a9355113c7f49a07d97cc12732784582160df7ed2b5a100e44edd3b151 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+    },
+    {
+      "time": 1481618.784877166,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan 1bf780a9355113c7f49a07d97cc12732784582160df7ed2b5a100e44edd3b151"
+    },
+    {
+      "time": 1481618.889957166,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/f4988e7d7166a321a865134438a0e6353c6262ac1712737cc3c060a58b888275-mode-100755/proa_compile_probe` with plan 1bf780a9355113c7f49a07d97cc12732784582160df7ed2b5a100e44edd3b151 (descriptor cache 235/236, final cache 235 reused)"
+    }
+  ]
+}
