@@ -36,13 +36,13 @@ pub const WRAPPER_MODE_FINAL_V2: &str = "final-v2";
 ///
 /// This must change whenever wrapper behavior can affect rustc output without
 /// changing the exact plan or unit-map bytes.
-pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 6;
+pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 7;
 /// Filesystem/output policy for persistent descriptor Cargo targets.
 ///
 /// This is deliberately independent of sidecar schema: bump it whenever a
 /// previous target may contain wrapper/proc-macro artifacts that must never
 /// participate in current build identity.
-pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 4;
+pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 5;
 /// Explicit host-local staging directory for descriptor objects and sidecars.
 pub const DESCRIPTOR_STAGING_DIR_ENV: &str = "PROA_RSJS_DESCRIPTOR_STAGING_DIR";
 /// Exact runner-owned Cargo target directory for descriptor compilation.
@@ -76,9 +76,10 @@ pub const FINAL_CARGO_UNIT_STATUS_UNMAPPED: &str = "unmapped-v1";
 /// Marks rustc as running the descriptor phase rather than final compilation.
 pub const DESCRIPTOR_PHASE_ENV: &str = "RSJS_DESCRIPTOR_PHASE";
 /// Schema version of [`DescriptorUnitSidecar`].
-pub const DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION: u16 = 10;
+pub const DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION: u16 = 11;
 /// Schema version of [`FinalUnitMap`].
 pub const FINAL_UNIT_MAP_SCHEMA_VERSION: u16 = 7;
+pub(crate) const FINAL_UNIT_INPUT_ENV_PREFIX: &str = "PROA_RSJS_FINAL_UNIT_INPUT_";
 const FINAL_UNIT_MAP_FORMAT: &str = "proa.rsjs.final_unit_map";
 /// Marks rustc as running the linked final phase.
 pub const FINAL_PHASE_ENV: &str = "RSJS_FINAL_PHASE";
@@ -101,8 +102,8 @@ const REALIZED_ENVIRONMENT_HASH_DOMAIN: &[u8] = b"proa.rsjs.realized-rustc-envir
 pub(crate) const DESCRIPTOR_OBJECT_HASH_DOMAIN: &[u8] = b"proa.rsjs.descriptor-object.v1";
 const LINK_ARTIFACT_HASH_DOMAIN: &[u8] = b"proa.rsjs.link-artifact.v1";
 const DESCRIPTOR_CODEGEN_POLICY: [&str; 4] = [
-    "codegen-units=1",
-    "incremental=disabled",
+    "codegen-units=cargo-or-native-fallback",
+    "incremental=cargo",
     "link-dead-code=yes",
     "lto=off",
 ];
@@ -119,15 +120,19 @@ pub fn rustc_wrapper_dispatch_requested() -> bool {
 ///
 /// Cargo invokes a wrapper as `wrapper rustc rustc-args...`. Probe invocations
 /// are forwarded byte-for-byte. Compilation invocations additionally emit one
-/// explicit descriptor object and one atomic unit sidecar.
+/// complete descriptor carrier and one atomic unit sidecar.
 pub fn run_rustc_wrapper_from_env<I>(args: I) -> Result<ExitStatus, WrapperError>
 where
     I: IntoIterator<Item = OsString>,
 {
     let args = args.into_iter().collect::<Vec<_>>();
-    reject_composed_workspace_wrapper(&args)?;
     let mode = env::var(WRAPPER_MODE_ENV)
         .map_err(|_| WrapperError::MissingEnvironment(WRAPPER_MODE_ENV))?;
+    if mode == super::descriptor_objects::LINKER_MODE {
+        return super::descriptor_objects::run_linker(args.get(1..).unwrap_or_default())
+            .map_err(|error| WrapperError::DescriptorCarrier(error.to_string()));
+    }
+    reject_composed_workspace_wrapper(&args)?;
     match mode.as_str() {
         WRAPPER_MODE_DESCRIPTOR_V1 => {
             let staging_dir = env::var_os(DESCRIPTOR_STAGING_DIR_ENV)
@@ -268,14 +273,23 @@ where
 
     let object_file_name = format!("{cargo_unit_id_hex}.o");
     let object_path = objects_dir.join(&object_file_name);
-    let forwarded_args = descriptor_rustc_args(rustc_args, &object_path)?;
+    let carrier = descriptor_carrier_mode(&input, &dep_info_path, rustc_args)?;
+    let forwarded_args = descriptor_rustc_args_with_carrier(rustc_args, &object_path, &carrier)?;
     validate_dep_info_output_path(target_dir, &dep_info_path)?;
     prepare_dep_info_output(&dep_info_path)?;
 
-    let status = wrapped_rustc_command(&rustc)
+    let mut command = wrapped_rustc_command(&rustc);
+    command
         .args(&forwarded_args)
         .env(CARGO_UNIT_ID_ENV, &cargo_unit_id_hex)
-        .env(DESCRIPTOR_PHASE_ENV, "1")
+        .env(DESCRIPTOR_PHASE_ENV, "1");
+    if let DescriptorCarrierMode::Native(linker) = &carrier {
+        command
+            .env(WRAPPER_MODE_ENV, super::descriptor_objects::LINKER_MODE)
+            .env(super::descriptor_objects::LINKER_PROGRAM_ENV, linker)
+            .env(super::descriptor_objects::LINKER_CARRIER_ENV, &object_path);
+    }
+    let status = command
         .status()
         .map_err(|source| WrapperError::SpawnRustc {
             program: PathBuf::from(&rustc),
@@ -284,6 +298,12 @@ where
 
     if !status.success() {
         return Ok(status);
+    }
+    if let DescriptorCarrierMode::Rlib(path) = &carrier {
+        fs::copy(path, &object_path).map_err(|source| WrapperError::HashInput {
+            path: path.clone(),
+            source,
+        })?;
     }
     if !object_path.is_file() {
         return Err(WrapperError::MissingDescriptorObject(object_path));
@@ -357,8 +377,12 @@ where
         environment_dependencies: observed.environment_dependencies,
         realized_environment_hash: hex_digest(&realized_environment_hash(&environment)),
         descriptor_codegen: DescriptorCodegenSidecar {
-            codegen_units: 1,
-            incremental: false,
+            codegen_units: if matches!(carrier, DescriptorCarrierMode::Single) {
+                1
+            } else {
+                descriptor_codegen_units(rustc_args)?
+            },
+            incremental: rustc_codegen_value(rustc_args, "incremental")?.is_some(),
             link_dead_code: true,
             lto: "off".to_string(),
             strip: "none".to_string(),
@@ -459,7 +483,19 @@ where
         prepare_dep_info_output(dep_info_path)?;
     }
 
+    if let Some(mapped) = mapped {
+        let (name, expected) = &mapped.tracked_input;
+        if env::var(name).as_deref() != Ok(expected.as_str()) {
+            return Err(WrapperError::DescriptorCarrier(format!(
+                "final unit tracking input {name} is missing or stale"
+            )));
+        }
+        final_phase_environment.insert(name.clone(), Some(expected.clone()));
+    }
     let mut command = wrapped_rustc_command(&rustc);
+    if let Some(mapped) = mapped {
+        command.env(&mapped.tracked_input.0, &mapped.tracked_input.1);
+    }
     command
         .args(rustc_args)
         .args(final_plan_args)
@@ -740,7 +776,9 @@ fn rustc_visible_environment() -> Result<BTreeMap<String, String>, WrapperError>
     Ok(environment)
 }
 
-const WRAPPER_CONTROL_ENVIRONMENT: [&str; 16] = [
+const WRAPPER_CONTROL_ENVIRONMENT: [&str; 18] = [
+    super::descriptor_objects::LINKER_PROGRAM_ENV,
+    super::descriptor_objects::LINKER_CARRIER_ENV,
     WRAPPER_MODE_ENV,
     DESCRIPTOR_STAGING_DIR_ENV,
     DESCRIPTOR_TARGET_DIR_ENV,
@@ -760,12 +798,20 @@ const WRAPPER_CONTROL_ENVIRONMENT: [&str; 16] = [
 ];
 
 pub(crate) fn wrapper_control_environment(name: &str) -> bool {
-    WRAPPER_CONTROL_ENVIRONMENT.contains(&name)
+    WRAPPER_CONTROL_ENVIRONMENT.contains(&name) || name.starts_with(FINAL_UNIT_INPUT_ENV_PREFIX)
 }
 
 pub(crate) fn scrub_wrapper_control_environment(command: &mut Command) {
     for name in WRAPPER_CONTROL_ENVIRONMENT {
         command.env_remove(name);
+    }
+    for (name, _) in env::vars_os() {
+        if name
+            .to_str()
+            .is_some_and(|name| name.starts_with(FINAL_UNIT_INPUT_ENV_PREFIX))
+        {
+            command.env_remove(name);
+        }
     }
 }
 
@@ -1435,9 +1481,134 @@ fn path_only_unstable_option(key: &str) -> bool {
     )
 }
 
-fn descriptor_rustc_args(
+#[derive(Debug)]
+enum DescriptorCarrierMode {
+    Rlib(PathBuf),
+    Native(OsString),
+    Single,
+}
+
+fn rustc_codegen_value(args: &[OsString], key: &str) -> Result<Option<String>, WrapperError> {
+    let args = args
+        .iter()
+        .map(|arg| {
+            arg.to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| WrapperError::NonUtf8RustcArgument(arg.clone()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut value = None;
+    let mut index = 0;
+    while index < args.len() {
+        if let Some(option) = short_option_value(&args, &mut index, "-C")? {
+            let (name, option_value) = split_key_value(&option);
+            if name == key {
+                value = Some(option_value.to_owned());
+            }
+        }
+        index += 1;
+    }
+    Ok(value)
+}
+
+fn descriptor_codegen_units(args: &[OsString]) -> Result<u32, WrapperError> {
+    match rustc_codegen_value(args, "codegen-units")? {
+        Some(value) => value
+            .parse::<u32>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| {
+                WrapperError::DescriptorCarrier(format!("invalid codegen-units: {value}"))
+            }),
+        None => Ok(if rustc_codegen_value(args, "incremental")?.is_some() {
+            256
+        } else {
+            16
+        }),
+    }
+}
+
+fn descriptor_carrier_mode(
+    input: &NormalizedRustcInvocation,
+    dep_info: &Path,
+    args: &[OsString],
+) -> Result<DescriptorCarrierMode, WrapperError> {
+    // Explicit output routing is supported by the single-object path. Do
+    // not infer an rlib filename when rustc was given an exact different one.
+    if descriptor_has_explicit_output(args)? || !input.emits.contains("link") {
+        return Ok(DescriptorCarrierMode::Single);
+    }
+    if input.crate_types.len() == 1
+        && input
+            .crate_types
+            .iter()
+            .all(|kind| matches!(kind.as_str(), "lib" | "rlib"))
+    {
+        let extra = input
+            .cargo_extra_filename()
+            .map_err(|reason| WrapperError::DescriptorCarrier(reason))?;
+        return Ok(DescriptorCarrierMode::Rlib(dep_info.with_file_name(
+            format!(
+                "lib{}{}.rlib",
+                input.crate_name,
+                extra.as_deref().unwrap_or_default()
+            ),
+        )));
+    }
+    // The native adapter currently supports host macOS/Linux cc drivers with
+    // explicit object arguments. Unknown targets/linker protocols retain the
+    // complete single-object carrier while still allowing incremental queries.
+    if cfg!(any(target_os = "macos", target_os = "linux"))
+        && input.target.is_none()
+        && rustc_codegen_value(args, "linker-flavor")?.is_none()
+        && input.crate_types.len() == 1
+        && input
+            .crate_types
+            .iter()
+            .all(|kind| matches!(kind.as_str(), "bin" | "proc-macro" | "dylib" | "cdylib"))
+    {
+        let linker = rustc_codegen_value(args, "linker")?.unwrap_or_else(|| "cc".to_owned());
+        let name = Path::new(&linker).file_name().and_then(OsStr::to_str);
+        if matches!(name, Some("cc" | "gcc" | "clang")) {
+            return Ok(DescriptorCarrierMode::Native(linker.into()));
+        }
+    }
+    Ok(DescriptorCarrierMode::Single)
+}
+
+fn descriptor_has_explicit_output(args: &[OsString]) -> Result<bool, WrapperError> {
+    let args = args
+        .iter()
+        .map(|arg| {
+            arg.to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| WrapperError::NonUtf8RustcArgument(arg.clone()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut index = 0;
+    while index < args.len() {
+        if short_option_value(&args, &mut index, "-o")?.is_some() {
+            return Ok(true);
+        }
+        if let Some(value) = long_option_value(&args, &mut index, "--emit")? {
+            if value.split(',').any(|emit| emit.starts_with("link=")) {
+                return Ok(true);
+            }
+        }
+        index += 1;
+    }
+    Ok(false)
+}
+
+#[cfg(test)]
+fn descriptor_rustc_args(args: &[OsString], object: &Path) -> Result<Vec<OsString>, WrapperError> {
+    descriptor_rustc_args_with_carrier(args, object, &DescriptorCarrierMode::Single)
+}
+
+fn descriptor_rustc_args_with_carrier(
     rustc_args: &[OsString],
     descriptor_object: &Path,
+    carrier: &DescriptorCarrierMode,
 ) -> Result<Vec<OsString>, WrapperError> {
     let mut result = Vec::with_capacity(rustc_args.len() + 6);
     let mut index = 0;
@@ -1451,12 +1622,12 @@ fn descriptor_rustc_args(
                 .get(index + 1)
                 .and_then(|value| value.to_str())
                 .ok_or(WrapperError::MissingRustcOptionValue("-C"))?;
-            if descriptor_codegen_option(split_key_value(value).0) {
+            if descriptor_override_option(split_key_value(value).0, carrier) {
                 index += 2;
                 continue;
             }
         } else if let Some(value) = argument.strip_prefix("-C") {
-            if !value.is_empty() && descriptor_codegen_option(split_key_value(value).0) {
+            if !value.is_empty() && descriptor_override_option(split_key_value(value).0, carrier) {
                 index += 1;
                 continue;
             }
@@ -1486,13 +1657,29 @@ fn descriptor_rustc_args(
     }
 
     result.extend([
-        OsString::from("-Ccodegen-units=1"),
         OsString::from("-Clink-dead-code=yes"),
         OsString::from("-Clto=off"),
         OsString::from("-Cstrip=none"),
-        OsString::from(format!("--emit=obj={}", descriptor_object.display())),
     ]);
+    match carrier {
+        DescriptorCarrierMode::Single => result.extend([
+            OsString::from("-Ccodegen-units=1"),
+            OsString::from(format!("--emit=obj={}", descriptor_object.display())),
+        ]),
+        DescriptorCarrierMode::Native(_) => {
+            let executable = env::current_exe().map_err(WrapperError::CurrentDirectory)?;
+            result.push(OsString::from(format!("-Clinker={}", executable.display())));
+        }
+        DescriptorCarrierMode::Rlib(_) => {}
+    }
     Ok(result)
+}
+
+fn descriptor_override_option(key: &str, carrier: &DescriptorCarrierMode) -> bool {
+    matches!(
+        key,
+        "link-dead-code" | "linker-plugin-lto" | "lto" | "strip"
+    ) || (key == "codegen-units" && matches!(carrier, DescriptorCarrierMode::Single))
 }
 
 fn emit_without_object(value: &str) -> Option<String> {
@@ -2943,9 +3130,16 @@ fn hash_file_two_domains(
     Ok((first.finalize().into(), second.finalize().into()))
 }
 
+#[cfg(test)]
 pub(crate) fn descriptor_input_content_hash(path: &Path) -> io::Result<String> {
     hash_file(path, FILE_HASH_DOMAIN).map(|digest| hex_digest(&digest))
 }
+
+pub(crate) fn descriptor_input_link_hashes(path: &Path) -> io::Result<([u8; 32], [u8; 32])> {
+    hash_file_two_domains(path, FILE_HASH_DOMAIN, LINK_ARTIFACT_HASH_DOMAIN)
+}
+
+pub(crate) type DescriptorInputHashes = BTreeMap<PathBuf, ([u8; 32], [u8; 32])>;
 
 #[cfg(test)]
 pub(crate) fn descriptor_out_dir_dependency_content_hash(path: &Path) -> io::Result<String> {
@@ -3307,9 +3501,9 @@ pub struct DescriptorEnvironmentDependency {
 /// Descriptor-only rustc policy recorded beside each exact unit object.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DescriptorCodegenSidecar {
-    /// Descriptor pass always emits one object from one codegen unit.
+    /// Effective codegen-unit policy; the carrier includes every emitted object.
     pub codegen_units: u32,
-    /// Incremental object production is disabled.
+    /// Whether Cargo enabled incremental query and object reuse.
     pub incremental: bool,
     /// Retain otherwise-dead transport statics.
     pub link_dead_code: bool,
@@ -3317,6 +3511,12 @@ pub struct DescriptorCodegenSidecar {
     pub lto: String,
     /// Descriptor-pass strip policy.
     pub strip: String,
+}
+
+impl DescriptorCodegenSidecar {
+    pub(crate) fn is_supported(&self) -> bool {
+        self.codegen_units > 0 && self.link_dead_code && self.lto == "off" && self.strip == "none"
+    }
 }
 
 /// One validated wrapper sidecar and its exact descriptor object.
@@ -3467,6 +3667,38 @@ pub fn write_content_addressed_final_unit_map(
     let path = directory.join(format!("{content_hash}.final-unit-map.json"));
     atomic_write_exact(&path, &bytes)?;
     Ok(WrittenFinalUnitMap { path, content_hash })
+}
+
+/// Track each exact mapping independently in Cargo dep-info. The global map
+/// remains validated before every compile; unrelated entry edits need not
+/// invalidate a macro's coordinate lookup.
+pub(crate) fn final_unit_tracking_inputs(
+    units: &[ValidatedDescriptorUnit],
+) -> Result<BTreeMap<OsString, OsString>, FinalUnitMapError> {
+    units
+        .iter()
+        .map(|unit| {
+            let entry = final_unit_map_entry(unit)?;
+            let (name, value) = final_unit_entry_tracking_input(&entry)?;
+            Ok((name.into(), value.into()))
+        })
+        .collect()
+}
+
+fn final_unit_entry_tracking_input(
+    entry: &FinalUnitMapEntry,
+) -> Result<(String, String), FinalUnitMapError> {
+    let bytes = serde_json::to_vec(entry).map_err(FinalUnitMapError::Serialize)?;
+    let mut hash = Sha256::new();
+    hash.update(b"proa.rsjs.final-unit-input.v1\0");
+    hash.update(&bytes);
+    Ok((
+        format!("{FINAL_UNIT_INPUT_ENV_PREFIX}{}", entry.cargo_unit_id),
+        hash.finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    ))
 }
 
 fn final_unit_map_entry(
@@ -3621,6 +3853,7 @@ impl LoadedFinalUnitMap {
 #[derive(Debug)]
 struct LoadedFinalUnit {
     cargo_unit_id: DescriptorCargoUnitId,
+    tracked_input: (String, String),
     out_dir_dependencies: Vec<DescriptorOutDirDependency>,
     source_dependencies: Vec<DescriptorSourceDependency>,
     environment_dependencies: Vec<DescriptorEnvironmentDependency>,
@@ -3715,8 +3948,11 @@ fn load_final_unit_map_from_env() -> Result<LoadedFinalUnitMap, WrapperError> {
         validate_source_dependency_records(&entry.source_dependencies)?;
         validate_environment_dependency_records(&entry.environment_dependencies)?;
         let cargo_unit_id = DescriptorCargoUnitId::from_hex(&entry.cargo_unit_id)?;
+        let tracked_input = final_unit_entry_tracking_input(&entry)
+            .map_err(|error| WrapperError::DescriptorCarrier(error.to_string()))?;
         let loaded = LoadedFinalUnit {
             cargo_unit_id,
+            tracked_input,
             out_dir_dependencies: entry.out_dir_dependencies,
             source_dependencies: entry.source_dependencies,
             environment_dependencies: entry.environment_dependencies,
@@ -4118,13 +4354,6 @@ fn load_descriptor_unit_sidecars_with_object_validation(
         return Err(DescriptorSidecarError::NoUnitSidecars(units_dir));
     }
 
-    let expected_codegen = DescriptorCodegenSidecar {
-        codegen_units: 1,
-        incremental: false,
-        link_dead_code: true,
-        lto: "off".to_string(),
-        strip: "none".to_string(),
-    };
     let mut seen = BTreeSet::new();
     let mut units = Vec::with_capacity(sidecar_paths.len());
     for sidecar_path in sidecar_paths {
@@ -4231,7 +4460,7 @@ fn load_descriptor_unit_sidecars_with_object_validation(
                 expected: expected_object,
             });
         }
-        if sidecar.descriptor_codegen != expected_codegen {
+        if !sidecar.descriptor_codegen.is_supported() {
             return Err(DescriptorSidecarError::CodegenPolicyMismatch(unit));
         }
         validate_lower_sha256(&sidecar.descriptor_object_hash).map_err(|reason| {
@@ -4976,6 +5205,36 @@ pub(crate) struct DescriptorCargoOutput {
     pub(crate) cargo_artifacts: Vec<CargoCompilerArtifact>,
     /// Validated wrapper units and exact descriptor objects.
     pub(crate) units: Vec<ValidatedDescriptorUnit>,
+    /// Exact immutable byte snapshots admitted while the cache lease is held.
+    /// Manifest hashing and extraction consume these same bytes, never a later
+    /// reread of the mutable path. Uncached callers may leave this map empty.
+    pub(crate) objects: BTreeMap<PathBuf, DescriptorObjectSnapshot>,
+    /// Input and link hashes checked against exact extern authority in this run.
+    pub(crate) input_hashes: DescriptorInputHashes,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DescriptorObjectSnapshot {
+    pub(crate) bytes: std::sync::Arc<[u8]>,
+    pub(crate) descriptor_hash: [u8; 32],
+    pub(crate) link_hash: [u8; 32],
+}
+
+impl DescriptorObjectSnapshot {
+    pub(crate) fn read(path: &Path) -> io::Result<Self> {
+        let bytes = fs::read(path)?;
+        let mut descriptor = Sha256::new();
+        descriptor.update(DESCRIPTOR_OBJECT_HASH_DOMAIN);
+        descriptor.update(&bytes);
+        let mut link = Sha256::new();
+        link.update(LINK_ARTIFACT_HASH_DOMAIN);
+        link.update(&bytes);
+        Ok(Self {
+            bytes: bytes.into(),
+            descriptor_hash: descriptor.finalize().into(),
+            link_hash: link.finalize().into(),
+        })
+    }
 }
 
 /// Path-free summary of one descriptor Cargo artifact.
@@ -5377,6 +5636,8 @@ fn run_descriptor_cargo_with_empty_policy(
     Ok(DescriptorCargoOutput {
         cargo_artifacts,
         units,
+        objects: BTreeMap::new(),
+        input_hashes: BTreeMap::new(),
     })
 }
 
@@ -6784,7 +7045,12 @@ pub(crate) fn build_link_unit_manifest(
     output: &DescriptorCargoOutput,
 ) -> Result<LinkUnitManifest, LinkManifestAssemblyError> {
     let topology = prepare_link_manifest(root_unit, root_artifact, root_role, output)?;
-    let mut hasher = FilesystemLinkManifestHasher::new(root_artifact, &topology)?;
+    let mut hasher = FilesystemLinkManifestHasher::new(
+        root_artifact,
+        &topology,
+        &output.objects,
+        &output.input_hashes,
+    )?;
     assemble_link_unit_manifest(
         invocation,
         root_unit,
@@ -6803,12 +7069,15 @@ trait LinkManifestHasher {
 
 struct FilesystemLinkManifestHasher {
     hashes: BTreeMap<PathBuf, ([u8; 32], [u8; 32])>,
+    object_hashes: BTreeMap<PathBuf, [u8; 32]>,
 }
 
 impl FilesystemLinkManifestHasher {
     fn new(
         root_artifact: &Path,
         topology: &PreparedLinkManifest<'_>,
+        objects: &BTreeMap<PathBuf, DescriptorObjectSnapshot>,
+        input_hashes: &DescriptorInputHashes,
     ) -> Result<Self, LinkManifestAssemblyError> {
         let mut paths = BTreeSet::from([root_artifact.to_path_buf()]);
         for unit in &topology.reachable {
@@ -6816,7 +7085,9 @@ impl FilesystemLinkManifestHasher {
                 .unit_by_id
                 .get(unit)
                 .expect("prepared reachable units have descriptor records");
-            paths.insert(descriptor.descriptor_object.clone());
+            if !objects.contains_key(&descriptor.descriptor_object) {
+                paths.insert(descriptor.descriptor_object.clone());
+            }
             paths.extend(
                 topology
                     .dependencies_by_unit
@@ -6826,7 +7097,10 @@ impl FilesystemLinkManifestHasher {
                     .map(|dependency| dependency.path.clone()),
             );
         }
-        let paths = paths.into_iter().collect::<Vec<_>>();
+        let paths = paths
+            .into_iter()
+            .filter(|path| !input_hashes.contains_key(path))
+            .collect::<Vec<_>>();
         let hashed = paths
             .par_iter()
             .map(|path| {
@@ -6836,7 +7110,7 @@ impl FilesystemLinkManifestHasher {
                 )
             })
             .collect::<Vec<_>>();
-        let mut hashes = BTreeMap::new();
+        let mut hashes = input_hashes.clone();
         for (path, result) in hashed {
             let hash = result.map_err(|source| LinkManifestAssemblyError::HashArtifact {
                 path: path.clone(),
@@ -6844,7 +7118,13 @@ impl FilesystemLinkManifestHasher {
             })?;
             hashes.insert(path, hash);
         }
-        Ok(Self { hashes })
+        Ok(Self {
+            hashes,
+            object_hashes: objects
+                .iter()
+                .map(|(path, object)| (path.clone(), object.link_hash))
+                .collect(),
+        })
     }
 
     fn hashes(&self, path: &Path) -> io::Result<([u8; 32], [u8; 32])> {
@@ -6862,6 +7142,11 @@ impl FilesystemLinkManifestHasher {
 
 impl LinkManifestHasher for FilesystemLinkManifestHasher {
     fn hash_single(&mut self, path: &Path, domain: &[u8]) -> io::Result<[u8; 32]> {
+        if domain == LINK_ARTIFACT_HASH_DOMAIN {
+            if let Some(hash) = self.object_hashes.get(path) {
+                return Ok(*hash);
+            }
+        }
         let (input, link) = self.hashes(path)?;
         if domain == FILE_HASH_DOMAIN {
             Ok(input)
@@ -7389,6 +7674,9 @@ pub enum UnitArtifactJoinError {
 /// Hidden rustc-wrapper failure.
 #[derive(Debug, Error)]
 pub enum WrapperError {
+    /// Descriptor carrier cannot safely collect every codegen object.
+    #[error("descriptor carrier: {0}")]
+    DescriptorCarrier(String),
     /// Required wrapper configuration is missing.
     #[error("missing required RSJS wrapper environment variable `{0}`")]
     MissingEnvironment(&'static str),

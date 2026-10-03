@@ -4,6 +4,70 @@
 use super::*;
 
 #[test]
+fn extraction_consumes_the_validated_snapshot_without_rereading_its_path() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("descriptor.o");
+    // A metadata-only archive is a valid transport carrier with zero records.
+    fs::write(
+        &path,
+        b"!<arch>\nmetadata/       0           0     0     100644  0         `\n",
+    )
+    .unwrap();
+    let snapshot = DescriptorObjectSnapshot::read(&path).unwrap();
+    let artifact = rsjs_ir::build::LinkArtifact {
+        unit: CargoUnitId::from_bytes([1; 32]),
+        role: ArtifactRole::DescriptorObject,
+        content: SemanticHash::from_bytes(snapshot.link_hash),
+        path: path.to_string_lossy().into_owned(),
+    };
+    let evidence = [DescriptorArtifactEvidence {
+        artifact: &artifact,
+        descriptor_hash: snapshot.descriptor_hash,
+    }];
+    let objects = BTreeMap::from([(path.clone(), snapshot)]);
+    fs::remove_file(&path).unwrap();
+    let extracted = extract_descriptor_artifact_snapshots(&evidence, &objects).unwrap();
+    assert!(extracted.definitions.is_empty());
+    assert!(extracted.helper_definitions.is_empty());
+
+    let wrong_authority = [DescriptorArtifactEvidence {
+        artifact: &artifact,
+        descriptor_hash: [0; 32],
+    }];
+    assert!(matches!(
+        extract_descriptor_artifact_snapshots(&wrong_authority, &objects),
+        Err(TransportLinkError::DescriptorObjectIdentityHashMismatch { .. })
+    ));
+}
+
+#[test]
+fn parsed_record_reuse_requires_the_exact_path_and_byte_generation() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("descriptor.o");
+    let mut bytes =
+        b"!<arch>\nmetadata/       0           0     0     100644  0         `\n".to_vec();
+    fs::write(&path, &bytes).unwrap();
+    let first = DescriptorObjectSnapshot::read(&path).unwrap();
+    let parsed = parsed_descriptor_records(&path, &first).unwrap();
+    assert!(Arc::ptr_eq(
+        &parsed,
+        &parsed_descriptor_records(&path, &first).unwrap()
+    ));
+    bytes[24] = b'1'; // A different valid archive generation, even with identical records.
+    fs::write(&path, &bytes).unwrap();
+    let next = DescriptorObjectSnapshot::read(&path).unwrap();
+    assert!(!Arc::ptr_eq(
+        &parsed,
+        &parsed_descriptor_records(&path, &next).unwrap()
+    ));
+    let other_path = directory.path().join("another.o");
+    assert!(!Arc::ptr_eq(
+        &parsed,
+        &parsed_descriptor_records(&other_path, &first).unwrap()
+    ));
+}
+
+#[test]
 fn exact_byte_hash_matches_the_manifest_hash_contract() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("descriptor.o");

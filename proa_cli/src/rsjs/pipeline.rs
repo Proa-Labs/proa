@@ -226,7 +226,7 @@ pub fn link_descriptor_transport<R: DescriptorCargoRun>(
             descriptor,
         )
         .map_err(LinkedCargoError::LinkManifest)?;
-        let transport = link_transport_manifest(&manifest, &descriptor.units)
+        let transport = link_transport_manifest(&manifest, &descriptor.units, &descriptor.objects)
             .map_err(LinkedCargoError::TransportLink)?;
         let cargo_enumerated_units =
             join_cargo_enumerated_descriptor_units(&descriptor.units, &descriptor.cargo_artifacts)
