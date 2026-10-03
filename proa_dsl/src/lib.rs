@@ -146,3 +146,6 @@ mod parse_str_tests {
         }
     }
 }
+
+#[doc(hidden)]
+pub mod dev_hot;

@@ -727,6 +727,7 @@ fn dev_options(debounce_ms: Option<u64>) -> DevOptions {
         port: None,
         offline: false,
         no_assets: false,
+        hot_static: false,
         no_restart: false,
         no_reload: false,
         no_css_hot_swap: false,

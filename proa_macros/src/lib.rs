@@ -720,3 +720,36 @@ pub fn island(args: TokenStream, input: TokenStream) -> TokenStream {
         Err(err) => err.to_compile_error().into(),
     }
 }
+
+/// Experimental explicitly identified sync template for `proa dev --hot-static`.
+/// Static text and attribute strings can update without Cargo; dynamic Rust and
+/// markup structure retain the ordinary compile/restart path. Without the dev
+/// environment this emits the normal consolidated literal fast path.
+#[proc_macro]
+pub fn html_hot_sync(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as proa_dsl::dev_hot::HotInput);
+    let warnings = match static_consolidation::validate_security(&input.root) {
+        Err(errors) => return errors.into(),
+        Ok(warnings) => warnings,
+    };
+    let expanded = match std::env::var("PROA_DEV_HOT_STATIC") {
+        Ok(path) if std::path::Path::new(&path).is_absolute() => {
+            match proa_dsl::dev_hot::compile(&input) {
+                Ok(template) => static_consolidation::generate_optimized_hot(
+                    &input.root,
+                    &path,
+                    &input.id.value(),
+                    &template.shape,
+                    template.slots.len(),
+                ),
+                Err(error) => {
+                    return syn::Error::new(input.id.span(), error)
+                        .to_compile_error()
+                        .into()
+                }
+            }
+        }
+        _ => static_consolidation::generate_optimized(&input.root),
+    };
+    quote::quote! {{ const _: Option<&str> = ::core::option_env!("PROA_DEV_HOT_STATIC"); #warnings #expanded }}.into()
+}

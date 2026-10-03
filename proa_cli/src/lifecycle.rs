@@ -70,6 +70,7 @@ pub struct DevOptions {
     pub port: Option<u16>,
     pub offline: bool,
     pub no_assets: bool,
+    pub hot_static: bool,
     pub no_restart: bool,
     pub no_reload: bool,
     pub no_css_hot_swap: bool,
@@ -151,6 +152,14 @@ struct LinkedDevLaunch {
     reused_final_artifacts: usize,
 }
 
+struct LinkedDevRebuild {
+    config: ProjectConfig,
+    watch_paths: Vec<PathBuf>,
+    snapshot: WatchSnapshot,
+    launch: LinkedDevLaunch,
+    hot_state: Option<crate::hot_static::HotState>,
+}
+
 pub fn dev(options: DevOptions) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let config = load_dev_config(&root, &options)?;
@@ -170,7 +179,11 @@ pub fn dev(options: DevOptions) -> Result<()> {
         if !options.no_assets {
             build_assets(&root, &config)?;
         }
-        let launch = run_linked_dev_cycle(&root, &config.dev.command)?;
+        let hot_state = options
+            .hot_static
+            .then(|| crate::hot_static::HotState::prepare(&root))
+            .transpose()?;
+        let launch = run_linked_dev_cycle(&root, &config.dev.command, hot_state.as_ref())?;
         return run_linked_dev_foreground(&root, &launch, &config.dev.host, config.dev.port, None);
     }
 
@@ -186,7 +199,11 @@ pub fn dev(options: DevOptions) -> Result<()> {
     }
     let mut watch_paths = config.dev.watch.clone();
     let baseline = watch_snapshot(&root, &watch_paths)?;
-    let launch = run_linked_dev_cycle(&root, &config.dev.command)?;
+    let mut hot_state = options
+        .hot_static
+        .then(|| crate::hot_static::HotState::prepare(&root))
+        .transpose()?;
+    let launch = run_linked_dev_cycle(&root, &config.dev.command, hot_state.as_ref())?;
     let mut child = spawn_linked_dev(
         &root,
         &launch,
@@ -250,37 +267,75 @@ pub fn dev(options: DevOptions) -> Result<()> {
             continue;
         }
 
+        if let Some(state) = &hot_state {
+            match state.try_update(&root, &changed) {
+                Ok(true) => {
+                    println!(
+                        "static template change stabilized; published without Cargo or restart"
+                    );
+                    debouncer.commit(trigger_snapshot);
+                    notify(reload.as_ref(), &ReloadEvent::Reload);
+                    continue;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    eprintln!("static update rejected; using the linked rebuild: {error:#}")
+                }
+            }
+        }
         println!("change stabilized; rebuilding linked RSJS dev server");
         notify(reload.as_ref(), &ReloadEvent::Building);
-        let rebuild =
-            (|| -> Result<(ProjectConfig, Vec<PathBuf>, WatchSnapshot, LinkedDevLaunch)> {
-                let next_config = load_dev_config(&root, &options)?;
-                task::run_lifecycle_tasks(
-                    &root,
-                    &next_config,
-                    &next_config.dev.before,
-                    &BTreeMap::new(),
-                )?;
-                if !options.no_assets {
-                    build_assets(&root, &next_config)?;
-                }
-                let next_watch_paths = next_config.dev.watch.clone();
-                // Capture the exact source/config state handed to this cycle after
-                // asset generation. A change during Cargo will differ on the next
-                // poll and schedule another cycle rather than being swallowed.
-                let cycle_snapshot = watch_snapshot(&root, &next_watch_paths)?;
-                let launch = run_linked_dev_cycle(&root, &next_config.dev.command)?;
-                Ok((next_config, next_watch_paths, cycle_snapshot, launch))
-            })();
+        let rebuild = (|| -> Result<LinkedDevRebuild> {
+            let next_config = load_dev_config(&root, &options)?;
+            task::run_lifecycle_tasks(
+                &root,
+                &next_config,
+                &next_config.dev.before,
+                &BTreeMap::new(),
+            )?;
+            if !options.no_assets {
+                build_assets(&root, &next_config)?;
+            }
+            let next_watch_paths = next_config.dev.watch.clone();
+            // Capture the exact source/config state handed to this cycle after
+            // asset generation. A change during Cargo will differ on the next
+            // poll and schedule another cycle rather than being swallowed.
+            let cycle_snapshot = watch_snapshot(&root, &next_watch_paths)?;
+            // Stage after tasks/assets may have generated Rust sources,
+            // and after the committed snapshot. An edit during staging or
+            // Cargo must differ from that snapshot on the next poll.
+            let next_hot_state = hot_state
+                .as_ref()
+                .map(|state| state.candidate(&root))
+                .transpose()?;
+            let launch =
+                run_linked_dev_cycle(&root, &next_config.dev.command, next_hot_state.as_ref())?;
+            Ok(LinkedDevRebuild {
+                config: next_config,
+                watch_paths: next_watch_paths,
+                snapshot: cycle_snapshot,
+                launch,
+                hot_state: next_hot_state,
+            })
+        })();
 
         match rebuild {
-            Ok((next_config, next_watch_paths, cycle_snapshot, next_launch)) => {
+            Ok(LinkedDevRebuild {
+                config: next_config,
+                watch_paths: next_watch_paths,
+                snapshot: cycle_snapshot,
+                launch: next_launch,
+                hot_state: mut next_hot_state,
+            }) => {
                 println!(
                     "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan {}",
                     next_launch.plan_id
                 );
                 stop_child(&mut child)?;
                 clear_active_child_group();
+                if let Some(state) = &mut next_hot_state {
+                    state.activate()?;
+                }
                 child = spawn_linked_dev(
                     &root,
                     &next_launch,
@@ -289,6 +344,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
                     session.as_ref(),
                 )?;
                 set_active_child_group(&child);
+                hot_state = next_hot_state;
                 watch_paths = next_watch_paths;
                 debouncer = DevWatchDebouncer::new(cycle_snapshot, debounce);
                 announce_reload(
@@ -951,8 +1007,14 @@ fn print_linked_cache_reuse(action: LinkedCargoAction, output: &LinkedCargoOutpu
     );
 }
 
-fn run_linked_dev_cycle(root: &Path, command: &[String]) -> Result<LinkedDevLaunch> {
-    let prepared = prepare_linked_cargo(root, command, LinkedCargoAction::Dev)?;
+fn run_linked_dev_cycle(
+    root: &Path,
+    command: &[String],
+    hot: Option<&crate::hot_static::HotState>,
+) -> Result<LinkedDevLaunch> {
+    let environment = hot.map(|state| state.environment()).unwrap_or_default();
+    let prepared =
+        prepare_linked_cargo_with_environment(root, command, LinkedCargoAction::Dev, &environment)?;
     println!("running linked RSJS Cargo dev build: {}", shellish(command));
     let output = run_linked_cargo_cached(&prepared.request, &prepared.descriptor_cache_directory)
         .context("linked RSJS dev build failed")?;
