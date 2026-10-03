@@ -126,6 +126,11 @@ pub(crate) const STYLESHEET_HREF: &str =
 const SOCIAL_IMAGE_ALT: &str =
     "Proa: a person and a robot in a boat with an orange sail, traveling through streams of HTML and Markdown.";
 const SOCIAL_IMAGE_SRC: &str = concat!("/static/og.jpg?v=", env!("MARKETING_ASSET_VERSION"));
+/// iOS fills transparent touch icons with black, so this PNG is opaque.
+pub(crate) const APPLE_TOUCH_ICON_HREF: &str = concat!(
+    "/static/apple-touch-icon.png?v=",
+    env!("MARKETING_ASSET_VERSION")
+);
 pub(crate) const DOCS_SCRIPT_SRC: &str =
     concat!("/static/docs.js?v=", env!("MARKETING_ASSET_VERSION"));
 /// Orama-backed search for the modal on every shell. A module script, so it
@@ -248,6 +253,7 @@ where
             {DocumentMetadata::new(self.meta)}
             <link rel="icon" href="/static/favicon.ico" />
             <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+            <link rel="apple-touch-icon" sizes="180x180" href={APPLE_TOUCH_ICON_HREF} />
             <link rel="stylesheet" href={STYLESHEET_HREF} />
             <script type="module" src={SEARCH_SCRIPT_SRC}></script>
             {if self.shell.is_docs() {

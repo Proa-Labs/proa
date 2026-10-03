@@ -49,6 +49,7 @@ fn static_asset_version(manifest_dir: &Path) -> io::Result<String> {
     let mut hash = 0xcbf29ce484222325u64;
     for rel in [
         "public/og.jpg",
+        "public/apple-touch-icon.png",
         "public/styles.css",
         "public/proa-ui-rail.css",
         "public/docs.js",

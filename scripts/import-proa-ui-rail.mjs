@@ -96,7 +96,9 @@ try {
     }
 
     const copy = rail.cloneNode(true);
-    copy.querySelectorAll("script, style").forEach(el => el.remove());
+    // SVG <title>s give no tooltip or accessible name inside the inert rail,
+    // and crawlers that read every <title> mistake them for the page title.
+    copy.querySelectorAll("script, style, svg title").forEach(el => el.remove());
     for (const el of copy.querySelectorAll("*")) {
       for (const attr of [...el.attributes]) {
         if (attr.name.startsWith("data-rsjs-") || attr.name.startsWith("on")) el.removeAttribute(attr.name);

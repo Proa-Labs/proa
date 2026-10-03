@@ -11,7 +11,10 @@ use crate::{
         landing_shell::{LandingHeader, MarketingNavActive},
         search::SearchModal,
     },
-    layout::{DocumentMetadata, PageMeta, RsjsRuntimeTags, STYLESHEET_HREF, THEME_BOOT},
+    layout::{
+        DocumentMetadata, PageMeta, RsjsRuntimeTags, APPLE_TOUCH_ICON_HREF, STYLESHEET_HREF,
+        THEME_BOOT,
+    },
 };
 
 pub(crate) struct EcosystemStandaloneDocument<C> {
@@ -155,6 +158,11 @@ where
                         {proa_core::to_async(DocumentMetadata::new(self.meta))}
                         <link rel="icon" href="/static/favicon.ico" />
                         <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+                        <link
+                            rel="apple-touch-icon"
+                            sizes="180x180"
+                            href={APPLE_TOUCH_ICON_HREF}
+                        />
                         <link rel="stylesheet" href={STYLESHEET_HREF} />
                         <script>{StaticRaw(THEME_BOOT)}</script>
                     </head>

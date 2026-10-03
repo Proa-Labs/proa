@@ -401,6 +401,35 @@ mod tests {
         assert_eq!(body["error"], "not_found");
     }
 
+    /// SEO auditors join every `<title>` in a document, inline SVG titles
+    /// included, so each marketing shell must render only its head title.
+    #[tokio::test]
+    async fn marketing_shells_have_one_title_and_a_touch_icon() {
+        for uri in [
+            "/",
+            "/docs",
+            "/ecosystem",
+            "/ecosystem/apps",
+            "/ecosystem/developer-tools",
+            "/ecosystem/registry",
+            "/privacy",
+            "/terms",
+        ] {
+            let response = app()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            let html = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let html = String::from_utf8(html.to_vec()).unwrap();
+            assert_eq!(html.matches("<title>").count(), 1, "{uri}");
+            assert!(
+                html.contains(r#"<link rel="apple-touch-icon" sizes="180x180""#),
+                "{uri}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn blog_is_not_publicly_routed_or_linked() {
         let blog = app()
