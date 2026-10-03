@@ -15,6 +15,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use rayon::prelude::*;
 use rsjs_ir::abi::{
@@ -35,9 +36,12 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::rsjs::build::{ValidatedDescriptorUnit, DESCRIPTOR_OBJECT_HASH_DOMAIN};
+#[cfg(test)]
+use crate::rsjs::build::DESCRIPTOR_OBJECT_HASH_DOMAIN;
+use crate::rsjs::build::{DescriptorObjectSnapshot, ValidatedDescriptorUnit};
 
 const TRANSPORT_LINK_SCHEMA_VERSION: u16 = 5;
+#[cfg(test)]
 const LINK_ARTIFACT_HASH_DOMAIN: &[u8] = b"proa.rsjs.link-artifact.v1";
 const COMPONENT_PAYLOAD_FORMAT: &str = "rsjs.component_transport_payload";
 const COMPONENT_PAYLOAD_SCHEMA: u16 = 9;
@@ -48,6 +52,47 @@ const COMPONENT_SEMANTIC_DOMAIN: &[u8] = b"proa.rsjs.component-transport-payload
 const HELPER_SEMANTIC_DOMAIN: &[u8] = b"proa.rsjs.standalone-helper.semantic.v1\0";
 
 static PLAN_WRITE_NONCE: AtomicU64 = AtomicU64::new(0);
+
+// Parsed records are immutable owned data. Every lookup still follows fresh
+// byte validation against both authorities; this never substitutes a prior
+// filesystem observation for the current cache lease and content hashes.
+type ExtractionKey = (PathBuf, [u8; 32]);
+#[derive(Default)]
+struct ExtractionCache {
+    records: BTreeMap<ExtractionKey, Arc<ArtifactRecords>>,
+    insertion_order: std::collections::VecDeque<ExtractionKey>,
+}
+static EXTRACTION_CACHE: OnceLock<Mutex<ExtractionCache>> = OnceLock::new();
+const EXTRACTION_CACHE_LIMIT: usize = 2048;
+
+fn parsed_descriptor_records(
+    path: &Path,
+    snapshot: &DescriptorObjectSnapshot,
+) -> Result<Arc<ArtifactRecords>, ExtractionError> {
+    let key = (path.to_path_buf(), snapshot.descriptor_hash);
+    let cache = EXTRACTION_CACHE.get_or_init(Default::default);
+    if let Some(records) = cache
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .records
+        .get(&key)
+    {
+        return Ok(Arc::clone(records));
+    }
+    let records = Arc::new(ArtifactRecords::extract_exact_bytes(path, &snapshot.bytes)?);
+    let mut cache = cache.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some(existing) = cache.records.get(&key) {
+        return Ok(Arc::clone(existing));
+    }
+    while cache.records.len() >= EXTRACTION_CACHE_LIMIT {
+        if let Some(oldest) = cache.insertion_order.pop_front() {
+            cache.records.remove(&oldest);
+        }
+    }
+    cache.insertion_order.push_back(key.clone());
+    cache.records.insert(key, Arc::clone(&records));
+    Ok(records)
+}
 
 /// Exact build-local identity of one component or helper definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -401,6 +446,7 @@ pub struct TransportLinkPlan {
 pub(crate) fn link_transport_manifest(
     manifest: &LinkUnitManifest,
     validated_units: &[ValidatedDescriptorUnit],
+    objects: &BTreeMap<std::path::PathBuf, DescriptorObjectSnapshot>,
 ) -> Result<TransportLinkPlan, TransportLinkError> {
     manifest
         .validate()
@@ -410,7 +456,7 @@ pub(crate) fn link_transport_manifest(
         .map_err(TransportLinkError::InvalidManifest)?;
 
     let descriptor_artifacts = descriptor_artifacts(manifest, validated_units)?;
-    let extracted = extract_descriptor_artifacts(&descriptor_artifacts)?;
+    let extracted = extract_descriptor_artifact_snapshots(&descriptor_artifacts, objects)?;
 
     let manifest_artifacts = descriptor_artifacts
         .iter()
@@ -426,20 +472,36 @@ struct DescriptorArtifactEvidence<'a> {
     descriptor_hash: [u8; 32],
 }
 
+#[cfg(test)]
 fn extract_descriptor_artifacts(
     descriptor_artifacts: &[DescriptorArtifactEvidence<'_>],
+) -> Result<ExtractedTransport, TransportLinkError> {
+    extract_descriptor_artifact_snapshots(descriptor_artifacts, &BTreeMap::new())
+}
+
+fn extract_descriptor_artifact_snapshots(
+    descriptor_artifacts: &[DescriptorArtifactEvidence<'_>],
+    objects: &BTreeMap<std::path::PathBuf, DescriptorObjectSnapshot>,
 ) -> Result<ExtractedTransport, TransportLinkError> {
     let results = descriptor_artifacts
         .par_iter()
         .map(|evidence| {
             let artifact = evidence.artifact;
             let path = Path::new(&artifact.path);
-            let bytes =
-                fs::read(path).map_err(|source| TransportLinkError::HashDescriptorObject {
-                    path: path.to_path_buf(),
-                    source,
-                })?;
-            let actual_descriptor = descriptor_object_content_hash_bytes(&bytes);
+            let owned;
+            let snapshot = match objects.get(path) {
+                Some(snapshot) => snapshot,
+                None => {
+                    owned = DescriptorObjectSnapshot::read(path).map_err(|source| {
+                        TransportLinkError::HashDescriptorObject {
+                            path: path.to_path_buf(),
+                            source,
+                        }
+                    })?;
+                    &owned
+                }
+            };
+            let actual_descriptor = snapshot.descriptor_hash;
             if actual_descriptor != evidence.descriptor_hash {
                 return Err(TransportLinkError::DescriptorObjectIdentityHashMismatch {
                     path: path.to_path_buf(),
@@ -447,7 +509,7 @@ fn extract_descriptor_artifacts(
                     actual: actual_descriptor,
                 });
             }
-            let actual = link_artifact_content_hash_bytes(&bytes);
+            let actual = SemanticHash::from_bytes(snapshot.link_hash);
             if actual != artifact.content {
                 return Err(TransportLinkError::DescriptorObjectHashMismatch {
                     path: path.to_path_buf(),
@@ -455,7 +517,9 @@ fn extract_descriptor_artifacts(
                     actual,
                 });
             }
-            ArtifactRecords::extract_exact_bytes(path, &bytes).map_err(Into::into)
+            parsed_descriptor_records(path, &snapshot)
+                .map(|records| records.as_ref().clone())
+                .map_err(Into::into)
         })
         .collect::<Vec<Result<_, TransportLinkError>>>();
     // Indexed parallel iteration preserves input order. Consume the results
@@ -465,6 +529,7 @@ fn extract_descriptor_artifacts(
     ExtractedTransport::resolve_exact_artifacts(records).map_err(Into::into)
 }
 
+#[cfg(test)]
 fn descriptor_object_content_hash_bytes(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(DESCRIPTOR_OBJECT_HASH_DOMAIN);
@@ -472,6 +537,7 @@ fn descriptor_object_content_hash_bytes(bytes: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+#[cfg(test)]
 fn link_artifact_content_hash_bytes(bytes: &[u8]) -> SemanticHash {
     let mut hasher = Sha256::new();
     hasher.update(LINK_ARTIFACT_HASH_DOMAIN);

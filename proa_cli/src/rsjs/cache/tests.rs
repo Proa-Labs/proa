@@ -9,6 +9,60 @@ use crate::rsjs::build::{
 };
 use tempfile::TempDir;
 
+#[test]
+fn identical_pointer_keeps_the_already_published_file() {
+    let temp = TempDir::new().unwrap();
+    let pointer = temp.path().join("pointer.json");
+    atomic_write_replaceable(&pointer, b"{\"unit\":1}").unwrap();
+    let previous = temp.path().join("previous.json");
+    fs::hard_link(&pointer, &previous).unwrap();
+
+    atomic_write_replaceable(&pointer, b"{\"unit\":1}").unwrap();
+    // A hard-link witness makes replacement observable without depending on
+    // timestamp resolution or sleeping. An unchanged publication keeps it.
+    fs::write(&previous, b"same-inode").unwrap();
+    assert_eq!(fs::read(&pointer).unwrap(), b"same-inode");
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 2);
+}
+
+#[test]
+fn changed_pointer_is_replaced_atomically_and_requires_exact_newline() {
+    let temp = TempDir::new().unwrap();
+    let pointer = temp.path().join("pointer.json");
+    fs::write(&pointer, b"{\"unit\":1}").unwrap();
+    let previous = temp.path().join("previous.json");
+    fs::hard_link(&pointer, &previous).unwrap();
+
+    atomic_write_replaceable(&pointer, b"{\"unit\":1}").unwrap();
+    assert_eq!(fs::read(&pointer).unwrap(), b"{\"unit\":1}\n");
+    assert_eq!(fs::read(&previous).unwrap(), b"{\"unit\":1}");
+    atomic_write_replaceable(&pointer, b"{\"unit\":2}").unwrap();
+    assert_eq!(fs::read(&pointer).unwrap(), b"{\"unit\":2}\n");
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn identical_pointer_rejects_symlink_and_redirected_parent() {
+    use std::os::unix::fs::symlink;
+    let temp = TempDir::new().unwrap();
+    let target = temp.path().join("target.json");
+    fs::write(&target, b"{}\n").unwrap();
+    let pointer = temp.path().join("pointer.json");
+    symlink(&target, &pointer).unwrap();
+    assert!(matches!(
+        atomic_write_replaceable(&pointer, b"{}"),
+        Err(DescriptorCacheError::UnsafeCacheEntry(_))
+    ));
+    let redirected = temp.path().join("redirected");
+    symlink(temp.path(), &redirected).unwrap();
+    assert!(matches!(
+        atomic_write_replaceable(&redirected.join("target.json"), b"{}"),
+        Err(DescriptorCacheError::UnsafeCacheEntry(_))
+    ));
+    assert_eq!(fs::read(&target).unwrap(), b"{}\n");
+}
+
 fn artifact_fixture(
     temp: &TempDir,
     referenced: PathBuf,
@@ -539,7 +593,7 @@ fn direct_cache_hits_revalidate_sidecar_semantics() {
     let original_sidecar = cached_sidecar_path(&cache, &generation);
     let mut sidecar: DescriptorUnitSidecar =
         serde_json::from_slice(&fs::read(&original_sidecar).unwrap()).unwrap();
-    sidecar.descriptor_codegen.incremental = true;
+    sidecar.descriptor_codegen.codegen_units = 0;
     let bytes = serde_json::to_vec(&sidecar).unwrap();
     generation.sidecar_hash = cached_sidecar_hash(&bytes);
     let forged_sidecar = cached_sidecar_path(&cache, &generation);

@@ -1210,7 +1210,9 @@ pub(crate) fn witness_tokens<S: PlanSelection>(label: &str, selection: Option<&S
     // `load_current_plan` must use `std::env::var` while the proc macro is
     // executing, which Cargo cannot observe. Emit built-in `env!` reads into
     // every final expansion so rustc records the wrapper-owned inputs in its
-    // dep-info. A plan/map change then invalidates only crates that expand RSJS
+    // dep-info. The map witness tracks only this unit; exact global plan
+    // inputs remain tracked because owner IDs currently include the PlanId.
+    // A plan change then invalidates only crates that expand RSJS
     // instead of requiring a cold target directory for the whole graph.
     let cargo_invalidation = cargo_invalidation_tokens(matches!(
         std::env::var(FINAL_PHASE_ENV),
@@ -1241,13 +1243,29 @@ fn cargo_invalidation_tokens(final_phase: bool) -> TokenStream {
     }
     let plan_id_env = proc_macro2::Literal::string(FINAL_PLAN_ID_ENV);
     let plan_file_hash_env = proc_macro2::Literal::string(FINAL_PLAN_FILE_HASH_ENV);
-    let unit_map_hash_env = proc_macro2::Literal::string(FINAL_UNIT_MAP_HASH_ENV);
+    let unit = std::env::var("RSJS_CARGO_UNIT_ID").ok();
+    let tracking_name = unit_mapping_tracking_name(unit.as_deref());
+    let unit_map_hash_env = proc_macro2::Literal::string(&tracking_name);
     quote! {
         const _: (&str, &str, &str) = (
             ::core::env!(#plan_id_env),
             ::core::env!(#plan_file_hash_env),
             ::core::env!(#unit_map_hash_env),
         );
+    }
+}
+
+fn unit_mapping_tracking_name(unit: Option<&str>) -> String {
+    match unit {
+        Some(unit)
+            if unit.len() == 64
+                && unit
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
+        {
+            format!("PROA_RSJS_FINAL_UNIT_INPUT_{unit}")
+        }
+        _ => FINAL_UNIT_MAP_HASH_ENV.to_owned(),
     }
 }
 
@@ -5410,7 +5428,7 @@ mod tests {
         for name in [
             FINAL_PLAN_ID_ENV,
             FINAL_PLAN_FILE_HASH_ENV,
-            FINAL_UNIT_MAP_HASH_ENV,
+            &unit_mapping_tracking_name(std::env::var("RSJS_CARGO_UNIT_ID").ok().as_deref()),
         ] {
             assert!(
                 tokens.contains(name),
@@ -5418,5 +5436,25 @@ mod tests {
             );
         }
         assert_eq!(tokens.matches("env !").count(), 3);
+    }
+}
+
+#[cfg(test)]
+mod tracking_tests {
+    use super::*;
+    #[test]
+    fn unit_mapping_names_are_exact_and_independent() {
+        assert_eq!(
+            unit_mapping_tracking_name(Some(&"11".repeat(32))),
+            format!("PROA_RSJS_FINAL_UNIT_INPUT_{}", "11".repeat(32))
+        );
+        assert_ne!(
+            unit_mapping_tracking_name(Some(&"11".repeat(32))),
+            unit_mapping_tracking_name(Some(&"22".repeat(32)))
+        );
+        assert_eq!(
+            unit_mapping_tracking_name(Some("invalid")),
+            FINAL_UNIT_MAP_HASH_ENV
+        );
     }
 }

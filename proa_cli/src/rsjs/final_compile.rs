@@ -26,7 +26,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::rsjs::build::{
-    acquire_descriptor_target_lease, scrub_wrapper_control_environment,
+    acquire_descriptor_target_lease, final_unit_tracking_inputs, scrub_wrapper_control_environment,
     wrapper_control_environment, write_content_addressed_final_unit_map, CargoArtifactCollector,
     CargoArtifactTarget, CargoCompilerArtifact, CargoMessageError, DescriptorCargoRunError,
     DescriptorTargetLease, FinalUnitMapError, ValidatedDescriptorUnit,
@@ -260,6 +260,9 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
         acquire_descriptor_target_lease(&target_directory).map_err(FinalCargoError::TargetLease)?;
 
     let mut environment = request.environment.clone();
+    environment.extend(
+        final_unit_tracking_inputs(&request.descriptor_units).map_err(FinalCargoError::UnitMap)?,
+    );
     inject_plan_environment(
         &mut environment,
         request,

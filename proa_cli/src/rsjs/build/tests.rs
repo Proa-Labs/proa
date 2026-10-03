@@ -524,6 +524,7 @@ fn final_unit_lookup_requires_the_exact_cargo_suffix() {
             (
                 final_coordinate(Some("-first"), false),
                 LoadedFinalUnit {
+                    tracked_input: (String::new(), String::new()),
                     cargo_unit_id: first,
                     out_dir_dependencies: Vec::new(),
                     source_dependencies: Vec::new(),
@@ -533,6 +534,7 @@ fn final_unit_lookup_requires_the_exact_cargo_suffix() {
             (
                 final_coordinate(Some("-second"), false),
                 LoadedFinalUnit {
+                    tracked_input: (String::new(), String::new()),
                     cargo_unit_id: second,
                     out_dir_dependencies: Vec::new(),
                     source_dependencies: Vec::new(),
@@ -1405,7 +1407,7 @@ fn explicit_package_source_closure_failures_do_not_fall_back() {
 }
 
 #[test]
-fn descriptor_codegen_replaces_incremental_lto_and_object_outputs() {
+fn descriptor_fallback_preserves_incremental_and_replaces_retention_options() {
     let args = vec![
         "--crate-name=fixture".into(),
         "--crate-type=lib".into(),
@@ -1429,9 +1431,7 @@ fn descriptor_codegen_replaces_incremental_lto_and_object_outputs() {
     assert!(rewritten.contains(&"-Clto=off"));
     assert!(rewritten.contains(&"-Clink-dead-code=yes"));
     assert!(rewritten.contains(&"-Cstrip=none"));
-    assert!(!rewritten
-        .iter()
-        .any(|argument| argument.contains("incremental")));
+    assert!(rewritten.contains(&"-Cincremental=/host/incremental"));
     assert!(!rewritten
         .iter()
         .any(|argument| argument.contains("linker-plugin-lto")));
@@ -1668,6 +1668,8 @@ fn link_manifest_hashes_only_exact_reachable_extern_paths() {
     let output = DescriptorCargoOutput {
         cargo_artifacts: vec![dependency_cargo, root_cargo],
         units: vec![dependency, root],
+        objects: BTreeMap::new(),
+        input_hashes: BTreeMap::new(),
     };
     let mut hasher = TrackingManifestHasher::default();
 
@@ -1722,6 +1724,8 @@ fn production_link_manifest_skips_unreachable_descriptor_objects() {
     let output = DescriptorCargoOutput {
         cargo_artifacts: vec![dependency_cargo, root_cargo, unreachable_cargo],
         units: vec![dependency, root, unreachable],
+        objects: BTreeMap::new(),
+        input_hashes: BTreeMap::new(),
     };
 
     let manifest = build_link_unit_manifest(
@@ -1764,6 +1768,37 @@ fn production_link_manifest_skips_unreachable_descriptor_objects() {
 }
 
 #[test]
+fn manifest_uses_the_same_validated_object_bytes_as_extraction() {
+    let temp = TempDir::new().unwrap();
+    let (root, root_cargo, root_path) = manifest_unit_fixture(&temp, 12, "root", BTreeMap::new());
+    let snapshot = DescriptorObjectSnapshot::read(&root.descriptor_object).unwrap();
+    let expected = SemanticHash::from_bytes(snapshot.link_hash);
+    let root_unit = root.unit;
+    let object_path = root.descriptor_object.clone();
+    let output = DescriptorCargoOutput {
+        cargo_artifacts: vec![root_cargo],
+        objects: BTreeMap::from([(object_path.clone(), snapshot)]),
+        input_hashes: BTreeMap::new(),
+        units: vec![root],
+    };
+    fs::remove_file(&object_path).unwrap();
+    let manifest = build_link_unit_manifest(
+        InvocationId::derive("snapshot-is-authoritative"),
+        root_unit,
+        &root_path,
+        ArtifactRole::RootLibrary,
+        &output,
+    )
+    .unwrap();
+    let descriptor = manifest
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.role == ArtifactRole::DescriptorObject)
+        .unwrap();
+    assert_eq!(descriptor.content, expected);
+}
+
+#[test]
 fn link_manifest_rechecks_reachable_extern_content_after_path_join() {
     let temp = TempDir::new().unwrap();
     let (dependency, dependency_cargo, dependency_path) =
@@ -1784,6 +1819,8 @@ fn link_manifest_rechecks_reachable_extern_content_after_path_join() {
     let output = DescriptorCargoOutput {
         cargo_artifacts: vec![dependency_cargo, root_cargo],
         units: vec![dependency, root],
+        objects: BTreeMap::new(),
+        input_hashes: BTreeMap::new(),
     };
 
     let error = build_link_unit_manifest(
@@ -2337,4 +2374,71 @@ fn uplifted_root_lib_aliases_its_hashed_deps_rlib() {
     let mut bin = artifact;
     bin.target.crate_types = BTreeSet::from(["bin".to_string()]);
     assert_eq!(uplifted_root_lib_hashed_rlib(&bin), None);
+}
+
+#[test]
+fn descriptor_archive_retains_cargo_incremental_and_codegen_partitioning() {
+    let args = vec![
+        "--emit=dep-info,metadata,link".into(),
+        "-Cincremental=/target/incremental".into(),
+        "-Ccodegen-units=4".into(),
+        "-Clto=fat".into(),
+    ];
+    let forwarded = descriptor_rustc_args_with_carrier(
+        &args,
+        Path::new("/staging/unit.o"),
+        &DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+    )
+    .unwrap();
+    assert!(forwarded.contains(&OsString::from("-Cincremental=/target/incremental")));
+    assert!(forwarded.contains(&OsString::from("-Ccodegen-units=4")));
+    assert!(forwarded.contains(&OsString::from("-Clto=off")));
+    assert!(!forwarded
+        .iter()
+        .any(|arg| arg.to_string_lossy().starts_with("--emit=obj")));
+    assert_eq!(descriptor_codegen_units(&args).unwrap(), 4);
+}
+
+#[test]
+fn descriptor_carriers_do_not_infer_explicitly_routed_link_outputs() {
+    for args in [
+        vec!["-o", "/target/custom"],
+        vec!["-o/target/custom"],
+        vec!["-o=/target/custom"],
+        vec!["--emit", "dep-info,link=/target/custom"],
+        vec!["--emit=dep-info,link=/target/custom"],
+    ] {
+        let args = args.into_iter().map(OsString::from).collect::<Vec<_>>();
+        assert!(descriptor_has_explicit_output(&args).unwrap());
+    }
+    assert!(!descriptor_has_explicit_output(&[
+        "--emit".into(),
+        "dep-info,metadata,link".into(),
+        "--out-dir".into(),
+        "/target/debug/deps".into(),
+    ])
+    .unwrap());
+}
+
+#[test]
+fn final_mapping_tracking_hash_is_local_to_the_exact_entry() {
+    let temp = TempDir::new().unwrap();
+    let first = suffix_join_unit(&temp, Some("-a"), true);
+    let mut second = suffix_join_unit(&temp, Some("-b"), true);
+    second.unit = DescriptorCargoUnitId([8; 32]);
+    second.sidecar.cargo_unit_id = second.unit.to_string();
+    let original = final_unit_tracking_inputs(&[first.clone(), second.clone()]).unwrap();
+    let mut changed = second.clone();
+    changed
+        .sidecar
+        .source_dependencies
+        .push(DescriptorSourceDependency {
+            absolute_path: temp.path().join("changed.rs"),
+            content_hash: "99".repeat(32),
+        });
+    let next = final_unit_tracking_inputs(&[first.clone(), changed]).unwrap();
+    let stable_key = OsString::from(format!("{FINAL_UNIT_INPUT_ENV_PREFIX}{}", first.unit));
+    let edited_key = OsString::from(format!("{FINAL_UNIT_INPUT_ENV_PREFIX}{}", second.unit));
+    assert_eq!(original[&stable_key], next[&stable_key]);
+    assert_ne!(original[&edited_key], next[&edited_key]);
 }
