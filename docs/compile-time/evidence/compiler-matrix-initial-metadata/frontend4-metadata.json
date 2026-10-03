@@ -1,0 +1,6 @@
+{
+  "toolchain": "nightly-2026-08-26",
+  "rustflags": "-Zthreads=4",
+  "configuration": "frontend4",
+  "rustc": "rustc 1.100.0-nightly (787af2b8c 2026-08-25)\nbinary: rustc\ncommit-hash: 787af2b8c80638c51a4fc8e44f84e6891f243ec7\ncommit-date: 2026-08-25\nhost: aarch64-apple-darwin\nrelease: 1.100.0-nightly\nLLVM version: 23.1.0\n"
+}

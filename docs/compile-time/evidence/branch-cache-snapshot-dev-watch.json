@@ -1,0 +1,253 @@
+{
+  "command": [
+    "/Users/andrewhariri/Desktop/proa-dev-perf/target/release/cargo-proa-cache-snapshot",
+    "dev",
+    "--root",
+    "/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka",
+    "--no-assets",
+    "--port",
+    "39147",
+    "--debounce-ms",
+    "300",
+    "--",
+    "cargo",
+    "run",
+    "--offline",
+    "--profile",
+    "dev"
+  ],
+  "toolchain": null,
+  "rustflags": null,
+  "configuration": "default",
+  "samples": [
+    {
+      "sample": 0,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.37173016695305705,
+        "prepared": 0.5894642919301987,
+        "descriptor_finished": 1.7732268748804927,
+        "final_compiling": 3.0480864169076085,
+        "final_finished": 3.56192516698502,
+        "validated": 3.607273916946724,
+        "launched": 3.7123856670223176,
+        "response": 3.9939781669527292
+      }
+    },
+    {
+      "sample": 1,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.3184989590663463,
+        "prepared": 0.5132589999120682,
+        "descriptor_finished": 1.6646557920612395,
+        "final_compiling": 2.90111962496303,
+        "final_finished": 3.412826041923836,
+        "validated": 3.4525998749304563,
+        "launched": 3.5545064168982208,
+        "response": 3.8495882500428706
+      }
+    },
+    {
+      "sample": 2,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.3485157089307904,
+        "prepared": 0.5499555000569671,
+        "descriptor_finished": 1.6982091669924557,
+        "final_compiling": 2.9518164589535445,
+        "final_finished": 3.462947125080973,
+        "validated": 3.506426499923691,
+        "launched": 3.6095422920770943,
+        "response": 3.903267459012568
+      }
+    }
+  ],
+  "events": [
+    {
+      "time": 1481643.054440666,
+      "stream": "stdout",
+      "line": "Proa dev root: /private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka"
+    },
+    {
+      "time": 1481643.054448375,
+      "stream": "stdout",
+      "line": "Proa dev URL: http://127.0.0.1:39147"
+    },
+    {
+      "time": 1481643.054474333,
+      "stream": "stdout",
+      "line": "Proa dev live reload: on (port 64851)"
+    },
+    {
+      "time": 1481643.235834916,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1481643.457796875,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481644.992902041,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.71s"
+    },
+    {
+      "time": 1481646.4917215,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481647.530760041,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.21s"
+    },
+    {
+      "time": 1481647.581594791,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan aec08962afc298d4697fbd97664b0c17e128807cdc10888674e64c4129b5d6d0 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+    },
+    {
+      "time": 1481647.581659583,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/a644182a0b17bf5e1e95999aa07e20f3cce2682346fb71b074f21da23cd26254-mode-100755/proa_compile_probe` with plan aec08962afc298d4697fbd97664b0c17e128807cdc10888674e64c4129b5d6d0 (descriptor cache 235/236, final cache 235 reused)"
+    },
+    {
+      "time": 1481648.728175208,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1481648.945909333,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1481649.074759,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481650.129671916,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.14s"
+    },
+    {
+      "time": 1481651.404531458,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481651.918370208,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.59s"
+    },
+    {
+      "time": 1481651.963663041,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan b19d1f1cead9e1bc414c3d690a4a7bd326d4ec7244243561b51bfdbdb7f59c07 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+    },
+    {
+      "time": 1481651.963718958,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan b19d1f1cead9e1bc414c3d690a4a7bd326d4ec7244243561b51bfdbdb7f59c07"
+    },
+    {
+      "time": 1481652.068830708,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/5a0dba8af32726a460b163f6d528ff4b071b5e73ad1a45181fedc15c75b9ee4d-mode-100755/proa_compile_probe` with plan b19d1f1cead9e1bc414c3d690a4a7bd326d4ec7244243561b51bfdbdb7f59c07 (descriptor cache 235/236, final cache 235 reused)"
+    },
+    {
+      "time": 1481652.969527875,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1481653.164287916,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1481653.289008041,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481654.315684708,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.11s"
+    },
+    {
+      "time": 1481655.552148541,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481656.063854958,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.59s"
+    },
+    {
+      "time": 1481656.103576208,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan aec08962afc298d4697fbd97664b0c17e128807cdc10888674e64c4129b5d6d0 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+    },
+    {
+      "time": 1481656.103628791,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan aec08962afc298d4697fbd97664b0c17e128807cdc10888674e64c4129b5d6d0"
+    },
+    {
+      "time": 1481656.205535333,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/0d0b0a2f1d1857e7300d848f48502f685df9b17d79ac26bae101b567d4449588-mode-100755/proa_compile_probe` with plan aec08962afc298d4697fbd97664b0c17e128807cdc10888674e64c4129b5d6d0 (descriptor cache 235/236, final cache 235 reused)"
+    },
+    {
+      "time": 1481657.156450125,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1481657.357889916,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1481657.481172916,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481658.506143583,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.11s"
+    },
+    {
+      "time": 1481659.759750875,
+      "stream": "stderr",
+      "line": "   Compiling proa_compile_probe v0.0.0 (/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka)"
+    },
+    {
+      "time": 1481660.270881541,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.60s"
+    },
+    {
+      "time": 1481660.314302791,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan b19d1f1cead9e1bc414c3d690a4a7bd326d4ec7244243561b51bfdbdb7f59c07 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+    },
+    {
+      "time": 1481660.314360916,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan b19d1f1cead9e1bc414c3d690a4a7bd326d4ec7244243561b51bfdbdb7f59c07"
+    },
+    {
+      "time": 1481660.417476708,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/a99bcafe279881e486fbc402a717144e7e989a860e9f2d8bc593bae2d455cf4f-mode-100755/proa_compile_probe` with plan b19d1f1cead9e1bc414c3d690a4a7bd326d4ec7244243561b51bfdbdb7f59c07 (descriptor cache 235/236, final cache 235 reused)"
+    }
+  ]
+}

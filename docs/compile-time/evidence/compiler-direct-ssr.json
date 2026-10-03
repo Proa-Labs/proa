@@ -1,0 +1,347 @@
+{
+  "scope": "direct Cargo SSR only; subsequent RSJS-islands attempts fail the expected plain-Cargo deployability guard",
+  "configurations": [
+    {
+      "configuration": "rust195-direct",
+      "metadata": {
+        "toolchain": "1.95.0",
+        "rustflags": "",
+        "configuration": "rust195-direct",
+        "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: aarch64-apple-darwin\nrelease: 1.95.0\nLLVM version: 22.1.2\n"
+      },
+      "ssr_median_seconds": 0.6684980841819197,
+      "records": [
+        {
+          "label": "rust195-direct-nodebug-direct-ssr-cold",
+          "seconds": 18.66784712485969,
+          "cargo_seconds": [
+            18.33
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-direct-nodebug-direct-ssr-cold.txt",
+          "cache": []
+        },
+        {
+          "label": "rust195-direct-nodebug-direct-ssr-noop",
+          "seconds": 0.43108879192732275,
+          "cargo_seconds": [
+            0.1
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-direct-nodebug-direct-ssr-noop.txt",
+          "cache": []
+        },
+        {
+          "label": "rust195-direct-nodebug-direct-ssr-edit-0",
+          "seconds": 0.7698982080910355,
+          "cargo_seconds": [
+            0.41
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-direct-nodebug-direct-ssr-edit-0.txt",
+          "cache": []
+        },
+        {
+          "label": "rust195-direct-nodebug-direct-ssr-edit-1",
+          "seconds": 0.6654379582032561,
+          "cargo_seconds": [
+            0.42
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-direct-nodebug-direct-ssr-edit-1.txt",
+          "cache": []
+        },
+        {
+          "label": "rust195-direct-nodebug-direct-ssr-edit-2",
+          "seconds": 0.6684980841819197,
+          "cargo_seconds": [
+            0.41
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-direct-nodebug-direct-ssr-edit-2.txt",
+          "cache": []
+        }
+      ]
+    },
+    {
+      "configuration": "rust199-direct",
+      "metadata": {
+        "toolchain": "1.99.0",
+        "rustflags": "",
+        "configuration": "rust199-direct",
+        "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1\n"
+      },
+      "ssr_median_seconds": 0.7585027909372002,
+      "records": [
+        {
+          "label": "rust199-direct-nodebug-direct-ssr-cold",
+          "seconds": 17.49326750007458,
+          "cargo_seconds": [
+            17.03
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-direct-nodebug-direct-ssr-cold.txt",
+          "cache": []
+        },
+        {
+          "label": "rust199-direct-nodebug-direct-ssr-noop",
+          "seconds": 0.3210633331909776,
+          "cargo_seconds": [
+            0.08
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-direct-nodebug-direct-ssr-noop.txt",
+          "cache": []
+        },
+        {
+          "label": "rust199-direct-nodebug-direct-ssr-edit-0",
+          "seconds": 0.8135382500477135,
+          "cargo_seconds": [
+            0.4
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-direct-nodebug-direct-ssr-edit-0.txt",
+          "cache": []
+        },
+        {
+          "label": "rust199-direct-nodebug-direct-ssr-edit-1",
+          "seconds": 0.71872179210186,
+          "cargo_seconds": [
+            0.41
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-direct-nodebug-direct-ssr-edit-1.txt",
+          "cache": []
+        },
+        {
+          "label": "rust199-direct-nodebug-direct-ssr-edit-2",
+          "seconds": 0.7585027909372002,
+          "cargo_seconds": [
+            0.41
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-direct-nodebug-direct-ssr-edit-2.txt",
+          "cache": []
+        }
+      ]
+    },
+    {
+      "configuration": "nightly-direct",
+      "metadata": {
+        "toolchain": "nightly-2026-08-01",
+        "rustflags": "",
+        "configuration": "nightly-direct",
+        "rustc": "rustc 1.99.0-nightly (ad3d0bc14 2026-07-31)\nbinary: rustc\ncommit-hash: ad3d0bc141a02cf446e384136d250a1f6950fed5\ncommit-date: 2026-07-31\nhost: aarch64-apple-darwin\nrelease: 1.99.0-nightly\nLLVM version: 22.1.8\n"
+      },
+      "ssr_median_seconds": 0.7227458748966455,
+      "records": [
+        {
+          "label": "nightly-direct-nodebug-direct-ssr-cold",
+          "seconds": 19.928780916146934,
+          "cargo_seconds": [
+            19.54
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/nightly-direct-nodebug-direct-ssr-cold.txt",
+          "cache": []
+        },
+        {
+          "label": "nightly-direct-nodebug-direct-ssr-noop",
+          "seconds": 0.3309302080888301,
+          "cargo_seconds": [
+            0.08
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/nightly-direct-nodebug-direct-ssr-noop.txt",
+          "cache": []
+        },
+        {
+          "label": "nightly-direct-nodebug-direct-ssr-edit-0",
+          "seconds": 0.7935490841045976,
+          "cargo_seconds": [
+            0.42
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/nightly-direct-nodebug-direct-ssr-edit-0.txt",
+          "cache": []
+        },
+        {
+          "label": "nightly-direct-nodebug-direct-ssr-edit-1",
+          "seconds": 0.7227458748966455,
+          "cargo_seconds": [
+            0.43
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/nightly-direct-nodebug-direct-ssr-edit-1.txt",
+          "cache": []
+        },
+        {
+          "label": "nightly-direct-nodebug-direct-ssr-edit-2",
+          "seconds": 0.7008443751838058,
+          "cargo_seconds": [
+            0.42
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/nightly-direct-nodebug-direct-ssr-edit-2.txt",
+          "cache": []
+        }
+      ]
+    },
+    {
+      "configuration": "solver-direct",
+      "metadata": {
+        "toolchain": "nightly-2026-08-01",
+        "rustflags": "-Znext-solver=globally",
+        "configuration": "solver-direct",
+        "rustc": "rustc 1.99.0-nightly (ad3d0bc14 2026-07-31)\nbinary: rustc\ncommit-hash: ad3d0bc141a02cf446e384136d250a1f6950fed5\ncommit-date: 2026-07-31\nhost: aarch64-apple-darwin\nrelease: 1.99.0-nightly\nLLVM version: 22.1.8\n"
+      },
+      "ssr_median_seconds": 0.7184659999329597,
+      "records": [
+        {
+          "label": "solver-direct-nodebug-direct-ssr-cold",
+          "seconds": 18.493507249979302,
+          "cargo_seconds": [
+            18.14
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/solver-direct-nodebug-direct-ssr-cold.txt",
+          "cache": []
+        },
+        {
+          "label": "solver-direct-nodebug-direct-ssr-noop",
+          "seconds": 0.32699516718275845,
+          "cargo_seconds": [
+            0.08
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/solver-direct-nodebug-direct-ssr-noop.txt",
+          "cache": []
+        },
+        {
+          "label": "solver-direct-nodebug-direct-ssr-edit-0",
+          "seconds": 0.7755441248882562,
+          "cargo_seconds": [
+            0.41
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/solver-direct-nodebug-direct-ssr-edit-0.txt",
+          "cache": []
+        },
+        {
+          "label": "solver-direct-nodebug-direct-ssr-edit-1",
+          "seconds": 0.7184659999329597,
+          "cargo_seconds": [
+            0.42
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/solver-direct-nodebug-direct-ssr-edit-1.txt",
+          "cache": []
+        },
+        {
+          "label": "solver-direct-nodebug-direct-ssr-edit-2",
+          "seconds": 0.7141086249612272,
+          "cargo_seconds": [
+            0.43
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/solver-direct-nodebug-direct-ssr-edit-2.txt",
+          "cache": []
+        }
+      ]
+    },
+    {
+      "configuration": "frontend4-direct",
+      "metadata": {
+        "toolchain": "nightly-2026-08-01",
+        "rustflags": "-Zthreads=4",
+        "configuration": "frontend4-direct",
+        "rustc": "rustc 1.99.0-nightly (ad3d0bc14 2026-07-31)\nbinary: rustc\ncommit-hash: ad3d0bc141a02cf446e384136d250a1f6950fed5\ncommit-date: 2026-07-31\nhost: aarch64-apple-darwin\nrelease: 1.99.0-nightly\nLLVM version: 22.1.8\n"
+      },
+      "ssr_median_seconds": 0.7429810420144349,
+      "records": [
+        {
+          "label": "frontend4-direct-nodebug-direct-ssr-cold",
+          "seconds": 14.28929187497124,
+          "cargo_seconds": [
+            13.92
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/frontend4-direct-nodebug-direct-ssr-cold.txt",
+          "cache": []
+        },
+        {
+          "label": "frontend4-direct-nodebug-direct-ssr-noop",
+          "seconds": 0.4563147921580821,
+          "cargo_seconds": [
+            0.08
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/frontend4-direct-nodebug-direct-ssr-noop.txt",
+          "cache": []
+        },
+        {
+          "label": "frontend4-direct-nodebug-direct-ssr-edit-0",
+          "seconds": 0.9186618330422789,
+          "cargo_seconds": [
+            0.56
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/frontend4-direct-nodebug-direct-ssr-edit-0.txt",
+          "cache": []
+        },
+        {
+          "label": "frontend4-direct-nodebug-direct-ssr-edit-1",
+          "seconds": 0.7429810420144349,
+          "cargo_seconds": [
+            0.44
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/frontend4-direct-nodebug-direct-ssr-edit-1.txt",
+          "cache": []
+        },
+        {
+          "label": "frontend4-direct-nodebug-direct-ssr-edit-2",
+          "seconds": 0.6959430000279099,
+          "cargo_seconds": [
+            0.43
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/frontend4-direct-nodebug-direct-ssr-edit-2.txt",
+          "cache": []
+        }
+      ]
+    },
+    {
+      "configuration": "cranelift-direct",
+      "metadata": {
+        "toolchain": "nightly-2026-08-01",
+        "rustflags": "-Zcodegen-backend=cranelift -Cpanic=abort",
+        "configuration": "cranelift-direct",
+        "rustc": "rustc 1.99.0-nightly (ad3d0bc14 2026-07-31)\nbinary: rustc\ncommit-hash: ad3d0bc141a02cf446e384136d250a1f6950fed5\ncommit-date: 2026-07-31\nhost: aarch64-apple-darwin\nrelease: 1.99.0-nightly\nLLVM version: 22.1.8\n"
+      },
+      "ssr_median_seconds": 0.8293521248269826,
+      "records": [
+        {
+          "label": "cranelift-direct-nodebug-direct-ssr-cold",
+          "seconds": 17.69844229100272,
+          "cargo_seconds": [
+            17.31
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/cranelift-direct-nodebug-direct-ssr-cold.txt",
+          "cache": []
+        },
+        {
+          "label": "cranelift-direct-nodebug-direct-ssr-noop",
+          "seconds": 0.3658811249770224,
+          "cargo_seconds": [
+            0.09
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/cranelift-direct-nodebug-direct-ssr-noop.txt",
+          "cache": []
+        },
+        {
+          "label": "cranelift-direct-nodebug-direct-ssr-edit-0",
+          "seconds": 0.9289896669797599,
+          "cargo_seconds": [
+            0.43
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/cranelift-direct-nodebug-direct-ssr-edit-0.txt",
+          "cache": []
+        },
+        {
+          "label": "cranelift-direct-nodebug-direct-ssr-edit-1",
+          "seconds": 0.7452435828745365,
+          "cargo_seconds": [
+            0.44
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/cranelift-direct-nodebug-direct-ssr-edit-1.txt",
+          "cache": []
+        },
+        {
+          "label": "cranelift-direct-nodebug-direct-ssr-edit-2",
+          "seconds": 0.8293521248269826,
+          "cargo_seconds": [
+            0.45
+          ],
+          "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/cranelift-direct-nodebug-direct-ssr-edit-2.txt",
+          "cache": []
+        }
+      ]
+    }
+  ]
+}

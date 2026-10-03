@@ -1,0 +1,316 @@
+[
+  {
+    "configuration": "rust195",
+    "toolchain": "1.95.0",
+    "rustflags": "",
+    "exit_code": 0,
+    "log": "/tmp/proa-dev-perf-compiler-matrix/target/compiler-matrix/rust195.txt",
+    "results": [
+      {
+        "label": "rust195-nodebug-linked-ssr-cold",
+        "seconds": 43.12867291714065,
+        "cargo_seconds": [
+          18.5,
+          17.32
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-ssr-cold.txt",
+        "cache": [
+          "linked RSJS dev plan e10d02e830004ec9f2910669bd0cb6aedcf6825767611b305f95fc0bf632f542 (descriptor cache: 0/236 Cargo artifacts reused; final cache: 0/236 reused)"
+        ]
+      },
+      {
+        "label": "rust195-nodebug-linked-ssr-noop",
+        "seconds": 1.5362362079322338,
+        "cargo_seconds": [
+          0.13,
+          0.09
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-ssr-noop.txt",
+        "cache": [
+          "linked RSJS dev plan e10d02e830004ec9f2910669bd0cb6aedcf6825767611b305f95fc0bf632f542 (descriptor cache: 236/236 Cargo artifacts reused; final cache: 236/236 reused)"
+        ]
+      },
+      {
+        "label": "rust195-nodebug-linked-ssr-edit-0",
+        "seconds": 2.744264000095427,
+        "cargo_seconds": [
+          0.65,
+          0.54
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-ssr-edit-0.txt",
+        "cache": [
+          "linked RSJS dev plan 41ef165dc61b445bb9ba9a1d78b04e3147a37c0f27394d303399e2301bf0ee6a (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+        ]
+      },
+      {
+        "label": "rust195-nodebug-linked-ssr-edit-1",
+        "seconds": 2.4720880000386387,
+        "cargo_seconds": [
+          0.67,
+          0.53
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-ssr-edit-1.txt",
+        "cache": [
+          "linked RSJS dev plan e10d02e830004ec9f2910669bd0cb6aedcf6825767611b305f95fc0bf632f542 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+        ]
+      },
+      {
+        "label": "rust195-nodebug-linked-ssr-edit-2",
+        "seconds": 2.498795332852751,
+        "cargo_seconds": [
+          0.64,
+          0.53
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-ssr-edit-2.txt",
+        "cache": [
+          "linked RSJS dev plan 41ef165dc61b445bb9ba9a1d78b04e3147a37c0f27394d303399e2301bf0ee6a (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+        ]
+      },
+      {
+        "label": "rust195-nodebug-linked-islands-cold",
+        "seconds": 44.00674729212187,
+        "cargo_seconds": [
+          19.0,
+          17.77
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-islands-cold.txt",
+        "cache": [
+          "linked RSJS dev plan 49814d4d16a2e08e58efc7dd886bc3b3d82cad79833892bb00e1fb2ff73b0d0f (descriptor cache: 0/237 Cargo artifacts reused; final cache: 0/237 reused)"
+        ]
+      },
+      {
+        "label": "rust195-nodebug-linked-islands-noop",
+        "seconds": 1.5816813330166042,
+        "cargo_seconds": [
+          0.13,
+          0.09
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-islands-noop.txt",
+        "cache": [
+          "linked RSJS dev plan 49814d4d16a2e08e58efc7dd886bc3b3d82cad79833892bb00e1fb2ff73b0d0f (descriptor cache: 237/237 Cargo artifacts reused; final cache: 237/237 reused)"
+        ]
+      },
+      {
+        "label": "rust195-nodebug-linked-islands-edit-0",
+        "seconds": 2.8270714168902487,
+        "cargo_seconds": [
+          0.64,
+          0.61
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-islands-edit-0.txt",
+        "cache": [
+          "linked RSJS dev plan fe302e23bb0d0a3eb5e54691bc2a6cb7e1263f41b083bc738b3e49bc266e0429 (descriptor cache: 236/237 Cargo artifacts reused; final cache: 235/237 reused)"
+        ]
+      },
+      {
+        "label": "rust195-nodebug-linked-islands-edit-1",
+        "seconds": 2.6018345409538597,
+        "cargo_seconds": [
+          0.65,
+          0.61
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-islands-edit-1.txt",
+        "cache": [
+          "linked RSJS dev plan 49814d4d16a2e08e58efc7dd886bc3b3d82cad79833892bb00e1fb2ff73b0d0f (descriptor cache: 236/237 Cargo artifacts reused; final cache: 235/237 reused)"
+        ]
+      },
+      {
+        "label": "rust195-nodebug-linked-islands-edit-2",
+        "seconds": 2.550470999907702,
+        "cargo_seconds": [
+          0.64,
+          0.62
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-islands-edit-2.txt",
+        "cache": [
+          "linked RSJS dev plan fe302e23bb0d0a3eb5e54691bc2a6cb7e1263f41b083bc738b3e49bc266e0429 (descriptor cache: 236/237 Cargo artifacts reused; final cache: 235/237 reused)"
+        ]
+      },
+      {
+        "label": "rust195-nodebug-linked-islands-handler-edit",
+        "seconds": 3.0338056669570506,
+        "cargo_seconds": [
+          0.81,
+          0.66
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust195-nodebug-linked-islands-handler-edit.txt",
+        "cache": [
+          "linked RSJS dev plan f79b2c8df5963064843684f6dcb8c51354ee97fd56c74f7d5328c247f549a5a6 (descriptor cache: 235/237 Cargo artifacts reused; final cache: 235/237 reused)"
+        ]
+      }
+    ]
+  },
+  {
+    "configuration": "rust199",
+    "toolchain": "1.99.0",
+    "rustflags": "",
+    "exit_code": 0,
+    "log": "/tmp/proa-dev-perf-compiler-matrix/target/compiler-matrix/rust199.txt",
+    "results": [
+      {
+        "label": "rust199-nodebug-linked-ssr-cold",
+        "seconds": 46.726041042013094,
+        "cargo_seconds": [
+          20.27,
+          18.17
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-ssr-cold.txt",
+        "cache": [
+          "linked RSJS dev plan cdc68c93b987a085e52e72eb4f3e9a1a3433330851ebbd896571a4370cfa2328 (descriptor cache: 0/236 Cargo artifacts reused; final cache: 0/236 reused)"
+        ]
+      },
+      {
+        "label": "rust199-nodebug-linked-ssr-noop",
+        "seconds": 1.7163307920563966,
+        "cargo_seconds": [
+          0.16,
+          0.08
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-ssr-noop.txt",
+        "cache": [
+          "linked RSJS dev plan cdc68c93b987a085e52e72eb4f3e9a1a3433330851ebbd896571a4370cfa2328 (descriptor cache: 236/236 Cargo artifacts reused; final cache: 236/236 reused)"
+        ]
+      },
+      {
+        "label": "rust199-nodebug-linked-ssr-edit-0",
+        "seconds": 2.9929868751205504,
+        "cargo_seconds": [
+          0.69,
+          0.53
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-ssr-edit-0.txt",
+        "cache": [
+          "linked RSJS dev plan 8173cb31e4f199b3acc52c47b5bf4839a1d1df0cb8ebf017e3419c7c670de00f (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+        ]
+      },
+      {
+        "label": "rust199-nodebug-linked-ssr-edit-1",
+        "seconds": 2.695880874991417,
+        "cargo_seconds": [
+          0.69,
+          0.52
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-ssr-edit-1.txt",
+        "cache": [
+          "linked RSJS dev plan cdc68c93b987a085e52e72eb4f3e9a1a3433330851ebbd896571a4370cfa2328 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+        ]
+      },
+      {
+        "label": "rust199-nodebug-linked-ssr-edit-2",
+        "seconds": 2.644003540975973,
+        "cargo_seconds": [
+          0.65,
+          0.53
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-ssr-edit-2.txt",
+        "cache": [
+          "linked RSJS dev plan 8173cb31e4f199b3acc52c47b5bf4839a1d1df0cb8ebf017e3419c7c670de00f (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+        ]
+      },
+      {
+        "label": "rust199-nodebug-linked-islands-cold",
+        "seconds": 42.25044395914301,
+        "cargo_seconds": [
+          18.21,
+          16.68
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-islands-cold.txt",
+        "cache": [
+          "linked RSJS dev plan f2971f1a8bb6d026ad706fa26f20308946e6d72c5e27906cdffad8b28d4631af (descriptor cache: 0/237 Cargo artifacts reused; final cache: 0/237 reused)"
+        ]
+      },
+      {
+        "label": "rust199-nodebug-linked-islands-noop",
+        "seconds": 1.6677385000512004,
+        "cargo_seconds": [
+          0.14,
+          0.08
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-islands-noop.txt",
+        "cache": [
+          "linked RSJS dev plan f2971f1a8bb6d026ad706fa26f20308946e6d72c5e27906cdffad8b28d4631af (descriptor cache: 237/237 Cargo artifacts reused; final cache: 237/237 reused)"
+        ]
+      },
+      {
+        "label": "rust199-nodebug-linked-islands-edit-0",
+        "seconds": 2.92615441698581,
+        "cargo_seconds": [
+          0.65,
+          0.61
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-islands-edit-0.txt",
+        "cache": [
+          "linked RSJS dev plan 9a2a8c1b8cfac20106b75a574c45028a305eeec244dd31374e9f80afc9074378 (descriptor cache: 236/237 Cargo artifacts reused; final cache: 235/237 reused)"
+        ]
+      },
+      {
+        "label": "rust199-nodebug-linked-islands-edit-1",
+        "seconds": 2.740458165993914,
+        "cargo_seconds": [
+          0.69,
+          0.62
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-islands-edit-1.txt",
+        "cache": [
+          "linked RSJS dev plan f2971f1a8bb6d026ad706fa26f20308946e6d72c5e27906cdffad8b28d4631af (descriptor cache: 236/237 Cargo artifacts reused; final cache: 235/237 reused)"
+        ]
+      },
+      {
+        "label": "rust199-nodebug-linked-islands-edit-2",
+        "seconds": 2.6990974589716643,
+        "cargo_seconds": [
+          0.65,
+          0.62
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-islands-edit-2.txt",
+        "cache": [
+          "linked RSJS dev plan 9a2a8c1b8cfac20106b75a574c45028a305eeec244dd31374e9f80afc9074378 (descriptor cache: 236/237 Cargo artifacts reused; final cache: 235/237 reused)"
+        ]
+      },
+      {
+        "label": "rust199-nodebug-linked-islands-handler-edit",
+        "seconds": 3.235213791951537,
+        "cargo_seconds": [
+          0.84,
+          0.68
+        ],
+        "log": "/private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/rust199-nodebug-linked-islands-handler-edit.txt",
+        "cache": [
+          "linked RSJS dev plan 546e4788a3a771445a369c176cde59c04363602d8c8e2e4d30e8e5fa94c0388a (descriptor cache: 235/237 Cargo artifacts reused; final cache: 235/237 reused)"
+        ]
+      }
+    ]
+  },
+  {
+    "configuration": "nightly",
+    "toolchain": "nightly-2026-08-26",
+    "rustflags": "",
+    "exit_code": 1,
+    "log": "/tmp/proa-dev-perf-compiler-matrix/target/compiler-matrix/nightly.txt",
+    "failure": "Fixture: /private/tmp/proa-dev-perf-compiler-matrix\nTraceback (most recent call last):\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 230, in <module>\n    main()\n    ~~~~^^\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 208, in main\n    records.append(run(root, command, f\"{label}-cold\", environment))\n                   ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 152, in run\n    raise RuntimeError(f\"{label} failed: {log}\\n{result.stderr[-5000:]}\")\nRuntimeError: nightly-nodebug-linked-ssr-cold failed: /private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/nightly-nodebug-linked-ssr-cold.txt\n   Compiling proc-macro2 v1.0.107\n   Compiling quote v1.0.47\n   Compiling unicode-ident v1.0.26\n   Compiling libc v0.2.190\n   Compiling cfg-if v1.0.5\n   Compiling pin-project-lite v0.2.17\n   Compiling parking_lot_core v0.9.12\n   Compiling scopeguard v1.2.0\n   Compiling itoa v1.0.18\n   Compiling memchr v2.8.3\n   Compiling bytes v1.12.1\n   Compiling once_cell v1.21.4\n   Compiling stable_deref_trait v1.2.1\n   Compiling smallvec v1.16.2\n   Compiling serde v1.0.229\n   Compiling futures-core v0.3.34\n   Compiling shlex v2.0.1\n   Compiling lock_api v0.4.14\n   Compiling find-msvc-tools v0.1.13\n   Compiling tracing-core v0.1.36\n   Compiling zmij v1.0.23\n   Compiling serde_core v1.0.229\n   Compiling futures-sink v0.3.34\n   Compiling log v0.4.34\n   Compiling crossbeam-utils v0.8.23\n   Compiling thiserror v2.0.21\n   Compiling version_check v0.9.5\n   Compiling http v1.5.0\n   Compiling slab v0.4.12\n   Compiling futures-channel v0.3.34\n   Compiling generic-array v0.14.7\n   Compiling byteorder v1.5.0\nerror[RSJS0000]: RSJS compiler wrapper failed: rustc invocation contains conflicting artifacts for extern `version_check`\nerror: could not compile `generic-array` (build script) due to 1 previous error\nwarning: build failed, waiting for other jobs to finish...\nError: linked RSJS dev build failed\n\nCaused by:\n    0: RSJS descriptor cache validation failed: descriptor Cargo compilation failed with exit status: 101\n    1: descriptor Cargo compilation failed with exit status: 101\n\n"
+  },
+  {
+    "configuration": "solver",
+    "toolchain": "nightly-2026-08-26",
+    "rustflags": "-Znext-solver=globally",
+    "exit_code": 1,
+    "log": "/tmp/proa-dev-perf-compiler-matrix/target/compiler-matrix/solver.txt",
+    "failure": "Fixture: /private/tmp/proa-dev-perf-compiler-matrix\nTraceback (most recent call last):\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 230, in <module>\n    main()\n    ~~~~^^\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 208, in main\n    records.append(run(root, command, f\"{label}-cold\", environment))\n                   ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 152, in run\n    raise RuntimeError(f\"{label} failed: {log}\\n{result.stderr[-5000:]}\")\nRuntimeError: solver-nodebug-linked-ssr-cold failed: /private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/solver-nodebug-linked-ssr-cold.txt\n   Compiling proc-macro2 v1.0.107\n   Compiling quote v1.0.47\n   Compiling unicode-ident v1.0.26\n   Compiling libc v0.2.190\n   Compiling cfg-if v1.0.5\n   Compiling pin-project-lite v0.2.17\n   Compiling parking_lot_core v0.9.12\n   Compiling scopeguard v1.2.0\n   Compiling itoa v1.0.18\n   Compiling memchr v2.8.3\n   Compiling bytes v1.12.1\n   Compiling stable_deref_trait v1.2.1\n   Compiling once_cell v1.21.4\n   Compiling smallvec v1.16.2\n   Compiling serde v1.0.229\n   Compiling futures-core v0.3.34\n   Compiling lock_api v0.4.14\n   Compiling shlex v2.0.1\n   Compiling find-msvc-tools v0.1.13\n   Compiling zmij v1.0.23\n   Compiling serde_core v1.0.229\n   Compiling log v0.4.34\n   Compiling tracing-core v0.1.36\n   Compiling futures-sink v0.3.34\n   Compiling thiserror v2.0.21\n   Compiling crossbeam-utils v0.8.23\n   Compiling version_check v0.9.5\n   Compiling slab v0.4.12\n   Compiling futures-channel v0.3.34\n   Compiling http v1.5.0\n   Compiling byteorder v1.5.0\n   Compiling generic-array v0.14.7\nerror[RSJS0000]: RSJS compiler wrapper failed: rustc invocation contains conflicting artifacts for extern `version_check`\nerror: could not compile `generic-array` (build script) due to 1 previous error\nwarning: build failed, waiting for other jobs to finish...\nError: linked RSJS dev build failed\n\nCaused by:\n    0: RSJS descriptor cache validation failed: descriptor Cargo compilation failed with exit status: 101\n    1: descriptor Cargo compilation failed with exit status: 101\n\n"
+  },
+  {
+    "configuration": "frontend4",
+    "toolchain": "nightly-2026-08-26",
+    "rustflags": "-Zthreads=4",
+    "exit_code": 1,
+    "log": "/tmp/proa-dev-perf-compiler-matrix/target/compiler-matrix/frontend4.txt",
+    "failure": "Fixture: /private/tmp/proa-dev-perf-compiler-matrix\nTraceback (most recent call last):\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 230, in <module>\n    main()\n    ~~~~^^\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 208, in main\n    records.append(run(root, command, f\"{label}-cold\", environment))\n                   ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 152, in run\n    raise RuntimeError(f\"{label} failed: {log}\\n{result.stderr[-5000:]}\")\nRuntimeError: frontend4-nodebug-linked-ssr-cold failed: /private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/frontend4-nodebug-linked-ssr-cold.txt\n   Compiling proc-macro2 v1.0.107\n   Compiling quote v1.0.47\n   Compiling unicode-ident v1.0.26\n   Compiling libc v0.2.190\n   Compiling cfg-if v1.0.5\n   Compiling pin-project-lite v0.2.17\n   Compiling parking_lot_core v0.9.12\n   Compiling scopeguard v1.2.0\n   Compiling itoa v1.0.18\n   Compiling memchr v2.8.3\n   Compiling bytes v1.12.1\n   Compiling stable_deref_trait v1.2.1\n   Compiling once_cell v1.21.4\n   Compiling smallvec v1.16.2\n   Compiling serde v1.0.229\n   Compiling futures-core v0.3.34\n   Compiling lock_api v0.4.14\n   Compiling shlex v2.0.1\n   Compiling find-msvc-tools v0.1.13\n   Compiling zmij v1.0.23\n   Compiling serde_core v1.0.229\n   Compiling tracing-core v0.1.36\n   Compiling log v0.4.34\n   Compiling futures-sink v0.3.34\n   Compiling crossbeam-utils v0.8.23\n   Compiling thiserror v2.0.21\n   Compiling slab v0.4.12\n   Compiling version_check v0.9.5\n   Compiling futures-channel v0.3.34\n   Compiling http v1.5.0\n   Compiling byteorder v1.5.0\n   Compiling heapless v0.8.0\n   Compiling hashbrown v0.14.5\n   Compiling generic-array v0.14.7\nerror[RSJS0000]: RSJS compiler wrapper failed: rustc invocation contains conflicting artifacts for extern `version_check`\nerror: could not compile `generic-array` (build script) due to 1 previous error\nwarning: build failed, waiting for other jobs to finish...\nError: linked RSJS dev build failed\n\nCaused by:\n    0: RSJS descriptor cache validation failed: descriptor Cargo compilation failed with exit status: 101\n    1: descriptor Cargo compilation failed with exit status: 101\n\n"
+  },
+  {
+    "configuration": "cranelift",
+    "toolchain": "nightly-2026-08-26",
+    "rustflags": "-Zcodegen-backend=cranelift",
+    "exit_code": 1,
+    "log": "/tmp/proa-dev-perf-compiler-matrix/target/compiler-matrix/cranelift.txt",
+    "failure": "Fixture: /private/tmp/proa-dev-perf-compiler-matrix\nTraceback (most recent call last):\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 230, in <module>\n    main()\n    ~~~~^^\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 208, in main\n    records.append(run(root, command, f\"{label}-cold\", environment))\n                   ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/andrewhariri/Desktop/proa-dev-perf/scripts/compile_time_probe.py\", line 152, in run\n    raise RuntimeError(f\"{label} failed: {log}\\n{result.stderr[-5000:]}\")\nRuntimeError: cranelift-nodebug-linked-ssr-cold failed: /private/tmp/proa-dev-perf-compiler-matrix/target/probe-logs/cranelift-nodebug-linked-ssr-cold.txt\n   Compiling proc-macro2 v1.0.107\n   Compiling quote v1.0.47\n   Compiling unicode-ident v1.0.26\n   Compiling libc v0.2.190\n   Compiling cfg-if v1.0.5\n   Compiling pin-project-lite v0.2.17\n   Compiling parking_lot_core v0.9.12\n   Compiling itoa v1.0.18\n   Compiling memchr v2.8.3\n   Compiling bytes v1.12.1\n   Compiling scopeguard v1.2.0\n   Compiling once_cell v1.21.4\n   Compiling stable_deref_trait v1.2.1\n   Compiling smallvec v1.16.2\n   Compiling serde v1.0.229\n   Compiling futures-core v0.3.34\n   Compiling lock_api v0.4.14\n   Compiling find-msvc-tools v0.1.13\n   Compiling shlex v2.0.1\n   Compiling zmij v1.0.23\n   Compiling tracing-core v0.1.36\n   Compiling serde_core v1.0.229\n   Compiling log v0.4.34\n   Compiling futures-sink v0.3.34\n   Compiling thiserror v2.0.21\n   Compiling crossbeam-utils v0.8.23\n   Compiling version_check v0.9.5\n   Compiling slab v0.4.12\n   Compiling futures-channel v0.3.34\n   Compiling http v1.5.0\n   Compiling hashbrown v0.14.5\n   Compiling byteorder v1.5.0\n   Compiling heapless v0.8.0\n   Compiling futures-io v0.3.34\n   Compiling generic-array v0.14.7\n   Compiling typenum v1.20.1\nerror[RSJS0000]: RSJS compiler wrapper failed: rustc invocation contains conflicting artifacts for extern `version_check`\nerror: could not compile `generic-array` (build script) due to 1 previous error\nwarning: build failed, waiting for other jobs to finish...\nError: linked RSJS dev build failed\n\nCaused by:\n    0: RSJS descriptor cache validation failed: descriptor Cargo compilation failed with exit status: 101\n    1: descriptor Cargo compilation failed with exit status: 101\n\n"
+  }
+]

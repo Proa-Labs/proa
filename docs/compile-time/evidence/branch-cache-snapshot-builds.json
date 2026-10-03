@@ -1,0 +1,62 @@
+[
+  {
+    "label": "default-dev-linked-ssr-cold",
+    "seconds": 59.65805375017226,
+    "cargo_seconds": [
+      28.83,
+      22.33
+    ],
+    "log": "/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/probe-logs/default-dev-linked-ssr-cold.txt",
+    "cache": [
+      "linked RSJS dev plan b19d1f1cead9e1bc414c3d690a4a7bd326d4ec7244243561b51bfdbdb7f59c07 (descriptor cache: 0/236 Cargo artifacts reused; final cache: 0/236 reused)"
+    ]
+  },
+  {
+    "label": "default-dev-linked-ssr-noop",
+    "seconds": 1.7422185421455652,
+    "cargo_seconds": [
+      0.1,
+      0.09
+    ],
+    "log": "/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/probe-logs/default-dev-linked-ssr-noop.txt",
+    "cache": [
+      "linked RSJS dev plan b19d1f1cead9e1bc414c3d690a4a7bd326d4ec7244243561b51bfdbdb7f59c07 (descriptor cache: 236/236 Cargo artifacts reused; final cache: 236/236 reused)"
+    ]
+  },
+  {
+    "label": "default-dev-linked-ssr-edit-0",
+    "seconds": 3.738970707869157,
+    "cargo_seconds": [
+      1.23,
+      0.63
+    ],
+    "log": "/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/probe-logs/default-dev-linked-ssr-edit-0.txt",
+    "cache": [
+      "linked RSJS dev plan aec08962afc298d4697fbd97664b0c17e128807cdc10888674e64c4129b5d6d0 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+    ]
+  },
+  {
+    "label": "default-dev-linked-ssr-edit-1",
+    "seconds": 3.681460708146915,
+    "cargo_seconds": [
+      1.22,
+      0.64
+    ],
+    "log": "/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/probe-logs/default-dev-linked-ssr-edit-1.txt",
+    "cache": [
+      "linked RSJS dev plan b19d1f1cead9e1bc414c3d690a4a7bd326d4ec7244243561b51bfdbdb7f59c07 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+    ]
+  },
+  {
+    "label": "default-dev-linked-ssr-edit-2",
+    "seconds": 3.6925035829190165,
+    "cargo_seconds": [
+      1.24,
+      0.63
+    ],
+    "log": "/private/var/folders/jt/cp_prf5x4dz5c4pwvfq79mcr0000gn/T/proa-compile-probe-6vc3lwka/target/probe-logs/default-dev-linked-ssr-edit-2.txt",
+    "cache": [
+      "linked RSJS dev plan aec08962afc298d4697fbd97664b0c17e128807cdc10888674e64c4129b5d6d0 (descriptor cache: 235/236 Cargo artifacts reused; final cache: 235/236 reused)"
+    ]
+  }
+]

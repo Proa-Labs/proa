@@ -1,0 +1,2 @@
+# Empty context lines in archived unified patches contain one required space.
+evidence/*.patch -whitespace

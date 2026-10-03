@@ -1,0 +1,62 @@
+{
+  "command": [
+    "cargo-proa",
+    "dev",
+    "--no-assets",
+    "--port",
+    "39147",
+    "--debounce-ms",
+    "300",
+    "--",
+    "cargo",
+    "run",
+    "--offline",
+    "--profile",
+    "dev"
+  ],
+  "samples": [
+    {
+      "sample": 0,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.3996263749431819,
+        "prepared": 0.6210356669034809,
+        "descriptor_finished": 1.8076742920093238,
+        "final_finished": 6.549168749945238,
+        "validated": 6.5943285000976175,
+        "response": 7.069732292089611,
+        "final_compiling": 6.030768666882068,
+        "launched": 6.699049541959539
+      }
+    },
+    {
+      "sample": 1,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.34139679186046124,
+        "prepared": 0.5963530000299215,
+        "descriptor_finished": 1.819265958853066,
+        "final_finished": 6.83739179186523,
+        "validated": 6.881291166879237,
+        "response": 7.304164499975741,
+        "final_compiling": 6.316400749841705,
+        "launched": 6.9863727919291705
+      }
+    },
+    {
+      "sample": 2,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.34441499994136393,
+        "prepared": 0.607269249856472,
+        "descriptor_finished": 1.7874029579106718,
+        "final_finished": 6.461401916807517,
+        "validated": 6.502255250001326,
+        "response": 6.896024082787335,
+        "final_compiling": 5.854675999842584,
+        "launched": 6.60676879179664
+      }
+    }
+  ],
+  "measurement": "Save to changed HTTP response; not browser paint. Boundaries timestamped from process output. final_compiling and launched were recovered from the recorded events."
+}
