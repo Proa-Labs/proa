@@ -8,34 +8,36 @@ No hot-static opt-in or reduced-debug profile is used.
 
 ## Latest complete-architecture results
 
-On code commit `b8f4fcf`, after verified unit projections, process-local derivation
-reuse, parallel preparation queries, and warm wrapper snapshot reuse:
+On code commit `26e6529`, after verified unit projections, process-local derivation
+reuse, parallel preparation queries, warm wrapper snapshot reuse, parallel cache
+publication, and retaining artifact read allocations:
 
 | Ordinary edit, actual defaults | Median | Samples |
 | --- | ---: | --- |
-| Template text | 3.035s | 2.943, 3.036, 3.035s |
-| Rust function body | 2.993s | 3.050, 2.967, 2.993s |
+| Template text | 2.987s | 2.987, 3.079, 2.932s |
+| Rust function body | 2.964s | 2.925, 2.964, 2.965s |
 
-The target remains 2–3s. The function median is inside it, but the template
-median is slightly above it and both trials contain samples above 3s. This is
-approximately 3s, without reliable margin below the upper bound. The original
+Both medians meet the 2–3s target at its upper edge. Five of six samples were
+below 3s; the 3.079s sample included a 0.499s first-launch stage. This supports
+roughly 3s typical latency, with little margin and no strict per-edit guarantee.
+The original
 main/default template baseline was 6.974s with a 300ms quiet window; the current
 CLI default is 200ms. The graphs label that policy difference explicitly.
 
-[Latest template events](evidence/pizza-wrapper-reuse-template-watch.json),
-[function events](evidence/pizza-wrapper-reuse-function-watch.json), and
-[provenance](evidence/pizza-wrapper-reuse-metadata.json) preserve every sample.
+[Latest template events](evidence/pizza-parallel-publication-template-watch.json),
+[function events](evidence/pizza-parallel-publication-function-watch.json), and
+[provenance](evidence/pizza-parallel-publication-metadata.json) preserve every sample.
 
 ![Main and current default template rebuilds](diagrams/pizza-current-waterfall.png)
 
 ![Current template and function stage breakdowns](diagrams/pizza-current-detailed-waterfall.png)
 
 The median observed cycles still spend about 1.8s in descriptor/final Cargo,
-0.5s in cache validation and planning, and 0.36s restarting and serving HTTP.
-Semantic planning itself is below 1ms. The next investigation is repeated input
-hashing/validation within a cycle and server startup, preserving current-byte
-validation and exact artifact publication. No latency benefit from those future
-changes is assumed.
+0.5s in cache validation and planning, and 0.35s restarting and serving HTTP.
+The latest template trial separates observed source/generated/environment
+validation (60ms) from deduplicated external-artifact hashing (90ms).
+Semantic planning itself is below 1ms. These are three-sample wall-clock trials;
+they do not establish a large isolated gain from the latest publication changes.
 
 ## Startup and publication investigation
 
@@ -68,7 +70,8 @@ owned snapshot; both fresh digest validations and parsed-record admission stay
 intact. This changes buffer ownership, not identity formats or validation.
 The combined change passed 680 CLI library tests, 12 cache integrations, three
 pipeline integrations, the six-build runtime/unit-reuse integration, lifecycle
-dev verification, and the workspace all-target check. Its latency trial follows.
+dev verification, and the workspace all-target check. The latest six-response
+latency trial above includes these changes.
 
 ## Hashing/watcher checkpoint results
 
@@ -203,10 +206,16 @@ contract, and reuses an identical existing snapshot without writing and syncing
 an identical temporary file. A miss retains the original copy and atomic
 publication path. Same-size snapshot corruption is rejected, and a changed
 wrapper still creates a new cache namespace. CLI library and lifecycle tests
-passed. The rebenchmark above measured a median wrapper preparation stage
+passed. The wrapper-reuse trial (`b8f4fcf`) measured 3.035s template
+(2.943, 3.036, 3.035s) and 2.993s function edits (3.050, 2.967, 2.993s), with a
+median wrapper preparation stage
 of 30.151ms for template edits and 29.106ms for function edits, compared with
 47.222/42.458ms in the preceding preparation trial. This stage improvement
 does not establish a reliable whole-cycle gain by itself.
+
+[Wrapper-reuse template events](evidence/pizza-wrapper-reuse-template-watch.json),
+[function events](evidence/pizza-wrapper-reuse-function-watch.json), and
+[provenance](evidence/pizza-wrapper-reuse-metadata.json) retain that checkpoint.
 
 [Preparation template events](evidence/pizza-parallel-preparation-template-watch.json),
 [function events](evidence/pizza-parallel-preparation-function-watch.json), and
@@ -217,10 +226,19 @@ does not establish a reliable whole-cycle gain by itself.
 
 The complete architecture passed 680 CLI, 311 IR, and 437 macro library tests,
 15 existing Cargo/runtime integrations, the new six-build unit reuse integration,
-and lifecycle dev verification. The latest wrapper changes reran all 680 CLI
-tests and lifecycle dev; unchanged IR/macro/runtime checks were not repeated.
-The broader workspace check passed at the unit projection checkpoint. The
-latest six Pizza HTTP responses were all verified, and fixture source was restored.
+and lifecycle dev verification. The latest cache publication/buffer changes
+reran all 680 CLI tests, 12 descriptor cache integrations, three pipeline
+integrations, the six-build unit reuse fixture, and lifecycle dev. The latest
+workspace all-target check passed. Pizza's eight application integration tests
+passed through `cargo-proa test --root examples/webmcp-pizza -p proa_webmcp_pizza
+--test e2e --offline`. The latest six Pizza HTTP responses were all verified,
+and fixture source was restored.
+
+The final framework library sweep passed 2,330 tests across 31 test binaries:
+`cargo test --workspace --lib --exclude proa_webmcp_pizza --exclude proa_showcase
+--exclude proa_showcase_web --exclude proa_demo --exclude proa_origin_routing_atlas
+--no-fail-fast --offline`, with Node available. Exact commands and outcomes are
+retained in [validation evidence](evidence/pizza-parallel-publication-validation.json).
 
 Earlier hashing/watcher checkpoint checks:
 
@@ -230,7 +248,12 @@ Earlier hashing/watcher checkpoint checks:
 - Lifecycle dev integration: 1; default and Rust-function HTTP performance trials: all six changed responses verified.
 - Rust formatting, Python syntax checks, and diff whitespace checks passed.
 
-The whole-workspace test suite and non-macOS performance were not tested in this
-follow-up. The existing global plan attestation and cache corruption checks remain active.
+Plain `cargo test --workspace --no-fail-fast --offline` was attempted and hit
+the intentional RSJS application link guard. The same guard exists in baseline
+`ab6e5cd` (`rsjs_macros/src/lib.rs`); linked applications and the RSJS
+`shared_workbench` example require the CLI pipeline. Excluding application
+packages alone does not make the plain full suite deployable. These attempts
+are not a passing whole-workspace test run. Non-macOS performance was not tested.
+The existing global plan attestation and cache corruption checks remain active.
 The subsequent runtime and asset identity changes are described in
 [INVALIDATION.md](INVALIDATION.md).

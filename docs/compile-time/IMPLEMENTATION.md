@@ -49,10 +49,11 @@ Graceful shutdown still allows two seconds, but successful exit is observed on a
 5ms poll. The watcher defaults to a 200ms quiet window and bounds its next poll
 by the pending quiet-window deadline. `--debounce-ms` still overrides it.
 
-Pizza normal-dev medians are now 2.985s at the original 300ms, 2.895s with actual
-CLI defaults, and 2.908s for a Rust helper-body edit with those defaults. Each is
-three serialized warm changed HTTP responses, assets skipped. Complete owner-local
-plan reuse remains unfinished. See [PIZZA_TARGET.md](PIZZA_TARGET.md) for the
+The hashing/watcher checkpoint measured Pizza normal-dev medians of 2.985s at
+the original 300ms, 2.895s with actual CLI defaults, and 2.908s for a Rust helper-body
+edit. The latest complete architecture measures 2.987s template / 2.964s function
+edits. Each is three serialized warm changed HTTP responses, assets skipped.
+See [PIZZA_TARGET.md](PIZZA_TARGET.md) for the
 controls, detailed waterfalls, limitations, reproduction, and current checks.
 
 ## Complete descriptor carriers
@@ -113,10 +114,12 @@ coherence, dep-info dependencies, and corrupted projection rejection. See
 The first Pizza rebenchmark after this architecture change measured 3.035s
 template and 3.037s function edits. This slightly exceeds the 2–3s target;
 a process-local derivation cache rebenchmark measured 2.993s template and
-3.033s function edits, still at the target boundary. Preparation overhead is
-now overlaps fresh metadata/version queries and reuses freshly validated wrapper
-snapshots. The latest medians are 3.035s template and 2.993s function edits.
-We still need margin below 3s; see [PIZZA_TARGET.md](PIZZA_TARGET.md).
+3.033s function edits, still at the target boundary. Preparation now overlaps
+fresh metadata/version queries and reuses freshly validated wrapper snapshots.
+Independent cache publications run concurrently under the retained lease, and
+artifact snapshots retain the original read allocation. The latest medians are
+2.987s template and 2.964s function edits; one template sample took 3.079s.
+The typical target is met with little margin; see [PIZZA_TARGET.md](PIZZA_TARGET.md).
 
 The explicit hot-static prototype uses the shared checked DSL and consolidation
 walk. Its file fingerprint masks only eligible template string values; dynamic
@@ -152,6 +155,13 @@ Passed checks:
   including generated JavaScript execution with Node 26.8.1.
 - HTTP hot-static acceptance and three-sample changed-response trials.
 - Render allocation lint, Python syntax checks, Rust formatting and diff checks.
+- Latest framework library sweep: 2,330 tests across 31 test binaries, excluding
+  linked application packages; exact command in the
+  [validation evidence](evidence/pizza-parallel-publication-validation.json).
 
-The whole-workspace test suite was not run. Raw portable measurements live in
-`evidence/`; compiler configuration metadata and logs are retained by the probes.
+The plain whole-workspace test suite was attempted and hit the existing intentional
+RSJS application/example link guard. Pizza's eight application tests passed through
+the linked CLI; the targeted cache/pipeline/unit-reuse checks and workspace
+all-target check also passed after the latest changes. This is not a passing plain
+whole-workspace suite. Raw portable measurements live in `evidence/`; compiler
+configuration metadata and logs are retained by the probes.

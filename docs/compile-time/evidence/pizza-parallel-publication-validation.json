@@ -1,0 +1,39 @@
+{
+  "code_commit": "26e65293920bcff4d86db3489f204ef5f78f9a46",
+  "node": "/opt/homebrew/bin/node (v26.8.1)",
+  "framework_libraries": {
+    "command": "NODE=/opt/homebrew/bin/node cargo test --workspace --lib --exclude proa_webmcp_pizza --exclude proa_showcase --exclude proa_showcase_web --exclude proa_demo --exclude proa_origin_routing_atlas --no-fail-fast --offline",
+    "exit_code": 0,
+    "suites": 31,
+    "passed": 2330,
+    "failed": 0,
+    "log_sha256": "578267354e400fc613d1ed7b07832f634ba19bd001b3162db8d17bc857695166"
+  },
+  "pizza_application": {
+    "command": "NODE=/opt/homebrew/bin/node target/release/cargo-proa test --root examples/webmcp-pizza -p proa_webmcp_pizza --test e2e --offline",
+    "exit_code": 0,
+    "passed": 8,
+    "failed": 0,
+    "log_sha256": "0e2ca0e26f008c696713e47d0a73cde87613e3be0d28120531a4fc75ab249c60"
+  },
+  "targeted_integrations": {
+    "command": "NODE=/opt/homebrew/bin/node cargo test -p proa-cli --lib --test rsjs_descriptor_cache --test rsjs_pipeline --test rsjs_unit_projection --test lifecycle_dev --offline -- --test-threads=2",
+    "exit_code": 0,
+    "passed": 697,
+    "failed": 0
+  },
+  "workspace_all_target_check": {
+    "command": "cargo check --workspace --all-targets --offline",
+    "exit_code": 0
+  },
+  "plain_whole_workspace_tests": {
+    "exit_code": 101,
+    "reason": "Existing intentional ___RSJS_ERROR_plain_cargo_build_is_not_deployable_use_cargo_proa_build guard; no guard bypass or changes. Application-package exclusions still include the linked RSJS shared_workbench example. Not a passing full workspace suite."
+  },
+  "format_and_syntax": {
+    "cargo_fmt_all_check": 0,
+    "python_plotter_compile": 0,
+    "git_diff_check": 0
+  },
+  "performance": "Six serialized warm edits verify changed HTTP; copied fixture source restored. Assets and browser paint excluded; not tested on non-macOS."
+}
