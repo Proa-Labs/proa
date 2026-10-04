@@ -205,6 +205,41 @@ fn scan_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn static_run_layout_changes_require_a_real_rebuild() {
+        let source = r#"fn page() { html_hot_sync! { "page"; <p>{self.first}"middle"{self.second}""{self.third}</p> }; }"#;
+        let (shape, templates) = scan_file(source).unwrap();
+        let moved = source
+            .replace("\"middle\"", "\"\"")
+            .replace("{self.second}\"\"", "{self.second}\"moved\"");
+        let (moved_shape, moved_templates) = scan_file(&moved).unwrap();
+        // An equal count does not guarantee that slots occur between the
+        // same Rust expressions. Publishing this as hot data would put text
+        // before the wrong child in the already-compiled renderer.
+        assert_eq!(
+            templates["page"].slots.len(),
+            moved_templates["page"].slots.len()
+        );
+        assert_ne!(shape, moved_shape);
+        let erased = source.replace("\"middle\"", "\"\"");
+        assert_ne!(shape, scan_file(&erased).unwrap().0);
+
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("src")).unwrap();
+        let path = temp.path().join("src/main.rs");
+        fs::write(&path, source).unwrap();
+        let state = HotState::prepare(temp.path()).unwrap();
+        let published = fs::read(&state.path).unwrap();
+        for changed in [moved, erased] {
+            fs::write(&path, changed).unwrap();
+            assert!(!state
+                .try_update(temp.path(), &["src/main.rs".into()])
+                .unwrap());
+            assert_eq!(fs::read(&state.path).unwrap(), published);
+        }
+    }
+
     #[test]
     fn static_edits_preserve_shape_but_rust_markup_and_handler_edits_do_not() {
         let source = r#"fn page(cx: &mut Context) { html_hot_sync! { "page"; <p class="a">"Before"{self.value}</p> }.render(cx); }"#;

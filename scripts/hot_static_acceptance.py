@@ -22,7 +22,14 @@ def main():
     args = parser.parse_args()
     root = args.fixture.resolve()
     source = root / 'src/page_0.rs'
-    original = source.read_text()
+    original_source = source.read_text()
+    # Constant inline text attributes remain dynamic boundaries in the
+    # manifest. Exercise their escaping and the following static slots.
+    original = original_source.replace(
+        'class="original"', 'class="original" title={text!("fixed \\\" &")}', 1)
+    assert original != original_source, 'fixture needs class="original"'
+    original = original.replace('</h1>',
+        '</h1><aside>{self.title}"GAP_LEFT_A"{self.value}""{self.title}</aside>', 1)
     config_path = root / 'proa.config.json'
     original_config = config_path.read_bytes() if config_path.exists() else None
     config = json.loads(original_config) if original_config else {}
@@ -66,6 +73,11 @@ def main():
         await_condition(lambda: 'EDIT_MARKER_A' in response())
         assert 'dynamic &lt;input&gt;' in response()
         checks.append({'case': 'initial manifest follows generated Rust from before hook', 'passed': True})
+        html = response()
+        assert 'class="original" title="fixed &quot; &amp;"' in html
+        assert html.count('<article data-card>') == 8
+        assert '<h1>EDIT_MARKER_A</h1>' in html and '</article></main>' in html
+        checks.append({'case': 'constant text attribute preserves escaped HTML and static slots', 'passed': True})
         for label, source_text, expected in [
             ('text and escaping', original.replace('EDIT_MARKER_A', 'EDIT_MARKER_B <&'), 'EDIT_MARKER_B &lt;&amp;'),
             ('static attribute', original.replace('EDIT_MARKER_A', 'EDIT_MARKER_C').replace('class="original"', 'class="updated"'), 'class="updated"'),
@@ -73,6 +85,10 @@ def main():
             start = time.perf_counter()
             source.write_text(source_text)
             await_condition(lambda: expected in response())
+            html = response()
+            assert 'title="fixed &quot; &amp;"' in html
+            assert html.count('<article data-card>') == 8
+            assert '</article></main>' in html
             elapsed = time.perf_counter() - start
             relevant = [event for event in events if event['time'] >= start]
             assert not any('running linked RSJS Cargo dev build:' in event['line'] for event in relevant)
@@ -101,6 +117,19 @@ def main():
         source.write_text(original.replace('EDIT_MARKER_A', 'HOOK_PENDING_B').replace('self.value + 0', 'self.value + 101'))
         await_condition(lambda: 'HOOK_PUBLISHED' in response() and '<span>101</span>' in response())
         checks.append({'case': 'fallback manifest follows generated Rust from before hook', 'passed': True})
+        moved = original.replace('"GAP_LEFT_A"', '""').replace(
+            '{self.value}""', '{self.value}"GAP_RIGHT_B"')
+        for label, source_text, expected in [
+            ('same-count static slot movement fallback', moved,
+             '<aside>dynamic &lt;input&gt;0GAP_RIGHT_Bdynamic &lt;input&gt;</aside>'),
+            ('static slot deletion fallback', moved.replace('"GAP_RIGHT_B"', '""'),
+             '<aside>dynamic &lt;input&gt;0dynamic &lt;input&gt;</aside>'),
+        ]:
+            start = time.perf_counter()
+            source.write_text(source_text)
+            await_condition(lambda: expected in response())
+            assert any(event['time'] >= start and 'running linked RSJS Cargo dev build:' in event['line'] for event in events)
+            checks.append({'case': label, 'passed': True, 'cargo': True})
         print(json.dumps(checks, indent=2))
     finally:
         if process.poll() is None:
@@ -110,7 +139,7 @@ def main():
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
-        source.write_text(original)
+        source.write_text(original_source)
         if original_config is None:
             config_path.unlink(missing_ok=True)
         else:

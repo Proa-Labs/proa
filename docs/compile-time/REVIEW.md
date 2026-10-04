@@ -129,7 +129,7 @@ acceptance command; framework library checks and linked CLI application checks
 are reported separately. Proa source checking allows existing raw-HTML warnings
 in low-level renderer helpers; the render allocation lint is clean.
 
-Retain the PR as a draft until the complete expanded CI rerun passes. Review cache/descriptor changes, then runtime generations
+Retain the PR as a draft pending independent review. Review cache/descriptor changes, then runtime generations
 and projection completeness, then the independent hot-static prototype. The
 last category can be split out if it slows review. The measurements establish
 approximately 3s typical Pizza rebuilds on one Mac, not a portable latency
@@ -146,8 +146,34 @@ only those tokens. The linked Atlas suite passes all six tests locally, includin
 a regression that checks identity equality/distinctness survives normalization.
 Four retained Python probes now have the required license headers. Repository
 boundary checks pass with checkout paths represented by placeholders in the
-compact measurements. These fixes await the complete CI rerun.
+compact measurements.
 
 The subsequent Rust CI run caught the matching origin scaffold snapshots still
 using the old normalizer. Both template files now match the example after crate
 identity substitution; the complete 680-test CLI library recheck passes.
+
+All six CI jobs passed on `390ff41` in
+[run 37186827741](https://github.com/Proa-Labs/proa/actions/runs/37186827741).
+
+## Second author review
+
+Rechecked descriptor completeness, fresh cache authority, unit projection
+dependencies, runtime identities, and hot-template publication. Two medium
+severity defects were reproduced and fixed in the opt-in hot-static path:
+
+| Finding | Fix and regression |
+| --- | --- |
+| A constant `text!` attribute merged compiler static runs that remained separate in the manifest, producing malformed HTML | Preserve the attribute boundary in hot emission. The failing two-versus-three slot regression now passes for five attribute forms; HTTP checks verify escaping and the complete surrounding markup |
+| Emptying or moving text between dynamic children could remove/reposition runs without changing masked token shape, publishing stale or misplaced text | Include ordered static/child/attribute walk events in the compatibility shape. Equal-count movement and deletion regressions require Cargo and retain the active manifest until the build succeeds |
+
+Ordinary macro emission and authored APIs retain their behavior. No additional
+defect was found in descriptor/cache or unit invalidation logic. Large-app peak
+RSS and unsupported native linker protocols remain the previously recorded
+limits; this pass is still an author review.
+
+Frozen-source validation: 681 CLI library tests and 583 core/DSL/macro tests
+pass, as do all ten HTTP acceptance cases with the rebuilt release CLI. Both
+new regressions failed before their fixes. Strict Clippy for CLI/DSL/macros,
+formatting, source checks/lint (existing low-level warnings allowed), render
+allocation lint, and acceptance partition validation pass. Pizza performance
+was not remeasured; this correction affects only the opt-in prototype.

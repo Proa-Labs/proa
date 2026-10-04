@@ -22,6 +22,10 @@ element/attribute names, macro identity, and Rust outside the template stay in
 the compatibility check. An incompatible change runs the normal linked Cargo
 build and server restart.
 
+The compatibility shape also includes static-run positions among dynamic
+children and attributes. Emptying a literal can remove a run; such edits use
+Cargo when the run layout changes, including movements with the same run count.
+
 Every render loads one coherent template snapshot; a later publication cannot
 mix two generations within that template. A full build stages its candidate
 manifest under the same compile environment, then publishes after a successful
@@ -35,8 +39,10 @@ data falls back to the compiled bytes.
   generated modules, and templates inside another macro's token input are not
   a supported hot-update surface. IDs must be unique within the scanned app.
 - Straight-line sync HTML, with typed dynamic child expressions. Control
-  flow, inline `text!`, script/style, async, and RSJS-analyzed templates remain
+  flow, child `text!`, script/style, async, and RSJS-analyzed templates remain
   outside this surface. Continue using the ordinary macro for those cases.
+  Inline `text!` attributes retain their dynamic boundary; changing their Rust
+  literals requires compilation.
 - The explicit dev render path reads JSON and allocates. This trades rendering
   efficiency for editor latency; normal macro expansions retain their fast
   path. There is no browser DOM patch protocol; the dev client reloads.

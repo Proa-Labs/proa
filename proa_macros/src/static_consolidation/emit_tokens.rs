@@ -404,7 +404,10 @@ impl ConsolidationSink for TokenStreamSink {
                     }
                 }
 
-                if parsed.args.is_empty() {
+                // Hot manifests preserve the walk's dynamic-attribute boundary,
+                // even when text! has no placeholders. Emit that attribute
+                // separately so subsequent static slots keep their indices.
+                if parsed.args.is_empty() && !self.hot {
                     self.pending_static.push_str(attr.name_prefix);
                     append_inline_static_text(
                         &mut self.pending_static,
@@ -1123,6 +1126,34 @@ fn generate_expr_as_render_send_async(expr: &Expr) -> TokenStream {
 #[cfg(test)]
 mod hot_tests {
     use super::*;
+
+    #[test]
+    fn hot_inline_attributes_preserve_manifest_slot_boundaries() {
+        for source in [
+            r#""page"; <p title={text!("fixed")}>"prefix"{self.value}"suffix"</p>"#,
+            r#""page"; <p title={text!("fixed")} data-label={text!("second")}>"all static"</p>"#,
+            r#""page"; <p title={text!("")} data-value={self.value}>"suffix"</p>"#,
+            r#""page"; <a href={text!("/safe?x=1&y=2")}>"link"</a>"#,
+            r#""page"; <p title={text!("value: {}", self.value)}>"suffix"</p>"#,
+        ] {
+            let input: proa_dsl::dev_hot::HotInput = syn::parse_str(source).unwrap();
+            let template = proa_dsl::dev_hot::compile(&input).unwrap();
+            let hot = generate_optimized_hot(
+                &input.root,
+                "/tmp/manifest.json",
+                "page",
+                &template.shape,
+                template.slots.len(),
+            )
+            .to_string();
+            assert_eq!(
+                hot.matches("write_slot").count(),
+                template.slots.len(),
+                "{source}",
+            );
+        }
+    }
+
     #[test]
     fn ordinary_emission_keeps_literal_writes_and_hot_emission_keeps_dynamic_children() {
         let root: HtmlRoot =
