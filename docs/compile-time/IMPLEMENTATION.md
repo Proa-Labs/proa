@@ -114,7 +114,9 @@ The first Pizza rebenchmark after this architecture change measured 3.035s
 template and 3.037s function edits. This slightly exceeds the 2–3s target;
 a process-local derivation cache rebenchmark measured 2.993s template and
 3.033s function edits, still at the target boundary. Preparation overhead is
-being investigated next. See [PIZZA_TARGET.md](PIZZA_TARGET.md).
+now overlaps fresh metadata/version queries and reuses freshly validated wrapper
+snapshots. The latest medians are 3.035s template and 2.993s function edits.
+We still need margin below 3s; see [PIZZA_TARGET.md](PIZZA_TARGET.md).
 
 The explicit hot-static prototype uses the shared checked DSL and consolidation
 walk. Its file fingerprint masks only eligible template string values; dynamic

@@ -95,7 +95,7 @@ def main():
         ax.axvline(3.0, color="#16a34a", linestyle="--", linewidth=1.4)
         ax.text(2.5, -0.65, "2–3s target", color="#15803d", ha="center", fontsize=10)
         ax.set_xlim(0, total_max + 0.65)
-        ax.set_xlabel("Seconds since saving a template")
+        ax.set_xlabel("Seconds since saving source")
         ax.set_title(label, loc="left", fontsize=16, fontweight="bold", pad=28)
         ax.grid(axis="x", color="#e2e8f0", linewidth=0.6)
         ax.set_axisbelow(True)

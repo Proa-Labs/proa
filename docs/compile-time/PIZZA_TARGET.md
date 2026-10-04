@@ -6,6 +6,37 @@ profile, incremental descriptor/final builds, and a release-built CLI. Assets
 are skipped as in the original benchmark; browser paint is outside this metric.
 No hot-static opt-in or reduced-debug profile is used.
 
+## Latest complete-architecture results
+
+On code commit `b8f4fcf`, after verified unit projections, process-local derivation
+reuse, parallel preparation queries, and warm wrapper snapshot reuse:
+
+| Ordinary edit, actual defaults | Median | Samples |
+| --- | ---: | --- |
+| Template text | 3.035s | 2.943, 3.036, 3.035s |
+| Rust function body | 2.993s | 3.050, 2.967, 2.993s |
+
+The target remains 2–3s. The function median is inside it, but the template
+median is slightly above it and both trials contain samples above 3s. This is
+approximately 3s, without reliable margin below the upper bound. The original
+main/default template baseline was 6.974s with a 300ms quiet window; the current
+CLI default is 200ms. The graphs label that policy difference explicitly.
+
+[Latest template events](evidence/pizza-wrapper-reuse-template-watch.json),
+[function events](evidence/pizza-wrapper-reuse-function-watch.json), and
+[provenance](evidence/pizza-wrapper-reuse-metadata.json) preserve every sample.
+
+![Main and current default template rebuilds](diagrams/pizza-current-waterfall.png)
+
+![Current template and function stage breakdowns](diagrams/pizza-current-detailed-waterfall.png)
+
+The median observed cycles still spend about 1.8s in descriptor/final Cargo,
+0.5s in cache validation and planning, and 0.36s restarting and serving HTTP.
+Semantic planning itself is below 1ms. The next investigation is repeated input
+hashing/validation within a cycle and server startup, preserving current-byte
+validation and exact artifact publication. No latency benefit from those future
+changes is assumed.
+
 ## Hashing/watcher checkpoint results
 
 | Ordinary edit, normal dev profile, actual CLI defaults | Median | Samples |
@@ -139,7 +170,10 @@ contract, and reuses an identical existing snapshot without writing and syncing
 an identical temporary file. A miss retains the original copy and atomic
 publication path. Same-size snapshot corruption is rejected, and a changed
 wrapper still creates a new cache namespace. CLI library and lifecycle tests
-passed; the next timing trial is pending.
+passed. The rebenchmark above measured a median wrapper preparation stage
+of 30.151ms for template edits and 29.106ms for function edits, compared with
+47.222/42.458ms in the preceding preparation trial. This stage improvement
+does not establish a reliable whole-cycle gain by itself.
 
 [Preparation template events](evidence/pizza-parallel-preparation-template-watch.json),
 [function events](evidence/pizza-parallel-preparation-function-watch.json), and
@@ -148,6 +182,15 @@ passed; the next timing trial is pending.
 
 ## Validation
 
+The complete architecture passed 680 CLI, 311 IR, and 437 macro library tests,
+15 existing Cargo/runtime integrations, the new six-build unit reuse integration,
+and lifecycle dev verification. The latest wrapper changes reran all 680 CLI
+tests and lifecycle dev; unchanged IR/macro/runtime checks were not repeated.
+The broader workspace check passed at the unit projection checkpoint. The
+latest six Pizza HTTP responses were all verified, and fixture source was restored.
+
+Earlier hashing/watcher checkpoint checks:
+
 - Workspace: `cargo check --workspace --all-targets --offline` passed.
 - CLI library: 680 tests, including legacy/new digest compatibility and TERM/KILL grace behavior.
 - Descriptor wrapper/cache integrations: 11/12 tests; final compilation: 4; pipeline: 3.
@@ -155,5 +198,6 @@ passed; the next timing trial is pending.
 - Rust formatting, Python syntax checks, and diff whitespace checks passed.
 
 The whole-workspace test suite and non-macOS performance were not tested in this
-follow-up. Architecture/payload identities are unchanged; the existing global
-plan attestation and cache corruption checks remain active.
+follow-up. The existing global plan attestation and cache corruption checks remain active.
+The subsequent runtime and asset identity changes are described in
+[INVALIDATION.md](INVALIDATION.md).
