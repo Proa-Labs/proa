@@ -64,8 +64,17 @@ pub fn compile(input: &HotInput) -> Result<StaticTemplate, String> {
     if let Some(error) = sink.error {
         return Err(error);
     }
+    let tokens = canonical_tokens(mask_static_literals(input.tokens.clone()));
     Ok(StaticTemplate {
-        shape: canonical_tokens(mask_static_literals(input.tokens.clone())),
+        // Emptying a literal can remove a static run, even while the masked
+        // token structure (or total slot count) stays unchanged. Track the
+        // ordered walk events so data cannot move across compiled Rust slots.
+        shape: format!(
+            "T{}:{tokens}R{}:{}",
+            tokens.len(),
+            sink.layout.len(),
+            sink.layout
+        ),
         slots: sink.slots,
     })
 }
@@ -120,13 +129,16 @@ fn mask_static_literals(tokens: TokenStream) -> TokenStream {
 #[derive(Default)]
 struct HotSink {
     slots: Vec<Vec<u8>>,
+    layout: String,
     error: Option<String>,
 }
 impl ConsolidationSink for HotSink {
     fn static_run(&mut self, bytes: &str) {
+        self.layout.push('S');
         self.slots.push(bytes.as_bytes().to_vec());
     }
     fn dynamic_node(&mut self, expr: &Expr) {
+        self.layout.push('N');
         if !matches!(
             expr,
             Expr::Path(_)
@@ -140,7 +152,9 @@ impl ConsolidationSink for HotSink {
             self.error = Some("hot templates currently support straight-line typed child expressions; control flow and text! require a normal template".into());
         }
     }
-    fn dynamic_attr(&mut self, _attr: DynamicAttr<'_>) {}
+    fn dynamic_attr(&mut self, _attr: DynamicAttr<'_>) {
+        self.layout.push('A');
+    }
     fn begin_raw_text(&mut self, _kind: RawTextKind) {
         self.error = Some("raw-text regions require a normal template".into());
     }
