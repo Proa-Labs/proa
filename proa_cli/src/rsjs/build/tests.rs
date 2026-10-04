@@ -1706,27 +1706,6 @@ fn link_manifest_hashes_only_exact_reachable_extern_paths() {
 }
 
 #[test]
-fn observed_input_snapshot_keeps_hash_domains_separate() {
-    let temp = TempDir::new().unwrap();
-    let source = temp.path().join("input.rs");
-    fs::write(&source, "pub const VALUE: u8 = 7;\n").unwrap();
-    let hashes = ObservedSourceHashes::new([source.clone()]);
-    let source_hash =
-        observed_input_hash(&source, OBSERVED_SOURCE_FILE_HASH_DOMAIN, Some(&hashes)).unwrap();
-    let generated_hash =
-        observed_input_hash(&source, OUT_DIR_FILE_HASH_DOMAIN, Some(&hashes)).unwrap();
-    assert_ne!(source_hash, generated_hash);
-    assert_eq!(
-        source_hash,
-        hash_file(&source, OBSERVED_SOURCE_FILE_HASH_DOMAIN).unwrap()
-    );
-    assert_eq!(
-        generated_hash,
-        hash_file(&source, OUT_DIR_FILE_HASH_DOMAIN).unwrap()
-    );
-}
-
-#[test]
 fn production_link_manifest_skips_unreachable_descriptor_objects() {
     let temp = TempDir::new().unwrap();
     let (dependency, dependency_cargo, dependency_path) =

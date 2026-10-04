@@ -40,11 +40,10 @@ use crate::rsjs::build::{
     managed_paths_overlap, normalize_managed_path_identity, prepare_descriptor_target_directory,
     run_descriptor_cargo_allow_empty, run_descriptor_cargo_allow_empty_resuming,
     uplifted_root_lib_hashed_rlib, validate_descriptor_managed_paths,
-    validate_descriptor_observed_inputs, validate_descriptor_observed_inputs_with_hashes,
-    CargoCompilerArtifact, DescriptorCargoOutput, DescriptorCargoRequest, DescriptorCargoRun,
-    DescriptorCargoRunError, DescriptorCargoUnitId, DescriptorInputHashes,
-    DescriptorObjectSnapshot, DescriptorSidecarError, DescriptorTargetLease, DescriptorUnitSidecar,
-    ObservedSourceHashes, UnitArtifactJoinError, ValidatedDescriptorUnit,
+    validate_descriptor_observed_inputs, CargoCompilerArtifact, DescriptorCargoOutput,
+    DescriptorCargoRequest, DescriptorCargoRun, DescriptorCargoRunError, DescriptorCargoUnitId,
+    DescriptorInputHashes, DescriptorObjectSnapshot, DescriptorSidecarError, DescriptorTargetLease,
+    DescriptorUnitSidecar, UnitArtifactJoinError, ValidatedDescriptorUnit,
     DESCRIPTOR_OBJECT_HASH_DOMAIN,
 };
 #[cfg(test)]
@@ -1587,21 +1586,10 @@ fn validate_cached_observed_inputs(
     // Each unit validates its full source/generated/environment input set.
     // Collect before propagating errors so diagnostics keep canonical unit-ID
     // order regardless of worker scheduling, as object/extern hashing does.
-    let hashes = ObservedSourceHashes::new(units.iter().flat_map(|unit| {
-        unit.sidecar
-            .source_dependencies
-            .iter()
-            .map(|dependency| dependency.absolute_path.clone())
-    }));
     let validations = units
         .par_iter()
         .map(|unit| {
-            validate_descriptor_observed_inputs_with_hashes(
-                descriptor_target,
-                &unit.sidecar,
-                Some(&hashes),
-            )
-            .map_err(
+            validate_descriptor_observed_inputs(descriptor_target, &unit.sidecar).map_err(
                 |source| DescriptorCacheError::CachedOutDirDependencyMismatch {
                     unit: unit.unit,
                     source,
