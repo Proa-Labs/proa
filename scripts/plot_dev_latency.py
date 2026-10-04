@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import matplotlib
@@ -14,6 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", type=Path, nargs="+")
     parser.add_argument("--labels", nargs="+")
+    parser.add_argument("--detailed", action="store_true", help="Expand cache/setup using PROA_BUILD_TIMINGS events")
     parser.add_argument("--output", type=Path, required=True, help="Output prefix, without an extension")
     args = parser.parse_args()
     labels = args.labels or [path.stem for path in args.inputs]
@@ -28,7 +30,7 @@ def main():
         ("Validate + snapshot", "final_finished", "validated", "#a78bfa"),
         ("Restart + HTTP response", "validated", "response", "#10b981"),
     ]
-    fig, axes = plt.subplots(1, len(args.inputs), figsize=(8 * len(args.inputs), 5.7), squeeze=False)
+    fig, axes = plt.subplots(1, len(args.inputs), figsize=(8 * len(args.inputs), 10 if args.detailed else 5.7), squeeze=False)
     total_max = 0
     for path in args.inputs:
         data = json.loads(path.read_text())
@@ -39,6 +41,40 @@ def main():
         selected = ordered[len(ordered) // 2]
         b = selected["boundaries"]
         selected_stages = stages
+        if args.detailed:
+            detected = [event for event in data["events"] if "change stabilized; rebuilding" in event["line"]]
+            start = detected[selected["sample"]]["time"] - b["detected"]
+            for event in data["events"]:
+                timing = re.fullmatch(r"rsjs timing: (.*): ([0-9.]+) ms", event["line"])
+                if timing and start <= event["time"] <= start + b["response"]:
+                    b[timing[1]] = event["time"] - start
+            details = [
+                ("Artifact indexes", "cache artifact indexes"),
+                ("Publish rebuilt objects", "cache persist rebuilt objects"),
+                ("Load + hash objects", "cache load and hash objects"),
+                ("Validate sources + externs", "cache validate observed inputs and externs"),
+                ("Validate artifact joins", "cache validate artifact joins"),
+                ("Publish indexes + cleanup", "cache publish indexes and cleanup"),
+                ("Transport manifest", "transport manifest and root selection"),
+                ("Transport graph", "transport graph"),
+                ("Final-unit selection", "transport final-unit selection"),
+                ("ABI adaptation", "ABI adaptation"),
+                ("Semantic planning", "semantic planning"),
+                ("Plan publication", "semantic plan publication"),
+                ("Final unit map", "final request validation and unit map"),
+                ("Final Cargo setup", "final Cargo setup"),
+            ]
+            missing = [key for _, key in details if key not in b]
+            if missing:
+                parser.error(f"{path} lacks timing events: {missing}")
+            selected_stages = stages[:3]
+            previous = "descriptor_finished"
+            for name, key in details:
+                selected_stages.append((name, previous, key, "#e97829"))
+                previous = key
+            # Cargo startup/wrapper validation occurs before its first Compiling line.
+            selected_stages.append(("Cargo startup + wrapper", previous, "final_compiling", "#f59e0b"))
+            selected_stages.extend(stages[4:])
         if "hot_published" in b:
             selected_stages = [
                 ("Watch, validate + publish", "save", "hot_published", "#64748b"),
@@ -55,8 +91,9 @@ def main():
         ax.text(total + 0.04, len(selected_stages), f"{total:.2f}s", va="center", fontweight="bold")
         ax.set_yticks(range(len(selected_stages) + 1), [stage[0] for stage in selected_stages] + ["Total"])
         ax.invert_yaxis()
-        ax.axvline(1.0, color="#dc2626", linestyle="--", linewidth=1.4)
-        ax.text(1.0, -0.65, "1s goal", color="#dc2626", ha="center", fontsize=10)
+        ax.axvspan(2.0, 3.0, color="#16a34a", alpha=0.09)
+        ax.axvline(3.0, color="#16a34a", linestyle="--", linewidth=1.4)
+        ax.text(2.5, -0.65, "2–3s target", color="#15803d", ha="center", fontsize=10)
         ax.set_xlim(0, total_max + 0.65)
         ax.set_xlabel("Seconds since saving a template")
         ax.set_title(label, loc="left", fontsize=16, fontweight="bold", pad=28)

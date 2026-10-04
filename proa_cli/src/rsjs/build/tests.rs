@@ -2442,3 +2442,49 @@ fn final_mapping_tracking_hash_is_local_to_the_exact_entry() {
     assert_eq!(original[&stable_key], next[&stable_key]);
     assert_ne!(original[&edited_key], next[&edited_key]);
 }
+
+#[test]
+fn accelerated_hashing_preserves_existing_artifact_domains_and_chunk_boundaries() {
+    use sha2::Digest as LegacyDigest;
+
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("artifact");
+    for length in [0, 1, 55, 56, 63, 64, 65, 65535, 65536, 65537, 262145] {
+        let bytes = (0..length)
+            .map(|index| (index % 251) as u8)
+            .collect::<Vec<_>>();
+        fs::write(&path, &bytes).unwrap();
+        let legacy = |domain: &[u8]| -> [u8; 32] {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(domain);
+            for chunk in bytes.chunks(17) {
+                hasher.update(chunk);
+            }
+            hasher.finalize().into()
+        };
+        for domain in [
+            FILE_HASH_DOMAIN,
+            LINK_ARTIFACT_HASH_DOMAIN,
+            DESCRIPTOR_OBJECT_HASH_DOMAIN,
+            OBSERVED_SOURCE_FILE_HASH_DOMAIN,
+            OUT_DIR_FILE_HASH_DOMAIN,
+        ] {
+            assert_eq!(
+                hash_file(&path, domain).unwrap(),
+                legacy(domain),
+                "length {length}"
+            );
+        }
+        assert_eq!(
+            descriptor_input_link_hashes(&path).unwrap(),
+            (legacy(FILE_HASH_DOMAIN), legacy(LINK_ARTIFACT_HASH_DOMAIN)),
+            "paired hash length {length}",
+        );
+        let snapshot = DescriptorObjectSnapshot::read(&path).unwrap();
+        assert_eq!(
+            snapshot.descriptor_hash,
+            legacy(DESCRIPTOR_OBJECT_HASH_DOMAIN)
+        );
+        assert_eq!(snapshot.link_hash, legacy(LINK_ARTIFACT_HASH_DOMAIN));
+    }
+}

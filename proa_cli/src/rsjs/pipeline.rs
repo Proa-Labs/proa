@@ -215,6 +215,7 @@ pub fn link_descriptor_transport<R: DescriptorCargoRun>(
     invocation: InvocationId,
     selector: &DescriptorRootSelector,
 ) -> Result<LinkedDescriptorTransport, LinkedCargoError> {
+    let mut timing = super::timing::StageTimer::new();
     let linked = {
         let descriptor = descriptor_run_sealed::Sealed::output(&run);
         let selected = select_descriptor_root(descriptor, selector)?;
@@ -226,8 +227,10 @@ pub fn link_descriptor_transport<R: DescriptorCargoRun>(
             descriptor,
         )
         .map_err(LinkedCargoError::LinkManifest)?;
+        timing.mark("transport manifest and root selection");
         let transport = link_transport_manifest(&manifest, &descriptor.units, &descriptor.objects)
             .map_err(LinkedCargoError::TransportLink)?;
+        timing.mark("transport graph");
         let cargo_enumerated_units =
             join_cargo_enumerated_descriptor_units(&descriptor.units, &descriptor.cargo_artifacts)
                 .map_err(LinkedCargoError::JoinDescriptorArtifacts)?;
@@ -251,6 +254,7 @@ pub fn link_descriptor_transport<R: DescriptorCargoRun>(
     // inputs. Releasing the lease here keeps semantic-plan writes and final
     // Cargo outside both descriptor and cache critical sections.
     drop(descriptor_run_sealed::Sealed::into_output(run));
+    timing.mark("transport final-unit selection");
     Ok(linked)
 }
 
@@ -265,6 +269,7 @@ fn prepare_linked_cargo(
         final_descriptor_units,
         ..
     } = linked;
+    let mut timing = super::timing::StageTimer::new();
     let abi = AbiAdapterContext::from_transport_plan(
         request.producer,
         request.runtime_protocol,
@@ -272,11 +277,14 @@ fn prepare_linked_cargo(
     )
     .map_err(LinkedCargoError::AbiAdapter)?;
     let adapted = adapt_transport_plan(&abi, &transport).map_err(LinkedCargoError::AbiAdapter)?;
+    timing.mark("ABI adaptation");
     let semantic = link_semantic_plan(transport.link_unit, &adapted)
         .map_err(LinkedCargoError::SemanticLink)?;
+    timing.mark("semantic planning");
     let semantic_plan_path =
         write_content_addressed_semantic_plan(&request.plan_directory, &semantic)
             .map_err(LinkedCargoError::WriteSemanticPlan)?;
+    timing.mark("semantic plan publication");
     Ok(PreparedLinkedCargo {
         descriptor,
         selected,

@@ -172,10 +172,16 @@ strip = true
 # invocation between the descriptor and final stages, so the hashing crates
 # are always optimized. Everything else keeps the dev profile; `test`
 # inherits these overrides.
-[profile.dev.package.sha2]
+[profile.dev.package."sha2:0.10.9"]
 opt-level = 3
 
-[profile.dev.package.digest]
+[profile.dev.package."digest:0.10.7"]
+opt-level = 3
+
+[profile.dev.package."sha2:0.11.0"]
+opt-level = 3
+
+[profile.dev.package."digest:0.11.3"]
 opt-level = 3
 
 # proa_showcase pages are rendered by the playground in production

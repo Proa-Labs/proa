@@ -686,26 +686,30 @@ fn dev_watch_debounce_requires_one_stable_window_and_resets_on_new_bytes() {
     let baseline = snapshot(10, 100);
     let first_change = snapshot(11, 200);
     let second_change = snapshot(12, 300);
-    let mut debounce = DevWatchDebouncer::new(baseline.clone(), Duration::from_millis(300));
+    let second_seen = Duration::from_millis(10) + DEV_WATCH_DEBOUNCE - Duration::from_millis(50);
+    let mut debounce = DevWatchDebouncer::new(baseline.clone(), DEV_WATCH_DEBOUNCE);
 
     assert_eq!(
         debounce.observe(Duration::from_millis(10), first_change.clone()),
         DevWatchDecision::Debouncing
     );
     assert_eq!(
-        debounce.observe(Duration::from_millis(250), first_change),
+        debounce.observe(second_seen - Duration::from_millis(10), first_change),
         DevWatchDecision::Debouncing
     );
     assert_eq!(
-        debounce.observe(Duration::from_millis(260), second_change.clone()),
+        debounce.observe(second_seen, second_change.clone()),
         DevWatchDecision::Debouncing
     );
     assert_eq!(
-        debounce.observe(Duration::from_millis(559), second_change.clone()),
+        debounce.observe(
+            second_seen + DEV_WATCH_DEBOUNCE - Duration::from_millis(1),
+            second_change.clone()
+        ),
         DevWatchDecision::Debouncing
     );
     assert_eq!(
-        debounce.observe(Duration::from_millis(560), second_change.clone()),
+        debounce.observe(second_seen + DEV_WATCH_DEBOUNCE, second_change.clone()),
         DevWatchDecision::Ready(second_change.clone())
     );
 
@@ -1264,4 +1268,47 @@ fn integration_test_discovery_matches_cargo_top_level_targets() {
         discover_integration_test_targets(temp.path()).unwrap(),
         ["alpha", "beta", "directory_target"]
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn stop_child_preserves_graceful_exit_and_full_grace_before_forcing_exit() {
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
+
+    let temp = tempfile::tempdir().unwrap();
+    for (name, trap) in [("graceful", "exit 0"), ("stubborn", "")] {
+        let ready = temp.path().join(name);
+        let mut child = Command::new("/bin/sh")
+            .args([
+                "-c",
+                "trap \"$1\" TERM; : > \"$2\"; while :; do sleep 0.02; done",
+                "stop-fixture",
+                trap,
+            ])
+            .arg(&ready)
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let ready_deadline = Instant::now() + Duration::from_secs(5);
+        while !ready.exists() {
+            if Instant::now() >= ready_deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("shutdown fixture did not become ready");
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        let start = Instant::now();
+        stop_child(&mut child).unwrap();
+        let status = child.wait().unwrap();
+        if name == "graceful" {
+            assert!(
+                status.success(),
+                "TERM trap should finish normally: {status}"
+            );
+        } else {
+            assert_eq!(status.signal(), Some(libc::SIGKILL));
+            assert!(start.elapsed() >= Duration::from_secs(2));
+        }
+    }
 }

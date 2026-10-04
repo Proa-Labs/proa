@@ -22,7 +22,7 @@ use rsjs_ir::{
 };
 use rsjs_transport::TRANSPORT_FORMAT_VERSION;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
+use sha2_accelerated::{Digest, Sha256};
 
 mod reload;
 
@@ -57,7 +57,7 @@ const DEV_WATCH_POLL: Duration = Duration::from_millis(100);
 /// Editors write in bursts (temp file, rename, mtime touch) and formatters
 /// rewrite whole trees, so the loop waits for one quiet window before paying
 /// for a Cargo cycle. Vite and webpack sit in the same 100-300ms range.
-pub const DEV_WATCH_DEBOUNCE: Duration = Duration::from_millis(300);
+pub const DEV_WATCH_DEBOUNCE: Duration = Duration::from_millis(200);
 /// Refuse debounce windows shorter than one poll interval: they would claim a
 /// precision the poller cannot deliver.
 const DEV_WATCH_MIN_DEBOUNCE: Duration = DEV_WATCH_POLL;
@@ -235,7 +235,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
             return exit_status_to_result(status, "linked dev server");
         }
 
-        thread::sleep(DEV_WATCH_POLL);
+        thread::sleep(debouncer.next_poll_delay(clock.elapsed()));
         let current = watch_snapshot(&root, &watch_paths)?;
         let DevWatchDecision::Ready(trigger_snapshot) = debouncer.observe(clock.elapsed(), current)
         else {
@@ -2919,11 +2919,17 @@ fn stop_child(child: &mut Child) -> Result<()> {
         // down gracefully and release its port, then KILL if it lingers.
         let group = -(child.id() as i32);
         unsafe { libc::kill(group, libc::SIGTERM) };
-        for _ in 0..20 {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
             if child.try_wait()?.is_some() {
                 return Ok(());
             }
-            thread::sleep(Duration::from_millis(100));
+            if Instant::now() >= deadline {
+                break;
+            }
+            // Most servers exit promptly on TERM. Observe that exit without
+            // imposing a whole watch-poll interval before activating the build.
+            thread::sleep(Duration::from_millis(5));
         }
         unsafe { libc::kill(group, libc::SIGKILL) };
         let _ = child.wait();
@@ -2961,6 +2967,18 @@ impl DevWatchDebouncer {
             pending: None,
             delay,
         }
+    }
+
+    fn next_poll_delay(&self, now: Duration) -> Duration {
+        let Some((_, first_seen)) = self.pending.as_ref() else {
+            return DEV_WATCH_POLL;
+        };
+        // Wake at the end of the quiet window instead of rounding it up to
+        // another whole poll interval. A fresh snapshot still authorizes the
+        // rebuild; changed bytes reset the full window in observe().
+        self.delay
+            .saturating_sub(now.saturating_sub(*first_seen))
+            .clamp(Duration::from_millis(1), DEV_WATCH_POLL)
     }
 
     fn observe(&mut self, now: Duration, snapshot: WatchSnapshot) -> DevWatchDecision {
