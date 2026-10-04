@@ -525,5 +525,380 @@
       },
       "note": "Diagnostic fork with descriptor no-debug and LINK-only hash cleanup; source memoization absent. Instrumented reads are not measured SSD traffic and exclude compiler-internal I/O and native copying."
     }
+  },
+  "descriptor_partitioning_2026_10_04": {
+    "date": "2026-10-04",
+    "measurement": "save to changed HTTP response",
+    "profile": "dev",
+    "debounce_ms": 200,
+    "assets": false,
+    "hot_static": false,
+    "samples_per_block": 6,
+    "tracing_in_latency_trials": false,
+    "controlled_trials": [
+      {
+        "trial": "baseline-before",
+        "samples_seconds": [
+          2.81140795792453,
+          2.7879174170084298,
+          3.064512041863054,
+          2.84501695795916,
+          2.845016083912924,
+          2.8054716661572456
+        ],
+        "median_seconds": 2.828212020918727,
+        "descriptor_median_seconds": 0.9425145834684372,
+        "source_sha256": "2931e7fa60de7732eaa9e39ad3bfbe83f539bbc08eeb0416bca22caa6e438e2e"
+      },
+      {
+        "trial": "cap64",
+        "samples_seconds": [
+          2.8835169579833746,
+          2.5369923328980803,
+          2.4976442500483245,
+          2.624008584069088,
+          2.682784999953583,
+          3.142189165810123
+        ],
+        "median_seconds": 2.6533967920113355,
+        "descriptor_median_seconds": 0.7651486664544791,
+        "source_sha256": "88aa1bd1a1cc3cb38d7b323b229bfa187f88f881fc5809999daaf44b1b9987ae"
+      },
+      {
+        "trial": "baseline-after64",
+        "samples_seconds": [
+          2.864924957975745,
+          2.795915874885395,
+          2.868232457898557,
+          2.837149083148688,
+          2.786678541917354,
+          2.849117583129555
+        ],
+        "median_seconds": 2.8431333331391215,
+        "descriptor_median_seconds": 0.9210493119899184,
+        "source_sha256": "26e7f9ab9894b7d71e468bcb292f28a93abd72fade8cab99c05cf23b449d25ce"
+      },
+      {
+        "trial": "cap32",
+        "samples_seconds": [
+          3.299830042058602,
+          2.5488332079257816,
+          2.5802899999544024,
+          2.5834399580489844,
+          2.5607439999002963,
+          2.556833416922018
+        ],
+        "median_seconds": 2.5705169999273494,
+        "descriptor_median_seconds": 0.7069406249793246,
+        "source_sha256": "499f3390c9682f31cc511e3018a8b2b6f7ae37a497c9f0cce02b9b383d16a1c6"
+      },
+      {
+        "trial": "cap64-repeat",
+        "samples_seconds": [
+          2.6857365409377962,
+          2.5552343749441206,
+          2.6033122499939054,
+          2.569030958926305,
+          2.6054775828961283,
+          2.6030992078594863
+        ],
+        "median_seconds": 2.603205728926696,
+        "descriptor_median_seconds": 0.7337906665634364,
+        "source_sha256": "b0534191cc485b59df93d4d52c6d2928b815bceba20e61237ee4fe8ac60cef8c"
+      },
+      {
+        "trial": "default64",
+        "samples_seconds": [
+          2.825086667202413,
+          2.7280361659359187,
+          2.622836000053212,
+          2.675501042045653,
+          2.632368041900918,
+          2.6370947919785976
+        ],
+        "median_seconds": 2.6562979170121253,
+        "descriptor_median_seconds": 0.758212479064241,
+        "source_sha256": "ea6611a6c09b6aae0b63b8ae3f45a47af967e0193b6875cf6adaa8a43508c313"
+      },
+      {
+        "trial": "baseline-final",
+        "samples_seconds": [
+          2.9471265410538763,
+          2.806644208030775,
+          2.8059667081106454,
+          2.791127457981929,
+          2.7880434170365334,
+          2.7727006250061095
+        ],
+        "median_seconds": 2.7985470830462873,
+        "descriptor_median_seconds": 0.9048618125962093,
+        "source_sha256": "6e4964977e27a8edbf1f9051c4339886451d86b73e53a341040d4582300705d9"
+      }
+    ],
+    "control_cli_sha256": "cdcfdfa48ce01374af723d034e4b5133e84085399e57b4658039d16b8018cd92",
+    "decision": "Use 64 only for incremental descriptor invocations without an explicit codegen-unit count. Keep explicit settings and all final compiler flags. 32-unit broad cap saved only about 32 ms against repeated broad-cap64, so retain finer incremental granularity. No hash-format change or OS security setting change.",
+    "production": {
+      "source_commit": "ce1bcae44b48bf675709ee86cd63a66330f6668c",
+      "pr_code_commit": "95e2c67",
+      "cli_sha256": "e86b0e022561a8892dea813e081aeb0777721e4ac7b402379272fa66cb891c1b",
+      "source_record_sha256": "4cf7b10e85e02551a88633573e0e3d1a0f4ff81005df41f8cf0390b346acc749",
+      "median_seconds": 2.5518299795221537,
+      "samples": [
+        {
+          "sample": 0,
+          "wall_start_us": 1791157114636428,
+          "boundaries": {
+            "save": 0.0,
+            "detected": 0.27815595804713666,
+            "prepared": 0.34277579095214605,
+            "descriptor_finished": 1.0858604579698294,
+            "final_compiling": 1.4714863749686629,
+            "final_finished": 2.204103375086561,
+            "validated": 2.2440413751173764,
+            "launched": 2.2503522499464452,
+            "response": 2.6090209579560906
+          },
+          "stage_timings_ms": {}
+        },
+        {
+          "sample": 1,
+          "wall_start_us": 1791157117551174,
+          "boundaries": {
+            "save": 0.0,
+            "detected": 0.23218925017863512,
+            "prepared": 0.2924973340705037,
+            "descriptor_finished": 0.9929520841687918,
+            "final_compiling": 1.3688237920869142,
+            "final_finished": 2.1174328341148794,
+            "validated": 2.1551943751983345,
+            "launched": 2.1614792090840638,
+            "response": 2.5220704171806574
+          },
+          "stage_timings_ms": {}
+        },
+        {
+          "sample": 2,
+          "wall_start_us": 1791157120378586,
+          "boundaries": {
+            "save": 0.0,
+            "detected": 0.22316275001503527,
+            "prepared": 0.28154554194770753,
+            "descriptor_finished": 0.9750805839430541,
+            "final_compiling": 1.3570874170400202,
+            "final_finished": 2.1103313339408487,
+            "validated": 2.1533430840354413,
+            "launched": 2.159633999923244,
+            "response": 2.5574538339860737
+          },
+          "stage_timings_ms": {}
+        },
+        {
+          "sample": 3,
+          "wall_start_us": 1791157123241219,
+          "boundaries": {
+            "save": 0.0,
+            "detected": 0.24783654091879725,
+            "prepared": 0.3142122079152614,
+            "descriptor_finished": 1.0200401248876005,
+            "final_compiling": 1.4036474998574704,
+            "final_finished": 2.175573624903336,
+            "validated": 2.221834291005507,
+            "launched": 2.2281464159023017,
+            "response": 2.5871690828353167
+          },
+          "stage_timings_ms": {}
+        },
+        {
+          "sample": 4,
+          "wall_start_us": 1791157126133576,
+          "boundaries": {
+            "save": 0.0,
+            "detected": 0.22903225012123585,
+            "prepared": 0.3009637910872698,
+            "descriptor_finished": 1.000051333103329,
+            "final_compiling": 1.3718525001313537,
+            "final_finished": 2.142354540992528,
+            "validated": 2.1840801660437137,
+            "launched": 2.190393374999985,
+            "response": 2.536255249986425
+          },
+          "stage_timings_ms": {}
+        },
+        {
+          "sample": 5,
+          "wall_start_us": 1791157128973894,
+          "boundaries": {
+            "save": 0.0,
+            "detected": 0.24072079197503626,
+            "prepared": 0.29583604191429913,
+            "descriptor_finished": 0.9958280001301318,
+            "final_compiling": 1.3836439999286085,
+            "final_finished": 2.139108791947365,
+            "validated": 2.180675042094663,
+            "launched": 2.186952792108059,
+            "response": 2.5462061250582337
+          },
+          "stage_timings_ms": {}
+        }
+      ]
+    },
+    "compiler_profile_note": "Last warm template edit per variant; self-profile default/query-keys adds overhead. Interval unions count concurrent cached-object work once. Raw profiles and scripts excluded.",
+    "compiler_profiles": {
+      "before": {
+        "descriptor-lib": {
+          "compiler_wall_ms": 334.853,
+          "incremental_session_ms": 56.448,
+          "cached_objects_ms": 66.723,
+          "cached_object_calls": 205,
+          "macro_expansion_ms": 29.751,
+          "native_linker_ms": 0.0,
+          "incremental_setup_and_copy_union_ms": 123.171
+        },
+        "descriptor-bin": {
+          "compiler_wall_ms": 402.476,
+          "incremental_session_ms": 48.428,
+          "cached_objects_ms": 58.274,
+          "cached_object_calls": 191,
+          "macro_expansion_ms": 0.285,
+          "native_linker_ms": 151.606,
+          "incremental_setup_and_copy_union_ms": 106.702
+        },
+        "final-lib": {
+          "compiler_wall_ms": 388.437,
+          "incremental_session_ms": 54.374,
+          "cached_objects_ms": 62.687,
+          "cached_object_calls": 198,
+          "macro_expansion_ms": 80.336,
+          "native_linker_ms": 0.0,
+          "incremental_setup_and_copy_union_ms": 117.061
+        },
+        "final-bin": {
+          "compiler_wall_ms": 336.086,
+          "incremental_session_ms": 51.284,
+          "cached_objects_ms": 59.235,
+          "cached_object_calls": 194,
+          "macro_expansion_ms": 0.264,
+          "native_linker_ms": 89.194,
+          "incremental_setup_and_copy_union_ms": 110.519
+        }
+      },
+      "after": {
+        "descriptor-lib": {
+          "compiler_wall_ms": 231.362,
+          "incremental_session_ms": 16.486,
+          "cached_objects_ms": 18.997,
+          "cached_object_calls": 62,
+          "macro_expansion_ms": 29.661,
+          "native_linker_ms": 0.0,
+          "incremental_setup_and_copy_union_ms": 35.483
+        },
+        "descriptor-bin": {
+          "compiler_wall_ms": 316.42,
+          "incremental_session_ms": 16.329,
+          "cached_objects_ms": 21.337,
+          "cached_object_calls": 64,
+          "macro_expansion_ms": 0.296,
+          "native_linker_ms": 143.015,
+          "incremental_setup_and_copy_union_ms": 37.666
+        },
+        "final-lib": {
+          "compiler_wall_ms": 410.725,
+          "incremental_session_ms": 54.131,
+          "cached_objects_ms": 64.764,
+          "cached_object_calls": 198,
+          "macro_expansion_ms": 82.689,
+          "native_linker_ms": 0.0,
+          "incremental_setup_and_copy_union_ms": 118.895
+        },
+        "final-bin": {
+          "compiler_wall_ms": 354.43,
+          "incremental_session_ms": 50.188,
+          "cached_objects_ms": 57.612,
+          "cached_object_calls": 194,
+          "macro_expansion_ms": 0.281,
+          "native_linker_ms": 105.852,
+          "incremental_setup_and_copy_union_ms": 107.8
+        }
+      }
+    },
+    "launch_policy_probe": {
+      "first_new_binary_launch_ms": [
+        336.42041706480086,
+        314.69687493517995,
+        322.05575006082654,
+        338.62466597929597
+      ],
+      "same_code_new_file_after_first_launch_ms": [
+        225.0278750434518,
+        231.62120790220797,
+        225.59537482447922,
+        226.8368338700384
+      ],
+      "same_file_repeat_ms": [
+        3.064958145841956,
+        2.550833160057664,
+        3.2136659137904644,
+        3.215624950826168,
+        3.3015001099556684,
+        2.7803750708699226,
+        2.8925410006195307,
+        3.57737485319376
+      ],
+      "medians_ms": {
+        "first_new_binary": 329.2380835628137,
+        "new_copy_after_first": 226.2161043472588,
+        "same_file_repeat": 3.1393120298162103
+      },
+      "spawn_split": "Process creation returns in 1\u20132ms; child waits before Rust entry. XProtect result and scan-completion events occur just before entry on fresh files and are absent during repeat launches.",
+      "sources": [
+        "https://support.apple.com/en-ca/guide/security/sec469d47bd8/web",
+        "https://support.apple.com/en-gw/guide/mac-help/mchlc5fb7f9c/mac"
+      ],
+      "decision": "No Proa launch-path code change and no system-security setting changes. Attribute this local restart cost to platform security evaluation; pursue compiler-query profiling next."
+    },
+    "rust_function_edit": {
+      "note": "HTTP title comes from a Rust helper; only its returned string changes. Same dev profile, six serialized edits per block, tracing disabled. Controls use diagnostic pre-policy CLI; production trial is the reviewed release CLI. This is not a same-binary policy-only comparison.",
+      "trials": [
+        {
+          "trial": "function-before",
+          "samples_seconds": [
+            2.804405416129157,
+            2.7857945419382304,
+            2.731669917004183,
+            2.7808031670283526,
+            2.7754497919231653,
+            2.79949704115279
+          ],
+          "median_seconds": 2.7832988544832915,
+          "source_record_sha256": "2f8f0f825c7192fa3eee833090b34e22be6df7d27dc7333dc411503d1c02d2ef"
+        },
+        {
+          "trial": "function-production",
+          "samples_seconds": [
+            2.5880974158644676,
+            2.5173152501229197,
+            2.49704400007613,
+            2.5788057500030845,
+            2.6510866249445826,
+            2.763502167072147
+          ],
+          "median_seconds": 2.583451582933776,
+          "source_record_sha256": "eec01cec4d0a8f7b3f155005be40cc9701d0b4885470a954c9fde4bb27abfc3f"
+        },
+        {
+          "trial": "function-after",
+          "samples_seconds": [
+            2.8827850830275565,
+            2.863838291959837,
+            2.797051874920726,
+            2.848933042027056,
+            2.800099292071536,
+            2.831104042008519
+          ],
+          "median_seconds": 2.8400185420177877,
+          "source_record_sha256": "7d3494f84e1b7e366cfa9b4da17cdab2ca6cedc0371e59bd8d914b786c65bcb9"
+        }
+      ]
+    }
   }
 }

@@ -34,14 +34,18 @@ and forwards original linker arguments unchanged. It writes an ordinary archive
 for the existing transport extractor. It does not scan rustc-private incremental
 directories.
 
-The wrapper preserves Cargo's incremental flags and codegen partitioning for
-these carriers. Metadata-only checks, unsupported targets/linker protocols,
+The wrapper preserves Cargo's incremental flags and explicit codegen counts.
+For incremental descriptor builds without an explicit count, it uses 64 units
+instead of rustc's default 256. Final-app partitioning and debug settings retain
+the original Cargo profile. Intermediate carriers omit debug information.
+Metadata-only checks, unsupported targets/linker protocols,
 multiple crate types and explicitly routed outputs use the complete single-object
 carrier while retaining incremental queries. Indirect response/file-list inputs
 are rejected rather than producing a partial archive; this can restrict large or
-custom builds. Sidecar schema 11 and descriptor target policy 5 isolate old caches.
+custom builds. Sidecar schema 11 and descriptor target policy 7 isolate old caches.
 
-The library/executable acceptance probe uses four codegen units and three source
+The library/executable acceptance probe covers explicit four-unit and default
+64-unit settings over three source
 generations. It retains unused witnesses across edits and removes only the deleted
 module's witness. Native execution passed locally on macOS and in the initial
 Linux PR pipeline shard.
