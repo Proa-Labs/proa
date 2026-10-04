@@ -185,10 +185,15 @@ pub fn dev(options: DevOptions) -> Result<()> {
         if !options.no_assets {
             build_assets(&root, &config)?;
         }
-        let hot_state = options
-            .hot_static
-            .then(|| crate::hot_static::HotState::prepare(&root))
-            .transpose()?;
+        let hot_state = hot_scan_or_rustc_diagnostics(
+            &root,
+            &config.dev.command,
+            None,
+            options
+                .hot_static
+                .then(|| crate::hot_static::HotState::prepare(&root))
+                .transpose(),
+        )?;
         let launch = run_linked_dev_cycle(&root, &config.dev.command, hot_state.as_ref())?;
         return run_linked_dev_foreground(
             &root,
@@ -211,10 +216,15 @@ pub fn dev(options: DevOptions) -> Result<()> {
     }
     let mut watch_paths = config.dev.watch.clone();
     let baseline = watch_snapshot(&root, &watch_paths)?;
-    let mut hot_state = options
-        .hot_static
-        .then(|| crate::hot_static::HotState::prepare(&root))
-        .transpose()?;
+    let mut hot_state = hot_scan_or_rustc_diagnostics(
+        &root,
+        &config.dev.command,
+        None,
+        options
+            .hot_static
+            .then(|| crate::hot_static::HotState::prepare(&root))
+            .transpose(),
+    )?;
     let launch = run_linked_dev_cycle(&root, &config.dev.command, hot_state.as_ref())?;
     let mut child = spawn_linked_dev(
         &root,
@@ -286,8 +296,34 @@ pub fn dev(options: DevOptions) -> Result<()> {
                     println!(
                         "static template change stabilized; published without Cargo or restart"
                     );
+                    // Class edits are the common hot case, and source-scanning
+                    // generators (Tailwind) must see them before the reload.
+                    let assets = (|| -> Result<ProjectConfig> {
+                        let next_config = load_dev_config(&root, &options)?;
+                        task::run_lifecycle_tasks(
+                            &root,
+                            &next_config,
+                            &next_config.dev.before,
+                            &BTreeMap::new(),
+                        )?;
+                        if !options.no_assets {
+                            build_assets(&root, &next_config)?;
+                        }
+                        Ok(next_config)
+                    })();
                     debouncer.commit(trigger_snapshot);
-                    notify(reload.as_ref(), &ReloadEvent::Reload);
+                    match assets {
+                        Ok(next_config) => {
+                            watch_paths = next_config.dev.watch.clone();
+                            notify(reload.as_ref(), &ReloadEvent::Reload);
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "asset rebuild failed; keeping the last built assets:\n{error:#}"
+                            );
+                            notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
+                        }
+                    }
                     continue;
                 }
                 Ok(false) => {}
@@ -317,10 +353,15 @@ pub fn dev(options: DevOptions) -> Result<()> {
             // Stage after tasks/assets may have generated Rust sources,
             // and after the committed snapshot. An edit during staging or
             // Cargo must differ from that snapshot on the next poll.
-            let next_hot_state = hot_state
-                .as_ref()
-                .map(|state| state.candidate(&root))
-                .transpose()?;
+            let next_hot_state = hot_scan_or_rustc_diagnostics(
+                &root,
+                &next_config.dev.command,
+                hot_state.as_ref(),
+                hot_state
+                    .as_ref()
+                    .map(|state| state.candidate(&root))
+                    .transpose(),
+            )?;
             let launch =
                 run_linked_dev_cycle(&root, &next_config.dev.command, next_hot_state.as_ref())?;
             Ok(LinkedDevRebuild {
@@ -1077,6 +1118,22 @@ fn print_linked_cache_reuse(action: LinkedCargoAction, output: &LinkedCargoOutpu
         "linked RSJS {} cache: descriptor {reused_descriptor_artifacts}/{descriptor_artifacts} Cargo artifacts reused; final {reused_final_artifacts}/{final_artifacts} reused",
         action.command_name(),
     );
+}
+
+/// Hot-template scanning parses every source file with syn, whose syntax
+/// errors are far less useful than rustc's. When the scan fails, run Cargo
+/// with the active manifest anyway so a half-written file reports rustc's
+/// diagnostics; the scan error surfaces only if Cargo accepted the source.
+fn hot_scan_or_rustc_diagnostics<T>(
+    root: &Path,
+    command: &[String],
+    active: Option<&crate::hot_static::HotState>,
+    scan: Result<T>,
+) -> Result<T> {
+    scan.or_else(|scan_error| {
+        run_linked_dev_cycle(root, command, active)?;
+        Err(scan_error)
+    })
 }
 
 fn run_linked_dev_cycle(
