@@ -49,14 +49,14 @@ The serial release-CLI trial measured a 0.129s median across three static text
 edits with a 100ms debounce. The HTTP acceptance probe checks escaping,
 attributes, dynamic Rust fallback, failed-build retention, and repair. Its
 earlier debug-CLI timings overlapped a release compilation and are correctness
-evidence only. See `evidence/hot-static-watch.json` and
-`evidence/hot-static-acceptance.json`.
+evidence only. Reproduce correctness checks with
+`scripts/hot_static_acceptance.py`; detailed historical logs are omitted from
+the implementation diff.
 
 The final HTTP regression run also executes a pre-build task that changes Rust
 template literals. It verifies both initial and fallback manifests include the
 task's generated content. Staging happens after tasks/assets and after the watch
-snapshot, so edits during staging/build remain visible to the next cycle. See
-`evidence/hot-static-hook-acceptance.json`.
+snapshot, so edits during staging/build remain visible to the next cycle.
 
 Keep this explicit until source discovery, render overhead, session cache
 isolation, and representative application adoption justify a broader surface.

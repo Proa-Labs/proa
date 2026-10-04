@@ -124,8 +124,7 @@ this distinction. Stricter *whole-workspace* Clippy encounters an unchanged
 changed to silence it. Performance was not remeasured after these test/CI/style
 review changes; the existing numerical evidence remains tied to `26e6529`.
 
- The existing
-plain-Cargo link guard means `cargo test --workspace` is not a valid all-app
+The existing plain-Cargo link guard means `cargo test --workspace` is not a valid all-app
 acceptance command; framework library checks and linked CLI application checks
 are reported separately. Proa source checking allows existing raw-HTML warnings
 in low-level renderer helpers; the render allocation lint is clean.
