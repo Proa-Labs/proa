@@ -1,6 +1,6 @@
 # Development rebuild performance
 
-This branch reduces ordinary warm Pizza rebuilds from about 7s to about 3s.
+This branch reduces ordinary warm Pizza rebuilds from about 7s to roughly 2.8s.
 Measurements were made on 2026-10-03 on an Apple M4 Max running macOS 26.5.2
 and Rust 1.95, with a release-built CLI and skipped assets.
 
@@ -13,16 +13,49 @@ and Rust 1.95, with a release-built CLI and skipped assets.
 Each case uses three serialized edits with warm caches, ordinary compiled
 templates and the normal dev profile. Startup, assets and browser hydration/paint
 are excluded. The example was copied to `/tmp` and linked to the corresponding
-checkout. The branch results were measured at code commit `26e6529`; later
-review and documentation changes have not been rebenchmarked. One sample
+checkout. The branch results were measured at code commit `26e6529`; follow-up descriptor trials appear below; the final combination with the
+subsequent hot-static fixes has not been separately rebenchmarked. One sample
 exceeded 3s, so these are typical latencies on one machine, not a strict bound.
 
-![Pizza baseline and current defaults](diagrams/pizza-current-waterfall.png)
+## Descriptor-size follow-up (2026-10-04)
+
+| Experiment | Before | After | Decision |
+| --- | ---: | ---: | --- |
+| Omit descriptor debug info | 2.996s | 2.801s | Keep: 196ms saved, full final-app debug retained |
+| Share source hashes within validation | 2.717s | 2.723s | Discard: no established end-to-end gain |
+| Optimize host build dependencies | 2.742–2.809s controls | 2.709s | Keep optional: first startup rises from 37s to 72s |
+
+The descriptor trial uses six warm edits per variant with unchanged normal-dev
+settings and 200ms debounce. Instrumented file reads fall from 1.76 to 1.20 GiB
+per edit; bytes fed to hashes fall from 2.90 to 1.88 GiB. These are warm file
+reads, not measured SSD traffic, and exclude compiler-internal I/O and native
+carrier copying. The largest descriptor archive falls from 99MB to 27MB. The
+final app retains exactly the same 5.65MB of debug sections.
+
+The reuse trial randomized 12 adjacent before/after pairs using one binary and
+namespace. Its source-cache implementation was removed. The smaller change
+that skips an unused input-domain hash for link-only artifacts remains; the
+combined trial reduced manifest-stage medians from 55ms to 38ms, without
+establishing an end-to-end win. Hash algorithms and cache identities stay intact.
+
+The build-dependency trial uses six edits per profile, bracketed by six normal-dev
+edits before and after. Its modest gain does not justify changing `proa new`
+defaults. Descriptor no-debug is a CLI policy and requires no app manifest
+change. Policy version 6 intentionally populates a fresh descriptor namespace
+on first use, retaining subsequent incremental reuse.
+
+The figure uses representative edits from separate trials; its lower panel
+shows median substage times from three newer traced edits. The main remaining
+costs are the descriptor and final compiler passes. Detailed profiling stays in
+the investigation checkout and is excluded from this PR.
+
+![Pizza waterfall and remaining cache work](diagrams/pizza-current-waterfall.png)
 
 [Compact measurements](evidence/pizza-measurements.json) retain all sample
 boundaries, current stage durations, CLI digest and source-record hashes.
 Intermediate experiment logs and duplicate figures are omitted from this PR.
-The originals remain in Git revision `1f2ece6`.
+The original pipeline logs remain in Git revision `1f2ece6`; follow-up raw
+traces stay outside the PR.
 
 ## What changed
 
@@ -44,8 +77,8 @@ The originals remain in Git revision `1f2ece6`.
 [Implementation](IMPLEMENTATION.md) describes cache/carrier changes;
 [invalidation](INVALIDATION.md) explains the dependency contract; the
 [author review](REVIEW.md) records compatibility breaks, exact checks and merge
-risks. The initial Linux pipeline shard passed; the full CI rerun must be
-green before merging. A coordinated CLI/macro/runtime release is required.
+risks. All checks passed on `07f516b`; the latest combined changes must also pass
+CI before merging. A coordinated CLI/macro/runtime release is required.
 
 The optional [static-update prototype](HOT_STATIC.md) uses an explicit macro
 and dev flag. Its separate 0.129s trial used a different profile and 100ms

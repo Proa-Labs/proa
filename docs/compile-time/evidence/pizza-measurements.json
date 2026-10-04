@@ -350,5 +350,180 @@
       "--profile",
       "dev"
     ]
+  },
+  "followup_2026_10_04": {
+    "settings": {
+      "profile": "dev",
+      "debounce_ms": 200,
+      "assets": false,
+      "hot_static": false,
+      "warm_template_edits_per_variant": 6,
+      "measurement": "save to changed HTTP response"
+    },
+    "note": "Separate local trials on the same machine. Warm latency measured without detailed tracing. File counts and the updated waterfall use separate three-edit traced trials on a diagnostic fork. Production combines reviewed hot-static fixes afterward; its latency was not separately remeasured.",
+    "descriptor_debug_disabled": {
+      "latency": {
+        "before": {
+          "samples_s": [
+            2.950709250057116,
+            2.991934624966234,
+            3.010806957958266,
+            3.099003708921373,
+            2.9670378339942545,
+            3.0010619999375194
+          ],
+          "median_s": 2.9964983124518767,
+          "min_s": 2.950709250057116,
+          "max_s": 3.099003708921373
+        },
+        "after": {
+          "samples_s": [
+            2.8089716248214245,
+            2.763862666906789,
+            2.8364310420583934,
+            2.812466375064105,
+            2.792853041784838,
+            2.7489712089300156
+          ],
+          "median_s": 2.800912333303131,
+          "min_s": 2.7489712089300156,
+          "max_s": 2.8364310420583934
+        }
+      },
+      "savings_s": 0.19558597914874554,
+      "savings_percent": 6.527151319791924,
+      "profiled_file_work": {
+        "before": {
+          "calls": 3495,
+          "input_bytes": 1889229316,
+          "hashed_bytes": 3111396076
+        },
+        "after": {
+          "calls": 3495,
+          "input_bytes": 1288730340,
+          "hashed_bytes": 2017154180
+        }
+      },
+      "final_app_debug_bytes": 5651366,
+      "descriptor_policy": 6,
+      "cli_sha256": "9ccd61f5422f4770f4e821c949e35dd9b36f1b8af26e0b7581bccceb2fd73d0d"
+    },
+    "reuse_experiment": {
+      "design": "randomized order within each adjacent before/after pair; one CLI binary and persistent namespace; detailed tracing disabled",
+      "samples_per_variant": 12,
+      "before_samples_s": [
+        2.708026333944872,
+        2.7470639580860734,
+        2.6785307908430696,
+        2.7217452081386,
+        2.7166985829826444,
+        2.709214458009228,
+        2.7420647498220205,
+        2.796698041027412,
+        2.6919900418724865,
+        2.791260125115514,
+        2.712354291928932,
+        2.7173619160894305
+      ],
+      "after_samples_s": [
+        4.017679041950032,
+        2.644174583023414,
+        2.709434957941994,
+        2.7370200830046088,
+        2.6911800829693675,
+        2.728364124894142,
+        2.7526534588541836,
+        2.717220958089456,
+        2.6839710830245167,
+        2.73919350001961,
+        2.7010273751802742,
+        2.729026040993631
+      ],
+      "before_median_s": 2.7170302495360374,
+      "after_median_s": 2.722792541491799,
+      "decision": "Discard source memoization: no established end-to-end gain. Keep unused FILE-domain hash removal; combined manifest-stage medians 55.482ms to 38.149ms are not an isolated end-to-end result."
+    },
+    "optimized_build_dependencies": {
+      "profile": "inherits dev; build-override opt-level=3",
+      "warm_samples_s": {
+        "dev-before": [
+          3.3200300419703126,
+          2.898408125154674,
+          2.766455499920994,
+          2.7103382910136133,
+          2.71721245883964,
+          2.714560333872214
+        ],
+        "procopt": [
+          2.929785915883258,
+          2.7242355418857187,
+          2.669584667077288,
+          2.6946842919569463,
+          2.6579474171157926,
+          2.726616334170103
+        ],
+        "dev-after": [
+          2.835563166067004,
+          2.825255041010678,
+          2.791929166065529,
+          2.792569875018671,
+          2.790070458082482,
+          2.9001695001497865
+        ]
+      },
+      "warm_medians_s": {
+        "dev-before": 2.741833979380317,
+        "procopt": 2.7094599169213325,
+        "dev-after": 2.8089124580146745
+      },
+      "fresh_startup_s": {
+        "dev-before": 37.373544708127156,
+        "procopt": 72.46941195777617
+      },
+      "decision": "Leave generated profiles unchanged: modest warm gain, first startup approximately doubles."
+    },
+    "latest_trace": {
+      "source_sha256": "0e95023bc423dce893a4c9a616630257f0ce79d6ab37dbdbfdf4e94c5b9e0c1c",
+      "cli_sha256": "cdcfdfa48ce01374af723d034e4b5133e84085399e57b4658039d16b8018cd92",
+      "representative_boundaries": {
+        "save": 0.0,
+        "detected": 0.24739999999292195,
+        "prepared": 0.3017909999471158,
+        "descriptor_finished": 1.186057124985382,
+        "final_compiling": 1.5572472498752177,
+        "final_finished": 2.313713749870658,
+        "validated": 2.3657259170431644,
+        "launched": 2.372009624959901,
+        "response": 2.7244264578912407
+      },
+      "stage_medians_ms": {
+        "prepare Cargo metadata and tool versions": 27.254,
+        "prepare wrapper snapshot and fingerprint": 27.695,
+        "descriptor Cargo and sidecars": 883.902,
+        "cache artifact indexes": 3.513,
+        "cache persist rebuilt objects": 28.229,
+        "cache load and hash objects": 40.776,
+        "cache validate observed source generated and environment inputs": 60.603,
+        "cache validate dependency artifact bytes": 37.599,
+        "cache validate observed inputs and externs": 98.048,
+        "cache validate artifact joins": 5.466,
+        "cache publish indexes and cleanup": 33.804,
+        "transport manifest and root selection": 41.294,
+        "transport graph": 3.004,
+        "transport final-unit selection": 5.736,
+        "ABI adaptation": 1.848,
+        "semantic planning": 0.768,
+        "semantic plan publication": 7.185,
+        "final request validation and unit map": 7.774,
+        "final Cargo setup": 11.033,
+        "final Cargo execution": 849.068
+      },
+      "file_work_per_edit": {
+        "read_bytes": 1288764116,
+        "hashed_bytes": 1968018804,
+        "file_operations": 3495
+      },
+      "note": "Diagnostic fork with descriptor no-debug and LINK-only hash cleanup; source memoization absent. Instrumented reads are not measured SSD traffic and exclude compiler-internal I/O and native copying."
+    }
   }
 }
