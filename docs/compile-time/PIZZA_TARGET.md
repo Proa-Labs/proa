@@ -37,6 +37,39 @@ hashing/validation within a cycle and server startup, preserving current-byte
 validation and exact artifact publication. No latency benefit from those future
 changes is assumed.
 
+## Startup and publication investigation
+
+A direct launch diagnostic on the final immutable Pizza binary isolated the
+restart cost. The already-launched executable listened in 3.4–4.1ms and served
+HTTP in 8.8–13.1ms. Fresh copies of those identical SHA-256 bytes listened in
+220–318ms. Native `cp -p` copies took 218–375ms, and APFS `cp -c -p` clones
+219–225ms. Process creation itself returned in about 1.4–1.6ms. This supports
+an inference of first-execution overhead associated with a newly created file;
+it does not identify a particular macOS service or policy as its cause.
+Router initialization and normal repeated application startup are not the
+0.36s bottleneck. No production copy-method change follows from these trials.
+[Existing/fresh measurements](evidence/pizza-startup-existing-vs-fresh.json) and
+[native/clone measurements](evidence/pizza-startup-native-vs-clone.json) retain
+all cases, executable paths, byte digests, server logs, and readiness timings.
+
+Cache extern-artifact validation already deduplicates paths, so it is not
+rehashing the same external artifact separately for every consuming unit.
+New diagnostics separate observed source/generated/environment checks from
+external artifact hashing. Independent object generations and artifact indexes
+now publish concurrently under the retained cache lease. Every publication
+keeps its verified atomic write and durability sync; errors are reported in
+canonical input order, and the invocation snapshot commits only after all
+index writes succeed. Artifact coordinates are proven unique before index
+publication. A second change retains the `fs::read` allocation in `Arc<Vec<u8>>`, avoiding
+one full artifact copy when converting a `Vec` to `Arc<[u8]>`. Rust 1.95's
+[conversion implementation](https://github.com/rust-lang/rust/blob/1.95.0/library/alloc/src/sync.rs#L3835)
+allocates a new slice and copies its elements. The retained bytes are still an
+owned snapshot; both fresh digest validations and parsed-record admission stay
+intact. This changes buffer ownership, not identity formats or validation.
+The combined change passed 680 CLI library tests, 12 cache integrations, three
+pipeline integrations, the six-build runtime/unit-reuse integration, lifecycle
+dev verification, and the workspace all-target check. Its latency trial follows.
+
 ## Hashing/watcher checkpoint results
 
 | Ordinary edit, normal dev profile, actual CLI defaults | Median | Samples |

@@ -1,0 +1,46 @@
+[
+  {
+    "case": "existing_snapshot",
+    "executable": "/private/tmp/proa-dev-perf-pizza/target/wrapper-reuse-function/proa-rsjs/final-target/rsjs-final-artifact-snapshots/0886f54ac43948e52ade8906f0045b47d7231d96e1a478d050c389282c663a09-mode-100755/proa_webmcp_pizza",
+    "sha256": "0886f54ac43948e52ade8906f0045b47d7231d96e1a478d050c389282c663a09",
+    "spawn_return_s": 0.0015205410309135914,
+    "listening_s": 0.004063708009198308,
+    "changed_response_s": 0.013078333111479878,
+    "lines": [
+      "2026-10-04T02:33:37.401290Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39157"
+    ]
+  },
+  {
+    "case": "existing_snapshot",
+    "executable": "/private/tmp/proa-dev-perf-pizza/target/wrapper-reuse-function/proa-rsjs/final-target/rsjs-final-artifact-snapshots/0886f54ac43948e52ade8906f0045b47d7231d96e1a478d050c389282c663a09-mode-100755/proa_webmcp_pizza",
+    "sha256": "0886f54ac43948e52ade8906f0045b47d7231d96e1a478d050c389282c663a09",
+    "spawn_return_s": 0.001471624942496419,
+    "listening_s": 0.0034322498831897974,
+    "changed_response_s": 0.008820957969874144,
+    "lines": [
+      "2026-10-04T02:33:37.415235Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39157"
+    ]
+  },
+  {
+    "case": "fresh_copy",
+    "executable": "/tmp/proa-dev-perf-pizza/target/startup-probe-copies/pizza-copy-2",
+    "sha256": "0886f54ac43948e52ade8906f0045b47d7231d96e1a478d050c389282c663a09",
+    "spawn_return_s": 0.0015219170600175858,
+    "listening_s": 0.3178610419854522,
+    "changed_response_s": 0.32267062505707145,
+    "lines": [
+      "2026-10-04T02:33:37.751416Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39157"
+    ]
+  },
+  {
+    "case": "fresh_copy",
+    "executable": "/tmp/proa-dev-perf-pizza/target/startup-probe-copies/pizza-copy-3",
+    "sha256": "0886f54ac43948e52ade8906f0045b47d7231d96e1a478d050c389282c663a09",
+    "spawn_return_s": 0.001642750110477209,
+    "listening_s": 0.21988441608846188,
+    "changed_response_s": 0.22471300000324845,
+    "lines": [
+      "2026-10-04T02:33:37.992451Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39157"
+    ]
+  }
+]

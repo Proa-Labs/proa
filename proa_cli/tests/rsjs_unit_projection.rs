@@ -100,7 +100,7 @@ fn unrelated_owner_stays_fresh_and_shared_changes_refresh_every_consumer() {
     let temp = TempDir::new().unwrap();
     let root = fs::canonicalize(temp.path()).unwrap();
     let _cleanup = if std::env::var_os("PROA_KEEP_PROJECTION_FIXTURE").is_some() {
-        temp.keep();
+        let _ = temp.keep();
         eprintln!("projection fixture: {}", root.display());
         None
     } else {

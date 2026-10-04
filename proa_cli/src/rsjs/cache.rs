@@ -1561,8 +1561,12 @@ fn validate_cached_unit_inputs(
     descriptor_target: &Path,
     cargo_artifacts: &[CargoCompilerArtifact],
 ) -> Result<DescriptorInputHashes, DescriptorCacheError> {
+    let mut timing = super::timing::StageTimer::new();
     validate_cached_observed_inputs(units_by_id, cached_ids, descriptor_target)?;
-    validate_cached_dependency_artifacts(units_by_id, cached_ids, cargo_artifacts)
+    timing.mark("cache validate observed source generated and environment inputs");
+    let hashes = validate_cached_dependency_artifacts(units_by_id, cached_ids, cargo_artifacts)?;
+    timing.mark("cache validate dependency artifact bytes");
+    Ok(hashes)
 }
 
 fn validate_cached_observed_inputs(
@@ -1740,33 +1744,44 @@ fn persist_fresh_units(
     cache_directory: &Path,
     units: &[ValidatedDescriptorUnit],
 ) -> Result<BTreeMap<DescriptorCargoUnitId, CachedUnitGeneration>, DescriptorCacheError> {
+    // The caller holds the cache lease. Each generation has its own paths,
+    // unique temporary names, and atomic verified publication, so independent
+    // compiler units can publish concurrently. Await every result before any
+    // indexes become visible and report errors in the original unit order.
+    let publications = units
+        .par_iter()
+        .map(|unit| -> Result<_, DescriptorCacheError> {
+            let sidecar_bytes = fs::read(&unit.sidecar_path).map_err(|source| {
+                DescriptorCacheError::ReadCacheSource {
+                    path: unit.sidecar_path.clone(),
+                    source,
+                }
+            })?;
+            let generation = CachedUnitGeneration {
+                cargo_unit_id: unit.unit.to_string(),
+                descriptor_object_hash: unit.sidecar.descriptor_object_hash.clone(),
+                sidecar_hash: cached_sidecar_hash(&sidecar_bytes),
+            };
+            generation.validate_hashes(&unit.sidecar_path)?;
+            atomic_copy_descriptor_object_verified(
+                &unit.descriptor_object,
+                &cached_object_path(cache_directory, &generation),
+                unit.unit,
+                &generation.descriptor_object_hash,
+            )?;
+            atomic_write_immutable_bytes(
+                &cached_sidecar_path(cache_directory, &generation),
+                &sidecar_bytes,
+            )?;
+            Ok((unit.unit, generation))
+        })
+        .collect::<Vec<_>>();
     let mut generations = BTreeMap::new();
-    for unit in units {
-        let sidecar_bytes = fs::read(&unit.sidecar_path).map_err(|source| {
-            DescriptorCacheError::ReadCacheSource {
-                path: unit.sidecar_path.clone(),
-                source,
-            }
-        })?;
-        let generation = CachedUnitGeneration {
-            cargo_unit_id: unit.unit.to_string(),
-            descriptor_object_hash: unit.sidecar.descriptor_object_hash.clone(),
-            sidecar_hash: cached_sidecar_hash(&sidecar_bytes),
-        };
-        generation.validate_hashes(&unit.sidecar_path)?;
-        atomic_copy_descriptor_object_verified(
-            &unit.descriptor_object,
-            &cached_object_path(cache_directory, &generation),
-            unit.unit,
-            &generation.descriptor_object_hash,
-        )?;
-        atomic_write_immutable_bytes(
-            &cached_sidecar_path(cache_directory, &generation),
-            &sidecar_bytes,
-        )?;
-        if let Some(previous) = generations.insert(unit.unit, generation.clone()) {
+    for publication in publications {
+        let (unit, generation) = publication?;
+        if let Some(previous) = generations.insert(unit, generation.clone()) {
             return Err(DescriptorCacheError::ConflictingCachedGeneration {
-                unit: unit.unit,
+                unit,
                 first: cached_generation_label(&previous),
                 second: cached_generation_label(&generation),
             });
@@ -1872,6 +1887,7 @@ fn persist_artifact_indexes(
             .or_default()
             .push(generation);
     }
+    let mut indexes = Vec::with_capacity(evidence.len());
     for artifact in evidence {
         let mut units = units_by_artifact
             .remove(&artifact.coordinate)
@@ -1884,12 +1900,21 @@ fn persist_artifact_indexes(
         };
         let bytes = serde_json::to_vec_pretty(&index)
             .map_err(DescriptorCacheError::SerializeCacheRecord)?;
-        atomic_write_replaceable(
-            &cache_directory
+        indexes.push((
+            cache_directory
                 .join("artifacts")
                 .join(format!("{}.json", artifact.coordinate)),
-            &bytes,
-        )?;
+            bytes,
+        ));
+    }
+    // Artifact index paths are independent. Publish them under the same lease,
+    // then commit the invocation snapshot only after all results succeed.
+    let publications = indexes
+        .par_iter()
+        .map(|(path, bytes)| atomic_write_replaceable(path, bytes))
+        .collect::<Vec<_>>();
+    for publication in publications {
+        publication?;
     }
     Ok(())
 }
