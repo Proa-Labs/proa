@@ -13,7 +13,7 @@ owner-local plan redesign or every platform/backend adapter.
 | 1 | Safe identical cache publication; measured actual pizza example waterfall | Assets/browser paint are excluded |
 | 2 | Immutable validated byte snapshots, paired input hashes, bounded parsed-record reuse | Every cycle still freshly validates bytes and inputs |
 | 3 | Complete multi-object carriers with incremental codegen; partial-edit/removal witnesses retained | Native host cc and rlibs supported; other cases retain conservative single-object fallback |
-| 4 | Independent final mapping-entry witnesses; Cargo reuse integration proof; stable runtime site identities | Global plan still invalidates RSJS expansions; owner content hashes and per-unit projections remain |
+| 4 | Independent final mapping-entry witnesses; Cargo reuse integration proof; stable runtime site identities and asset generations | Global plan still invalidates RSJS expansions; complete per-unit projections remain |
 | 5 | Repository/current stable and isolated nightly feature trials, retaining failures | See COMPILERS.md for actual compatibility and performance results |
 | 6 | Explicit hot-static implementation and HTTP correctness/latency proof | Development-only surface, render overhead, new-session cold builds |
 
@@ -88,7 +88,7 @@ mapping-entry hash per unit to Cargo. The proc-macro witness tracks that hash,
 plus the existing global plan ID and file hash. The integration test changes
 another unit's source/map and proves the unchanged mapped dependency remains
 fresh. A real split RSJS-island crate still rebuilds in the final pass after an
-SSR-page edit because asset/seed identities depend on the global plan. See
+SSR-page edit because its macros still track the global plan witnesses. See
 INVALIDATION.md for the observed dependency and required owner-local redesign.
 
 The next checkpoint shares plan validation and owner/helper selection in
@@ -96,9 +96,14 @@ The next checkpoint shares plan validation and owner/helper selection in
 tokens with logical root/site identities. Server child calls, SharedState
 provider occurrences, and owner JavaScript now agree on those stable coordinates;
 collisions fail closed. Fused member seed keys use full occurrence hashes.
-Global owner assets and Cargo plan witnesses remain until content addressing and
-per-unit projection validation are implemented. This checkpoint is correctness
-and architecture work, with no new latency claim.
+Fragment generations now cover descriptor/compiler inputs, required exports,
+and potential transitive helpers. Owner IDs cover actual emitted JavaScript
+with its own registration and seed names normalized, plus its stable site
+identity. Server seed tags and manifest imports use the same generations.
+Unrelated roots preserve owner IDs and exact JavaScript, while changed children,
+helpers, or required exports refresh their consumers. Global Cargo plan witnesses
+remain until complete per-unit projections are published and validated. These
+checkpoints are correctness and architecture work, with no new latency claim.
 
 The explicit hot-static prototype uses the shared checked DSL and consolidation
 walk. Its file fingerprint masks only eligible template string values; dynamic

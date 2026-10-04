@@ -14,14 +14,15 @@ still change this unit's emitted Rust/HTML.
 
 ## Why removing the global plan witness is incorrect
 
-In `rsjs_ir/src/final_plan.rs`, `owner_asset_id` still uses the global PlanId and
-an owner ordinal. Dense owner ordinals can change when an unrelated definition
-is inserted. Cross-unit child relationships and fused
-helper implementations also influence the selected owner's JavaScript.
+Stable runtime coordinates and content-addressed asset generations now remove
+global PlanId and dense owner ordinals from emitted identities. Cross-unit child
+relationships, selected exports, and transitive helper implementations still
+influence the Rust/HTML and JavaScript that a unit emits. Its mapping-entry hash
+alone does not describe these selections.
 
-An old final crate can therefore refer to an asset or member seed that the new
-global plan no longer emits. A cache hit is not sufficient evidence that its
-output remains compatible. Retaining the global witnesses avoids that bug.
+A final crate may remain fresh only when its complete consumed selections remain
+compatible with the new plan. Publishing and tracking exact unit projections
+is the next step; until then, retaining the global witnesses avoids stale output.
 The branch does **not** claim complete owner-local invalidation.
 
 ## Next architecture experiment
@@ -29,11 +30,11 @@ The branch does **not** claim complete owner-local invalidation.
 1. Give each owner and member site a stable semantic identity based on its
    definition/site coordinate rather than global traversal order. Treat
    reordered or duplicated sites explicitly; do not use a file-offset shortcut.
-   Runtime site coordinates and member seed keys are now implemented below;
-   owner assets still require content addressing.
+   Runtime site coordinates and member seed keys are now implemented below.
 2. Compute an owner content hash over the actual generated payload and its
    transitive child/helper/protocol dependencies. Use it for asset and seed
-   identities, consistently in server macros, JavaScript, and manifests.
+   identities, consistently in server macros, JavaScript, and manifests. Asset
+   generation identities are now implemented below.
 3. Publish content-addressed unit projections containing exactly the final
    selections that unit's macros consume. Track each projection's hash in
    Cargo dep-info. Keep root publication/attestation tied to the complete plan.
@@ -118,10 +119,39 @@ The NodeRef acceptance test executes generated JavaScript with Node 26.8.1,
 checking exact input focus and disposal through a participant chain.
 Workspace checking, focused library tests, and render performance lint pass.
 
-This checkpoint deliberately retains the global owner asset names and Cargo
-plan witnesses. Content-addressed owner/fragment generations and complete
-per-unit projections are still required before unrelated final crates can
-remain fresh. No additional Pizza latency result is claimed for this change.
+This checkpoint retained global asset names and Cargo plan witnesses. The asset
+generation checkpoint below replaces the names; complete per-unit projections
+are still required before unrelated final crates can remain fresh.
+
+## Asset generation checkpoint
+
+Each component fragment now has a separate 256-bit generation ID. It covers
+the exact descriptor unit and record, canonical component codegen, required
+signal/lifecycle/NodeRef export and import unions, helper bindings, and complete
+potential transitive helper closure. The closure deliberately includes helpers
+before dead-code elimination. Descriptor-unit generations cover compiler and
+dependency inputs, so a change in the component's own Cargo unit conservatively
+refreshes its fragment even if that particular component body is unchanged.
+The descriptor's source identity stays intact.
+
+Each owner ID hashes its stable full site identity and actual generated owner
+JavaScript, including its fragment imports and NodeRef aliases. Only the
+owner's own registration name and root seed name are replaced with a fixed
+placeholder while hashing, avoiding a self-reference cycle. Final emission
+uses the resulting ID in those positions. Server seed tags, fragment exports,
+owner imports, and manifest registrations all use the same generation IDs.
+
+Tests prove that adding an unrelated root preserves owner IDs and exact owner
+JavaScript; changing a child refreshes all importing owners; changing a
+transitive shared helper refreshes its consumers; and adding a required export
+changes the fragment generation without changing source identity. The 308 IR
+and 435 macro unit tests pass with both default JSON features and
+`serde_json/preserve_order`. Eleven end-to-end cases cover helper linking,
+NodeRef focus/disposal in generated JavaScript (Node 24.20.0), sync/async sites,
+live props/callbacks, explicit root cuts, and SharedState consumers/providers.
+Global Cargo
+plan witnesses remain until complete unit projections are published and checked.
+No additional Pizza latency result is claimed for either identity checkpoint.
 
 ## A separate upstream Cargo compatibility finding
 

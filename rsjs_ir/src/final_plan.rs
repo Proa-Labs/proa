@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const PLAN_FORMAT: &str = "proa.rsjs.semantic_link_plan";
 const PLAN_SCHEMA_VERSION: u64 = 15;
+const OWNER_HASH_PLACEHOLDER: &str = "rsjs_owner_content_placeholder";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DefinitionKind {
@@ -284,6 +285,10 @@ pub struct FinalRuntimeSiteIdentity {
 #[derive(Clone, Debug, PartialEq)]
 pub struct FinalComponentSelection {
     pub plan_id: [u8; 32],
+    /// Generation identity of the selected definition's reusable fragment.
+    /// It commits the descriptor/compiler generation, export union, and
+    /// complete potential helper closure, independently of global ordinals.
+    pub fragment_asset_id: String,
     /// Stable runtime identities indexed by internal dense planner candidate.
     pub runtime_sites: BTreeMap<u32, FinalRuntimeSiteIdentity>,
     /// Unique standalone occurrence of this component definition, when its
@@ -482,6 +487,13 @@ pub fn linked_fragment_signal_exports(
         .iter()
         .map(|site| site.candidate_id)
         .collect::<BTreeSet<_>>();
+    fragment_signal_exports_for(selection, &current_candidates)
+}
+
+fn fragment_signal_exports_for(
+    selection: &FinalComponentSelection,
+    current_candidates: &BTreeSet<u32>,
+) -> Result<Vec<crate::SignalId>, String> {
     let mut producer_ids = BTreeSet::new();
     for records in selection.all_live_props_by_child.values() {
         for record in records {
@@ -511,6 +523,13 @@ pub fn linked_fragment_lifecycle_exports(
         .iter()
         .map(|site| site.candidate_id)
         .collect::<BTreeSet<_>>();
+    fragment_lifecycle_exports_for(selection, &current_candidates)
+}
+
+fn fragment_lifecycle_exports_for(
+    selection: &FinalComponentSelection,
+    current_candidates: &BTreeSet<u32>,
+) -> Result<Vec<crate::emit_js::FragmentLifecycleControlExport>, String> {
     let mut controls = BTreeMap::<u32, u32>::new();
 
     for site in &selection.all_sites {
@@ -1422,12 +1441,12 @@ pub fn validate_component_plan_bytes(
         };
         let (owner_asset_id, seed_key) = match owner_role {
             FinalOwnerRole::ServerOnly => (None, None),
-            FinalOwnerRole::Root { owner_id } => {
-                let owner_asset = owner_asset_id(plan_id, owner_id);
+            FinalOwnerRole::Root { .. } => {
+                let owner_asset = OWNER_HASH_PLACEHOLDER.to_owned();
                 (Some(owner_asset.clone()), Some(owner_asset))
             }
-            FinalOwnerRole::Member { owner_id, .. } => (
-                Some(owner_asset_id(plan_id, owner_id)),
+            FinalOwnerRole::Member { .. } => (
+                Some(OWNER_HASH_PLACEHOLDER.to_owned()),
                 Some(member_seed_key(runtime_sites[&site.candidate_id].site_id)),
             ),
         };
@@ -1531,8 +1550,9 @@ pub fn validate_component_plan_bytes(
         })
         .collect::<Result<BTreeMap<_, _>, String>>()?;
 
-    Ok(FinalComponentSelection {
+    let mut selection = FinalComponentSelection {
         plan_id,
+        fragment_asset_id: String::new(),
         runtime_sites,
         standalone_candidate_id,
         sites: selected_sites,
@@ -1550,7 +1570,15 @@ pub fn validate_component_plan_bytes(
         all_live_callbacks_by_child,
         all_node_ref_aliases,
         helper_linkage,
-    })
+    };
+    finalize_asset_identities(
+        &mut selection,
+        selected_definition,
+        &components,
+        &sites,
+        root,
+    )?;
+    Ok(selection)
 }
 
 fn parse_components(
@@ -3811,8 +3839,178 @@ pub fn hex_id(id: &[u8; 32]) -> String {
     encoded
 }
 
-fn owner_asset_id(plan_id: [u8; 32], owner_id: u32) -> String {
-    format!("rsjs_owner_{}_{owner_id}", hex_id(&plan_id))
+fn canonical_plan_json_bytes(value: &Value) -> Result<Vec<u8>, String> {
+    let mut canonical = value.clone();
+    canonical.sort_all_objects();
+    serde_json::to_vec(&canonical)
+        .map_err(|error| format!("failed to canonicalize final-plan content: {error}"))
+}
+
+fn definition_json_records<'a>(
+    root: &'a Map<String, Value>,
+    table: &str,
+) -> Result<BTreeMap<DefinitionId, &'a Value>, String> {
+    array(root, table)?
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let label = format!("{table}[{index}]");
+            let entry = object(value, &label)?;
+            Ok((parse_definition_field(entry, "definition", &label)?, value))
+        })
+        .collect()
+}
+
+fn finalize_asset_identities(
+    selection: &mut FinalComponentSelection,
+    selected_definition: DefinitionId,
+    components: &BTreeMap<DefinitionId, ComponentRecord>,
+    sites: &[ComponentSiteRecord],
+    root: &Map<String, Value>,
+) -> Result<(), String> {
+    let codegen_records = definition_json_records(root, "component_codegen")?;
+    let helper_records = definition_json_records(root, "helpers")?;
+    let helper_codegen = definition_json_records(root, "helper_codegen")?;
+    let helper_definitions_by_key = helper_records
+        .iter()
+        .map(|(&definition, value)| {
+            let entry = object(value, "validated helper")?;
+            Ok((
+                linked_helper_key(entry, "semantic_key_canonical", "validated helper")?,
+                definition,
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>, String>>()?;
+    let mut fragments = BTreeMap::new();
+    for (&definition, component) in components {
+        let candidates = sites
+            .iter()
+            .filter(|site| site.definition == definition)
+            .map(|site| site.candidate_id)
+            .collect::<BTreeSet<_>>();
+        let signals = fragment_signal_exports_for(selection, &candidates)?;
+        let lifecycles = fragment_lifecycle_exports_for(selection, &candidates)?;
+        let node_exports = selection
+            .all_node_ref_aliases
+            .iter()
+            .filter(|alias| candidates.contains(&alias.parent_candidate_id))
+            .map(|alias| alias.parent_node_ref_id)
+            .collect::<BTreeSet<_>>();
+        let node_imports = selection
+            .all_node_ref_aliases
+            .iter()
+            .filter(|alias| candidates.contains(&alias.child_candidate_id))
+            .map(|alias| alias.child_node_ref_id)
+            .collect::<BTreeSet<_>>();
+        let helpers = component
+            .helper_closure
+            .iter()
+            .map(|key| {
+                let helper_definition = helper_definitions_by_key.get(key).ok_or_else(|| {
+                    "validated component closure has no exact helper definition".to_owned()
+                })?;
+                Ok(serde_json::json!({
+                    "descriptor": helper_records[helper_definition],
+                    "codegen": helper_codegen[helper_definition],
+                }))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let material = serde_json::json!({
+            "descriptor_unit": hex_id(&definition.cargo_unit_id),
+            "descriptor_record": hex_id(&definition.record_id),
+            "semantic_key": component.semantic_key,
+            "codegen": codegen_records[&definition],
+            "active": selection.all_sites.iter().any(|site|
+                candidates.contains(&site.candidate_id)
+                    && !matches!(site.owner_role, FinalOwnerRole::ServerOnly)),
+            "signal_exports": signals.iter().map(|signal| signal.0).collect::<Vec<_>>(),
+            "lifecycle_exports": lifecycles.iter().map(|export| serde_json::json!({
+                "control": export.control_id,
+                "expression": export.producer_expression_id.0,
+            })).collect::<Vec<_>>(),
+            "node_ref_exports": node_exports.into_iter().collect::<Vec<_>>(),
+            "node_ref_imports": node_imports.into_iter().collect::<Vec<_>>(),
+            "helper_bindings": component.helper_edges.iter().map(|(&call, edge)| serde_json::json!({
+                "call": call,
+                "source": hex_id(&edge.source_edge),
+                "target": edge.target.as_bytes(),
+            })).collect::<Vec<_>>(),
+            "helpers": helpers,
+        });
+        let mut hash = Sha256::new();
+        hash.update(b"proa.rsjs.final-component-fragment.v1\0");
+        hash.update(canonical_plan_json_bytes(&material)?);
+        let digest: [u8; 32] = hash.finalize().into();
+        fragments.insert(definition, format!("rsjs_fragment_{}", hex_id(&digest)));
+    }
+    selection.fragment_asset_id = fragments[&selected_definition].clone();
+    for site in sites {
+        let fragment = &fragments[&site.definition];
+        selection
+            .codegen_by_candidate
+            .get_mut(&site.candidate_id)
+            .ok_or_else(|| "validated candidate has no codegen generation".to_owned())?
+            .fragment_key = fragment.clone();
+    }
+    for site in &mut selection.all_sites {
+        site.fragment_asset_id = selection.codegen_by_candidate[&site.candidate_id]
+            .fragment_key
+            .clone();
+    }
+    let mut owners = BTreeMap::new();
+    for site in &selection.all_sites {
+        if let FinalOwnerRole::Root { owner_id } = site.owner_role {
+            owners.insert(owner_id, owner_content_asset_id(selection, site)?);
+        }
+    }
+    for site in &mut selection.all_sites {
+        match site.owner_role {
+            FinalOwnerRole::ServerOnly => {}
+            FinalOwnerRole::Root { owner_id } => {
+                site.owner_asset_id = Some(owners[&owner_id].clone());
+                site.seed_key = site.owner_asset_id.clone();
+            }
+            FinalOwnerRole::Member { owner_id, .. } => {
+                site.owner_asset_id = Some(owners[&owner_id].clone());
+            }
+        }
+    }
+    let selected_candidates = selection
+        .sites
+        .iter()
+        .map(|site| site.candidate_id)
+        .collect::<BTreeSet<_>>();
+    selection.sites = selection
+        .all_sites
+        .iter()
+        .filter(|site| selected_candidates.contains(&site.candidate_id))
+        .cloned()
+        .collect();
+    Ok(())
+}
+
+fn owner_content_asset_id(
+    selection: &FinalComponentSelection,
+    root: &FinalComponentSite,
+) -> Result<String, String> {
+    let mut plan = linked_owner_module_plan(selection, root)?;
+    // The owner's name appears in its own registration and root seed check.
+    // Hash the exact emitter with only those self-reference slots normalized,
+    // then emit normally using the resulting content identity.
+    plan.owner_asset_id = OWNER_HASH_PLACEHOLDER.to_owned();
+    plan.mounts[0].seed_key = OWNER_HASH_PLACEHOLDER.to_owned();
+    let aliases = linked_owner_node_ref_aliases(selection, &plan)?;
+    let js = crate::emit_linked_owner_module_with_node_refs(&plan, &aliases)
+        .map_err(|error| format!("failed to hash linked-owner payload: {error}"))?;
+    let identity = selection.runtime_site(root.candidate_id)?;
+    let mut hash = Sha256::new();
+    hash.update(b"proa.rsjs.final-owner-module.v1\0");
+    hash.update(identity.site_id);
+    hash.update([u8::from(plan.uses_queries), u8::from(plan.uses_mutations)]);
+    hash.update((js.len() as u64).to_le_bytes());
+    hash.update(js.as_bytes());
+    let digest: [u8; 32] = hash.finalize().into();
+    Ok(format!("rsjs_owner_{}", hex_id(&digest)))
 }
 
 fn member_seed_key(site_id: [u8; 32]) -> String {
@@ -4075,6 +4273,35 @@ mod tests {
         plan
     }
 
+    fn configure_live_codegen(plan: &mut Value) {
+        plan["component_codegen"][0]["signals"] = json!([{
+            "producer_signal_id": 17, "canonical_value_id": 5,
+        }]);
+        plan["component_codegen"][0]["payload_handlers"] = json!([{
+            "prelude_local_index": 19, "canonical_value_id": 11,
+        }]);
+        plan["component_codegen"][1]["inbound_fields"] = json!([
+            {
+                "field_id": 0, "producer_value_id": 0,
+                "canonical_value_id": 6, "crossing_hook_id": 4, "callback_slot_id": null,
+            },
+            {
+                "field_id": 1, "producer_value_id": 1,
+                "canonical_value_id": 12, "crossing_hook_id": 10, "callback_slot_id": 29,
+            },
+        ]);
+        plan["component_codegen"][1]["inbound_targets"] = json!([{
+            "prop_site_id": 8, "field_id": 0,
+            "producer_signal_id": 23, "canonical_signal_value_id": 7,
+        }]);
+        plan["component_codegen"][1]["signals"] = json!([{
+            "producer_signal_id": 23, "canonical_value_id": 7,
+        }]);
+        plan["component_codegen"][1]["callback_slots"] = json!([{
+            "producer_callback_slot_id": 29, "canonical_value_id": 12,
+        }]);
+    }
+
     fn node_ref_plan() -> Value {
         let mut plan = linked_plan();
         plan["component_sites"]
@@ -4322,9 +4549,19 @@ mod tests {
             linked_owner_node_ref_aliases(&after, &new_owner).unwrap(),
         );
         assert_eq!(old_owner.mounts[1], new_owner.mounts[1]);
-        // Global owner assets are deliberately still tracked until content
-        // addressing and exact unit projections are implemented together.
-        assert_ne!(old_owner.owner_asset_id, new_owner.owner_asset_id);
+        assert_eq!(old_owner, new_owner);
+        assert_eq!(
+            crate::emit_linked_owner_module_with_node_refs(
+                &old_owner,
+                &linked_owner_node_ref_aliases(&before, &old_owner).unwrap()
+            )
+            .unwrap(),
+            crate::emit_linked_owner_module_with_node_refs(
+                &new_owner,
+                &linked_owner_node_ref_aliases(&after, &new_owner).unwrap()
+            )
+            .unwrap(),
+        );
     }
 
     #[test]
@@ -4352,10 +4589,152 @@ mod tests {
         let after = validate_component_plan_bytes([12; 32], PARENT_RECORD, PLAN_ID, &encode(&plan))
             .unwrap();
         assert_eq!(before.runtime_sites, after.runtime_sites);
+        assert_ne!(before.fragment_asset_id, after.fragment_asset_id);
+        assert_ne!(
+            before.all_sites[0].owner_asset_id,
+            after.all_sites[0].owner_asset_id
+        );
+        assert_eq!(
+            before.all_sites[2].owner_asset_id, after.all_sites[2].owner_asset_id,
+            "a different definition's standalone owner has no changed import"
+        );
         assert_ne!(
             before.runtime_site(1).unwrap(),
             before.runtime_site(2).unwrap(),
             "a child under its parent and the same definition's standalone root are distinct"
+        );
+    }
+
+    #[test]
+    fn child_fragment_generation_refreshes_every_importing_owner() {
+        let mut plan = linked_plan();
+        insert_unrelated_first_root(&mut plan);
+        let before =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &encode(&plan))
+                .unwrap();
+        plan["component_codegen"][2]["asset_id"] = json!("child_changed");
+        plan["component_codegen"][2]["fragment_key"] = json!("child_changed");
+        let after =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &encode(&plan))
+                .unwrap();
+        assert_eq!(before.fragment_asset_id, after.fragment_asset_id);
+        assert_ne!(
+            before.all_sites[2].fragment_asset_id,
+            after.all_sites[2].fragment_asset_id
+        );
+        for root in [1, 3] {
+            assert_ne!(
+                before.all_sites[root].owner_asset_id,
+                after.all_sites[root].owner_asset_id
+            );
+        }
+        assert_eq!(
+            before.all_sites[0].owner_asset_id,
+            after.all_sites[0].owner_asset_id
+        );
+    }
+
+    #[test]
+    fn helper_body_generation_refreshes_shared_consumers_and_leaves_unrelated_owners_stable() {
+        let mut plan = linked_helper_plan();
+        plan["components"][1]["helper_edges"] = plan["components"][0]["helper_edges"].clone();
+        plan["components"][1]["helper_edges"][0]["source_edge_id"] = json!("79".repeat(32));
+        for component in plan["components"].as_array_mut().unwrap() {
+            component["helper_closure"] = json!(["dd", "ee"]);
+        }
+        let mut leaf_descriptor = plan["helpers"][0].clone();
+        leaf_descriptor["definition"] = definition([15; 32], [16; 32]);
+        leaf_descriptor["semantic_key_canonical"] = json!("ee");
+        leaf_descriptor["transitive_closure"] = json!(["ee"]);
+        let mut leaf_codegen = plan["helper_codegen"][0].clone();
+        leaf_codegen["definition"] = definition([15; 32], [16; 32]);
+        leaf_codegen["semantic_key_canonical"] = json!("ee");
+        plan["helpers"][0]["helper_edges"] = json!([{
+            "call_id": 0, "witness_id": 0, "source_edge_id": "78".repeat(32),
+            "target_definition": definition([15; 32], [16; 32]),
+            "target_semantic_key_canonical": "ee",
+        }]);
+        plan["helpers"][0]["transitive_closure"] = json!(["dd", "ee"]);
+        let forwarding_body = crate::ClientExpr::call(
+            crate::ClientFunctionRef::Helper {
+                edge: crate::abi::HelperCallEdgeId::new(0),
+                authored_path: "ignored::leaf".to_owned(),
+                name: "leaf".to_owned(),
+            },
+            vec![],
+        );
+        let forwarding_body: Value =
+            serde_json::from_str(&crate::client_expr_json(&forwarding_body)).unwrap();
+        let forwarding_hash =
+            legacy_json_hash(HELPER_CODEGEN_IR_JSON_HASH_DOMAIN, &forwarding_body).unwrap();
+        plan["helper_codegen"][0]["body_ir"] = forwarding_body;
+        plan["helper_codegen"][0]["body_ir_hash"] =
+            json!(format!("sha256:{}", hex_id(&forwarding_hash)));
+        plan["helpers"]
+            .as_array_mut()
+            .unwrap()
+            .push(leaf_descriptor);
+        plan["helper_codegen"]
+            .as_array_mut()
+            .unwrap()
+            .push(leaf_codegen);
+        plan["reachable_helpers"] = json!(["ee", "dd"]);
+        insert_unrelated_first_root(&mut plan);
+        let before =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &encode(&plan))
+                .unwrap();
+        let body: Value =
+            serde_json::from_str(&crate::client_expr_json(&crate::ClientExpr::int(2))).unwrap();
+        let hash = legacy_json_hash(HELPER_CODEGEN_IR_JSON_HASH_DOMAIN, &body).unwrap();
+        // Only the transitive leaf changes; both components still call the
+        // unchanged forwarding helper through the same source-edge bindings.
+        plan["helper_codegen"][1]["body_ir"] = body;
+        plan["helper_codegen"][1]["body_ir_hash"] = json!(format!("sha256:{}", hex_id(&hash)));
+        let after =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &encode(&plan))
+                .unwrap();
+        assert_ne!(before.fragment_asset_id, after.fragment_asset_id);
+        for root in [1, 3] {
+            assert_ne!(
+                before.all_sites[root].owner_asset_id,
+                after.all_sites[root].owner_asset_id
+            );
+        }
+        assert_eq!(
+            before.all_sites[0].owner_asset_id,
+            after.all_sites[0].owner_asset_id
+        );
+    }
+
+    #[test]
+    fn required_export_union_changes_fragment_generation_without_source_id_changes() {
+        let mut plan = linked_plan();
+        configure_live_codegen(&mut plan);
+        let before =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &encode(&plan))
+                .unwrap();
+        assert!(linked_fragment_signal_exports(&before).unwrap().is_empty());
+        plan["component_inputs"]["live_props"] = json!([{
+            "parent_candidate_id": 0, "edge_id": 7, "child_candidate_id": 1,
+            "field_id": 0, "crossing_hook_id": 4,
+            "parent_value_id": 5, "child_value_id": 6, "prop_site_id": 8,
+            "temporal": { "kind": "live_read" },
+        }]);
+        let after =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &encode(&plan))
+                .unwrap();
+        assert_eq!(
+            linked_fragment_signal_exports(&after).unwrap(),
+            vec![crate::SignalId(17)]
+        );
+        assert_ne!(before.fragment_asset_id, after.fragment_asset_id);
+        assert_ne!(
+            before.all_sites[0].owner_asset_id,
+            after.all_sites[0].owner_asset_id
+        );
+        assert_eq!(
+            before.all_sites[2].owner_asset_id,
+            after.all_sites[2].owner_asset_id
         );
     }
 
@@ -4433,8 +4812,8 @@ mod tests {
                 Some(FinalOwnerActivationStrategy::Visible),
             ]
         );
-        let expected_owner_0 = owner_asset_id(PLAN_ID, 0);
-        let expected_owner_1 = owner_asset_id(PLAN_ID, 1);
+        let expected_owner_0 = selection.all_sites[0].owner_asset_id.clone().unwrap();
+        let expected_owner_1 = selection.all_sites[2].owner_asset_id.clone().unwrap();
         assert_eq!(
             selection.sites[0].owner_asset_id.as_deref(),
             Some(expected_owner_0.as_str())
@@ -4451,7 +4830,10 @@ mod tests {
             selection.sites[1].seed_key.as_deref(),
             Some(expected_owner_1.as_str())
         );
-        assert_eq!(selection.sites[0].fragment_asset_id, "child_1234");
+        assert_eq!(
+            selection.sites[0].fragment_asset_id,
+            selection.fragment_asset_id
+        );
         assert!(selection.child_sites.is_empty());
 
         let parent = validate_component_plan_bytes(
@@ -4676,8 +5058,11 @@ mod tests {
         let owner = &plans[0];
         assert_eq!(owner.root_candidate_id, runtime_candidate(&parent, 0));
         assert_eq!(owner.mounts.len(), 2);
-        assert_eq!(owner.mounts[0].fragment_asset_id, "parent_1234");
-        assert_eq!(owner.mounts[1].fragment_asset_id, "child_1234");
+        assert_eq!(owner.mounts[0].fragment_asset_id, parent.fragment_asset_id);
+        assert_eq!(
+            owner.mounts[1].fragment_asset_id,
+            parent.codegen_by_candidate[&1].fragment_key
+        );
         assert_eq!(
             owner.mounts[1].parent_candidate_id.as_deref(),
             Some(runtime_candidate(&parent, 0).as_str())
@@ -4848,10 +5233,9 @@ mod tests {
         ));
 
         plan["component_codegen"][1]["signals"][0]["canonical_value_id"] = json!(99);
-        let parent =
+        let error =
             validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &encode(&plan))
-                .unwrap();
-        let error = linked_owner_module_plans(&parent).unwrap_err();
+                .unwrap_err();
         assert!(
             error.contains("does not resolve to its canonical value 7"),
             "{error}"
@@ -5015,12 +5399,13 @@ mod tests {
     #[test]
     fn live_input_records_are_selected_by_exact_child_occurrence() {
         let mut plan = linked_plan();
+        configure_live_codegen(&mut plan);
         plan["component_inputs"] = json!({
             "live_props": [{
                 "parent_candidate_id": 0,
                 "edge_id": 7,
                 "child_candidate_id": 1,
-                "field_id": 3,
+                "field_id": 0,
                 "crossing_hook_id": 4,
                 "parent_value_id": 5,
                 "child_value_id": 6,
@@ -5034,7 +5419,7 @@ mod tests {
                 "parent_candidate_id": 0,
                 "edge_id": 7,
                 "child_candidate_id": 1,
-                "field_id": 9,
+                "field_id": 1,
                 "crossing_hook_id": 10,
                 "parent_value_id": 11,
                 "child_value_id": 12,
@@ -5052,7 +5437,7 @@ mod tests {
                 parent_candidate_id: 0,
                 edge_id: 7,
                 child_candidate_id: 1,
-                field_id: 3,
+                field_id: 0,
                 crossing_hook_id: 4,
                 parent_value_id: 5,
                 child_value_id: 6,
@@ -5066,7 +5451,7 @@ mod tests {
                 parent_candidate_id: 0,
                 edge_id: 7,
                 child_candidate_id: 1,
-                field_id: 9,
+                field_id: 1,
                 crossing_hook_id: 10,
                 parent_value_id: 11,
                 child_value_id: 12,
@@ -5348,10 +5733,9 @@ mod tests {
     fn lifecycle_predicate_export_requires_an_exact_producer_expression() {
         let mut plan = conditional_plan("then");
         plan["component_codegen"][0]["expressions"] = json!([]);
-        let selection =
+        let error =
             validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &encode(&plan))
-                .unwrap();
-        let error = linked_fragment_lifecycle_exports(&selection).unwrap_err();
+                .unwrap_err();
         assert!(
             error.contains("lifecycle predicate expression value 5")
                 && error.contains("does not resolve to exactly one producer-local ID"),
