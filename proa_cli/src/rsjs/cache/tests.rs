@@ -449,9 +449,79 @@ fn cached_observed_input_validation_rejects_changed_source_bytes() {
     let units = BTreeMap::from([(unit.unit, &unit)]);
 
     validate_cached_observed_inputs(&units, &cached_ids, &descriptor_target).unwrap();
+    let modified = fs::metadata(&source).unwrap().modified().unwrap();
     fs::write(&source, "pub fn value() -> u32 { 9 }\n").unwrap();
+    OpenOptions::new()
+        .write(true)
+        .open(&source)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(modified))
+        .unwrap();
     assert!(matches!(
         validate_cached_observed_inputs(&units, &cached_ids, &descriptor_target),
+        Err(DescriptorCacheError::CachedOutDirDependencyMismatch { .. })
+    ));
+}
+
+#[test]
+fn shared_observed_source_still_checks_every_units_expected_hash() {
+    let temp = TempDir::new().unwrap();
+    let (unit, _cargo, _source, _manifest) = cached_unit_fixture(&temp);
+    let mut conflicting = unit.clone();
+    conflicting.unit = DescriptorCargoUnitId::from_hex(&"f0".repeat(32)).unwrap();
+    conflicting.sidecar.cargo_unit_id = conflicting.unit.to_string();
+    conflicting.sidecar.source_dependencies[0].content_hash = "00".repeat(32);
+    let target = temp.path().join("cached-package/.build");
+    let ids = BTreeSet::from([unit.unit, conflicting.unit]);
+    let units = BTreeMap::from([(unit.unit, &unit), (conflicting.unit, &conflicting)]);
+    assert!(matches!(
+        validate_cached_observed_inputs(&units, &ids, &target),
+        Err(DescriptorCacheError::CachedOutDirDependencyMismatch { unit: failed, .. })
+            if failed == conflicting.unit
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn observed_snapshot_does_not_bypass_source_path_checks() {
+    let temp = TempDir::new().unwrap();
+    let (unit, _cargo, source, _manifest) = cached_unit_fixture(&temp);
+    let target = temp.path().join("cached-package/.build");
+    let hashes = ObservedSourceHashes::new([source.canonicalize().unwrap()]);
+    validate_descriptor_observed_inputs_with_hashes(&target, &unit.sidecar, Some(&hashes)).unwrap();
+    let moved = source.with_extension("moved");
+    fs::rename(&source, &moved).unwrap();
+    std::os::unix::fs::symlink(&moved, &source).unwrap();
+    assert!(
+        validate_descriptor_observed_inputs_with_hashes(&target, &unit.sidecar, Some(&hashes),)
+            .is_err()
+    );
+}
+
+#[test]
+fn observed_snapshot_rejects_new_dep_info_source_paths() {
+    let temp = TempDir::new().unwrap();
+    let (unit, _cargo, source, _manifest) = cached_unit_fixture(&temp);
+    let target = temp.path().join("cached-package/.build");
+    let dep_info = target.join(&unit.sidecar.dep_info_path);
+    let extra = source.with_file_name("unexpected.rs");
+    fs::write(&extra, "pub const EXTRA: u8 = 7;\n").unwrap();
+    fs::write(
+        &dep_info,
+        format!(
+            "{}: {} {}\n\n{}:\n{}:\n",
+            dep_info.display(),
+            source.display(),
+            extra.display(),
+            source.display(),
+            extra.display()
+        ),
+    )
+    .unwrap();
+    let ids = BTreeSet::from([unit.unit]);
+    let units = BTreeMap::from([(unit.unit, &unit)]);
+    assert!(matches!(
+        validate_cached_observed_inputs(&units, &ids, &target),
         Err(DescriptorCacheError::CachedOutDirDependencyMismatch { .. })
     ));
 }

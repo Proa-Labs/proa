@@ -16,6 +16,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -2004,6 +2005,24 @@ fn observe_rustc_inputs(
     out_dir_coordinate: Option<&str>,
     phase_environment: &BTreeMap<String, Option<String>>,
 ) -> Result<ObservedRustcInputs, WrapperError> {
+    observe_rustc_inputs_with_hashes(
+        dep_info_path,
+        working_directory,
+        out_dir,
+        out_dir_coordinate,
+        phase_environment,
+        None,
+    )
+}
+
+fn observe_rustc_inputs_with_hashes(
+    dep_info_path: &Path,
+    working_directory: &Path,
+    out_dir: Option<&Path>,
+    out_dir_coordinate: Option<&str>,
+    phase_environment: &BTreeMap<String, Option<String>>,
+    hashes: Option<&ObservedSourceHashes>,
+) -> Result<ObservedRustcInputs, WrapperError> {
     let _profile_span = super::timing::ProfileSpan::new("observe_rustc_inputs");
     let metadata =
         fs::symlink_metadata(dep_info_path).map_err(|source| WrapperError::ReadDepInfo {
@@ -2103,12 +2122,12 @@ fn observe_rustc_inputs(
                             }
                         })?;
                     let content_hash =
-                        hash_file(&canonical, OUT_DIR_FILE_HASH_DOMAIN).map_err(|source| {
-                            WrapperError::ReadOutDirDependency {
+                        observed_input_hash(&canonical, OUT_DIR_FILE_HASH_DOMAIN, hashes).map_err(
+                            |source| WrapperError::ReadOutDirDependency {
                                 path: canonical,
                                 source,
-                            }
-                        })?;
+                            },
+                        )?;
                     if out_dir_dependencies
                         .insert(relative_path.clone(), hex_digest(&content_hash))
                         .is_some()
@@ -2125,12 +2144,12 @@ fn observe_rustc_inputs(
         }
 
         let content_hash =
-            hash_file(&canonical, OBSERVED_SOURCE_FILE_HASH_DOMAIN).map_err(|source| {
-                WrapperError::ReadObservedSource {
+            observed_input_hash(&canonical, OBSERVED_SOURCE_FILE_HASH_DOMAIN, hashes).map_err(
+                |source| WrapperError::ReadObservedSource {
                     path: canonical.clone(),
                     source,
-                }
-            })?;
+                },
+            )?;
         record_observed_source_dependency(
             &mut source_dependencies,
             canonical,
@@ -2897,6 +2916,14 @@ pub(crate) fn validate_descriptor_observed_inputs(
     descriptor_target: &Path,
     sidecar: &DescriptorUnitSidecar,
 ) -> Result<(), WrapperError> {
+    validate_descriptor_observed_inputs_with_hashes(descriptor_target, sidecar, None)
+}
+
+pub(crate) fn validate_descriptor_observed_inputs_with_hashes(
+    descriptor_target: &Path,
+    sidecar: &DescriptorUnitSidecar,
+    hashes: Option<&ObservedSourceHashes>,
+) -> Result<(), WrapperError> {
     let _profile_span = super::timing::ProfileSpan::new("validate_descriptor_observed_inputs");
     let unit = DescriptorCargoUnitId::from_hex(&sidecar.cargo_unit_id)?;
     validate_sidecar_out_dir_dependencies(unit, sidecar)
@@ -2944,12 +2971,13 @@ pub(crate) fn validate_descriptor_observed_inputs(
     let mut descriptor_phase_environment = BTreeMap::new();
     descriptor_phase_environment.insert(CARGO_UNIT_ID_ENV.to_string(), Some(unit.to_string()));
     descriptor_phase_environment.insert(DESCRIPTOR_PHASE_ENV.to_string(), Some("1".to_string()));
-    let observed = observe_rustc_inputs(
+    let observed = observe_rustc_inputs_with_hashes(
         &dep_info_path,
         &working_directory,
         out_dir.as_deref(),
         sidecar.out_dir.as_deref(),
         &descriptor_phase_environment,
+        hashes,
     )?;
     if observed.out_dir_dependencies != sidecar.out_dir_dependencies
         || observed.source_dependencies != sidecar.source_dependencies
@@ -3168,6 +3196,49 @@ fn portable_package_relative_path(path: &Path) -> io::Result<String> {
         ));
     }
     Ok(output)
+}
+
+type ObservedHashCell = OnceLock<Result<[u8; 32], Arc<io::Error>>>;
+
+/// One observed-input validation batch owns this snapshot. Never retain it
+/// across Cargo execution, cache admission, recovery attempts or rebuilds.
+/// Path-kind and dep-info checks still run for every unit; only the fresh
+/// source-content digest is shared, and each unit compares its own expected
+/// records. Generated-file digests and environment checks remain per-unit.
+pub(crate) struct ObservedSourceHashes {
+    sources: BTreeMap<PathBuf, ObservedHashCell>,
+}
+
+impl ObservedSourceHashes {
+    pub(crate) fn new(paths: impl IntoIterator<Item = PathBuf>) -> Self {
+        Self {
+            sources: paths
+                .into_iter()
+                .map(|path| (path, OnceLock::new()))
+                .collect(),
+        }
+    }
+}
+
+fn observed_input_hash(
+    path: &Path,
+    domain: &'static [u8],
+    hashes: Option<&ObservedSourceHashes>,
+) -> io::Result<[u8; 32]> {
+    let Some(cell) = hashes
+        .filter(|_| domain == OBSERVED_SOURCE_FILE_HASH_DOMAIN)
+        .and_then(|hashes| hashes.sources.get(path))
+    else {
+        // Reparse every dep-info file. Unexpected source paths and generated
+        // inputs still get fresh hashes and full per-unit record comparisons.
+        return hash_file(path, domain);
+    };
+    // The path set is immutable and lookups do not lock. Different files hash
+    // in parallel; consumers of the same file wait for its single fresh read.
+    cell.get_or_init(|| hash_file(path, domain).map_err(Arc::new))
+        .as_ref()
+        .copied()
+        .map_err(|error| io::Error::new(error.kind(), Arc::clone(error)))
 }
 
 fn hash_file(path: &Path, domain: &[u8]) -> io::Result<[u8; 32]> {
@@ -7168,7 +7239,7 @@ trait LinkManifestHasher {
 
 struct FilesystemLinkManifestHasher {
     hashes: BTreeMap<PathBuf, ([u8; 32], [u8; 32])>,
-    object_hashes: BTreeMap<PathBuf, [u8; 32]>,
+    link_hashes: BTreeMap<PathBuf, [u8; 32]>,
 }
 
 impl FilesystemLinkManifestHasher {
@@ -7179,6 +7250,7 @@ impl FilesystemLinkManifestHasher {
         input_hashes: &DescriptorInputHashes,
     ) -> Result<Self, LinkManifestAssemblyError> {
         let mut paths = BTreeSet::from([root_artifact.to_path_buf()]);
+        let mut dependency_paths = BTreeSet::new();
         for unit in &topology.reachable {
             let descriptor = topology
                 .unit_by_id
@@ -7187,14 +7259,14 @@ impl FilesystemLinkManifestHasher {
             if !objects.contains_key(&descriptor.descriptor_object) {
                 paths.insert(descriptor.descriptor_object.clone());
             }
-            paths.extend(
-                topology
-                    .dependencies_by_unit
-                    .get(unit)
-                    .expect("prepared reachable units have dependency records")
-                    .iter()
-                    .map(|dependency| dependency.path.clone()),
-            );
+            for dependency in topology
+                .dependencies_by_unit
+                .get(unit)
+                .expect("prepared reachable units have dependency records")
+            {
+                dependency_paths.insert(dependency.path.clone());
+                paths.insert(dependency.path.clone());
+            }
         }
         let paths = paths
             .into_iter()
@@ -7205,24 +7277,36 @@ impl FilesystemLinkManifestHasher {
             .map(|path| {
                 (
                     path.clone(),
-                    hash_file_two_domains(path, FILE_HASH_DOMAIN, LINK_ARTIFACT_HASH_DOMAIN),
+                    if dependency_paths.contains(path) {
+                        hash_file_two_domains(path, FILE_HASH_DOMAIN, LINK_ARTIFACT_HASH_DOMAIN)
+                            .map(|(input, link)| (Some(input), link))
+                    } else {
+                        // Root and descriptor-only paths have no extern input
+                        // expectation. Do not compute a digest nobody uses.
+                        hash_file(path, LINK_ARTIFACT_HASH_DOMAIN).map(|link| (None, link))
+                    },
                 )
             })
             .collect::<Vec<_>>();
         let mut hashes = input_hashes.clone();
+        let mut link_hashes = objects
+            .iter()
+            .map(|(path, object)| (path.clone(), object.link_hash))
+            .collect::<BTreeMap<_, _>>();
         for (path, result) in hashed {
             let hash = result.map_err(|source| LinkManifestAssemblyError::HashArtifact {
                 path: path.clone(),
                 source,
             })?;
-            hashes.insert(path, hash);
+            if let Some(input) = hash.0 {
+                hashes.insert(path, (input, hash.1));
+            } else {
+                link_hashes.insert(path, hash.1);
+            }
         }
         Ok(Self {
             hashes,
-            object_hashes: objects
-                .iter()
-                .map(|(path, object)| (path.clone(), object.link_hash))
-                .collect(),
+            link_hashes,
         })
     }
 
@@ -7242,7 +7326,7 @@ impl FilesystemLinkManifestHasher {
 impl LinkManifestHasher for FilesystemLinkManifestHasher {
     fn hash_single(&mut self, path: &Path, domain: &[u8]) -> io::Result<[u8; 32]> {
         if domain == LINK_ARTIFACT_HASH_DOMAIN {
-            if let Some(hash) = self.object_hashes.get(path) {
+            if let Some(hash) = self.link_hashes.get(path) {
                 return Ok(*hash);
             }
         }

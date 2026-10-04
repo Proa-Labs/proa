@@ -1694,6 +1694,36 @@ fn link_manifest_hashes_only_exact_reachable_extern_paths() {
         .sum::<u64>();
     assert!(enumerated_dependency_bytes >= 16 * 1024 * 1024);
     assert!(hashed_dependency_bytes < 1024);
+    let production = build_link_unit_manifest(
+        InvocationId::derive("reachable-extern-hashing"),
+        root_unit,
+        &root_path,
+        ArtifactRole::RootLibrary,
+        &output,
+    )
+    .unwrap();
+    assert_eq!(production, manifest);
+}
+
+#[test]
+fn observed_input_snapshot_keeps_hash_domains_separate() {
+    let temp = TempDir::new().unwrap();
+    let source = temp.path().join("input.rs");
+    fs::write(&source, "pub const VALUE: u8 = 7;\n").unwrap();
+    let hashes = ObservedSourceHashes::new([source.clone()]);
+    let source_hash =
+        observed_input_hash(&source, OBSERVED_SOURCE_FILE_HASH_DOMAIN, Some(&hashes)).unwrap();
+    let generated_hash =
+        observed_input_hash(&source, OUT_DIR_FILE_HASH_DOMAIN, Some(&hashes)).unwrap();
+    assert_ne!(source_hash, generated_hash);
+    assert_eq!(
+        source_hash,
+        hash_file(&source, OBSERVED_SOURCE_FILE_HASH_DOMAIN).unwrap()
+    );
+    assert_eq!(
+        generated_hash,
+        hash_file(&source, OUT_DIR_FILE_HASH_DOMAIN).unwrap()
+    );
 }
 
 #[test]
