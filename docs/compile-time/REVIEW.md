@@ -231,8 +231,10 @@ No production cache check was weakened.
 
 The six-edit production trials have 2.552s template and 2.583s Rust-function
 medians. Separate controlled
-compiler-proxy trials establish roughly 140–190ms savings from the selected
-partition policy. A 32-unit broad cap gains little over repeated 64-unit edits;
+compiler-proxy trials initially establish roughly 140–190ms savings. The final
+production-only after/before/after comparison confirms 212–216ms (about 8%)
+from the selected partition policy. All 14 HTTP acceptance cases also pass
+with the production release CLI. A 32-unit broad cap gains little over repeated 64-unit edits;
 retain more incremental granularity. Large-app compile behavior remains
 unmeasured, and explicit Cargo counts remain available for tuning. The PR stays
 a draft pending independent review and passing CI on the final head.
