@@ -42,7 +42,7 @@ pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 8;
 /// This is deliberately independent of sidecar schema: bump it whenever a
 /// previous target may contain wrapper/proc-macro artifacts that must never
 /// participate in current build identity.
-pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 5;
+pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 6;
 /// Explicit host-local staging directory for descriptor objects and sidecars.
 pub const DESCRIPTOR_STAGING_DIR_ENV: &str = "PROA_RSJS_DESCRIPTOR_STAGING_DIR";
 /// Exact runner-owned Cargo target directory for descriptor compilation.
@@ -103,11 +103,12 @@ const LOGICAL_ENVIRONMENT_HASH_DOMAIN: &[u8] = b"proa.rsjs.logical-environment.v
 const REALIZED_ENVIRONMENT_HASH_DOMAIN: &[u8] = b"proa.rsjs.realized-rustc-environment.v1";
 pub(crate) const DESCRIPTOR_OBJECT_HASH_DOMAIN: &[u8] = b"proa.rsjs.descriptor-object.v1";
 const LINK_ARTIFACT_HASH_DOMAIN: &[u8] = b"proa.rsjs.link-artifact.v1";
-const DESCRIPTOR_CODEGEN_POLICY: [&str; 4] = [
+const DESCRIPTOR_CODEGEN_POLICY: [&str; 5] = [
     "codegen-units=cargo-or-native-fallback",
     "incremental=cargo",
     "link-dead-code=yes",
     "lto=off",
+    "debuginfo=0",
 ];
 const DESCRIPTOR_STRIP_POLICY: &str = "strip=none";
 
@@ -1721,6 +1722,10 @@ fn descriptor_rustc_args_with_carrier(
         OsString::from("-Clink-dead-code=yes"),
         OsString::from("-Clto=off"),
         OsString::from("-Cstrip=none"),
+        // Descriptor extraction needs symbols and relocations, not DWARF.
+        // Keep the original Cargo debug setting in normalized final-profile
+        // identity; only this intermediate rustc invocation overrides it.
+        OsString::from("-Cdebuginfo=0"),
     ]);
     match carrier {
         DescriptorCarrierMode::Single => result.extend([
@@ -1739,7 +1744,7 @@ fn descriptor_rustc_args_with_carrier(
 fn descriptor_override_option(key: &str, carrier: &DescriptorCarrierMode) -> bool {
     matches!(
         key,
-        "link-dead-code" | "linker-plugin-lto" | "lto" | "strip"
+        "link-dead-code" | "linker-plugin-lto" | "lto" | "strip" | "debuginfo"
     ) || (key == "codegen-units" && matches!(carrier, DescriptorCarrierMode::Single))
 }
 

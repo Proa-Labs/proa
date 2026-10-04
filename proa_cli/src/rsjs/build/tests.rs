@@ -2377,6 +2377,54 @@ fn uplifted_root_lib_aliases_its_hashed_deps_rlib() {
 }
 
 #[test]
+fn descriptor_debug_override_preserves_the_original_final_profile() {
+    let (_temp, source, dependency) = fixture_inputs();
+    let mut original = rustc_args(&source, &dependency);
+    original.extend([
+        "-C".into(),
+        "debuginfo=1".into(),
+        "-Cdebuginfo=2".into(),
+        "-Cdebug-assertions=yes".into(),
+        "-Cincremental=/target/incremental".into(),
+    ]);
+    let normalized =
+        normalize_rustc_invocation(&original, &BTreeMap::new(), b"rustc fixture identity").unwrap();
+    assert_eq!(normalized.codegen_options["debuginfo"], "2");
+
+    let mut without_debug = original.clone();
+    without_debug.push("-Cdebuginfo=0".into());
+    let without_debug =
+        normalize_rustc_invocation(&without_debug, &BTreeMap::new(), b"rustc fixture identity")
+            .unwrap();
+    // Descriptor-only policy must not erase the authored final debug profile
+    // and accidentally join a different final invocation to this unit.
+    assert_ne!(
+        normalized.final_match_profile_hash(),
+        without_debug.final_match_profile_hash()
+    );
+
+    for carrier in [
+        DescriptorCarrierMode::Single,
+        DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+        DescriptorCarrierMode::Native("cc".into()),
+    ] {
+        let forwarded =
+            descriptor_rustc_args_with_carrier(&original, Path::new("/staging/unit.o"), &carrier)
+                .unwrap();
+        assert_eq!(
+            rustc_codegen_value(&forwarded, "debuginfo").unwrap(),
+            Some("0".into())
+        );
+        assert!(!forwarded.contains(&OsString::from("debuginfo=1")));
+        assert!(!forwarded.contains(&OsString::from("-Cdebuginfo=2")));
+        assert!(forwarded.contains(&OsString::from("-Cdebug-assertions=yes")));
+        assert!(forwarded.contains(&OsString::from("-Cincremental=/target/incremental")));
+        assert!(forwarded.contains(&OsString::from("-Cstrip=none")));
+    }
+    assert!(original.contains(&OsString::from("-Cdebuginfo=2")));
+}
+
+#[test]
 fn descriptor_archive_retains_cargo_incremental_and_codegen_partitioning() {
     let args = vec![
         "--emit=dep-info,metadata,link".into(),

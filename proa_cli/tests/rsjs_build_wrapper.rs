@@ -709,7 +709,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
 #[test]
 fn incremental_archive_carriers_retain_unused_witnesses_across_partial_edits() {
     use object::read::archive::ArchiveFile;
-    use object::{Object, ObjectSymbol};
+    use object::{Object, ObjectSection, ObjectSymbol};
 
     for kind in ["lib", "bin"] {
         let temp = TempDir::new().unwrap();
@@ -748,6 +748,7 @@ fn incremental_archive_carriers_retain_unused_witnesses_across_partial_edits() {
                     "--out-dir".into(),
                     output.as_os_str().to_owned(),
                     "-Ccodegen-units=4".into(),
+                    "-Cdebuginfo=2".into(),
                     format!("-Cincremental={}", target.join("incremental").display()).into(),
                     source.as_os_str().to_owned(),
                 ])
@@ -769,13 +770,18 @@ fn incremental_archive_carriers_retain_unused_witnesses_across_partial_edits() {
                     continue;
                 };
                 object_count += 1;
+                assert!(
+                    object
+                        .sections()
+                        .all(|section| !section.name().unwrap_or_default().contains("debug")),
+                    "descriptor carrier must omit debug information while retaining witnesses"
+                );
                 for symbol in object.symbols().filter(|symbol| symbol.is_definition()) {
                     let name = symbol.name().unwrap_or("").trim_start_matches('_');
                     if name.starts_with("WITNESS_") {
                         let section = object
                             .section_by_index(symbol.section_index().unwrap())
                             .unwrap();
-                        use object::ObjectSection;
                         let value = section.data_range(symbol.address(), 32).unwrap().unwrap()[0];
                         assert!(found.insert(name.to_owned(), value).is_none());
                     }
