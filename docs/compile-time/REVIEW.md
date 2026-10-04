@@ -177,3 +177,36 @@ new regressions failed before their fixes. Strict Clippy for CLI/DSL/macros,
 formatting, source checks/lint (existing low-level warnings allowed), render
 allocation lint, and acceptance partition validation pass. Pizza performance
 was not remeasured; this correction affects only the opt-in prototype.
+
+## Descriptor-size follow-up and combined fixes
+
+Descriptor extraction now overrides only intermediate debug information. The
+original final profile still participates in unit matching, and final rustc
+arguments retain full debug information. Policy version 6 forces one fresh
+namespace rather than admitting old debug-bearing carriers. Incremental library
+and native-binary regressions check complete unused witnesses across three
+generations while confirming descriptor objects contain no debug sections.
+
+The link-manifest hasher skips an unused input-domain digest on link-only paths,
+retaining dependency identities and the existing SHA-256 format. Its production
+manifest matches the reference hasher. The proposed source memoization was
+discarded after a randomized A/B trial failed to establish an end-to-end gain.
+
+Reviewed the other agent's fixes together with the existing slot safeguards:
+hot-static edits run `dev.before` and asset builds before reload; syntax scan
+errors reach Cargo/rustc; native carriers replace stale files before exclusive
+creation. The exact combined production build passes 683 CLI library tests,
+24 wrapper/cache/projection integration tests, strict CLI-library Clippy,
+formatting, diff checks and allocation lint over all five changed Rust files.
+All 14 live HTTP checks pass, including class-edit asset regeneration, constant
+text attributes, moved static runs, syntax-error retention and repair. Asset
+validation uses a configured asset command, not actual Tailwind. An earlier
+combined build also passed a startup syntax-error check. No new blocker was
+found in these fixes; this remains an author review.
+
+Performance follow-ups are separate local diagnostic-fork trials summarized in
+[the measurements](README.md); no raw traces or profiler implementation ship.
+The final combined production head has not been separately benchmarked after
+the hot-static fixes. Generated profiles stay unchanged: ordinary incremental
+compilation is already enabled, and the modest build-override gain roughly
+doubled first startup. CI must pass on the new head before merging.
