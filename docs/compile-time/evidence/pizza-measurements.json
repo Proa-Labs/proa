@@ -899,6 +899,78 @@
           "source_record_sha256": "7d3494f84e1b7e366cfa9b4da17cdab2ca6cedc0371e59bd8d914b786c65bcb9"
         }
       ]
+    },
+    "production_policy_comparison": {
+      "profile": "dev",
+      "debounce_ms": 200,
+      "assets": false,
+      "samples_per_block": 6,
+      "rustc_proxy": false,
+      "tracing": false,
+      "trial_order": "after, before, after; serialized; warmed namespaces",
+      "note": "The production CLI revisions differ only in descriptor partition policy and regression tests. Final-app settings unchanged. No concurrent compiler jobs during measured warm edits.",
+      "trials": [
+        {
+          "trial": "production-template",
+          "code_commit": "ce1bcae",
+          "cli_sha256": "e86b0e022561a8892dea813e081aeb0777721e4ac7b402379272fa66cb891c1b",
+          "source_record_sha256": "4cf7b10e85e02551a88633573e0e3d1a0f4ff81005df41f8cf0390b346acc749",
+          "samples_seconds": [
+            2.6090209579560906,
+            2.5220704171806574,
+            2.5574538339860737,
+            2.5871690828353167,
+            2.536255249986425,
+            2.5462061250582337
+          ],
+          "median_seconds": 2.5518299795221537,
+          "descriptor_median_seconds": 0.7002233541570604
+        },
+        {
+          "trial": "production-before",
+          "code_commit": "56b20b3",
+          "cli_sha256": "e18506d6eea74f67a3d64e4ef24afd4d6545da77cce3467f57cb8b0fdabd530e",
+          "source_record_sha256": "3bf70e2ec3035abcdfb9859ea3905a2d0ab0f8587774e73cb001812614ae7327",
+          "samples_seconds": [
+            2.7802313750144094,
+            2.7480203749146312,
+            2.759463124908507,
+            2.714805832831189,
+            2.8523056670092046,
+            2.7761860419996083
+          ],
+          "median_seconds": 2.7678245834540576,
+          "descriptor_median_seconds": 0.9251163129229099
+        },
+        {
+          "trial": "production-repeat",
+          "code_commit": "ce1bcae",
+          "cli_sha256": "e86b0e022561a8892dea813e081aeb0777721e4ac7b402379272fa66cb891c1b",
+          "source_record_sha256": "a1d038acd051a37c720c54264d9fccaa32e56f7979c287dbcc366bdc3bb073c4",
+          "samples_seconds": [
+            2.5964038749225438,
+            2.5370356251951307,
+            2.5450639580376446,
+            2.5784052091185004,
+            2.566765667172149,
+            2.5177055418025702
+          ],
+          "median_seconds": 2.5559148126048967,
+          "descriptor_median_seconds": 0.70002012536861
+        }
+      ]
+    },
+    "validation": {
+      "cli_library_tests": 685,
+      "wrapper_cache_projection_tests": 24,
+      "live_http_cases": 14,
+      "strict_cli_library_clippy": true,
+      "format_and_diff_checks": true,
+      "allocation_lint_changed_rust_files": 3,
+      "repository_boundary": true,
+      "final_library_object_members": 201,
+      "final_library_debug_bytes": 5651366,
+      "test_note": "Final cargo test uses --target-dir without exporting CARGO_TARGET_DIR into fixtures."
     }
   }
 }
