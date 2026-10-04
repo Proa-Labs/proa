@@ -8,31 +8,44 @@ stable 1.99 and a pinned nightly. See [implementation details](IMPLEMENTATION.md
 
 ## Measured outcomes
 
-| Warm save to changed HTTP response | Latest main | This branch |
-| --- | ---: | ---: |
-| Copied `examples/webmcp-pizza`, dev profile, 300ms debounce | 6.97s | 4.85s |
-| Standalone 24-route consumer, dev profile, 300ms debounce | 6.91s | 4.00s |
-| Explicit hot-static text edit, nodebug profile, 100ms debounce | — | 0.13s |
+The Pizza follow-up now meets the **2–3 second warm rebuild target** on the
+measured machine, using ordinary compiled templates and the normal dev profile.
+See [the follow-up and its limits](PIZZA_TARGET.md).
+
+| Warm save to changed HTTP response | Main baseline | Recorded branch | Checkpoint |
+| --- | ---: | ---: | --- |
+| Pizza template edit, dev, 300ms debounce | 6.97s | 2.99s | Current |
+| Pizza template edit, dev, actual 200ms CLI default | — | 2.89s | Current |
+| Pizza Rust function-body edit, dev, actual CLI default | — | 2.91s | Current |
+| Standalone 24-route consumer, dev, 300ms debounce | 6.91s | 4.00s | Initial investigation |
+| Explicit hot-static text edit, nodebug, 100ms debounce | — | 0.13s | Initial investigation |
 
 Each number is a median of three serialized edits with warmed caches and a
-release-built CLI. The pizza application was copied to `/tmp` with workspace
-inheritance resolved and Proa dependencies linked to this branch. The standalone
-consumer has its own workspace, lockfile, profiles, and targets. These are
-save-to-response results, including debounce, orchestration, and restart where
-applicable; browser navigation, hydration, and paint are not measured.
+release-built CLI. The Pizza application was copied to `/tmp` with workspace
+inheritance resolved and Proa dependencies linked to this branch. Assets are
+skipped in all trials; browser navigation, hydration, and paint are not measured.
+The standalone and hot-static rows were not remeasured for this follow-up.
 
-![Pizza example, same-settings comparison](diagrams/pizza-waterfall.png)
+![Pizza target, with debounce settings explicit](diagrams/pizza-target-waterfall.png)
 
-The pizza median loses approximately 1.56s in cache/link/final setup and 0.58s
-in descriptor Cargo; final compilation remains about one second. The orange
-stage includes cache validation, semantic linking, and final Cargo startup,
-and is not a CPU profile of the semantic linker alone.
+The initial branch measured 4.85s; a fresh software-hashing control measured
+4.67s. Accelerated hashing alone measured 3.10s at the original 300ms debounce.
+Parallel observed-input validation and faster observation of graceful server
+exit brought the next checkpoint to 3.02s. The latest same-settings run is
+2.99s; the default quiet window is now 200ms and measured 2.89s. All six default
+template/function samples were below three seconds.
 
-![Full Rust rebuild and explicit static update](diagrams/branch-hot-waterfall.png)
+![Detailed Pizza cache/link/setup breakdown](diagrams/pizza-target-detailed-waterfall.png)
 
-The hot row uses a different edit path, profile, and debounce. It bypasses
-Cargo for explicitly opted-in compatible edits and has development rendering
-overhead; its gain is not attributable to compiler optimization.
+Object hashing, observed source/extern validation, and transport-manifest
+construction dominated the earlier setup stage. Semantic planning itself took
+less than 1ms. The CLI now uses runtime-dispatched SHA-256 on AArch64 while
+preserving every hash domain and current-byte validation. Cargo-stage timings
+also include wrapper validation; they are not isolated rustc CPU measurements.
+
+The opt-in static-update measurement uses a different edit path, profile, and
+debounce. Its rendering overhead and supported syntax are documented in
+[HOT_STATIC.md](HOT_STATIC.md). The ordinary Pizza trials do not use it.
 
 ## What we tried, in priority order
 
@@ -68,8 +81,9 @@ overhead; its gain is not attributable to compiler optimization.
 
 ## Next decisions
 
-1. Review/land cache publication and validated-data reuse first. They have the
-   clearest measured benefit and do not depend on a new compiler backend.
+1. Review/land cache publication, validated-data reuse, and the measured
+   hashing/watcher follow-up first. These meet the warm Pizza target without
+   depending on a new compiler backend.
 2. Harden/measure complete descriptor carriers on more targets and larger apps.
    Do not infer a broad end-to-end gain from the smaller descriptor Cargo stage.
    Model multiple exact artifacts per extern and use Cargo's public build-script

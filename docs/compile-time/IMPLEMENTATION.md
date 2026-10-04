@@ -35,9 +35,25 @@ and consulted only after both current authority checks succeed. A prior parsed
 record never authorizes stale or corrupted filesystem content.
 
 Latest-main dev-profile/300ms watcher medians: standalone 6.914s and copied pizza
-6.974s. Final branch: standalone 3.999s and pizza 4.854s. The earlier cache/snapshot
+6.974s. Initial branch checkpoint: standalone 3.999s and pizza 4.854s. The earlier cache/snapshot
 checkpoint alone was 3.903s on the standalone consumer. These three-sample
 serial trials are separate from the historical isolated prototype.
+
+## Pizza target follow-up
+
+The finer waterfall identified bulk SHA-256 validation as the largest remaining
+setup cost. The CLI now uses sha2 0.11 runtime dispatch for artifact/cache/wrapper
+hashing, preserving the existing formats and digest domains. Independent cached
+units validate observed inputs in parallel with deterministic error ordering.
+Graceful shutdown still allows two seconds, but successful exit is observed on a
+5ms poll. The watcher defaults to a 200ms quiet window and bounds its next poll
+by the pending quiet-window deadline. `--debounce-ms` still overrides it.
+
+Pizza normal-dev medians are now 2.985s at the original 300ms, 2.895s with actual
+CLI defaults, and 2.908s for a Rust helper-body edit with those defaults. Each is
+three serialized warm changed HTTP responses, assets skipped. Complete owner-local
+plan reuse remains unfinished. See [PIZZA_TARGET.md](PIZZA_TARGET.md) for the
+controls, detailed waterfalls, limitations, reproduction, and current checks.
 
 ## Complete descriptor carriers
 
@@ -96,7 +112,7 @@ pre-build hooks at startup and after a fallback rebuild; all seven cases pass.
 Passed checks:
 
 - `cargo check --workspace --all-targets`.
-- CLI library: 678 tests.
+- CLI library: 680 tests after the Pizza follow-up.
 - Core/DSL/Proa-macro/RSJS-macro libraries: 268/15/37/463 tests.
 - Descriptor wrapper integration: 11 tests; descriptor cache integration: 12.
 - Final compilation integration: 4 tests, including mapping reuse.

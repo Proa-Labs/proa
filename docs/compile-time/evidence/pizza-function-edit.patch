@@ -1,0 +1,19 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -86,7 +86,7 @@
+                 <head>
+                     <meta charset="utf-8" />
+                     <meta name="viewport" content="width=device-width, initial-scale=1" />
+-                    <title>"EDIT_MARKER_A Proa WebMCP Pizza"</title>
++                    <title>{compile_probe_title()}</title>
+                     <meta
+                         name="description"
+                         content="An end-to-end Proa, Wellformed, RSJS, and WebMCP example"
+@@ -116,3 +116,7 @@
+         plan.write_html(&mut cx.out, None)
+     }
+ }
++
++fn compile_probe_title() -> &'static str {
++    "EDIT_MARKER_A Proa WebMCP Pizza"
++}
