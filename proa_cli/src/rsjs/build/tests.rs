@@ -2434,6 +2434,78 @@ fn descriptor_debug_override_preserves_the_original_final_profile() {
 }
 
 #[test]
+fn descriptor_default_partitioning_keeps_incremental_and_single_object_fallback() {
+    let original = vec![
+        "--emit=dep-info,metadata,link".into(),
+        "-Cincremental=/target/incremental".into(),
+        "-Cdebuginfo=2".into(),
+    ];
+    for (carrier, expected) in [
+        (DescriptorCarrierMode::Single, 1),
+        (
+            DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+            64,
+        ),
+        (DescriptorCarrierMode::Native("cc".into()), 64),
+    ] {
+        let forwarded =
+            descriptor_rustc_args_with_carrier(&original, Path::new("/staging/unit.o"), &carrier)
+                .unwrap();
+        assert_eq!(descriptor_codegen_units(&forwarded).unwrap(), expected);
+        assert!(forwarded.contains(&OsString::from("-Cincremental=/target/incremental")));
+    }
+    assert_eq!(descriptor_codegen_units(&original).unwrap(), 64);
+    assert_eq!(
+        rustc_codegen_value(&original, "codegen-units").unwrap(),
+        None
+    );
+    assert_eq!(
+        rustc_codegen_value(&original, "debuginfo").unwrap(),
+        Some("2".into())
+    );
+}
+
+#[test]
+fn descriptor_partitioning_preserves_explicit_counts_and_nonincremental_default() {
+    for value in [1, 4, 16, 128, 256] {
+        for options in [
+            vec![format!("-Ccodegen-units={value}")],
+            vec!["-C".into(), format!("codegen-units={value}")],
+        ] {
+            let mut args = vec![OsString::from("-Cincremental=/target/incremental")];
+            args.extend(options.into_iter().map(OsString::from));
+            for carrier in [
+                DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+                DescriptorCarrierMode::Native("cc".into()),
+            ] {
+                let forwarded = descriptor_rustc_args_with_carrier(
+                    &args,
+                    Path::new("/staging/unit.o"),
+                    &carrier,
+                )
+                .unwrap();
+                assert_eq!(descriptor_codegen_units(&forwarded).unwrap(), value);
+            }
+        }
+    }
+    let args = vec![OsString::from("--emit=dep-info,metadata,link")];
+    let forwarded = descriptor_rustc_args_with_carrier(
+        &args,
+        Path::new("/staging/unit.o"),
+        &DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+    )
+    .unwrap();
+    assert_eq!(descriptor_codegen_units(&forwarded).unwrap(), 16);
+    assert_eq!(
+        rustc_codegen_value(&forwarded, "codegen-units").unwrap(),
+        None
+    );
+    for invalid in ["0", "invalid"] {
+        assert!(descriptor_codegen_units(&[format!("-Ccodegen-units={invalid}").into()]).is_err());
+    }
+}
+
+#[test]
 fn descriptor_archive_retains_cargo_incremental_and_codegen_partitioning() {
     let args = vec![
         "--emit=dep-info,metadata,link".into(),

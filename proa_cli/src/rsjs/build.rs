@@ -42,7 +42,7 @@ pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 8;
 /// This is deliberately independent of sidecar schema: bump it whenever a
 /// previous target may contain wrapper/proc-macro artifacts that must never
 /// participate in current build identity.
-pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 6;
+pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 7;
 /// Explicit host-local staging directory for descriptor objects and sidecars.
 pub const DESCRIPTOR_STAGING_DIR_ENV: &str = "PROA_RSJS_DESCRIPTOR_STAGING_DIR";
 /// Exact runner-owned Cargo target directory for descriptor compilation.
@@ -104,13 +104,14 @@ const REALIZED_ENVIRONMENT_HASH_DOMAIN: &[u8] = b"proa.rsjs.realized-rustc-envir
 pub(crate) const DESCRIPTOR_OBJECT_HASH_DOMAIN: &[u8] = b"proa.rsjs.descriptor-object.v1";
 const LINK_ARTIFACT_HASH_DOMAIN: &[u8] = b"proa.rsjs.link-artifact.v1";
 const DESCRIPTOR_CODEGEN_POLICY: [&str; 5] = [
-    "codegen-units=cargo-or-native-fallback",
+    "codegen-units=cargo-explicit-or-incremental-64",
     "incremental=cargo",
     "link-dead-code=yes",
     "lto=off",
     "debuginfo=0",
 ];
 const DESCRIPTOR_STRIP_POLICY: &str = "strip=none";
+const DESCRIPTOR_INCREMENTAL_CODEGEN_UNITS: u32 = 64;
 
 static ATOMIC_WRITE_NONCE: AtomicU64 = AtomicU64::new(0);
 
@@ -1583,7 +1584,9 @@ fn descriptor_codegen_units(args: &[OsString]) -> Result<u32, WrapperError> {
                 WrapperError::DescriptorCarrier(format!("invalid codegen-units: {value}"))
             }),
         None => Ok(if rustc_codegen_value(args, "incremental")?.is_some() {
-            256
+            // Descriptor-only artifacts benefit from fewer cached object files.
+            // Preserve an explicit Cargo setting and final-app partitioning.
+            DESCRIPTOR_INCREMENTAL_CODEGEN_UNITS
         } else {
             16
         }),
@@ -1737,6 +1740,14 @@ fn descriptor_rustc_args_with_carrier(
             result.push(OsString::from(format!("-Clinker={}", executable.display())));
         }
         DescriptorCarrierMode::Rlib(_) => {}
+    }
+    if !matches!(carrier, DescriptorCarrierMode::Single)
+        && rustc_codegen_value(rustc_args, "codegen-units")?.is_none()
+        && rustc_codegen_value(rustc_args, "incremental")?.is_some()
+    {
+        result.push(OsString::from(format!(
+            "-Ccodegen-units={DESCRIPTOR_INCREMENTAL_CODEGEN_UNITS}"
+        )));
     }
     Ok(result)
 }
