@@ -1,0 +1,78 @@
+{
+  "review_base": "372fb62",
+  "main_base": "ab6e5cd",
+  "checks": {
+    "pipeline": {
+      "command": "NODE=/opt/homebrew/bin/node cargo test -p proa-cli --lib --test rsjs_linked_helper_acceptance --test rsjs_build_wrapper --test rsjs_descriptor_cache --test rsjs_final --test rsjs_linked_site_codegen --test rsjs_unit_projection --test rsjs_pipeline --test lifecycle_dev --locked --offline -- --test-threads=2",
+      "exit_code": 0,
+      "log_sha256": "10d37dcaef5585d52a1776b9f9fdc23734f6d5ec15f333f2aea16d5349f63b3e",
+      "passed": 717,
+      "failed": 0,
+      "test_binaries": 9
+    },
+    "plan_libraries": {
+      "command": "cargo test -p rsjs_ir -p rsjs_macros --lib --features serde_json/preserve_order --locked --offline",
+      "exit_code": 0,
+      "log_sha256": "0896a7387536afb31fe6c231a0bea5a4961cf8d589730e8b6d6c1c8e20450345",
+      "passed": 749,
+      "failed": 0,
+      "test_binaries": 2
+    },
+    "cleanup_recheck": {
+      "command": "NODE=/opt/homebrew/bin/node cargo test -p proa-cli --lib --test rsjs_descriptor_cache --test rsjs_pipeline --locked --offline -- --test-threads=2",
+      "exit_code": 0,
+      "log_sha256": "18f0fefad5ec1882a4a7bbd3af995fe7e1d58f03d79a6b9a9ac286ab1c5e8175",
+      "passed": 695,
+      "failed": 0,
+      "test_binaries": 3
+    },
+    "workspace_check": {
+      "command": "cargo check --workspace --all-targets --locked --offline",
+      "exit_code": 0,
+      "log_sha256": "280e0aa09ef386ce7c9afd0e0af0a5445aacd61e9d2046ade9c53ba1d0f956f3"
+    },
+    "ci_clippy": {
+      "command": "cargo clippy --workspace --all-targets --locked --offline -- -A clippy::all -D clippy::correctness",
+      "exit_code": 0,
+      "log_sha256": "c860c41e2eaeb8b806d45b6c64a272407b45830bc5746fdbac7a247079839938"
+    },
+    "changed_crate_strict_clippy": {
+      "command": "cargo clippy -p proa-cli -p rsjs -p rsjs_ir -p rsjs_macros -p proa_core -p proa_dsl -p proa_macros --all-targets --locked --offline -- -D warnings",
+      "exit_code": 0,
+      "log_sha256": "0b3d98c3697c7183fb014940dd27111ee1f3a1ce5c864ac0a5a6400eeb15a364"
+    },
+    "rustfmt": {
+      "command": "cargo fmt --all --check",
+      "exit_code": 0
+    },
+    "allocation_lint": {
+      "command": "python3 scripts/proa_perf_lint.py --changed --base ab6e5cd",
+      "exit_code": 0
+    },
+    "ci_partition": {
+      "command": "scripts/run_proa_cli_acceptance.sh --validate",
+      "exit_code": 0
+    },
+    "acceptance_shell_syntax": {
+      "command": "bash -n scripts/run_proa_cli_acceptance.sh",
+      "exit_code": 0
+    },
+    "whitespace": {
+      "command": "git diff --check",
+      "exit_code": 0
+    },
+    "source_check": {
+      "command": "target/release/cargo-proa check --source-only --changed --base ab6e5cd --allow-warnings",
+      "exit_code": 0
+    }
+  },
+  "limitations": [
+    "Author review, no independent approval.",
+    "macOS execution only; Linux native collector awaits CI.",
+    "Performance evidence remains the prior code commit 26e6529; not remeasured after review test/CI/style changes.",
+    "Full workspace strict Clippy hits an unchanged manual_async_fn warning in proa_framework_axum/src/route/representation.rs:491; CI correctness flags and changed-crate strict Clippy pass.",
+    "Plain full-workspace tests hit the intentional RSJS deployability guard; linked acceptance is separate.",
+    "An earlier run was invalidated by source changes during fixture compilation, and is not passing evidence."
+  ],
+  "review_followup_patch_sha256": "d576cce5ac767f04a636a1e52f7288385999e419e577ba7ada997cc4e1c3237a"
+}

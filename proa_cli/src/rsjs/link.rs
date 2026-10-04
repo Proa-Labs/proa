@@ -517,7 +517,7 @@ fn extract_descriptor_artifact_snapshots(
                     actual,
                 });
             }
-            parsed_descriptor_records(path, &snapshot)
+            parsed_descriptor_records(path, snapshot)
                 .map(|records| records.as_ref().clone())
                 .map_err(Into::into)
         })

@@ -5,6 +5,8 @@ The worktree is separate from the original checkout. Experiments were run on
 2026-10-03 on an Apple M4 Max, macOS 26.5.2, with assets skipped. Rust 1.95 is
 the repository's pinned compiler; the compiler matrix separately tests current
 stable 1.99 and a pinned nightly. See [implementation details](IMPLEMENTATION.md).
+The [pre-PR review](REVIEW.md) records deliberate compatibility changes,
+review findings, validation and remaining merge gates.
 
 ## Measured outcomes
 

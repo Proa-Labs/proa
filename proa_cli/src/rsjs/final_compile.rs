@@ -733,7 +733,7 @@ fn publish_unit_projections(
     for unit in &request.descriptor_units {
         let unit_id = unit.unit;
         let bytes = &projections[unit_id.as_bytes()];
-        let hash = hex_sha256(&Sha256::digest(&bytes).into());
+        let hash = hex_sha256(&Sha256::digest(bytes).into());
         let path = directory.join(format!(
             "{hash}.{}",
             rsjs_ir::final_plan::UNIT_PROJECTION_FILE_SUFFIX
@@ -753,7 +753,7 @@ fn publish_unit_projections(
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                atomic_write_exact(&path, &bytes).map_err(FinalCargoError::UnitMap)?;
+                atomic_write_exact(&path, bytes).map_err(FinalCargoError::UnitMap)?;
                 ensure_plain_managed_file(&request.source_exclusion_directory, &path)?;
             }
             Err(source) => return Err(FinalCargoError::ReadPlan { path, source }),

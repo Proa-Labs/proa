@@ -4468,6 +4468,7 @@ mod tests {
                                 | "reactive_lifecycle_root_candidate_id"
                                 | "provider_host_candidate_id"
                                 | "host_candidate_id"
+                                | "consumer_candidate_id"
                                 | "owner_id"
                         ) {
                             if let Some(number) = value.as_u64() {
@@ -4805,6 +4806,60 @@ mod tests {
             unrelated,
             unit_projection_bytes(unrelated_unit, PLAN_ID, &encode(&plan)).unwrap()
         );
+    }
+
+    #[test]
+    fn unit_projections_invalidate_consumers_of_runtime_protocol_changes() {
+        let activation = linked_plan();
+        let mut changed_activation = activation.clone();
+        changed_activation["owners"][0]["strategy"] = json!({"kind": "idle"});
+
+        let nodes = node_ref_plan();
+        let mut changed_nodes = nodes.clone();
+        changed_nodes["component_codegen"][0]["direct_node_ref_aliases"][0]
+            ["producer_node_ref_id"] = json!(5);
+        changed_nodes["node_ref_aliases"][0]["parent_node_ref_id"] = json!(5);
+
+        let mut providers = linked_plan();
+        let schema = format!("sha256:{}", "77".repeat(32));
+        providers["shared_state_providers"] = json!([{
+            "host_candidate_id": 0, "provider_site_id": 3, "child_candidate_id": 1,
+            "type_key": "acme.workbench", "schema_abi": schema,
+        }]);
+        providers["shared_state_requirements"] = json!([{
+            "consumer_candidate_id": 1, "reference_id": 0,
+            "provider_host_candidate_id": 0, "provider_site_id": 3,
+            "type_key": "acme.workbench", "schema_abi": schema,
+        }]);
+        let mut changed_providers = providers.clone();
+        changed_providers["shared_state_providers"][0]["provider_site_id"] = json!(4);
+        changed_providers["shared_state_requirements"][0]["provider_site_id"] = json!(4);
+
+        for (label, mut before, mut after) in [
+            ("activation", activation, changed_activation),
+            ("NodeRef alias", nodes, changed_nodes),
+            ("lexical provider", providers, changed_providers),
+            (
+                "conditional branch",
+                conditional_plan("then"),
+                conditional_plan("else"),
+            ),
+        ] {
+            insert_unrelated_first_root(&mut before);
+            insert_unrelated_first_root(&mut after);
+            for unit in [PARENT_UNIT, CHILD_UNIT] {
+                assert_ne!(
+                    unit_projection_bytes(unit, PLAN_ID, &encode(&before)).unwrap(),
+                    unit_projection_bytes(unit, PLAN_ID, &encode(&after)).unwrap(),
+                    "{label} must invalidate every participating unit",
+                );
+            }
+            assert_eq!(
+                unit_projection_bytes([10; 32], PLAN_ID, &encode(&before)).unwrap(),
+                unit_projection_bytes([10; 32], PLAN_ID, &encode(&after)).unwrap(),
+                "{label} must preserve the unrelated owner",
+            );
+        }
     }
 
     #[test]

@@ -29,6 +29,7 @@ readonly -a MAIN_SHARD_4=(
   rsjs_pipeline
   lifecycle_dev
   rsjs_descriptor_cache
+  rsjs_unit_projection
 )
 
 # Workspace examples with real RSJS islands. Plain `cargo test` correctly
@@ -162,7 +163,7 @@ usage() {
 readonly shard="${1:-}"
 validate_main_partition
 
-# Pull requests run `pr`: the proa-cli helper acceptance suite and one shard
+# Pull requests run `pr`: the proa-cli pipeline acceptance suite and one shard
 # per example, concurrently in one job so the pull request shows one check.
 # Serially these took about 15 minutes on one runner. Main fans the proa-cli
 # targets out four ways and gives the examples a fifth shard; the
@@ -178,7 +179,18 @@ case "$shard" in
     exit $?
     ;;
   pr-1)
-    tests=(rsjs_linked_helper_acceptance)
+    # PRs changing the linked pipeline must exercise cache recovery, complete
+    # carriers, mapping/projection freshness and generated runtime behavior.
+    tests=(
+      rsjs_linked_helper_acceptance
+      rsjs_build_wrapper
+      rsjs_descriptor_cache
+      rsjs_final
+      rsjs_linked_site_codegen
+      rsjs_unit_projection
+      rsjs_pipeline
+      lifecycle_dev
+    )
     ;;
   pr-2)
     examples=(pizza)
