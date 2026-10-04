@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Copy a workspace example into a standalone consumer with local Proa paths."""
 import argparse
 import json

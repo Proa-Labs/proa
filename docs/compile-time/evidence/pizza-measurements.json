@@ -28,23 +28,6 @@
   "baseline_template": {
     "source_file": "pizza-baseline-watch.json",
     "source_sha256": "9fd2544c44060dad107356d68ce1de0c5a83c04a2205a385fd81a115cdcc5c7c",
-    "command": [
-      "/Users/andrewhariri/Desktop/proa/target/release/cargo-proa",
-      "dev",
-      "--root",
-      "/private/tmp/proa-dev-perf-pizza",
-      "--no-assets",
-      "--port",
-      "39148",
-      "--debounce-ms",
-      "300",
-      "--",
-      "cargo",
-      "run",
-      "--offline",
-      "--profile",
-      "dev"
-    ],
     "median_response_seconds": 6.973761041881517,
     "samples": [
       {
@@ -89,26 +72,28 @@
           "final_compiling": 5.253506375011057
         }
       }
-    ]
-  },
-  "current_template": {
-    "source_file": "pizza-parallel-publication-template-watch.json",
-    "source_sha256": "b25e8fb44098657aa971352cd9b49afcab31d220c5ff2daf34e29407cc1c0c59",
-    "command": [
-      "/Users/andrewhariri/Desktop/proa-dev-perf/target/release/cargo-proa",
+    ],
+    "command_with_checkout_placeholder": [
+      "<baseline-checkout>/target/release/cargo-proa",
       "dev",
       "--root",
       "/private/tmp/proa-dev-perf-pizza",
       "--no-assets",
       "--port",
-      "39147",
+      "39148",
+      "--debounce-ms",
+      "300",
       "--",
       "cargo",
       "run",
       "--offline",
       "--profile",
       "dev"
-    ],
+    ]
+  },
+  "current_template": {
+    "source_file": "pizza-parallel-publication-template-watch.json",
+    "source_sha256": "b25e8fb44098657aa971352cd9b49afcab31d220c5ff2daf34e29407cc1c0c59",
     "median_response_seconds": 2.987104417057708,
     "samples": [
       {
@@ -219,13 +204,9 @@
           "final Cargo execution": 815.795
         }
       }
-    ]
-  },
-  "current_function": {
-    "source_file": "pizza-parallel-publication-function-watch.json",
-    "source_sha256": "0df2c2af5b9f9c441b528ebafbabf5b7f6aedaa85841f7b64dd973c0feb2dfd2",
-    "command": [
-      "/Users/andrewhariri/Desktop/proa-dev-perf/target/release/cargo-proa",
+    ],
+    "command_with_checkout_placeholder": [
+      "<branch-checkout>/target/release/cargo-proa",
       "dev",
       "--root",
       "/private/tmp/proa-dev-perf-pizza",
@@ -238,7 +219,11 @@
       "--offline",
       "--profile",
       "dev"
-    ],
+    ]
+  },
+  "current_function": {
+    "source_file": "pizza-parallel-publication-function-watch.json",
+    "source_sha256": "0df2c2af5b9f9c441b528ebafbabf5b7f6aedaa85841f7b64dd973c0feb2dfd2",
     "median_response_seconds": 2.963718832936138,
     "samples": [
       {
@@ -349,6 +334,21 @@
           "final Cargo execution": 828.335
         }
       }
+    ],
+    "command_with_checkout_placeholder": [
+      "<branch-checkout>/target/release/cargo-proa",
+      "dev",
+      "--root",
+      "/private/tmp/proa-dev-perf-pizza",
+      "--no-assets",
+      "--port",
+      "39147",
+      "--",
+      "cargo",
+      "run",
+      "--offline",
+      "--profile",
+      "dev"
     ]
   }
 }

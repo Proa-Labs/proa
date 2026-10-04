@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Measure warm consumer-app builds without inheriting Proa workspace profiles.
 
 Creates a standalone app in a new temporary directory. Dependencies point at

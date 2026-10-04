@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Verify the explicit hot-static fixture's HTTP updates and full-build fallbacks."""
 import argparse
 import json

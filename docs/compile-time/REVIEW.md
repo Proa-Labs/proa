@@ -80,7 +80,7 @@ and forwards the real link unchanged. Partial-edit/removal tests exercise four
 CGUs and unused retained witnesses for libraries and binaries. Response/file-list
 protocols fail closed. Unsupported target/linker/output forms use the
 single-object fallback while retaining incremental queries. Native adapter
-execution was validated on macOS; Linux needs CI/runtime confirmation.
+execution was validated on macOS and in the initial Linux PR pipeline shard.
 
 **Plan selection and reuse.** The moved parser/validator was compared against
 its old macro implementation, rather than treating all 6,000 lines as new logic.
@@ -129,10 +129,21 @@ acceptance command; framework library checks and linked CLI application checks
 are reported separately. Proa source checking allows existing raw-HTML warnings
 in low-level renderer helpers; the render allocation lint is clean.
 
-Retain the PR as a draft until the expanded CI suite passes, including the Linux
-native carrier path. Review cache/descriptor changes, then runtime generations
+Retain the PR as a draft until the complete expanded CI rerun passes. Review cache/descriptor changes, then runtime generations
 and projection completeness, then the independent hot-static prototype. The
 last category can be split out if it slows review. The measurements establish
 approximately 3s typical Pizza rebuilds on one Mac, not a portable latency
 promise or a strict bound. No independent reviewer or non-macOS performance
 validation is claimed.
+
+## Initial PR CI follow-up
+
+The first Linux run passed the expanded pipeline shard and Pizza acceptance,
+plus workspace Rust checks. Atlas acceptance failed because its golden fixture
+pinned the old dense runtime IDs. Its normalization now assigns distinct owner
+and occurrence labels while preserving repeated references; the fixture changes
+only those tokens. The linked Atlas suite passes all six tests locally, including
+a regression that checks identity equality/distinctness survives normalization.
+Four retained Python probes now have the required license headers. Repository
+boundary checks pass with checkout paths represented by placeholders in the
+compact measurements. These fixes await the complete CI rerun.

@@ -43,7 +43,8 @@ custom builds. Sidecar schema 11 and descriptor target policy 5 isolate old cach
 
 The library/executable acceptance probe uses four codegen units and three source
 generations. It retains unused witnesses across edits and removes only the deleted
-module's witness. Native execution was tested on macOS; Linux awaits CI.
+module's witness. Native execution passed locally on macOS and in the initial
+Linux PR pipeline shard.
 
 ## Final compilation
 
