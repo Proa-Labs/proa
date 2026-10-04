@@ -7137,7 +7137,7 @@ trait LinkManifestHasher {
 
 struct FilesystemLinkManifestHasher {
     hashes: BTreeMap<PathBuf, ([u8; 32], [u8; 32])>,
-    object_hashes: BTreeMap<PathBuf, [u8; 32]>,
+    link_hashes: BTreeMap<PathBuf, [u8; 32]>,
 }
 
 impl FilesystemLinkManifestHasher {
@@ -7148,6 +7148,7 @@ impl FilesystemLinkManifestHasher {
         input_hashes: &DescriptorInputHashes,
     ) -> Result<Self, LinkManifestAssemblyError> {
         let mut paths = BTreeSet::from([root_artifact.to_path_buf()]);
+        let mut dependency_paths = BTreeSet::new();
         for unit in &topology.reachable {
             let descriptor = topology
                 .unit_by_id
@@ -7156,14 +7157,14 @@ impl FilesystemLinkManifestHasher {
             if !objects.contains_key(&descriptor.descriptor_object) {
                 paths.insert(descriptor.descriptor_object.clone());
             }
-            paths.extend(
-                topology
-                    .dependencies_by_unit
-                    .get(unit)
-                    .expect("prepared reachable units have dependency records")
-                    .iter()
-                    .map(|dependency| dependency.path.clone()),
-            );
+            for dependency in topology
+                .dependencies_by_unit
+                .get(unit)
+                .expect("prepared reachable units have dependency records")
+            {
+                dependency_paths.insert(dependency.path.clone());
+                paths.insert(dependency.path.clone());
+            }
         }
         let paths = paths
             .into_iter()
@@ -7174,24 +7175,36 @@ impl FilesystemLinkManifestHasher {
             .map(|path| {
                 (
                     path.clone(),
-                    hash_file_two_domains(path, FILE_HASH_DOMAIN, LINK_ARTIFACT_HASH_DOMAIN),
+                    if dependency_paths.contains(path) {
+                        hash_file_two_domains(path, FILE_HASH_DOMAIN, LINK_ARTIFACT_HASH_DOMAIN)
+                            .map(|(input, link)| (Some(input), link))
+                    } else {
+                        // Root and descriptor-only paths have no extern input
+                        // expectation. Do not compute a digest nobody uses.
+                        hash_file(path, LINK_ARTIFACT_HASH_DOMAIN).map(|link| (None, link))
+                    },
                 )
             })
             .collect::<Vec<_>>();
         let mut hashes = input_hashes.clone();
+        let mut link_hashes = objects
+            .iter()
+            .map(|(path, object)| (path.clone(), object.link_hash))
+            .collect::<BTreeMap<_, _>>();
         for (path, result) in hashed {
             let hash = result.map_err(|source| LinkManifestAssemblyError::HashArtifact {
                 path: path.clone(),
                 source,
             })?;
-            hashes.insert(path, hash);
+            if let Some(input) = hash.0 {
+                hashes.insert(path, (input, hash.1));
+            } else {
+                link_hashes.insert(path, hash.1);
+            }
         }
         Ok(Self {
             hashes,
-            object_hashes: objects
-                .iter()
-                .map(|(path, object)| (path.clone(), object.link_hash))
-                .collect(),
+            link_hashes,
         })
     }
 
@@ -7211,7 +7224,7 @@ impl FilesystemLinkManifestHasher {
 impl LinkManifestHasher for FilesystemLinkManifestHasher {
     fn hash_single(&mut self, path: &Path, domain: &[u8]) -> io::Result<[u8; 32]> {
         if domain == LINK_ARTIFACT_HASH_DOMAIN {
-            if let Some(hash) = self.object_hashes.get(path) {
+            if let Some(hash) = self.link_hashes.get(path) {
                 return Ok(*hash);
             }
         }
