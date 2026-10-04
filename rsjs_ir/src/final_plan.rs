@@ -6,6 +6,7 @@
 
 use crate::abi::{HELPER_CODEGEN_IR_JSON_HASH_DOMAIN, HELPER_SIGNATURE_JSON_HASH_DOMAIN};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 const PLAN_FORMAT: &str = "proa.rsjs.semantic_link_plan";
@@ -266,10 +267,25 @@ pub struct FinalComponentCodegen {
     pub direct_node_ref_aliases: Vec<FinalCodegenDirectNodeRefAlias>,
 }
 
+/// Runtime identity of a logical render occurrence, independent of global
+/// planner ordinals, descriptor generations, and unrelated plan contents.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FinalRuntimeSiteIdentity {
+    /// Logical standalone root containing this occurrence.
+    pub scope_id: [u8; 32],
+    /// Full identity of the definition at its structural edge path.
+    pub site_id: [u8; 32],
+    /// Compact server/DOM coordinate. Collisions are rejected across the
+    /// complete plan before any component selection is admitted.
+    pub candidate_id: u64,
+}
+
 /// Exact final component record and all of its plan-specific occurrences.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FinalComponentSelection {
     pub plan_id: [u8; 32],
+    /// Stable runtime identities indexed by internal dense planner candidate.
+    pub runtime_sites: BTreeMap<u32, FinalRuntimeSiteIdentity>,
     /// Unique standalone occurrence of this component definition, when its
     /// descriptor permits ordinary root rendering. A component with a
     /// required immutable static slot is rendered only through an exact
@@ -314,6 +330,14 @@ pub struct FinalComponentSelection {
     /// Relocation-authoritative helper codegen retained until the final macro
     /// can join producer-local call IDs back through their source-edge IDs.
     pub helper_linkage: FinalHelperLinkage,
+}
+
+impl FinalComponentSelection {
+    pub fn runtime_site(&self, candidate: u32) -> Result<FinalRuntimeSiteIdentity, String> {
+        self.runtime_sites.get(&candidate).copied().ok_or_else(|| {
+            format!("linked component candidate {candidate} has no stable runtime identity")
+        })
+    }
 }
 
 /// Final helper material selected for one component definition.
@@ -570,9 +594,9 @@ pub fn linked_owner_node_ref_aliases(
         .mounts
         .iter()
         .map(|mount| {
-            mount.candidate_id.parse::<u32>().map_err(|_| {
+            mount.candidate_id.parse::<u64>().map_err(|_| {
                 format!(
-                    "linked-owner mount candidate `{}` is not a canonical u32 ID",
+                    "linked-owner mount candidate `{}` is not a canonical u64 runtime ID",
                     mount.candidate_id
                 )
             })
@@ -580,14 +604,20 @@ pub fn linked_owner_node_ref_aliases(
         .collect::<Result<BTreeSet<_>, _>>()?;
     let mut aliases = Vec::new();
     for alias in &selection.all_node_ref_aliases {
-        let parent_in_owner = candidates.contains(&alias.parent_candidate_id);
-        let child_in_owner = candidates.contains(&alias.child_candidate_id);
+        let parent = selection
+            .runtime_site(alias.parent_candidate_id)?
+            .candidate_id;
+        let child = selection
+            .runtime_site(alias.child_candidate_id)?
+            .candidate_id;
+        let parent_in_owner = candidates.contains(&parent);
+        let child_in_owner = candidates.contains(&child);
         match (parent_in_owner, child_in_owner) {
             (false, false) => continue,
             (true, true) => aliases.push(crate::LinkedOwnerNodeRefAlias {
-                parent_candidate_id: alias.parent_candidate_id.to_string(),
+                parent_candidate_id: parent.to_string(),
                 parent_node_ref_id: alias.parent_node_ref_id,
-                child_candidate_id: alias.child_candidate_id.to_string(),
+                child_candidate_id: child.to_string(),
                 child_node_ref_id: alias.child_node_ref_id,
             }),
             _ => {
@@ -871,7 +901,7 @@ fn linked_owner_module_plan(
         });
     }
 
-    Ok(crate::LinkedOwnerModulePlan {
+    let mut plan = crate::LinkedOwnerModulePlan {
         owner_asset_id,
         root_candidate_id: root.candidate_id.to_string(),
         strategy,
@@ -894,7 +924,52 @@ fn linked_owner_module_plan(
             .collect(),
         callback_edges,
         lifecycles,
-    })
+    };
+    normalize_owner_runtime_candidates(selection, &mut plan)?;
+    Ok(plan)
+}
+
+fn normalize_owner_runtime_candidates(
+    selection: &FinalComponentSelection,
+    plan: &mut crate::LinkedOwnerModulePlan,
+) -> Result<(), String> {
+    let normalize = |candidate: &mut String| -> Result<(), String> {
+        let dense = candidate.parse::<u32>().map_err(|_| {
+            format!("linked-owner candidate `{candidate}` is not a dense planner coordinate")
+        })?;
+        *candidate = selection.runtime_site(dense)?.candidate_id.to_string();
+        Ok(())
+    };
+    normalize(&mut plan.root_candidate_id)?;
+    for mount in &mut plan.mounts {
+        normalize(&mut mount.candidate_id)?;
+        if let Some(parent) = &mut mount.parent_candidate_id {
+            normalize(parent)?;
+        }
+        if let Some(root) = &mut mount.lifecycle_root_candidate_id {
+            normalize(root)?;
+        }
+    }
+    for edge in &mut plan.signal_aliases {
+        normalize(&mut edge.parent_candidate_id)?;
+        normalize(&mut edge.child_candidate_id)?;
+    }
+    for edge in &mut plan.signal_seeds {
+        normalize(&mut edge.parent_candidate_id)?;
+        normalize(&mut edge.child_candidate_id)?;
+    }
+    for edge in &mut plan.callback_edges {
+        normalize(&mut edge.parent_candidate_id)?;
+        normalize(&mut edge.child_candidate_id)?;
+    }
+    for lifecycle in &mut plan.lifecycles {
+        normalize(&mut lifecycle.root_candidate_id)?;
+        normalize(&mut lifecycle.parent_candidate_id)?;
+        for candidate in &mut lifecycle.candidates {
+            normalize(candidate)?;
+        }
+    }
+    Ok(())
 }
 
 fn resolve_payload_handler_source(
@@ -1191,6 +1266,64 @@ struct ComponentSiteRecord {
     reactive_lifecycle_root_candidate_id: Option<u32>,
 }
 
+fn runtime_site_identities(
+    sites: &[ComponentSiteRecord],
+) -> Result<BTreeMap<u32, FinalRuntimeSiteIdentity>, String> {
+    let mut identities = BTreeMap::new();
+    let mut candidates = BTreeMap::new();
+    for site in sites {
+        let root = decode_lower_hex_bytes("runtime root semantic key", &site.root_semantic_key)?;
+        let component = decode_lower_hex_bytes(
+            "runtime component semantic key",
+            &site.component_semantic_key,
+        )?;
+        let mut scope = Sha256::new();
+        scope.update(b"proa.rsjs.runtime-root.v1\0");
+        scope.update((root.len() as u64).to_le_bytes());
+        scope.update(&root);
+        let scope_id: [u8; 32] = scope.finalize().into();
+        let mut occurrence = Sha256::new();
+        occurrence.update(b"proa.rsjs.runtime-site.v1\0");
+        occurrence.update(scope_id);
+        occurrence.update((component.len() as u64).to_le_bytes());
+        occurrence.update(&component);
+        occurrence.update((site.structural_path.len() as u64).to_le_bytes());
+        for edge in &site.structural_path {
+            occurrence.update(edge.to_le_bytes());
+        }
+        let site_id: [u8; 32] = occurrence.finalize().into();
+        let identity = FinalRuntimeSiteIdentity {
+            scope_id,
+            site_id,
+            candidate_id: u64::from_le_bytes(site_id[..8].try_into().expect("eight hash bytes")),
+        };
+        admit_runtime_candidate(&mut candidates, identity)?;
+        if identities.insert(site.candidate_id, identity).is_some() {
+            return Err(format!(
+                "duplicate planner candidate {} in runtime identity table",
+                site.candidate_id
+            ));
+        }
+    }
+    Ok(identities)
+}
+
+fn admit_runtime_candidate(
+    candidates: &mut BTreeMap<u64, [u8; 32]>,
+    identity: FinalRuntimeSiteIdentity,
+) -> Result<(), String> {
+    if let Some(previous) = candidates.insert(identity.candidate_id, identity.site_id) {
+        return Err(format!(
+            "runtime component-site identity collision at candidate {} between {} and {}; \
+             refusing to publish an ambiguous render plan",
+            identity.candidate_id,
+            hex_id(&previous),
+            hex_id(&identity.site_id),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StandaloneRootDispositionRecord {
     StructuralIncomingOnly,
@@ -1214,6 +1347,7 @@ pub fn validate_component_plan_bytes(
     let component_codegen = parse_component_codegen(root, &components)?;
     let sites = parse_component_sites(root, &components)?;
     let child_sites = validate_site_structure(&components, &sites)?;
+    let runtime_sites = runtime_site_identities(&sites)?;
     let standalone_roots = parse_standalone_roots(root, &components, &sites)?;
     let (candidate_to_owner, owner_roots, owner_strategies) = validate_owner_mapping(root, &sites)?;
     validate_lifecycle_owner_groups(&sites, &candidate_to_owner)?;
@@ -1294,7 +1428,7 @@ pub fn validate_component_plan_bytes(
             }
             FinalOwnerRole::Member { owner_id, .. } => (
                 Some(owner_asset_id(plan_id, owner_id)),
-                Some(member_seed_key(plan_id, site.candidate_id)),
+                Some(member_seed_key(runtime_sites[&site.candidate_id].site_id)),
             ),
         };
         let final_site = FinalComponentSite {
@@ -1399,6 +1533,7 @@ pub fn validate_component_plan_bytes(
 
     Ok(FinalComponentSelection {
         plan_id,
+        runtime_sites,
         standalone_candidate_id,
         sites: selected_sites,
         child_sites,
@@ -3680,8 +3815,8 @@ fn owner_asset_id(plan_id: [u8; 32], owner_id: u32) -> String {
     format!("rsjs_owner_{}_{owner_id}", hex_id(&plan_id))
 }
 
-fn member_seed_key(plan_id: [u8; 32], candidate_id: u32) -> String {
-    format!("rsjs_member_{}_{candidate_id}", hex_id(&plan_id))
+fn member_seed_key(site_id: [u8; 32]) -> String {
+    format!("rsjs_member_{}", hex_id(&site_id))
 }
 
 #[cfg(test)]
@@ -4066,8 +4201,197 @@ mod tests {
         plan
     }
 
+    fn runtime_candidate(selection: &FinalComponentSelection, dense: u32) -> String {
+        selection
+            .runtime_site(dense)
+            .unwrap()
+            .candidate_id
+            .to_string()
+    }
+
     fn encode(plan: &Value) -> Vec<u8> {
         serde_json::to_vec(plan).unwrap()
+    }
+
+    fn insert_unrelated_first_root(plan: &mut Value) {
+        fn shift(value: &mut Value) {
+            match value {
+                Value::Object(object) => {
+                    for (key, value) in object {
+                        if matches!(
+                            key.as_str(),
+                            "candidate_id"
+                                | "parent_candidate_id"
+                                | "child_candidate_id"
+                                | "root_candidate_id"
+                                | "reactive_lifecycle_root_candidate_id"
+                                | "provider_host_candidate_id"
+                                | "host_candidate_id"
+                                | "owner_id"
+                        ) {
+                            if let Some(number) = value.as_u64() {
+                                *value = json!(number + 1);
+                            }
+                        } else if key == "candidates" {
+                            for candidate in value.as_array_mut().unwrap() {
+                                *candidate = json!(candidate.as_u64().unwrap() + 1);
+                            }
+                        } else {
+                            shift(value);
+                        }
+                    }
+                }
+                Value::Array(values) => values.iter_mut().for_each(shift),
+                _ => {}
+            }
+        }
+        shift(plan);
+        let unit = [10; 32];
+        let record = [11; 32];
+        plan["components"].as_array_mut().unwrap().insert(
+            0,
+            json!({
+                "definition": definition(unit, record),
+                "semantic_key_canonical": "01",
+                "root_eligible": true,
+                "component_edges": [],
+                "helper_edges": [],
+                "helper_closure": [],
+            }),
+        );
+        plan["component_codegen"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, component_codegen(unit, record, "unrelated_1234"));
+        plan["component_sites"].as_array_mut().unwrap().insert(
+            0,
+            json!({
+                "candidate_id": 0,
+                "root_semantic_key_canonical": "01",
+                "component_semantic_key_canonical": "01",
+                "definition": definition(unit, record),
+                "parent_candidate_id": null,
+                "incoming_edge_id": null,
+                "structural_path": [],
+                "incoming_lifecycle": null,
+                "reactive_lifecycle_root_candidate_id": null,
+            }),
+        );
+        plan["standalone_roots"].as_array_mut().unwrap().insert(
+            0,
+            json!({
+                "definition": definition(unit, record),
+                "component_semantic_key_canonical": "01",
+                "disposition": { "kind": "admitted", "candidate_id": 0 },
+            }),
+        );
+        plan["owners"].as_array_mut().unwrap().insert(
+            0,
+            json!({
+                "owner_id": 0, "candidates": [0], "strategy": { "kind": "eager" },
+            }),
+        );
+        plan["candidate_to_owner"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, json!({ "candidate_id": 0, "owner_id": 0 }));
+    }
+
+    #[test]
+    fn unrelated_root_insertion_preserves_runtime_sites_and_browser_coordinates() {
+        let mut plan = node_ref_plan();
+        let before =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &encode(&plan))
+                .unwrap();
+        insert_unrelated_first_root(&mut plan);
+        let new_plan_id = [0x23; 32];
+        plan["plan_id"] = json!(hex_id(&new_plan_id));
+        let after =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, new_plan_id, &encode(&plan))
+                .unwrap();
+        assert_ne!(before.plan_id, after.plan_id);
+        for (&dense, &identity) in &before.runtime_sites {
+            assert_eq!(identity, after.runtime_site(dense + 1).unwrap());
+        }
+        assert_eq!(before.all_sites[1].seed_key, after.all_sites[2].seed_key);
+        let old_owner = linked_owner_module_plans(&before).unwrap().remove(0);
+        let new_owner = linked_owner_module_plans(&after).unwrap().remove(0);
+        assert_eq!(old_owner.root_candidate_id, new_owner.root_candidate_id);
+        assert_eq!(
+            linked_owner_node_ref_aliases(&before, &old_owner).unwrap(),
+            linked_owner_node_ref_aliases(&after, &new_owner).unwrap(),
+        );
+        assert_eq!(old_owner.mounts[1], new_owner.mounts[1]);
+        // Global owner assets are deliberately still tracked until content
+        // addressing and exact unit projections are implemented together.
+        assert_ne!(old_owner.owner_asset_id, new_owner.owner_asset_id);
+    }
+
+    #[test]
+    fn descriptor_generation_changes_do_not_change_logical_occurrence_identity() {
+        let mut plan = linked_plan();
+        let before =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &encode(&plan))
+                .unwrap();
+        fn replace_unit(value: &mut Value) {
+            match value {
+                Value::Object(object) => {
+                    for (key, value) in object {
+                        if key == "cargo_unit_id" && *value == json!(hex_id(&PARENT_UNIT)) {
+                            *value = json!(hex_id(&[12; 32]));
+                        } else {
+                            replace_unit(value);
+                        }
+                    }
+                }
+                Value::Array(values) => values.iter_mut().for_each(replace_unit),
+                _ => {}
+            }
+        }
+        replace_unit(&mut plan);
+        let after = validate_component_plan_bytes([12; 32], PARENT_RECORD, PLAN_ID, &encode(&plan))
+            .unwrap();
+        assert_eq!(before.runtime_sites, after.runtime_sites);
+        assert_ne!(
+            before.runtime_site(1).unwrap(),
+            before.runtime_site(2).unwrap(),
+            "a child under its parent and the same definition's standalone root are distinct"
+        );
+    }
+
+    #[test]
+    fn runtime_identity_distinguishes_structural_paths_and_rejects_compact_collisions() {
+        let plan = linked_plan();
+        let root = plan.as_object().unwrap();
+        let components = parse_components(root).unwrap();
+        let mut sites = parse_component_sites(root, &components).unwrap();
+        let mut repeated_child = sites[1].clone();
+        repeated_child.candidate_id = 3;
+        repeated_child.structural_path = vec![8];
+        repeated_child.incoming_edge_id = Some(8);
+        sites.push(repeated_child);
+        let identities = runtime_site_identities(&sites).unwrap();
+        assert_eq!(identities[&1].scope_id, identities[&3].scope_id);
+        assert_ne!(identities[&1].site_id, identities[&3].site_id);
+        assert_ne!(identities[&1].candidate_id, identities[&3].candidate_id);
+
+        let mut candidates = BTreeMap::new();
+        admit_runtime_candidate(&mut candidates, identities[&1]).unwrap();
+        let collision = FinalRuntimeSiteIdentity {
+            candidate_id: identities[&1].candidate_id,
+            ..identities[&3]
+        };
+        assert!(admit_runtime_candidate(&mut candidates, collision)
+            .unwrap_err()
+            .contains("refusing to publish an ambiguous render plan"));
+        assert!(
+            admit_runtime_candidate(
+                &mut BTreeMap::from([(identities[&1].candidate_id, identities[&1].site_id),]),
+                identities[&1]
+            )
+            .is_err(),
+            "duplicate full coordinates are also ambiguous"
+        );
     }
 
     #[test]
@@ -4117,7 +4441,7 @@ mod tests {
         );
         assert_eq!(
             selection.sites[0].seed_key.as_deref(),
-            Some(member_seed_key(PLAN_ID, 1).as_str())
+            Some(member_seed_key(selection.runtime_site(1).unwrap().site_id).as_str())
         );
         assert_eq!(
             selection.sites[1].owner_asset_id.as_deref(),
@@ -4284,9 +4608,9 @@ mod tests {
         assert_eq!(
             linked_owner_node_ref_aliases(&parent, &owner_plan).expect("owner aliases"),
             vec![crate::LinkedOwnerNodeRefAlias {
-                parent_candidate_id: "0".into(),
+                parent_candidate_id: runtime_candidate(&parent, 0),
                 parent_node_ref_id: 4,
-                child_candidate_id: "1".into(),
+                child_candidate_id: runtime_candidate(&parent, 1),
                 child_node_ref_id: 8,
             }]
         );
@@ -4350,11 +4674,14 @@ mod tests {
         let plans = linked_owner_module_plans(&parent).unwrap();
         assert_eq!(plans.len(), 1);
         let owner = &plans[0];
-        assert_eq!(owner.root_candidate_id, "0");
+        assert_eq!(owner.root_candidate_id, runtime_candidate(&parent, 0));
         assert_eq!(owner.mounts.len(), 2);
         assert_eq!(owner.mounts[0].fragment_asset_id, "parent_1234");
         assert_eq!(owner.mounts[1].fragment_asset_id, "child_1234");
-        assert_eq!(owner.mounts[1].parent_candidate_id.as_deref(), Some("0"));
+        assert_eq!(
+            owner.mounts[1].parent_candidate_id.as_deref(),
+            Some(runtime_candidate(&parent, 0).as_str())
+        );
         assert!(crate::emit_linked_owner_module(owner)
             .unwrap()
             .contains("data-rsjs-linked-candidate"));
@@ -4368,7 +4695,10 @@ mod tests {
         .unwrap();
         let child_plans = linked_owner_module_plans(&child).unwrap();
         assert_eq!(child_plans.len(), 1);
-        assert_eq!(child_plans[0].root_candidate_id, "2");
+        assert_eq!(
+            child_plans[0].root_candidate_id,
+            runtime_candidate(&child, 2)
+        );
         assert_eq!(child_plans[0].mounts.len(), 1);
     }
 
@@ -4490,18 +4820,18 @@ mod tests {
         assert_eq!(
             owner.signal_aliases,
             vec![crate::LinkedOwnerSignalAlias {
-                parent_candidate_id: "0".to_owned(),
+                parent_candidate_id: runtime_candidate(&parent, 0),
                 parent_signal_id: 17,
-                child_candidate_id: "1".to_owned(),
+                child_candidate_id: runtime_candidate(&parent, 1),
                 child_signal_id: 23,
             }]
         );
         assert_eq!(
             owner.callback_edges,
             vec![crate::LinkedOwnerCallbackEdge {
-                parent_candidate_id: "0".to_owned(),
+                parent_candidate_id: runtime_candidate(&parent, 0),
                 parent_payload_handler_id: 19,
-                child_candidate_id: "1".to_owned(),
+                child_candidate_id: runtime_candidate(&parent, 1),
                 child_callback_slot_id: 29,
             }]
         );
@@ -4575,9 +4905,9 @@ mod tests {
         assert_eq!(
             owner.signal_seeds,
             vec![crate::LinkedOwnerSignalSeed {
-                parent_candidate_id: "0".to_owned(),
+                parent_candidate_id: runtime_candidate(&selection, 0),
                 parent_signal_id: 17,
-                child_candidate_id: "1".to_owned(),
+                child_candidate_id: runtime_candidate(&selection, 1),
                 child_signal_id: 23,
             }]
         );
@@ -4886,16 +5216,16 @@ mod tests {
         assert_eq!(owner.mounts[0].lifecycle_root_candidate_id, None);
         assert_eq!(
             owner.mounts[1].lifecycle_root_candidate_id.as_deref(),
-            Some("1")
+            Some(runtime_candidate(&selection, 1).as_str())
         );
         assert_eq!(
             owner.lifecycles,
             vec![crate::LinkedOwnerLifecycle {
-                root_candidate_id: "1".to_owned(),
-                parent_candidate_id: "0".to_owned(),
+                root_candidate_id: runtime_candidate(&selection, 1),
+                parent_candidate_id: runtime_candidate(&selection, 0),
                 control_id: 3,
                 branch: crate::LinkedOwnerLifecycleBranch::Else,
-                candidates: vec!["1".to_owned()],
+                candidates: vec![runtime_candidate(&selection, 1)],
             }]
         );
         assert_eq!(
@@ -4932,11 +5262,14 @@ mod tests {
         let owner = linked_owner_module_plans(&selection).unwrap().remove(0);
         assert_eq!(
             owner.mounts[2].lifecycle_root_candidate_id.as_deref(),
-            Some("1")
+            Some(runtime_candidate(&selection, 1).as_str())
         );
         assert_eq!(
             owner.lifecycles[0].candidates,
-            vec!["1".to_owned(), "2".to_owned()]
+            vec![
+                runtime_candidate(&selection, 1),
+                runtime_candidate(&selection, 2)
+            ]
         );
     }
 

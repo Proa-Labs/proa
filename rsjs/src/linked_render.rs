@@ -121,14 +121,14 @@ impl<C> LinkedSharedStateProviderChildren<C> {
     #[doc(hidden)]
     pub const fn new(
         child: C,
-        plan_id: [u8; 32],
-        host_candidate_id: u32,
+        scope_id: [u8; 32],
+        host_candidate_id: u64,
         provider_site_id: u32,
     ) -> Self {
         Self {
             child,
             occurrence: RsjsLinkedProviderOccurrenceKey::new(
-                plan_id,
+                scope_id,
                 host_candidate_id,
                 provider_site_id,
             ),
@@ -391,7 +391,7 @@ fn write_prefix<B: WriteBuf, L: DataLoader>(
         .extend_static(b"<rsjs-island data-rsjs-island-root=\"")?;
     cx.out.extend(seed_key.as_bytes())?;
     cx.out.extend_static(b"\" data-rsjs-linked-candidate=\"")?;
-    write_u32(&mut cx.out, site.candidate_id)?;
+    write_u64(&mut cx.out, site.candidate_id)?;
     cx.out.extend_static(b"\">")?;
     Ok(cx.csp_nonce_cloned())
 }
@@ -485,8 +485,8 @@ fn write_state_script<B: WriteBuf, L: DataLoader>(
 }
 
 #[inline]
-fn write_u32<B: WriteBuf>(out: &mut B, mut value: u32) -> Result<(), WriteError> {
-    let mut digits = [0_u8; 10];
+fn write_u64<B: WriteBuf>(out: &mut B, mut value: u64) -> Result<(), WriteError> {
+    let mut digits = [0_u8; 20];
     let mut cursor = digits.len();
     loop {
         cursor -= 1;
@@ -501,6 +501,15 @@ fn write_u32<B: WriteBuf>(out: &mut B, mut value: u32) -> Result<(), WriteError>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_candidate_decimal_encoding_preserves_all_u64_bits() {
+        for value in [0, u64::from(u32::MAX) + 1, u64::MAX] {
+            let mut out = proa_core::RenderBuffer::new();
+            write_u64(&mut out, value).unwrap();
+            assert_eq!(out.into_string(), value.to_string());
+        }
+    }
 
     static SERVER_SITE: LinkedRenderSitePlan = LinkedRenderSitePlan::new(
         [1; 32],
@@ -550,13 +559,13 @@ mod tests {
         }
     }
 
-    const LINKED_PROVIDER_PLAN_ID: [u8; 32] = [0x55; 32];
-    const LINKED_PROVIDER_HOST: u32 = 9;
+    const LINKED_PROVIDER_SCOPE_ID: [u8; 32] = [0x55; 32];
+    const LINKED_PROVIDER_HOST: u64 = 9;
     const LINKED_PROVIDER_SITE: u32 = 3;
 
     fn linked_provider_occurrence() -> RsjsLinkedProviderOccurrenceKey {
         RsjsLinkedProviderOccurrenceKey::new(
-            LINKED_PROVIDER_PLAN_ID,
+            LINKED_PROVIDER_SCOPE_ID,
             LINKED_PROVIDER_HOST,
             LINKED_PROVIDER_SITE,
         )
@@ -616,7 +625,7 @@ mod tests {
         WebRenderSync::render(
             LinkedSharedStateProviderChildren::new(
                 LinkedProviderSyncProbe,
-                LINKED_PROVIDER_PLAN_ID,
+                LINKED_PROVIDER_SCOPE_ID,
                 LINKED_PROVIDER_HOST,
                 LINKED_PROVIDER_SITE,
             ),
@@ -656,7 +665,7 @@ mod tests {
         WebRender::render(
             LinkedSharedStateProviderChildren::new(
                 LinkedProviderAsyncProbe,
-                LINKED_PROVIDER_PLAN_ID,
+                LINKED_PROVIDER_SCOPE_ID,
                 LINKED_PROVIDER_HOST,
                 LINKED_PROVIDER_SITE,
             ),
