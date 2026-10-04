@@ -991,6 +991,36 @@ pub(crate) fn snapshot_wrapper_executable(
     source: &Path,
 ) -> Result<PathBuf, FinalCargoError> {
     ensure_plain_managed_directory(source_exclusion, snapshot_root)?;
+    // A warm wrapper snapshot is already immutable. Verify fresh source and
+    // destination bytes/mode before reusing it, rather than writing and
+    // syncing another identical temporary executable on every dev cycle.
+    let (digest, permissions) = snapshot_file_identity(source)?;
+    let file_name = source
+        .file_name()
+        .ok_or_else(|| FinalCargoError::SnapshotArtifactWithoutFilename(source.to_path_buf()))?;
+    let directory = snapshot_root.join(format!("{}-{permissions}", hex_sha256(&digest)));
+    ensure_plain_managed_directory(source_exclusion, &directory)?;
+    let destination = directory.join(file_name);
+    match fs::symlink_metadata(&destination) {
+        Ok(_) => {
+            ensure_plain_managed_file(source_exclusion, &destination)?;
+            let (existing_digest, existing_permissions) = snapshot_file_identity(&destination)?;
+            if existing_digest != digest || existing_permissions != permissions {
+                return Err(FinalCargoError::ConflictingSnapshotArtifact(destination));
+            }
+            validate_executable_snapshot_contract(&destination, source_exclusion)?;
+            return Ok(destination);
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(FinalCargoError::SnapshotArtifactIo {
+                path: destination,
+                source,
+            });
+        }
+    }
+    // A miss retains the one-open-file copy and atomic publication contract.
+    // Its own digest is authoritative if the source changed after this probe.
     snapshot_final_file(
         source_exclusion,
         snapshot_root,
