@@ -1767,7 +1767,26 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
         );
     }
     let parsed = parse_cargo_command(command, action)?;
-    let metadata = load_cargo_metadata(root, &parsed)?;
+    let mut timer = crate::rsjs::timing::StageTimer::new();
+    // Query every current tool and Cargo's authoritative metadata on each
+    // cycle. They are independent subprocesses; overlapping them avoids
+    // adding their startup costs together without caching mutable tool state.
+    let (metadata, cargo_version, rustc_version) = thread::scope(|scope| {
+        let cargo = scope.spawn(|| tool_version(&parsed.cargo, &["-Vv"], "Cargo", root));
+        let rustc = scope.spawn(|| selected_rustc_version(root));
+        let metadata = load_cargo_metadata(root, &parsed);
+        let cargo = cargo
+            .join()
+            .map_err(|_| anyhow::anyhow!("Cargo version query thread panicked"))
+            .and_then(|result| result);
+        let rustc = rustc
+            .join()
+            .map_err(|_| anyhow::anyhow!("rustc version query thread panicked"))
+            .and_then(|result| result);
+        (metadata, cargo, rustc)
+    });
+    let metadata = metadata?;
+    timer.mark("prepare Cargo metadata and tool versions");
     let selected_root = select_exact_cargo_root(&metadata, &parsed, action)?;
     if !metadata.target_directory.is_absolute() {
         bail!(
@@ -1782,6 +1801,7 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
     let (wrapper, wrapper_lock) =
         prepare_wrapper_executable(&metadata.target_directory, &wrapper_snapshot_root, &wrapper)?;
     let wrapper_fingerprint = wrapper_executable_fingerprint(&wrapper)?;
+    timer.mark("prepare wrapper snapshot and fingerprint");
     let package_source_root = selected_root.package_source_root.clone();
     let cli_producer = cli_tool_producer_version()?;
     let mut selection_args = parsed.selection_args.clone();
@@ -1815,8 +1835,8 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
         // invalidate units that actually consume one of these values.
         environment: declared_build_environment(),
         toolchain: BuildToolchain {
-            cargo: tool_version(&parsed.cargo, &["-Vv"], "Cargo", root)?,
-            rustc: selected_rustc_version(root)?,
+            cargo: cargo_version?,
+            rustc: rustc_version?,
             proa: cli_producer,
             compiler_abi: RSJS_COMPILER_ABI,
             transport_version: TRANSPORT_FORMAT_VERSION,

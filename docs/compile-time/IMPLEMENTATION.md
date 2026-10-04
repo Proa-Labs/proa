@@ -112,7 +112,9 @@ coherence, dep-info dependencies, and corrupted projection rejection. See
 [INVALIDATION.md](INVALIDATION.md) for the exact dependency and validation contract.
 The first Pizza rebenchmark after this architecture change measured 3.035s
 template and 3.037s function edits. This slightly exceeds the 2–3s target;
-projection derivation cost is being investigated. See [PIZZA_TARGET.md](PIZZA_TARGET.md).
+a process-local derivation cache rebenchmark measured 2.993s template and
+3.033s function edits, still at the target boundary. Preparation overhead is
+being investigated next. See [PIZZA_TARGET.md](PIZZA_TARGET.md).
 
 The explicit hot-static prototype uses the shared checked DSL and consolidation
 walk. Its file fingerprint masks only eligible template string values; dynamic

@@ -1,0 +1,3056 @@
+{
+  "command": [
+    "/Users/andrewhariri/Desktop/proa-dev-perf/target/release/cargo-proa",
+    "dev",
+    "--root",
+    "/private/tmp/proa-dev-perf-pizza",
+    "--no-assets",
+    "--port",
+    "39147",
+    "--",
+    "cargo",
+    "run",
+    "--offline",
+    "--profile",
+    "dev"
+  ],
+  "toolchain": null,
+  "rustflags": null,
+  "configuration": "projection-cache-function",
+  "build_timings": true,
+  "samples": [
+    {
+      "sample": 0,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.2949487909208983,
+        "prepared": 0.4328430409077555,
+        "descriptor_finished": 1.3605552499648184,
+        "final_compiling": 1.8903968748636544,
+        "final_finished": 2.6122634578496218,
+        "validated": 2.6412127499934286,
+        "launched": 2.648791915969923,
+        "response": 3.020395540865138
+      },
+      "stage_timings_ms": {
+        "descriptor Cargo and sidecars": 919.048,
+        "cache artifact indexes": 3.597,
+        "cache persist rebuilt objects": 35.966,
+        "cache load and hash objects": 106.054,
+        "cache validate observed inputs and externs": 151.796,
+        "cache validate artifact joins": 4.615,
+        "cache publish indexes and cleanup": 35.985,
+        "transport manifest and root selection": 65.633,
+        "transport graph": 2.653,
+        "transport final-unit selection": 5.044,
+        "ABI adaptation": 1.907,
+        "semantic planning": 0.762,
+        "semantic plan publication": 6.501,
+        "final request validation and unit map": 8.464,
+        "final Cargo setup": 17.057,
+        "final Cargo execution": 800.817
+      }
+    },
+    {
+      "sample": 1,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.24575674999505281,
+        "prepared": 0.4118997079785913,
+        "descriptor_finished": 1.3457037080079317,
+        "final_compiling": 1.8971879999153316,
+        "final_finished": 2.6539880000054836,
+        "validated": 2.690077417064458,
+        "launched": 2.69764483300969,
+        "response": 3.049473457969725
+      },
+      "stage_timings_ms": {
+        "descriptor Cargo and sidecars": 927.312,
+        "cache artifact indexes": 4.274,
+        "cache persist rebuilt objects": 41.707,
+        "cache load and hash objects": 140.454,
+        "cache validate observed inputs and externs": 133.215,
+        "cache validate artifact joins": 4.725,
+        "cache publish indexes and cleanup": 35.705,
+        "transport manifest and root selection": 68.207,
+        "transport graph": 2.722,
+        "transport final-unit selection": 5.066,
+        "ABI adaptation": 1.948,
+        "semantic planning": 0.813,
+        "semantic plan publication": 6.435,
+        "final request validation and unit map": 8.547,
+        "final Cargo setup": 12.353,
+        "final Cargo execution": 837.295
+      }
+    },
+    {
+      "sample": 2,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.3083892499562353,
+        "prepared": 0.42476779082790017,
+        "descriptor_finished": 1.38885995792225,
+        "final_compiling": 1.9112992498558015,
+        "final_finished": 2.6506647078786045,
+        "validated": 2.685952582862228,
+        "launched": 2.6934830830432475,
+        "response": 3.0328182908706367
+      },
+      "stage_timings_ms": {
+        "descriptor Cargo and sidecars": 951.906,
+        "cache artifact indexes": 3.596,
+        "cache persist rebuilt objects": 36.942,
+        "cache load and hash objects": 103.609,
+        "cache validate observed inputs and externs": 147.483,
+        "cache validate artifact joins": 4.791,
+        "cache publish indexes and cleanup": 34.658,
+        "transport manifest and root selection": 68.019,
+        "transport graph": 2.623,
+        "transport final-unit selection": 5.099,
+        "ABI adaptation": 1.856,
+        "semantic planning": 0.755,
+        "semantic plan publication": 6.942,
+        "final request validation and unit map": 8.479,
+        "final Cargo setup": 12.464,
+        "final Cargo execution": 818.841
+      }
+    }
+  ],
+  "events": [
+    {
+      "time": 1492233.080337666,
+      "stream": "stdout",
+      "line": "Proa dev root: /private/tmp/proa-dev-perf-pizza"
+    },
+    {
+      "time": 1492233.080345791,
+      "stream": "stdout",
+      "line": "Proa dev URL: http://127.0.0.1:39147"
+    },
+    {
+      "time": 1492233.080377166,
+      "stream": "stdout",
+      "line": "Proa dev live reload: on (port 59385)"
+    },
+    {
+      "time": 1492233.180038833,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1492233.591994958,
+      "stream": "stderr",
+      "line": "   Compiling unicode-ident v1.0.22"
+    },
+    {
+      "time": 1492233.592012125,
+      "stream": "stderr",
+      "line": "   Compiling proc-macro2 v1.0.107"
+    },
+    {
+      "time": 1492233.592013416,
+      "stream": "stderr",
+      "line": "   Compiling quote v1.0.47"
+    },
+    {
+      "time": 1492233.592014958,
+      "stream": "stderr",
+      "line": "   Compiling libc v0.2.188"
+    },
+    {
+      "time": 1492233.59202225,
+      "stream": "stderr",
+      "line": "   Compiling itoa v1.0.15"
+    },
+    {
+      "time": 1492233.592024416,
+      "stream": "stderr",
+      "line": "   Compiling memchr v2.8.3"
+    },
+    {
+      "time": 1492233.592076291,
+      "stream": "stderr",
+      "line": "   Compiling cfg-if v1.0.4"
+    },
+    {
+      "time": 1492233.592099416,
+      "stream": "stderr",
+      "line": "   Compiling serde v1.0.228"
+    },
+    {
+      "time": 1492233.592113,
+      "stream": "stderr",
+      "line": "   Compiling parking_lot_core v0.9.12"
+    },
+    {
+      "time": 1492233.592114083,
+      "stream": "stderr",
+      "line": "   Compiling ryu v1.0.20"
+    },
+    {
+      "time": 1492233.592114833,
+      "stream": "stderr",
+      "line": "   Compiling pin-project-lite v0.2.16"
+    },
+    {
+      "time": 1492233.592115625,
+      "stream": "stderr",
+      "line": "   Compiling once_cell v1.21.3"
+    },
+    {
+      "time": 1492233.592116291,
+      "stream": "stderr",
+      "line": "   Compiling crossbeam-utils v0.8.21"
+    },
+    {
+      "time": 1492233.59213175,
+      "stream": "stderr",
+      "line": "   Compiling bytes v1.11.1"
+    },
+    {
+      "time": 1492233.592132625,
+      "stream": "stderr",
+      "line": "   Compiling thiserror v2.0.19"
+    },
+    {
+      "time": 1492233.592680666,
+      "stream": "stderr",
+      "line": "   Compiling scopeguard v1.2.0"
+    },
+    {
+      "time": 1492233.652919458,
+      "stream": "stderr",
+      "line": "   Compiling lock_api v0.4.14"
+    },
+    {
+      "time": 1492233.652933166,
+      "stream": "stderr",
+      "line": "   Compiling serde_core v1.0.228"
+    },
+    {
+      "time": 1492233.676784041,
+      "stream": "stderr",
+      "line": "   Compiling version_check v0.9.5"
+    },
+    {
+      "time": 1492233.689448333,
+      "stream": "stderr",
+      "line": "   Compiling serde_json v1.0.145"
+    },
+    {
+      "time": 1492233.712446791,
+      "stream": "stderr",
+      "line": "   Compiling smallvec v1.15.1"
+    },
+    {
+      "time": 1492233.745077541,
+      "stream": "stderr",
+      "line": "   Compiling regex-syntax v0.8.8"
+    },
+    {
+      "time": 1492233.790361875,
+      "stream": "stderr",
+      "line": "   Compiling typenum v1.20.1"
+    },
+    {
+      "time": 1492233.846768708,
+      "stream": "stderr",
+      "line": "   Compiling aho-corasick v1.1.4"
+    },
+    {
+      "time": 1492233.883700916,
+      "stream": "stderr",
+      "line": "   Compiling http v1.4.2"
+    },
+    {
+      "time": 1492234.034632458,
+      "stream": "stderr",
+      "line": "   Compiling generic-array v0.14.7"
+    },
+    {
+      "time": 1492234.092868583,
+      "stream": "stderr",
+      "line": "   Compiling hashbrown v0.14.5"
+    },
+    {
+      "time": 1492234.129641916,
+      "stream": "stderr",
+      "line": "   Compiling byteorder v1.5.0"
+    },
+    {
+      "time": 1492234.232692625,
+      "stream": "stderr",
+      "line": "   Compiling syn v2.0.119"
+    },
+    {
+      "time": 1492234.251639291,
+      "stream": "stderr",
+      "line": "   Compiling syn v3.0.2"
+    },
+    {
+      "time": 1492234.263780083,
+      "stream": "stderr",
+      "line": "   Compiling zmij v1.0.23"
+    },
+    {
+      "time": 1492234.323862083,
+      "stream": "stderr",
+      "line": "   Compiling heapless v0.8.0"
+    },
+    {
+      "time": 1492234.36370275,
+      "stream": "stderr",
+      "line": "   Compiling hash32 v0.3.1"
+    },
+    {
+      "time": 1492234.427314375,
+      "stream": "stderr",
+      "line": "   Compiling tracing-core v0.1.34"
+    },
+    {
+      "time": 1492234.473696958,
+      "stream": "stderr",
+      "line": "   Compiling stable_deref_trait v1.2.1"
+    },
+    {
+      "time": 1492234.508715875,
+      "stream": "stderr",
+      "line": "   Compiling log v0.4.28"
+    },
+    {
+      "time": 1492234.654085375,
+      "stream": "stderr",
+      "line": "   Compiling const-oid v0.9.6"
+    },
+    {
+      "time": 1492234.698559166,
+      "stream": "stderr",
+      "line": "   Compiling futures-core v0.3.31"
+    },
+    {
+      "time": 1492234.720986375,
+      "stream": "stderr",
+      "line": "   Compiling arrayvec v0.7.6"
+    },
+    {
+      "time": 1492234.721242208,
+      "stream": "stderr",
+      "line": "   Compiling crossbeam-epoch v0.9.20"
+    },
+    {
+      "time": 1492234.726819041,
+      "stream": "stderr",
+      "line": "   Compiling itoa_lut v0.1.2 (/Users/andrewhariri/Desktop/proa-dev-perf/itoa_lut)"
+    },
+    {
+      "time": 1492234.759479166,
+      "stream": "stderr",
+      "line": "   Compiling bytemuck v1.25.2"
+    },
+    {
+      "time": 1492234.76114425,
+      "stream": "stderr",
+      "line": "   Compiling object v0.37.3"
+    },
+    {
+      "time": 1492234.808753625,
+      "stream": "stderr",
+      "line": "   Compiling pin-utils v0.1.0"
+    },
+    {
+      "time": 1492234.852518291,
+      "stream": "stderr",
+      "line": "   Compiling safe_arch v0.7.4"
+    },
+    {
+      "time": 1492234.867873166,
+      "stream": "stderr",
+      "line": "   Compiling rayon-core v1.13.0"
+    },
+    {
+      "time": 1492234.887104458,
+      "stream": "stderr",
+      "line": "   Compiling wide v0.7.33"
+    },
+    {
+      "time": 1492234.900909666,
+      "stream": "stderr",
+      "line": "   Compiling regex-automata v0.4.13"
+    },
+    {
+      "time": 1492234.9977355,
+      "stream": "stderr",
+      "line": "   Compiling http-body v1.0.1"
+    },
+    {
+      "time": 1492235.060041875,
+      "stream": "stderr",
+      "line": "   Compiling httparse v1.10.1"
+    },
+    {
+      "time": 1492235.178983541,
+      "stream": "stderr",
+      "line": "   Compiling equivalent v1.0.2"
+    },
+    {
+      "time": 1492235.22206,
+      "stream": "stderr",
+      "line": "   Compiling hashbrown v0.17.1"
+    },
+    {
+      "time": 1492235.274820166,
+      "stream": "stderr",
+      "line": "   Compiling thiserror-impl v2.0.19"
+    },
+    {
+      "time": 1492235.55010125,
+      "stream": "stderr",
+      "line": "   Compiling crypto-common v0.1.7"
+    },
+    {
+      "time": 1492235.563460583,
+      "stream": "stderr",
+      "line": "   Compiling block-buffer v0.10.4"
+    },
+    {
+      "time": 1492235.577925333,
+      "stream": "stderr",
+      "line": "   Compiling cpufeatures v0.2.17"
+    },
+    {
+      "time": 1492235.621175291,
+      "stream": "stderr",
+      "line": "   Compiling digest v0.10.7"
+    },
+    {
+      "time": 1492235.62948575,
+      "stream": "stderr",
+      "line": "   Compiling parking_lot v0.12.5"
+    },
+    {
+      "time": 1492235.68529525,
+      "stream": "stderr",
+      "line": "   Compiling socket2 v0.6.5"
+    },
+    {
+      "time": 1492235.691548208,
+      "stream": "stderr",
+      "line": "   Compiling sha2 v0.10.9"
+    },
+    {
+      "time": 1492235.707484166,
+      "stream": "stderr",
+      "line": "   Compiling signal-hook-registry v1.4.6"
+    },
+    {
+      "time": 1492235.764457166,
+      "stream": "stderr",
+      "line": "   Compiling mio v1.2.2"
+    },
+    {
+      "time": 1492235.87553875,
+      "stream": "stderr",
+      "line": "   Compiling futures-task v0.3.31"
+    },
+    {
+      "time": 1492235.879985791,
+      "stream": "stderr",
+      "line": "   Compiling tower-service v0.3.3"
+    },
+    {
+      "time": 1492235.927117375,
+      "stream": "stderr",
+      "line": "   Compiling crossbeam-deque v0.8.6"
+    },
+    {
+      "time": 1492235.943943125,
+      "stream": "stderr",
+      "line": "   Compiling linkme-impl v0.3.36"
+    },
+    {
+      "time": 1492235.945920041,
+      "stream": "stderr",
+      "line": "   Compiling rustversion v1.0.22"
+    },
+    {
+      "time": 1492235.958988,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_web v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_web)"
+    },
+    {
+      "time": 1492235.992694458,
+      "stream": "stderr",
+      "line": "   Compiling either v1.15.0"
+    },
+    {
+      "time": 1492236.021310208,
+      "stream": "stderr",
+      "line": "   Compiling futures-util v0.3.31"
+    },
+    {
+      "time": 1492236.102672375,
+      "stream": "stderr",
+      "line": "   Compiling futures-channel v0.3.31"
+    },
+    {
+      "time": 1492236.150559583,
+      "stream": "stderr",
+      "line": "   Compiling httpdate v1.0.3"
+    },
+    {
+      "time": 1492236.203156666,
+      "stream": "stderr",
+      "line": "   Compiling linkme v0.3.36"
+    },
+    {
+      "time": 1492236.205062541,
+      "stream": "stderr",
+      "line": "   Compiling tower-layer v0.3.3"
+    },
+    {
+      "time": 1492236.26692,
+      "stream": "stderr",
+      "line": "   Compiling rayon v1.11.0"
+    },
+    {
+      "time": 1492236.269267208,
+      "stream": "stderr",
+      "line": "   Compiling atomic-waker v1.1.2"
+    },
+    {
+      "time": 1492236.286185375,
+      "stream": "stderr",
+      "line": "   Compiling sync_wrapper v1.0.2"
+    },
+    {
+      "time": 1492236.33269025,
+      "stream": "stderr",
+      "line": "   Compiling percent-encoding v2.3.2"
+    },
+    {
+      "time": 1492236.342083916,
+      "stream": "stderr",
+      "line": "   Compiling regex v1.12.2"
+    },
+    {
+      "time": 1492236.378338166,
+      "stream": "stderr",
+      "line": "   Compiling serde_derive v1.0.228"
+    },
+    {
+      "time": 1492236.390937041,
+      "stream": "stderr",
+      "line": "   Compiling tracing-attributes v0.1.30"
+    },
+    {
+      "time": 1492236.427639875,
+      "stream": "stderr",
+      "line": "   Compiling tokio-macros v2.7.1"
+    },
+    {
+      "time": 1492236.444607125,
+      "stream": "stderr",
+      "line": "   Compiling form_urlencoded v1.2.2"
+    },
+    {
+      "time": 1492236.455706,
+      "stream": "stderr",
+      "line": "   Compiling async-trait v0.1.89"
+    },
+    {
+      "time": 1492236.560005375,
+      "stream": "stderr",
+      "line": "   Compiling indexmap v2.14.0"
+    },
+    {
+      "time": 1492236.570823416,
+      "stream": "stderr",
+      "line": "   Compiling http-body-util v0.1.3"
+    },
+    {
+      "time": 1492236.722281833,
+      "stream": "stderr",
+      "line": "   Compiling anyhow v1.0.104"
+    },
+    {
+      "time": 1492236.727256375,
+      "stream": "stderr",
+      "line": "   Compiling lazy_static v1.5.0"
+    },
+    {
+      "time": 1492236.748215666,
+      "stream": "stderr",
+      "line": "   Compiling tokio v1.53.1"
+    },
+    {
+      "time": 1492236.786886291,
+      "stream": "stderr",
+      "line": "   Compiling mime v0.3.17"
+    },
+    {
+      "time": 1492236.877063458,
+      "stream": "stderr",
+      "line": "   Compiling sharded-slab v0.1.7"
+    },
+    {
+      "time": 1492236.944727958,
+      "stream": "stderr",
+      "line": "   Compiling matchers v0.2.0"
+    },
+    {
+      "time": 1492236.97849975,
+      "stream": "stderr",
+      "line": "   Compiling serde_path_to_error v0.1.20"
+    },
+    {
+      "time": 1492237.028524416,
+      "stream": "stderr",
+      "line": "   Compiling tracing-log v0.2.0"
+    },
+    {
+      "time": 1492237.051280333,
+      "stream": "stderr",
+      "line": "   Compiling tracing v0.1.41"
+    },
+    {
+      "time": 1492237.149920833,
+      "stream": "stderr",
+      "line": "   Compiling thread_local v1.1.9"
+    },
+    {
+      "time": 1492237.154597875,
+      "stream": "stderr",
+      "line": "   Compiling nu-ansi-term v0.50.3"
+    },
+    {
+      "time": 1492237.156259708,
+      "stream": "stderr",
+      "line": "   Compiling base64 v0.22.1"
+    },
+    {
+      "time": 1492237.266279416,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_transport v0.1.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_transport)"
+    },
+    {
+      "time": 1492237.317116541,
+      "stream": "stderr",
+      "line": "   Compiling matchit v0.7.3"
+    },
+    {
+      "time": 1492237.919896208,
+      "stream": "stderr",
+      "line": "   Compiling axum-core v0.4.5"
+    },
+    {
+      "time": 1492237.919915625,
+      "stream": "stderr",
+      "line": "   Compiling tracing-subscriber v0.3.20"
+    },
+    {
+      "time": 1492238.2559055,
+      "stream": "stderr",
+      "line": "   Compiling dashmap v6.1.0"
+    },
+    {
+      "time": 1492238.255918708,
+      "stream": "stderr",
+      "line": "   Compiling wellformed-validate v0.1.0"
+    },
+    {
+      "time": 1492238.257874875,
+      "stream": "stderr",
+      "line": "   Compiling serde_urlencoded v0.7.1"
+    },
+    {
+      "time": 1492238.37020875,
+      "stream": "stderr",
+      "line": "   Compiling wellformed v0.1.1"
+    },
+    {
+      "time": 1492238.39670825,
+      "stream": "stderr",
+      "line": "   Compiling proa_core v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_core)"
+    },
+    {
+      "time": 1492238.750427541,
+      "stream": "stderr",
+      "line": "   Compiling hyper v1.7.0"
+    },
+    {
+      "time": 1492238.750441041,
+      "stream": "stderr",
+      "line": "   Compiling tower v0.5.2"
+    },
+    {
+      "time": 1492239.040194916,
+      "stream": "stderr",
+      "line": "   Compiling hyper-util v0.1.17"
+    },
+    {
+      "time": 1492239.234949541,
+      "stream": "stderr",
+      "line": "   Compiling axum v0.7.9"
+    },
+    {
+      "time": 1492239.286246,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_ir v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_ir)"
+    },
+    {
+      "time": 1492239.287454833,
+      "stream": "stderr",
+      "line": "   Compiling proa_dsl v0.1.3 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_dsl)"
+    },
+    {
+      "time": 1492239.842743666,
+      "stream": "stderr",
+      "line": "   Compiling proa_macros v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_macros)"
+    },
+    {
+      "time": 1492240.401097083,
+      "stream": "stderr",
+      "line": "   Compiling wellformed-macros v0.1.0"
+    },
+    {
+      "time": 1492244.3977815,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_macros v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_macros)"
+    },
+    {
+      "time": 1492248.173559791,
+      "stream": "stderr",
+      "line": "   Compiling rsjs v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs)"
+    },
+    {
+      "time": 1492249.090503958,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1492249.908852333,
+      "stream": "stderr",
+      "line": "warning: unused `_raw_text_element_dynamic_interpolation_0` that must be used"
+    },
+    {
+      "time": 1492249.9088635,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492249.908864541,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492249.908865208,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492249.908865708,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492249.908866125,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492249.908874458,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492249.908875875,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492249.908876541,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492249.908877166,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492249.908877708,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492249.908878125,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492249.908879125,
+      "stream": "stderr",
+      "line": "   = note: dynamic expression `compile_probe_title()` inside raw-text element <title>. HTML escape prevents tag breakout in RCDATA (<textarea>, <title>), but raw-text elements (<xmp>, <noscript>, <noframes>) do not decode entities so the output will contain literal `&lt;`/`&amp;`. Prefer a typed initial value (e.g. the `value` attribute) or pre-render the text outside the element (HTML5 \u00a713.2.5.4)"
+    },
+    {
+      "time": 1492249.908879875,
+      "stream": "stderr",
+      "line": "note: the lint level is defined here"
+    },
+    {
+      "time": 1492249.908880333,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492249.90888075,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492249.908881208,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492249.908881666,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492249.908882125,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492249.908882583,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492249.908883041,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492249.908883458,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492249.908883833,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492249.90888425,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492249.908884875,
+      "stream": "stderr",
+      "line": "   = note: this warning originates in the macro `html_sync` (in Nightly builds, run with -Z macro-backtrace for more info)"
+    },
+    {
+      "time": 1492249.908885333,
+      "stream": "stderr",
+      "line": "help: use `let _ = ...` to ignore the resulting value"
+    },
+    {
+      "time": 1492249.908885875,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492249.908886583,
+      "stream": "stderr",
+      "line": "84 |         let _ = html_sync! {"
+    },
+    {
+      "time": 1492249.908887041,
+      "stream": "stderr",
+      "line": "   |         +++++++"
+    },
+    {
+      "time": 1492249.9088875,
+      "stream": "stderr",
+      "line": ""
+    },
+    {
+      "time": 1492250.335172541,
+      "stream": "stderr",
+      "line": "warning: `proa_webmcp_pizza` (lib) generated 1 warning"
+    },
+    {
+      "time": 1492251.0316985,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.79s"
+    },
+    {
+      "time": 1492251.04162375,
+      "stream": "stderr",
+      "line": "rsjs timing: descriptor Cargo and sidecars: 17838.457 ms"
+    },
+    {
+      "time": 1492251.047874833,
+      "stream": "stderr",
+      "line": "rsjs timing: cache artifact indexes: 6.262 ms"
+    },
+    {
+      "time": 1492253.265651791,
+      "stream": "stderr",
+      "line": "rsjs timing: cache persist rebuilt objects: 2217.762 ms"
+    },
+    {
+      "time": 1492253.392268666,
+      "stream": "stderr",
+      "line": "rsjs timing: cache load and hash objects: 126.623 ms"
+    },
+    {
+      "time": 1492253.392652375,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate observed inputs and externs: 0.395 ms"
+    },
+    {
+      "time": 1492253.39265575,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate artifact joins: 0.009 ms"
+    },
+    {
+      "time": 1492254.973447291,
+      "stream": "stderr",
+      "line": "rsjs timing: cache publish indexes and cleanup: 1580.764 ms"
+    },
+    {
+      "time": 1492255.09413425,
+      "stream": "stderr",
+      "line": "rsjs timing: transport manifest and root selection: 108.010 ms"
+    },
+    {
+      "time": 1492255.098048625,
+      "stream": "stderr",
+      "line": "rsjs timing: transport graph: 3.925 ms"
+    },
+    {
+      "time": 1492255.103706791,
+      "stream": "stderr",
+      "line": "rsjs timing: transport final-unit selection: 5.658 ms"
+    },
+    {
+      "time": 1492255.105776541,
+      "stream": "stderr",
+      "line": "rsjs timing: ABI adaptation: 2.066 ms"
+    },
+    {
+      "time": 1492255.106545583,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic planning: 0.770 ms"
+    },
+    {
+      "time": 1492255.113685625,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic plan publication: 7.138 ms"
+    },
+    {
+      "time": 1492255.122737083,
+      "stream": "stderr",
+      "line": "rsjs timing: final request validation and unit map: 9.040 ms"
+    },
+    {
+      "time": 1492255.789130666,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo setup: 666.388 ms"
+    },
+    {
+      "time": 1492255.892365458,
+      "stream": "stderr",
+      "line": "   Compiling unicode-ident v1.0.22"
+    },
+    {
+      "time": 1492255.892377833,
+      "stream": "stderr",
+      "line": "   Compiling quote v1.0.47"
+    },
+    {
+      "time": 1492255.892384083,
+      "stream": "stderr",
+      "line": "   Compiling proc-macro2 v1.0.107"
+    },
+    {
+      "time": 1492255.892409166,
+      "stream": "stderr",
+      "line": "   Compiling libc v0.2.188"
+    },
+    {
+      "time": 1492255.892416416,
+      "stream": "stderr",
+      "line": "   Compiling memchr v2.8.3"
+    },
+    {
+      "time": 1492255.89246775,
+      "stream": "stderr",
+      "line": "   Compiling itoa v1.0.15"
+    },
+    {
+      "time": 1492255.892487166,
+      "stream": "stderr",
+      "line": "   Compiling cfg-if v1.0.4"
+    },
+    {
+      "time": 1492255.892500416,
+      "stream": "stderr",
+      "line": "   Compiling serde v1.0.228"
+    },
+    {
+      "time": 1492255.892501291,
+      "stream": "stderr",
+      "line": "   Compiling ryu v1.0.20"
+    },
+    {
+      "time": 1492255.892501958,
+      "stream": "stderr",
+      "line": "   Compiling pin-project-lite v0.2.16"
+    },
+    {
+      "time": 1492255.892504416,
+      "stream": "stderr",
+      "line": "   Compiling parking_lot_core v0.9.12"
+    },
+    {
+      "time": 1492255.892520458,
+      "stream": "stderr",
+      "line": "   Compiling once_cell v1.21.3"
+    },
+    {
+      "time": 1492255.892528208,
+      "stream": "stderr",
+      "line": "   Compiling crossbeam-utils v0.8.21"
+    },
+    {
+      "time": 1492255.89253075,
+      "stream": "stderr",
+      "line": "   Compiling thiserror v2.0.19"
+    },
+    {
+      "time": 1492255.892554416,
+      "stream": "stderr",
+      "line": "   Compiling scopeguard v1.2.0"
+    },
+    {
+      "time": 1492255.892593625,
+      "stream": "stderr",
+      "line": "   Compiling bytes v1.11.1"
+    },
+    {
+      "time": 1492255.934359041,
+      "stream": "stderr",
+      "line": "   Compiling lock_api v0.4.14"
+    },
+    {
+      "time": 1492255.939678916,
+      "stream": "stderr",
+      "line": "   Compiling serde_core v1.0.228"
+    },
+    {
+      "time": 1492255.964811375,
+      "stream": "stderr",
+      "line": "   Compiling version_check v0.9.5"
+    },
+    {
+      "time": 1492255.966860375,
+      "stream": "stderr",
+      "line": "   Compiling smallvec v1.15.1"
+    },
+    {
+      "time": 1492256.003522,
+      "stream": "stderr",
+      "line": "   Compiling serde_json v1.0.145"
+    },
+    {
+      "time": 1492256.025771458,
+      "stream": "stderr",
+      "line": "   Compiling regex-syntax v0.8.8"
+    },
+    {
+      "time": 1492256.039485541,
+      "stream": "stderr",
+      "line": "   Compiling typenum v1.20.1"
+    },
+    {
+      "time": 1492256.06251025,
+      "stream": "stderr",
+      "line": "   Compiling zmij v1.0.23"
+    },
+    {
+      "time": 1492256.11894825,
+      "stream": "stderr",
+      "line": "   Compiling generic-array v0.14.7"
+    },
+    {
+      "time": 1492256.154786916,
+      "stream": "stderr",
+      "line": "   Compiling http v1.4.2"
+    },
+    {
+      "time": 1492256.164069833,
+      "stream": "stderr",
+      "line": "   Compiling aho-corasick v1.1.4"
+    },
+    {
+      "time": 1492256.1728625,
+      "stream": "stderr",
+      "line": "   Compiling heapless v0.8.0"
+    },
+    {
+      "time": 1492256.210371625,
+      "stream": "stderr",
+      "line": "   Compiling hashbrown v0.14.5"
+    },
+    {
+      "time": 1492256.266664333,
+      "stream": "stderr",
+      "line": "   Compiling byteorder v1.5.0"
+    },
+    {
+      "time": 1492256.328169,
+      "stream": "stderr",
+      "line": "   Compiling hash32 v0.3.1"
+    },
+    {
+      "time": 1492256.371215041,
+      "stream": "stderr",
+      "line": "   Compiling tracing-core v0.1.34"
+    },
+    {
+      "time": 1492256.421059208,
+      "stream": "stderr",
+      "line": "   Compiling stable_deref_trait v1.2.1"
+    },
+    {
+      "time": 1492256.445046625,
+      "stream": "stderr",
+      "line": "   Compiling log v0.4.28"
+    },
+    {
+      "time": 1492256.531366333,
+      "stream": "stderr",
+      "line": "   Compiling crossbeam-epoch v0.9.20"
+    },
+    {
+      "time": 1492256.598954333,
+      "stream": "stderr",
+      "line": "   Compiling itoa_lut v0.1.2 (/Users/andrewhariri/Desktop/proa-dev-perf/itoa_lut)"
+    },
+    {
+      "time": 1492256.618070291,
+      "stream": "stderr",
+      "line": "   Compiling arrayvec v0.7.6"
+    },
+    {
+      "time": 1492256.692322208,
+      "stream": "stderr",
+      "line": "   Compiling futures-core v0.3.31"
+    },
+    {
+      "time": 1492256.740119833,
+      "stream": "stderr",
+      "line": "   Compiling syn v2.0.119"
+    },
+    {
+      "time": 1492256.74154875,
+      "stream": "stderr",
+      "line": "   Compiling syn v3.0.2"
+    },
+    {
+      "time": 1492256.752789,
+      "stream": "stderr",
+      "line": "   Compiling const-oid v0.9.6"
+    },
+    {
+      "time": 1492256.818696875,
+      "stream": "stderr",
+      "line": "   Compiling bytemuck v1.25.2"
+    },
+    {
+      "time": 1492256.846162583,
+      "stream": "stderr",
+      "line": "   Compiling object v0.37.3"
+    },
+    {
+      "time": 1492256.89391925,
+      "stream": "stderr",
+      "line": "   Compiling safe_arch v0.7.4"
+    },
+    {
+      "time": 1492256.923302291,
+      "stream": "stderr",
+      "line": "   Compiling rayon-core v1.13.0"
+    },
+    {
+      "time": 1492256.944914916,
+      "stream": "stderr",
+      "line": "   Compiling pin-utils v0.1.0"
+    },
+    {
+      "time": 1492256.971729375,
+      "stream": "stderr",
+      "line": "   Compiling wide v0.7.33"
+    },
+    {
+      "time": 1492256.97369325,
+      "stream": "stderr",
+      "line": "   Compiling regex-automata v0.4.13"
+    },
+    {
+      "time": 1492257.068643916,
+      "stream": "stderr",
+      "line": "   Compiling http-body v1.0.1"
+    },
+    {
+      "time": 1492257.118601,
+      "stream": "stderr",
+      "line": "   Compiling httparse v1.10.1"
+    },
+    {
+      "time": 1492257.239328,
+      "stream": "stderr",
+      "line": "   Compiling hashbrown v0.17.1"
+    },
+    {
+      "time": 1492257.254250875,
+      "stream": "stderr",
+      "line": "   Compiling equivalent v1.0.2"
+    },
+    {
+      "time": 1492257.460215083,
+      "stream": "stderr",
+      "line": "   Compiling cpufeatures v0.2.17"
+    },
+    {
+      "time": 1492257.498731458,
+      "stream": "stderr",
+      "line": "   Compiling crypto-common v0.1.7"
+    },
+    {
+      "time": 1492257.501693208,
+      "stream": "stderr",
+      "line": "   Compiling block-buffer v0.10.4"
+    },
+    {
+      "time": 1492257.528831041,
+      "stream": "stderr",
+      "line": "   Compiling parking_lot v0.12.5"
+    },
+    {
+      "time": 1492257.542407333,
+      "stream": "stderr",
+      "line": "   Compiling digest v0.10.7"
+    },
+    {
+      "time": 1492257.549992583,
+      "stream": "stderr",
+      "line": "   Compiling mio v1.2.2"
+    },
+    {
+      "time": 1492257.551954666,
+      "stream": "stderr",
+      "line": "   Compiling socket2 v0.6.5"
+    },
+    {
+      "time": 1492257.603230583,
+      "stream": "stderr",
+      "line": "   Compiling signal-hook-registry v1.4.6"
+    },
+    {
+      "time": 1492257.618649708,
+      "stream": "stderr",
+      "line": "   Compiling sha2 v0.10.9"
+    },
+    {
+      "time": 1492257.658656583,
+      "stream": "stderr",
+      "line": "   Compiling thiserror-impl v2.0.19"
+    },
+    {
+      "time": 1492257.668212166,
+      "stream": "stderr",
+      "line": "   Compiling futures-task v0.3.31"
+    },
+    {
+      "time": 1492257.710354958,
+      "stream": "stderr",
+      "line": "   Compiling rustversion v1.0.22"
+    },
+    {
+      "time": 1492257.746926125,
+      "stream": "stderr",
+      "line": "   Compiling tower-service v0.3.3"
+    },
+    {
+      "time": 1492257.76505525,
+      "stream": "stderr",
+      "line": "   Compiling linkme-impl v0.3.36"
+    },
+    {
+      "time": 1492257.787035083,
+      "stream": "stderr",
+      "line": "   Compiling either v1.15.0"
+    },
+    {
+      "time": 1492257.799674958,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_web v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_web)"
+    },
+    {
+      "time": 1492257.827257916,
+      "stream": "stderr",
+      "line": "   Compiling crossbeam-deque v0.8.6"
+    },
+    {
+      "time": 1492257.850479416,
+      "stream": "stderr",
+      "line": "   Compiling futures-util v0.3.31"
+    },
+    {
+      "time": 1492257.904518333,
+      "stream": "stderr",
+      "line": "   Compiling futures-channel v0.3.31"
+    },
+    {
+      "time": 1492257.927788625,
+      "stream": "stderr",
+      "line": "   Compiling percent-encoding v2.3.2"
+    },
+    {
+      "time": 1492257.970671958,
+      "stream": "stderr",
+      "line": "   Compiling linkme v0.3.36"
+    },
+    {
+      "time": 1492257.99287525,
+      "stream": "stderr",
+      "line": "   Compiling atomic-waker v1.1.2"
+    },
+    {
+      "time": 1492258.011442125,
+      "stream": "stderr",
+      "line": "   Compiling tower-layer v0.3.3"
+    },
+    {
+      "time": 1492258.038165416,
+      "stream": "stderr",
+      "line": "   Compiling httpdate v1.0.3"
+    },
+    {
+      "time": 1492258.081315458,
+      "stream": "stderr",
+      "line": "   Compiling sync_wrapper v1.0.2"
+    },
+    {
+      "time": 1492258.103181166,
+      "stream": "stderr",
+      "line": "   Compiling regex v1.12.2"
+    },
+    {
+      "time": 1492258.116997125,
+      "stream": "stderr",
+      "line": "   Compiling rayon v1.11.0"
+    },
+    {
+      "time": 1492258.130310166,
+      "stream": "stderr",
+      "line": "   Compiling form_urlencoded v1.2.2"
+    },
+    {
+      "time": 1492258.181108416,
+      "stream": "stderr",
+      "line": "   Compiling indexmap v2.14.0"
+    },
+    {
+      "time": 1492258.206555791,
+      "stream": "stderr",
+      "line": "   Compiling http-body-util v0.1.3"
+    },
+    {
+      "time": 1492258.308968708,
+      "stream": "stderr",
+      "line": "   Compiling anyhow v1.0.104"
+    },
+    {
+      "time": 1492258.312831,
+      "stream": "stderr",
+      "line": "   Compiling lazy_static v1.5.0"
+    },
+    {
+      "time": 1492258.314964416,
+      "stream": "stderr",
+      "line": "   Compiling mime v0.3.17"
+    },
+    {
+      "time": 1492258.3532585,
+      "stream": "stderr",
+      "line": "   Compiling sharded-slab v0.1.7"
+    },
+    {
+      "time": 1492258.362300208,
+      "stream": "stderr",
+      "line": "   Compiling matchers v0.2.0"
+    },
+    {
+      "time": 1492258.42714975,
+      "stream": "stderr",
+      "line": "   Compiling serde_path_to_error v0.1.20"
+    },
+    {
+      "time": 1492258.452929458,
+      "stream": "stderr",
+      "line": "   Compiling tracing-log v0.2.0"
+    },
+    {
+      "time": 1492258.528081416,
+      "stream": "stderr",
+      "line": "   Compiling thread_local v1.1.9"
+    },
+    {
+      "time": 1492258.528197958,
+      "stream": "stderr",
+      "line": "   Compiling base64 v0.22.1"
+    },
+    {
+      "time": 1492258.561044083,
+      "stream": "stderr",
+      "line": "   Compiling matchit v0.7.3"
+    },
+    {
+      "time": 1492258.578072041,
+      "stream": "stderr",
+      "line": "   Compiling nu-ansi-term v0.50.3"
+    },
+    {
+      "time": 1492258.703175166,
+      "stream": "stderr",
+      "line": "   Compiling serde_derive v1.0.228"
+    },
+    {
+      "time": 1492258.705135875,
+      "stream": "stderr",
+      "line": "   Compiling tracing-attributes v0.1.30"
+    },
+    {
+      "time": 1492258.707749375,
+      "stream": "stderr",
+      "line": "   Compiling tokio-macros v2.7.1"
+    },
+    {
+      "time": 1492258.711785833,
+      "stream": "stderr",
+      "line": "   Compiling async-trait v0.1.89"
+    },
+    {
+      "time": 1492258.978617375,
+      "stream": "stderr",
+      "line": "   Compiling tokio v1.53.1"
+    },
+    {
+      "time": 1492259.032346333,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_transport v0.1.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_transport)"
+    },
+    {
+      "time": 1492259.067823291,
+      "stream": "stderr",
+      "line": "   Compiling tracing v0.1.41"
+    },
+    {
+      "time": 1492259.528405041,
+      "stream": "stderr",
+      "line": "   Compiling axum-core v0.4.5"
+    },
+    {
+      "time": 1492259.528423291,
+      "stream": "stderr",
+      "line": "   Compiling tracing-subscriber v0.3.20"
+    },
+    {
+      "time": 1492260.045831375,
+      "stream": "stderr",
+      "line": "   Compiling dashmap v6.1.0"
+    },
+    {
+      "time": 1492260.045847041,
+      "stream": "stderr",
+      "line": "   Compiling wellformed-validate v0.1.0"
+    },
+    {
+      "time": 1492260.045896125,
+      "stream": "stderr",
+      "line": "   Compiling serde_urlencoded v0.7.1"
+    },
+    {
+      "time": 1492260.153070666,
+      "stream": "stderr",
+      "line": "   Compiling wellformed v0.1.1"
+    },
+    {
+      "time": 1492260.178100666,
+      "stream": "stderr",
+      "line": "   Compiling proa_core v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_core)"
+    },
+    {
+      "time": 1492261.004091708,
+      "stream": "stderr",
+      "line": "   Compiling proa_dsl v0.1.3 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_dsl)"
+    },
+    {
+      "time": 1492261.004108708,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_ir v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_ir)"
+    },
+    {
+      "time": 1492261.051293208,
+      "stream": "stderr",
+      "line": "   Compiling hyper v1.7.0"
+    },
+    {
+      "time": 1492261.051314125,
+      "stream": "stderr",
+      "line": "   Compiling tower v0.5.2"
+    },
+    {
+      "time": 1492261.371463041,
+      "stream": "stderr",
+      "line": "   Compiling hyper-util v0.1.17"
+    },
+    {
+      "time": 1492261.499626,
+      "stream": "stderr",
+      "line": "   Compiling axum v0.7.9"
+    },
+    {
+      "time": 1492261.653283791,
+      "stream": "stderr",
+      "line": "   Compiling proa_macros v0.3.0 (/Users/andrewhariri/Desktop/proa-dev-perf/proa_macros)"
+    },
+    {
+      "time": 1492262.140531875,
+      "stream": "stderr",
+      "line": "   Compiling wellformed-macros v0.1.0"
+    },
+    {
+      "time": 1492265.6532735,
+      "stream": "stderr",
+      "line": "   Compiling rsjs_macros v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs_macros)"
+    },
+    {
+      "time": 1492269.306444083,
+      "stream": "stderr",
+      "line": "   Compiling rsjs v0.2.0 (/Users/andrewhariri/Desktop/proa-dev-perf/rsjs)"
+    },
+    {
+      "time": 1492270.116741041,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1492270.855311625,
+      "stream": "stderr",
+      "line": "warning: unused `_raw_text_element_dynamic_interpolation_0` that must be used"
+    },
+    {
+      "time": 1492270.855323958,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492270.855325666,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492270.855326541,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492270.855327083,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492270.855327541,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492270.855328166,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492270.855337166,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492270.855338083,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492270.855338583,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492270.855339208,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492270.855339666,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492270.855340708,
+      "stream": "stderr",
+      "line": "   = note: dynamic expression `compile_probe_title()` inside raw-text element <title>. HTML escape prevents tag breakout in RCDATA (<textarea>, <title>), but raw-text elements (<xmp>, <noscript>, <noframes>) do not decode entities so the output will contain literal `&lt;`/`&amp;`. Prefer a typed initial value (e.g. the `value` attribute) or pre-render the text outside the element (HTML5 \u00a713.2.5.4)"
+    },
+    {
+      "time": 1492270.855341375,
+      "stream": "stderr",
+      "line": "note: the lint level is defined here"
+    },
+    {
+      "time": 1492270.855341875,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492270.855342333,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492270.85534275,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492270.85534325,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492270.855343708,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492270.85534425,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492270.855344708,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492270.855345208,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492270.855346625,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492270.855347083,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492270.855348375,
+      "stream": "stderr",
+      "line": "   = note: this warning originates in the macro `html_sync` (in Nightly builds, run with -Z macro-backtrace for more info)"
+    },
+    {
+      "time": 1492270.855348875,
+      "stream": "stderr",
+      "line": "help: use `let _ = ...` to ignore the resulting value"
+    },
+    {
+      "time": 1492270.855349333,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492270.855349958,
+      "stream": "stderr",
+      "line": "84 |         let _ = html_sync! {"
+    },
+    {
+      "time": 1492270.855350458,
+      "stream": "stderr",
+      "line": "   |         +++++++"
+    },
+    {
+      "time": 1492270.855350958,
+      "stream": "stderr",
+      "line": ""
+    },
+    {
+      "time": 1492271.246407333,
+      "stream": "stderr",
+      "line": "warning: `proa_webmcp_pizza` (lib) generated 1 warning"
+    },
+    {
+      "time": 1492271.837138583,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.02s"
+    },
+    {
+      "time": 1492271.844105708,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo execution: 16054.906 ms"
+    },
+    {
+      "time": 1492271.8846105,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan db9eb905838ffb139f05830358d9defd9f33e116efc1c7ee76669b9ed369a235 (descriptor cache: 0/160 Cargo artifacts reused; final cache: 0/160 reused)"
+    },
+    {
+      "time": 1492271.884730791,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/tmp/proa-dev-perf-pizza/target/projection-cache-function/proa-rsjs/final-target/rsjs-final-artifact-snapshots/b70dbc31e07343ad559cdf7f4223cd566e9b10bd8679fbb5915e75a8b8376b23-mode-100755/proa_webmcp_pizza` with plan db9eb905838ffb139f05830358d9defd9f33e116efc1c7ee76669b9ed369a235 (descriptor cache 0/160, final cache 0 reused)"
+    },
+    {
+      "time": 1492272.230241791,
+      "stream": "stdout",
+      "line": "2026-10-04T02:16:34.797706Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39147"
+    },
+    {
+      "time": 1492272.844538416,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1492272.982432666,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1492273.080147875,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1492273.28391475,
+      "stream": "stderr",
+      "line": "warning: unused `_raw_text_element_dynamic_interpolation_0` that must be used"
+    },
+    {
+      "time": 1492273.283922625,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492273.2839235,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492273.283924083,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492273.283924708,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492273.283931208,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492273.283932,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492273.283932583,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492273.283933208,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492273.28393375,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492273.28393425,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492273.283934833,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492273.283935625,
+      "stream": "stderr",
+      "line": "   = note: dynamic expression `compile_probe_title()` inside raw-text element <title>. HTML escape prevents tag breakout in RCDATA (<textarea>, <title>), but raw-text elements (<xmp>, <noscript>, <noframes>) do not decode entities so the output will contain literal `&lt;`/`&amp;`. Prefer a typed initial value (e.g. the `value` attribute) or pre-render the text outside the element (HTML5 \u00a713.2.5.4)"
+    },
+    {
+      "time": 1492273.283936416,
+      "stream": "stderr",
+      "line": "note: the lint level is defined here"
+    },
+    {
+      "time": 1492273.283936833,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492273.283937333,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492273.28393775,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492273.28393825,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492273.283938708,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492273.283939166,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492273.283939791,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492273.28394025,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492273.283940708,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492273.283941791,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492273.283942291,
+      "stream": "stderr",
+      "line": "   = note: this warning originates in the macro `html_sync` (in Nightly builds, run with -Z macro-backtrace for more info)"
+    },
+    {
+      "time": 1492273.283942791,
+      "stream": "stderr",
+      "line": "help: use `let _ = ...` to ignore the resulting value"
+    },
+    {
+      "time": 1492273.28394325,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492273.283950291,
+      "stream": "stderr",
+      "line": "84 |         let _ = html_sync! {"
+    },
+    {
+      "time": 1492273.283950875,
+      "stream": "stderr",
+      "line": "   |         +++++++"
+    },
+    {
+      "time": 1492273.283951375,
+      "stream": "stderr",
+      "line": ""
+    },
+    {
+      "time": 1492273.427935958,
+      "stream": "stderr",
+      "line": "warning: `proa_webmcp_pizza` (lib) generated 1 warning"
+    },
+    {
+      "time": 1492273.910144875,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.88s"
+    },
+    {
+      "time": 1492273.914273958,
+      "stream": "stderr",
+      "line": "rsjs timing: descriptor Cargo and sidecars: 919.048 ms"
+    },
+    {
+      "time": 1492273.917865416,
+      "stream": "stderr",
+      "line": "rsjs timing: cache artifact indexes: 3.597 ms"
+    },
+    {
+      "time": 1492273.953846333,
+      "stream": "stderr",
+      "line": "rsjs timing: cache persist rebuilt objects: 35.966 ms"
+    },
+    {
+      "time": 1492274.059894125,
+      "stream": "stderr",
+      "line": "rsjs timing: cache load and hash objects: 106.054 ms"
+    },
+    {
+      "time": 1492274.211689083,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate observed inputs and externs: 151.796 ms"
+    },
+    {
+      "time": 1492274.216297833,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate artifact joins: 4.615 ms"
+    },
+    {
+      "time": 1492274.252286875,
+      "stream": "stderr",
+      "line": "rsjs timing: cache publish indexes and cleanup: 35.985 ms"
+    },
+    {
+      "time": 1492274.322387916,
+      "stream": "stderr",
+      "line": "rsjs timing: transport manifest and root selection: 65.633 ms"
+    },
+    {
+      "time": 1492274.325031208,
+      "stream": "stderr",
+      "line": "rsjs timing: transport graph: 2.653 ms"
+    },
+    {
+      "time": 1492274.330075291,
+      "stream": "stderr",
+      "line": "rsjs timing: transport final-unit selection: 5.044 ms"
+    },
+    {
+      "time": 1492274.331986625,
+      "stream": "stderr",
+      "line": "rsjs timing: ABI adaptation: 1.907 ms"
+    },
+    {
+      "time": 1492274.3327485,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic planning: 0.762 ms"
+    },
+    {
+      "time": 1492274.339251875,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic plan publication: 6.501 ms"
+    },
+    {
+      "time": 1492274.347722541,
+      "stream": "stderr",
+      "line": "rsjs timing: final request validation and unit map: 8.464 ms"
+    },
+    {
+      "time": 1492274.364786833,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo setup: 17.057 ms"
+    },
+    {
+      "time": 1492274.4399865,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1492274.6747645,
+      "stream": "stderr",
+      "line": "warning: unused `_raw_text_element_dynamic_interpolation_0` that must be used"
+    },
+    {
+      "time": 1492274.674769958,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492274.67477075,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492274.674771291,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492274.674771875,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492274.674780333,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492274.674781291,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492274.674781833,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492274.674782375,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492274.674782833,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492274.674783291,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492274.674783708,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492274.674784541,
+      "stream": "stderr",
+      "line": "   = note: dynamic expression `compile_probe_title()` inside raw-text element <title>. HTML escape prevents tag breakout in RCDATA (<textarea>, <title>), but raw-text elements (<xmp>, <noscript>, <noframes>) do not decode entities so the output will contain literal `&lt;`/`&amp;`. Prefer a typed initial value (e.g. the `value` attribute) or pre-render the text outside the element (HTML5 \u00a713.2.5.4)"
+    },
+    {
+      "time": 1492274.67478525,
+      "stream": "stderr",
+      "line": "note: the lint level is defined here"
+    },
+    {
+      "time": 1492274.67478575,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492274.674786208,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492274.674786625,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492274.674787125,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492274.674787541,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492274.674788125,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492274.674788541,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492274.674789,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492274.674789541,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492274.674792375,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492274.674793,
+      "stream": "stderr",
+      "line": "   = note: this warning originates in the macro `html_sync` (in Nightly builds, run with -Z macro-backtrace for more info)"
+    },
+    {
+      "time": 1492274.6747935,
+      "stream": "stderr",
+      "line": "help: use `let _ = ...` to ignore the resulting value"
+    },
+    {
+      "time": 1492274.674793958,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492274.674797416,
+      "stream": "stderr",
+      "line": "84 |         let _ = html_sync! {"
+    },
+    {
+      "time": 1492274.674797833,
+      "stream": "stderr",
+      "line": "   |         +++++++"
+    },
+    {
+      "time": 1492274.674798375,
+      "stream": "stderr",
+      "line": ""
+    },
+    {
+      "time": 1492274.794053625,
+      "stream": "stderr",
+      "line": "warning: `proa_webmcp_pizza` (lib) generated 1 warning"
+    },
+    {
+      "time": 1492275.161853083,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.77s"
+    },
+    {
+      "time": 1492275.165598666,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo execution: 800.817 ms"
+    },
+    {
+      "time": 1492275.190690041,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan ba0213326c54a9a96b4e1519227d4c7c83eb330d0d1567d70d0a2e625edf22cf (descriptor cache: 158/160 Cargo artifacts reused; final cache: 158/160 reused)"
+    },
+    {
+      "time": 1492275.190802375,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan ba0213326c54a9a96b4e1519227d4c7c83eb330d0d1567d70d0a2e625edf22cf"
+    },
+    {
+      "time": 1492275.198381541,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/tmp/proa-dev-perf-pizza/target/projection-cache-function/proa-rsjs/final-target/rsjs-final-artifact-snapshots/46f762b818b7ccdbf7e42e15b9e2eea23cc0a4617d071d404ae1d634b91a4c4a-mode-100755/proa_webmcp_pizza` with plan ba0213326c54a9a96b4e1519227d4c7c83eb330d0d1567d70d0a2e625edf22cf (descriptor cache 158/160, final cache 158 reused)"
+    },
+    {
+      "time": 1492275.549498166,
+      "stream": "stdout",
+      "line": "2026-10-04T02:16:38.115273Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39147"
+    },
+    {
+      "time": 1492276.117872833,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1492276.284015791,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1492276.37341825,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1492276.587174916,
+      "stream": "stderr",
+      "line": "warning: unused `_raw_text_element_dynamic_interpolation_0` that must be used"
+    },
+    {
+      "time": 1492276.587188083,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492276.587189416,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492276.587191291,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492276.587191958,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492276.587192541,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492276.587200333,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492276.58720125,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492276.587201875,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492276.587202458,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492276.587203083,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492276.587203625,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492276.587204666,
+      "stream": "stderr",
+      "line": "   = note: dynamic expression `compile_probe_title()` inside raw-text element <title>. HTML escape prevents tag breakout in RCDATA (<textarea>, <title>), but raw-text elements (<xmp>, <noscript>, <noframes>) do not decode entities so the output will contain literal `&lt;`/`&amp;`. Prefer a typed initial value (e.g. the `value` attribute) or pre-render the text outside the element (HTML5 \u00a713.2.5.4)"
+    },
+    {
+      "time": 1492276.5872055,
+      "stream": "stderr",
+      "line": "note: the lint level is defined here"
+    },
+    {
+      "time": 1492276.587206083,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492276.587206583,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492276.587207125,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492276.587207583,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492276.587208041,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492276.5872085,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492276.587209041,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492276.587209583,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492276.587210083,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492276.5872105,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492276.587211208,
+      "stream": "stderr",
+      "line": "   = note: this warning originates in the macro `html_sync` (in Nightly builds, run with -Z macro-backtrace for more info)"
+    },
+    {
+      "time": 1492276.587211625,
+      "stream": "stderr",
+      "line": "help: use `let _ = ...` to ignore the resulting value"
+    },
+    {
+      "time": 1492276.587212208,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492276.58721275,
+      "stream": "stderr",
+      "line": "84 |         let _ = html_sync! {"
+    },
+    {
+      "time": 1492276.587213208,
+      "stream": "stderr",
+      "line": "   |         +++++++"
+    },
+    {
+      "time": 1492276.587213791,
+      "stream": "stderr",
+      "line": ""
+    },
+    {
+      "time": 1492276.732093208,
+      "stream": "stderr",
+      "line": "warning: `proa_webmcp_pizza` (lib) generated 1 warning"
+    },
+    {
+      "time": 1492277.217819791,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.89s"
+    },
+    {
+      "time": 1492277.222197708,
+      "stream": "stderr",
+      "line": "rsjs timing: descriptor Cargo and sidecars: 927.312 ms"
+    },
+    {
+      "time": 1492277.22647325,
+      "stream": "stderr",
+      "line": "rsjs timing: cache artifact indexes: 4.274 ms"
+    },
+    {
+      "time": 1492277.268179,
+      "stream": "stderr",
+      "line": "rsjs timing: cache persist rebuilt objects: 41.707 ms"
+    },
+    {
+      "time": 1492277.408637791,
+      "stream": "stderr",
+      "line": "rsjs timing: cache load and hash objects: 140.454 ms"
+    },
+    {
+      "time": 1492277.541843708,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate observed inputs and externs: 133.215 ms"
+    },
+    {
+      "time": 1492277.546556541,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate artifact joins: 4.725 ms"
+    },
+    {
+      "time": 1492277.582267625,
+      "stream": "stderr",
+      "line": "rsjs timing: cache publish indexes and cleanup: 35.705 ms"
+    },
+    {
+      "time": 1492277.654864625,
+      "stream": "stderr",
+      "line": "rsjs timing: transport manifest and root selection: 68.207 ms"
+    },
+    {
+      "time": 1492277.657580166,
+      "stream": "stderr",
+      "line": "rsjs timing: transport graph: 2.722 ms"
+    },
+    {
+      "time": 1492277.662643125,
+      "stream": "stderr",
+      "line": "rsjs timing: transport final-unit selection: 5.066 ms"
+    },
+    {
+      "time": 1492277.664593916,
+      "stream": "stderr",
+      "line": "rsjs timing: ABI adaptation: 1.948 ms"
+    },
+    {
+      "time": 1492277.665408166,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic planning: 0.813 ms"
+    },
+    {
+      "time": 1492277.671840041,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic plan publication: 6.435 ms"
+    },
+    {
+      "time": 1492277.680397583,
+      "stream": "stderr",
+      "line": "rsjs timing: final request validation and unit map: 8.547 ms"
+    },
+    {
+      "time": 1492277.692755833,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo setup: 12.353 ms"
+    },
+    {
+      "time": 1492277.769304083,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1492278.028416833,
+      "stream": "stderr",
+      "line": "warning: unused `_raw_text_element_dynamic_interpolation_0` that must be used"
+    },
+    {
+      "time": 1492278.028429958,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492278.028431125,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492278.028431833,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492278.028432375,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492278.02844,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492278.028441,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492278.028441625,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492278.028442166,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492278.028442666,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492278.028443083,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492278.028443875,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492278.028444875,
+      "stream": "stderr",
+      "line": "   = note: dynamic expression `compile_probe_title()` inside raw-text element <title>. HTML escape prevents tag breakout in RCDATA (<textarea>, <title>), but raw-text elements (<xmp>, <noscript>, <noframes>) do not decode entities so the output will contain literal `&lt;`/`&amp;`. Prefer a typed initial value (e.g. the `value` attribute) or pre-render the text outside the element (HTML5 \u00a713.2.5.4)"
+    },
+    {
+      "time": 1492278.028445583,
+      "stream": "stderr",
+      "line": "note: the lint level is defined here"
+    },
+    {
+      "time": 1492278.028446083,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492278.028446541,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492278.028446958,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492278.028447416,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492278.028447833,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492278.028448333,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492278.02844875,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492278.028449208,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492278.02844975,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492278.028450208,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492278.028451125,
+      "stream": "stderr",
+      "line": "   = note: this warning originates in the macro `html_sync` (in Nightly builds, run with -Z macro-backtrace for more info)"
+    },
+    {
+      "time": 1492278.028451833,
+      "stream": "stderr",
+      "line": "help: use `let _ = ...` to ignore the resulting value"
+    },
+    {
+      "time": 1492278.02845225,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492278.028452708,
+      "stream": "stderr",
+      "line": "84 |         let _ = html_sync! {"
+    },
+    {
+      "time": 1492278.028453166,
+      "stream": "stderr",
+      "line": "   |         +++++++"
+    },
+    {
+      "time": 1492278.02845375,
+      "stream": "stderr",
+      "line": ""
+    },
+    {
+      "time": 1492278.152265083,
+      "stream": "stderr",
+      "line": "warning: `proa_webmcp_pizza` (lib) generated 1 warning"
+    },
+    {
+      "time": 1492278.526104083,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.80s"
+    },
+    {
+      "time": 1492278.530053833,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo execution: 837.295 ms"
+    },
+    {
+      "time": 1492278.56206675,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan 610edf182154396c24b72e67d2a33fe293885f8e741c961954f312d44260576a (descriptor cache: 158/160 Cargo artifacts reused; final cache: 158/160 reused)"
+    },
+    {
+      "time": 1492278.5621935,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan 610edf182154396c24b72e67d2a33fe293885f8e741c961954f312d44260576a"
+    },
+    {
+      "time": 1492278.569760916,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/tmp/proa-dev-perf-pizza/target/projection-cache-function/proa-rsjs/final-target/rsjs-final-artifact-snapshots/b9ae3df917515d71afc008d3f4f48bf0509e8f7264da70e5919937d6ddb7d5d4-mode-100755/proa_webmcp_pizza` with plan 610edf182154396c24b72e67d2a33fe293885f8e741c961954f312d44260576a (descriptor cache 158/160, final cache 158 reused)"
+    },
+    {
+      "time": 1492278.904759125,
+      "stream": "stdout",
+      "line": "2026-10-04T02:16:41.472320Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39147"
+    },
+    {
+      "time": 1492279.538619125,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1492279.654997666,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1492279.753939875,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1492279.9712945,
+      "stream": "stderr",
+      "line": "warning: unused `_raw_text_element_dynamic_interpolation_0` that must be used"
+    },
+    {
+      "time": 1492279.971306375,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492279.971307625,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492279.971308458,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492279.97130925,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492279.971310875,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492279.971311625,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492279.971320291,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492279.971321,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492279.971321458,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492279.971322125,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492279.971322541,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492279.971323708,
+      "stream": "stderr",
+      "line": "   = note: dynamic expression `compile_probe_title()` inside raw-text element <title>. HTML escape prevents tag breakout in RCDATA (<textarea>, <title>), but raw-text elements (<xmp>, <noscript>, <noframes>) do not decode entities so the output will contain literal `&lt;`/`&amp;`. Prefer a typed initial value (e.g. the `value` attribute) or pre-render the text outside the element (HTML5 \u00a713.2.5.4)"
+    },
+    {
+      "time": 1492279.971324541,
+      "stream": "stderr",
+      "line": "note: the lint level is defined here"
+    },
+    {
+      "time": 1492279.971325125,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492279.971325708,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492279.971326208,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492279.971326708,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492279.971327125,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492279.971328166,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492279.971328666,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492279.97132925,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492279.971329791,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492279.971330208,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492279.971330875,
+      "stream": "stderr",
+      "line": "   = note: this warning originates in the macro `html_sync` (in Nightly builds, run with -Z macro-backtrace for more info)"
+    },
+    {
+      "time": 1492279.971331375,
+      "stream": "stderr",
+      "line": "help: use `let _ = ...` to ignore the resulting value"
+    },
+    {
+      "time": 1492279.971331833,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492279.971332208,
+      "stream": "stderr",
+      "line": "84 |         let _ = html_sync! {"
+    },
+    {
+      "time": 1492279.971332666,
+      "stream": "stderr",
+      "line": "   |         +++++++"
+    },
+    {
+      "time": 1492279.971333375,
+      "stream": "stderr",
+      "line": ""
+    },
+    {
+      "time": 1492280.132885625,
+      "stream": "stderr",
+      "line": "warning: `proa_webmcp_pizza` (lib) generated 1 warning"
+    },
+    {
+      "time": 1492280.619089833,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.91s"
+    },
+    {
+      "time": 1492280.623131541,
+      "stream": "stderr",
+      "line": "rsjs timing: descriptor Cargo and sidecars: 951.906 ms"
+    },
+    {
+      "time": 1492280.62677825,
+      "stream": "stderr",
+      "line": "rsjs timing: cache artifact indexes: 3.596 ms"
+    },
+    {
+      "time": 1492280.663678541,
+      "stream": "stderr",
+      "line": "rsjs timing: cache persist rebuilt objects: 36.942 ms"
+    },
+    {
+      "time": 1492280.767280625,
+      "stream": "stderr",
+      "line": "rsjs timing: cache load and hash objects: 103.609 ms"
+    },
+    {
+      "time": 1492280.91476725,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate observed inputs and externs: 147.483 ms"
+    },
+    {
+      "time": 1492280.919553625,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate artifact joins: 4.791 ms"
+    },
+    {
+      "time": 1492280.954224333,
+      "stream": "stderr",
+      "line": "rsjs timing: cache publish indexes and cleanup: 34.658 ms"
+    },
+    {
+      "time": 1492281.027652708,
+      "stream": "stderr",
+      "line": "rsjs timing: transport manifest and root selection: 68.019 ms"
+    },
+    {
+      "time": 1492281.030255166,
+      "stream": "stderr",
+      "line": "rsjs timing: transport graph: 2.623 ms"
+    },
+    {
+      "time": 1492281.035355125,
+      "stream": "stderr",
+      "line": "rsjs timing: transport final-unit selection: 5.099 ms"
+    },
+    {
+      "time": 1492281.037214,
+      "stream": "stderr",
+      "line": "rsjs timing: ABI adaptation: 1.856 ms"
+    },
+    {
+      "time": 1492281.037968916,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic planning: 0.755 ms"
+    },
+    {
+      "time": 1492281.044913,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic plan publication: 6.942 ms"
+    },
+    {
+      "time": 1492281.053403708,
+      "stream": "stderr",
+      "line": "rsjs timing: final request validation and unit map: 8.479 ms"
+    },
+    {
+      "time": 1492281.065868375,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo setup: 12.464 ms"
+    },
+    {
+      "time": 1492281.141529125,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1492281.387348666,
+      "stream": "stderr",
+      "line": "warning: unused `_raw_text_element_dynamic_interpolation_0` that must be used"
+    },
+    {
+      "time": 1492281.387358833,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492281.387360083,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492281.387360833,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492281.387361375,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492281.387361916,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492281.387362625,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492281.387363166,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492281.387370375,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492281.387371166,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492281.387374916,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492281.387375375,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492281.387376333,
+      "stream": "stderr",
+      "line": "   = note: dynamic expression `compile_probe_title()` inside raw-text element <title>. HTML escape prevents tag breakout in RCDATA (<textarea>, <title>), but raw-text elements (<xmp>, <noscript>, <noframes>) do not decode entities so the output will contain literal `&lt;`/`&amp;`. Prefer a typed initial value (e.g. the `value` attribute) or pre-render the text outside the element (HTML5 \u00a713.2.5.4)"
+    },
+    {
+      "time": 1492281.387377125,
+      "stream": "stderr",
+      "line": "note: the lint level is defined here"
+    },
+    {
+      "time": 1492281.387377583,
+      "stream": "stderr",
+      "line": "  --> src/lib.rs:84:9"
+    },
+    {
+      "time": 1492281.387378041,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492281.387378583,
+      "stream": "stderr",
+      "line": "84 | /         html_sync! {"
+    },
+    {
+      "time": 1492281.387379041,
+      "stream": "stderr",
+      "line": "85 | |             <html lang=\"en\">"
+    },
+    {
+      "time": 1492281.387379458,
+      "stream": "stderr",
+      "line": "86 | |                 <head>"
+    },
+    {
+      "time": 1492281.387379916,
+      "stream": "stderr",
+      "line": "87 | |                     <meta charset=\"utf-8\" />"
+    },
+    {
+      "time": 1492281.387380375,
+      "stream": "stderr",
+      "line": "...  |"
+    },
+    {
+      "time": 1492281.387380833,
+      "stream": "stderr",
+      "line": "98 | |             </html>"
+    },
+    {
+      "time": 1492281.387381291,
+      "stream": "stderr",
+      "line": "99 | |         }"
+    },
+    {
+      "time": 1492281.387381708,
+      "stream": "stderr",
+      "line": "   | |_________^"
+    },
+    {
+      "time": 1492281.387382375,
+      "stream": "stderr",
+      "line": "   = note: this warning originates in the macro `html_sync` (in Nightly builds, run with -Z macro-backtrace for more info)"
+    },
+    {
+      "time": 1492281.387382875,
+      "stream": "stderr",
+      "line": "help: use `let _ = ...` to ignore the resulting value"
+    },
+    {
+      "time": 1492281.387383333,
+      "stream": "stderr",
+      "line": "   |"
+    },
+    {
+      "time": 1492281.387383875,
+      "stream": "stderr",
+      "line": "84 |         let _ = html_sync! {"
+    },
+    {
+      "time": 1492281.387384333,
+      "stream": "stderr",
+      "line": "   |         +++++++"
+    },
+    {
+      "time": 1492281.387384916,
+      "stream": "stderr",
+      "line": ""
+    },
+    {
+      "time": 1492281.512483541,
+      "stream": "stderr",
+      "line": "warning: `proa_webmcp_pizza` (lib) generated 1 warning"
+    },
+    {
+      "time": 1492281.880894583,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.79s"
+    },
+    {
+      "time": 1492281.884711666,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo execution: 818.841 ms"
+    },
+    {
+      "time": 1492281.916063625,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan 7423f7d1b8eeca30c16d246f2561007c6af02f145a5e139fa2767dff1d11f09f (descriptor cache: 158/160 Cargo artifacts reused; final cache: 158/160 reused)"
+    },
+    {
+      "time": 1492281.916182458,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan 7423f7d1b8eeca30c16d246f2561007c6af02f145a5e139fa2767dff1d11f09f"
+    },
+    {
+      "time": 1492281.923712958,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/tmp/proa-dev-perf-pizza/target/projection-cache-function/proa-rsjs/final-target/rsjs-final-artifact-snapshots/77dc62d86d1f3bc376764c161c99a2fe68dd6e1902675f2bcfed95d44657ea2e-mode-100755/proa_webmcp_pizza` with plan 7423f7d1b8eeca30c16d246f2561007c6af02f145a5e139fa2767dff1d11f09f (descriptor cache 158/160, final cache 158 reused)"
+    },
+    {
+      "time": 1492282.258081083,
+      "stream": "stdout",
+      "line": "2026-10-04T02:16:44.825651Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39147"
+    }
+  ]
+}

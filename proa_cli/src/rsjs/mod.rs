@@ -24,4 +24,4 @@ pub mod semantic_link;
 
 pub use inspect::*;
 mod descriptor_objects;
-mod timing;
+pub(crate) mod timing;

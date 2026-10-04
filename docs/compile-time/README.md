@@ -10,8 +10,8 @@ stable 1.99 and a pinned nightly. See [implementation details](IMPLEMENTATION.md
 
 The hashing/watcher Pizza checkpoint meets the **2–3 second warm rebuild target** on the
 measured machine, using ordinary compiled templates and the normal dev profile.
-The first complete-unit-projection rebenchmark is slightly above that range
-at 3.035s template / 3.037s function edits. See [the follow-up and its limits](PIZZA_TARGET.md).
+The latest complete-unit-projection rebenchmark is at the target boundary:
+2.993s template / 3.033s function edits. See [the follow-up and its limits](PIZZA_TARGET.md).
 
 | Warm save to changed HTTP response | Main baseline | Recorded branch | Checkpoint |
 | --- | ---: | ---: | --- |
@@ -20,6 +20,8 @@ at 3.035s template / 3.037s function edits. See [the follow-up and its limits](P
 | Pizza Rust function-body edit, dev, actual CLI default | — | 2.91s | Hashing/watcher |
 | Pizza template edit, dev, actual CLI default | — | 3.035s | Complete unit projections |
 | Pizza Rust function-body edit, dev, actual CLI default | — | 3.037s | Complete unit projections |
+| Pizza template edit, dev, actual CLI default | — | 2.993s | Unit derivation cache |
+| Pizza Rust function-body edit, dev, actual CLI default | — | 3.033s | Unit derivation cache |
 | Standalone 24-route consumer, dev, 300ms debounce | 6.91s | 4.00s | Initial investigation |
 | Explicit hot-static text edit, nodebug, 100ms debounce | — | 0.13s | Initial investigation |
 
@@ -93,9 +95,10 @@ debounce. Its rendering overhead and supported syntax are documented in
    Do not infer a broad end-to-end gain from the smaller descriptor Cargo stage.
    Model multiple exact artifacts per extern and use Cargo's public build-script
    observations before adopting the experimental nightly output layouts.
-3. Rebenchmark Pizza after the verified runtime/asset identities and complete
-   unit projections. Cargo dependency crates remain the reuse boundary; the
-   earlier hashing/watcher timings do not measure this architecture checkpoint.
+3. Reduce preparation and validation overhead to regain margin below 3s. The
+   complete architecture is now rebenchmarked at approximately 3s; the earlier
+   2.895/2.908s results cover only the hashing/watcher checkpoint. Cargo
+   dependency crates remain the reuse boundary.
 4. Keep static updates explicit while measuring rendering overhead and fixing
    watcher-session cold builds and source discovery. Broaden supported templates
    only from representative use and correctness evidence.
