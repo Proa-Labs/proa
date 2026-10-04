@@ -14,7 +14,7 @@ still change this unit's emitted Rust/HTML.
 
 ## Why removing the global plan witness is incorrect
 
-In `rsjs_macros/src/final_plan.rs`, `owner_asset_id` uses the global PlanId and
+In `rsjs_ir/src/final_plan.rs`, `owner_asset_id` uses the global PlanId and
 an owner ordinal; `member_seed_key` uses the global PlanId and a candidate
 ordinal. Dense owner, candidate, occurrence, and control IDs can change when
 an unrelated definition is inserted. Cross-unit child relationships and fused
@@ -49,6 +49,44 @@ crate (`--split-islands`) to expose the remaining global invalidation. The
 test separately isolates the new mapping dependency with a proc-macro fixture.
 It tests Cargo's actual dep-info/environment handling, without pretending that
 the fixture proves owner-local RSJS plan reuse.
+
+## Shared validation foundation
+
+The pure final-plan parser, topology validation, and owner/helper selection now
+live in `rsjs_ir::final_plan`. Macros retain filesystem/environment validation
+and Cargo witnesses in `rsjs_macros/src/final_plan.rs`. This gives the CLI a
+shared implementation for preparing future unit projections; a second parser
+must not independently decide what final expansions consume. Global plan
+witnesses and emitted identities remain unchanged at this checkpoint.
+
+The move preserves transport's recursively sorted JSON helper hashes, including
+dependency graphs that enable `serde_json/preserve_order`. Tests check fixed
+canonical bytes, scalar escaping, nested objects, and significant array order.
+
+The remaining identity work extends beyond asset filenames. Hidden linked
+render traits exchange `(plan_id, candidate_id)` tokens across crates; live
+props, callbacks, and lexical SharedState providers also carry candidate IDs.
+Owner JavaScript and NodeRef aliases must use the same replacement identities.
+Keeping global dense candidate numbers in any of those outputs would make a
+projection depend on unrelated graph traversal order.
+
+A runtime occurrence can use the stable root semantic coordinate and its
+validated structural edge path, with the component semantic coordinate included.
+Repeated occurrences of the same definition therefore remain distinct. Dense
+planner IDs can stay internal. If a compact numeric runtime ID is used, detect
+collisions before publication and retain a full hash for seed/content identities.
+The lexical scope identity should describe the logical root, rather than hash
+the entire root forest's content: otherwise editing one separate owner would
+still invalidate another owner under that same SSR root.
+
+Owner content hashes must include normalized generated JavaScript and every
+imported fragment generation. Fragment generations must cover the component
+body, its required export union, transitive helper implementations, and compiler
+protocol changes. Hashing owner JavaScript while retaining an unchanged fragment
+URL after a helper-body change would publish a stale browser payload. A unit
+projection must include every occurrence of each definition in that Cargo unit,
+including occurrences shared by multiple owners, with global ordinals excluded.
+Root publication and exact full-plan attestation remain global.
 
 ## A separate upstream Cargo compatibility finding
 
