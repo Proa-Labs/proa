@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Measure save-to-HTTP-response latency in a warmed compile_time_probe fixture."""
 
 import argparse

@@ -44,8 +44,8 @@ The originals remain in Git revision `1f2ece6`.
 [Implementation](IMPLEMENTATION.md) describes cache/carrier changes;
 [invalidation](INVALIDATION.md) explains the dependency contract; the
 [author review](REVIEW.md) records compatibility breaks, exact checks and merge
-risks. Linux native collection still needs CI confirmation. A coordinated
-CLI/macro/runtime release is required.
+risks. The initial Linux pipeline shard passed; the full CI rerun must be
+green before merging. A coordinated CLI/macro/runtime release is required.
 
 The optional [static-update prototype](HOT_STATIC.md) uses an explicit macro
 and dev flag. Its separate 0.129s trial used a different profile and 100ms
