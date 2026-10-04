@@ -107,8 +107,17 @@ reduce its own compilation. The median stage values show approximately 20ms
 more object loading/hashing, 25ms more observed-input validation, 11ms more final
 Cargo setup, and 37ms more final Cargo execution than the earlier checkpoint.
 These are wall-clock differences across three-sample runs; they do not isolate
-one cause for the full 140ms change. Repeated projection derivation in macros is
-being investigated before the next trial.
+one cause for the full 140ms change. Repeated projection derivation is now reused within a compiler process after
+fresh full-plan and projection checks. The rebenchmark measured 2.993s template
+(2.961, 2.993, 3.047s) and 3.033s function edits (3.020, 3.049, 3.033s).
+That remains at the target boundary, and the stage timings do not establish a
+large latency benefit from the derivation cache.
+
+[Cache-trial template events](evidence/pizza-projection-cache-template-watch.json),
+[function events](evidence/pizza-projection-cache-function-watch.json), and
+[provenance](evidence/pizza-projection-cache-metadata.json) retain these trials.
+The cache change passed all 437 macro library tests and the 15 existing plus one
+new real Cargo/runtime integration tests.
 
 [Raw template events](evidence/pizza-unit-projection-template-watch.json),
 [function events](evidence/pizza-unit-projection-function-watch.json), and
