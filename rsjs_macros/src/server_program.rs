@@ -234,13 +234,15 @@ fn emit_linked_component_impls(
 
     let mut delegate = authored.clone();
     let delegate_render = find_render_method_mut(&mut delegate)?;
-    let plan_id = byte_array_tokens(selection.plan_id);
+    let identity = linked_runtime_identity(selection, standalone_candidate_id)?;
+    let standalone_candidate_id = identity.candidate_id;
+    let scope_id = byte_array_tokens(identity.scope_id);
     let context_ident = &parsed.context_ident;
     delegate_render.block = syn::parse2(quote! {{
         let __rsjs_linked_render_site =
             <Self as #hidden_trait_path>::linked_site(
                 #standalone_candidate_id,
-                #plan_id,
+                #scope_id,
             );
         <Self as #hidden_trait_path>::render_at(
             self,
@@ -300,7 +302,6 @@ fn linked_render_trait_path(parsed: &ParsedIsland) -> syn::Result<syn::Path> {
 }
 
 fn linked_site_lookup_method(selection: &FinalComponentSelection) -> syn::Result<syn::ImplItemFn> {
-    let plan_id = byte_array_tokens(selection.plan_id);
     let mut sites = selection.sites.iter().collect::<Vec<_>>();
     sites.sort_by_key(|site| site.candidate_id);
     let site_candidates = sites
@@ -327,12 +328,16 @@ fn linked_site_lookup_method(selection: &FinalComponentSelection) -> syn::Result
     let mut match_arms = Vec::with_capacity(sites.len());
     for site in sites {
         let candidate_id = site.candidate_id;
-        let children_ident = format_ident!("__RSJS_LINKED_CHILDREN_{candidate_id}");
-        let live_props_ident = format_ident!("__RSJS_LINKED_LIVE_PROPS_{candidate_id}");
-        let live_callbacks_ident = format_ident!("__RSJS_LINKED_LIVE_CALLBACKS_{candidate_id}");
+        let identity = linked_runtime_identity(selection, candidate_id)?;
+        let runtime_candidate_id = identity.candidate_id;
+        let scope_id = byte_array_tokens(identity.scope_id);
+        let children_ident = format_ident!("__RSJS_LINKED_CHILDREN_{runtime_candidate_id}");
+        let live_props_ident = format_ident!("__RSJS_LINKED_LIVE_PROPS_{runtime_candidate_id}");
+        let live_callbacks_ident =
+            format_ident!("__RSJS_LINKED_LIVE_CALLBACKS_{runtime_candidate_id}");
         let shared_state_ident =
-            format_ident!("__RSJS_LINKED_SHARED_STATE_REQUIREMENTS_{candidate_id}");
-        let site_ident = format_ident!("__RSJS_LINKED_SITE_{candidate_id}");
+            format_ident!("__RSJS_LINKED_SHARED_STATE_REQUIREMENTS_{runtime_candidate_id}");
+        let site_ident = format_ident!("__RSJS_LINKED_SITE_{runtime_candidate_id}");
         let children = selection
             .child_sites
             .iter()
@@ -340,15 +345,18 @@ fn linked_site_lookup_method(selection: &FinalComponentSelection) -> syn::Result
                 (parent_candidate_id == candidate_id).then_some((edge_id, child_candidate_id))
             })
             .map(|(edge_id, child_candidate_id)| {
-                quote! {
+                let child_identity = linked_runtime_identity(selection, child_candidate_id)?;
+                let child_candidate_id = child_identity.candidate_id;
+                let child_scope_id = byte_array_tokens(child_identity.scope_id);
+                Ok(quote! {
                     ::rsjs::__private::LinkedChildSite::new(
                         #edge_id,
-                        #plan_id,
+                        #child_scope_id,
                         #child_candidate_id,
                     )
-                }
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<syn::Result<Vec<_>>>()?;
         let child_count = children.len();
         let mut live_props = selection
             .live_props_by_child
@@ -367,8 +375,8 @@ fn linked_site_lookup_method(selection: &FinalComponentSelection) -> syn::Result
         }
         let live_props = live_props
             .iter()
-            .map(linked_live_prop_tokens)
-            .collect::<Vec<_>>();
+            .map(|record| linked_live_prop_tokens(selection, record))
+            .collect::<syn::Result<Vec<_>>>()?;
         let live_prop_count = live_props.len();
 
         let mut live_callbacks = selection
@@ -388,8 +396,8 @@ fn linked_site_lookup_method(selection: &FinalComponentSelection) -> syn::Result
         }
         let live_callbacks = live_callbacks
             .iter()
-            .map(linked_live_callback_tokens)
-            .collect::<Vec<_>>();
+            .map(|record| linked_live_callback_tokens(selection, record))
+            .collect::<syn::Result<Vec<_>>>()?;
         let live_callback_count = live_callbacks.len();
         let mut shared_state_requirements = selection
             .shared_state_requirements_by_consumer
@@ -410,18 +418,21 @@ fn linked_site_lookup_method(selection: &FinalComponentSelection) -> syn::Result
             .iter()
             .map(|requirement| {
                 let reference_id = requirement.reference_id;
-                let provider_host_candidate_id = requirement.provider_host_candidate_id;
+                let provider_identity =
+                    linked_runtime_identity(selection, requirement.provider_host_candidate_id)?;
+                let provider_host_candidate_id = provider_identity.candidate_id;
+                let provider_scope_id = byte_array_tokens(provider_identity.scope_id);
                 let provider_site_id = requirement.provider_site_id;
-                quote! {
+                Ok(quote! {
                     ::rsjs::__private::LinkedSharedStateRequirement::new(
                         #reference_id,
-                        #plan_id,
+                        #provider_scope_id,
                         #provider_host_candidate_id,
                         #provider_site_id,
                     )
-                }
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<syn::Result<Vec<_>>>()?;
         let shared_state_requirement_count = shared_state_requirements.len();
 
         let (owner_id, owner_root_candidate_id) = match site.owner_role {
@@ -429,17 +440,19 @@ fn linked_site_lookup_method(selection: &FinalComponentSelection) -> syn::Result
                 quote!(::core::option::Option::None),
                 quote!(::core::option::Option::None),
             ),
-            FinalOwnerRole::Root { owner_id } => (
-                quote!(::core::option::Option::Some(#owner_id)),
-                quote!(::core::option::Option::Some(#candidate_id)),
+            FinalOwnerRole::Root { .. } => (
+                quote!(::core::option::Option::Some(#runtime_candidate_id)),
+                quote!(::core::option::Option::Some(#runtime_candidate_id)),
             ),
             FinalOwnerRole::Member {
-                owner_id,
-                root_candidate_id,
-            } => (
-                quote!(::core::option::Option::Some(#owner_id)),
-                quote!(::core::option::Option::Some(#root_candidate_id)),
-            ),
+                root_candidate_id, ..
+            } => {
+                let root_id = linked_runtime_identity(selection, root_candidate_id)?.candidate_id;
+                (
+                    quote!(::core::option::Option::Some(#root_id)),
+                    quote!(::core::option::Option::Some(#root_id)),
+                )
+            }
         };
         let owner_strategy = match (&site.owner_role, &site.owner_strategy) {
             (FinalOwnerRole::ServerOnly, None) => quote!(::core::option::Option::None),
@@ -515,8 +528,8 @@ fn linked_site_lookup_method(selection: &FinalComponentSelection) -> syn::Result
                 [#(#shared_state_requirements),*];
             static #site_ident: ::rsjs::__private::LinkedRenderSitePlan =
                 ::rsjs::__private::LinkedRenderSitePlan::new_with_shared_state(
-                    #plan_id,
-                    #candidate_id,
+                    #scope_id,
+                    #runtime_candidate_id,
                     #owner_id,
                     #owner_root_candidate_id,
                     #owner_strategy,
@@ -529,28 +542,37 @@ fn linked_site_lookup_method(selection: &FinalComponentSelection) -> syn::Result
                     &#shared_state_ident,
                 );
         });
-        match_arms.push(quote!(#candidate_id => &#site_ident));
+        match_arms.push(quote!(#runtime_candidate_id => &#site_ident));
     }
 
     syn::parse2(quote! {
         fn linked_site(
-            candidate_id: u32,
-            expected_plan_id: [u8; 32],
+            candidate_id: u64,
+            expected_scope_id: [u8; 32],
         ) -> &'static ::rsjs::__private::LinkedRenderSitePlan {
-            const __RSJS_LINKED_PLAN_ID: [u8; 32] = #plan_id;
-            assert!(
-                expected_plan_id == __RSJS_LINKED_PLAN_ID,
-                "RSJS linked render-site lookup used a stale or foreign semantic plan",
-            );
             #(#declarations)*
-            match candidate_id {
+            let site = match candidate_id {
                 #(#match_arms,)*
                 _ => panic!(
                     "RSJS linked render plan has no occurrence {candidate_id} for this component",
                 ),
-            }
+            };
+            assert!(
+                expected_scope_id == site.scope_id,
+                "RSJS linked render-site lookup used a foreign render-root scope",
+            );
+            site
         }
     })
+}
+
+fn linked_runtime_identity(
+    selection: &FinalComponentSelection,
+    candidate: u32,
+) -> syn::Result<crate::final_plan::FinalRuntimeSiteIdentity> {
+    selection
+        .runtime_site(candidate)
+        .map_err(|message| syn::Error::new(proc_macro2::Span::call_site(), message))
 }
 
 fn linked_owner_strategy_tokens(strategy: &FinalOwnerActivationStrategy) -> TokenStream {
@@ -598,10 +620,15 @@ fn linked_input_candidate_error(
     )
 }
 
-fn linked_live_prop_tokens(record: &FinalLivePropUse) -> TokenStream {
-    let parent_candidate_id = record.parent_candidate_id;
+fn linked_live_prop_tokens(
+    selection: &FinalComponentSelection,
+    record: &FinalLivePropUse,
+) -> syn::Result<TokenStream> {
+    let parent_candidate_id =
+        linked_runtime_identity(selection, record.parent_candidate_id)?.candidate_id;
     let edge_id = record.edge_id;
-    let child_candidate_id = record.child_candidate_id;
+    let child_candidate_id =
+        linked_runtime_identity(selection, record.child_candidate_id)?.candidate_id;
     let field_id = record.field_id;
     let crossing_hook_id = record.crossing_hook_id;
     let parent_value_id = record.parent_value_id;
@@ -623,7 +650,7 @@ fn linked_live_prop_tokens(record: &FinalLivePropUse) -> TokenStream {
             quote!(::rsjs::__private::LinkedTemporalPropMode::QueryKeyDependency)
         }
     };
-    quote! {
+    Ok(quote! {
         ::rsjs::__private::LinkedLiveProp::new(
             #parent_candidate_id,
             #edge_id,
@@ -635,13 +662,18 @@ fn linked_live_prop_tokens(record: &FinalLivePropUse) -> TokenStream {
             #prop_site_id,
             #temporal,
         )
-    }
+    })
 }
 
-fn linked_live_callback_tokens(record: &FinalLiveCallback) -> TokenStream {
-    let parent_candidate_id = record.parent_candidate_id;
+fn linked_live_callback_tokens(
+    selection: &FinalComponentSelection,
+    record: &FinalLiveCallback,
+) -> syn::Result<TokenStream> {
+    let parent_candidate_id =
+        linked_runtime_identity(selection, record.parent_candidate_id)?.candidate_id;
     let edge_id = record.edge_id;
-    let child_candidate_id = record.child_candidate_id;
+    let child_candidate_id =
+        linked_runtime_identity(selection, record.child_candidate_id)?.candidate_id;
     let field_id = record.field_id;
     let crossing_hook_id = record.crossing_hook_id;
     let parent_value_id = record.parent_value_id;
@@ -652,7 +684,7 @@ fn linked_live_callback_tokens(record: &FinalLiveCallback) -> TokenStream {
     match record.shape {
         FinalCallbackShape::Required | FinalCallbackShape::Optional => {}
     }
-    quote! {
+    Ok(quote! {
         ::rsjs::__private::LinkedLiveCallback::new(
             #parent_candidate_id,
             #edge_id,
@@ -663,7 +695,7 @@ fn linked_live_callback_tokens(record: &FinalLiveCallback) -> TokenStream {
             #child_value_id,
             ::rsjs::__private::LinkedCallbackDispatch::ResolveCurrent,
         )
-    }
+    })
 }
 
 fn byte_array_tokens(bytes: [u8; 32]) -> TokenStream {
@@ -1008,7 +1040,7 @@ fn rewrite_linked_shared_state_provider_children(
                     #child,
                     #linked_site_ident.child(#child_edge),
                 ),
-                #linked_site_ident.plan_id,
+                #linked_site_ident.scope_id,
                 #linked_site_ident.candidate_id,
                 #provider_site_id,
             )
@@ -1359,7 +1391,7 @@ mod tests {
         assert!(!assertion.contains("< () as RenderSync"));
         assert!(emitted.contains("RenderSync < L , B > for Page"));
         assert!(emitted.contains("ComponentSiteRenderSync < L , B > for Page"));
-        assert!(emitted.contains("linked_site (3u32"));
+        assert!(emitted.contains("linked_site (103u64"));
         assert!(emitted.contains("render_at (self , cx"));
     }
 
@@ -1380,11 +1412,11 @@ mod tests {
         assert!(emitted.contains("LinkedOwnerActivationStrategy :: Visible"));
         assert!(emitted.contains("LinkedOwnerActivationStrategy :: Interaction"));
         assert!(emitted.contains("Option :: Some (\"click\")"));
-        assert!(emitted.contains("LinkedLiveProp :: new (4u32 , 2u32 , 8u32"));
-        assert!(emitted.contains("LinkedLiveCallback :: new (4u32 , 2u32 , 8u32"));
+        assert!(emitted.contains("LinkedLiveProp :: new (104u64 , 2u32 , 108u64"));
+        assert!(emitted.contains("LinkedLiveCallback :: new (104u64 , 2u32 , 108u64"));
         assert!(emitted.contains("61u32 , 62u32 , 63u32"));
-        assert!(emitted.contains("& __RSJS_LINKED_LIVE_PROPS_8"));
-        assert!(emitted.contains("& __RSJS_LINKED_LIVE_CALLBACKS_8"));
+        assert!(emitted.contains("& __RSJS_LINKED_LIVE_PROPS_108"));
+        assert!(emitted.contains("& __RSJS_LINKED_LIVE_CALLBACKS_108"));
     }
 
     #[test]
@@ -1417,9 +1449,9 @@ mod tests {
             emitted.contains("LinkedSharedStateRequirement :: new (4u32"),
             "{emitted}"
         );
-        assert!(emitted.contains("3u32 , 2u32"), "{emitted}");
+        assert!(emitted.contains("103u64 , 2u32"), "{emitted}");
         assert!(
-            emitted.contains("& __RSJS_LINKED_SHARED_STATE_REQUIREMENTS_8"),
+            emitted.contains("& __RSJS_LINKED_SHARED_STATE_REQUIREMENTS_108"),
             "{emitted}"
         );
     }
@@ -1475,7 +1507,7 @@ mod tests {
         );
         assert!(emitted.contains("Child { label : \"hello\" }"), "{emitted}");
         assert!(
-            emitted.contains("__rsjs_linked_render_site . plan_id"),
+            emitted.contains("__rsjs_linked_render_site . scope_id"),
             "{emitted}"
         );
         assert!(
@@ -1503,6 +1535,19 @@ mod tests {
     fn linked_test_selection() -> FinalComponentSelection {
         FinalComponentSelection {
             plan_id: [9; 32],
+            runtime_sites: [3, 4, 8, 13, 21]
+                .into_iter()
+                .map(|id| {
+                    (
+                        id,
+                        crate::final_plan::FinalRuntimeSiteIdentity {
+                            scope_id: [42; 32],
+                            site_id: [id as u8; 32],
+                            candidate_id: 100 + u64::from(id),
+                        },
+                    )
+                })
+                .collect(),
             standalone_candidate_id: Some(3),
             sites: vec![
                 FinalComponentSite {

@@ -14,10 +14,9 @@ still change this unit's emitted Rust/HTML.
 
 ## Why removing the global plan witness is incorrect
 
-In `rsjs_ir/src/final_plan.rs`, `owner_asset_id` uses the global PlanId and
-an owner ordinal; `member_seed_key` uses the global PlanId and a candidate
-ordinal. Dense owner, candidate, occurrence, and control IDs can change when
-an unrelated definition is inserted. Cross-unit child relationships and fused
+In `rsjs_ir/src/final_plan.rs`, `owner_asset_id` still uses the global PlanId and
+an owner ordinal. Dense owner ordinals can change when an unrelated definition
+is inserted. Cross-unit child relationships and fused
 helper implementations also influence the selected owner's JavaScript.
 
 An old final crate can therefore refer to an asset or member seed that the new
@@ -30,6 +29,8 @@ The branch does **not** claim complete owner-local invalidation.
 1. Give each owner and member site a stable semantic identity based on its
    definition/site coordinate rather than global traversal order. Treat
    reordered or duplicated sites explicitly; do not use a file-offset shortcut.
+   Runtime site coordinates and member seed keys are now implemented below;
+   owner assets still require content addressing.
 2. Compute an owner content hash over the actual generated payload and its
    transitive child/helper/protocol dependencies. Use it for asset and seed
    identities, consistently in server macros, JavaScript, and manifests.
@@ -56,8 +57,9 @@ The pure final-plan parser, topology validation, and owner/helper selection now
 live in `rsjs_ir::final_plan`. Macros retain filesystem/environment validation
 and Cargo witnesses in `rsjs_macros/src/final_plan.rs`. This gives the CLI a
 shared implementation for preparing future unit projections; a second parser
-must not independently decide what final expansions consume. Global plan
-witnesses and emitted identities remain unchanged at this checkpoint.
+must not independently decide what final expansions consume. That initial move
+left global plan witnesses and emitted identities unchanged. The next checkpoint
+below replaces runtime site coordinates while retaining global Cargo witnesses.
 
 The move preserves transport's recursively sorted JSON helper hashes, including
 dependency graphs that enable `serde_json/preserve_order`. Tests check fixed
@@ -87,6 +89,39 @@ URL after a helper-body change would publish a stale browser payload. A unit
 projection must include every occurrence of each definition in that Cargo unit,
 including occurrences shared by multiple owners, with global ordinals excluded.
 Root publication and exact full-plan attestation remain global.
+
+## Stable runtime coordinates checkpoint
+
+The shared validator now derives a root scope hash from the canonical root
+semantic key. Each occurrence hashes that scope, its component semantic key,
+and its validated structural edge path, using explicit domain and length
+framing. Cargo-unit generations, raw record IDs, global PlanId, and dense
+candidate ordinals are excluded. A compact 64-bit coordinate is used by the
+hidden server ABI and DOM marker; both compact collisions and duplicate full
+coordinates fail closed before selection. Fused member seed keys use the full
+256-bit occurrence hash.
+
+Final macros use these coordinates for standalone entry, child calls, live
+props, callbacks, owner/root metadata, and lexical SharedState providers.
+Lookups verify the expected logical root scope against the selected static.
+Owner JavaScript uses identical string coordinates for mounts, signals,
+callbacks, lifecycle groups, and NodeRef aliases, avoiding JavaScript number
+precision loss. Decimal SSR encoding uses a 20-byte stack buffer.
+
+Tests cover unrelated root insertion, descriptor generation changes, repeated
+definitions under distinct roots/paths, collisions, and the full u64 decimal
+range. End-to-end final builds cover sync/async rendering, live props and
+callbacks, query/mutation/conditional owners, and exact shared-state providers.
+Every rendered marker in the live/query/mutation/conditional trial must match
+an exact lookup in its generated owner JavaScript.
+The NodeRef acceptance test executes generated JavaScript with Node 26.8.1,
+checking exact input focus and disposal through a participant chain.
+Workspace checking, focused library tests, and render performance lint pass.
+
+This checkpoint deliberately retains the global owner asset names and Cargo
+plan witnesses. Content-addressed owner/fragment generations and complete
+per-unit projections are still required before unrelated final crates can
+remain fresh. No additional Pizza latency result is claimed for this change.
 
 ## A separate upstream Cargo compatibility finding
 

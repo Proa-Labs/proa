@@ -1270,31 +1270,31 @@ pub struct WebContextParts {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RsjsLinkedProviderOccurrenceKey {
-    plan_id: [u8; 32],
-    host_candidate_id: u32,
+    scope_id: [u8; 32],
+    host_candidate_id: u64,
     provider_site_id: u32,
 }
 
 impl RsjsLinkedProviderOccurrenceKey {
     /// Construct one exact linked provider occurrence.
     #[doc(hidden)]
-    pub const fn new(plan_id: [u8; 32], host_candidate_id: u32, provider_site_id: u32) -> Self {
+    pub const fn new(scope_id: [u8; 32], host_candidate_id: u64, provider_site_id: u32) -> Self {
         Self {
-            plan_id,
+            scope_id,
             host_candidate_id,
             provider_site_id,
         }
     }
 
-    /// Exact semantic-plan identity.
+    /// Stable logical render-root scope identity.
     #[doc(hidden)]
-    pub const fn plan_id(self) -> [u8; 32] {
-        self.plan_id
+    pub const fn scope_id(self) -> [u8; 32] {
+        self.scope_id
     }
 
     /// Component candidate whose render program contains the provider site.
     #[doc(hidden)]
-    pub const fn host_candidate_id(self) -> u32 {
+    pub const fn host_candidate_id(self) -> u64 {
         self.host_candidate_id
     }
 
@@ -5029,7 +5029,7 @@ mod tests {
         let mut cx = WebContext::with_buffer(&mut out);
         let outer_key = RsjsLinkedProviderOccurrenceKey::new([0x11; 32], 4, 7);
         let inner_key = RsjsLinkedProviderOccurrenceKey::new([0x11; 32], 4, 8);
-        assert_eq!(outer_key.plan_id(), [0x11; 32]);
+        assert_eq!(outer_key.scope_id(), [0x11; 32]);
         assert_eq!(outer_key.host_candidate_id(), 4);
         assert_eq!(outer_key.provider_site_id(), 7);
 
