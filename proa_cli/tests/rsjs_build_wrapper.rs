@@ -711,7 +711,12 @@ fn incremental_archive_carriers_retain_unused_witnesses_across_partial_edits() {
     use object::read::archive::ArchiveFile;
     use object::{Object, ObjectSection, ObjectSymbol};
 
-    for kind in ["lib", "bin"] {
+    for (kind, codegen_units) in [
+        ("lib", Some(4)),
+        ("bin", Some(4)),
+        ("lib", None),
+        ("bin", None),
+    ] {
         let temp = TempDir::new().unwrap();
         let target = temp.path().join("target");
         let output = target.join("debug/deps");
@@ -747,17 +752,20 @@ fn incremental_archive_carriers_retain_unused_witnesses_across_partial_edits() {
                     "--emit=dep-info,metadata,link".into(),
                     "--out-dir".into(),
                     output.as_os_str().to_owned(),
-                    "-Ccodegen-units=4".into(),
                     "-Cdebuginfo=2".into(),
                     format!("-Cincremental={}", target.join("incremental").display()).into(),
                     source.as_os_str().to_owned(),
                 ])
+                .args(codegen_units.map(|units| format!("-Ccodegen-units={units}")))
                 .status()
                 .unwrap();
             assert!(status.success(), "{kind} generation {generation}");
             let units = load_descriptor_unit_sidecars(&staging).unwrap();
             assert_eq!(units.len(), 1);
-            assert_eq!(units[0].sidecar.descriptor_codegen.codegen_units, 4);
+            assert_eq!(
+                units[0].sidecar.descriptor_codegen.codegen_units,
+                codegen_units.unwrap_or(64)
+            );
             assert!(units[0].sidecar.descriptor_codegen.incremental);
             let bytes = fs::read(&units[0].descriptor_object).unwrap();
             let archive = ArchiveFile::parse(bytes.as_slice()).unwrap();
