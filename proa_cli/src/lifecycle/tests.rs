@@ -1030,6 +1030,15 @@ fn same_path_wrapper_replacement_splits_persistent_cache_namespaces() {
     .unwrap();
     let first_snapshot = first.request.descriptor.wrapper.clone();
     let first_fingerprint = wrapper_executable_fingerprint(&first_snapshot).unwrap();
+    let repeated = prepare_linked_cargo_with_wrapper(
+        &root,
+        &command,
+        LinkedCargoAction::Build,
+        wrapper.clone(),
+    )
+    .unwrap();
+    assert_eq!(repeated.request.descriptor.wrapper, first_snapshot);
+    assert_eq!(repeated.request.invocation, first.request.invocation);
 
     // Preserve both the absolute path and byte length. Cache separation
     // must come from content, not a path or file-size heuristic. The first
@@ -1048,6 +1057,22 @@ fn same_path_wrapper_replacement_splits_persistent_cache_namespaces() {
     .unwrap();
     let replaced_snapshot = replaced.request.descriptor.wrapper.clone();
     let replaced_fingerprint = wrapper_executable_fingerprint(&replaced_snapshot).unwrap();
+
+    // Reusing an existing snapshot still verifies its current bytes, even
+    // when corruption preserves file size and the mutable source is valid.
+    fs::write(&wrapper, &wrapper_v1).unwrap();
+    let mut corrupted = wrapper_v1.clone();
+    *corrupted.last_mut().unwrap() ^= 2;
+    fs::write(&first_snapshot, &corrupted).unwrap();
+    let error = prepare_linked_cargo_with_wrapper(
+        &root,
+        &command,
+        LinkedCargoAction::Build,
+        wrapper.clone(),
+    )
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("content-addressed final Cargo artifact conflicts"));
+    fs::write(&first_snapshot, &wrapper_v1).unwrap();
 
     assert_ne!(first_snapshot, wrapper);
     assert_ne!(replaced_snapshot, wrapper);

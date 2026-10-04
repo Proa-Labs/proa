@@ -125,6 +125,27 @@ new real Cargo/runtime integration tests.
 
 ![Earlier checkpoint and complete unit projections](diagrams/pizza-unit-projection-waterfall.png)
 
+The next preparation experiment (`33d5d08`) runs Cargo metadata, Cargo version,
+and rustc version queries concurrently, while still querying them afresh each
+cycle. It measured 3.088s template (3.766, 3.005, 3.088s) and 3.017s function
+edits (3.017, 2.991, 3.048s). The slow 3.766s sample is retained: its descriptor
+stage took 1.640s compared with 0.96–0.97s in the other two samples. This trial
+does not establish an overall latency gain.
+
+The finer preparation diagnostics showed another 40–50ms spent snapshotting
+and fingerprinting the CLI wrapper. Its warm reuse path now checks fresh source
+and destination bytes and permissions, validates the executable dependency
+contract, and reuses an identical existing snapshot without writing and syncing
+an identical temporary file. A miss retains the original copy and atomic
+publication path. Same-size snapshot corruption is rejected, and a changed
+wrapper still creates a new cache namespace. CLI library and lifecycle tests
+passed; the next timing trial is pending.
+
+[Preparation template events](evidence/pizza-parallel-preparation-template-watch.json),
+[function events](evidence/pizza-parallel-preparation-function-watch.json), and
+[provenance](evidence/pizza-parallel-preparation-metadata.json) retain this control.
+
+
 ## Validation
 
 - Workspace: `cargo check --workspace --all-targets --offline` passed.
