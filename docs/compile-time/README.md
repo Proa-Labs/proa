@@ -8,15 +8,15 @@ stable 1.99 and a pinned nightly. See [implementation details](IMPLEMENTATION.md
 
 ## Measured outcomes
 
-The Pizza follow-up now meets the **2–3 second warm rebuild target** on the
+The hashing/watcher Pizza checkpoint meets the **2–3 second warm rebuild target** on the
 measured machine, using ordinary compiled templates and the normal dev profile.
 See [the follow-up and its limits](PIZZA_TARGET.md).
 
 | Warm save to changed HTTP response | Main baseline | Recorded branch | Checkpoint |
 | --- | ---: | ---: | --- |
-| Pizza template edit, dev, 300ms debounce | 6.97s | 2.99s | Current |
-| Pizza template edit, dev, actual 200ms CLI default | — | 2.89s | Current |
-| Pizza Rust function-body edit, dev, actual CLI default | — | 2.91s | Current |
+| Pizza template edit, dev, 300ms debounce | 6.97s | 2.99s | Hashing/watcher |
+| Pizza template edit, dev, actual 200ms CLI default | — | 2.89s | Hashing/watcher |
+| Pizza Rust function-body edit, dev, actual CLI default | — | 2.91s | Hashing/watcher |
 | Standalone 24-route consumer, dev, 300ms debounce | 6.91s | 4.00s | Initial investigation |
 | Explicit hot-static text edit, nodebug, 100ms debounce | — | 0.13s | Initial investigation |
 
@@ -65,11 +65,13 @@ debounce. Its rendering overhead and supported syntax are documented in
    single-object carrier. In the dev-profile fixture, incremental descriptors
    reduce the Cargo stage but archive validation offsets much of that gain;
    there is no demonstrated additional watcher speedup over the cache fix.
-4. **Narrow final invalidation.** Implement independent mapping-entry witnesses
-   and retain exact root/full-plan validation. The split-crate probe demonstrates
-   that a changed global plan still recompiles an unchanged RSJS island in the
-   final pass. Complete owner-local reuse requires stable asset/member identities
-   and transitive unit projections. See [the architecture experiment](INVALIDATION.md).
+4. **Narrow final invalidation.** Stable runtime coordinates, fragment/owner
+   generations, and complete unit projections now replace global plan dependencies
+   in semantic-plan expansions. The real Cargo fixture keeps unrelated B fresh
+   after an A edit and unused root insertion, and refreshes consumers after shared
+   helper/child changes. HTML, manifest imports, generated JavaScript, and current
+   dep-info agree; exact full-plan/root validation remains. See
+   [the architecture and acceptance evidence](INVALIDATION.md).
 5. **Upstream compiler comparison.** Run isolated, serialized configurations
    for the repository compiler, current stable, pinned nightly, next solver,
    parallel frontend, and Cranelift. Results and failures are retained in
@@ -88,9 +90,9 @@ debounce. Its rendering overhead and supported syntax are documented in
    Do not infer a broad end-to-end gain from the smaller descriptor Cargo stage.
    Model multiple exact artifacts per extern and use Cargo's public build-script
    observations before adopting the experimental nightly output layouts.
-3. Prototype stable owner identities and unit plan projections, then prove both
-   unaffected reuse and shared-helper/child invalidation in executable/browser
-   output. Avoid removing the global plan witness before those changes.
+3. Rebenchmark Pizza after the verified runtime/asset identities and complete
+   unit projections. Cargo dependency crates remain the reuse boundary; the
+   earlier hashing/watcher timings do not measure this architecture checkpoint.
 4. Keep static updates explicit while measuring rendering overhead and fixing
    watcher-session cold builds and source discovery. Broaden supported templates
    only from representative use and correctness evidence.

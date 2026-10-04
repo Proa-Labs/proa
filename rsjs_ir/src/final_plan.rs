@@ -5,12 +5,18 @@
 //! CLI and proc macros. This module has no filesystem or environment inputs.
 
 use crate::abi::{HELPER_CODEGEN_IR_JSON_HASH_DOMAIN, HELPER_SIGNATURE_JSON_HASH_DOMAIN};
+use serde::Serialize;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 const PLAN_FORMAT: &str = "proa.rsjs.semantic_link_plan";
 const PLAN_SCHEMA_VERSION: u64 = 15;
+mod unit_projection;
+pub use unit_projection::{
+    unit_projection_bytes, unit_projection_bytes_for_units, UNIT_PROJECTION_FILE_SUFFIX,
+};
+
 const OWNER_HASH_PLACEHOLDER: &str = "rsjs_owner_content_placeholder";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,10 +38,11 @@ impl DefinitionKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FinalPlanSelection {
     pub plan_id: [u8; 32],
+    pub dependency_id: [u8; 32],
 }
 
 /// Ownership role selected for one concrete component occurrence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum FinalOwnerRole {
     /// This occurrence has no reachable browser obligation.
     ServerOnly,
@@ -49,7 +56,7 @@ pub enum FinalOwnerRole {
 }
 
 /// Effective activation strategy selected for one final owner.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum FinalOwnerActivationStrategy {
     Eager,
     Visible,
@@ -59,7 +66,7 @@ pub enum FinalOwnerActivationStrategy {
 }
 
 /// Exact conditional control governing one concrete component occurrence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct FinalComponentLifecycle {
     pub control: u32,
     pub predicate_value: u32,
@@ -68,14 +75,14 @@ pub struct FinalComponentLifecycle {
 }
 
 /// Branch polarity selected by one conditional component occurrence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum FinalComponentLifecycleBranch {
     Then,
     Else,
 }
 
 /// One concrete occurrence of the selected component definition.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct FinalComponentSite {
     pub candidate_id: u32,
     pub parent_candidate_id: Option<u32>,
@@ -102,7 +109,7 @@ pub struct FinalComponentSite {
 }
 
 /// Final, candidate-specific time semantics for one inbound live value use.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum FinalTemporalPropMode {
     LiveRead,
     SeedOnce { seed_site_id: u32 },
@@ -111,7 +118,7 @@ pub enum FinalTemporalPropMode {
 }
 
 /// One exact live value use selected from the linked semantic plan.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct FinalLivePropUse {
     pub parent_candidate_id: u32,
     pub edge_id: u32,
@@ -125,14 +132,14 @@ pub struct FinalLivePropUse {
 }
 
 /// Exact Rust callback container shape validated by semantic linking.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum FinalCallbackShape {
     Required,
     Optional,
 }
 
 /// One exact compiler-owned callback edge selected from the linked plan.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct FinalLiveCallback {
     pub parent_candidate_id: u32,
     pub edge_id: u32,
@@ -146,7 +153,7 @@ pub struct FinalLiveCallback {
 
 /// One exact lexical SharedState provider occurrence selected by the final
 /// semantic plan.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct FinalSharedStateProviderOccurrence {
     pub host_candidate_id: u32,
     pub provider_site_id: u32,
@@ -156,7 +163,7 @@ pub struct FinalSharedStateProviderOccurrence {
 }
 
 /// One exact component-local SharedState acquisition and its lexical provider.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct FinalSharedStateProviderRequirement {
     pub consumer_candidate_id: u32,
     pub reference_id: u32,
@@ -167,7 +174,7 @@ pub struct FinalSharedStateProviderRequirement {
 }
 
 /// Terminal DOM family authenticated for an inbound `NodeRef<T>` field.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub enum FinalNodeRefBindTarget {
     Element,
     HtmlElement,
@@ -183,7 +190,7 @@ pub enum FinalNodeRefBindTarget {
 /// Both node-ref IDs are producer-local fragment coordinates. The canonical
 /// value, field, and crossing IDs are retained so final compilation can
 /// independently reject a stale or internally inconsistent link plan.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct FinalNodeRefHandleAlias {
     pub parent_candidate_id: u32,
     pub edge_id: u32,
@@ -285,6 +292,9 @@ pub struct FinalRuntimeSiteIdentity {
 #[derive(Clone, Debug, PartialEq)]
 pub struct FinalComponentSelection {
     pub plan_id: [u8; 32],
+    /// Cargo witness identity; the loader replaces the global fallback with
+    /// the freshly verified complete unit projection hash.
+    pub dependency_id: [u8; 32],
     /// Generation identity of the selected definition's reusable fragment.
     /// It commits the descriptor/compiler generation, export union, and
     /// complete potential helper closure, independently of global ordinals.
@@ -438,18 +448,18 @@ pub fn linked_helper_program(
 }
 
 pub trait PlanSelection {
-    fn plan_id(&self) -> [u8; 32];
+    fn dependency_id(&self) -> [u8; 32];
 }
 
 impl PlanSelection for FinalPlanSelection {
-    fn plan_id(&self) -> [u8; 32] {
-        self.plan_id
+    fn dependency_id(&self) -> [u8; 32] {
+        self.dependency_id
     }
 }
 
 impl PlanSelection for FinalComponentSelection {
-    fn plan_id(&self) -> [u8; 32] {
-        self.plan_id
+    fn dependency_id(&self) -> [u8; 32] {
+        self.dependency_id
     }
 }
 
@@ -1206,7 +1216,10 @@ pub fn validate_helper_plan_bytes(
         record_id,
     };
     if helpers.contains_key(&expected_definition) {
-        Ok(FinalPlanSelection { plan_id })
+        Ok(FinalPlanSelection {
+            plan_id,
+            dependency_id: plan_id,
+        })
     } else {
         Err(format!(
             "final RSJS plan `{expected_plan_id}` has no {} definition for descriptor unit `{}` and record `{}`; the plan or final-unit mapping is stale",
@@ -1552,6 +1565,7 @@ pub fn validate_component_plan_bytes(
 
     let mut selection = FinalComponentSelection {
         plan_id,
+        dependency_id: plan_id,
         fragment_asset_id: String::new(),
         runtime_sites,
         standalone_candidate_id,
@@ -4735,6 +4749,82 @@ mod tests {
         assert_eq!(
             before.all_sites[2].owner_asset_id,
             after.all_sites[2].owner_asset_id
+        );
+    }
+
+    #[test]
+    fn unit_projections_exclude_global_plan_ids_and_unrelated_ordinals() {
+        let mut plan = node_ref_plan();
+        let parent = unit_projection_bytes(PARENT_UNIT, PLAN_ID, &encode(&plan)).unwrap();
+        let child = unit_projection_bytes(CHILD_UNIT, PLAN_ID, &encode(&plan)).unwrap();
+        insert_unrelated_first_root(&mut plan);
+        let changed_plan_id = [0x31; 32];
+        plan["plan_id"] = json!(hex_id(&changed_plan_id));
+        assert_eq!(
+            parent,
+            unit_projection_bytes(PARENT_UNIT, changed_plan_id, &encode(&plan)).unwrap()
+        );
+        assert_eq!(
+            child,
+            unit_projection_bytes(CHILD_UNIT, changed_plan_id, &encode(&plan)).unwrap()
+        );
+        let parsed: Value = serde_json::from_slice(&parent).unwrap();
+        assert!(parsed.get("plan_id").is_none());
+        assert!(
+            parsed["components"][0]["selection"]["sites"][0]["candidate_id"]["scope"].is_string()
+        );
+    }
+
+    #[test]
+    fn unit_projection_tracks_all_occurrences_and_changed_child_consumers() {
+        let mut plan = linked_plan();
+        insert_unrelated_first_root(&mut plan);
+        let unrelated_unit = [10; 32];
+        let unrelated = unit_projection_bytes(unrelated_unit, PLAN_ID, &encode(&plan)).unwrap();
+        let parent = unit_projection_bytes(PARENT_UNIT, PLAN_ID, &encode(&plan)).unwrap();
+        let child = unit_projection_bytes(CHILD_UNIT, PLAN_ID, &encode(&plan)).unwrap();
+        let projected: Value = serde_json::from_slice(&child).unwrap();
+        assert_eq!(
+            projected["components"][0]["selection"]["sites"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        plan["component_codegen"][2]["asset_id"] = json!("child_changed");
+        plan["component_codegen"][2]["fragment_key"] = json!("child_changed");
+        assert_ne!(
+            parent,
+            unit_projection_bytes(PARENT_UNIT, PLAN_ID, &encode(&plan)).unwrap()
+        );
+        assert_ne!(
+            child,
+            unit_projection_bytes(CHILD_UNIT, PLAN_ID, &encode(&plan)).unwrap()
+        );
+        assert_eq!(
+            unrelated,
+            unit_projection_bytes(unrelated_unit, PLAN_ID, &encode(&plan)).unwrap()
+        );
+    }
+
+    #[test]
+    fn helper_only_unit_projection_contains_validated_codegen_and_no_global_identity() {
+        let mut plan = linked_helper_plan();
+        let before = unit_projection_bytes(HELPER_UNIT, PLAN_ID, &encode(&plan)).unwrap();
+        let projected: Value = serde_json::from_slice(&before).unwrap();
+        assert_eq!(projected["components"], json!([]));
+        assert_eq!(projected["helpers"].as_array().unwrap().len(), 1);
+        let changed_plan_id = [0x31; 32];
+        plan["plan_id"] = json!(hex_id(&changed_plan_id));
+        assert_eq!(
+            before,
+            unit_projection_bytes(HELPER_UNIT, changed_plan_id, &encode(&plan)).unwrap()
+        );
+        plan["helper_codegen"][0]["body_ir_hash"] = json!(format!("sha256:{}", "00".repeat(32)));
+        assert!(
+            unit_projection_bytes(HELPER_UNIT, changed_plan_id, &encode(&plan))
+                .unwrap_err()
+                .contains("body_ir")
         );
     }
 

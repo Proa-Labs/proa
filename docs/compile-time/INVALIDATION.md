@@ -6,13 +6,13 @@ only its exact mapping entry. The final wrapper still validates the complete
 map, exact plan bytes, coordinate, sources, generated inputs, and environment
 before compiling that unit. Root artifact attestation is retained.
 
-The mapping hash excludes unrelated entries and the map's global header. The
-plan ID and exact plan-file hash remain separately tracked by RSJS expansions.
-This distinction is necessary: a source-only change in another unit can change
-the global map without changing this unit's lookup, but a changed plan can
-still change this unit's emitted Rust/HTML.
+The mapping hash excludes unrelated entries and the map's global header.
+Semantic-plan runners now also publish and track a complete content-addressed
+projection for each unit. Expanded macros freshly validate the exact global
+plan and compare their projection with its complete consumed selections.
+Legacy transport-only runners retain the global plan ID/file-hash dependencies.
 
-## Why removing the global plan witness is incorrect
+## Why the mapping witness alone is insufficient
 
 Stable runtime coordinates and content-addressed asset generations now remove
 global PlanId and dense owner ordinals from emitted identities. Cross-unit child
@@ -21,11 +21,10 @@ influence the Rust/HTML and JavaScript that a unit emits. Its mapping-entry hash
 alone does not describe these selections.
 
 A final crate may remain fresh only when its complete consumed selections remain
-compatible with the new plan. Publishing and tracking exact unit projections
-is the next step; until then, retaining the global witnesses avoids stale output.
-The branch does **not** claim complete owner-local invalidation.
+compatible with the new plan. The unit projection below supplies that dependency;
+the mapping witness alone cannot authorize reuse.
 
-## Next architecture experiment
+## Architecture and verification
 
 1. Give each owner and member site a stable semantic identity based on its
    definition/site coordinate rather than global traversal order. Treat
@@ -38,15 +37,18 @@ The branch does **not** claim complete owner-local invalidation.
 3. Publish content-addressed unit projections containing exactly the final
    selections that unit's macros consume. Track each projection's hash in
    Cargo dep-info. Keep root publication/attestation tied to the complete plan.
+   This is now implemented for semantic-plan runners.
 4. For a unit shared by multiple owners, include the union of its required
-   selections; do not assume a component belongs to only one owner.
+   selections; do not assume a component belongs to only one owner. Projections
+   include every local definition and all of its occurrences.
 5. Prove that an edit to owner A leaves unrelated owner B's final crate fresh,
    while a shared helper/child/protocol change invalidates every dependent
    owner. Check emitted HTML asset IDs and run the generated JavaScript, not
-   just Cargo's `fresh` flag.
+   just Cargo's `fresh` flag. The Cargo acceptance checkpoint below covers
+   unrelated owner reuse and shared helper/child generations.
 
 The compiler matrix uses a real RSJS island in a separate unchanged consumer
-crate (`--split-islands`) to expose the remaining global invalidation. The
+crate (`--split-islands`) to expose global invalidation in the earlier checkpoint. The
 `another_units_mapping_change_keeps_a_tracked_dependency_fresh` integration
 test separately isolates the new mapping dependency with a proc-macro fixture.
 It tests Cargo's actual dep-info/environment handling, without pretending that
@@ -149,9 +151,55 @@ and 435 macro unit tests pass with both default JSON features and
 `serde_json/preserve_order`. Eleven end-to-end cases cover helper linking,
 NodeRef focus/disposal in generated JavaScript (Node 24.20.0), sync/async sites,
 live props/callbacks, explicit root cuts, and SharedState consumers/providers.
-Global Cargo
-plan witnesses remain until complete unit projections are published and checked.
+This checkpoint retained global Cargo plan witnesses until the unit projections
+below were implemented.
 No additional Pizza latency result is claimed for either identity checkpoint.
+
+## Complete unit projection checkpoint
+
+`rsjs_ir::final_plan::unit_projection_bytes_for_units` uses the shared validator
+to derive canonical schema-1 projections. A projection covers every local
+component record, every concrete occurrence, standalone admission, child calls,
+live props/callbacks, lexical SharedState providers/requirements, NodeRef aliases,
+fragment generations, and exact emitted owner modules. Helper-only units retain
+their validated helper descriptors and codegen. Fragment generations commit the
+required export unions and potential transitive helper bodies/signatures/bindings.
+Global PlanId and dense owner/candidate ordinals are excluded. Serialized site
+references carry full stable scope/site hashes and the matching compact runtime
+coordinate; producer-local fields/values/controls remain unchanged.
+
+The CLI publishes exact projection bytes under their SHA-256, retaining identical
+plain files and rejecting conflicting content or redirected paths. It injects
+`PROA_RSJS_FINAL_UNIT_PLAN_<descriptor-unit-id>` before Cargo starts, so Cargo can
+compare the previous expansion's dep-info against current projection hashes.
+The wrapper validates the mapped unit's file and hash, and exposes only its own
+projection input to rustc. Macros verify that the immutable projection exactly
+matches the selections freshly derived from the current full plan. Their retained
+artifact witness now carries the unit dependency hash. Final wrapper policy 8
+separates earlier final targets from this dependency policy.
+
+Global map/plan validation, descriptor source/generated/environment freshness,
+root artifact coordinates, launch dependency validation, and immutable root
+publication remain intact. Fresh units rely on the runner's recomputed complete
+projections; expanded units independently compare them with the exact plan bytes.
+Cargo's ordinary Rust dependency invalidation still applies, so shared crates
+remain a coarser boundary than individual owners. A fragment generation also
+conservatively covers its own complete descriptor-unit generation.
+
+`rsjs_unit_projection` runs the real cached descriptor/link/final pipeline through
+six successful builds. Changing A's template and adding an unused root in its
+crate changes the global plan while B remains fresh with identical owner asset
+IDs and JavaScript. A shared helper edit refreshes both consumers. After both
+owners consume one child, a child template edit refreshes both, and an unchanged
+build keeps all four dependency crates fresh. Every build checks HTML owner IDs,
+manifest fragment imports/exports, dynamic SSR values, and executes the actual
+generated fragments with Node 26.8.1. The current B dep-info contains its unit
+projection dependency and no global plan ID/file hash. Corrupting that current
+projection is rejected before accepting even a warm Cargo artifact.
+
+The fixture's changed islands pass Proa format verification, lint with warnings
+denied, and check. A new Pizza rebenchmark is still required before attributing
+any latency change to this architecture.
 
 ## A separate upstream Cargo compatibility finding
 
