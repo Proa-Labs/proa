@@ -1607,7 +1607,7 @@ fn descriptor_carrier_mode(
     {
         let extra = input
             .cargo_extra_filename()
-            .map_err(|reason| WrapperError::DescriptorCarrier(reason))?;
+            .map_err(WrapperError::DescriptorCarrier)?;
         return Ok(DescriptorCarrierMode::Rlib(dep_info.with_file_name(
             format!(
                 "lib{}{}.rlib",
