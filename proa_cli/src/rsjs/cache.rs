@@ -1803,6 +1803,9 @@ fn atomic_copy_descriptor_object_verified(
     unit: DescriptorCargoUnitId,
     expected: &str,
 ) -> Result<(), DescriptorCacheError> {
+    let _profile_span = super::timing::ProfileSpan::new("atomic_copy_descriptor_object_verified");
+    use super::timing::{FileProfile, Work};
+    let mut profile = FileProfile::new("publish descriptor object", source, 1);
     let parent = destination
         .parent()
         .ok_or_else(|| DescriptorCacheError::CachePathWithoutParent(destination.to_path_buf()))?;
@@ -1813,8 +1816,9 @@ fn atomic_copy_descriptor_object_verified(
         .and_then(OsStr::to_str)
         .ok_or_else(|| DescriptorCacheError::InvalidCacheFilename(destination.to_path_buf()))?;
     let temporary = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), nonce));
-    let mut input =
-        File::open(source).map_err(|source_error| DescriptorCacheError::ReadCacheSource {
+    let mut input = profile
+        .measure(Work::Read, || File::open(source))
+        .map_err(|source_error| DescriptorCacheError::ReadCacheSource {
             path: source.to_path_buf(),
             source: source_error,
         })?;
@@ -1830,25 +1834,26 @@ fn atomic_copy_descriptor_object_verified(
     hash.update(DESCRIPTOR_OBJECT_HASH_DOMAIN);
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let read = input.read(&mut buffer).map_err(|source_error| {
-            DescriptorCacheError::ReadCacheSource {
+        let read = profile
+            .measure(Work::Read, || input.read(&mut buffer))
+            .map_err(|source_error| DescriptorCacheError::ReadCacheSource {
                 path: source.to_path_buf(),
                 source: source_error,
-            }
-        })?;
+            })?;
         if read == 0 {
             break;
         }
-        hash.update(&buffer[..read]);
-        output.write_all(&buffer[..read]).map_err(|source| {
-            DescriptorCacheError::WriteCacheFile {
+        profile.bytes(read);
+        profile.measure(Work::Hash, || hash.update(&buffer[..read]));
+        profile
+            .measure(Work::Write, || output.write_all(&buffer[..read]))
+            .map_err(|source| DescriptorCacheError::WriteCacheFile {
                 path: temporary.clone(),
                 source,
-            }
-        })?;
+            })?;
     }
-    output
-        .sync_all()
+    profile
+        .measure(Work::Sync, || output.sync_all())
         .map_err(|source| DescriptorCacheError::WriteCacheFile {
             path: temporary.clone(),
             source,
@@ -1948,6 +1953,7 @@ fn atomic_write_immutable_bytes(
     destination: &Path,
     bytes: &[u8],
 ) -> Result<(), DescriptorCacheError> {
+    let _profile_span = super::timing::ProfileSpan::new("atomic_write_immutable_bytes");
     let parent = destination
         .parent()
         .ok_or_else(|| DescriptorCacheError::CachePathWithoutParent(destination.to_path_buf()))?;
@@ -1978,6 +1984,7 @@ fn atomic_write_immutable_bytes(
 }
 
 fn atomic_write_replaceable(path: &Path, bytes: &[u8]) -> Result<(), DescriptorCacheError> {
+    let _profile_span = super::timing::ProfileSpan::new("atomic_write_replaceable");
     let parent = path
         .parent()
         .ok_or_else(|| DescriptorCacheError::CachePathWithoutParent(path.to_path_buf()))?;
@@ -2087,6 +2094,7 @@ fn replace_file_atomic(temporary: &Path, destination: &Path) -> io::Result<()> {
 
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> io::Result<()> {
+    let _profile_span = super::timing::ProfileSpan::new("sync_directory");
     File::open(path)?.sync_all()
 }
 
@@ -2142,6 +2150,7 @@ fn install_immutable(temporary: &Path, destination: &Path) -> Result<(), Descrip
 }
 
 fn files_equal(left: &Path, right: &Path) -> Result<bool, DescriptorCacheError> {
+    let _profile_span = super::timing::ProfileSpan::new("files_equal");
     let left_metadata =
         fs::metadata(left).map_err(|source| DescriptorCacheError::ReadCacheSource {
             path: left.to_path_buf(),

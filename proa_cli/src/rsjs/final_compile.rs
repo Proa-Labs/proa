@@ -383,6 +383,7 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
 }
 
 fn validate_request(request: &FinalCargoRequest) -> Result<(), FinalCargoError> {
+    let _profile_span = super::timing::ProfileSpan::new("validate_request");
     if !request.wrapper.is_absolute() {
         return Err(FinalCargoError::RelativeWrapper(request.wrapper.clone()));
     }
@@ -661,6 +662,7 @@ fn validate_plan_file<P: FinalCargoPlan>(
     path: &Path,
     plan: &P,
 ) -> Result<(String, Vec<u8>), FinalCargoError> {
+    let _profile_span = super::timing::ProfileSpan::new("validate_plan_file");
     let bytes = fs::read(path).map_err(|source| FinalCargoError::ReadPlan {
         path: path.to_path_buf(),
         source,
@@ -714,6 +716,7 @@ fn publish_unit_projections(
     plan_id: PlanId,
     plan_bytes: &[u8],
 ) -> Result<BTreeMap<OsString, OsString>, FinalCargoError> {
+    let _profile_span = super::timing::ProfileSpan::new("publish_unit_projections");
     let directory = request.target_root.join("rsjs-final-unit-plans");
     ensure_plain_managed_directory(&request.source_exclusion_directory, &directory)?;
     let mut environment = BTreeMap::new();
@@ -881,6 +884,9 @@ fn snapshot_final_file(
     source: &Path,
     launch_target_directory: Option<&Path>,
 ) -> Result<PathBuf, FinalCargoError> {
+    let _profile_span = super::timing::ProfileSpan::new("snapshot_final_file");
+    use super::timing::{FileProfile, Work};
+    let mut profile = FileProfile::new("publish final executable", source, 1);
     let metadata = fs::symlink_metadata(source).map_err(|source_error| {
         FinalCargoError::SnapshotArtifactIo {
             path: source.to_path_buf(),
@@ -900,8 +906,9 @@ fn snapshot_final_file(
 
     let nonce = FINAL_SNAPSHOT_NONCE.fetch_add(1, Ordering::Relaxed);
     let temporary = snapshot_root.join(format!(".snapshot.{}.{}.tmp", std::process::id(), nonce));
-    let mut input =
-        File::open(source).map_err(|source_error| FinalCargoError::SnapshotArtifactIo {
+    let mut input = profile
+        .measure(Work::Read, || File::open(source))
+        .map_err(|source_error| FinalCargoError::SnapshotArtifactIo {
             path: source.to_path_buf(),
             source: source_error,
         })?;
@@ -917,14 +924,15 @@ fn snapshot_final_file(
     let mut buffer = [0_u8; 64 * 1024];
     let copy_result = (|| -> io::Result<()> {
         loop {
-            let read = input.read(&mut buffer)?;
+            let read = profile.measure(Work::Read, || input.read(&mut buffer))?;
             if read == 0 {
                 break;
             }
-            hash.update(&buffer[..read]);
-            output.write_all(&buffer[..read])?;
+            profile.bytes(read);
+            profile.measure(Work::Hash, || hash.update(&buffer[..read]));
+            profile.measure(Work::Write, || output.write_all(&buffer[..read]))?;
         }
-        output.sync_all()?;
+        profile.measure(Work::Sync, || output.sync_all())?;
         drop(output);
         fs::set_permissions(&temporary, permissions)?;
         Ok(())
@@ -990,6 +998,7 @@ pub(crate) fn snapshot_wrapper_executable(
     snapshot_root: &Path,
     source: &Path,
 ) -> Result<PathBuf, FinalCargoError> {
+    let _profile_span = super::timing::ProfileSpan::new("snapshot_wrapper_executable");
     ensure_plain_managed_directory(source_exclusion, snapshot_root)?;
     // A warm wrapper snapshot is already immutable. Verify fresh source and
     // destination bytes/mode before reusing it, rather than writing and
@@ -1040,6 +1049,7 @@ fn validate_executable_snapshot_contract(
     executable: &Path,
     target_directory: &Path,
 ) -> Result<(), FinalCargoError> {
+    let _profile_span = super::timing::ProfileSpan::new("validate_executable_snapshot_contract");
     let bytes = fs::read(executable).map_err(|source| FinalCargoError::SnapshotArtifactIo {
         path: executable.to_path_buf(),
         source,
@@ -1494,6 +1504,9 @@ fn platform_system_dependency(format: BinaryFormat, dependency: &str) -> bool {
 }
 
 fn snapshot_file_identity(path: &Path) -> Result<([u8; 32], String), FinalCargoError> {
+    let _profile_span = super::timing::ProfileSpan::new("snapshot_file_identity");
+    use super::timing::{FileProfile, Work};
+    let mut profile = FileProfile::new("validate executable identity", path, 1);
     let metadata =
         fs::symlink_metadata(path).map_err(|source| FinalCargoError::SnapshotArtifactIo {
             path: path.to_path_buf(),
@@ -1502,23 +1515,26 @@ fn snapshot_file_identity(path: &Path) -> Result<([u8; 32], String), FinalCargoE
     if !metadata.file_type().is_file() {
         return Err(FinalCargoError::SnapshotArtifactNotFile(path.to_path_buf()));
     }
-    let mut file = File::open(path).map_err(|source| FinalCargoError::SnapshotArtifactIo {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let mut file = profile
+        .measure(Work::Read, || File::open(path))
+        .map_err(|source| FinalCargoError::SnapshotArtifactIo {
+            path: path.to_path_buf(),
+            source,
+        })?;
     let mut hash = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let read =
-            file.read(&mut buffer)
-                .map_err(|source| FinalCargoError::SnapshotArtifactIo {
-                    path: path.to_path_buf(),
-                    source,
-                })?;
+        let read = profile
+            .measure(Work::Read, || file.read(&mut buffer))
+            .map_err(|source| FinalCargoError::SnapshotArtifactIo {
+                path: path.to_path_buf(),
+                source,
+            })?;
         if read == 0 {
             break;
         }
-        hash.update(&buffer[..read]);
+        profile.bytes(read);
+        profile.measure(Work::Hash, || hash.update(&buffer[..read]));
     }
     Ok((
         hash.finalize().into(),

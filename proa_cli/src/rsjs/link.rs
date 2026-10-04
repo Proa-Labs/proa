@@ -69,6 +69,7 @@ fn parsed_descriptor_records(
     path: &Path,
     snapshot: &DescriptorObjectSnapshot,
 ) -> Result<Arc<ArtifactRecords>, ExtractionError> {
+    let _profile_span = super::timing::ProfileSpan::new("parsed_descriptor_records");
     let key = (path.to_path_buf(), snapshot.descriptor_hash);
     let cache = EXTRACTION_CACHE.get_or_init(Default::default);
     if let Some(records) = cache
@@ -739,6 +740,7 @@ fn resolve_extracted_transport(
     link_unit: LinkUnitId,
     extracted: ExtractedTransport,
 ) -> Result<TransportLinkPlan, TransportLinkError> {
+    let _profile_span = super::timing::ProfileSpan::new("resolve_extracted_transport");
     let (shared_state_definitions, shared_state_acquisitions) =
         resolve_shared_state_transport(&extracted)?;
     let shared_state_acquisitions_by_source =

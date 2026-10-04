@@ -131,10 +131,12 @@ where
     let mode = env::var(WRAPPER_MODE_ENV)
         .map_err(|_| WrapperError::MissingEnvironment(WRAPPER_MODE_ENV))?;
     if mode == super::descriptor_objects::LINKER_MODE {
+        let _span = super::timing::ProfileSpan::new("native linker adapter");
         return super::descriptor_objects::run_linker(args.get(1..).unwrap_or_default())
             .map_err(|error| WrapperError::DescriptorCarrier(error.to_string()));
     }
     reject_composed_workspace_wrapper(&args)?;
+    let _span = super::timing::ProfileSpan::new(format!("rustc wrapper {mode}"));
     match mode.as_str() {
         WRAPPER_MODE_DESCRIPTOR_V1 => {
             let staging_dir = env::var_os(DESCRIPTOR_STAGING_DIR_ENV)
@@ -291,6 +293,7 @@ where
             .env(super::descriptor_objects::LINKER_PROGRAM_ENV, linker)
             .env(super::descriptor_objects::LINKER_CARRIER_ENV, &object_path);
     }
+    let compiler_span = super::timing::ProfileSpan::new("rustc subprocess");
     let status = command
         .status()
         .map_err(|source| WrapperError::SpawnRustc {
@@ -298,6 +301,7 @@ where
             source,
         })?;
 
+    drop(compiler_span);
     if !status.success() {
         return Ok(status);
     }
@@ -522,12 +526,14 @@ where
             FINAL_CARGO_UNIT_STATUS_UNMAPPED,
         );
     }
+    let compiler_span = super::timing::ProfileSpan::new("rustc subprocess");
     let status = command
         .status()
         .map_err(|source| WrapperError::SpawnRustc {
             program: PathBuf::from(rustc),
             source,
         })?;
+    drop(compiler_span);
     if status.success() {
         if let (Some(mapped), Some(dep_info_path)) = (mapped, dep_info_path.as_deref()) {
             let working_directory = canonical_plain_directory(
@@ -1175,6 +1181,8 @@ fn normalize_rustc_invocation_with_package_root(
     package_root: Option<&Path>,
     excluded_source_subtree: Option<&Path>,
 ) -> Result<NormalizedRustcInvocation, WrapperError> {
+    let _profile_span =
+        super::timing::ProfileSpan::new("normalize_rustc_invocation_with_package_root");
     let args = args
         .iter()
         .map(|arg| {
@@ -1776,6 +1784,7 @@ fn hash_package_source_closure(
     package_root: &Path,
     excluded_subtree: Option<&Path>,
 ) -> io::Result<[u8; 32]> {
+    let _profile_span = super::timing::ProfileSpan::new("hash_package_source_closure");
     let package_root = fs::canonicalize(package_root)?;
     let metadata = fs::symlink_metadata(&package_root)?;
     if !metadata.file_type().is_dir() {
@@ -1990,6 +1999,7 @@ fn observe_rustc_inputs(
     out_dir_coordinate: Option<&str>,
     phase_environment: &BTreeMap<String, Option<String>>,
 ) -> Result<ObservedRustcInputs, WrapperError> {
+    let _profile_span = super::timing::ProfileSpan::new("observe_rustc_inputs");
     let metadata =
         fs::symlink_metadata(dep_info_path).map_err(|source| WrapperError::ReadDepInfo {
             path: dep_info_path.to_path_buf(),
@@ -2882,6 +2892,7 @@ pub(crate) fn validate_descriptor_observed_inputs(
     descriptor_target: &Path,
     sidecar: &DescriptorUnitSidecar,
 ) -> Result<(), WrapperError> {
+    let _profile_span = super::timing::ProfileSpan::new("validate_descriptor_observed_inputs");
     let unit = DescriptorCargoUnitId::from_hex(&sidecar.cargo_unit_id)?;
     validate_sidecar_out_dir_dependencies(unit, sidecar)
         .map_err(|error| WrapperError::InvalidCachedOutDirDependencies(error.to_string()))?;
@@ -3155,18 +3166,25 @@ fn portable_package_relative_path(path: &Path) -> io::Result<String> {
 }
 
 fn hash_file(path: &Path, domain: &[u8]) -> io::Result<[u8; 32]> {
-    let mut file = File::open(path)?;
+    use super::timing::{FileProfile, Work};
+    let mut profile = FileProfile::new(
+        &format!("file hash {}", String::from_utf8_lossy(domain)),
+        path,
+        1,
+    );
+    let mut file = profile.measure(Work::Read, || File::open(path))?;
     let mut hasher = Sha256::new();
     hasher.update(domain);
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let read = file.read(&mut buffer)?;
+        let read = profile.measure(Work::Read, || file.read(&mut buffer))?;
         if read == 0 {
             break;
         }
-        hasher.update(&buffer[..read]);
+        profile.bytes(read);
+        profile.measure(Work::Hash, || hasher.update(&buffer[..read]));
     }
-    Ok(hasher.finalize().into())
+    Ok(profile.measure(Work::Hash, || hasher.finalize().into()))
 }
 
 fn hash_file_two_domains(
@@ -3174,21 +3192,28 @@ fn hash_file_two_domains(
     first_domain: &[u8],
     second_domain: &[u8],
 ) -> io::Result<([u8; 32], [u8; 32])> {
-    let mut file = File::open(path)?;
+    use super::timing::{FileProfile, Work};
+    let mut profile = FileProfile::new("file hash paired input/link", path, 2);
+    let mut file = profile.measure(Work::Read, || File::open(path))?;
     let mut first = Sha256::new();
     first.update(first_domain);
     let mut second = Sha256::new();
     second.update(second_domain);
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let read = file.read(&mut buffer)?;
+        let read = profile.measure(Work::Read, || file.read(&mut buffer))?;
         if read == 0 {
             break;
         }
-        first.update(&buffer[..read]);
-        second.update(&buffer[..read]);
+        profile.bytes(read);
+        profile.measure(Work::Hash, || {
+            first.update(&buffer[..read]);
+            second.update(&buffer[..read]);
+        });
     }
-    Ok((first.finalize().into(), second.finalize().into()))
+    Ok(profile.measure(Work::Hash, || {
+        (first.finalize().into(), second.finalize().into())
+    }))
 }
 
 #[cfg(test)]
@@ -5285,17 +5310,23 @@ pub(crate) struct DescriptorObjectSnapshot {
 
 impl DescriptorObjectSnapshot {
     pub(crate) fn read(path: &Path) -> io::Result<Self> {
-        let bytes = fs::read(path)?;
-        let mut descriptor = Sha256::new();
-        descriptor.update(DESCRIPTOR_OBJECT_HASH_DOMAIN);
-        descriptor.update(&bytes);
-        let mut link = Sha256::new();
-        link.update(LINK_ARTIFACT_HASH_DOMAIN);
-        link.update(&bytes);
+        use super::timing::{FileProfile, Work};
+        let mut profile = FileProfile::new("retained descriptor paired hash", path, 2);
+        let bytes = profile.measure(Work::Read, || fs::read(path))?;
+        profile.bytes(bytes.len());
+        let hashes = profile.measure(Work::Hash, || {
+            let mut descriptor = Sha256::new();
+            descriptor.update(DESCRIPTOR_OBJECT_HASH_DOMAIN);
+            descriptor.update(&bytes);
+            let mut link = Sha256::new();
+            link.update(LINK_ARTIFACT_HASH_DOMAIN);
+            link.update(&bytes);
+            (descriptor.finalize().into(), link.finalize().into())
+        });
         Ok(Self {
             bytes: std::sync::Arc::new(bytes),
-            descriptor_hash: descriptor.finalize().into(),
-            link_hash: link.finalize().into(),
+            descriptor_hash: hashes.0,
+            link_hash: hashes.1,
         })
     }
 }

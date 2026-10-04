@@ -54,6 +54,7 @@ pub(super) fn run_linker(args: &[OsString]) -> Result<ExitStatus, CarrierError> 
     let mut command = Command::new(&program);
     command.args(args);
     super::build::scrub_wrapper_control_environment(&mut command);
+    let _span = super::timing::ProfileSpan::new("native linker subprocess");
     command
         .status()
         .map_err(|source| CarrierError::Spawn { program, source })
@@ -105,6 +106,7 @@ fn explicit_linker_objects(args: &[OsString]) -> Result<Vec<PathBuf>, CarrierErr
 }
 
 fn write_archive(carrier: &Path, objects: &[PathBuf]) -> Result<(), CarrierError> {
+    let _span = super::timing::ProfileSpan::new("capture native objects into archive");
     let mut output = OpenOptions::new()
         .create_new(true)
         .write(true)
