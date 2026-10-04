@@ -105,6 +105,19 @@ fn explicit_linker_objects(args: &[OsString]) -> Result<Vec<PathBuf>, CarrierErr
 }
 
 fn write_archive(carrier: &Path, objects: &[PathBuf]) -> Result<(), CarrierError> {
+    // A resumed staging directory keeps the carrier from an earlier link of
+    // this unit. Remove it (a symlink is unlinked, never followed) so
+    // `create_new` still refuses anything that appears concurrently.
+    match fs::remove_file(carrier) {
+        Ok(()) => {}
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(CarrierError::Io {
+                path: carrier.to_path_buf(),
+                source,
+            })
+        }
+    }
     let mut output = OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -184,6 +197,25 @@ mod tests {
             .map(|member| member.unwrap().data(bytes.as_slice()).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(members, vec![b"odd".as_slice(), b"even".as_slice()]);
+    }
+
+    #[test]
+    fn relinking_a_resumed_unit_replaces_its_previous_carrier() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = temp.path().join("first.o");
+        let second = temp.path().join("second.o");
+        fs::write(&first, b"old").unwrap();
+        fs::write(&second, b"new!").unwrap();
+        let carrier = temp.path().join("bundle.o");
+        write_archive(&carrier, &[first]).unwrap();
+        write_archive(&carrier, std::slice::from_ref(&second)).unwrap();
+        let bytes = fs::read(&carrier).unwrap();
+        let archive = ArchiveFile::parse(bytes.as_slice()).unwrap();
+        let members = archive
+            .members()
+            .map(|member| member.unwrap().data(bytes.as_slice()).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(members, vec![b"new!".as_slice()]);
     }
 
     #[test]
