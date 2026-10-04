@@ -8,10 +8,10 @@ stable 1.99 and a pinned nightly. See [implementation details](IMPLEMENTATION.md
 
 ## Measured outcomes
 
-The hashing/watcher Pizza checkpoint meets the **2–3 second warm rebuild target** on the
+The hashing/watcher Pizza checkpoint met the **2–3 second warm rebuild target** on the
 measured machine, using ordinary compiled templates and the normal dev profile.
 The latest complete-unit-projection rebenchmark is at the target boundary:
-2.993s template / 3.033s function edits. See [the follow-up and its limits](PIZZA_TARGET.md).
+3.035s template / 2.993s function edits. See [the follow-up and its limits](PIZZA_TARGET.md).
 
 | Warm save to changed HTTP response | Main baseline | Recorded branch | Checkpoint |
 | --- | ---: | ---: | --- |
@@ -22,6 +22,8 @@ The latest complete-unit-projection rebenchmark is at the target boundary:
 | Pizza Rust function-body edit, dev, actual CLI default | — | 3.037s | Complete unit projections |
 | Pizza template edit, dev, actual CLI default | — | 2.993s | Unit derivation cache |
 | Pizza Rust function-body edit, dev, actual CLI default | — | 3.033s | Unit derivation cache |
+| Pizza template edit, dev, actual CLI default | — | 3.035s | Warm wrapper reuse (latest) |
+| Pizza Rust function-body edit, dev, actual CLI default | — | 2.993s | Warm wrapper reuse (latest) |
 | Standalone 24-route consumer, dev, 300ms debounce | 6.91s | 4.00s | Initial investigation |
 | Explicit hot-static text edit, nodebug, 100ms debounce | — | 0.13s | Initial investigation |
 
@@ -31,7 +33,7 @@ inheritance resolved and Proa dependencies linked to this branch. Assets are
 skipped in all trials; browser navigation, hydration, and paint are not measured.
 The standalone and hot-static rows were not remeasured for this follow-up.
 
-![Pizza target, with debounce settings explicit](diagrams/pizza-target-waterfall.png)
+![Main and current defaults, with debounce settings explicit](diagrams/pizza-current-waterfall.png)
 
 The initial branch measured 4.85s; a fresh software-hashing control measured
 4.67s. Accelerated hashing alone measured 3.10s at the original 300ms debounce.
@@ -40,7 +42,7 @@ exit brought the next checkpoint to 3.02s. The hashing/watcher same-settings run
 2.99s; the default quiet window is now 200ms and measured 2.89s. All six default
 template/function samples were below three seconds.
 
-![Detailed Pizza cache/link/setup breakdown](diagrams/pizza-target-detailed-waterfall.png)
+![Current Pizza cache/link/setup breakdown](diagrams/pizza-current-detailed-waterfall.png)
 
 Object hashing, observed source/extern validation, and transport-manifest
 construction dominated the earlier setup stage. Semantic planning itself took
@@ -89,8 +91,9 @@ debounce. Its rendering overhead and supported syntax are documented in
 ## Next decisions
 
 1. Review/land cache publication, validated-data reuse, and the measured
-   hashing/watcher follow-up first. These meet the warm Pizza target without
-   depending on a new compiler backend.
+   hashing/watcher follow-up first. The earlier checkpoint met the warm Pizza
+   target; the complete architecture is now at approximately 3s and still
+   needs margin below the upper bound.
 2. Harden/measure complete descriptor carriers on more targets and larger apps.
    Do not infer a broad end-to-end gain from the smaller descriptor Cargo stage.
    Model multiple exact artifacts per extern and use Cargo's public build-script
