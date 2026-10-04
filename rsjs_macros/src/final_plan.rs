@@ -7,7 +7,9 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use sha2::{Digest, Sha256};
+use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub(crate) use rsjs_ir::final_plan::*;
 
@@ -129,16 +131,18 @@ fn load_current_plan(
             plan_path.display()
         )
     })?;
-    validate_file_hash(&bytes)?;
+    let file_hash = validate_file_hash(&bytes)?;
     validate_plan_header(&bytes, &plan_id_text)?;
     let dependency_id =
-        validate_current_unit_projection(cargo_unit_id, plan_id, &bytes)?.unwrap_or(plan_id);
+        validate_current_unit_projection(cargo_unit_id, plan_id, file_hash, &bytes)?
+            .unwrap_or(plan_id);
     Ok(Some((plan_id, dependency_id, bytes)))
 }
 
 fn validate_current_unit_projection(
     cargo_unit_id: [u8; 32],
     plan_id: [u8; 32],
+    file_hash: [u8; 32],
     plan_bytes: &[u8],
 ) -> Result<Option<[u8; 32]>, String> {
     let Some(directory) = std::env::var_os(UNIT_PLAN_DIRECTORY_ENV) else {
@@ -170,13 +174,14 @@ fn validate_current_unit_projection(
             path.display()
         )
     })?;
-    validate_unit_projection_bytes(cargo_unit_id, plan_id, plan_bytes, hash, &bytes)?;
+    validate_unit_projection_bytes(cargo_unit_id, plan_id, file_hash, plan_bytes, hash, &bytes)?;
     Ok(Some(hash))
 }
 
 fn validate_unit_projection_bytes(
     cargo_unit_id: [u8; 32],
     plan_id: [u8; 32],
+    file_hash: [u8; 32],
     plan_bytes: &[u8],
     expected_hash: [u8; 32],
     bytes: &[u8],
@@ -185,10 +190,56 @@ fn validate_unit_projection_bytes(
     if actual != expected_hash {
         return Err("final RSJS unit projection bytes do not match the tracked hash".to_owned());
     }
-    if unit_projection_bytes(cargo_unit_id, plan_id, plan_bytes)? != bytes {
+    let expected = expected_unit_projection(cargo_unit_id, plan_id, file_hash, plan_bytes)?;
+    if expected.as_ref() != bytes {
         return Err("final RSJS unit projection does not match the complete consumed selections in the current plan".to_owned());
     }
     Ok(())
+}
+
+type ProjectionKey = ([u8; 32], [u8; 32], [u8; 32]);
+type ProjectionCache = VecDeque<(ProjectionKey, Arc<[u8]>)>;
+const PROJECTION_CACHE_ENTRIES: usize = 16;
+const PROJECTION_CACHE_BYTES: usize = 8 * 1024 * 1024;
+
+fn expected_unit_projection(
+    cargo_unit_id: [u8; 32],
+    plan_id: [u8; 32],
+    file_hash: [u8; 32],
+    plan_bytes: &[u8],
+) -> Result<Arc<[u8]>, String> {
+    // The caller freshly reads and validates the full plan and projection on
+    // every expansion. Cache only this pure derivation, keyed by that verified
+    // full-file digest as well as the plan and unit identities. Helper macros
+    // in the same rustc process then need not derive every component again.
+    static CACHE: OnceLock<Mutex<ProjectionCache>> = OnceLock::new();
+    let key = (cargo_unit_id, plan_id, file_hash);
+    let cache = CACHE.get_or_init(|| Mutex::new(VecDeque::new()));
+    {
+        let entries = cache
+            .lock()
+            .map_err(|_| "final RSJS projection cache lock was poisoned".to_owned())?;
+        if let Some((_, bytes)) = entries.iter().find(|(entry, _)| entry == &key) {
+            return Ok(Arc::clone(bytes));
+        }
+    }
+    let bytes: Arc<[u8]> = unit_projection_bytes(cargo_unit_id, plan_id, plan_bytes)?.into();
+    if bytes.len() <= PROJECTION_CACHE_BYTES {
+        let mut entries = cache
+            .lock()
+            .map_err(|_| "final RSJS projection cache lock was poisoned".to_owned())?;
+        if let Some((_, existing)) = entries.iter().find(|(entry, _)| entry == &key) {
+            return Ok(Arc::clone(existing));
+        }
+        while entries.len() >= PROJECTION_CACHE_ENTRIES
+            || entries.iter().map(|(_, value)| value.len()).sum::<usize>() + bytes.len()
+                > PROJECTION_CACHE_BYTES
+        {
+            entries.pop_front();
+        }
+        entries.push_back((key, Arc::clone(&bytes)));
+    }
+    Ok(bytes)
 }
 
 /// Emit a retained build-ID witness into the final server artifact.
@@ -277,7 +328,7 @@ fn unit_projection_tracking_name(unit: Option<&str>) -> Option<String> {
         .map(|unit| format!("{UNIT_PLAN_ENV_PREFIX}{unit}"))
 }
 
-fn validate_file_hash(bytes: &[u8]) -> Result<(), String> {
+fn validate_file_hash(bytes: &[u8]) -> Result<[u8; 32], String> {
     let encoded = required_env(FINAL_PLAN_FILE_HASH_ENV)?;
     let Some(hex) = encoded.strip_prefix("sha256:") else {
         return Err(format!(
@@ -293,7 +344,7 @@ fn validate_file_hash(bytes: &[u8]) -> Result<(), String> {
             hex_id(&actual)
         ));
     }
-    Ok(())
+    Ok(actual)
 }
 
 fn required_env(name: &'static str) -> Result<String, String> {
@@ -351,19 +402,61 @@ mod tests {
         .unwrap();
         let bytes = unit_projection_bytes(unit, plan_id, &plan_bytes).unwrap();
         let hash: [u8; 32] = Sha256::digest(&bytes).into();
-        validate_unit_projection_bytes(unit, plan_id, &plan_bytes, hash, &bytes).unwrap();
+        let file_hash: [u8; 32] = Sha256::digest(&plan_bytes).into();
+        validate_unit_projection_bytes(unit, plan_id, file_hash, &plan_bytes, hash, &bytes)
+            .unwrap();
         let mut tampered = bytes.clone();
         tampered.push(b' ');
-        assert!(
-            validate_unit_projection_bytes(unit, plan_id, &plan_bytes, hash, &tampered)
-                .unwrap_err()
-                .contains("tracked hash")
-        );
-        assert!(
-            validate_unit_projection_bytes([3; 32], plan_id, &plan_bytes, hash, &bytes)
-                .unwrap_err()
-                .contains("consumed selections")
-        );
+        assert!(validate_unit_projection_bytes(
+            unit,
+            plan_id,
+            file_hash,
+            &plan_bytes,
+            hash,
+            &tampered
+        )
+        .unwrap_err()
+        .contains("tracked hash"));
+        assert!(validate_unit_projection_bytes(
+            [3; 32],
+            plan_id,
+            file_hash,
+            &plan_bytes,
+            hash,
+            &bytes
+        )
+        .unwrap_err()
+        .contains("consumed selections"));
+        // Matching the file's own digest never admits changed projection
+        // bytes, including after the expected projection has been cached.
+        let tampered_hash = Sha256::digest(&tampered).into();
+        assert!(validate_unit_projection_bytes(
+            unit,
+            plan_id,
+            file_hash,
+            &plan_bytes,
+            tampered_hash,
+            &tampered,
+        )
+        .unwrap_err()
+        .contains("consumed selections"));
+
+        // A different full plan must be derived and validated even when its
+        // advertised plan ID is unchanged. Failed derivations are not cached.
+        let mut changed: serde_json::Value = serde_json::from_slice(&plan_bytes).unwrap();
+        changed["components"] = serde_json::json!([{"invalid": true}]);
+        let changed = serde_json::to_vec(&changed).unwrap();
+        assert!(validate_unit_projection_bytes(
+            unit,
+            plan_id,
+            Sha256::digest(&changed).into(),
+            &changed,
+            hash,
+            &bytes,
+        )
+        .is_err());
+        validate_unit_projection_bytes(unit, plan_id, file_hash, &plan_bytes, hash, &bytes)
+            .unwrap();
     }
 }
 

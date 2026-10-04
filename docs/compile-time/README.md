@@ -10,13 +10,16 @@ stable 1.99 and a pinned nightly. See [implementation details](IMPLEMENTATION.md
 
 The hashing/watcher Pizza checkpoint meets the **2–3 second warm rebuild target** on the
 measured machine, using ordinary compiled templates and the normal dev profile.
-See [the follow-up and its limits](PIZZA_TARGET.md).
+The first complete-unit-projection rebenchmark is slightly above that range
+at 3.035s template / 3.037s function edits. See [the follow-up and its limits](PIZZA_TARGET.md).
 
 | Warm save to changed HTTP response | Main baseline | Recorded branch | Checkpoint |
 | --- | ---: | ---: | --- |
 | Pizza template edit, dev, 300ms debounce | 6.97s | 2.99s | Hashing/watcher |
 | Pizza template edit, dev, actual 200ms CLI default | — | 2.89s | Hashing/watcher |
 | Pizza Rust function-body edit, dev, actual CLI default | — | 2.91s | Hashing/watcher |
+| Pizza template edit, dev, actual CLI default | — | 3.035s | Complete unit projections |
+| Pizza Rust function-body edit, dev, actual CLI default | — | 3.037s | Complete unit projections |
 | Standalone 24-route consumer, dev, 300ms debounce | 6.91s | 4.00s | Initial investigation |
 | Explicit hot-static text edit, nodebug, 100ms debounce | — | 0.13s | Initial investigation |
 
@@ -31,7 +34,7 @@ The standalone and hot-static rows were not remeasured for this follow-up.
 The initial branch measured 4.85s; a fresh software-hashing control measured
 4.67s. Accelerated hashing alone measured 3.10s at the original 300ms debounce.
 Parallel observed-input validation and faster observation of graceful server
-exit brought the next checkpoint to 3.02s. The latest same-settings run is
+exit brought the next checkpoint to 3.02s. The hashing/watcher same-settings run is
 2.99s; the default quiet window is now 200ms and measured 2.89s. All six default
 template/function samples were below three seconds.
 

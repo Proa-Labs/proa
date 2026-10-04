@@ -174,7 +174,11 @@ plain files and rejecting conflicting content or redirected paths. It injects
 compare the previous expansion's dep-info against current projection hashes.
 The wrapper validates the mapped unit's file and hash, and exposes only its own
 projection input to rustc. Macros verify that the immutable projection exactly
-matches the selections freshly derived from the current full plan. Their retained
+matches the complete selections from the current full plan. A bounded
+process-local cache reuses only their pure derivation, keyed by the freshly
+verified full plan SHA-256, plan ID, and descriptor unit ID. Every expansion
+still reads and hashes the current full plan and projection bytes; a cache hit
+cannot authorize changed files or substitute a unit. Their retained
 artifact witness now carries the unit dependency hash. Final wrapper policy 8
 separates earlier final targets from this dependency policy.
 
@@ -198,8 +202,10 @@ projection dependency and no global plan ID/file hash. Corrupting that current
 projection is rejected before accepting even a warm Cargo artifact.
 
 The fixture's changed islands pass Proa format verification, lint with warnings
-denied, and check. A new Pizza rebenchmark is still required before attributing
-any latency change to this architecture.
+denied, and check. The first complete-architecture Pizza rebenchmark measured
+3.035s template and 3.037s function edits, slightly above the target; see
+[PIZZA_TARGET.md](PIZZA_TARGET.md). These timings precede the process-local
+derivation cache and must not be attributed to that follow-up.
 
 ## A separate upstream Cargo compatibility finding
 
