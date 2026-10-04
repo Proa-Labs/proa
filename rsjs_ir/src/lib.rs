@@ -195,3 +195,6 @@ pub use types::{
     SharedStoreId, SignalId,
 };
 pub use value::Value;
+
+#[doc(hidden)]
+pub mod final_plan;
