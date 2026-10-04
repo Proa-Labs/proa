@@ -37,7 +37,7 @@ their authored signatures. There are deliberate internal/source changes:
   Rebuild HTML, generated JavaScript and manifests together. Do not mix CLI,
   macro, runtime or generated artifacts from different revisions.
 - Descriptor sidecars advance from schema 10 to 11, descriptor target policy
-  from 4 to 5, and final wrapper policy from 6 to 8. Fresh target namespaces
+  from 4 to 7, and final wrapper policy from 6 to 8. Fresh target namespaces
   intentionally prevent reuse of old-policy compiler artifacts; the first
   build after upgrading can be cold. No user source or database migration is
   required for ordinary templates.
@@ -77,7 +77,8 @@ not a byte budget.
 **Complete descriptor collection.** Rlibs contain all codegen members. The
 native adapter captures explicit object arguments before rustc removes them
 and forwards the real link unchanged. Partial-edit/removal tests exercise four
-CGUs and unused retained witnesses for libraries and binaries. Response/file-list
+CGUs and the default 64-unit setting, including unused retained witnesses for
+libraries and binaries. Response/file-list
 protocols fail closed. Unsupported target/linker/output forms use the
 single-object fallback while retaining incremental queries. Native adapter
 execution was validated on macOS and in the initial Linux PR pipeline shard.
@@ -206,7 +207,32 @@ found in these fixes; this remains an author review.
 
 Performance follow-ups are separate local diagnostic-fork trials summarized in
 [the measurements](README.md); no raw traces or profiler implementation ship.
-The final combined production head has not been separately benchmarked after
-the hot-static fixes. Generated profiles stay unchanged: ordinary incremental
+The subsequent production benchmark includes the hot-static fixes and policy 7.
+Generated profiles stay unchanged: ordinary incremental
 compilation is already enabled, and the modest build-override gain roughly
 doubled first startup. CI must pass on the new head before merging.
+
+## Descriptor partitioning follow-up
+
+Only incremental descriptor invocations without an explicit codegen-unit count
+now use 64 instead of rustc's default 256. Explicit counts, nonincremental
+defaults, single-object fallback, final profile identity and final compiler
+arguments retain their behavior. Policy 7 and the normalized descriptor policy
+separate old compiler artifacts; sidecars report the actual descriptor count.
+Complete library/native witnesses survive three generations of partial edits
+and removals with both explicit and default partition counts.
+
+The frozen change passes 685 CLI library tests and 24 wrapper/cache/projection
+tests, strict CLI-library Clippy, formatting, allocation lint and diff checks.
+One initial run exported `CARGO_TARGET_DIR` into fixtures, making a deliberate
+snapshot-corruption test share its snapshot with another fixture. The final
+run selects Cargo output with `--target-dir`, retaining isolated fixture targets.
+No production cache check was weakened.
+
+The six-edit production trials have 2.552s template and 2.583s Rust-function
+medians. Separate controlled
+compiler-proxy trials establish roughly 140–190ms savings from the selected
+partition policy. A 32-unit broad cap gains little over repeated 64-unit edits;
+retain more incremental granularity. Large-app compile behavior remains
+unmeasured, and explicit Cargo counts remain available for tuning. The PR stays
+a draft pending independent review and passing CI on the final head.
