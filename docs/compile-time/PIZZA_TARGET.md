@@ -88,13 +88,14 @@ Omitting `--debounce-ms` measures the CLI's actual default. Each comparison is
 serialized, uses three warmed edits, and checks the changed marker over HTTP.
 The initial watcher startup/cold compilation is excluded.
 
-## Remaining architecture work
+## Architecture follow-up
 
-The pipeline still performs descriptor and final compilations. Global plan
-changes can still rebuild otherwise unchanged RSJS crates. Stable owner/site
-identities and transitive per-unit plan projections remain the next architecture
-investigation described in [INVALIDATION.md](INVALIDATION.md). This hashing and
-watcher work does not claim to complete that redesign.
+The timings above describe the hashing/watcher checkpoint. Subsequent work
+implements stable runtime coordinates, fragment/owner generations, and complete
+unit projections, with actual unrelated-crate reuse and shared helper/child
+invalidation verified in [INVALIDATION.md](INVALIDATION.md). The pipeline still
+performs descriptor and final compilations. A new Pizza rebenchmark is required
+to measure this architecture; the earlier timing results do not cover it.
 
 ## Validation
 

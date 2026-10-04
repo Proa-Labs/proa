@@ -36,7 +36,7 @@ pub const WRAPPER_MODE_FINAL_V2: &str = "final-v2";
 ///
 /// This must change whenever wrapper behavior can affect rustc output without
 /// changing the exact plan or unit-map bytes.
-pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 7;
+pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 8;
 /// Filesystem/output policy for persistent descriptor Cargo targets.
 ///
 /// This is deliberately independent of sidecar schema: bump it whenever a
@@ -80,6 +80,8 @@ pub const DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION: u16 = 11;
 /// Schema version of [`FinalUnitMap`].
 pub const FINAL_UNIT_MAP_SCHEMA_VERSION: u16 = 7;
 pub(crate) const FINAL_UNIT_INPUT_ENV_PREFIX: &str = "PROA_RSJS_FINAL_UNIT_INPUT_";
+pub(crate) const FINAL_UNIT_PLAN_ENV_PREFIX: &str = "PROA_RSJS_FINAL_UNIT_PLAN_";
+pub(crate) const FINAL_UNIT_PLAN_DIRECTORY_ENV: &str = "PROA_RSJS_FINAL_UNIT_PLAN_DIRECTORY";
 const FINAL_UNIT_MAP_FORMAT: &str = "proa.rsjs.final_unit_map";
 /// Marks rustc as running the linked final phase.
 pub const FINAL_PHASE_ENV: &str = "RSJS_FINAL_PHASE";
@@ -492,7 +494,15 @@ where
         }
         final_phase_environment.insert(name.clone(), Some(expected.clone()));
     }
+    let projection_environment = match mapped {
+        Some(mapped) => final_unit_projection_environment(mapped)?,
+        None => BTreeMap::new(),
+    };
+    for (name, value) in &projection_environment {
+        final_phase_environment.insert(name.clone(), Some(value.clone()));
+    }
     let mut command = wrapped_rustc_command(&rustc);
+    command.envs(&projection_environment);
     if let Some(mapped) = mapped {
         command.env(&mapped.tracked_input.0, &mapped.tracked_input.1);
     }
@@ -585,6 +595,54 @@ fn final_child_environment_from_env() -> Result<BTreeMap<&'static str, OsString>
         return Err(WrapperError::RelativeFinalPlan(plan_path));
     }
     Ok(environment)
+}
+
+fn final_unit_projection_environment(
+    mapped: &LoadedFinalUnit,
+) -> Result<BTreeMap<String, String>, WrapperError> {
+    let Some(directory) = env::var_os(FINAL_UNIT_PLAN_DIRECTORY_ENV) else {
+        // Legacy transport-only runners retain the global plan witnesses.
+        return Ok(BTreeMap::new());
+    };
+    let directory = PathBuf::from(directory);
+    let name = format!("{FINAL_UNIT_PLAN_ENV_PREFIX}{}", mapped.cargo_unit_id);
+    let hash = env::var(&name).map_err(|_| {
+        WrapperError::DescriptorCarrier(format!("missing final unit projection input {name}"))
+    })?;
+    validate_lower_sha256(&hash).map_err(|reason| {
+        WrapperError::DescriptorCarrier(format!(
+            "invalid final unit projection input {name}: {reason}"
+        ))
+    })?;
+    let path = directory.join(format!(
+        "{hash}.{}",
+        rsjs_ir::final_plan::UNIT_PROJECTION_FILE_SUFFIX
+    ));
+    let exclusion = env::var_os(SOURCE_EXCLUSION_DIR_ENV)
+        .map(PathBuf::from)
+        .ok_or(WrapperError::MissingEnvironment(SOURCE_EXCLUSION_DIR_ENV))?;
+    super::final_compile::ensure_plain_managed_file(&exclusion, &path)
+        .map_err(|error| WrapperError::DescriptorCarrier(error.to_string()))?;
+    let bytes = fs::read(&path).map_err(|error| {
+        WrapperError::DescriptorCarrier(format!("failed to read final unit projection: {error}"))
+    })?;
+    if exact_sha256_hex(&bytes) != hash {
+        return Err(WrapperError::DescriptorCarrier(
+            "final unit projection bytes do not match their content hash".to_owned(),
+        ));
+    }
+    let directory = directory
+        .to_str()
+        .ok_or(WrapperError::NonUtf8PhaseOwnedEnvironment(
+            FINAL_UNIT_PLAN_DIRECTORY_ENV,
+        ))?;
+    Ok(BTreeMap::from([
+        (name, hash),
+        (
+            FINAL_UNIT_PLAN_DIRECTORY_ENV.to_owned(),
+            directory.to_owned(),
+        ),
+    ]))
 }
 
 fn final_plan_rustc_args_from_env() -> Result<Vec<OsString>, WrapperError> {
@@ -776,7 +834,7 @@ fn rustc_visible_environment() -> Result<BTreeMap<String, String>, WrapperError>
     Ok(environment)
 }
 
-const WRAPPER_CONTROL_ENVIRONMENT: [&str; 18] = [
+const WRAPPER_CONTROL_ENVIRONMENT: [&str; 19] = [
     super::descriptor_objects::LINKER_PROGRAM_ENV,
     super::descriptor_objects::LINKER_CARRIER_ENV,
     WRAPPER_MODE_ENV,
@@ -786,6 +844,7 @@ const WRAPPER_CONTROL_ENVIRONMENT: [&str; 18] = [
     FINAL_TARGET_DIR_ENV,
     FINAL_UNIT_MAP_PATH_ENV,
     FINAL_UNIT_MAP_HASH_ENV,
+    FINAL_UNIT_PLAN_DIRECTORY_ENV,
     CARGO_UNIT_ID_ENV,
     FINAL_CARGO_UNIT_STATUS_ENV,
     DESCRIPTOR_PHASE_ENV,
@@ -798,7 +857,9 @@ const WRAPPER_CONTROL_ENVIRONMENT: [&str; 18] = [
 ];
 
 pub(crate) fn wrapper_control_environment(name: &str) -> bool {
-    WRAPPER_CONTROL_ENVIRONMENT.contains(&name) || name.starts_with(FINAL_UNIT_INPUT_ENV_PREFIX)
+    WRAPPER_CONTROL_ENVIRONMENT.contains(&name)
+        || name.starts_with(FINAL_UNIT_INPUT_ENV_PREFIX)
+        || name.starts_with(FINAL_UNIT_PLAN_ENV_PREFIX)
 }
 
 pub(crate) fn scrub_wrapper_control_environment(command: &mut Command) {
@@ -806,10 +867,10 @@ pub(crate) fn scrub_wrapper_control_environment(command: &mut Command) {
         command.env_remove(name);
     }
     for (name, _) in env::vars_os() {
-        if name
-            .to_str()
-            .is_some_and(|name| name.starts_with(FINAL_UNIT_INPUT_ENV_PREFIX))
-        {
+        if name.to_str().is_some_and(|name| {
+            name.starts_with(FINAL_UNIT_INPUT_ENV_PREFIX)
+                || name.starts_with(FINAL_UNIT_PLAN_ENV_PREFIX)
+        }) {
             command.env_remove(name);
         }
     }
@@ -3261,7 +3322,7 @@ fn hex_digest(digest: &[u8; 32]) -> String {
     output
 }
 
-fn atomic_write_exact(path: &Path, bytes: &[u8]) -> Result<(), FinalUnitMapError> {
+pub(crate) fn atomic_write_exact(path: &Path, bytes: &[u8]) -> Result<(), FinalUnitMapError> {
     let parent = path
         .parent()
         .ok_or_else(|| FinalUnitMapError::PathWithoutParent(path.to_path_buf()))?;

@@ -26,13 +26,15 @@ use sha2_accelerated::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::rsjs::build::{
-    acquire_descriptor_target_lease, final_unit_tracking_inputs, scrub_wrapper_control_environment,
-    wrapper_control_environment, write_content_addressed_final_unit_map, CargoArtifactCollector,
-    CargoArtifactTarget, CargoCompilerArtifact, CargoMessageError, DescriptorCargoRunError,
-    DescriptorTargetLease, FinalUnitMapError, ValidatedDescriptorUnit,
-    COMPONENT_DESCRIPTOR_DIRS_ENV, FINAL_CARGO_UNIT_STATUS_ENV, FINAL_TARGET_DIR_ENV,
-    FINAL_UNIT_MAP_HASH_ENV, FINAL_UNIT_MAP_PATH_ENV, FINAL_WRAPPER_POLICY_VERSION,
-    SOURCE_EXCLUSION_DIR_ENV, WRAPPER_MODE_ENV, WRAPPER_MODE_FINAL_V2,
+    acquire_descriptor_target_lease, atomic_write_exact, final_unit_tracking_inputs,
+    scrub_wrapper_control_environment, wrapper_control_environment,
+    write_content_addressed_final_unit_map, CargoArtifactCollector, CargoArtifactTarget,
+    CargoCompilerArtifact, CargoMessageError, DescriptorCargoRunError, DescriptorTargetLease,
+    FinalUnitMapError, ValidatedDescriptorUnit, COMPONENT_DESCRIPTOR_DIRS_ENV,
+    FINAL_CARGO_UNIT_STATUS_ENV, FINAL_TARGET_DIR_ENV, FINAL_UNIT_MAP_HASH_ENV,
+    FINAL_UNIT_MAP_PATH_ENV, FINAL_UNIT_PLAN_DIRECTORY_ENV, FINAL_UNIT_PLAN_ENV_PREFIX,
+    FINAL_WRAPPER_POLICY_VERSION, SOURCE_EXCLUSION_DIR_ENV, WRAPPER_MODE_ENV,
+    WRAPPER_MODE_FINAL_V2,
 };
 pub use crate::rsjs::build::{
     FINAL_PHASE_ENV, FINAL_PLAN_FILE_HASH_ENV, FINAL_PLAN_ID_ENV, FINAL_PLAN_PATH_ENV,
@@ -242,7 +244,7 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
 ) -> Result<FinalCargoRun, FinalCargoError> {
     let mut timing = super::timing::StageTimer::new();
     validate_request(request)?;
-    let plan_file_hash = validate_plan_file(&request.plan_path, plan)?;
+    let (plan_file_hash, plan_bytes) = validate_plan_file(&request.plan_path, plan)?;
     let plan_id = plan.final_plan_id();
     let unit_map_directory = request.target_root.join("rsjs-final-unit-maps");
     ensure_plain_managed_directory(&request.source_exclusion_directory, &unit_map_directory)?;
@@ -265,6 +267,9 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
     environment.extend(
         final_unit_tracking_inputs(&request.descriptor_units).map_err(FinalCargoError::UnitMap)?,
     );
+    if plan.final_plan_format() == SEMANTIC_PLAN_FORMAT {
+        environment.extend(publish_unit_projections(request, plan_id, &plan_bytes)?);
+    }
     inject_plan_environment(
         &mut environment,
         request,
@@ -652,7 +657,10 @@ fn compile_only_cargo_arguments(arguments: &[OsString]) -> Result<Vec<OsString>,
     Ok(compile_arguments)
 }
 
-fn validate_plan_file<P: FinalCargoPlan>(path: &Path, plan: &P) -> Result<String, FinalCargoError> {
+fn validate_plan_file<P: FinalCargoPlan>(
+    path: &Path,
+    plan: &P,
+) -> Result<(String, Vec<u8>), FinalCargoError> {
     let bytes = fs::read(path).map_err(|source| FinalCargoError::ReadPlan {
         path: path.to_path_buf(),
         source,
@@ -698,7 +706,64 @@ fn validate_plan_file<P: FinalCargoPlan>(path: &Path, plan: &P) -> Result<String
     if value != expected_value {
         return Err(FinalCargoError::PlanContentMismatch);
     }
-    Ok(exact_sha256_hex(&bytes))
+    Ok((exact_sha256_hex(&bytes), bytes))
+}
+
+fn publish_unit_projections(
+    request: &FinalCargoRequest,
+    plan_id: PlanId,
+    plan_bytes: &[u8],
+) -> Result<BTreeMap<OsString, OsString>, FinalCargoError> {
+    let directory = request.target_root.join("rsjs-final-unit-plans");
+    ensure_plain_managed_directory(&request.source_exclusion_directory, &directory)?;
+    let mut environment = BTreeMap::new();
+    environment.insert(
+        OsString::from(FINAL_UNIT_PLAN_DIRECTORY_ENV),
+        directory.as_os_str().to_owned(),
+    );
+    let projections = rsjs_ir::final_plan::unit_projection_bytes_for_units(
+        request
+            .descriptor_units
+            .iter()
+            .map(|unit| *unit.unit.as_bytes()),
+        *plan_id.as_bytes(),
+        plan_bytes,
+    )
+    .map_err(FinalCargoError::UnitProjection)?;
+    for unit in &request.descriptor_units {
+        let unit_id = unit.unit;
+        let bytes = &projections[unit_id.as_bytes()];
+        let hash = hex_sha256(&Sha256::digest(&bytes).into());
+        let path = directory.join(format!(
+            "{hash}.{}",
+            rsjs_ir::final_plan::UNIT_PROJECTION_FILE_SUFFIX
+        ));
+        match fs::symlink_metadata(&path) {
+            Ok(_) => {
+                ensure_plain_managed_file(&request.source_exclusion_directory, &path)?;
+                let existing = fs::read(&path).map_err(|source| FinalCargoError::ReadPlan {
+                    path: path.clone(),
+                    source,
+                })?;
+                if &existing != bytes {
+                    return Err(FinalCargoError::UnitProjection(format!(
+                        "conflicting content-addressed unit projection `{}`",
+                        path.display()
+                    )));
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                atomic_write_exact(&path, &bytes).map_err(FinalCargoError::UnitMap)?;
+                ensure_plain_managed_file(&request.source_exclusion_directory, &path)?;
+            }
+            Err(source) => return Err(FinalCargoError::ReadPlan { path, source }),
+        }
+        environment.insert(
+            OsString::from(format!("{FINAL_UNIT_PLAN_ENV_PREFIX}{unit_id}")),
+            OsString::from(hash),
+        );
+    }
+    Ok(environment)
 }
 
 fn inject_plan_environment<P: FinalCargoPlan>(
@@ -1615,6 +1680,9 @@ pub enum FinalCargoError {
     /// comparison.
     #[error("failed to serialize the expected final RSJS plan: {0}")]
     SerializeExpectedPlan(String),
+    /// A consumed unit selection was invalid or its immutable publication conflicted.
+    #[error("failed to prepare final RSJS unit projection: {0}")]
+    UnitProjection(String),
     /// Descriptor-to-final identity map construction failed.
     #[error(transparent)]
     UnitMap(FinalUnitMapError),

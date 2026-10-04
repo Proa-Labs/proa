@@ -3,8 +3,8 @@
 Branch `perf/dev-rebuild-pipeline`, based on fetched `origin/main` at `ab6e5cd`
 (2026-10-03), lives in a separate worktree. The original checkout and its
 preexisting edits are preserved. This is an investigation branch with production
-cache changes and explicitly scoped prototypes; it does not complete the
-owner-local plan redesign or every platform/backend adapter.
+cache changes, complete unit-plan dependencies, and explicitly scoped prototypes.
+Cargo crate boundaries and platform/backend adapter limits remain conservative.
 
 ## Six investigation outcomes
 
@@ -13,7 +13,7 @@ owner-local plan redesign or every platform/backend adapter.
 | 1 | Safe identical cache publication; measured actual pizza example waterfall | Assets/browser paint are excluded |
 | 2 | Immutable validated byte snapshots, paired input hashes, bounded parsed-record reuse | Every cycle still freshly validates bytes and inputs |
 | 3 | Complete multi-object carriers with incremental codegen; partial-edit/removal witnesses retained | Native host cc and rlibs supported; other cases retain conservative single-object fallback |
-| 4 | Independent final mapping-entry witnesses; Cargo reuse integration proof; stable runtime site identities and asset generations | Global plan still invalidates RSJS expansions; complete per-unit projections remain |
+| 4 | Independent mapping and complete unit-plan witnesses; real unrelated-owner Cargo reuse; stable runtime and asset identities | Ordinary Cargo crate dependencies and complete own-unit fragment generations remain conservative |
 | 5 | Repository/current stable and isolated nightly feature trials, retaining failures | See COMPILERS.md for actual compatibility and performance results |
 | 6 | Explicit hot-static implementation and HTTP correctness/latency proof | Development-only surface, render overhead, new-session cold builds |
 
@@ -83,13 +83,11 @@ end-to-end gain. Larger archive validation cost matters.
 
 ## Final invalidation and static edits
 
-Final wrapper policy 7 validates full map/plan authority but exposes one exact
-mapping-entry hash per unit to Cargo. The proc-macro witness tracks that hash,
-plus the existing global plan ID and file hash. The integration test changes
-another unit's source/map and proves the unchanged mapped dependency remains
-fresh. A real split RSJS-island crate still rebuilds in the final pass after an
-SSR-page edit because its macros still track the global plan witnesses. See
-INVALIDATION.md for the observed dependency and required owner-local redesign.
+Final wrapper policy 8 validates full map/plan authority and exposes one exact
+mapping-entry hash plus a complete canonical selection hash per unit to Cargo.
+Expanded macros independently verify their projection against the current full
+plan. Legacy transport-only runners retain global plan witnesses. Root artifact
+attestation, launch validation, and publication still use the complete plan.
 
 The next checkpoint shares plan validation and owner/helper selection in
 `rsjs_ir::final_plan` and replaces emitted dense candidate IDs/global-plan scope
@@ -101,9 +99,18 @@ and potential transitive helpers. Owner IDs cover actual emitted JavaScript
 with its own registration and seed names normalized, plus its stable site
 identity. Server seed tags and manifest imports use the same generations.
 Unrelated roots preserve owner IDs and exact JavaScript, while changed children,
-helpers, or required exports refresh their consumers. Global Cargo plan witnesses
-remain until complete per-unit projections are published and validated. These
-checkpoints are correctness and architecture work, with no new latency claim.
+helpers, or required exports refresh their consumers. These identity checkpoints
+retained global Cargo witnesses until the projection work below. They are
+correctness and architecture work, with no new latency claim.
+
+Complete unit projections now cover all local definitions and occurrences,
+including components shared by multiple owners and helper-only units. The real
+Cargo acceptance fixture preserves an unrelated B crate after an A edit plus
+unused root insertion, refreshes both consumers after shared helper/child changes,
+and checks unchanged reuse, generated JavaScript execution, HTML/manifest asset
+coherence, dep-info dependencies, and corrupted projection rejection. See
+[INVALIDATION.md](INVALIDATION.md) for the exact dependency and validation contract.
+Pizza must be rebenchmarked after this architecture change.
 
 The explicit hot-static prototype uses the shared checked DSL and consolidation
 walk. Its file fingerprint masks only eligible template string values; dynamic
@@ -126,12 +133,17 @@ pre-build hooks at startup and after a fallback rebuild; all seven cases pass.
 Passed checks:
 
 - `cargo check --workspace --all-targets`.
-- CLI library: 680 tests after the Pizza follow-up.
-- Core/DSL/Proa-macro/RSJS-macro libraries: 268/15/37/463 tests.
+- CLI/IR/RSJS-macro libraries: 680/311/437 tests for the projection work;
+  IR/macro checks also pass with `serde_json/preserve_order`.
+- Earlier unchanged core/DSL/Proa-macro libraries: 268/15/37 tests.
 - Descriptor wrapper integration: 11 tests; descriptor cache integration: 12.
 - Final compilation integration: 4 tests, including mapping reuse.
 - Earlier lifecycle dev integration: 1; linked helper acceptance: 4 (including
   generated JavaScript execution and cross-crate imports).
+- Projection acceptance: one real fixture across six successful builds plus
+  a corrupted-publication rejection; changed islands pass Proa fmt/lint/check.
+- Current final/linked-site/helper/SharedState/static-slot regressions: 15 cases,
+  including generated JavaScript execution with Node 26.8.1.
 - HTTP hot-static acceptance and three-sample changed-response trials.
 - Render allocation lint, Python syntax checks, Rust formatting and diff checks.
 

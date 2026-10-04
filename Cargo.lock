@@ -3551,6 +3551,7 @@ version = "0.2.0"
 dependencies = [
  "proa_core",
  "rsjs_web",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
 ]

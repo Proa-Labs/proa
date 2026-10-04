@@ -1535,6 +1535,7 @@ mod tests {
     fn linked_test_selection() -> FinalComponentSelection {
         FinalComponentSelection {
             plan_id: [9; 32],
+            dependency_id: [9; 32],
             fragment_asset_id: "test_fragment_generation".to_owned(),
             runtime_sites: [3, 4, 8, 13, 21]
                 .into_iter()

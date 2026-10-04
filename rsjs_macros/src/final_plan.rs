@@ -17,6 +17,8 @@ const FINAL_PLAN_ID_ENV: &str = "RSJS_PLAN_ID";
 const FINAL_PLAN_FILE_HASH_ENV: &str = "RSJS_LINK_PLAN_FILE_HASH";
 const FINAL_UNIT_MAP_HASH_ENV: &str = "PROA_RSJS_FINAL_UNIT_MAP_HASH";
 const PLAN_FILE_SUFFIX: &str = "semantic-plan.json";
+const UNIT_PLAN_DIRECTORY_ENV: &str = "PROA_RSJS_FINAL_UNIT_PLAN_DIRECTORY";
+const UNIT_PLAN_ENV_PREFIX: &str = "PROA_RSJS_FINAL_UNIT_PLAN_";
 
 /// Validate and select the exact component and its concrete render sites.
 ///
@@ -27,11 +29,14 @@ pub(crate) fn validate_current_component(
     cargo_unit_id: [u8; 32],
     record_id: [u8; 32],
 ) -> Result<Option<FinalComponentSelection>, String> {
-    let Some((plan_id, bytes)) = load_current_plan(DefinitionKind::Component, cargo_unit_id)?
+    let Some((plan_id, dependency_id, bytes)) =
+        load_current_plan(DefinitionKind::Component, cargo_unit_id)?
     else {
         return Ok(None);
     };
-    validate_component_plan_bytes(cargo_unit_id, record_id, plan_id, &bytes).map(Some)
+    let mut selection = validate_component_plan_bytes(cargo_unit_id, record_id, plan_id, &bytes)?;
+    selection.dependency_id = dependency_id;
+    Ok(Some(selection))
 }
 
 /// Validate the exact helper definition without imposing component-site
@@ -43,10 +48,14 @@ pub(crate) fn validate_current_helper(
     cargo_unit_id: [u8; 32],
     record_id: [u8; 32],
 ) -> Result<Option<FinalPlanSelection>, String> {
-    let Some((plan_id, bytes)) = load_current_plan(DefinitionKind::Helper, cargo_unit_id)? else {
+    let Some((plan_id, dependency_id, bytes)) =
+        load_current_plan(DefinitionKind::Helper, cargo_unit_id)?
+    else {
         return Ok(None);
     };
-    validate_helper_plan_bytes(cargo_unit_id, record_id, plan_id, &bytes).map(Some)
+    let mut selection = validate_helper_plan_bytes(cargo_unit_id, record_id, plan_id, &bytes)?;
+    selection.dependency_id = dependency_id;
+    Ok(Some(selection))
 }
 
 /// Compatibility selector while component codegen is migrated to consume the
@@ -61,6 +70,7 @@ pub(crate) fn validate_current_definition(
             validate_current_component(cargo_unit_id, record_id).map(|selection| {
                 selection.map(|selection| FinalPlanSelection {
                     plan_id: selection.plan_id,
+                    dependency_id: selection.dependency_id,
                 })
             })
         }
@@ -71,7 +81,7 @@ pub(crate) fn validate_current_definition(
 fn load_current_plan(
     kind: DefinitionKind,
     cargo_unit_id: [u8; 32],
-) -> Result<Option<([u8; 32], Vec<u8>)>, String> {
+) -> Result<Option<([u8; 32], [u8; 32], Vec<u8>)>, String> {
     match std::env::var(FINAL_PHASE_ENV) {
         Err(std::env::VarError::NotPresent) => return Ok(None),
         Err(std::env::VarError::NotUnicode(_)) => {
@@ -121,7 +131,64 @@ fn load_current_plan(
     })?;
     validate_file_hash(&bytes)?;
     validate_plan_header(&bytes, &plan_id_text)?;
-    Ok(Some((plan_id, bytes)))
+    let dependency_id =
+        validate_current_unit_projection(cargo_unit_id, plan_id, &bytes)?.unwrap_or(plan_id);
+    Ok(Some((plan_id, dependency_id, bytes)))
+}
+
+fn validate_current_unit_projection(
+    cargo_unit_id: [u8; 32],
+    plan_id: [u8; 32],
+    plan_bytes: &[u8],
+) -> Result<Option<[u8; 32]>, String> {
+    let Some(directory) = std::env::var_os(UNIT_PLAN_DIRECTORY_ENV) else {
+        return Ok(None);
+    };
+    let directory = PathBuf::from(directory);
+    if !directory.is_absolute() {
+        return Err(format!(
+            "`{UNIT_PLAN_DIRECTORY_ENV}` must name an absolute directory"
+        ));
+    }
+    let name = format!("{UNIT_PLAN_ENV_PREFIX}{}", hex_id(&cargo_unit_id));
+    let encoded = std::env::var(&name)
+        .map_err(|_| format!("final RSJS unit projection input `{name}` is missing or invalid"))?;
+    let hash = decode_lower_hex_id("final unit projection hash", &encoded)?;
+    let path = directory.join(format!("{encoded}.{UNIT_PROJECTION_FILE_SUFFIX}"));
+    let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+        format!(
+            "failed to inspect final RSJS unit projection `{}`: {error}",
+            path.display()
+        )
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err("final RSJS unit projection must be a plain file".to_owned());
+    }
+    let bytes = std::fs::read(&path).map_err(|error| {
+        format!(
+            "failed to read final RSJS unit projection `{}`: {error}",
+            path.display()
+        )
+    })?;
+    validate_unit_projection_bytes(cargo_unit_id, plan_id, plan_bytes, hash, &bytes)?;
+    Ok(Some(hash))
+}
+
+fn validate_unit_projection_bytes(
+    cargo_unit_id: [u8; 32],
+    plan_id: [u8; 32],
+    plan_bytes: &[u8],
+    expected_hash: [u8; 32],
+    bytes: &[u8],
+) -> Result<(), String> {
+    let actual: [u8; 32] = Sha256::digest(bytes).into();
+    if actual != expected_hash {
+        return Err("final RSJS unit projection bytes do not match the tracked hash".to_owned());
+    }
+    if unit_projection_bytes(cargo_unit_id, plan_id, plan_bytes)? != bytes {
+        return Err("final RSJS unit projection does not match the complete consumed selections in the current plan".to_owned());
+    }
+    Ok(())
 }
 
 /// Emit a retained build-ID witness into the final server artifact.
@@ -129,20 +196,26 @@ pub(crate) fn witness_tokens<S: PlanSelection>(label: &str, selection: Option<&S
     // `load_current_plan` must use `std::env::var` while the proc macro is
     // executing, which Cargo cannot observe. Emit built-in `env!` reads into
     // every final expansion so rustc records the wrapper-owned inputs in its
-    // dep-info. The map witness tracks only this unit; exact global plan
-    // inputs remain tracked until complete consumed unit projections exist.
+    // dep-info. Semantic runners track this unit's complete projection and
+    // mapping entry. Legacy runners keep the global plan dependencies.
     // A plan change then invalidates only crates that expand RSJS
     // instead of requiring a cold target directory for the whole graph.
-    let cargo_invalidation = cargo_invalidation_tokens(matches!(
-        std::env::var(FINAL_PHASE_ENV),
-        Ok(value) if value == "1"
-    ));
+    let unit = std::env::var("RSJS_CARGO_UNIT_ID").ok();
+    let projection_name = std::env::var_os(UNIT_PLAN_DIRECTORY_ENV)
+        .and_then(|_| unit_projection_tracking_name(unit.as_deref()));
+    let cargo_invalidation = cargo_invalidation_tokens(
+        matches!(
+            std::env::var(FINAL_PHASE_ENV),
+            Ok(value) if value == "1"
+        ),
+        projection_name.as_deref(),
+    );
     let Some(selection) = selection else {
         return cargo_invalidation;
     };
     let ident = format_ident!("__RSJS_FINAL_PLAN_WITNESS_{}", label);
     let bytes = selection
-        .plan_id()
+        .dependency_id()
         .into_iter()
         .map(proc_macro2::Literal::u8_unsuffixed)
         .collect::<Vec<_>>();
@@ -156,7 +229,7 @@ pub(crate) fn witness_tokens<S: PlanSelection>(label: &str, selection: Option<&S
     }
 }
 
-fn cargo_invalidation_tokens(final_phase: bool) -> TokenStream {
+fn cargo_invalidation_tokens(final_phase: bool, projection_name: Option<&str>) -> TokenStream {
     if !final_phase {
         return TokenStream::new();
     }
@@ -165,6 +238,15 @@ fn cargo_invalidation_tokens(final_phase: bool) -> TokenStream {
     let unit = std::env::var("RSJS_CARGO_UNIT_ID").ok();
     let tracking_name = unit_mapping_tracking_name(unit.as_deref());
     let unit_map_hash_env = proc_macro2::Literal::string(&tracking_name);
+    if let Some(name) = projection_name {
+        let unit_plan_hash_env = proc_macro2::Literal::string(name);
+        return quote! {
+            const _: (&str, &str) = (
+                ::core::env!(#unit_plan_hash_env),
+                ::core::env!(#unit_map_hash_env),
+            );
+        };
+    }
     quote! {
         const _: (&str, &str, &str) = (
             ::core::env!(#plan_id_env),
@@ -186,6 +268,13 @@ fn unit_mapping_tracking_name(unit: Option<&str>) -> String {
         }
         _ => FINAL_UNIT_MAP_HASH_ENV.to_owned(),
     }
+}
+
+fn unit_projection_tracking_name(unit: Option<&str>) -> Option<String> {
+    let mapping = unit_mapping_tracking_name(unit);
+    mapping
+        .strip_prefix("PROA_RSJS_FINAL_UNIT_INPUT_")
+        .map(|unit| format!("{UNIT_PLAN_ENV_PREFIX}{unit}"))
 }
 
 fn validate_file_hash(bytes: &[u8]) -> Result<(), String> {
@@ -224,9 +313,9 @@ mod tests {
 
     #[test]
     fn final_expansions_expose_every_plan_input_to_cargo_dep_info() {
-        assert!(cargo_invalidation_tokens(false).is_empty());
+        assert!(cargo_invalidation_tokens(false, None).is_empty());
 
-        let tokens = cargo_invalidation_tokens(true).to_string();
+        let tokens = cargo_invalidation_tokens(true, None).to_string();
         for name in [
             FINAL_PLAN_ID_ENV,
             FINAL_PLAN_FILE_HASH_ENV,
@@ -238,6 +327,43 @@ mod tests {
             );
         }
         assert_eq!(tokens.matches("env !").count(), 3);
+    }
+
+    #[test]
+    fn projected_expansions_track_only_the_unit_selection_and_mapping() {
+        let name = unit_projection_tracking_name(Some(&"11".repeat(32))).unwrap();
+        let tokens = cargo_invalidation_tokens(true, Some(&name)).to_string();
+        assert!(tokens.contains(&name));
+        assert!(!tokens.contains(FINAL_PLAN_ID_ENV));
+        assert!(!tokens.contains(FINAL_PLAN_FILE_HASH_ENV));
+        assert_eq!(tokens.matches("env !").count(), 2);
+        assert!(cargo_invalidation_tokens(false, Some(&name)).is_empty());
+    }
+
+    #[test]
+    fn unit_projection_rejects_tampering_and_wrong_unit_even_with_matching_file_hash() {
+        let unit = [1; 32];
+        let plan_id = [2; 32];
+        let plan_bytes = serde_json::to_vec(&serde_json::json!({
+            "format": "proa.rsjs.semantic_link_plan", "schema_version": 15,
+            "plan_id": hex_id(&plan_id), "components": [], "helpers": [], "helper_codegen": [],
+        }))
+        .unwrap();
+        let bytes = unit_projection_bytes(unit, plan_id, &plan_bytes).unwrap();
+        let hash: [u8; 32] = Sha256::digest(&bytes).into();
+        validate_unit_projection_bytes(unit, plan_id, &plan_bytes, hash, &bytes).unwrap();
+        let mut tampered = bytes.clone();
+        tampered.push(b' ');
+        assert!(
+            validate_unit_projection_bytes(unit, plan_id, &plan_bytes, hash, &tampered)
+                .unwrap_err()
+                .contains("tracked hash")
+        );
+        assert!(
+            validate_unit_projection_bytes([3; 32], plan_id, &plan_bytes, hash, &bytes)
+                .unwrap_err()
+                .contains("consumed selections")
+        );
     }
 }
 
