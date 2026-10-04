@@ -1,0 +1,648 @@
+{
+  "command": [
+    "/Users/andrewhariri/Desktop/proa-dev-perf/target/release/cargo-proa",
+    "dev",
+    "--debounce-ms",
+    "300",
+    "--root",
+    "/private/tmp/proa-dev-perf-pizza",
+    "--no-assets",
+    "--port",
+    "39147",
+    "--",
+    "cargo",
+    "run",
+    "--offline",
+    "--profile",
+    "dev"
+  ],
+  "toolchain": null,
+  "rustflags": null,
+  "configuration": "default",
+  "build_timings": true,
+  "samples": [
+    {
+      "sample": 0,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.4039102499373257,
+        "prepared": 0.5253087498713285,
+        "descriptor_finished": 1.4562406248878688,
+        "final_compiling": 1.9270528329070657,
+        "final_finished": 2.6300824168138206,
+        "validated": 2.672757166903466,
+        "launched": 2.6782097078394145,
+        "response": 3.0073710419237614
+      },
+      "stage_timings_ms": {
+        "descriptor Cargo and sidecars": 917.067,
+        "cache artifact indexes": 3.439,
+        "cache persist rebuilt objects": 38.091,
+        "cache load and hash objects": 101.684,
+        "cache validate observed inputs and externs": 124.35,
+        "cache validate artifact joins": 4.522,
+        "cache publish indexes and cleanup": 35.182,
+        "transport manifest and root selection": 60.434,
+        "transport graph": 2.661,
+        "transport final-unit selection": 4.588,
+        "ABI adaptation": 2.2,
+        "semantic planning": 0.66,
+        "semantic plan publication": 6.074,
+        "final request validation and unit map": 8.688,
+        "final Cargo setup": 1.131,
+        "final Cargo execution": 774.631
+      }
+    },
+    {
+      "sample": 1,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.3560307079460472,
+        "prepared": 0.48239262495189905,
+        "descriptor_finished": 1.3912132501136512,
+        "final_compiling": 1.8463534580077976,
+        "final_finished": 2.5473776671569794,
+        "validated": 2.5947531249839813,
+        "launched": 2.602318875025958,
+        "response": 2.9628678751178086
+      },
+      "stage_timings_ms": {
+        "descriptor Cargo and sidecars": 891.591,
+        "cache artifact indexes": 3.208,
+        "cache persist rebuilt objects": 38.032,
+        "cache load and hash objects": 84.062,
+        "cache validate observed inputs and externs": 126.002,
+        "cache validate artifact joins": 4.607,
+        "cache publish indexes and cleanup": 34.122,
+        "transport manifest and root selection": 59.577,
+        "transport graph": 2.435,
+        "transport final-unit selection": 4.713,
+        "ABI adaptation": 1.863,
+        "semantic planning": 0.731,
+        "semantic plan publication": 7.034,
+        "final request validation and unit map": 7.643,
+        "final Cargo setup": 0.975,
+        "final Cargo execution": 776.712
+      }
+    },
+    {
+      "sample": 2,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.3126039169728756,
+        "prepared": 0.48000116692855954,
+        "descriptor_finished": 1.3876470420509577,
+        "final_compiling": 1.8372476249933243,
+        "final_finished": 2.5412483748514205,
+        "validated": 2.583583583822474,
+        "launched": 2.5909432088956237,
+        "response": 2.985208958853036
+      },
+      "stage_timings_ms": {
+        "descriptor Cargo and sidecars": 894.286,
+        "cache artifact indexes": 3.161,
+        "cache persist rebuilt objects": 41.222,
+        "cache load and hash objects": 82.37,
+        "cache validate observed inputs and externs": 122.294,
+        "cache validate artifact joins": 4.361,
+        "cache publish indexes and cleanup": 33.85,
+        "transport manifest and root selection": 59.235,
+        "transport graph": 2.545,
+        "transport final-unit selection": 4.638,
+        "ABI adaptation": 1.737,
+        "semantic planning": 0.681,
+        "semantic plan publication": 6.734,
+        "final request validation and unit map": 7.666,
+        "final Cargo setup": 1.091,
+        "final Cargo execution": 777.524
+      }
+    }
+  ],
+  "events": [
+    {
+      "time": 1487165.952729416,
+      "stream": "stdout",
+      "line": "Proa dev root: /private/tmp/proa-dev-perf-pizza"
+    },
+    {
+      "time": 1487165.952742625,
+      "stream": "stdout",
+      "line": "Proa dev URL: http://127.0.0.1:39147"
+    },
+    {
+      "time": 1487165.952768416,
+      "stream": "stdout",
+      "line": "Proa dev live reload: on (port 65437)"
+    },
+    {
+      "time": 1487166.056454833,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1487166.145831458,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1487166.975795916,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.87s"
+    },
+    {
+      "time": 1487166.980068791,
+      "stream": "stderr",
+      "line": "rsjs timing: descriptor Cargo and sidecars: 911.406 ms"
+    },
+    {
+      "time": 1487166.984012291,
+      "stream": "stderr",
+      "line": "rsjs timing: cache artifact indexes: 3.953 ms"
+    },
+    {
+      "time": 1487167.025221583,
+      "stream": "stderr",
+      "line": "rsjs timing: cache persist rebuilt objects: 41.196 ms"
+    },
+    {
+      "time": 1487167.11995025,
+      "stream": "stderr",
+      "line": "rsjs timing: cache load and hash objects: 94.731 ms"
+    },
+    {
+      "time": 1487167.249316833,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate observed inputs and externs: 129.365 ms"
+    },
+    {
+      "time": 1487167.25432925,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate artifact joins: 5.026 ms"
+    },
+    {
+      "time": 1487167.292829166,
+      "stream": "stderr",
+      "line": "rsjs timing: cache publish indexes and cleanup: 38.499 ms"
+    },
+    {
+      "time": 1487167.358817458,
+      "stream": "stderr",
+      "line": "rsjs timing: transport manifest and root selection: 60.780 ms"
+    },
+    {
+      "time": 1487167.362141208,
+      "stream": "stderr",
+      "line": "rsjs timing: transport graph: 3.332 ms"
+    },
+    {
+      "time": 1487167.366937958,
+      "stream": "stderr",
+      "line": "rsjs timing: transport final-unit selection: 4.799 ms"
+    },
+    {
+      "time": 1487167.36891575,
+      "stream": "stderr",
+      "line": "rsjs timing: ABI adaptation: 1.973 ms"
+    },
+    {
+      "time": 1487167.36963525,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic planning: 0.723 ms"
+    },
+    {
+      "time": 1487167.376529583,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic plan publication: 6.891 ms"
+    },
+    {
+      "time": 1487167.384135083,
+      "stream": "stderr",
+      "line": "rsjs timing: final request validation and unit map: 7.599 ms"
+    },
+    {
+      "time": 1487167.385156166,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo setup: 1.024 ms"
+    },
+    {
+      "time": 1487167.467650666,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1487168.160117791,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.75s"
+    },
+    {
+      "time": 1487168.163685875,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo execution: 778.517 ms"
+    },
+    {
+      "time": 1487168.205228458,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan 0cca75288af166528253641fc240791ac3b3d7518ce26698d6462c9f3ca8c7e2 (descriptor cache: 158/160 Cargo artifacts reused; final cache: 158/160 reused)"
+    },
+    {
+      "time": 1487168.205364666,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/tmp/proa-dev-perf-pizza/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/72a680f94012979cb3bfa6613b196d79395fbb819784fc6b6ff7ad84d00e772b-mode-100755/proa_webmcp_pizza` with plan 0cca75288af166528253641fc240791ac3b3d7518ce26698d6462c9f3ca8c7e2 (descriptor cache 158/160, final cache 158 reused)"
+    },
+    {
+      "time": 1487168.673926458,
+      "stream": "stdout",
+      "line": "2026-10-04T00:51:31.184496Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39147"
+    },
+    {
+      "time": 1487169.393986833,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1487169.515385333,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1487169.617447791,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1487170.446317208,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.88s"
+    },
+    {
+      "time": 1487170.450532291,
+      "stream": "stderr",
+      "line": "rsjs timing: descriptor Cargo and sidecars: 917.067 ms"
+    },
+    {
+      "time": 1487170.453969333,
+      "stream": "stderr",
+      "line": "rsjs timing: cache artifact indexes: 3.439 ms"
+    },
+    {
+      "time": 1487170.492080958,
+      "stream": "stderr",
+      "line": "rsjs timing: cache persist rebuilt objects: 38.091 ms"
+    },
+    {
+      "time": 1487170.593751625,
+      "stream": "stderr",
+      "line": "rsjs timing: cache load and hash objects: 101.684 ms"
+    },
+    {
+      "time": 1487170.71810525,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate observed inputs and externs: 124.350 ms"
+    },
+    {
+      "time": 1487170.722624333,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate artifact joins: 4.522 ms"
+    },
+    {
+      "time": 1487170.757814,
+      "stream": "stderr",
+      "line": "rsjs timing: cache publish indexes and cleanup: 35.182 ms"
+    },
+    {
+      "time": 1487170.8235835,
+      "stream": "stderr",
+      "line": "rsjs timing: transport manifest and root selection: 60.434 ms"
+    },
+    {
+      "time": 1487170.826235458,
+      "stream": "stderr",
+      "line": "rsjs timing: transport graph: 2.661 ms"
+    },
+    {
+      "time": 1487170.830823458,
+      "stream": "stderr",
+      "line": "rsjs timing: transport final-unit selection: 4.588 ms"
+    },
+    {
+      "time": 1487170.833033916,
+      "stream": "stderr",
+      "line": "rsjs timing: ABI adaptation: 2.200 ms"
+    },
+    {
+      "time": 1487170.833690083,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic planning: 0.660 ms"
+    },
+    {
+      "time": 1487170.839770208,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic plan publication: 6.074 ms"
+    },
+    {
+      "time": 1487170.848471083,
+      "stream": "stderr",
+      "line": "rsjs timing: final request validation and unit map: 8.688 ms"
+    },
+    {
+      "time": 1487170.849597166,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo setup: 1.131 ms"
+    },
+    {
+      "time": 1487170.917129416,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1487171.620159,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.74s"
+    },
+    {
+      "time": 1487171.624232916,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo execution: 774.631 ms"
+    },
+    {
+      "time": 1487171.662716875,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan bf00babc97d1779e1eb16d3a8980f78fee2a54ef20b09f0a46c11f5cec044c5a (descriptor cache: 158/160 Cargo artifacts reused; final cache: 158/160 reused)"
+    },
+    {
+      "time": 1487171.66283375,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan bf00babc97d1779e1eb16d3a8980f78fee2a54ef20b09f0a46c11f5cec044c5a"
+    },
+    {
+      "time": 1487171.668286291,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/tmp/proa-dev-perf-pizza/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/75e13eb28c9854105a3fca6982bf61d2ad7c0e75023e49baa74ce41b84e56e83-mode-100755/proa_webmcp_pizza` with plan bf00babc97d1779e1eb16d3a8980f78fee2a54ef20b09f0a46c11f5cec044c5a (descriptor cache 158/160, final cache 158 reused)"
+    },
+    {
+      "time": 1487171.978470666,
+      "stream": "stdout",
+      "line": "2026-10-04T00:51:34.489010Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39147"
+    },
+    {
+      "time": 1487172.654557041,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1487172.780918958,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1487172.87779575,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1487173.689739583,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.85s"
+    },
+    {
+      "time": 1487173.693542166,
+      "stream": "stderr",
+      "line": "rsjs timing: descriptor Cargo and sidecars: 891.591 ms"
+    },
+    {
+      "time": 1487173.696746791,
+      "stream": "stderr",
+      "line": "rsjs timing: cache artifact indexes: 3.208 ms"
+    },
+    {
+      "time": 1487173.734790833,
+      "stream": "stderr",
+      "line": "rsjs timing: cache persist rebuilt objects: 38.032 ms"
+    },
+    {
+      "time": 1487173.818853083,
+      "stream": "stderr",
+      "line": "rsjs timing: cache load and hash objects: 84.062 ms"
+    },
+    {
+      "time": 1487173.9448575,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate observed inputs and externs: 126.002 ms"
+    },
+    {
+      "time": 1487173.949455291,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate artifact joins: 4.607 ms"
+    },
+    {
+      "time": 1487173.983576625,
+      "stream": "stderr",
+      "line": "rsjs timing: cache publish indexes and cleanup: 34.122 ms"
+    },
+    {
+      "time": 1487174.047670916,
+      "stream": "stderr",
+      "line": "rsjs timing: transport manifest and root selection: 59.577 ms"
+    },
+    {
+      "time": 1487174.050094708,
+      "stream": "stderr",
+      "line": "rsjs timing: transport graph: 2.435 ms"
+    },
+    {
+      "time": 1487174.054806541,
+      "stream": "stderr",
+      "line": "rsjs timing: transport final-unit selection: 4.713 ms"
+    },
+    {
+      "time": 1487174.056673166,
+      "stream": "stderr",
+      "line": "rsjs timing: ABI adaptation: 1.863 ms"
+    },
+    {
+      "time": 1487174.057403625,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic planning: 0.731 ms"
+    },
+    {
+      "time": 1487174.064440166,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic plan publication: 7.034 ms"
+    },
+    {
+      "time": 1487174.072088083,
+      "stream": "stderr",
+      "line": "rsjs timing: final request validation and unit map: 7.643 ms"
+    },
+    {
+      "time": 1487174.073066375,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo setup: 0.975 ms"
+    },
+    {
+      "time": 1487174.144879791,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1487174.845904,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.75s"
+    },
+    {
+      "time": 1487174.849783666,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo execution: 776.712 ms"
+    },
+    {
+      "time": 1487174.8931515,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan d82fff0e08bf6e69333f1536bbc3590005fe04cfaec6a29f8e8915c79dc1e199 (descriptor cache: 158/160 Cargo artifacts reused; final cache: 158/160 reused)"
+    },
+    {
+      "time": 1487174.893279458,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan d82fff0e08bf6e69333f1536bbc3590005fe04cfaec6a29f8e8915c79dc1e199"
+    },
+    {
+      "time": 1487174.900845208,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/tmp/proa-dev-perf-pizza/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/0bce779c35ead69aefabad7f654a6f8fde99966d8f4bbe041a83e4a7c504cc8f-mode-100755/proa_webmcp_pizza` with plan d82fff0e08bf6e69333f1536bbc3590005fe04cfaec6a29f8e8915c79dc1e199 (descriptor cache 158/160, final cache 158 reused)"
+    },
+    {
+      "time": 1487175.242757583,
+      "stream": "stdout",
+      "line": "2026-10-04T00:51:37.753285Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39147"
+    },
+    {
+      "time": 1487175.882664083,
+      "stream": "stdout",
+      "line": "change stabilized; rebuilding linked RSJS dev server"
+    },
+    {
+      "time": 1487176.050061333,
+      "stream": "stdout",
+      "line": "running linked RSJS Cargo dev build: cargo run --offline --profile dev"
+    },
+    {
+      "time": 1487176.139974791,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1487176.957707208,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.86s"
+    },
+    {
+      "time": 1487176.961272041,
+      "stream": "stderr",
+      "line": "rsjs timing: descriptor Cargo and sidecars: 894.286 ms"
+    },
+    {
+      "time": 1487176.964434416,
+      "stream": "stderr",
+      "line": "rsjs timing: cache artifact indexes: 3.161 ms"
+    },
+    {
+      "time": 1487177.005665958,
+      "stream": "stderr",
+      "line": "rsjs timing: cache persist rebuilt objects: 41.222 ms"
+    },
+    {
+      "time": 1487177.088033833,
+      "stream": "stderr",
+      "line": "rsjs timing: cache load and hash objects: 82.370 ms"
+    },
+    {
+      "time": 1487177.210334291,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate observed inputs and externs: 122.294 ms"
+    },
+    {
+      "time": 1487177.214686,
+      "stream": "stderr",
+      "line": "rsjs timing: cache validate artifact joins: 4.361 ms"
+    },
+    {
+      "time": 1487177.24854525,
+      "stream": "stderr",
+      "line": "rsjs timing: cache publish indexes and cleanup: 33.850 ms"
+    },
+    {
+      "time": 1487177.312333916,
+      "stream": "stderr",
+      "line": "rsjs timing: transport manifest and root selection: 59.235 ms"
+    },
+    {
+      "time": 1487177.314870541,
+      "stream": "stderr",
+      "line": "rsjs timing: transport graph: 2.545 ms"
+    },
+    {
+      "time": 1487177.319509958,
+      "stream": "stderr",
+      "line": "rsjs timing: transport final-unit selection: 4.638 ms"
+    },
+    {
+      "time": 1487177.321249083,
+      "stream": "stderr",
+      "line": "rsjs timing: ABI adaptation: 1.737 ms"
+    },
+    {
+      "time": 1487177.321928916,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic planning: 0.681 ms"
+    },
+    {
+      "time": 1487177.328665916,
+      "stream": "stderr",
+      "line": "rsjs timing: semantic plan publication: 6.734 ms"
+    },
+    {
+      "time": 1487177.336341666,
+      "stream": "stderr",
+      "line": "rsjs timing: final request validation and unit map: 7.666 ms"
+    },
+    {
+      "time": 1487177.337432416,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo setup: 1.091 ms"
+    },
+    {
+      "time": 1487177.407307791,
+      "stream": "stderr",
+      "line": "   Compiling proa_webmcp_pizza v0.1.0 (/private/tmp/proa-dev-perf-pizza)"
+    },
+    {
+      "time": 1487178.111308541,
+      "stream": "stderr",
+      "line": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.75s"
+    },
+    {
+      "time": 1487178.114960916,
+      "stream": "stderr",
+      "line": "rsjs timing: final Cargo execution: 777.524 ms"
+    },
+    {
+      "time": 1487178.153311875,
+      "stream": "stdout",
+      "line": "linked RSJS dev plan 95a4f5ecccc19ca7ac5997d739a3da9bbfbad1e5f6a17a4d2cc192ff015aada6 (descriptor cache: 158/160 Cargo artifacts reused; final cache: 158/160 reused)"
+    },
+    {
+      "time": 1487178.15364375,
+      "stream": "stdout",
+      "line": "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan 95a4f5ecccc19ca7ac5997d739a3da9bbfbad1e5f6a17a4d2cc192ff015aada6"
+    },
+    {
+      "time": 1487178.161003375,
+      "stream": "stdout",
+      "line": "starting final linked server `/private/tmp/proa-dev-perf-pizza/target/proa-rsjs/final-target/rsjs-final-artifact-snapshots/33a5f31092ddc0404c005a9e297eb55e42eeffad94120a96d772bed6ea96d418-mode-100755/proa_webmcp_pizza` with plan 95a4f5ecccc19ca7ac5997d739a3da9bbfbad1e5f6a17a4d2cc192ff015aada6 (descriptor cache 158/160, final cache 158 reused)"
+    },
+    {
+      "time": 1487178.5379325,
+      "stream": "stdout",
+      "line": "2026-10-04T00:51:41.048234Z  INFO proa_webmcp_pizza: pizza demo listening on http://127.0.0.1:39147"
+    }
+  ]
+}

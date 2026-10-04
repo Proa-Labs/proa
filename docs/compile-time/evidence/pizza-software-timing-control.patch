@@ -1,0 +1,187 @@
+diff --git a/proa_cli/src/rsjs/timing.rs b/proa_cli/src/rsjs/timing.rs
+new file mode 100644
+--- /dev/null
++++ b/proa_cli/src/rsjs/timing.rs
+@@ -0,0 +1,25 @@
++// Copyright Proa Labs, Inc.
++// SPDX-License-Identifier: Apache-2.0
++
++//! Opt-in elapsed stage diagnostics, independent of compiler freshness inputs.
++
++use std::time::Instant;
++
++pub(crate) struct StageTimer(Option<Instant>);
++
++impl StageTimer {
++    pub(crate) fn new() -> Self {
++        Self(std::env::var_os("PROA_BUILD_TIMINGS").map(|_| Instant::now()))
++    }
++
++    pub(crate) fn mark(&mut self, stage: &str) {
++        if let Some(previous) = self.0.as_mut() {
++            let now = Instant::now();
++            eprintln!(
++                "rsjs timing: {stage}: {:.3} ms",
++                now.duration_since(*previous).as_secs_f64() * 1000.0
++            );
++            *previous = now;
++        }
++    }
++}
+diff --git a/proa_cli/src/rsjs/mod.rs b/proa_cli/src/rsjs/mod.rs
+--- a/proa_cli/src/rsjs/mod.rs
++++ b/proa_cli/src/rsjs/mod.rs
+@@ -24,3 +24,4 @@
+ 
+ pub use inspect::*;
+ mod descriptor_objects;
++mod timing;
+diff --git a/proa_cli/src/rsjs/cache.rs b/proa_cli/src/rsjs/cache.rs
+--- a/proa_cli/src/rsjs/cache.rs
++++ b/proa_cli/src/rsjs/cache.rs
+@@ -289,6 +289,7 @@
+     require_complete_rebuild: bool,
+     resume_interrupted_staging: bool,
+ ) -> Result<DescriptorCargoOutput, DescriptorCacheError> {
++    let mut timing = super::timing::StageTimer::new();
+     let mut fresh = if resume_interrupted_staging {
+         run_descriptor_cargo_allow_empty_resuming(request)
+     } else {
+@@ -301,6 +302,7 @@
+     if resume_interrupted_staging {
+         retain_current_interrupted_units(&mut fresh, request)?;
+     }
++    timing.mark("descriptor Cargo and sidecars");
+     let evidence = collect_artifact_evidence(&fresh.cargo_artifacts)?;
+     let artifact_set_coordinate = artifact_set_coordinate(&evidence);
+     if fresh.units.is_empty() {
+@@ -379,6 +381,7 @@
+         }
+     }
+ 
++    timing.mark("cache artifact indexes");
+     cached_generations.retain(|unit, _| !fresh_ids.contains(unit));
+     let cached_ids = cached_generations.keys().copied().collect::<BTreeSet<_>>();
+     let fresh_generations = persist_fresh_units(cache_directory, &fresh.units)?;
+@@ -389,7 +392,9 @@
+     // Both rebuilt and reused units are now immutable cache generations. This
+     // makes every path in the returned output independent of nonce staging and
+     // lets successful invocations remove staging before releasing the lease.
++    timing.mark("cache persist rebuilt objects");
+     let (units, objects) = load_cached_units_with_objects(cache_directory, &generations)?;
++    timing.mark("cache load and hash objects");
+     let units_by_id = units
+         .iter()
+         .map(|unit| (unit.unit, unit))
+@@ -411,6 +416,7 @@
+         &request.target_directory,
+         &fresh.cargo_artifacts,
+     )?;
++    timing.mark("cache validate observed inputs and externs");
+     validate_cached_artifact_joins(
+         &units_by_id,
+         &cached_ids,
+@@ -426,6 +432,7 @@
+     {
+         return Err(DescriptorCacheError::MissingCachedGeneration(*unit));
+     }
++    timing.mark("cache validate artifact joins");
+     persist_artifact_indexes(
+         cache_directory,
+         &units,
+@@ -441,6 +448,7 @@
+     )?;
+     remove_completed_staging(&request.staging_directory)?;
+ 
++    timing.mark("cache publish indexes and cleanup");
+     Ok(DescriptorCargoOutput {
+         cargo_artifacts: fresh.cargo_artifacts,
+         units,
+diff --git a/proa_cli/src/rsjs/final_compile.rs b/proa_cli/src/rsjs/final_compile.rs
+--- a/proa_cli/src/rsjs/final_compile.rs
++++ b/proa_cli/src/rsjs/final_compile.rs
+@@ -240,6 +240,7 @@
+     request: &FinalCargoRequest,
+     plan: &P,
+ ) -> Result<FinalCargoRun, FinalCargoError> {
++    let mut timing = super::timing::StageTimer::new();
+     validate_request(request)?;
+     let plan_file_hash = validate_plan_file(&request.plan_path, plan)?;
+     let plan_id = plan.final_plan_id();
+@@ -254,6 +255,7 @@
+     .map_err(FinalCargoError::UnitMap)?;
+     ensure_plain_managed_file(&request.source_exclusion_directory, &unit_map.path)?;
+ 
++    timing.mark("final request validation and unit map");
+     let target_directory = final_target_directory(&request.target_root, request.invocation);
+     ensure_plain_managed_directory(&request.source_exclusion_directory, &target_directory)?;
+     let target_lease =
+@@ -294,6 +296,7 @@
+         .env_remove("RSJS_CARGO_UNIT_ID")
+         .stdout(Stdio::piped())
+         .stderr(Stdio::inherit());
++    timing.mark("final Cargo setup");
+     let mut child = command
+         .spawn()
+         .map_err(|source| FinalCargoError::SpawnCargo {
+@@ -358,6 +361,7 @@
+         .map(FinalCargoArtifactReport::from)
+         .collect();
+ 
++    timing.mark("final Cargo execution");
+     Ok(FinalCargoRun {
+         output: FinalCargoOutput {
+             plan_id,
+diff --git a/proa_cli/src/rsjs/pipeline.rs b/proa_cli/src/rsjs/pipeline.rs
+--- a/proa_cli/src/rsjs/pipeline.rs
++++ b/proa_cli/src/rsjs/pipeline.rs
+@@ -198,6 +198,7 @@
+     invocation: InvocationId,
+     selector: &DescriptorRootSelector,
+ ) -> Result<LinkedDescriptorTransport, LinkedCargoError> {
++    let mut timing = super::timing::StageTimer::new();
+     let linked = {
+         let descriptor = descriptor_run_sealed::Sealed::output(&run);
+         let selected = select_descriptor_root(descriptor, selector)?;
+@@ -209,8 +210,10 @@
+             descriptor,
+         )
+         .map_err(LinkedCargoError::LinkManifest)?;
++        timing.mark("transport manifest and root selection");
+         let transport = link_transport_manifest(&manifest, &descriptor.units, &descriptor.objects)
+             .map_err(LinkedCargoError::TransportLink)?;
++        timing.mark("transport graph");
+         let cargo_enumerated_units =
+             join_cargo_enumerated_descriptor_units(&descriptor.units, &descriptor.cargo_artifacts)
+                 .map_err(LinkedCargoError::JoinDescriptorArtifacts)?;
+@@ -234,6 +237,7 @@
+     // inputs. Releasing the lease here keeps semantic-plan writes and final
+     // Cargo outside both descriptor and cache critical sections.
+     drop(descriptor_run_sealed::Sealed::into_output(run));
++    timing.mark("transport final-unit selection");
+     Ok(linked)
+ }
+ 
+@@ -248,6 +252,7 @@
+         final_descriptor_units,
+         ..
+     } = linked;
++    let mut timing = super::timing::StageTimer::new();
+     let abi = AbiAdapterContext::from_transport_plan(
+         request.producer,
+         request.runtime_protocol,
+@@ -255,11 +260,14 @@
+     )
+     .map_err(LinkedCargoError::AbiAdapter)?;
+     let adapted = adapt_transport_plan(&abi, &transport).map_err(LinkedCargoError::AbiAdapter)?;
++    timing.mark("ABI adaptation");
+     let semantic = link_semantic_plan(transport.link_unit, &adapted)
+         .map_err(LinkedCargoError::SemanticLink)?;
++    timing.mark("semantic planning");
+     let semantic_plan_path =
+         write_content_addressed_semantic_plan(&request.plan_directory, &semantic)
+             .map_err(LinkedCargoError::WriteSemanticPlan)?;
++    timing.mark("semantic plan publication");
+     Ok(PreparedLinkedCargo {
+         descriptor,
+         selected,
