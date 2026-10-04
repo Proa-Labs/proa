@@ -130,7 +130,7 @@ pub(crate) fn witness_tokens<S: PlanSelection>(label: &str, selection: Option<&S
     // executing, which Cargo cannot observe. Emit built-in `env!` reads into
     // every final expansion so rustc records the wrapper-owned inputs in its
     // dep-info. The map witness tracks only this unit; exact global plan
-    // inputs remain tracked because owner IDs currently include the PlanId.
+    // inputs remain tracked until complete consumed unit projections exist.
     // A plan change then invalidates only crates that expand RSJS
     // instead of requiring a cold target directory for the whole graph.
     let cargo_invalidation = cargo_invalidation_tokens(matches!(

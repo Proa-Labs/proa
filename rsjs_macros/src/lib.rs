@@ -419,6 +419,10 @@ fn expand_rsjs(attr: TokenStream2, item: TokenStream2) -> syn::Result<TokenStrea
             })
             .collect();
     let asset_id = asset::derive_asset_id_with_context(&parsed.struct_path, &impl_tokens_for_hash);
+    let fragment_asset_id = final_component_selection
+        .as_ref()
+        .map(|selection| selection.fragment_asset_id.clone())
+        .unwrap_or_else(|| asset_id.clone());
     let struct_name = derive_struct_name(&parsed.struct_path);
     let direct_component_server_signal_ids =
         direct_component_server_signal_ids(&direct_component_edges, &server_expressions);
@@ -632,7 +636,7 @@ fn expand_rsjs(attr: TokenStream2, item: TokenStream2) -> syn::Result<TokenStrea
         if let Some(selection) = &final_component_selection {
             rsjs_ir::emit_js::try_emit_fragment_resolving_helpers_and_node_refs(
                 &island,
-                &asset_id,
+                &fragment_asset_id,
                 &linked_fragment_signal_exports,
                 &linked_payload_handler_exports,
                 &linked_fragment_lifecycle_exports,
@@ -667,7 +671,7 @@ fn expand_rsjs(attr: TokenStream2, item: TokenStream2) -> syn::Result<TokenStrea
         reject_unlinked_helper_sentinel("final component fragment", &fragment_js)?;
     }
     let fragment_export_name = if needs_component_fragment_js {
-        rsjs_ir::emit_js::component_fragment_export_name(&asset_id)
+        rsjs_ir::emit_js::component_fragment_export_name(&fragment_asset_id)
     } else {
         String::new()
     };
@@ -682,7 +686,7 @@ fn expand_rsjs(attr: TokenStream2, item: TokenStream2) -> syn::Result<TokenStrea
             write_js_asset(&asset_id, &js);
         }
         if needs_component_fragment_js {
-            write_component_fragment_asset(&asset_id, &fragment_js);
+            write_component_fragment_asset(&fragment_asset_id, &fragment_js);
         }
         for (plan, js) in &linked_owner_assets {
             write_js_asset(&plan.owner_asset_id, js);
@@ -792,7 +796,7 @@ fn expand_rsjs(attr: TokenStream2, item: TokenStream2) -> syn::Result<TokenStrea
         &authored_item,
         &parsed,
         &island,
-        &asset_id,
+        &fragment_asset_id,
         &signal_initializers,
         &shared_state_initializers,
         &query_initializers,
@@ -870,7 +874,7 @@ fn expand_rsjs(attr: TokenStream2, item: TokenStream2) -> syn::Result<TokenStrea
         let mut tokens = TokenStream2::new();
         if needs_component_fragment_js {
             tokens.extend(emit_component_fragment_registration(
-                &asset_id,
+                &fragment_asset_id,
                 &struct_name,
                 &fragment_js,
                 &fragment_export_name,
