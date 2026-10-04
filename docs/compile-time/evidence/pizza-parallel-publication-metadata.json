@@ -1,0 +1,12 @@
+{
+  "code_commit": "26e65293920bcff4d86db3489f204ef5f78f9a46",
+  "cli_sha256": "ba6da13bf59cc24b4dbb93207f41ef1649ed9bfe88a03eaf0fdfe60d7e73a975",
+  "fixture": "/tmp/proa-dev-perf-pizza",
+  "profile": "dev",
+  "cli_profile": "release",
+  "debounce": "actual default 200ms",
+  "assets": "skipped",
+  "hot_static": false,
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+  "note": "Three serialized warm edits per case after tests/builds finished. Separate target namespaces; first startup excluded. Source restored after both probes."
+}

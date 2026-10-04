@@ -8,10 +8,11 @@ stable 1.99 and a pinned nightly. See [implementation details](IMPLEMENTATION.md
 
 ## Measured outcomes
 
-The hashing/watcher Pizza checkpoint met the **2–3 second warm rebuild target** on the
-measured machine, using ordinary compiled templates and the normal dev profile.
-The latest complete-unit-projection rebenchmark is at the target boundary:
-3.035s template / 2.993s function edits. See [the follow-up and its limits](PIZZA_TARGET.md).
+The latest complete architecture meets the **2–3 second warm rebuild target**
+at its upper edge on the measured machine: 2.987s template / 2.964s function
+edits, using ordinary compiled templates and the normal dev profile. One of
+six samples took 3.079s, so this is typical latency rather than a strict limit
+on every edit. See [the follow-up and its limits](PIZZA_TARGET.md).
 
 | Warm save to changed HTTP response | Main baseline | Recorded branch | Checkpoint |
 | --- | ---: | ---: | --- |
@@ -22,8 +23,10 @@ The latest complete-unit-projection rebenchmark is at the target boundary:
 | Pizza Rust function-body edit, dev, actual CLI default | — | 3.037s | Complete unit projections |
 | Pizza template edit, dev, actual CLI default | — | 2.993s | Unit derivation cache |
 | Pizza Rust function-body edit, dev, actual CLI default | — | 3.033s | Unit derivation cache |
-| Pizza template edit, dev, actual CLI default | — | 3.035s | Warm wrapper reuse (latest) |
-| Pizza Rust function-body edit, dev, actual CLI default | — | 2.993s | Warm wrapper reuse (latest) |
+| Pizza template edit, dev, actual CLI default | — | 3.035s | Warm wrapper reuse |
+| Pizza Rust function-body edit, dev, actual CLI default | — | 2.993s | Warm wrapper reuse |
+| Pizza template edit, dev, actual CLI default | — | 2.987s | Parallel publication / retained buffers (latest) |
+| Pizza Rust function-body edit, dev, actual CLI default | — | 2.964s | Parallel publication / retained buffers (latest) |
 | Standalone 24-route consumer, dev, 300ms debounce | 6.91s | 4.00s | Initial investigation |
 | Explicit hot-static text edit, nodebug, 100ms debounce | — | 0.13s | Initial investigation |
 
@@ -90,21 +93,26 @@ debounce. Its rendering overhead and supported syntax are documented in
 
 ## Next decisions
 
-1. Review/land cache publication, validated-data reuse, and the measured
-   hashing/watcher follow-up first. The earlier checkpoint met the warm Pizza
-   target; the complete architecture is now at approximately 3s and still
-   needs margin below the upper bound.
+1. Review/land the verified cache, complete descriptor collection, and unit-plan
+   invalidation work. The complete architecture now meets the typical warm
+   Pizza target; preserve the corruption checks and runtime/reuse acceptance
+   fixture as these changes evolve.
 2. Harden/measure complete descriptor carriers on more targets and larger apps.
    Do not infer a broad end-to-end gain from the smaller descriptor Cargo stage.
    Model multiple exact artifacts per extern and use Cargo's public build-script
    observations before adopting the experimental nightly output layouts.
-3. Reduce preparation and validation overhead to regain margin below 3s. The
-   complete architecture is now rebenchmarked at approximately 3s; the earlier
-   2.895/2.908s results cover only the hashing/watcher checkpoint. Cargo
-   dependency crates remain the reuse boundary.
+3. Seek more margin below 3s from representative workloads and the measured
+   remaining stages. Fresh executable first-launch overhead explains much of
+   the restart stage on this Mac; repeated application startup is only a few
+   milliseconds. Cargo dependency crates remain the reuse boundary, so Pizza's
+   single component crate benefits less from narrowing invalidation.
 4. Keep static updates explicit while measuring rendering overhead and fixing
    watcher-session cold builds and source discovery. Broaden supported templates
    only from representative use and correctness evidence.
+
+New and existing applications receive these defaults through the CLI. Scaffolded
+dev profiles already inherit Cargo's incremental default; no extra manifest
+flags or automatic hot-static opt-in are needed.
 
 ## Learning and reproduction
 

@@ -64,6 +64,13 @@ def main():
                 ("Final unit map", "final request validation and unit map"),
                 ("Final Cargo setup", "final Cargo setup"),
             ]
+            source_key = "cache validate observed source generated and environment inputs"
+            extern_key = "cache validate dependency artifact bytes"
+            if source_key in b and extern_key in b:
+                details[3:4] = [
+                    ("Validate observed inputs", source_key),
+                    ("Hash external artifacts", extern_key),
+                ]
             missing = [key for _, key in details if key not in b]
             if missing:
                 parser.error(f"{path} lacks timing events: {missing}")
