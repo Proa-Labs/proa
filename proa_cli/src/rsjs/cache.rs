@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
+use sha2_accelerated::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::rsjs::build::wrapper_control_environment;
@@ -289,6 +289,7 @@ fn run_descriptor_cargo_cached_once(
     require_complete_rebuild: bool,
     resume_interrupted_staging: bool,
 ) -> Result<DescriptorCargoOutput, DescriptorCacheError> {
+    let mut timing = super::timing::StageTimer::new();
     let mut fresh = if resume_interrupted_staging {
         run_descriptor_cargo_allow_empty_resuming(request)
     } else {
@@ -301,6 +302,7 @@ fn run_descriptor_cargo_cached_once(
     if resume_interrupted_staging {
         retain_current_interrupted_units(&mut fresh, request)?;
     }
+    timing.mark("descriptor Cargo and sidecars");
     let evidence = collect_artifact_evidence(&fresh.cargo_artifacts)?;
     let artifact_set_coordinate = artifact_set_coordinate(&evidence);
     if fresh.units.is_empty() {
@@ -379,6 +381,7 @@ fn run_descriptor_cargo_cached_once(
         }
     }
 
+    timing.mark("cache artifact indexes");
     cached_generations.retain(|unit, _| !fresh_ids.contains(unit));
     let cached_ids = cached_generations.keys().copied().collect::<BTreeSet<_>>();
     let fresh_generations = persist_fresh_units(cache_directory, &fresh.units)?;
@@ -389,7 +392,9 @@ fn run_descriptor_cargo_cached_once(
     // Both rebuilt and reused units are now immutable cache generations. This
     // makes every path in the returned output independent of nonce staging and
     // lets successful invocations remove staging before releasing the lease.
+    timing.mark("cache persist rebuilt objects");
     let (units, objects) = load_cached_units_with_objects(cache_directory, &generations)?;
+    timing.mark("cache load and hash objects");
     let units_by_id = units
         .iter()
         .map(|unit| (unit.unit, unit))
@@ -411,6 +416,7 @@ fn run_descriptor_cargo_cached_once(
         &request.target_directory,
         &fresh.cargo_artifacts,
     )?;
+    timing.mark("cache validate observed inputs and externs");
     validate_cached_artifact_joins(
         &units_by_id,
         &cached_ids,
@@ -426,6 +432,7 @@ fn run_descriptor_cargo_cached_once(
     {
         return Err(DescriptorCacheError::MissingCachedGeneration(*unit));
     }
+    timing.mark("cache validate artifact joins");
     persist_artifact_indexes(
         cache_directory,
         &units,
@@ -441,6 +448,7 @@ fn run_descriptor_cargo_cached_once(
     )?;
     remove_completed_staging(&request.staging_directory)?;
 
+    timing.mark("cache publish indexes and cleanup");
     Ok(DescriptorCargoOutput {
         cargo_artifacts: fresh.cargo_artifacts,
         units,
@@ -1562,16 +1570,31 @@ fn validate_cached_observed_inputs(
     cached_ids: &BTreeSet<DescriptorCargoUnitId>,
     descriptor_target: &Path,
 ) -> Result<(), DescriptorCacheError> {
-    for unit_id in cached_ids {
-        let unit = units_by_id
-            .get(unit_id)
-            .ok_or(DescriptorCacheError::MissingMergedUnit(*unit_id))?;
-        validate_descriptor_observed_inputs(descriptor_target, &unit.sidecar).map_err(
-            |source| DescriptorCacheError::CachedOutDirDependencyMismatch {
-                unit: *unit_id,
-                source,
-            },
-        )?;
+    let units = cached_ids
+        .iter()
+        .map(|unit_id| {
+            units_by_id
+                .get(unit_id)
+                .copied()
+                .ok_or(DescriptorCacheError::MissingMergedUnit(*unit_id))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    // Each unit validates its full source/generated/environment input set.
+    // Collect before propagating errors so diagnostics keep canonical unit-ID
+    // order regardless of worker scheduling, as object/extern hashing does.
+    let validations = units
+        .par_iter()
+        .map(|unit| {
+            validate_descriptor_observed_inputs(descriptor_target, &unit.sidecar).map_err(
+                |source| DescriptorCacheError::CachedOutDirDependencyMismatch {
+                    unit: unit.unit,
+                    source,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    for validation in validations {
+        validation?;
     }
     Ok(())
 }

@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use object::{Architecture, BinaryFormat, Object as _};
 use rsjs_ir::abi::{FinalUnitId, InvocationId, LinkUnitId, PlanId, SemanticHash};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
+use sha2_accelerated::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::rsjs::build::{
@@ -240,6 +240,7 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
     request: &FinalCargoRequest,
     plan: &P,
 ) -> Result<FinalCargoRun, FinalCargoError> {
+    let mut timing = super::timing::StageTimer::new();
     validate_request(request)?;
     let plan_file_hash = validate_plan_file(&request.plan_path, plan)?;
     let plan_id = plan.final_plan_id();
@@ -254,6 +255,7 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
     .map_err(FinalCargoError::UnitMap)?;
     ensure_plain_managed_file(&request.source_exclusion_directory, &unit_map.path)?;
 
+    timing.mark("final request validation and unit map");
     let target_directory = final_target_directory(&request.target_root, request.invocation);
     ensure_plain_managed_directory(&request.source_exclusion_directory, &target_directory)?;
     let target_lease =
@@ -294,6 +296,7 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
         .env_remove("RSJS_CARGO_UNIT_ID")
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
+    timing.mark("final Cargo setup");
     let mut child = command
         .spawn()
         .map_err(|source| FinalCargoError::SpawnCargo {
@@ -358,6 +361,7 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
         .map(FinalCargoArtifactReport::from)
         .collect();
 
+    timing.mark("final Cargo execution");
     Ok(FinalCargoRun {
         output: FinalCargoOutput {
             plan_id,

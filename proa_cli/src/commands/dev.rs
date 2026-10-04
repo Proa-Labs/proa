@@ -49,7 +49,7 @@ pub(crate) struct DevArgs {
     /// system assigns.
     #[arg(long, value_name = "PORT")]
     reload_port: Option<u16>,
-    /// Quiet window a change must survive before a rebuild starts. Defaults to 300.
+    /// Quiet window a change must survive before a rebuild starts. Defaults to 200.
     #[arg(long, value_name = "MILLISECONDS")]
     debounce_ms: Option<u64>,
     /// Override the exact Cargo run root. Server arguments may follow Cargo's `--`.

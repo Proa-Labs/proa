@@ -35,7 +35,7 @@ def main():
     parser.add_argument("--hot-static", action="store_true")
     parser.add_argument("--islands", action="store_true")
     parser.add_argument("--samples", type=int, default=3)
-    parser.add_argument("--debounce-ms", type=int, default=300)
+    parser.add_argument("--debounce-ms", type=int, help="Override the CLI quiet window; omitted uses its default")
     parser.add_argument("--port", type=int, default=39147)
     parser.add_argument("--toolchain", help="Explicit rustup toolchain for Cargo and rustc")
     parser.add_argument("--rustflags", help="Explicit compiler flags; parsed as words, never executed")
@@ -59,7 +59,9 @@ def main():
     if args.islands:
         cargo += ["--features", "islands"]
     command = [str(args.cli.resolve()), "dev", "--root", str(root), "--no-assets", "--port", str(args.port),
-               "--debounce-ms", str(args.debounce_ms), "--", *cargo]
+               "--", *cargo]
+    if args.debounce_ms is not None:
+        command[2:2] = ["--debounce-ms", str(args.debounce_ms)]
     if args.hot_static:
         command.insert(2, "--hot-static")
     url = f"http://127.0.0.1:{args.port}{args.url_path}"
@@ -83,7 +85,7 @@ def main():
     records = []
     log_dir = root / "target/probe-logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    name = f"watch-{args.configuration}-{args.profile}-{'islands' if args.islands else 'ssr'}-{args.debounce_ms}"
+    name = f"watch-{args.configuration}-{args.profile}-{'islands' if args.islands else 'ssr'}-{args.debounce_ms if args.debounce_ms is not None else 'default'}"
     if args.hot_static:
         name += "-hot"
     try:
@@ -104,12 +106,16 @@ def main():
             page.write_text(next_source)
             boundaries = {"save": 0.0}
             finishes = 0
+            stage_timings_ms = {}
             deadline = start + 180
             while time.perf_counter() < deadline:
                 while not events.empty():
                     event = events.get_nowait()
                     line = event["line"]
                     timestamp = event["time"] - start
+                    timing = re.fullmatch(r"rsjs timing: (.*): ([0-9.]+) ms", line)
+                    if timing:
+                        stage_timings_ms[timing[1]] = float(timing[2])
                     if "static template change stabilized;" in line:
                         boundaries.setdefault("hot_published", timestamp)
                     elif "change stabilized; rebuilding" in line:
@@ -133,7 +139,7 @@ def main():
                 time.sleep(0.02)
             else:
                 raise RuntimeError("updated HTTP response was not served within 180s")
-            record = {"sample": sample, "boundaries": boundaries}
+            record = {"sample": sample, "boundaries": boundaries, "stage_timings_ms": stage_timings_ms}
             records.append(record)
             print(json.dumps(record), flush=True)
             time.sleep(0.3)
@@ -146,7 +152,7 @@ def main():
             process.wait()
         page.write_text(original)
         (log_dir / f"{name}.json").write_text(json.dumps({"command": command, "toolchain": args.toolchain,
-            "rustflags": args.rustflags, "configuration": args.configuration,
+            "rustflags": args.rustflags, "configuration": args.configuration, "build_timings": bool(environment.get("PROA_BUILD_TIMINGS")),
             "samples": records, "events": raw}, indent=2) + "\n")
     print(f"Results: {log_dir / (name + '.json')}")
 

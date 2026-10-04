@@ -40,6 +40,9 @@ serde = { workspace = true }
 serde_ignored = { version = "0.1" }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+# Runtime-dispatched SHA extensions on AArch64 without global target features.
+# Keep the workspace hash/protocol implementation on its existing version.
+sha2_accelerated = { package = "sha2", version = "0.11" }
 similar = { version = "2" }
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate"] }
 syn = { workspace = true, features = ["full", "visit"] }

@@ -33,7 +33,7 @@ use rsjs_transport::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
+use sha2_accelerated::{Digest, Sha256};
 use thiserror::Error;
 
 #[cfg(test)]
