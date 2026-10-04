@@ -26,7 +26,7 @@ flush. Changed pointers retain atomic replacement and directory/file flushing.
 Hard-link tests distinguish true reuse from rewriting identical bytes; symlink
 files and redirected parents remain rejected.
 
-The cache lease now retains `Arc<[u8]>` snapshots of every validated descriptor
+The cache lease now retains `Arc<Vec<u8>>` snapshots of every validated descriptor
 carrier. Both descriptor and link hash domains are computed from the same bytes;
 manifest assembly and extraction consume them without rereading the object.
 Paired dependency hashes are reused within the admitted cycle. Parsed transport

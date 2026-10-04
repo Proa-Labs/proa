@@ -5276,7 +5276,9 @@ pub(crate) struct DescriptorCargoOutput {
 
 #[derive(Clone, Debug)]
 pub(crate) struct DescriptorObjectSnapshot {
-    pub(crate) bytes: std::sync::Arc<[u8]>,
+    // Retain the allocation returned by fs::read. Converting its Vec into an
+    // Arc<[u8]> allocates again and copies the entire compiler artifact.
+    pub(crate) bytes: std::sync::Arc<Vec<u8>>,
     pub(crate) descriptor_hash: [u8; 32],
     pub(crate) link_hash: [u8; 32],
 }
@@ -5291,7 +5293,7 @@ impl DescriptorObjectSnapshot {
         link.update(LINK_ARTIFACT_HASH_DOMAIN);
         link.update(&bytes);
         Ok(Self {
-            bytes: bytes.into(),
+            bytes: std::sync::Arc::new(bytes),
             descriptor_hash: descriptor.finalize().into(),
             link_hash: link.finalize().into(),
         })
