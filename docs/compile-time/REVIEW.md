@@ -147,3 +147,7 @@ a regression that checks identity equality/distinctness survives normalization.
 Four retained Python probes now have the required license headers. Repository
 boundary checks pass with checkout paths represented by placeholders in the
 compact measurements. These fixes await the complete CI rerun.
+
+The subsequent Rust CI run caught the matching origin scaffold snapshots still
+using the old normalizer. Both template files now match the example after crate
+identity substitution; the complete 680-test CLI library recheck passes.
