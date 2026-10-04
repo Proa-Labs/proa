@@ -110,7 +110,9 @@ unused root insertion, refreshes both consumers after shared helper/child change
 and checks unchanged reuse, generated JavaScript execution, HTML/manifest asset
 coherence, dep-info dependencies, and corrupted projection rejection. See
 [INVALIDATION.md](INVALIDATION.md) for the exact dependency and validation contract.
-Pizza must be rebenchmarked after this architecture change.
+The first Pizza rebenchmark after this architecture change measured 3.035s
+template and 3.037s function edits. This slightly exceeds the 2–3s target;
+projection derivation cost is being investigated. See [PIZZA_TARGET.md](PIZZA_TARGET.md).
 
 The explicit hot-static prototype uses the shared checked DSL and consolidation
 walk. Its file fingerprint masks only eligible template string values; dynamic

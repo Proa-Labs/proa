@@ -6,7 +6,7 @@ profile, incremental descriptor/final builds, and a release-built CLI. Assets
 are skipped as in the original benchmark; browser paint is outside this metric.
 No hot-static opt-in or reduced-debug profile is used.
 
-## Verified default results
+## Hashing/watcher checkpoint results
 
 | Ordinary edit, normal dev profile, actual CLI defaults | Median | Samples |
 | --- | ---: | --- |
@@ -94,8 +94,27 @@ The timings above describe the hashing/watcher checkpoint. Subsequent work
 implements stable runtime coordinates, fragment/owner generations, and complete
 unit projections, with actual unrelated-crate reuse and shared helper/child
 invalidation verified in [INVALIDATION.md](INVALIDATION.md). The pipeline still
-performs descriptor and final compilations. A new Pizza rebenchmark is required
-to measure this architecture; the earlier timing results do not cover it.
+performs descriptor and final compilations. The first rebenchmark of the complete architecture (`46bfb48`) measured:
+
+| Ordinary edit, actual defaults | Median | Samples |
+| --- | ---: | --- |
+| Template text | 3.035s | 3.035, 3.069, 3.003s |
+| Rust function body | 3.037s | 3.037, 3.042, 2.937s |
+
+This checkpoint is slightly above the target. Pizza puts its components in one
+Cargo unit, so preserving unrelated dependency crates does not substantially
+reduce its own compilation. The median stage values show approximately 20ms
+more object loading/hashing, 25ms more observed-input validation, 11ms more final
+Cargo setup, and 37ms more final Cargo execution than the earlier checkpoint.
+These are wall-clock differences across three-sample runs; they do not isolate
+one cause for the full 140ms change. Repeated projection derivation in macros is
+being investigated before the next trial.
+
+[Raw template events](evidence/pizza-unit-projection-template-watch.json),
+[function events](evidence/pizza-unit-projection-function-watch.json), and
+[provenance](evidence/pizza-unit-projection-metadata.json) retain both outcomes.
+
+![Earlier checkpoint and complete unit projections](diagrams/pizza-unit-projection-waterfall.png)
 
 ## Validation
 
