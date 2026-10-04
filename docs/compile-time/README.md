@@ -28,7 +28,7 @@ exceeded 3s, so these are typical latencies on one machine, not a strict bound.
 | Omit descriptor debug info | 2.996s | 2.801s | Keep: 196ms saved, full final-app debug retained |
 | Share source hashes within validation | 2.717s | 2.723s | Discard: no established end-to-end gain |
 | Optimize host build dependencies | 2.742–2.809s controls | 2.709s | Keep optional: first startup rises from 37s to 72s |
-| Default descriptor partition count: 256 → 64 | 2.799–2.843s controls | 2.656s | Keep: explicit counts and final-app settings retained |
+| Default descriptor partition count: 256 → 64 | 2.768s | 2.552–2.556s | Keep: 212–216ms saved; explicit profiles retained |
 
 The descriptor trial uses six warm edits per variant with unchanged normal-dev
 settings and 200ms debounce. Instrumented file reads fall from 1.76 to 1.20 GiB
@@ -55,7 +55,10 @@ edits reached 2.603s. The chosen policy retains finer incremental reuse and
 preserves every explicit count. Pizza's descriptor library falls from 208 object
 members to 65, while the final library retains 201 members and exactly 5.65MB of
 debug sections. The separately rebuilt production CLI reaches 2.552s; this is
-not an isolated comparison against the diagnostic CLI used for the controls.
+not an isolated comparison against the diagnostic CLI used for those controls.
+A final production-only after/before/after comparison uses six edits per block:
+policy 6 reaches 2.768s, while policy 7 reaches 2.552s and 2.556s. The revisions
+differ only in descriptor partition policy and its regression tests.
 
 A direct-launch probe attributes roughly 329ms before Rust entry on this Mac to
 Gatekeeper/XProtect evaluation: process creation returns in 1–2ms, scan completion
