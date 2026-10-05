@@ -1,10 +1,13 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{future::Future, rc::Rc, sync::OnceLock};
+use std::{future::Future, rc::Rc, sync::LazyLock};
 
 use htmd::{options::BulletListMarker, options::Options, HtmlToMarkdown};
 use markup5ever_rcdom::NodeData;
+
+mod list;
+mod table;
 
 use crate::{
     DataLoader, MdRender, MdRenderSync, RenderOutcome, WebContext, WebRenderSync, WriteBuf,
@@ -30,6 +33,9 @@ use crate::{
 /// hidden or aria-hidden="true" attributes are omitted. CSS is not evaluated.
 /// The converted fragment has no leading or trailing newline; author fragment
 /// separators in the surrounding Markdown template.
+/// Simple grids become GFM pipe tables; complex tables retain rows/cells as
+/// nested lists rather than preserving span geometry. Most attributes and
+/// control state are not synthesized. This is not a lossless HTML round trip.
 #[derive(Debug, Clone, Copy)]
 pub struct ToMarkdown<T>(T);
 
@@ -75,7 +81,7 @@ where
         let output = cx.capture_html_for_markdown(self.0)?;
         let html = String::from_utf8(output.into_vec())
             .map_err(|_| WriteError::render("HTML-to-Markdown input is not valid UTF-8"))?;
-        let converter = converter();
+        let converter = &*CONVERTER;
         let tree = converter
             .html_to_tree(&html)
             .map_err(|error| WriteError::render(error.to_string()))?;
@@ -193,22 +199,22 @@ where
     }
 }
 
-// proa-perf-ok(scope): converter configuration allocates once, only when conversion is first requested
-fn converter() -> &'static HtmlToMarkdown {
-    static CONVERTER: OnceLock<HtmlToMarkdown> = OnceLock::new();
-    CONVERTER.get_or_init(|| {
-        HtmlToMarkdown::builder()
-            .options(Options {
-                bullet_list_marker: BulletListMarker::Dash,
-                ul_bullet_spacing: 1,
-                ol_number_spacing: 1,
-                ..Options::default()
-            })
-            .add_handler(vec!["pre"], preformatted)
-            .add_handler(vec!["a", "img"], link_or_image)
-            .build()
-    })
-}
+// proa-perf-ok(scope): converter configuration allocates once when conversion is first requested
+static CONVERTER: LazyLock<HtmlToMarkdown> = LazyLock::new(|| {
+    HtmlToMarkdown::builder()
+        .options(Options {
+            bullet_list_marker: BulletListMarker::Dash,
+            ul_bullet_spacing: 1,
+            ol_number_spacing: 1,
+            ..Options::default()
+        })
+        .add_handler(vec!["pre"], preformatted)
+        .add_handler(vec!["code"], inline_code)
+        .add_handler(vec!["a", "img"], link_or_image)
+        .add_handler(vec!["table"], table::table)
+        .add_handler(vec!["ol"], list::ordered_list)
+        .build()
+});
 
 // proa-perf-ok(scope): preformatted HTML needs a buffered adaptive Markdown code fence
 fn preformatted(
@@ -253,6 +259,25 @@ fn append_pre_text(node: &htmd::Node, output: &mut String) {
     }
 }
 
+// proa-perf-ok(scope): opt-in inline code captures literal DOM text before adaptive escaping
+fn inline_code(
+    _: &dyn htmd::element_handler::Handlers,
+    element: htmd::Element<'_>,
+) -> Option<htmd::element_handler::HandlerResult> {
+    let mut content = String::new();
+    append_pre_text(element.node, &mut content);
+    if content.is_empty() {
+        return Some(String::new().into());
+    }
+    let mut output = Vec::new();
+    crate::md::escape::write_inline_code(&mut output, &content).expect("growable Markdown buffer");
+    Some(
+        String::from_utf8(output)
+            .expect("UTF-8 Markdown escaping")
+            .into(),
+    )
+}
+
 // proa-perf-ok(scope): code language metadata is owned during buffered conversion
 fn code_language(node: &htmd::Node) -> Option<String> {
     let NodeData::Element { attrs, .. } = &node.data else {
@@ -283,7 +308,14 @@ fn link_or_image(
     };
     let Some(destination) = attribute(if image { "src" } else { "href" }) else {
         return if image {
-            None
+            let mut output = Vec::new();
+            crate::md::escape::escape_md(&mut output, attribute("alt").unwrap_or(""))
+                .expect("growable Markdown buffer");
+            Some(
+                String::from_utf8(output)
+                    .expect("UTF-8 Markdown escaping")
+                    .into(),
+            )
         } else {
             Some(handlers.walk_children(element.node))
         };

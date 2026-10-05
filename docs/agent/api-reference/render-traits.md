@@ -377,7 +377,10 @@ md_sync! { r###"
 ```
 
 The converter uses ATX headings, fenced code, inline links, dash lists, and
-Markdown tables. Containers and CSS are dropped; head metadata, scripts,
+GFM tables. Simple and headerless grids retain all cells; tables with spans or
+block content use a list of rows and cells. See the [element coverage and edge
+cases](html-to-markdown.md) for the full conversion policies and limits.
+Containers and CSS are dropped; head metadata, scripts,
 styles, templates, SVG, and explicitly hidden/aria-hidden elements are omitted.
 CSS visibility is not evaluated. The result has no leading or trailing
 newline, so put separators in the surrounding template as shown above. Inline
