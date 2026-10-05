@@ -365,14 +365,14 @@ You can also wrap an HTML fragment directly, without defining a component:
 
 ```rust
 md_sync! { r###"
-# Overview
+    # Overview
 
-{proa_core::to_markdown(html_sync! {
-    <p>"Compiled templates with " <strong>"fast rendering"</strong> "."</p>
-})}
+    {proa_core::to_markdown(html_sync! {
+        <p>"Compiled templates with " <strong>"fast rendering"</strong> "."</p>
+    })}
 
-{custom_markdown_child}
-"###
+    {custom_markdown_child}
+    "###
 }
 ```
 

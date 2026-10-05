@@ -47,7 +47,7 @@ fn fragment_converts_semantic_html_without_styling() {
     });
     assert_eq!(
         output,
-        "## Proa & Rust\n\nCompiled templates with **fast rendering**.\n\n[Learn more](/docs?target=rust&mode=sync)"
+        "## Proa & Rust\n\nCompiled templates with **fast rendering**&#46;\n\n[Learn more](/docs?target=rust&mode=sync)"
     );
 }
 
@@ -544,4 +544,143 @@ fn a_large_capture_does_not_truncate_at_a_buffer_page_boundary() {
     });
     assert_eq!(output.trim_end(), body.trim_end());
     assert!(output.len() > proa_core::DEFAULT_CHAINED_BUMP_PAGE_SIZE);
+}
+
+#[test]
+fn inline_node_boundaries_cannot_create_markdown_structure() {
+    for (prefix, suffix) in [
+        ("#", " title"),
+        ("-", " item"),
+        ("1", ". item"),
+        ("1", ") item"),
+        ("!", ""),
+        ("a ~~", "struck~~"),
+    ] {
+        let output = markdown(html_sync! {
+            <p>
+                <span class="first">{prefix}</span>
+                <span class="second">{suffix}</span>
+            </p>
+        });
+        assert_eq!(
+            text_content(&output),
+            format!("{prefix}{suffix}"),
+            "{output}"
+        );
+        assert!(
+            Parser::new_ext(&output, Options::ENABLE_STRIKETHROUGH).all(|event| !matches!(
+                event,
+                Event::Start(Tag::Heading { .. } | Tag::List(_) | Tag::Strikethrough)
+            )),
+            "{output}"
+        );
+    }
+    let output = markdown(html_sync! {
+        <p>
+            "!"
+            <a href="/page">"Link"</a>
+        </p>
+    });
+    assert!(Parser::new(&output).any(|event| matches!(event, Event::Start(Tag::Link { .. }))));
+    assert!(!Parser::new(&output).any(|event| matches!(event, Event::Start(Tag::Image { .. }))));
+}
+
+#[test]
+fn destinations_and_titles_use_markdown_attribute_escaping() {
+    for (url, expected) in [
+        ("/a\\(b)", "/a\\(b)"),
+        ("/a b<c>", "/a%20b%3Cc%3E"),
+        ("<x>", "%3Cx%3E"),
+        ("/a\nb", "/a%0Ab"),
+        ("/literal?x=&copy;", "/literal?x=&copy;"),
+    ] {
+        let title = "literal \\\"title\\\" &copy;";
+        let output = markdown(html_sync! {
+            <a href={url} title={title}>"Link"</a>
+            <img src={url} title={title} alt="a [label]" />
+        });
+        let events: Vec<_> = Parser::new(&output).collect();
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, Event::Html(_) | Event::InlineHtml(_))),
+            "{output}"
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Start(Tag::Link { .. } | Tag::Image { .. })))
+                .count(),
+            2,
+            "{output}"
+        );
+        for event in events {
+            if let Event::Start(
+                Tag::Link {
+                    dest_url,
+                    title: actual,
+                    ..
+                }
+                | Tag::Image {
+                    dest_url,
+                    title: actual,
+                    ..
+                },
+            ) = event
+            {
+                assert_eq!(dest_url.as_ref(), expected, "{output}");
+                assert_eq!(actual.as_ref(), title, "{output}");
+            }
+        }
+    }
+}
+
+#[test]
+fn highlighted_code_keeps_boundary_blank_lines_and_safe_language_fences() {
+    let code = "\n\nlet value = `literal`;\n\n";
+    for language in ["rust", "rust`injected"] {
+        let class = format!("language-{language}");
+        let output = markdown(html_sync! {
+            <pre>
+                <code class={class.as_str()}>
+                    <span>{code}</span>
+                </code>
+            </pre>
+        });
+        let events: Vec<_> = Parser::new(&output).collect();
+        assert_eq!(text_content(&output), code, "{output}");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Start(Tag::CodeBlock(_))))
+                .count(),
+            1,
+            "{output}"
+        );
+    }
+}
+
+#[test]
+fn link_spacing_and_image_labels_survive_custom_handlers() {
+    let alt = "  a \\\"label\\\" &amp;  ";
+    let title = "first\n\nsecond\tline";
+    let output = markdown(html_sync! {
+        <p>
+            "Before"
+            <a href="/page">" linked "</a>
+            "after"
+        </p>
+        <img src="/image" alt={alt} title={title} />
+    });
+    assert_eq!(
+        text_content(&output),
+        format!("Before linked after{alt}"),
+        "{output}"
+    );
+    assert!(
+        Parser::new(&output).any(|event| matches!(event,
+            Event::Start(Tag::Image { title, .. }) if title.as_ref() == "first  second line"
+        )),
+        "{output}"
+    );
 }

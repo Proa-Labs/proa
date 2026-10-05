@@ -85,32 +85,10 @@ where
     }
 }
 
-// proa-perf-ok(scope): DOM preparation preserves literal text and attributes during opt-in conversion
+// proa-perf-ok(scope): DOM preparation preserves literal text during opt-in conversion
 fn prepare_dom(node: &Rc<htmd::Node>, in_code: bool) {
     let in_code = match &node.data {
-        NodeData::Element { name, attrs, .. } => {
-            for attr in attrs.borrow_mut().iter_mut() {
-                match attr.name.local.as_ref() {
-                    "alt" if name.local.as_ref() == "img" => {
-                        let mut escaped = Vec::new();
-                        // A growable Vec cannot produce a WriteError. Use the
-                        // core escaper because htmd emits alt text verbatim.
-                        crate::md::escape::escape_md(&mut escaped, &attr.value)
-                            .expect("growable Markdown buffer");
-                        attr.value = String::from_utf8(escaped)
-                            .expect("UTF-8 Markdown escaping")
-                            .into();
-                    }
-                    "href" | "src" | "title" => {
-                        if let Some(escaped) = escape_literal_entities(&attr.value, false) {
-                            attr.value = escaped.into();
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            in_code || matches!(name.local.as_ref(), "pre" | "code")
-        }
+        NodeData::Element { name, .. } => in_code || matches!(name.local.as_ref(), "pre" | "code"),
         NodeData::Text { contents } if !in_code => {
             let mut text = contents.borrow_mut();
             if let Some(escaped) = escape_literal_entities(&text, true) {
@@ -158,13 +136,39 @@ fn escape_literal_entities(text: &str, adjacent_text: bool) -> Option<String> {
             .count();
         len > 0 && following.get(len) == Some(&b';')
     };
-    if !text.match_indices('&').any(|(index, _)| is_entity(index)) {
+    // htmd escapes block markers within one node, but inline HTML can
+    // split a marker from its following space. Entities stay literal until
+    // after Markdown block parsing, including across styled inline nodes.
+    let is_marker = |index: usize, ch: char| {
+        adjacent_text
+            && (matches!(ch, '~' | '|')
+                || (matches!(ch, '#' | '+' | '-' | '.' | ')' | '!')
+                    && text[..index]
+                        .bytes()
+                        .all(|byte| byte.is_ascii_whitespace() || byte.is_ascii_digit())))
+    };
+    if !text
+        .char_indices()
+        .any(|(index, ch)| (ch == '&' && is_entity(index)) || is_marker(index, ch))
+    {
         return None;
     }
     let mut escaped = String::with_capacity(text.len());
     for (index, ch) in text.char_indices() {
         if ch == '&' && is_entity(index) {
             escaped.push_str("&amp;");
+        } else if is_marker(index, ch) {
+            escaped.push_str(match ch {
+                '#' => "&#35;",
+                '+' => "&#43;",
+                '-' => "&#45;",
+                '.' => "&#46;",
+                ')' => "&#41;",
+                '!' => "&#33;",
+                '~' => "&#126;",
+                '|' => "&#124;",
+                _ => unreachable!(),
+            });
         } else {
             escaped.push(ch);
         }
@@ -200,30 +204,36 @@ fn converter() -> &'static HtmlToMarkdown {
                 ol_number_spacing: 1,
                 ..Options::default()
             })
-            .add_handler(vec!["pre"], plain_pre)
+            .add_handler(vec!["pre"], preformatted)
+            .add_handler(vec!["a", "img"], link_or_image)
             .build()
     })
 }
 
-// proa-perf-ok(scope): plain preformatted HTML needs a buffered adaptive Markdown code fence
-fn plain_pre(
-    handlers: &dyn htmd::element_handler::Handlers,
+// proa-perf-ok(scope): preformatted HTML needs a buffered adaptive Markdown code fence
+fn preformatted(
+    _: &dyn htmd::element_handler::Handlers,
     element: htmd::Element<'_>,
 ) -> Option<htmd::element_handler::HandlerResult> {
-    if element.node.children.borrow().iter().any(|child| {
-        matches!(&child.data, NodeData::Element { name, .. } if name.local.as_ref() == "code")
-    }) {
-        return handlers.fallback(element);
-    }
-    // htmd fences <pre><code> but otherwise emits bare preformatted text.
-    // Preserve all whitespace in a plain <pre>, including styled spans.
+    // Collect raw DOM text instead of walking inline handlers, which trim
+    // boundary newlines from highlighted spans. Core fences also sanitize
+    // language labels and cannot be closed by literal source content.
+    let language = element
+        .node
+        .children
+        .borrow()
+        .iter()
+        .find_map(|child| match &child.data {
+            NodeData::Element { name, .. } if name.local.as_ref() == "code" => code_language(child),
+            _ => None,
+        })
+        .or_else(|| code_language(element.node));
     let mut content = String::new();
     append_pre_text(element.node, &mut content);
     let mut output = Vec::new();
     output.extend_from_slice(b"\n\n");
-    crate::md::escape::write_fenced_code(&mut output, "", &content)
+    crate::md::escape::write_fenced_code(&mut output, language.as_deref().unwrap_or(""), &content)
         .expect("growable Markdown buffer");
-    output.extend_from_slice(b"\n\n");
     Some(
         String::from_utf8(output)
             .expect("UTF-8 Markdown escaping")
@@ -241,4 +251,114 @@ fn append_pre_text(node: &htmd::Node, output: &mut String) {
     for child in node.children.borrow().iter() {
         append_pre_text(child, output);
     }
+}
+
+// proa-perf-ok(scope): code language metadata is owned during buffered conversion
+fn code_language(node: &htmd::Node) -> Option<String> {
+    let NodeData::Element { attrs, .. } = &node.data else {
+        return None;
+    };
+    attrs
+        .borrow()
+        .iter()
+        .find(|attr| attr.name.local.as_ref() == "class")?
+        .value
+        .split_ascii_whitespace()
+        .find_map(|class| class.strip_prefix("language-"))
+        .map(str::to_owned)
+}
+
+// proa-perf-ok(scope): opt-in links and images use the core destination escaper
+fn link_or_image(
+    handlers: &dyn htmd::element_handler::Handlers,
+    element: htmd::Element<'_>,
+) -> Option<htmd::element_handler::HandlerResult> {
+    let image = element.tag == "img";
+    let attribute = |name: &str| {
+        element
+            .attrs
+            .iter()
+            .find(|attr| attr.name.local.as_ref() == name)
+            .map(|attr| attr.value.as_ref())
+    };
+    let Some(destination) = attribute(if image { "src" } else { "href" }) else {
+        return if image {
+            None
+        } else {
+            Some(handlers.walk_children(element.node))
+        };
+    };
+    let mut output = Vec::new();
+    let content = if image {
+        crate::md::escape::escape_md(&mut output, attribute("alt").unwrap_or(""))
+            .expect("growable Markdown buffer");
+        String::from_utf8(std::mem::take(&mut output)).expect("UTF-8 Markdown escaping")
+    } else {
+        handlers.walk_children(element.node).content
+    };
+    // Keep spaces outside the brackets so adjacent words do not concatenate.
+    let label = if image {
+        content.as_str()
+    } else {
+        content.trim_matches([' ', '\n', '\r', '\t'])
+    };
+    let leading = if image {
+        0
+    } else {
+        content.len() - content.trim_start_matches([' ', '\n', '\r', '\t']).len()
+    };
+    output.extend_from_slice(&content.as_bytes()[..leading]);
+    if image {
+        output.push(b'!');
+    }
+    output.push(b'[');
+    output.extend_from_slice(label.as_bytes());
+    output.extend_from_slice(b"](");
+    let escaped_destination = escape_literal_entities(destination, false);
+    let mut url = Vec::new();
+    crate::md::escape::write_link_destination(
+        &mut url,
+        escaped_destination.as_deref().unwrap_or(destination),
+    )
+    .expect("growable Markdown buffer");
+    // A leading '<' selects CommonMark's angle-delimited destination form.
+    // Encode both angle brackets so a literal HTML URL keeps its target.
+    for byte in url {
+        match byte {
+            b'<' => output.extend_from_slice(b"%3C"),
+            b'>' => output.extend_from_slice(b"%3E"),
+            _ => output.push(byte),
+        }
+    }
+    if let Some(title) = attribute("title") {
+        output.extend_from_slice(b" \"");
+        let title = escape_literal_entities(title, false).unwrap_or_else(|| title.to_owned());
+        for ch in title.chars() {
+            if matches!(ch, '\r' | '\n' | '\t') {
+                output.push(b' ');
+                continue;
+            }
+            if matches!(ch, '\\' | '"') {
+                output.push(b'\\');
+            }
+            let mut bytes = [0; 4];
+            output.extend_from_slice(ch.encode_utf8(&mut bytes).as_bytes());
+        }
+        output.push(b'"');
+    }
+    output.push(b')');
+    let trailing = if image {
+        content.len()
+    } else {
+        content
+            .trim_end_matches([' ', '\n', '\r', '\t'])
+            .len()
+            .max(leading)
+    };
+    output.extend_from_slice(&content.as_bytes()[trailing..]);
+    Some(
+        String::from_utf8(output)
+            .expect("UTF-8 Markdown escaping")
+            .into(),
+    )
 }
