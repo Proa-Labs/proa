@@ -70,8 +70,8 @@ pub enum WriteError {
     StreamClosed,
     /// A runtime renderer failed outside the write path itself.
     ///
-    /// Compiled components cannot produce this variant: their failure modes
-    /// are the write/load variants above. It exists for template interpreters
+    /// Compiled templates normally fail through the write/load variants above.
+    /// This variant also supports conversion adapters, template interpreters,
     /// and similar hosts whose render-time failures (budget exhaustion,
     /// malformed programs, type errors in evaluated expressions) are not
     /// buffer or loader conditions but must still surface through
@@ -2136,6 +2136,7 @@ pub fn render_growable<R>(root: R, initial_capacity: usize) -> Vec<u8>
 where
     R: crate::render::WebRenderSync<::proa_core::NoLoader, Vec<u8>> + Clone,
 {
+    // proa-perf-ok: this root helper intentionally owns the returned Vec
     let buf = Vec::with_capacity(initial_capacity.max(4096));
     let mut cx = crate::web::WebContext::with_buffer(buf);
     // Vec<u8> never returns Err — it grows as needed.

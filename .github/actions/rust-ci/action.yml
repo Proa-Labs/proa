@@ -85,6 +85,10 @@ runs:
       shell: bash
       run: cargo test --workspace --locked --test '*' --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa_showcase --exclude proa-lean-server --exclude proa-cli --exclude proa_webmcp_pizza --exclude proa_origin_routing_atlas
 
+    - name: test (HTML-to-Markdown feature)
+      shell: bash
+      run: cargo test -p proa_core --features html-to-markdown --locked
+
     - name: Check RSJS conformance manifest and snapshots
       shell: bash
       run: node rsjs_conformance/report.mjs --check
