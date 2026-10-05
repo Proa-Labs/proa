@@ -92,6 +92,53 @@ The fragment has no surrounding newline, so its containing template owns
 separators. It does not adapt its headings to an enclosing Markdown heading
 offset or infer whether a block fragment belongs in an inline slot.
 
+## Performance
+
+Direct `md_sync!` writes compiled Markdown with runtime text escaping.
+`to_markdown` additionally captures HTML, builds and prepares a DOM, converts
+it, and writes the resulting Markdown on every render. Its `LazyLock` only
+caches converter configuration; it does not cache converted content.
+
+The [comparison benchmark](../../../proa_core/benches/html_to_markdown.rs)
+checks equivalent parsed Markdown semantics before timing three dynamic
+fixtures. It measures both a fresh default context/output buffer and a warmed,
+reused context with its output cleared and Markdown state reset. Converter
+initialization and fixture construction are outside timing; fresh-context
+measurements include context construction and destruction. Output buffers
+are observed through `black_box`, without flattening them into strings in the
+timed loop.
+
+Two local release runs on an Apple M4 Max with Rust 1.95.0, workspace release
+settings (`opt-level=3`, thin LTO, one codegen unit), and the system allocator
+gave the following ranges of Criterion point estimates. Each benchmark used
+50 samples, 300 ms warmup, and 1 s measurement. These are workstation results,
+not portable latency guarantees or regression thresholds.
+
+| Fixture | Context | Direct `md_sync!` | Converted HTML | Conversion / direct |
+|---|---|---:|---:|---:|
+| 28-byte paragraph with strong text | Fresh | 0.129 µs | 1.865–1.913 µs | 14.5–14.8× |
+| 124–126-byte product card | Fresh | 0.179–0.190 µs | 3.432–3.683 µs | 19.1–19.4× |
+| 128 paragraphs, about 21 KB | Fresh | 16.255–16.284 µs | 272.790–275.800 µs | 16.8–16.9× |
+| Paragraph | Reused | 0.0135–0.0136 µs | 1.726–1.831 µs | 126.6–135.6× |
+| Product card | Reused | 0.0615–0.0641 µs | 3.287–3.544 µs | 53.5–55.3× |
+| 128 paragraphs | Reused | 15.651–15.790 µs | 273.580–274.460 µs | 17.4–17.5× |
+
+Separate allocation measurements were identical across both runs. With a
+reused context, direct rendering requested 0, 0, and 2 allocations for these
+fixtures; conversion requested 28, 53, and 1,814 allocations, respectively
+(10,502, 12,559, and 478,592 cumulative requested bytes). Counts include
+`alloc`, `alloc_zeroed`, and `realloc` calls. Requested bytes are not peak live
+memory. Allocation counting is disabled during Criterion timing.
+
+Conversion offers reuse of an HTML implementation at a measurable runtime
+cost. Handwritten Markdown keeps the compiled rendering path.
+
+Reproduce with:
+
+```bash
+cargo bench -p proa_core --features html-to-markdown --locked --bench html_to_markdown
+```
+
 ## Verification
 
 [The adapter contract tests](../../../proa_core/tests/to_markdown.rs) cover

@@ -46,6 +46,11 @@ name = "html_to_markdown"
 required-features = ["html-to-markdown"]
 
 [[bench]]
+name = "html_to_markdown"
+harness = false
+required-features = ["html-to-markdown"]
+
+[[bench]]
 name = "render_bench"
 harness = false
 
