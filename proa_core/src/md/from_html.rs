@@ -29,8 +29,9 @@ use crate::{
 /// This adapter always uses HTML, including for children that also implement a
 /// Markdown trait. Compose those children separately in `md_sync!` to use
 /// their Markdown representations. Styling and interactive behavior are not
-/// preserved. Head metadata, scripts, styles, templates, SVG, and elements with
-/// hidden or aria-hidden="true" attributes are omitted. CSS is not evaluated.
+/// preserved. Metadata elements, scripts, noscript, styles, templates, SVG,
+/// and elements with hidden or aria-hidden="true" attributes are omitted.
+/// CSS is not evaluated.
 /// The converted fragment has no leading or trailing newline; author fragment
 /// separators in the surrounding Markdown template.
 /// Simple grids become GFM pipe tables; complex tables retain rows/cells as
@@ -109,7 +110,16 @@ fn prepare_dom(node: &Rc<htmd::Node>, in_code: bool) {
         NodeData::Element { name, attrs, .. } => {
             !matches!(
                 name.local.as_ref(),
-                "head" | "script" | "style" | "template" | "svg"
+                "head"
+                    | "title"
+                    | "meta"
+                    | "link"
+                    | "base"
+                    | "script"
+                    | "noscript"
+                    | "style"
+                    | "template"
+                    | "svg"
             ) && !attrs.borrow().iter().any(|attr| {
                 attr.name.local.as_ref() == "hidden"
                     || (attr.name.local.as_ref() == "aria-hidden"

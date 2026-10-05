@@ -271,6 +271,39 @@ fn malformed_html_is_repaired_and_hidden_table_content_is_excluded() {
 }
 
 #[test]
+fn noscript_subtrees_do_not_leak_text_or_escaped_html() {
+    for source in [
+        "<p>Hi</p><noscript><img src=\"/p.gif\"></noscript>",
+        "<p>Hi</p><noscript>Fallback text</noscript>",
+        "<p>Hi<noscript><strong>Fallback</strong></noscript> there</p>",
+    ] {
+        let output = markdown(Html(source));
+        let expected = if source.contains(" there") {
+            "Hi there"
+        } else {
+            "Hi"
+        };
+        assert_eq!(output, expected, "{source}");
+        no_html(&output);
+    }
+}
+
+#[test]
+fn metadata_is_omitted_even_when_parsed_inside_the_body() {
+    for metadata in [
+        "<title>Page title</title>",
+        "<meta name='description' content='Secret'>",
+        "<link rel='stylesheet' href='/secret.css'>",
+        "<base href='/secret/'>",
+    ] {
+        let source = format!("<p>Body</p>{metadata}<p>After</p>");
+        let output = markdown(Html(&source));
+        assert_eq!(output, "Body\n\nAfter", "{source}");
+        no_html(&output);
+    }
+}
+
+#[test]
 fn every_builtin_html_and_svg_tag_has_an_explicit_conversion_fixture() {
     let mut covered = BTreeSet::new();
     let inline = [
@@ -316,7 +349,6 @@ fn every_builtin_html_and_svg_tag_has_an_explicit_conversion_fixture() {
         "picture",
         "object",
         "iframe",
-        "noscript",
     ];
     let block = [
         "html",
@@ -363,8 +395,6 @@ fn every_builtin_html_and_svg_tag_has_an_explicit_conversion_fixture() {
             format!("<select><optgroup><option>{value}</option></optgroup></select>")
         } else if matches!(tag, "select" | "datalist") {
             format!("<{tag}><option>{value}</option></{tag}>")
-        } else if tag == "noscript" {
-            format!("<body><noscript>{value}</noscript></body>")
         } else {
             format!("<{tag}>{value}</{tag}>")
         };
@@ -400,11 +430,11 @@ fn every_builtin_html_and_svg_tag_has_an_explicit_conversion_fixture() {
         assert_eq!(text(&markdown(Html(&source))), "BeforeAfter", "{source}");
         covered.insert(tag.to_owned());
     }
-    let output = markdown(Html("<html><head><title>Secret</title><meta name='x' content='secret'><link href='/secret'><base href='/secret'><style>secret</style></head><body>Visible<script>secret</script><template><p>secret</p></template></body></html>"));
+    let output = markdown(Html("<html><head><title>Secret</title><meta name='x' content='secret'><link href='/secret'><base href='/secret'><style>secret</style></head><body>Visible<script>secret</script><noscript>secret</noscript><template><p>secret</p></template></body></html>"));
     assert_eq!(text(&output), "Visible");
     covered.extend(
         [
-            "head", "title", "meta", "link", "base", "style", "script", "template",
+            "head", "title", "meta", "link", "base", "style", "script", "noscript", "template",
         ]
         .map(str::to_owned),
     );

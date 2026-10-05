@@ -31,9 +31,9 @@ not inferred.
 | `abbr`, `bdi`, `bdo`, `cite`, `data`, `dfn`, `kbd`, `mark`, `q`, `rp`, `rt`, `ruby`, `s`, `samp`, `small`, `span`, `sub`, `sup`, `time`, `u`, `var`, `del`, `ins`, `slot`, `selectedcontent`, `wbr` | Child text/content. No inferred quotes, ruby layout, directionality, underline, strike-through, superscript, or annotation semantics. `wbr` emits no text. |
 | `form`, `label`, `button`, `select`, `datalist`, `optgroup`, `option`, `textarea`, `output`, `progress`, `meter`, `fieldset`, `legend` | Child text only. Input values, checked/selected state, numeric attributes, validation, and control behavior are not synthesized. All option text may remain, rather than only the current selection. |
 | `details`, `summary`, `dialog`, `menu`, `search` | Child content; disclosure/open state, modal behavior, and interaction are not simulated. |
-| `audio`, `video`, `canvas`, `map`, `iframe`, `object`, `noscript` | Parsed fallback text/children only. No media transcription, canvas description, iframe fetching, or script execution. `noscript` follows the HTML parser's context rules. |
+| `audio`, `video`, `canvas`, `map`, `iframe`, `object` | Parsed fallback text/children only. No media transcription, canvas description, iframe fetching, or script execution. |
 | `input`, `area`, `embed`, `param`, `source`, `track`, `col`, `colgroup` | No textual content is synthesized from attributes. |
-| `head`, `title`, `meta`, `link`, `base`, `script`, `style`, `template`, `svg` and its children | Metadata, executable/style/template content, and SVG subtrees are omitted. Comments and doctypes are omitted. |
+| `head`, `title`, `meta`, `link`, `base`, `script`, `noscript`, `style`, `template`, `svg` and its children | Metadata, executable/style/template content, noscript subtrees, and SVG subtrees are omitted wherever the parser places them, including in the body. Comments and doctypes are omitted. |
 
 MathML, which is outside Proa's built-in tag catalog, has a tested child-text
 fallback. Spatial notation and MathML semantics are not converted to LaTeX.
