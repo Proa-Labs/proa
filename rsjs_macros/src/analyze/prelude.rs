@@ -1108,7 +1108,7 @@ pub(super) fn frontend_expr_has_client_dependency(expr: &FrontendExpr) -> bool {
                 || frontend_expr_has_client_dependency(needle)
         }
         FrontendExpr::QueryKey(parts) => parts.iter().any(frontend_expr_has_client_dependency),
-        FrontendExpr::ClientCall { args, .. } => {
+        FrontendExpr::ClientCall { args, .. } | FrontendExpr::Text { args, .. } => {
             args.iter().any(frontend_expr_has_client_dependency)
         }
     }
@@ -1164,7 +1164,7 @@ fn validate_live_query_key_expr(expr: &FrontendExpr) -> Result<(), &'static str>
             }
             Ok(())
         }
-        FrontendExpr::ClientCall { args, .. } => {
+        FrontendExpr::ClientCall { args, .. } | FrontendExpr::Text { args, .. } => {
             for arg in args {
                 validate_live_query_key_expr(arg)?;
             }

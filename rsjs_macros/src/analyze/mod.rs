@@ -89,6 +89,7 @@ mod reactive_expr;
 mod template;
 #[cfg(test)]
 mod tests;
+mod text;
 
 pub(crate) use hir_json::hir_sidecar_json;
 #[cfg(test)]
@@ -572,6 +573,7 @@ pub(crate) fn expand_server_prelude_expr_for_descriptor(expr: &Expr, lets: &[Loc
     folder.fold_expr(expr.clone())
 }
 
+#[derive(Clone)]
 struct Analyzer {
     builder: IslandBuilder,
     /// Source local -> shared-store acquisition id.
@@ -1263,6 +1265,7 @@ struct UnsupportedClientPreludeLocal {
     dependency_name: String,
 }
 
+#[derive(Clone)]
 struct LoopScope {
     locals: HashSet<String>,
     /// Exact fixed-width domains proven by static iterator syntax for a
@@ -1800,6 +1803,7 @@ impl InboundCrossingKind {
 /// `local_id` is dense and deterministic within the authored component. It is
 /// deliberately independent of path tokens: the emitted relocation, not the
 /// spelling stored here, is the component identity.
+#[derive(Clone)]
 pub(crate) struct DirectComponentSourceEdge {
     pub(crate) local_id: u32,
     pub(crate) component_ty: syn::Path,
@@ -1835,6 +1839,7 @@ pub(crate) struct DirectSharedStateProviderSite {
 
 /// One authored field assignment and the strongest source classification the
 /// tolerant frontend can prove without Rust type information.
+#[derive(Clone)]
 pub(crate) struct DirectComponentSourceField {
     pub(crate) name: String,
     pub(crate) binding: DirectComponentBindingClassification,
@@ -2057,6 +2062,7 @@ impl DirectComponentBoundary {
 /// `helper_path` deliberately keeps the authored Rust path rather than a
 /// token-derived identity. The generated relocation lets rustc resolve imports,
 /// aliases, and re-exports to the helper's defining function symbol.
+#[derive(Clone)]
 pub(crate) struct DirectHelperSourceEdge {
     pub(crate) local_id: u32,
     pub(crate) helper_path: syn::Path,
@@ -2070,12 +2076,14 @@ pub(crate) struct DirectHelperSourceEdge {
     pub(crate) expected_return_domain: Option<IntegerDomain>,
 }
 
+#[derive(Clone)]
 pub(crate) struct RuntimeSignalInitializer {
     pub(crate) id: SignalId,
     pub(crate) expr: Expr,
     pub(crate) explicit_ty: Option<syn::Type>,
 }
 
+#[derive(Clone)]
 pub(crate) struct SharedStateInitializer {
     pub(crate) id: SharedStoreId,
     pub(crate) source_name: syn::Ident,
@@ -2084,19 +2092,21 @@ pub(crate) struct SharedStateInitializer {
     pub(crate) expected_type_key: Option<proc_macro2::TokenStream>,
 }
 
+#[derive(Clone)]
 pub(crate) struct QueryInitializer {
     pub(crate) id: QueryId,
     pub(crate) expr: Expr,
     pub(crate) key_expr: Option<Expr>,
 }
 
+#[derive(Clone)]
 pub(crate) struct MutationInitializer {
     pub(crate) id: MutationId,
     pub(crate) key_expr: Expr,
     pub(crate) invalidates_expr: Option<Expr>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct HirSidecar {
     handlers: Vec<HandlerHirArtifact>,
     intervals: Vec<IntervalHirArtifact>,
@@ -2108,6 +2118,7 @@ pub(crate) struct HirSidecar {
 /// tree is analysed: the loop must be its container's only child and
 /// the container must not also carry a text binding, because the
 /// runtime's `bind_list` owns every element child of the container.
+#[derive(Clone)]
 struct KeyedListGuard {
     container: NodeId,
     loop_node: NodeId,
@@ -2119,33 +2130,39 @@ struct QueryListIterator {
     ssr_iter: String,
 }
 
+#[derive(Clone)]
 struct ListHirArtifact {
     container: NodeId,
     source: ListHirSource,
     key: String,
 }
 
+#[derive(Clone)]
 enum ListHirSource {
     Signal(SignalId),
     Expr(ExprId),
 }
 
+#[derive(Clone)]
 struct HandlerHirArtifact {
     id: EventHandlerId,
     body: Vec<HandlerHirStmt>,
 }
 
+#[derive(Clone)]
 struct IntervalHirArtifact {
     ms: u64,
     body: Vec<HandlerHirStmt>,
 }
 
+#[derive(Clone)]
 struct ComponentFragmentMountHirArtifact {
     root: NodeId,
     asset_id: String,
     callbacks: Vec<ComponentFragmentCallbackHirArtifact>,
 }
 
+#[derive(Clone)]
 struct ComponentFragmentCallbackHirArtifact {
     slot: CallbackSlotId,
     body: Vec<HandlerHirStmt>,

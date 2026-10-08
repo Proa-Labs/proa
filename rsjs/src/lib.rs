@@ -387,6 +387,7 @@ mod component_abi;
 mod helper_abi;
 mod linked_render;
 mod shared_state_abi;
+mod text_format;
 
 #[doc(hidden)]
 pub mod __private {
@@ -409,6 +410,7 @@ pub mod __private {
         SharedStateAbi, SharedStateAbiSchemaStatus, SharedStateAbiWitness,
         SHARED_STATE_ABI_WITNESS_MAGIC, SHARED_STATE_ABI_WITNESS_VERSION,
     };
+    pub use crate::text_format::TextString;
     pub use proa_core::RsjsLinkedProviderOccurrenceKey;
     pub use rsjs_transport::{
         encode_semantic_identity, ComponentDefinitionRecord, ComponentEdgeRecord,

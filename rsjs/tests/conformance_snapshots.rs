@@ -2406,3 +2406,113 @@ fn navigator_language_hir_sidecar_matches_conformance_snapshot() {
         "rsjs_conformance/snapshots/hir/browser_navigator_language.hir.json",
     );
 }
+
+#[path = "../../rsjs_macros/tests/ui/conformance/pass/42_reactive_text.rs"]
+#[allow(dead_code)]
+mod reactive_text_fixture;
+
+#[test]
+fn reactive_text_ssr_preserves_integer_formatting_and_escaping() {
+    for (quantity, expected) in [(1, "$1.05"), (10, "$10.50"), (1009, "$1059.45")] {
+        let html = proa_core::render_to_string(reactive_text_fixture::ReactiveTextSnapshot {
+            initial_quantity: quantity,
+            initial_sampled: quantity.to_string(),
+            initial_flag: quantity % 2 == 1,
+            price: quantity as f64 * 1.25,
+            server_only: reactive_text_fixture::ServerOnlyText { code: quantity },
+        });
+        assert!(html.contains(&format!("Subtotal: {expected}")), "{html}");
+        assert!(html.contains("{&lt;tag &amp; value&gt;}"), "{html}");
+        assert!(
+            html.contains(&format!("title=\"Quantity {quantity}\"")),
+            "{html}"
+        );
+        let expected_label_count = if quantity % 2 == 1 { 6 } else { 5 };
+        assert_eq!(
+            html.matches("&lt;tag &amp; value&gt;").count(),
+            expected_label_count,
+            "{html}"
+        );
+        assert!(
+            html.contains(&format!("{quantity} 05 ffffffff 0xFFFFFFFFFFFFFFFF")),
+            "{html}"
+        );
+        let conditional = if quantity % 2 == 1 {
+            "&lt;tag &amp; value&gt;"
+        } else {
+            "fallback"
+        };
+        assert!(
+            html.contains(&format!("{conditional} &lt;tag &amp; value&gt;")),
+            "{html}"
+        );
+        let transformed = if quantity % 2 == 1 {
+            "&lt;tag &amp; value&gt;"
+        } else {
+            "FALLBACK"
+        };
+        assert!(
+            html.contains(&format!("{transformed} &lt;tag &amp; value&gt;")),
+            "{html}"
+        );
+        let title = if quantity % 2 == 1 {
+            "        &lt;tag &amp; v"
+        } else {
+            "        FALLBACK"
+        };
+        assert!(html.contains(&format!("title=\"{title}\"")), "{html}");
+        let sampled = if quantity % 2 == 1 {
+            quantity.to_string()
+        } else {
+            "&lt;tag &amp; value&gt;".to_owned()
+        };
+        assert!(html.contains(&format!("{sampled} {quantity}")), "{html}");
+        assert_eq!(html.matches("title=\"Active: \"").count(), 2, "{html}");
+        assert!(
+            html.contains(&format!("title=\"Price {:.2}\"", quantity as f64 * 1.25)),
+            "{html}"
+        );
+        assert!(
+            html.contains(&format!("ServerOnlyText {{ code: {quantity} }}")),
+            "{html}"
+        );
+        let expected_bool = quantity % 2 == 1;
+        assert!(html.contains(&format!("Active: {expected_bool}")), "{html}");
+    }
+}
+
+#[test]
+fn reactive_text_js_matches_conformance_snapshot() {
+    let manifest = rsjs::manifest();
+    let island = manifest
+        .islands
+        .iter()
+        .find(|entry| entry.struct_name == "ReactiveTextSnapshot")
+        .expect("reactive text fixture registered");
+    assert_js_snapshot(
+        island.js_source,
+        "rsjs_conformance/snapshots/expressions/reactive_text.island.js",
+    );
+    assert!(
+        !island.js_source.contains("__sig_9"),
+        "server-only formatting must not allocate an unused client signal"
+    );
+}
+
+#[test]
+fn reactive_text_hir_matches_conformance_snapshot() {
+    assert_hir_sidecar_handler_snapshot(
+        "ReactiveTextSnapshot",
+        0,
+        "rsjs_conformance/snapshots/hir/reactive_text.hir.json",
+    );
+}
+
+#[test]
+fn reactive_text_ir_matches_conformance_snapshot() {
+    assert_client_ir_sidecar_handler_snapshot(
+        "ReactiveTextSnapshot",
+        0,
+        "rsjs_conformance/snapshots/client_ir/reactive_text.body-ir.json",
+    );
+}

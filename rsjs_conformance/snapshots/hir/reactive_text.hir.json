@@ -1,0 +1,213 @@
+[
+  {
+    "closure": {
+      "body": {
+        "kind": "binary",
+        "lhs": {
+          "kind": "signal_read",
+          "signal": 0,
+          "span": {
+            "end": {
+              "column": 41,
+              "line": 1
+            },
+            "start": {
+              "column": 40,
+              "line": 1
+            }
+          }
+        },
+        "op": "Checked { op: Add, domain: U32 }",
+        "rhs": {
+          "kind": "literal",
+          "span": {
+            "end": {
+              "column": 41,
+              "line": 1
+            },
+            "start": {
+              "column": 40,
+              "line": 1
+            }
+          },
+          "value": {
+            "kind": "int",
+            "value": 1
+          }
+        },
+        "span": {
+          "end": {
+            "column": 41,
+            "line": 1
+          },
+          "start": {
+            "column": 40,
+            "line": 1
+          }
+        }
+      },
+      "param": "n"
+    },
+    "kind": "signal_update",
+    "signal": 0,
+    "span": {
+      "end": {
+        "column": 28,
+        "line": 1
+      },
+      "start": {
+        "column": 20,
+        "line": 1
+      }
+    }
+  },
+  {
+    "kind": "signal_set",
+    "signal": 1,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 2
+      },
+      "start": {
+        "column": 20,
+        "line": 2
+      }
+    },
+    "value": {
+      "kind": "literal",
+      "span": {
+        "end": {
+          "column": 45,
+          "line": 2
+        },
+        "start": {
+          "column": 30,
+          "line": 2
+        }
+      },
+      "value": {
+        "kind": "string",
+        "value": "<new & value>"
+      }
+    }
+  },
+  {
+    "closure": {
+      "body": {
+        "kind": "binary",
+        "lhs": {
+          "kind": "signal_read",
+          "signal": 2,
+          "span": {
+            "end": {
+              "column": 41,
+              "line": 3
+            },
+            "start": {
+              "column": 40,
+              "line": 3
+            }
+          }
+        },
+        "op": "Eq",
+        "rhs": {
+          "kind": "literal",
+          "span": {
+            "end": {
+              "column": 41,
+              "line": 3
+            },
+            "start": {
+              "column": 40,
+              "line": 3
+            }
+          },
+          "value": {
+            "kind": "bool",
+            "value": false
+          }
+        },
+        "span": {
+          "end": {
+            "column": 41,
+            "line": 3
+          },
+          "start": {
+            "column": 40,
+            "line": 3
+          }
+        }
+      },
+      "param": "value"
+    },
+    "kind": "signal_update",
+    "signal": 2,
+    "span": {
+      "end": {
+        "column": 24,
+        "line": 3
+      },
+      "start": {
+        "column": 20,
+        "line": 3
+      }
+    }
+  },
+  {
+    "kind": "signal_set",
+    "signal": 8,
+    "span": {
+      "end": {
+        "column": 32,
+        "line": 4
+      },
+      "start": {
+        "column": 20,
+        "line": 4
+      }
+    },
+    "value": {
+      "kind": "signal_read",
+      "signal": 2,
+      "span": {
+        "end": {
+          "column": 41,
+          "line": 4
+        },
+        "start": {
+          "column": 37,
+          "line": 4
+        }
+      }
+    }
+  },
+  {
+    "kind": "signal_set",
+    "signal": 6,
+    "span": {
+      "end": {
+        "column": 25,
+        "line": 5
+      },
+      "start": {
+        "column": 20,
+        "line": 5
+      }
+    },
+    "value": {
+      "kind": "debug",
+      "span": {
+        "end": {
+          "column": 32,
+          "line": 5
+        },
+        "start": {
+          "column": 30,
+          "line": 5
+        }
+      },
+      "value": "Conditional { condition: SignalRead(SignalId(2)), then_expr: BinaryOp { op: Mul, lhs: BinaryOp { op: Div, lhs: SignalRead(SignalId(5)), rhs: SignalRead(SignalId(4)) }, rhs: Literal(Float(-1.0)) }, else_expr: BinaryOp { op: Div, lhs: SignalRead(SignalId(5)), rhs: SignalRead(SignalId(4)) } }"
+    }
+  }
+]

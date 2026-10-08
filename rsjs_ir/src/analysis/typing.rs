@@ -487,6 +487,10 @@ impl<'a> TypeEnv<'a> {
                 _ => ClientType::Unknown,
             },
             // Helper calls and dynamic indexing have no proof; stay honest.
+            ClientExpr::Call {
+                function: crate::ClientFunctionRef::Runtime(name),
+                ..
+            } if name == "format_text" || name == "format_text_attr" => ClientType::String,
             ClientExpr::Index { .. } | ClientExpr::Call { .. } => ClientType::Unknown,
         }
     }

@@ -5238,3 +5238,105 @@ fn handler_hir_snapshot_json(statements: &[HandlerHirStmt]) -> serde_json::Value
 fn client_block_snapshot_json(block: &ClientBlock) -> serde_json::Value {
     serde_json::from_str(&client_block_json(block)).expect("Client IR JSON should parse")
 }
+
+#[test]
+fn reactive_text_unsupported_format_does_not_fall_back_to_ssr() {
+    let mut analyzer = test_analyzer();
+    let signal = analyzer
+        .builder
+        .signal_typed(Value::Float(1.25), ClientType::F64);
+    analyzer.signals.insert("amount".to_owned(), signal);
+    let parent = analyzer.builder.element("p", None);
+    let expr = syn::parse_quote! { proa_macros::text!("{:.2}", amount.get()) };
+    let error = analyzer
+        .lower_text_binding_expr(&expr, parent, false)
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("rsjs/text-format-unsupported"),
+        "{error}"
+    );
+    assert!(analyzer.server_expressions.is_empty());
+}
+
+#[test]
+fn text_server_boundaries_still_reject_client_captures() {
+    let mut analyzer = test_analyzer();
+    let signal = analyzer
+        .builder
+        .signal_typed(Value::Int(1), ClientType::U32);
+    analyzer.signals.insert("quantity".to_owned(), signal);
+    let expr = syn::parse_quote! { proa_macros::text!("{}", quantity.get()) };
+    assert!(analyzer
+        .reject_reactive_captures_in_opaque_boundary(&expr, OpaqueBoundary::ServerOnly)
+        .is_err());
+    assert!(analyzer
+        .reject_reactive_captures_in_opaque_boundary(&expr, OpaqueBoundary::ServerAttr)
+        .is_err());
+    assert!(!analyzer.can_infer_opaque_server_expr(&expr));
+}
+
+#[test]
+fn static_text_formats_retain_the_full_server_grammar() {
+    let mut analyzer = test_analyzer();
+    let expr = syn::parse_quote! { ::proa_macros::text!("{:.2} {:?}", 1.25_f64, vec![1, 2]) };
+    assert!(analyzer.text_intrinsic_is_server_only(&expr).unwrap());
+    let parent = analyzer.builder.element("p", None);
+    analyzer
+        .lower_text_binding_expr(&expr, parent, false)
+        .unwrap();
+    assert_eq!(analyzer.server_expressions.len(), 1);
+}
+
+#[test]
+fn failed_opaque_text_lowering_restores_all_client_state() {
+    let mut analyzer = test_analyzer();
+    let parent = analyzer.builder.element("p", None);
+    // Preserve an already-live field, including its original prop-use record.
+    let live: Expr = syn::parse_quote! { proa_macros::text!("{}", self.label) };
+    analyzer
+        .lower_text_binding_expr(&live, parent, false)
+        .unwrap();
+    let initial_signals = analyzer.signal_initializers.len();
+    let initial_inputs = analyzer.inbound_inputs.clone();
+    let initial_edges = analyzer.direct_helper_edges.len();
+    for expr in [
+        syn::parse_quote! { proa_macros::text!("{:.2}", self.price) },
+        syn::parse_quote! { proa_macros::text!("{:?}", self.label) },
+        syn::parse_quote! { proa_macros::text!("{:?}", display_value(self.price)) },
+    ] {
+        analyzer
+            .lower_text_binding_expr(&expr, parent, false)
+            .unwrap();
+        assert_eq!(analyzer.signal_initializers.len(), initial_signals);
+        assert_eq!(analyzer.inbound_inputs, initial_inputs);
+        assert_eq!(analyzer.direct_helper_edges.len(), initial_edges);
+        assert!(!analyzer.inbound_live_signals.contains_key("price"));
+    }
+    let island = analyzer.builder.build();
+    assert_eq!(island.signals.len(), 1);
+    assert_eq!(analyzer.server_expressions.len(), 3);
+}
+
+#[test]
+fn reactive_text_rejects_small_integer_radix_instead_of_widening() {
+    for ty in ["i8", "i16"] {
+        let (statements, lets) = prelude_from_block(
+            syn::parse_str(&format!(
+                "{{ let delta: rsjs::Signal<{ty}> = signal(self.delta); }}"
+            ))
+            .unwrap(),
+        );
+        let mut analyzer = test_analyzer();
+        // These widths are rejected at the signal declaration, before a
+        // formatter can accidentally treat their representation as i32.
+        let error = analyzer
+            .collect_prelude_bindings(&statements, &lets)
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("rsjs/integer-domain-unsupported"),
+            "{ty}: {error}"
+        );
+    }
+}

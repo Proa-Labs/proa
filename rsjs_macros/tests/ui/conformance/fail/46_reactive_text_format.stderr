@@ -1,0 +1,13 @@
+error: rsjs/text-format-unsupported: reactive text! formatting supports integer display/binary/octal/hex and string display, with literal width, alignment and precision; other Rust format traits remain server-only
+ --> tests/ui/conformance/fail/46_reactive_text_format.rs:9:58
+  |
+9 |         proa_macros::html_sync! { <p>{proa_macros::text!("{:.2}", amount.get())}</p> }.render(cx)
+  |                                                          ^^^^^^^
+
+warning: unused imports: `DataLoader`, `WebContext`, `WebRenderSync`, and `WriteError`
+ --> tests/ui/conformance/fail/46_reactive_text_format.rs:1:17
+  |
+1 | use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+  |                 ^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

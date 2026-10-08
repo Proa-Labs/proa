@@ -400,6 +400,30 @@ pub(super) fn lower_handler_ir_expr_to_client_expr(
             op: ClientUnaryOp::CheckedNeg(*domain),
             expr: Box::new(lower_handler_ir_expr_to_client_expr(expr, span)?),
         },
+        FrontendExpr::Text {
+            template,
+            plan,
+            args,
+            attribute,
+        } => {
+            let mut lowered = vec![ClientExpr::string(template), ClientExpr::string(plan)];
+            lowered.extend(
+                args.iter()
+                    .map(|arg| lower_handler_ir_expr_to_client_expr(arg, span))
+                    .collect::<syn::Result<Vec<_>>>()?,
+            );
+            ClientExpr::call(
+                ClientFunctionRef::Runtime(
+                    if *attribute {
+                        "format_text_attr"
+                    } else {
+                        "format_text"
+                    }
+                    .to_owned(),
+                ),
+                lowered,
+            )
+        }
         FrontendExpr::ClientCall {
             edge,
             authored_path,

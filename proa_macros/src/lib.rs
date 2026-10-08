@@ -144,6 +144,10 @@ pub fn html_sync(input: TokenStream) -> TokenStream {
 /// rejected because their complete value cannot be validated safely, and a
 /// stored `text!` value is rejected at runtime. Build a validated URL value
 /// first or use a typed URL helper for composite URLs.
+/// Inside an RSJS-analyzed template, direct `text!` calls can track reactive
+/// arguments in text and ordinary value attributes. Client formatting supports
+/// integer display/binary/octal/hex and string display with literal format
+/// plans; other Rust formatting traits remain server-only.
 #[proc_macro]
 pub fn text(input: TokenStream) -> TokenStream {
     text_macro::expand(input)

@@ -359,6 +359,16 @@ impl Analyzer {
                         );
                         continue;
                     }
+                    if self.text_intrinsic_is_server_only(value)? {
+                        self.builder.server_attr_with_source_anchor(
+                            id,
+                            &html_name,
+                            &format!("rsjs::server_attr({})", value.to_token_stream()),
+                            rsjs_ir::ServerSurfaceSource::InferredOpaqueSsr,
+                            Some(server_surface_anchor(value.span())),
+                        );
+                        continue;
+                    }
                     if self.is_simple_server_slot_expr(value) {
                         let tokens = value.to_token_stream().to_string();
                         self.builder.server_attr_with_source_anchor(
@@ -397,7 +407,8 @@ impl Analyzer {
                                 Some(server_surface_anchor(value.span())),
                             );
                         }
-                        Ok(ir) => {
+                        Ok(mut ir) => {
+                            text::set_attribute_context(&mut ir);
                             let expr_id = self.alloc_expr(ir, value.span())?;
                             let kind = if is_html_boolean_attr(&html_name) {
                                 AttrBindingKind::Boolean
@@ -593,6 +604,15 @@ impl Analyzer {
         parent: NodeId,
         dedicated_text_slot: bool,
     ) -> syn::Result<()> {
+        if self.text_intrinsic_is_server_only(expr)? {
+            self.record_server_expression(
+                parent,
+                expr,
+                rsjs_ir::ServerSurfaceSource::InferredOpaqueSsr,
+                Some(server_surface_anchor(expr.span())),
+            );
+            return Ok(());
+        }
         if self
             .generic_static_slot_field
             .as_deref()
@@ -795,6 +815,14 @@ impl Analyzer {
     /// client local and does not contain a compiler-known client primitive or
     /// browser helper. Such an expression stays ordinary Rust for SSR.
     pub(super) fn can_infer_opaque_server_expr(&self, expr: &Expr) -> bool {
+        if let Some(parsed) = proa_dsl::text::parse_expr(expr) {
+            return parsed.is_ok_and(|parsed| {
+                parsed
+                    .args
+                    .iter()
+                    .all(|arg| self.can_infer_opaque_server_expr(arg))
+            });
+        }
         // Closures are callable values, not renderable server fragments. Keep
         // the focused RSJS diagnostic instead of deferring this syntactically
         // obvious mistake to a broad WebRenderSync trait error.
@@ -3413,6 +3441,16 @@ impl<'ast> Visit<'ast> for OpaqueBoundaryReactiveCapture<'_> {
     }
 
     fn visit_expr_macro(&mut self, expression: &'ast syn::ExprMacro) {
+        if crate::is_text_intrinsic_path(&expression.mac.path) {
+            if let Ok(input) =
+                syn::parse2::<proa_dsl::text::TextMacroInput>(expression.mac.tokens.clone())
+            {
+                for argument in &input.args {
+                    self.visit_expr(argument);
+                }
+            }
+            return;
+        }
         if !matches!(
             self.boundary,
             OpaqueBoundary::SharedStateProviderSeed | OpaqueBoundary::StaticLoopPrefix

@@ -79,7 +79,7 @@ use crate::value::Value;
 /// wire them together with `bind_*` calls, and finalise with
 /// [`IslandBuilder::build`]. See the crate-level docs for an
 /// example.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct IslandBuilder {
     shared_stores: Vec<SharedStoreDecl>,
     signals: Vec<SignalDecl>,
