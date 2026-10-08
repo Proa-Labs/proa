@@ -16,7 +16,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DebouncedHan
 
         proa_macros::html_sync! {
             <div>
-                <input on_input={rsjs::debounce(300, |event| query.set(event.value()))} />
+                <input on_input={rsjs::debounce(|event| query.set(event.value()), 300)} />
                 <span>{query.get()}</span>
             </div>
         }

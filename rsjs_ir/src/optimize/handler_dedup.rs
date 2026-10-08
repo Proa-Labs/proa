@@ -102,7 +102,7 @@ impl IslandPass for HandlerDedup {
         // them; the surface stays the same.
         // Equivalence keys on the Client IR v3 body AND the debounce
         // window: two handlers with identical bodies but different
-        // `debounce(ms, ...)` wrappers (or one wrapped, one not) must
+        // `debounce(..., delay_ms)` wrappers (or one wrapped, one not) must
         // stay distinct because the wrapper is part of the emitted
         // declaration.
         let keys = island

@@ -1,4 +1,4 @@
-// Category 43: computed cells are read-only; `.set(...)` (and
+// Category 43: memo cells are read-only; `.set(...)` (and
 // `.update(...)`) on a derived cell is rejected with a pointer to the
 // source signals.
 
@@ -22,7 +22,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CartTotal {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let price = signal(10_i64);
         let qty = signal(2_i64);
-        let total = rsjs::computed(|| price.get() * qty.get());
+        let total = rsjs::memo(|| price.get() * qty.get());
         proa_macros::html_sync! {
             <div>
                 <button on_click={|_| total.set(0)}>"Reset"</button>

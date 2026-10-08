@@ -45,6 +45,17 @@ writer parameter defaults to the reusable `RenderBuffer` owned by
 writer. Low-level integrations that genuinely need a custom writer may use the
 advanced `WebRenderSync<L, B>` / `WebRender<L, B>` and `WebContext<L, B>` forms.
 
+Use `signal(initial)` for writable state and `memo(|| expression)` for a
+read-only cached derivation. Memo dependencies are inferred by the compiler;
+there is no manual dependency array. Input writes schedule batched
+recomputation, and unchanged results suppress downstream notifications.
+See the [signals reference](../docs/agent/api-reference/signals.md) for details.
+
+Event attributes can debounce a closure with
+`on_input={rsjs::debounce(|event| query.set(event.value()), 300)}`. The handler
+comes first and the integer literal delay comes second. Debounce is trailing
+edge and pending calls are canceled on island teardown.
+
 ## Quick start
 
 ```rust,ignore
@@ -355,7 +366,7 @@ Each client consumer acquires the nearest provider in its prelude:
 ```rust,ignore
 let workbench = rsjs::shared::<WorkbenchState>();
 let button_bg = workbench.button_bg();
-let is_green = rsjs::computed(|| button_bg.get() == "#2f6b4f");
+let is_green = rsjs::memo(|| button_bg.get() == "#2f6b4f");
 ```
 
 The provider emits no DOM wrapper. Each top-level field is an independent cell;

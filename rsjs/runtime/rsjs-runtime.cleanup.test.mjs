@@ -15,7 +15,7 @@ import {
     bind_submit,
     bind_text,
     bind_window_event,
-    computed,
+    memo,
     signal,
 } from './rsjs-runtime.js';
 
@@ -146,17 +146,17 @@ function make_counted_cell(initial) {
     const source = make_counted_cell('ready');
     let threw = false;
     try {
-        computed(() => {
-            throw new Error('computed initialization failed');
+        memo(() => {
+            throw new Error('memo initialization failed');
         }, [source]);
     } catch {
         threw = true;
     }
 
-    assert(threw, 'computed should propagate an initialization failure');
+    assert(threw, 'memo should propagate an initialization failure');
     assert(
         source.subscriber_count() === 0,
-        'computed should unsubscribe explicit dependencies when initialization fails',
+        'memo should unsubscribe explicit dependencies when initialization fails',
     );
 }
 

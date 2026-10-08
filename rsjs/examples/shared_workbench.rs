@@ -22,6 +22,7 @@ struct CanvasToolbar;
 
 #[rsjs::rsjs(component, client)]
 impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CanvasToolbar {
+    // proa-perf-ok(scope): owned String writes are lowered to browser event-handler code, not SSR allocations
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<WorkbenchState>();
 
@@ -43,7 +44,7 @@ struct CanvasPreview;
 impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CanvasPreview {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<WorkbenchState>();
-        let label = rsjs::computed(|| workbench.button_bg().get());
+        let label = rsjs::memo(|| workbench.button_bg().get());
 
         proa_macros::html_sync! {
             <output>{label.get()}</output>
@@ -52,6 +53,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CanvasPrevie
     }
 }
 
+// proa-perf-ok(scope): standalone example manually embeds the framework's trusted, script-safe shared-state seed table
 fn main() {
     let page = rsjs::SharedStateProvider {
         state: WorkbenchState {

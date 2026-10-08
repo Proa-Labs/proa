@@ -796,7 +796,7 @@ fn parse_prelude_statements(prelude: &[Stmt]) -> (Vec<Local>, Vec<syn::ExprCall>
 /// Returns `true` if `call` is an `interval(...)` /
 /// `rsjs::interval(...)` invocation (bare or `rsjs::`-qualified,
 /// matching the recognition rule used for `signal(...)` and
-/// `computed(...)`).
+/// `memo(...)`).
 pub(crate) fn is_interval_call_expr(call: &syn::ExprCall) -> bool {
     let Expr::Path(path) = call.func.as_ref() else {
         return false;

@@ -7,14 +7,14 @@ mod support;
 use rsjs::rsjs;
 use support::*;
 
-pub struct ComputedSignals;
+pub struct MemoSignals;
 
 #[rsjs(component, client)]
-impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComputedSignals {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for MemoSignals {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let price = signal(10_i64);
         let qty = signal(2_i64);
-        let total = rsjs::computed(|| price.get() * qty.get());
+        let total = rsjs::memo(|| price.get() * qty.get());
 
         proa_macros::html_sync! {
             <div>

@@ -1284,9 +1284,9 @@
       ]
     },
     {
-      "id": "signals.computed.basic",
+      "id": "signals.memo.basic",
       "category": "signals",
-      "description": "computed(...) derived cells lower to the runtime computed(fn, deps) cell: SSR shows the value evaluated over signal initials, bindings subscribe to the derived cell, and a source-signal write updates the bound text through the microtask scheduler",
+      "description": "memo(...) derived cells lower to the runtime memo(fn, deps) cell: SSR shows the value evaluated over signal initials, bindings subscribe to the derived cell, and a source-signal write updates the bound text through the microtask scheduler",
       "status": "supported",
       "source_positions": ["prelude", "text_binding", "event_handler"],
       "coverage": {
@@ -1299,15 +1299,15 @@
         "runtime": true
       },
       "snapshots": {
-        "hir_snapshot": "rsjs_conformance/snapshots/hir/signals_computed_basic.hir.json",
-        "ir_snapshot": "rsjs_conformance/snapshots/client_ir/signals_computed_basic.body-ir.json",
-        "js_snapshot": "rsjs_conformance/snapshots/signals/computed_signals.island.js"
+        "hir_snapshot": "rsjs_conformance/snapshots/hir/signals_memo_basic.hir.json",
+        "ir_snapshot": "rsjs_conformance/snapshots/client_ir/signals_memo_basic.body-ir.json",
+        "js_snapshot": "rsjs_conformance/snapshots/signals/memo_signals.island.js"
       },
-      "runtime_script": "rsjs_conformance/runtime/computed_signals.mjs",
+      "runtime_script": "rsjs_conformance/runtime/memo_signals.mjs",
       "fixtures": [
         {
-          "case_id": "signals.computed.basic",
-          "path": "rsjs_macros/tests/ui/conformance/pass/33_computed_signals.rs",
+          "case_id": "signals.memo.basic",
+          "path": "rsjs_macros/tests/ui/conformance/pass/33_memo_signals.rs",
           "expect": "pass"
         }
       ]
@@ -1344,7 +1344,7 @@
     {
       "id": "timers.debounce.basic",
       "category": "timers",
-      "description": "on_input={rsjs::debounce(ms, |event| ...)} wraps the lowered handler with the runtime debounce(ms, fn) trailing-edge wrapper: bursts of events collapse to one call carrying the last value, the wrapper's _dispose joins the island disposer list, and the delegation table references the wrapped function",
+      "description": "on_input={rsjs::debounce(|event| ..., delay_ms)} wraps the lowered handler with the runtime debounce(fn, delay_ms) trailing-edge wrapper: bursts of events collapse to one call carrying the last value, the wrapper's _dispose joins the island disposer list, and the delegation table references the wrapped function",
       "status": "supported",
       "source_positions": ["event_handler", "text_binding"],
       "coverage": {
@@ -1500,7 +1500,7 @@
       "description": "i64 division and remainder use checked BigInt operations across the full Rust domain and truncate toward zero exactly like Rust",
       "status": "supported",
       "semantic_contract": "parity",
-      "notes": "Every declared i64 value is BigInt-backed, including zero and other values inside JavaScript's safe-integer range. Fixed-width `/` and `%` lower to checked_int_div/checked_int_rem with the i64 domain, so division by zero and i64::MIN / -1 fail before mutation while ordinary negative division truncates toward zero. The whole-island typing pass carries the exact domain through signals, handler locals, update closure parameters, computed cells, and compound assignments. #[rsjs::client] helpers use their declared parameter/local/return domains and the same checked operations.",
+      "notes": "Every declared i64 value is BigInt-backed, including zero and other values inside JavaScript's safe-integer range. Fixed-width `/` and `%` lower to checked_int_div/checked_int_rem with the i64 domain, so division by zero and i64::MIN / -1 fail before mutation while ordinary negative division truncates toward zero. The whole-island typing pass carries the exact domain through signals, handler locals, update closure parameters, memo cells, and compound assignments. #[rsjs::client] helpers use their declared parameter/local/return domains and the same checked operations.",
       "source_positions": ["event_handler"],
       "coverage": {
         "compile_pass": true,
@@ -1531,7 +1531,7 @@
       "description": "All i64/u64 signals, literals, locals, handlers, and helper arithmetic use BigInt with exact checked Rust-domain semantics, regardless of magnitude",
       "status": "supported",
       "semantic_contract": "parity",
-      "notes": "The wire codec carries i64/u64 as canonical decimal strings and hydration validates and converts them to BigInt. Compound signal seeds recursively preserve fixed-width leaves through Option, Vec, and structural object containers, so Option<i64>::Some values past 2^53 enter handlers as BigInt rather than strings. Compiled wide fallbacks and literals are BigInt even for small values such as 0_i64. Checked operators enforce signed/unsigned bounds and reject overflow, underflow, zero division, representation mixing, and unsigned negation before a signal mutates. Exact domains propagate through signals, locals, handlers, computed values, component inlining, and #[rsjs::client] helper parameters/locals/returns. Mixed fixed-width domains are rejected for arithmetic and comparisons; unsuffixed literals inherit a proven surrounding domain. Unsupported i8/i16/i128/isize/u8/u16/u128/usize client arithmetic is rejected rather than approximated. Boundary codecs may still transport fields of those widths; codec support does not grant a client arithmetic domain.",
+      "notes": "The wire codec carries i64/u64 as canonical decimal strings and hydration validates and converts them to BigInt. Compound signal seeds recursively preserve fixed-width leaves through Option, Vec, and structural object containers, so Option<i64>::Some values past 2^53 enter handlers as BigInt rather than strings. Compiled wide fallbacks and literals are BigInt even for small values such as 0_i64. Checked operators enforce signed/unsigned bounds and reject overflow, underflow, zero division, representation mixing, and unsigned negation before a signal mutates. Exact domains propagate through signals, locals, handlers, memo values, component inlining, and #[rsjs::client] helper parameters/locals/returns. Mixed fixed-width domains are rejected for arithmetic and comparisons; unsuffixed literals inherit a proven surrounding domain. Unsupported i8/i16/i128/isize/u8/u16/u128/usize client arithmetic is rejected rather than approximated. Boundary codecs may still transport fields of those widths; codec support does not grant a client arithmetic domain.",
       "source_positions": ["event_handler"],
       "coverage": {
         "compile_pass": true,

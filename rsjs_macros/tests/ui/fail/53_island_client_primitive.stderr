@@ -1,4 +1,4 @@
-error: rsjs boundary: `rsjs::island(...)` cannot declare or read parent `computed(...)` state
+error: rsjs boundary: `rsjs::island(...)` cannot declare or read parent `memo(...)` state
 
        Why:
          Explicit child islands are independent client scopes. Client primitives belong to the parent island or the child island, not both through the boundary expression.
@@ -12,5 +12,5 @@ error: rsjs boundary: `rsjs::island(...)` cannot declare or read parent `compute
          server_boundary.client_primitive
   --> tests/ui/fail/53_island_client_primitive.rs:19:60
    |
-19 |                 {rsjs::island(BoundaryChild { value: rsjs::computed(|| 1_i64) })}
-   |                                                            ^^^^^^^^
+19 |                 {rsjs::island(BoundaryChild { value: rsjs::memo(|| 1_i64) })}
+   |                                                            ^^^^

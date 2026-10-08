@@ -150,8 +150,8 @@ export function integer_signal(
 ): Signal<bigint>;
 
 /**
- * Read half of the Signal interface, as returned by `computed()`.
- * Listing a computed in a binding's `deps` array works exactly like
+ * Read half of the Signal interface, as returned by `memo()`.
+ * Listing a memo in a binding's `deps` array works exactly like
  * listing a plain signal.
  */
 export interface ReadonlySignal<T> {
@@ -174,7 +174,7 @@ export interface ReadonlySignal<T> {
  * batched; downstream subscribers only run when the derived value
  * actually changed (`Object.is`).
  */
-export function computed<T>(
+export function memo<T>(
     fn: () => T,
     deps?: ReadonlyArray<Signal<unknown>>,
 ): ReadonlySignal<T>;
@@ -197,13 +197,13 @@ export interface DebouncedFunction<A extends unknown[]> {
 }
 
 /**
- * Wrap `fn` so calls collapse until `ms` milliseconds pass without a
+ * Wrap `fn` so calls collapse until `delay_ms` milliseconds pass without a
  * new call; the wrapper then invokes `fn` with the most recent
  * arguments.
  */
 export function debounce<A extends unknown[]>(
-    ms: number,
     fn: (...args: A) => void,
+    delay_ms: number,
 ): DebouncedFunction<A>;
 
 /**

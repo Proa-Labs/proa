@@ -1,0 +1,5 @@
+error: `total` is a memo cell, and memo cells are read-only: their value always derives from the signals their closure reads, so you cannot call `.set(...)` on it. Write to one of the source signals instead, or declare `total` with `signal(...)` if it should hold independent state
+  --> tests/ui/fail/43_memo_set.rs:28:45
+   |
+28 |                 <button on_click={|_| total.set(0)}>"Reset"</button>
+   |                                             ^^^

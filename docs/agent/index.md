@@ -61,7 +61,7 @@ Agents should treat these as the canonical reference shapes. Read before writing
 | Generic-children declarative component | [`proa_macros/tests/proa_component.rs`](../../proa_macros/tests/proa_component.rs) | `Card<C = ()>` and derive-backed generic component patterns |
 | Single-signal rsjs island | [`rsjs_macros/tests/parser_counter.rs`](../../rsjs_macros/tests/parser_counter.rs) | The minimum working island |
 | Multi-signal island + conditionals + bind_value | [`rsjs_macros/tests/parser_user_form.rs`](../../rsjs_macros/tests/parser_user_form.rs) | Forms, validation, multiple `if` branches |
-| Typed state shared across independent islands | [`rsjs/examples/shared_workbench.rs`](../../rsjs/examples/shared_workbench.rs) | `SharedStateProvider` scope, `shared::<T>()`, field cells, computed values, and batched writes |
+| Typed state shared across independent islands | [`rsjs/examples/shared_workbench.rs`](../../rsjs/examples/shared_workbench.rs) | `SharedStateProvider` scope, `shared::<T>()`, field cells, memo values, and batched writes |
 | Async analyzed component | [`rsjs_macros/tests/parser_counter.rs`](../../rsjs_macros/tests/parser_counter.rs) | Canonical `WebRender` signature and `RenderOutcome::pending(async move { ... })` |
 | Real-world rsjs island shipping in production | [`proa_demo/src/ebay_srp_islands.rs`](../../proa_demo/src/ebay_srp_islands.rs) | `WatchHeart` (one signal) + `FilterChips` (multi-signal toolbar) |
 | Server-rendered values | [`api-reference/slot-grammar.md`](api-reference/slot-grammar.md) | Prelude values render normally; `server_only(...)` is a compatibility escape hatch |

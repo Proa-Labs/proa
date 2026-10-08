@@ -1733,7 +1733,7 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
         let neg_rhs = rsjs::signal(-3_i64);
         let quotient = rsjs::signal(0_i64);
         let remainder = rsjs::signal(0_i64);
-        let doubled = rsjs::computed(|| neg_lhs.get() * 2_i64);
+        let doubled = rsjs::memo(|| neg_lhs.get() * 2_i64);
 
         ::proa_macros::html_sync! {
             <div>
@@ -1779,7 +1779,7 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
         // 9007199254740993 = 2^53 + 1, the first i64 a JS Number cannot
         // represent exactly.
         let big = rsjs::signal(9007199254740993_i64);
-        let successor = rsjs::computed(|| big.get() + 1_i64);
+        let successor = rsjs::memo(|| big.get() + 1_i64);
 
         ::proa_macros::html_sync! {
             <div>
@@ -1802,7 +1802,7 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
                 <button on_click={|_| {
                     big.set(successor.get() + 1_i64);
                 }}>
-                    "Increment via computed"
+                    "Increment via memo"
                 </button>
                 <span>{big.get()}</span>
                 <span>{successor.get()}</span>
@@ -1920,11 +1920,11 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
     }
 }
 
-pub struct ComputedSignalsSnapshot;
+pub struct MemoSignalsSnapshot;
 
 #[rsjs::rsjs(component, client)]
 impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRenderSync<L, B>
-    for ComputedSignalsSnapshot
+    for MemoSignalsSnapshot
 {
     fn render(
         self,
@@ -1932,7 +1932,7 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
     ) -> ::core::result::Result<(), ::proa_core::WriteError> {
         let price = rsjs::signal(10_i64);
         let qty = rsjs::signal(2_i64);
-        let total = rsjs::computed(|| price.get() * qty.get());
+        let total = rsjs::memo(|| price.get() * qty.get());
 
         ::proa_macros::html_sync! {
             <div>
@@ -1949,34 +1949,34 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
 }
 
 #[test]
-fn computed_signals_island_js_matches_conformance_snapshot() {
+fn memo_signals_island_js_matches_conformance_snapshot() {
     let manifest = rsjs::manifest();
     let island = manifest
         .islands
         .iter()
-        .find(|entry| entry.struct_name == "ComputedSignalsSnapshot")
-        .expect("ComputedSignalsSnapshot island registered");
+        .find(|entry| entry.struct_name == "MemoSignalsSnapshot")
+        .expect("MemoSignalsSnapshot island registered");
     assert_js_snapshot(
         island.js_source,
-        "rsjs_conformance/snapshots/signals/computed_signals.island.js",
+        "rsjs_conformance/snapshots/signals/memo_signals.island.js",
     );
 }
 
 #[test]
-fn computed_signals_client_ir_sidecar_matches_conformance_snapshot() {
+fn memo_signals_client_ir_sidecar_matches_conformance_snapshot() {
     assert_client_ir_sidecar_handler_snapshot(
-        "ComputedSignalsSnapshot",
+        "MemoSignalsSnapshot",
         0,
-        "rsjs_conformance/snapshots/client_ir/signals_computed_basic.body-ir.json",
+        "rsjs_conformance/snapshots/client_ir/signals_memo_basic.body-ir.json",
     );
 }
 
 #[test]
-fn computed_signals_hir_sidecar_matches_conformance_snapshot() {
+fn memo_signals_hir_sidecar_matches_conformance_snapshot() {
     assert_hir_sidecar_handler_snapshot(
-        "ComputedSignalsSnapshot",
+        "MemoSignalsSnapshot",
         0,
-        "rsjs_conformance/snapshots/hir/signals_computed_basic.hir.json",
+        "rsjs_conformance/snapshots/hir/signals_memo_basic.hir.json",
     );
 }
 
@@ -2019,10 +2019,10 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
 
         ::proa_macros::html_sync! {
             <div>
-                <input on_input={rsjs::debounce(30, |event| {
+                <input on_input={rsjs::debounce(|event| {
                     query.set(event.value());
                     calls.update(|c| c + 1_i64);
-                })} />
+                }, 30)} />
                 <span>{query.get()}</span>
                 <span>{calls.get()}</span>
             </div>

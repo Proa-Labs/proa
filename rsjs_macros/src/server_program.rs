@@ -756,10 +756,10 @@ fn rewrite_server_block(
                 }
 
                 if let Some(id) = prelude_signal_ids.get(&index).copied() {
-                    // A computed declaration can read a synthetic inbound or
+                    // A memo declaration can read a synthetic inbound or
                     // SharedState field that has no authored `let` of its own.
                     // Materialize those source values immediately before the
-                    // computed value, preserving Rust's lexical order while
+                    // memo value, preserving Rust's lexical order while
                     // ensuring the derived initializer never references a
                     // tail-emitted local that is not in scope yet.
                     if let Some(derived) = island

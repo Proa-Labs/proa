@@ -132,7 +132,7 @@ impl NumericAnchors {
 }
 
 /// Island typing context: signal declarations, the expression arena
-/// (for typing computed-cell bodies), and the local environment of
+/// (for typing memo-cell bodies), and the local environment of
 /// the block being typed.
 ///
 /// Construct with [`TypeEnv::new`] (from builder parts) or
@@ -149,7 +149,7 @@ pub struct TypeEnv<'a> {
 
 impl<'a> TypeEnv<'a> {
     /// Construct a typing context from island parts. `exprs` is
-    /// needed only to resolve computed (derived) cell types whose
+    /// needed only to resolve memo (derived) cell types whose
     /// declarations were not backfilled; pass `None` when no arena
     /// exists yet.
     pub fn new(signals: &'a [SignalDecl], exprs: Option<&'a ExprArena>) -> Self {
@@ -208,7 +208,7 @@ impl<'a> TypeEnv<'a> {
         self.local_integer_domains.get(&local).copied()
     }
 
-    /// Declared client value shape of a signal, resolving computed
+    /// Declared client value shape of a signal, resolving memo
     /// (derived) cells through their body when the declaration was
     /// not backfilled. Unallocated ids type as `Unknown`.
     pub fn signal_type(&self, id: SignalId) -> ClientType {
@@ -240,9 +240,9 @@ impl<'a> TypeEnv<'a> {
         let (Some(body), Some(exprs)) = (decl.derived, self.exprs) else {
             return ClientType::Unknown;
         };
-        // Computed cells share the signal id space and may (in
+        // Memo cells share the signal id space and may (in
         // hand-built IR) form reference cycles; bail out instead of
-        // recursing forever. Macro-built islands declare computed
+        // recursing forever. Macro-built islands declare memo
         // bodies in source order, so the guard never trips there.
         if visiting.contains(&id) {
             return ClientType::Unknown;
@@ -834,7 +834,7 @@ fn client_type_integer_domain(ty: &ClientType) -> Option<IntegerDomain> {
     }
 }
 
-/// Backfill [`SignalDecl::ty`] for computed (derived) cells of a
+/// Backfill [`SignalDecl::ty`] for memo (derived) cells of a
 /// finished island from their body types. Idempotent; leaves
 /// non-derived declarations untouched.
 pub fn backfill_derived_signal_types(island: &mut Island) {
@@ -1178,7 +1178,7 @@ mod tests {
     }
 
     #[test]
-    fn computed_cells_type_from_their_bodies() {
+    fn memo_cells_type_from_their_bodies() {
         let mut b = IslandBuilder::new();
         let n = int_signal(&mut b);
         let body = b.expr(ClientExpr::binary(
@@ -1186,7 +1186,7 @@ mod tests {
             ClientExpr::signal_read(n),
             ClientExpr::int(2),
         ));
-        let total = b.computed(body);
+        let total = b.memo(body);
         let island = b.build();
         let env = TypeEnv::for_island(&island);
         assert_eq!(
@@ -1202,7 +1202,7 @@ mod tests {
         // frontend, but hand-built IR must not hang the pass.
         let body = b.expr(ClientExpr::SignalRead(SignalId(0)));
         assert_eq!(body, ExprId(0));
-        let cell = b.computed(body);
+        let cell = b.memo(body);
         let island = b.build();
         let env = TypeEnv::for_island(&island);
         assert_eq!(

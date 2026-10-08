@@ -13,7 +13,7 @@ fn shared_fields_reuse_signal_dependencies_without_local_seed_cells() {
     let button_bg = builder.shared_field(store, "button_bg".into(), ClientType::String);
     let radius = builder.shared_field(store, "button_radius".into(), ClientType::I32);
     let label_body = builder.expr(ClientExpr::SignalRead(button_bg));
-    let label = builder.computed(label_body);
+    let label = builder.memo(label_body);
     let label_read = builder.expr(ClientExpr::SignalRead(label));
     let increment =
         builder.handler_from_ir(ClientBlock::from_stmts(vec![ClientStmt::signal_update(
@@ -45,8 +45,8 @@ fn shared_fields_reuse_signal_dependencies_without_local_seed_cells() {
         "{js}"
     );
     assert!(
-        js.contains("const __sig_2 = computed(() => __sig_0.get(), [__sig_0]);"),
-        "computed must subscribe only to the shared field it reads:\n{js}"
+        js.contains("const __sig_2 = memo(() => __sig_0.get(), [__sig_0]);"),
+        "memo must subscribe only to the shared field it reads:\n{js}"
     );
     assert!(
         !js.contains("read_signal_initials(root)"),

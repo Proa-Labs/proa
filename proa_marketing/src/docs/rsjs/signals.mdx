@@ -23,7 +23,7 @@ pub struct Counter;
 impl<L: DataLoader> WebRenderSync<L> for Counter {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let count = signal(0_i64);
-        let doubled = rsjs::computed(|| count.get() * 2_i64);
+        let doubled = rsjs::memo(|| count.get() * 2_i64);
         let increment = event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
             count.update(|value| value + 1_i64);
         });
@@ -42,7 +42,7 @@ impl<L: DataLoader> WebRenderSync<L> for Counter {
 ```
 
 The server renders the initial values. The final linker retains only signals and
-computed cells reachable from browser work. The browser runtime rebuilds that
+memo cells reachable from browser work. The browser runtime rebuilds that
 graph during hydration.
 
 For an `i64` seed, the adjacent compiler-owned state is conceptually:
@@ -64,19 +64,19 @@ Four more primitives build on `signal` for derivation and batching.
 | Primitive | Use |
 | --- | --- |
 | `signal(initial)` | Declare writable owner-local state. |
-| `computed(\|\| expression)` | Declare a read-only value derived from live inputs. |
-| `value.get()` | Read the current value in text, attributes, conditions, handlers, or another computed. |
+| `memo(\|\| expression)` | Cache a read-only value derived from live inputs; dependencies are inferred. |
+| `value.get()` | Read the current value in text, attributes, conditions, handlers, or another memo. |
 | `value.set(next)` | Replace a writable value from a supported client operation. |
 | `value.update(\|old\| next)` | Compute the next value from the previous value. |
 | `batch(\|\| { ... })` | Group several synchronous writes into one DOM/subscriber flush. |
 
-Prefer `update` when the next value depends on the old value. Use `computed`
+Prefer `update` when the next value depends on the old value. Use `memo`
 instead of manually synchronizing a second signal.
 
 ```rust filename="src/components/toolbar.rs"
 let count = signal(0_i64);
 let open = signal(false);
-let summary = rsjs::computed(|| count.get() * 2_i64);
+let summary = rsjs::memo(|| count.get() * 2_i64);
 
 let update_both = rsjs::event_handler(|_: rsjs::Event| {
     rsjs::batch(|| {
@@ -92,6 +92,26 @@ Nested batches coalesce.
 
 Where you call `.get()` decides which DOM the flush touches.
 
+## Memo dependencies and caching
+
+`rsjs::memo(|| expression)` needs no manual dependency array. The compiler
+collects and deduplicates the signal reads in the lowered expression and emits
+the dependency list for the browser runtime. Both branches of a supported
+conditional contribute dependencies, as do live arguments passed to pure
+`#[rsjs::client]` helpers.
+
+A memo evaluates at creation and stores one current result. Input writes
+schedule recomputation in the microtask flush, and several synchronous writes
+coalesce. Reads before the flush return the previous result. Downstream
+subscribers run only when the result changes according to `Object.is`; island
+teardown removes the input subscriptions.
+
+Use a memo to share a cached derivation across consumers or suppress work when
+the derived result stays equal. Inline reactive expressions and supported
+reactive prelude aliases also update with their inputs, without creating a
+shared cached cell. The memo closure accepts one supported reactive expression;
+put intermediate locals in a pure `#[rsjs::client]` helper when needed.
+
 ## Reading values reactively
 
 RSJS tracks reads in browser-reachable positions and updates only the affected
@@ -103,10 +123,10 @@ binding.
 | Attribute | `<button aria_expanded={open.get()}>` |
 | Conditional | `{if open.get() { html_sync! { <div>"Open"</div> } }}` |
 | Predicate helper | `{if name.is_non_empty() { html_sync! { "Ready" } }}` |
-| Derived value | `let total = computed(|| price.get() * quantity.get());` |
+| Derived value | `let total = memo(|| price.get() * quantity.get());` |
 
 Declaring a client primitive does not guarantee that it ships. The final
-reachability pass can remove an unused signal, computed, or handler. Surviving
+reachability pass can remove an unused signal, memo, or handler. Surviving
 signals retain deterministic declaration order in the owner seed. Never put
 required server side effects inside an otherwise unused client declaration.
 
@@ -152,15 +172,15 @@ html_sync! {
 - A direct field read such as `{self.label}`, `class={self.class}`, or an exact
   local alias remains a `LiveRead`. When a linked parent supplies a live value,
   the child observes the latest value.
-- A `computed` derived only from inbound live values participates in the
-  enclosing graph but does not create independent mutable state. A computed that
+- A `memo` derived only from inbound live values participates in the
+  enclosing graph but does not create independent mutable state. A memo that
   reads local state inherits that local origin.
 
 A signal initializer cannot read an earlier client cell:
 
 ```rust filename="src/components/doubler.rs"
 let count = signal(1_i64);
-let doubled = rsjs::computed(|| count.get() * 2_i64); // live derivation
+let doubled = rsjs::memo(|| count.get() * 2_i64); // live derivation
 ```
 
 RSJS rejects `signal(count.get() * 2_i64)` instead of silently taking a
@@ -206,7 +226,7 @@ provider inside its own origin-capable component:
 ```rust filename="src/components/workbench_region.rs"
 let workbench = rsjs::shared::<WorkbenchState>();
 let mode = workbench.mode();
-let editing = rsjs::computed(|| mode.get() == "edit");
+let editing = rsjs::memo(|| mode.get() == "edit");
 
 let choose_edit = rsjs::event_handler(|_: rsjs::Event| {
     mode.set("edit".to_string());
@@ -241,7 +261,7 @@ truth is asynchronous, server-owned, stale, refetchable, or invalidated.
 | Use `client` when the component originates local or shared browser state | `#[rsjs(component)]` alone is participation-only. |
 | Read live values with `.get()` in analyzed positions | Reads register the binding or derived dependency to update. |
 | Write from supported handlers or browser operations | Render-time writes would make SSR nondeterministic. |
-| Use `computed` for derivation | A second synchronized signal creates unnecessary state and drift. |
+| Use `memo` for derivation | A second synchronized signal creates unnecessary state and drift. |
 | Treat client crossings as public | Proa delivers seeds and payloads to the browser. |
 | Use SharedState only for typed synchronous cross-owner UI state | Local signals cannot cross an independent owner boundary. |
 

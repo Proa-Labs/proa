@@ -67,7 +67,7 @@ export interface QueryHandle<T = unknown> {
      *   - at least this handle's `stale_time_ms` threshold has
      *     elapsed since the last successful fetch.
      *
-     * Staleness is observer-relative and computed on every read; this
+     * Staleness is observer-relative and memo on every read; this
      * handle's `stale_time_ms` window re-arms automatically after each
      * successful refetch. Global invalidation remains stale for every
      * observer.

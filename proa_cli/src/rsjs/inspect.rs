@@ -1529,8 +1529,8 @@ fn dead_primitive_detail(primitive: &DeadPrimitiveSidecar) -> String {
             "`{label}` signal {} was declared but no reachable client root reads or writes it",
             primitive.signal.unwrap_or_default()
         ),
-        "computed" => format!(
-            "`{label}` computed signal {} was declared but no reachable client root reads it",
+        "memo" => format!(
+            "`{label}` memo signal {} was declared but no reachable client root reads it",
             primitive.signal.unwrap_or_default()
         ),
         "handler" => format!(

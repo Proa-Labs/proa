@@ -1,5 +1,5 @@
 error: rsjs/signal-seed-client-dependency: a signal initializer is a one-time server seed and cannot read an earlier RSJS client cell or browser operation
-       help: compute an ordinary server value before declaring client state, or use `rsjs::computed(|| ...)` when the value should stay derived from another signal
+       help: compute an ordinary server value before declaring client state, or use `rsjs::memo(|| ...)` when the value should stay derived from another signal
   --> tests/ui/fail/75_signal_seed_client_dependency.rs:12:35
    |
 12 |         let second = rsjs::signal(first.get() + 1_i64);
