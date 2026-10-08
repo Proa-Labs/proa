@@ -8,6 +8,8 @@
 //! Cards become headings, badges become inline code, tables become markdown tables, etc.
 pub mod context;
 pub mod escape;
+#[cfg(feature = "html-to-markdown")]
+mod from_html;
 use crate::render::DataLoader;
 use crate::render::{MdRender, MdRenderSync, RenderOutcome, WebRender, WebRenderSync};
 use crate::shared::write_buf::{WriteBuf, WriteError};
@@ -17,6 +19,8 @@ pub use context::MdState;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
+#[cfg(feature = "html-to-markdown")]
+pub use from_html::{to_markdown, ToMarkdown};
 use std::borrow::Cow;
 
 /// Explicit wrapper for trusted, already-authored Markdown source.

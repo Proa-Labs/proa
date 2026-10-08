@@ -2176,6 +2176,32 @@ impl<L: DataLoader, B: WriteBuf> Drop for HtmlInMdScope<'_, L, B> {
     }
 }
 
+/// Isolate representation-local state while capturing HTML for conversion.
+/// Request mutations still flow back through `ScopedWebOutput` on drop.
+#[cfg(feature = "html-to-markdown")]
+struct HtmlCaptureScope<'scope, L: DataLoader> {
+    output: ScopedWebOutput<'scope, RenderBuffer, L>,
+    md_state: crate::md::MdState,
+    mode: ContentMode,
+    escape_dialect: EscapeDialect,
+    render_mode: RenderMode,
+    stream_recorder: Option<Rc<dyn StreamBoundaryRecorder>>,
+    stream_chunk_flusher: Option<Rc<dyn StreamChunkFlusher>>,
+}
+
+#[cfg(feature = "html-to-markdown")]
+impl<L: DataLoader> Drop for HtmlCaptureScope<'_, L> {
+    fn drop(&mut self) {
+        let child = self.output.child_mut();
+        child.md_state = self.md_state;
+        child.mode = self.mode;
+        child.escape_dialect = self.escape_dialect;
+        child.render_mode = self.render_mode;
+        child.stream_recorder = self.stream_recorder.take();
+        child.stream_chunk_flusher = self.stream_chunk_flusher.take();
+    }
+}
+
 impl WebContext<NoLoader, RenderBuffer> {
     /// Create a standard context that owns its reusable render buffer.
     pub fn new() -> Self {
@@ -2439,6 +2465,32 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     {
         let parent = self.state_slots();
         with_scoped_web_output(parent, out, render)
+    }
+
+    /// Capture a sync component using its standard owned writer. The scope
+    /// restores formatting and stream hooks on success, errors, and panics.
+    #[cfg(feature = "html-to-markdown")]
+    pub(crate) fn capture_html_for_markdown<T>(
+        &mut self,
+        node: T,
+    ) -> Result<RenderBuffer, crate::WriteError>
+    where
+        T: crate::WebRenderSync<L>,
+    {
+        let mut output = ScopedWebOutput::new(self.state_slots(), RenderBuffer::new());
+        let child = output.child_mut();
+        let mut scope = HtmlCaptureScope {
+            md_state: std::mem::take(&mut child.md_state),
+            mode: std::mem::replace(&mut child.mode, ContentMode::Html),
+            escape_dialect: std::mem::replace(&mut child.escape_dialect, EscapeDialect::Html),
+            render_mode: std::mem::replace(&mut child.render_mode, RenderMode::Static),
+            stream_recorder: child.stream_recorder.take(),
+            stream_chunk_flusher: child.stream_chunk_flusher.take(),
+            output,
+        };
+        let child = scope.output.child_mut();
+        node.render(child)?;
+        Ok(std::mem::take(&mut child.out))
     }
 
     /// Render through this context's own output under one activation meter.

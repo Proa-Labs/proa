@@ -12,12 +12,18 @@ license-file.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
+[features]
+# Keep DOM conversion out of ordinary HTML builds.
+html-to-markdown = ["dep:htmd", "dep:markup5ever_rcdom"]
+
 [dependencies]
 arrayvec = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 heapless = { workspace = true }
 http = { workspace = true }
+htmd = { version = "0.5.5", optional = true }
+markup5ever_rcdom = { version = "0.38", optional = true }
 itoa_lut = { workspace = true }
 memchr = { version = "2.7" }
 serde = { workspace = true }
@@ -34,6 +40,15 @@ proa_react = { workspace = true }
 proptest = { version = "1.5" }
 pulldown-cmark = { workspace = true, features = ["html"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[[example]]
+name = "html_to_markdown"
+required-features = ["html-to-markdown"]
+
+[[bench]]
+name = "html_to_markdown"
+harness = false
+required-features = ["html-to-markdown"]
 
 [[bench]]
 name = "render_bench"
