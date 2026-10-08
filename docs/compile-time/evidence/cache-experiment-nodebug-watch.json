@@ -1,0 +1,59 @@
+{
+  "command": [
+    "isolated-cache-experiment",
+    "dev",
+    "--no-assets",
+    "--debounce-ms",
+    "100",
+    "--",
+    "cargo",
+    "run",
+    "--offline",
+    "--profile",
+    "nodebug"
+  ],
+  "samples": [
+    {
+      "sample": 0,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.10388158401474357,
+        "prepared": 0.33157412498258054,
+        "descriptor_finished": 1.2468797089532018,
+        "final_compiling": 2.303226124960929,
+        "final_finished": 2.7245280421338975,
+        "validated": 2.774767874972895,
+        "launched": 2.8798204171471298,
+        "response": 2.8927389590535313
+      }
+    },
+    {
+      "sample": 1,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.15505891689099371,
+        "prepared": 0.36645404202863574,
+        "descriptor_finished": 1.2620570838917047,
+        "final_compiling": 2.31087562488392,
+        "final_finished": 2.7294489999767393,
+        "validated": 2.780070124892518,
+        "launched": 2.8851660839281976,
+        "response": 2.904665208887309
+      }
+    },
+    {
+      "sample": 2,
+      "boundaries": {
+        "save": 0.0,
+        "detected": 0.1497869580052793,
+        "prepared": 0.38337362511083484,
+        "descriptor_finished": 1.3038213751278818,
+        "final_compiling": 2.356625375105068,
+        "final_finished": 2.7749900831840932,
+        "validated": 2.8238798750098795,
+        "launched": 2.928964083082974,
+        "response": 2.9445788331795484
+      }
+    }
+  ]
+}

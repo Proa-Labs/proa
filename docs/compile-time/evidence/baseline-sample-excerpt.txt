@@ -1,0 +1,64 @@
+Analysis of sampling cargo-proa (pid 29077) every 1 millisecond
+Process:         cargo-proa [29077]
+Path:            /Users/USER/Desktop/*/cargo-proa
+Load Address:    0x1000c4000
+Identifier:      cargo-proa
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  Python [28601]
+Target Type:     live task
+
+Date/Time:       2026-10-03 14:17:44.073 -0700
+Launch Time:     2026-10-03 14:17:29.672 -0700
+OS Version:      macOS 26.5.2 (25F84)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         331.1M
+Physical footprint (peak):  331.1M
+Idle exit:                  untracked
+    3090 Thread_97266129   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 3090 start  (in dyld) + 6992  [0x188cd7e00]
+    +   3090 main  (in cargo-proa) + 52  [0x1000cc8e8]
+    +     3090 _RNvNtCsg55jX0GwzBC_3std2rt19lang_start_internal  (in cargo-proa) + 952  [0x100a87fac]
+    +       3090 std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::hffec4f1fd40b63f9  (in cargo-proa) + 24  [0x1000cc7b0]
+    +         3090 std::sys::backtrace::__rust_begin_short_backtrace::h26ed9a4148008d0d  (in cargo-proa) + 12  [0x1000cc828]
+    +           3090 proa_cli::cli::run::h0c14dd5b8534b59b  (in cargo-proa) + 8908  [0x10057eeec]
+    +             3090 proa_cli::commands::dispatch::h6d724a983d9f6d2a  (in cargo-proa) + 6492  [0x1006ec490]
+    +               3090 proa_cli::lifecycle::dev::h9960a9d240f73caf  (in cargo-proa) + 4336  [0x1007149e4]
+    +                 3090 proa_cli::lifecycle::dev::_$u7b$$u7b$closure$u7d$$u7d$::hc581c586794b7bcc  (in cargo-proa) + 712  [0x100715ec0]
+    +                   3090 proa_cli::lifecycle::run_linked_dev_cycle::hc2d296e6f2031b17  (in cargo-proa) + 228  [0x10070f6e0]
+    +                     2416 proa_cli::rsjs::pipeline::run_linked_cargo_cached::h656274c55c5a6a50  (in cargo-proa) + 5980  [0x1006bedb0]
+    +                     ! 2412 proa_cli::rsjs::cache::run_descriptor_cargo_cached::h1c43cd048c55ecfa  (in cargo-proa) + 2088  [0x1006a0d38]
+    +                     ! : 2201 proa_cli::rsjs::cache::run_descriptor_cargo_cached_once::h8d80029b89cd4579  (in cargo-proa) + 16776  [0x1006a653c]
+    +                     ! : | 2183 proa_cli::rsjs::cache::persist_artifact_indexes::h39b27630b3e47d5a  (in cargo-proa) + 4648  [0x10069ed64]
+    +                     ! : | + 965 proa_cli::rsjs::cache::atomic_write_replaceable::he8a10925d22659d0  (in cargo-proa) + 1200  [0x10069a0d4]
+    +                     ! : | + ! 948 proa_cli::rsjs::cache::sync_directory::h93f7bb6064b10248  (in cargo-proa) + 248  [0x100695f40]
+    +                     ! : | + ! : 948 fcntl  (in libsystem_kernel.dylib) + 88  [0x18905276c]
+    +                     ! : | + ! :   948 __fcntl  (in libsystem_kernel.dylib) + 8  [0x1890528c4]
+    +                     ! : | + ! 9 proa_cli::rsjs::cache::sync_directory::h93f7bb6064b10248  (in cargo-proa) + 176  [0x100695ef8]
+    +                     ! : | + ! : 9 _RNvMsi_NtNtNtCsg55jX0GwzBC_3std3sys2fs4unixNtB5_4File6open_c  (in cargo-proa) + 260  [0x100a86588]
+    +                     ! : | + ! :   9 open  (in libsystem_kernel.dylib) + 64  [0x18905d8f0]
+    +                     ! : | + ! :     9 __open  (in libsystem_kernel.dylib) + 8  [0x189052694]
+    +                     ! : | + ! 8 proa_cli::rsjs::cache::sync_directory::h93f7bb6064b10248  (in cargo-proa) + 296  [0x100695f70]
+    +                     ! : | + !   8 close  (in libsystem_kernel.dylib) + 8  [0x1890528f0]
+    +                     ! : | + 919 proa_cli::rsjs::cache::atomic_write_replaceable::he8a10925d22659d0  (in cargo-proa) + 916  [0x100699fb8]
+    +                     ! : | + ! 919 _RNvMs2_NtCsg55jX0GwzBC_3std2fsNtB5_4File8sync_all  (in cargo-proa) + 28  [0x100a7b158]
+    +                     ! : | + !   919 fcntl  (in libsystem_kernel.dylib) + 88  [0x18905276c]
+    +                     ! : | + !     919 __fcntl  (in libsystem_kernel.dylib) + 8  [0x1890528c4]
+    +                     ! : | + 151 proa_cli::rsjs::cache::atomic_write_replaceable::he8a10925d22659d0  (in cargo-proa) + 956  [0x100699fe0]
+    +                     ! : | + ! 151 _RNvNtNtCsg55jX0GwzBC_3std3sys2fs6rename  (in cargo-proa) + 588  [0x100a8aeb8]
+    +                     ! : | + !   151 rename  (in libsystem_kernel.dylib) + 16  [0x189055868]
+    +                     ! : | + !     151 __rename  (in libsystem_kernel.dylib) + 8  [0x18905588c]
+    +                     ! : | + 71 proa_cli::rsjs::cache::atomic_write_replaceable::he8a10925d22659d0  (in cargo-proa) + 732  [0x100699f00]
+    +                     ! : | + ! 71 _RNvMsi_NtNtNtCsg55jX0GwzBC_3std3sys2fs4unixNtB5_4File6open_c  (in cargo-proa) + 260  [0x100a86588]
+    +                     ! : | + !   71 open  (in libsystem_kernel.dylib) + 64  [0x18905d8f0]
+    +                     ! : | + !     71 __open  (in libsystem_kernel.dylib) + 8  [0x189052694]
+    +                     ! : | + 41 proa_cli::rsjs::cache::atomic_write_replaceable::he8a10925d22659d0  (in cargo-proa) + 848  [0x100699f74]
+    +                     ! : | + ! 41 write  (in libsystem_kernel.dylib) + 8  [0x189055834]
+    +                     ! : | + 23 proa_cli::rsjs::cache::atomic_write_replaceable::he8a10925d22659d0  (in cargo-proa) + 932  [0x100699fc8]
+    +                     ! : | + ! 23 close  (in libsystem_kernel.dylib) + 8  [0x1890528f0]
+    +                     ! : | + 5 proa_cli::rsjs::cache::atomic_write_replaceable::he8a10925d22659d0  (in cargo-proa) + 172  [0x100699cd0]
+    +                     ! : | + ! 5 proa_cli::rsjs::cache::ensure_plain_directory::hccc868dd98c5ad58  (in cargo-proa) + 216  [0x1006995b8]
+    +                     ! : | + !   5 lstat  (in libsystem_kernel.dylib) + 8  [0x18905d860]
