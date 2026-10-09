@@ -54,6 +54,8 @@ pub(super) struct Resolver {
     pub imports: BTreeMap<String, String>,
     pub symbols: BTreeSet<String>,
     pub fields: BTreeMap<String, Vec<String>>,
+    pub child_selectors: BTreeMap<String, String>,
+    pub generic_children: BTreeSet<String>,
     pub glob: bool,
     pub extern_roots: BTreeSet<String>,
 }
@@ -672,6 +674,8 @@ pub(super) fn lint_sources(
             imports: context.imports.clone(),
             symbols: BTreeSet::new(),
             fields: BTreeMap::new(),
+            child_selectors: BTreeMap::new(),
+            generic_children: BTreeSet::new(),
             glob: context.glob,
             extern_roots: ["proa_core".into(), "proa_macros".into()].into(),
         };
@@ -772,6 +776,37 @@ pub(super) fn lint_sources(
             }
         }
     }
+    // Only suggest a type that Rust can instantiate without guessing its type
+    // or const arguments. Lifetimes can use '_; generic inference remains bounded.
+    let mut child_selectors = HashMap::<String, BTreeMap<String, String>>::new();
+    let mut generic_children = HashMap::<String, BTreeSet<String>>::new();
+    for context in &contexts {
+        for item in &context.items {
+            let (ident, generics) = match item {
+                Item::Struct(item) => (&item.ident, &item.generics),
+                Item::Enum(item) => (&item.ident, &item.generics),
+                _ => continue,
+            };
+            let path = format!("{}::{ident}", context.module);
+            if generics.type_params().next().is_some() || generics.const_params().next().is_some() {
+                generic_children
+                    .entry(context.crate_id.clone())
+                    .or_default()
+                    .insert(path);
+                continue;
+            }
+            let lifetimes = vec!["'_"; generics.lifetimes().count()];
+            let ty = if lifetimes.is_empty() {
+                path.clone()
+            } else {
+                format!("{path}<{}>", lifetimes.join(", "))
+            };
+            child_selectors
+                .entry(context.crate_id.clone())
+                .or_default()
+                .insert(path, ty);
+        }
+    }
     let mut fields = HashMap::<String, BTreeMap<String, Vec<String>>>::new();
     for context in &contexts {
         for item in &context.items {
@@ -830,6 +865,14 @@ pub(super) fn lint_sources(
             imports: context.imports.clone(),
             symbols: symbols.get(&context.crate_id).cloned().unwrap_or_default(),
             fields: fields.get(&context.crate_id).cloned().unwrap_or_default(),
+            child_selectors: child_selectors
+                .get(&context.crate_id)
+                .cloned()
+                .unwrap_or_default(),
+            generic_children: generic_children
+                .get(&context.crate_id)
+                .cloned()
+                .unwrap_or_default(),
             extern_roots: ["proa_core".to_owned(), "proa_macros".to_owned()]
                 .into_iter()
                 .chain(

@@ -90,7 +90,7 @@ fn opaque_helpers_are_not_confirmed_absence() {
 #[test]
 fn line_omissions_are_precise_and_checked_for_rot() {
     let source = "html_sync! {{RestockNotice::new(self.data)} {Impact::new(self.data)}}.render(cx)";
-    let target="omit_content!(child RestockNotice); md_sync! {r###\"{Impact::new(self.data)}\"###}.render_md(cx)";
+    let target="omit_content!(proa_core::content::child::<RestockNotice>()); md_sync! {r###\"{Impact::new(self.data)}\"###}.render_md(cx)";
     assert!(lint(&fixture(source, target)).is_empty());
     let ambiguous = fixture(
         source,
@@ -115,7 +115,7 @@ fn local_and_role_omissions_allow_intentional_differences() {
     assert!(lint(&src).is_empty());
     let src = fixture(
         "html_sync! {{content_part!(\"notice\", RestockNotice::new(self.data))}}.render(cx)",
-        "omit_content!(role \"notice\");md_sync! {r###\"\"###}.render_md(cx)",
+        "omit_content!(\"notice\");md_sync! {r###\"\"###}.render_md(cx)",
     );
     assert!(lint(&src).is_empty());
 }
@@ -449,7 +449,7 @@ fn another_grammar_registers_a_parser_and_reuses_targeted_omissions() {
     assert_eq!(code(&run(src.clone()), "render/content-coverage"), 1);
     let intentional = src.replace(
         "plain::plain! {self.title}",
-        "omit_content!(child RestockNotice,from=\"html\");plain::plain! {self.title}",
+        "omit_content!(proa_core::content::child::<RestockNotice>(),from=\"html\");plain::plain! {self.title}",
     );
     assert!(run(intentional).is_empty());
 }
@@ -514,7 +514,7 @@ fn skip_is_available_for_unresolved_types_and_status_is_honest() {
 }
 #[test]
 fn removing_source_impl_makes_its_omission_stale_without_forcing_a_pair() {
-    let src=format!("{IMPORTS} struct Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{omit_content!(role \"notice\");md_sync!{{r###\"\"###}}.render_md(cx)}}}}");
+    let src=format!("{IMPORTS} struct Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{omit_content!(\"notice\");md_sync!{{r###\"\"###}}.render_md(cx)}}}}");
     let d = lint(&src);
     assert_eq!(code(&d, "render/content-omit-stale"), 1);
     assert_eq!(code(&d, "render/content-view-missing"), 0);
@@ -799,4 +799,71 @@ fn unresolved_render_contexts_and_context_presence_are_not_coverage_proofs() {
         "md_sync! {r###\"{if cx.show {{self.title}}}\"###}.render_md(cx)",
     );
     assert_eq!(code(&lint(&source), "render/content-coverage-unchecked"), 1);
+}
+
+#[test]
+fn typed_child_helpers_resolve_imports_and_do_not_trust_other_functions() {
+    let source = "html_sync! {{RestockNotice::new(self.data)}}.render(cx)";
+    let target = "omit_content!(select::<RestockNotice>());md_sync! {r###\"\"###}.render_md(cx)";
+    let valid = format!(
+        "use proa_core::content::child as select;{}",
+        fixture(source, target)
+    );
+    assert!(lint(&valid).is_empty());
+    let unrelated = valid.replace(
+        "use proa_core::content::child as select;",
+        "fn select<T>() -> proa_core::content::Child<T> {proa_core::content::child::<T>()}",
+    );
+    let d = lint(&unrelated);
+    assert_eq!(code(&d, "render/content-omit-unresolved"), 1);
+    assert_eq!(code(&d, "render/content-coverage"), 1);
+    let shadowed = valid.replace("omit_content!", "let select=|| ();omit_content!");
+    assert_eq!(code(&lint(&shadowed), "render/content-omit-unresolved"), 1);
+}
+
+#[test]
+fn child_type_suggestions_include_lifetimes_and_never_guess_generic_arguments() {
+    let source = fixture(
+        "html_sync! {{RestockNotice::new(self.data)}}.render(cx)",
+        "md_sync! {r###\"\"###}.render_md(cx)",
+    );
+    let lifetimes = source.replace(
+        "struct RestockNotice;",
+        "struct RestockNotice<'a>{at:&'a str}",
+    );
+    let d = missing(&lifetimes);
+    assert_eq!(
+        d[0].suggestions[0].replacement,
+        "proa_macros::omit_content!(proa_core::content::child::<crate::RestockNotice<'_>>());"
+    );
+    let generics = source.replace("struct RestockNotice;", "struct RestockNotice<T>{value:T}");
+    assert!(missing(&generics)[0].suggestions.is_empty());
+    let attempted = generics.replace(
+        "md_sync!",
+        "omit_content!(proa_core::content::child::<RestockNotice<String>>());md_sync!",
+    );
+    assert_eq!(code(&lint(&attempted), "render/content-omit-unresolved"), 1);
+    assert_eq!(missing(&attempted).len(), 1);
+
+    let local = generics.replace(
+        "md_sync!",
+        "let notice=RestockNotice::new(self.data);md_sync!",
+    );
+    assert_eq!(
+        missing(&local)[0].suggestions[0].replacement,
+        "proa_macros::omit_content!(notice);"
+    );
+    let d = missing(&local);
+    let fix = &d[0].suggestions[0];
+    assert!(fix.message.contains("after `notice` is declared"));
+    let offset = crate::source::SourceMap::new(&local)
+        .byte_for_line_column(fix.range.line, fix.range.column - 1)
+        .unwrap();
+    let mut acknowledged = local.clone();
+    acknowledged.insert_str(offset, &fix.replacement);
+    assert_eq!(code(&lint(&acknowledged), "render/content-coverage"), 0);
+    assert_eq!(
+        code(&lint(&acknowledged), "render/content-omit-unresolved"),
+        0
+    );
 }

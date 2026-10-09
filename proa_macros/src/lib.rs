@@ -52,11 +52,16 @@ pub fn content(args: TokenStream, input: TokenStream) -> TokenStream {
 
 /// Acknowledge one intentionally omitted content contribution.
 ///
+/// Put this as a Rust statement inside the render method that deliberately
+/// omits the contribution, before its template. For a local, place it after
+/// the declaration and before the value is moved.
+///
 /// Use `omit_content!(self.image)`, `omit_content!(notice, "reason")`,
-/// `omit_content!(child crate::RestockNotice)`, or
-/// `omit_content!(role "restock")`. Optional `from = "html"` restricts the
+/// `omit_content!(proa_core::content::child::<crate::RestockNotice>())`, or
+/// `omit_content!("restock")`. Optional `from = "html"` restricts the
 /// source comparison. Value paths are type-checked without being evaluated
-/// or moved. Child paths are resolved without constructing an instance.
+/// or moved. The typed `proa_core::content::child::<ChildType>()` helper
+/// constructs no child; ordinary Rust generic arguments apply.
 #[proc_macro]
 pub fn omit_content(input: TokenStream) -> TokenStream {
     content::omit(input.into())

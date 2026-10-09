@@ -5,7 +5,7 @@
 //! `proa lint` performs the comparison, not the compiler macros.
 
 use syn::parse::{Parse, ParseStream};
-use syn::{Expr, LitStr, Path, Token, Type};
+use syn::{Expr, LitStr, Token, Type};
 
 /// Policy on one render implementation or its entry method.
 #[derive(Clone, Debug, Default)]
@@ -89,7 +89,7 @@ impl Parse for ContentPolicy {
 #[derive(Clone, Debug)]
 pub enum OmitSelector {
     Value(Expr),
-    Child(Path),
+    Child { call: syn::ExprCall, ty: Type },
     Role(LitStr),
 }
 
@@ -100,51 +100,23 @@ pub struct OmitContent {
     pub from: Option<LitStr>,
 }
 
-mod keyword {
-    syn::custom_keyword!(child);
-    syn::custom_keyword!(role);
-}
-
 impl Parse for OmitContent {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let selector = if input.peek(keyword::child)
-            && (input.peek2(syn::Ident)
-                || input.peek2(Token![::])
-                || input.peek2(Token![Self])
-                || input.peek2(Token![self])
-                || input.peek2(Token![super])
-                || input.peek2(Token![crate]))
-        {
-            input.parse::<keyword::child>()?;
-            {
-                let path: Path = input.parse()?;
-                if path.segments.iter().any(|segment| segment.ident == "Self") {
-                    return Err(syn::Error::new_spanned(
-                        path,
-                        "select a named child type path; use the component name instead of `Self`",
-                    ));
-                }
-                if path
-                    .segments
-                    .iter()
-                    .any(|segment| !matches!(segment.arguments, syn::PathArguments::None))
-                {
-                    return Err(syn::Error::new_spanned(
-                        path,
-                        "select the child type path without generic arguments",
-                    ));
-                }
-                OmitSelector::Child(path)
+        let value: Expr = input.parse()?;
+        let selector = match value {
+            Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(role), .. }) => {
+                OmitSelector::Role(nonempty(role, "content role")?)
             }
-        } else if input.peek(keyword::role) && input.peek2(LitStr) {
-            input.parse::<keyword::role>()?;
-            OmitSelector::Role(nonempty(input.parse()?, "content role")?)
-        } else {
-            let value: Expr = input.parse()?;
-            if !is_value_path(&value) {
-                return Err(syn::Error::new_spanned(value, "omit a local or field path, such as `omit_content!(self.image)`; use `child Type` or `role \"name\"` for other contributions"));
+            Expr::Call(call) => {
+                let ty = child_type(&call).ok_or_else(|| syn::Error::new_spanned(
+                    &call,
+                    "omit a local or field, a named part string, or `proa_core::content::child::<ChildType>()`",
+                ))?;
+                OmitSelector::Child { call, ty }
             }
-            OmitSelector::Value(value)
+            value if is_value_path(&value) => OmitSelector::Value(value),
+            value => return Err(syn::Error::new_spanned(value,
+                "omit a local or field, a named part string, or `proa_core::content::child::<ChildType>()`")),
         };
         let mut omission = Self {
             selector,
@@ -177,6 +149,28 @@ impl Parse for OmitContent {
             }
         }
         Ok(omission)
+    }
+}
+
+fn child_type(call: &syn::ExprCall) -> Option<Type> {
+    if !call.args.is_empty() {
+        return None;
+    }
+    let Expr::Path(function) = call.func.as_ref() else {
+        return None;
+    };
+    if function.qself.is_some() {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(args) = &function.path.segments.last()?.arguments else {
+        return None;
+    };
+    if args.colon2_token.is_none() || args.args.len() != 1 {
+        return None;
+    }
+    match args.args.first()? {
+        syn::GenericArgument::Type(ty) => Some(ty.clone()),
+        _ => None,
     }
 }
 
@@ -248,8 +242,8 @@ mod tests {
         for input in [
             "self.image",
             "notice, \"Browser-only\"",
-            "child crate::Notice",
-            "role \"restock\", from = \"html\"",
+            "child::<crate::Notice>()",
+            "\"restock\", from = \"html\"",
         ] {
             syn::parse_str::<OmitContent>(input).unwrap();
         }
@@ -258,6 +252,9 @@ mod tests {
     fn omission_never_accepts_evaluated_calls() {
         for input in [
             "expensive()",
+            "child Notice",
+            "role \"notice\"",
+            "child::<Notice>(value)",
             "self.image()",
             "values[0]",
             "notice, \"\"",
@@ -286,9 +283,9 @@ mod selector_name_tests {
             ));
         }
         for input in [
-            "child crate::Notice",
-            "child ::module::Notice",
-            "role \"notice\"",
+            "child::<crate::Notice>()",
+            "::proa_core::content::child::<module::Notice<String>>()",
+            "\"notice\"",
         ] {
             assert!(!matches!(
                 syn::parse_str::<OmitContent>(input).unwrap().selector,

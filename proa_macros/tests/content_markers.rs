@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_core::{MdRenderSync, WebContext, WebRenderSync, WriteError};
+use proa_core::{content::child, MdRenderSync, WebContext, WebRenderSync, WriteError};
 use proa_macros::{content, content_part, html_sync, md_sync, omit_content};
 use std::{cell::Cell, ops::Deref};
 
@@ -89,9 +89,17 @@ fn omission_type_checks_without_evaluating_field_access_or_moving_values() {
 #[test]
 fn child_and_role_selectors_do_not_construct_or_evaluate_content() {
     #[allow(dead_code)]
-    struct Notice;
-    omit_content!(child Notice);
-    omit_content!(role "restock", "Intentionally omitted");
+    struct Notice<'a, T> {
+        label: &'a str,
+        value: T,
+    }
+    // These are ordinary Rust expressions outside the macro too.
+    const SELECTOR: proa_core::content::Child<Notice<'static, String>> =
+        child::<Notice<'static, String>>();
+    assert_eq!(std::mem::size_of_val(&SELECTOR), 0);
+    omit_content!(child::<Notice<'_, String>>());
+    omit_content!(child::<str>());
+    omit_content!("restock", "Intentionally omitted");
     let calls = Cell::new(0);
     let output = content_part!("title", {
         calls.set(calls.get() + 1);

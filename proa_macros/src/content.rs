@@ -22,7 +22,9 @@ pub fn omit(input: TokenStream) -> syn::Result<TokenStream> {
     let omission: OmitContent = syn::parse2(input)?;
     Ok(match omission.selector {
         OmitSelector::Value(value) => quote! {{ if false { let _ = &(#value); } }},
-        OmitSelector::Child(path) => quote! {{ use #path as _; }},
+        OmitSelector::Child { call, ty } => {
+            quote! {{ if false { let _: ::proa_core::content::Child<#ty> = #call; } }}
+        }
         OmitSelector::Role(_) => quote! { () },
     })
 }

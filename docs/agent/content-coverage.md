@@ -11,29 +11,77 @@ Rust continues to check field and child render types.
 
 ## Use the smallest intentional exception
 
-For one omitted value, put a marker inside the checked render method:
+Put the marker **inside the render method that deliberately leaves content out**.
+For HTML → Markdown checks, that is `render_md` in the `MdRenderSync` or
+`MdRender` implementation. If the views live in different files, edit the file
+containing the Markdown implementation. The marker is a Rust statement before
+the template, rather than a file-level declaration or template text.
+
+For example, this complete `src/components/product.rs` keeps the image in HTML
+and deliberately excludes it from Markdown:
 
 ```rust
-proa_macros::omit_content!(self.image);
-proa_macros::omit_content!(restock, "Shown in the overview instead");
+use proa_core::{MdRenderSync, WebContext, WebRenderSync, WriteError};
+use proa_macros::{html_sync, md_sync};
+
+struct Product<'a> {
+    title: &'a str,
+    image: &'a str,
+}
+
+impl WebRenderSync for Product<'_> {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <article data-product>
+                <h1>{self.title}</h1>
+                <img src={self.image} alt="" />
+            </article>
+        }
+        .render(cx)
+    }
+}
+
+impl MdRenderSync for Product<'_> {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        // A Rust statement INSIDE the Markdown method, before its template.
+        proa_macros::omit_content!(self.image, "Image is only shown in HTML");
+
+        md_sync! { r###"# {self.title}"### }.render_md(cx)
+    }
+}
 ```
 
 The value must exist and type-check. The marker neither evaluates nor moves it.
+For a local, place the marker after its declaration and before that local is moved.
 A child local selects that child's contribution, including its input provenance.
 A field selects contributions depending on that field. If several children use
 `self.data`, omitting `self.data` is ambiguous and waives none of them.
 
-When no local child exists in the checked view, select its type:
+When the HTML view renders a child that has no local in Markdown, import the
+real typed `child` helper at file scope, and select the type inside `render_md`:
 
 ```rust
-proa_macros::omit_content!(child crate::components::RestockNotice);
+use proa_core::content::child;
+use crate::product::RestockNotice;
+
+impl MdRenderSync for Product<'_> {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        proa_macros::omit_content!(child::<RestockNotice<'_>>());
+        md_sync! { r###"# {self.title}"### }.render_md(cx)
+    }
+}
 ```
 
-Use a type path without generic arguments. If several distinct occurrences of
-that child have different inputs or presence conditions, use a local or named
-part to narrow the exception. Markers acknowledge missing coverage or deliberate
-presence differences. An unconditional marker covers that contribution's source
-presence policy; a conditional marker must match the source condition.
+This is an alternative Markdown implementation for a component whose HTML view
+renders that notice. Ordinary Rust type arguments apply: specify required
+lifetimes, type arguments, or const arguments as usual. The zero-sized selector
+constructs no child. For a child with type/const parameters, the bounded checker
+cannot infer its concrete instantiation; use an existing child local or named
+part instead of a type selector. If several distinct occurrences have different inputs or
+presence conditions, use a local or named part to narrow the exception.
+Markers acknowledge missing coverage or deliberate presence differences. An
+unconditional marker covers that contribution's source presence policy; a
+conditional marker must match the source condition.
 
 To exempt the entire representation, put this on either its impl or render method:
 
@@ -75,14 +123,21 @@ statement wrapper can map a helper that receives the output context or calls a
 registered render sink; an unused named value does not satisfy coverage. Name meaningful static text
 as a rendered child (for example, `content_part!("notice", text("…"))`).
 
-Intentionally omit a named part with:
+To omit a named part, put a string selector inside the Markdown method:
 
 ```rust
-proa_macros::omit_content!(role "stock-status");
+impl MdRenderSync for Product<'_> {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        proa_macros::omit_content!("stock-status", "Shown in the overview instead");
+        md_sync! { r###"# {self.title}"### }.render_md(cx)
+    }
+}
 ```
 
+The string selects the matching `content_part!` name in the source view.
+
 A marker can filter its source target: `omit_content!(self.image, from = "html")`
-or `omit_content!(child RestockNotice, "Browser only", from = "html")`.
+or `omit_content!(child::<RestockNotice<'_>>(), "Browser only", from = "html")`.
 The initial registry uses `html` and `markdown` as target identifiers.
 
 ## Pairing and single-target components

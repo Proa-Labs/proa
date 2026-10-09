@@ -191,6 +191,8 @@ pub struct ViewSummary {
     pub skip: bool,
     /// Unrendered bindings, resolved at definition time, for useful fixes.
     pub bindings: BTreeMap<String, Vec<ContentKey>>,
+    /// Complete Rust child type spellings that need no guessed type arguments.
+    pub child_selectors: BTreeMap<String, String>,
 }
 
 fn same_presence(a: &[Presence], b: &[Presence]) -> bool {
@@ -218,6 +220,49 @@ fn diag(
         message,
     )
     .with_label(SourceLabel::new(range, &view.source, label, true))
+}
+
+// A local selector belongs after its declaration, while it is still available.
+// If shadowing makes the insertion ambiguous, offer a typed selector instead.
+fn local_marker_range(view: &ViewSummary, name: &str) -> Option<SourceRange> {
+    use syn::spanned::Spanned;
+    use syn::visit::Visit;
+    struct Declarations<'a> {
+        view: &'a ViewSummary,
+        name: &'a str,
+        ranges: Vec<SourceRange>,
+    }
+    impl<'ast> Visit<'ast> for Declarations<'_> {
+        fn visit_impl_item_fn(&mut self, method: &'ast syn::ImplItemFn) {
+            let start = method.block.brace_token.span.open().start();
+            if start.line == self.view.entry.line && start.column + 2 == self.view.entry.column {
+                syn::visit::visit_block(self, &method.block);
+            }
+        }
+        fn visit_local(&mut self, local: &'ast syn::Local) {
+            if matches!(&local.pat, syn::Pat::Ident(p) if p.ident == self.name) {
+                let mut range = SourceRange::from_span(&self.view.entry.path, local.span());
+                range.line = range.end_line;
+                range.column = range.end_column;
+                self.ranges.push(range);
+            }
+            syn::visit::visit_local(self, local);
+        }
+        fn visit_expr_closure(&mut self, _: &'ast syn::ExprClosure) {}
+        fn visit_expr_async(&mut self, _: &'ast syn::ExprAsync) {}
+    }
+    let file = syn::parse_file(&view.source).ok()?;
+    let mut declarations = Declarations {
+        view,
+        name,
+        ranges: Vec::new(),
+    };
+    declarations.visit_file(&file);
+    if declarations.ranges.len() == 1 {
+        declarations.ranges.pop()
+    } else {
+        None
+    }
 }
 
 /// Compare summaries without depending on their parsers. Absence is confirmed
@@ -293,7 +338,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                     .to_owned(),
             )
         } else if distinct.len() > 1 {
-            ("render/content-omit-ambiguous", format!("this omission selects {} distinct contributions", distinct.len()), format!("select one child with `omit_content!(child path::Child)` or one named part; candidates: {}", distinct.iter().map(|(key,_)| key.label()).collect::<Vec<_>>().join(", ")))
+            ("render/content-omit-ambiguous", format!("this omission selects {} distinct contributions", distinct.len()), format!("select one child with `omit_content!(proa_core::content::child::<path::Child>())` or one named part; candidates: {}", distinct.iter().map(|(key,_)| key.label()).collect::<Vec<_>>().join(", ")))
         } else if matches.iter().all(|(_, s)| {
             target
                 .contributions
@@ -454,29 +499,44 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
         }
         // An omission of a child is meaningful even without a target-local
         // constructor. Canonical crate paths remain resolvable in this crate.
-        let omit = match &part.key {
-            ContentKey::Child { ty, .. } if ty.starts_with("crate::") => {
-                Some(format!("proa_macros::omit_content!(child {ty});"))
+        let local = target.bindings.iter().find_map(|(name, keys)| {
+            (name.as_str() != "self" && keys.contains(&part.key))
+                .then(|| local_marker_range(target, name).map(|range| (name, range)))
+                .flatten()
+        });
+        let omit = if let Some((name, _)) = &local {
+            Some(format!("proa_macros::omit_content!({name});"))
+        } else {
+            match &part.key {
+                ContentKey::Child { ty, .. } => source.child_selectors.get(ty).map(|ty| {
+                    format!("proa_macros::omit_content!(proa_core::content::child::<{ty}>());")
+                }),
+                ContentKey::Role(role) => Some(format!("proa_macros::omit_content!({role:?});")),
+                ContentKey::Value(value)
+                    if value.starts_with("self.")
+                        && syn::parse_str::<proa_dsl::content::OmitContent>(value).is_ok()
+                        && (source.component == target.component
+                            || target.bindings.get("self").is_some_and(|keys| {
+                                keys.iter().any(|key| key.inputs().contains(value))
+                            })) =>
+                {
+                    Some(format!("proa_macros::omit_content!({value});"))
+                }
+                _ => None,
             }
-            ContentKey::Role(role) => Some(format!("proa_macros::omit_content!(role {role:?});")),
-            ContentKey::Value(value)
-                if value.starts_with("self.")
-                    && syn::parse_str::<proa_dsl::content::OmitContent>(value).is_ok()
-                    && (source.component == target.component
-                        || target.bindings.get("self").is_some_and(|keys| {
-                            keys.iter().any(|key| key.inputs().contains(value))
-                        })) =>
-            {
-                Some(format!("proa_macros::omit_content!({value});"))
-            }
-            _ => None,
         };
         if let Some(replacement) = omit {
-            let mut range = target.entry.clone();
+            let mut range = local
+                .as_ref()
+                .map_or_else(|| target.entry.clone(), |(_, range)| range.clone());
             range.end_line = range.line;
             range.end_column = range.column;
             d = d.with_suggestion(Suggestion {
-                message: "to omit it intentionally, add this inside the render method".into(),
+                message: if let Some((name, _)) = &local {
+                    format!("to omit it intentionally, add this after `{name}` is declared inside the render method")
+                } else {
+                    "to omit it intentionally, add this inside the render method before its template".into()
+                },
                 range,
                 replacement,
                 applicability: SuggestionApplicability::MaybeIncorrect,

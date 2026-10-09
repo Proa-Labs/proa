@@ -1011,13 +1011,45 @@ impl Analyzer<'_> {
                     OmissionKey::Values(value.deps)
                 }
             }
-            OmitSelector::Child(path) => self
-                .resolver
-                .known_type(&path)
-                .map(OmissionKey::Child)
-                .unwrap_or_else(|| {
-                    OmissionKey::Unknown(format!("unresolved child `{}`", syntax(&path)))
-                }),
+            OmitSelector::Child { call, ty } => {
+                let helper = match call.func.as_ref() {
+                    Expr::Path(path) => self.resolver.path(&path.path),
+                    _ => String::new(),
+                };
+                let shadowed = bare(&call.func).is_some_and(|name| env.contains_key(&name));
+                if helper != "proa_core::content::child" || shadowed {
+                    OmissionKey::Unknown(
+                        "use the typed selector `proa_core::content::child::<ChildType>()`".into(),
+                    )
+                } else if let syn::Type::Path(path) = &ty {
+                    let generic_arguments = path.path.segments.iter().any(|segment| match &segment
+                        .arguments
+                    {
+                        syn::PathArguments::AngleBracketed(args) => args
+                            .args
+                            .iter()
+                            .any(|arg| !matches!(arg, syn::GenericArgument::Lifetime(_))),
+                        syn::PathArguments::Parenthesized(_) => true,
+                        syn::PathArguments::None => false,
+                    });
+                    if generic_arguments {
+                        OmissionKey::Unknown("the child's concrete generic instantiation cannot be resolved; omit an existing child local or give it a content_part! name".into())
+                    } else {
+                        self.resolver
+                        .known_type(&path.path)
+                        .map(|ty| {
+                            if self.resolver.generic_children.contains(&ty) {
+                                OmissionKey::Unknown("the child's concrete generic instantiation cannot be resolved; omit an existing child local or give it a content_part! name".into())
+                            } else { OmissionKey::Child(ty) }
+                        })
+                        .unwrap_or_else(|| {
+                            OmissionKey::Unknown(format!("unresolved child `{}`", syntax(&ty)))
+                        })
+                    }
+                } else {
+                    OmissionKey::Unknown(format!("unresolved child type `{}`", syntax(&ty)))
+                }
+            }
             OmitSelector::Role(r) => OmissionKey::Role(r.value()),
         };
         self.omissions.push(Omission {
@@ -1447,5 +1479,6 @@ pub(super) fn summarize(
         omissions: analyzer.omissions,
         skip,
         bindings: analyzer.bindings,
+        child_selectors: resolver.child_selectors.clone(),
     }
 }
