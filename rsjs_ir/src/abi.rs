@@ -5047,19 +5047,19 @@ mod tests {
     }
 
     #[test]
-    fn conditional_component_lifecycle_accepts_multi_signal_computed_predicate() {
+    fn conditional_component_lifecycle_accepts_multi_signal_memo_predicate() {
         let mut descriptor = conditional_component_descriptor();
         let second_signal = LocalValueId::new(3);
-        let computed = LocalValueId::new(4);
+        let memo = LocalValueId::new(4);
         let second_signal_origin = OriginId::new(4);
-        let computed_origin = OriginId::new(5);
-        descriptor.values.extend([second_signal, computed]);
+        let memo_origin = OriginId::new(5);
+        descriptor.values.extend([second_signal, memo]);
         descriptor
             .origins
             .insert(second_signal_origin, OriginKind::WritableSignal);
         descriptor
             .origins
-            .insert(computed_origin, OriginKind::SourceOnly);
+            .insert(memo_origin, OriginKind::SourceOnly);
         descriptor.dependencies.extend([
             (
                 DependencyEdgeId::new(8),
@@ -5074,9 +5074,9 @@ mod tests {
                 DependencyEdgeId::new(9),
                 DependencyEdge::new(
                     DependencyEdgeKind::Data,
-                    DependencyEndpoint::Origin(computed_origin),
-                    DependencyEndpoint::Value(computed),
-                    computed_origin,
+                    DependencyEndpoint::Origin(memo_origin),
+                    DependencyEndpoint::Value(memo),
+                    memo_origin,
                 ),
             ),
             (
@@ -5084,8 +5084,8 @@ mod tests {
                 DependencyEdge::new(
                     DependencyEdgeKind::Data,
                     DependencyEndpoint::Value(LocalValueId::new(2)),
-                    DependencyEndpoint::Value(computed),
-                    computed_origin,
+                    DependencyEndpoint::Value(memo),
+                    memo_origin,
                 ),
             ),
             (
@@ -5093,8 +5093,8 @@ mod tests {
                 DependencyEdge::new(
                     DependencyEdgeKind::Data,
                     DependencyEndpoint::Value(second_signal),
-                    DependencyEndpoint::Value(computed),
-                    computed_origin,
+                    DependencyEndpoint::Value(memo),
+                    memo_origin,
                 ),
             ),
         ]);
@@ -5102,7 +5102,7 @@ mod tests {
             .dependencies
             .get_mut(&DependencyEdgeId::new(3))
             .unwrap()
-            .from = DependencyEndpoint::Value(computed);
+            .from = DependencyEndpoint::Value(memo);
         descriptor
             .direct_components
             .get_mut(&ComponentEdgeId::new(0))
@@ -5110,14 +5110,14 @@ mod tests {
             .lifecycle_control
             .as_mut()
             .unwrap()
-            .predicate = computed;
+            .predicate = memo;
 
         DescriptorEnvelope::new(
             header(DescriptorKind::Component),
             DescriptorBody::Component(descriptor),
             None,
         )
-        .expect("every computed predicate dependency reaches a browser signal origin");
+        .expect("every memo predicate dependency reaches a browser signal origin");
     }
 
     #[test]

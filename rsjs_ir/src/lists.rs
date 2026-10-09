@@ -33,7 +33,7 @@ use crate::types::{ExprId, NodeId, SignalId};
 ///
 /// Existing signal-authored lists keep the direct [`SignalId`] shape so
 /// older analyzer paths can preserve the exact `__sig_N.get()` getter
-/// emission. Query-backed and computed list sources use an arena
+/// emission. Query-backed and memo list sources use an arena
 /// expression instead; dependency collection then discovers any signal,
 /// query, or mutation handles read by that expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

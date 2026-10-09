@@ -1095,7 +1095,7 @@ pub(crate) fn lossless_rust_signal_ids(island: &Island) -> Vec<SignalId> {
     rust_signal_initializer_ids(island, &analysis.reachable_signal_ids())
 }
 
-/// Emit one compiler-owned signal/computed/shared-field server binding at the
+/// Emit one compiler-owned signal/memo/shared-field server binding at the
 /// exact lexical position of its authored declaration.
 pub(crate) fn emit_lossless_signal_declaration(
     island: &Island,
@@ -1552,7 +1552,7 @@ fn emit_signal_initializers(
             continue;
         }
         if let Some(body) = sig.derived {
-            // Computed cell: replay the closure body as ordinary
+            // Memo cell: replay the closure body as ordinary
             // server Rust over the earlier `__rsjs_initial_signal_*`
             // locals (declaration order is id order, and a derived
             // body can only read names declared before it), so SSR
@@ -3000,7 +3000,7 @@ fn evaluate_const(
             } else {
                 let decl = island.signals.iter().find(|s| s.id == *id)?;
                 match decl.derived {
-                    // Computed cell: fold through its body expression.
+                    // Memo cell: fold through its body expression.
                     // Cycles cannot occur (a derived body can only read
                     // cells declared before it).
                     Some(body) => {

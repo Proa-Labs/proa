@@ -99,7 +99,7 @@ impl Analyzer {
         lower_handler_hir_to_client_lowering(statements)
     }
 
-    /// Lower an `on_*={rsjs::debounce(ms, |event| ...)}` attribute
+    /// Lower an `on_*={rsjs::debounce(|event| ..., delay_ms)}` attribute
     /// value: the closure body is the ordinary event-handler statement
     /// grammar, and `ms` records the trailing-edge debounce window the
     /// JS emitter wraps the handler with.
@@ -108,15 +108,15 @@ impl Analyzer {
         call: &ExprCall,
         event_node: NodeId,
     ) -> syn::Result<HandlerLowering> {
-        expect_call_arg_count(call, 2, "rsjs::debounce(ms, |event| ...)")?;
-        let ms = timer_ms_literal(&call.args[0], "debounce")?;
-        let Expr::Closure(closure) = &call.args[1] else {
+        expect_call_arg_count(call, 2, "rsjs::debounce(|event| ..., delay_ms)")?;
+        let Expr::Closure(closure) = &call.args[0] else {
             return Err(syn::Error::new(
-                call.args[1].span(),
-                "`rsjs::debounce(ms, ...)` expects a closure as its second argument, \
-                 e.g. `on_input={rsjs::debounce(300, |event| query.set(event.value()))}`",
+                call.args[0].span(),
+                "`rsjs::debounce(handler, delay_ms)` expects a closure as its first argument, \
+                 e.g. `on_input={rsjs::debounce(|event| query.set(event.value()), 300)}`",
             ));
         };
+        let ms = timer_ms_literal(&call.args[1], "debounce")?;
         let event_param = event_handler_param(closure)?;
         let scope = HandlerScope {
             handler_param: None,
@@ -431,7 +431,7 @@ impl Analyzer {
             }
             if method == "set" {
                 let id = self.expect_signal_receiver(&mc.receiver, "set")?;
-                self.reject_computed_write(id, mc.method.span(), "call `.set(...)` on it")?;
+                self.reject_memo_write(id, mc.method.span(), "call `.set(...)` on it")?;
                 if mc.args.len() != 1 {
                     return Err(syn::Error::new(
                         mc.span(),
@@ -559,7 +559,7 @@ impl Analyzer {
             }
             if method == "update" {
                 let id = self.expect_signal_receiver(&mc.receiver, "update")?;
-                self.reject_computed_write(id, mc.method.span(), "call `.update(...)` on it")?;
+                self.reject_memo_write(id, mc.method.span(), "call `.update(...)` on it")?;
                 if mc.args.len() != 1 {
                     return Err(syn::Error::new(
                         mc.span(),

@@ -44,19 +44,19 @@ pub struct SignalDecl {
     pub source_anchor: Option<SourceAnchor>,
     /// Initial value at island construction time.
     pub init: Value,
-    /// Body expression of a computed (derived) cell, or `None` for a
+    /// Body expression of a memo (derived) cell, or `None` for a
     /// plain leaf signal.
     ///
-    /// Design note: computed cells deliberately share the [`SignalId`]
+    /// Design note: memo cells deliberately share the [`SignalId`]
     /// space with plain signals instead of introducing a parallel
-    /// `ComputedId`. Every existing consumer (dependency collection,
+    /// `MemoId`. Every existing consumer (dependency collection,
     /// binding dep arrays, `__sig_<id>` JS naming, component-inline
     /// signal remapping) keys off `SignalId`, and the runtime's
-    /// `computed()` cell exposes the same `_subscribe` interface as a
+    /// `memo()` cell exposes the same `_subscribe` interface as a
     /// signal, so a derived cell slots into all of that wiring
     /// unchanged. The only places that must distinguish the two are
     /// the emitters: the JS emitter declares derived cells with
-    /// `computed(() => <body>, [<deps>])` instead of
+    /// `memo(() => <body>, [<deps>])` instead of
     /// `signal(signal_initial(...))`, and the seed-blob writers emit a
     /// `null` placeholder at a derived cell's index (the blob array is
     /// indexed by `SignalId`, so positions must stay aligned, but a
@@ -75,7 +75,7 @@ pub struct SignalDecl {
     /// [`ClientType::Unknown`] remains the honest fallback only when no
     /// supported client domain can be proven.
     ///
-    /// For a computed (derived) cell this is the type of the derived
+    /// For a memo (derived) cell this is the type of the derived
     /// body, backfilled by the whole-island typing pass
     /// (`crate::analysis::typing`) once the body expression exists in
     /// the arena.
@@ -93,7 +93,7 @@ pub struct SignalDecl {
     /// is owned by the island itself.
     ///
     /// Shared fields deliberately occupy the ordinary [`SignalId`] space so
-    /// dependency collection, computed cells, bindings, and handler writes do
+    /// dependency collection, memo cells, bindings, and handler writes do
     /// not need a parallel reactive graph.
     pub shared: Option<SharedFieldRef>,
 }
@@ -139,7 +139,7 @@ pub struct EventHandler {
     /// ordinary handler.
     ///
     /// When set, the JS emitter declares the handler as `const
-    /// __handler_<id> = debounce(<ms>, (event) => { ... });` and pushes
+    /// __handler_<id> = debounce((event) => { ... }, <delay_ms>);` and pushes
     /// the wrapper's `_dispose` into the island disposer list so a
     /// removed island never fires a pending trailing call. Delegation
     /// tables reference the wrapped function by the same
@@ -161,7 +161,7 @@ impl EventHandler {
     }
 
     /// Construct a debounced event handler from Client IR v3. The
-    /// emitted JS wraps the body with the runtime's `debounce(ms, fn)`
+    /// emitted JS wraps the body with the runtime's `debounce(fn, delay_ms)`
     /// and ties the wrapper's `_dispose` to island teardown.
     pub fn from_ir_debounced(id: EventHandlerId, ms: u64, body_ir: ClientBlock) -> Self {
         Self {

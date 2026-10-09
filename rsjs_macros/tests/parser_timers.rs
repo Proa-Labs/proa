@@ -8,8 +8,8 @@
 //!   handler-statement grammar inside the tick closure, gate the
 //!   `interval` runtime import behind use, and stay out of the SSR
 //!   replay (nothing ticks on the server).
-//! - An `on_input={rsjs::debounce(ms, |event| ...)}` attribute must
-//!   emit `const __handler_<id> = debounce(<ms>, (event) => { ... });`
+//! - An `on_input={rsjs::debounce(|event| ..., delay_ms)}` attribute must
+//!   emit `const __handler_<id> = debounce((event) => { ... }, <delay_ms>);`
 //!   plus a `__rsjs_disposers.push(__handler_<id>._dispose);` line,
 //!   with the delegation table referencing the wrapped function.
 
@@ -66,7 +66,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DebouncedSea
         let query = signal("");
         proa_macros::html_sync! {
             <div>
-                <input on_input={rsjs::debounce(300, |event| query.set(event.value()))} />
+                <input on_input={rsjs::debounce(|event| query.set(event.value()), 300)} />
                 <span>{query.get()}</span>
             </div>
         }
@@ -124,8 +124,12 @@ fn debounced_handler_emits_wrapped_const_with_disposer() {
         .expect("DebouncedSearch island should be registered")
         .js_source;
     assert!(
-        js.contains("const __handler_0 = debounce(300, (event) => {"),
+        js.contains("const __handler_0 = debounce((event) => {"),
         "the debounced attribute value should declare the runtime debounce wrapper, got:\n{js}"
+    );
+    assert!(
+        js.contains("    }, 300);"),
+        "the delay must be the second argument of the runtime wrapper, got:\n{js}"
     );
     assert!(
         js.contains("__sig_0.set((event.target?.value ?? \"\"));"),

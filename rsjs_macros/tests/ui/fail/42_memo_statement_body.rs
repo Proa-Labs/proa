@@ -1,4 +1,4 @@
-// Category 42: `computed(...)` closures must be a single reactive
+// Category 42: `memo(...)` closures must be a single reactive
 // expression; bodies with statements (`let` bindings, multiple
 // statements) are rejected with guidance toward event handlers.
 
@@ -21,7 +21,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CartTotal {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let price = signal(10_i64);
         let qty = signal(2_i64);
-        let total = rsjs::computed(|| {
+        let total = rsjs::memo(|| {
             let subtotal = price.get() * qty.get();
             subtotal + 1
         });

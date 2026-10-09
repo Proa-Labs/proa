@@ -134,9 +134,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CalendarProbe {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let view = signal(1_i32);
         // This helper call has no local DOM consumer. It becomes browser-live
-        // only because the linked child receives the computed cell as a live
+        // only because the linked child receives the memo cell as a live
         // prop, exercising the final fragment's forced-root closure.
-        let latent = rsjs::computed(|| if local_serial(view.get() + 20_i32) > 0_i32 {
+        let latent = rsjs::memo(|| if local_serial(view.get() + 20_i32) > 0_i32 {
                 1.0_f64
             } else {
                 0.0_f64
@@ -615,7 +615,7 @@ function makeSignal(initial) {
 }
 
 export const signal = makeSignal;
-export function computed(read) {
+export function memo(read) {
     const cell = makeSignal(read());
     cell.get = read;
     cell._dispose = () => {};

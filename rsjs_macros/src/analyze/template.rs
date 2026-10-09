@@ -274,10 +274,10 @@ impl Analyzer {
                 };
                 // resolve_signal_path is the dependent step: do not
                 // try to bind_input on failure. Two-way input bindings
-                // write the signal from DOM input, so a computed cell
+                // write the signal from DOM input, so a memo cell
                 // can never back one.
                 match self.resolve_signal_path(value).and_then(|signal_id| {
-                    self.reject_computed_write(
+                    self.reject_memo_write(
                         signal_id,
                         value.span(),
                         &format!("bind it with `{raw_name}`"),
@@ -2155,10 +2155,10 @@ impl Analyzer {
             ));
         }
         if let KeyedListIterator::Signal(signal) = &source {
-            if self.computed_cells.contains(signal) {
+            if self.memo_cells.contains(signal) {
                 return Err(syn::Error::new(
                     for_loop.expr.span(),
-                    "keyed lists iterate a writable `signal(...)`; a `computed(...)` \
+                    "keyed lists iterate a writable `signal(...)`; a `memo(...)` \
                      cell cannot drive a keyed list in v0.1. Store the list in a signal \
                      and write it from event handlers",
                 ));
@@ -3459,7 +3459,7 @@ impl<'ast> Visit<'ast> for OpaqueBoundaryReactiveCapture<'_> {
                     );
                 } else if matches!(
                     name.as_str(),
-                    "computed" | "node_ref" | "interval" | "handler" | "event_handler"
+                    "memo" | "node_ref" | "interval" | "handler" | "event_handler"
                 ) {
                     self.push_err(
                         self.boundary
@@ -3994,7 +3994,7 @@ fn macro_rsjs_client_calls(
                 Some(MacroClientCallKind::State)
             } else if matches!(
                 name_string.as_str(),
-                "computed" | "node_ref" | "interval" | "handler" | "event_handler"
+                "memo" | "node_ref" | "interval" | "handler" | "event_handler"
             ) {
                 Some(MacroClientCallKind::Primitive)
             } else {

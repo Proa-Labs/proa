@@ -73,8 +73,8 @@ client origin such as `signal`, `on_*`, `bind_*`,
 `query_with_initial`, `mutation`, `shared::<T>()`, `node_ref`,
 `rsjs::interval`, or a browser helper.
 
-A pure `computed` derived only from inbound live values is participation, not a
-new origin. A computed that depends on locally originated state or a browser
+A pure `memo` derived only from inbound live values is participation, not a
+new origin. A memo that depends on locally originated state or a browser
 capability inherits that dependency's origin requirement.
 
 Ordinary non-reactive Rust expressions inside an analyzed template stay opaque
@@ -136,7 +136,7 @@ Quick boundary rules:
 | No RSJS attribute | Opaque SSR component; no client analysis. |
 | `#[rsjs(component)]` | Analyzed participant that may compose into an enclosing client graph but cannot originate local browser behavior. |
 | `#[rsjs(component, client)]` | Origin-capable analyzed component; reachable browser work determines emitted JS. |
-| `signal(...)`, `computed(...)`, `query_with_initial(...)`, `mutation(...)`, or `node_ref(...)` declared but unused | Can be dropped by v2 reachability; do not rely on side effects there. |
+| `signal(...)`, `memo(...)`, `query_with_initial(...)`, `mutation(...)`, or `node_ref(...)` declared but unused | Can be dropped by v2 reachability; do not rely on side effects there. |
 | `on_*`, `bind_*`, reachable signal/query/mutation/node-ref use, browser helper, or client helper call | Browser JS is required. |
 | Reachable call to a `#[rsjs::client]` helper | The helper and its reachable helper dependencies ship; an uncalled helper does not. |
 | Helper call inside a callback-adapter payload that crosses a component-owner boundary | Rejected with `rsjs/linked-payload-handler-unsupported-dependency` until that ABI transports typed helper edges. Ordinary component handlers and reactive expressions are supported. |
@@ -177,12 +177,12 @@ node payload, or a descriptor reactive prop serializes it into public browser
 state.
 
 Do not rely on side effects inside unused client declarations. In v2, declarations
-such as `signal(...)`, `computed(...)`, `event_handler(...)`, `node_ref(...)`,
+such as `signal(...)`, `memo(...)`, `event_handler(...)`, `node_ref(...)`,
 `query_with_initial(...)`, or `mutation(...)` can be dropped when the IR proves
 no reachable browser work uses them. Put required server work in ordinary Rust
 prelude code.
 `cargo proa lint` also reports plainly unused named `signal(...)` /
-`.into_signal()`, `computed(...)`, `rsjs::handler(...)`,
+`.into_signal()`, `memo(...)`, `rsjs::handler(...)`,
 `rsjs::event_handler(...)`, `rsjs::node_ref(...)`, query declarations
 (`query(...)`, `query_with_options(...)`, `query_with_initial(...)`), and
 mutation declarations (`mutation(...)`, `mutation_with_options(...)`) as
@@ -235,7 +235,7 @@ reachable browser work, not by prop types:
    zero-to-many-node output can remain direct: hydration verifies its fast
    positional path and falls back to an owner-scoped marker lookup.
 4. If a client primitive is declared but unused, move any required server work
-   into ordinary prelude Rust. v2 may drop unused `signal`, `computed`,
+   into ordinary prelude Rust. v2 may drop unused `signal`, `memo`,
    handler, query, mutation, or node-ref declarations.
 5. If a utility helper only formats SSR text, call it normally in the template
    or prelude. When a pure, origin-free calculation must rerun
@@ -281,7 +281,7 @@ such as transitional `rsjs/unused-client-module` records for helper groups that
 did not ship and `rsjs/component-fragment-mount` for parents hydrating through the
 current schema-v4 parent-mounted child fragment path,
 `rsjs/dead-client-primitive` for declared but unreachable
-signals, computed cells, handlers, node refs, queries, or mutations, plus anchored
+signals, memo cells, handlers, node refs, queries, or mutations, plus anchored
 `rsjs/unnecessary-server-only` warnings for wrappers the compiler proved were
 simple SSR projections. Missing or ambiguous sidecars fall back to the
 conservative source lint by default. In strict mode they are errors:
@@ -611,7 +611,7 @@ impl<L: DataLoader> WebRenderSync<L> for IconButton {
 Constraints on an inferred opaque server expression:
 - Cannot capture or read a `signal(...)` (compile error: "cannot capture reactive signal").
 - Cannot declare/read client primitives such as `signal(...)`,
-  `computed(...)`, `query_with_initial(...)`, `mutation(...)`,
+  `memo(...)`, `query_with_initial(...)`, `mutation(...)`,
   `node_ref(...)`, `handler(...)`, `event_handler(...)`, or
   `interval(...)` inside the wrapped expression.
 - Cannot call rsjs browser helpers such as `rsjs::window::inner_width()`,
@@ -1091,7 +1091,7 @@ Consumers acquire the nearest provider inside their own
 ```rust
 let workbench = rsjs::shared::<WorkbenchState>();
 let button_bg = workbench.button_bg();
-let is_green = rsjs::computed(|| button_bg.get() == "#2f6b4f");
+let is_green = rsjs::memo(|| button_bg.get() == "#2f6b4f");
 ```
 
 The provider is lexical during SSR but does not render a DOM node. SSR records

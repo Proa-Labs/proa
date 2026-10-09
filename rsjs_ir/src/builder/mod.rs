@@ -136,12 +136,12 @@ impl IslandBuilder {
         id
     }
 
-    /// Declare a new computed (derived) cell whose value is the arena
+    /// Declare a new memo (derived) cell whose value is the arena
     /// expression `body` re-evaluated whenever the signals it reads
     /// change. Returns the freshly allocated [`SignalId`]; see
     /// [`crate::reactive::SignalDecl::derived`] for why derived cells
     /// share the signal id space.
-    pub fn computed(&mut self, body: ExprId) -> SignalId {
+    pub fn memo(&mut self, body: ExprId) -> SignalId {
         let id = SignalId(self.signals.len() as u32);
         self.signals.push(SignalDecl {
             id,
@@ -211,7 +211,7 @@ impl IslandBuilder {
     }
 
     /// Overwrite the declared client-side value shape of an
-    /// already-declared signal. Used to backfill computed (derived)
+    /// already-declared signal. Used to backfill memo (derived)
     /// cell types from the whole-island typing pass, and by the
     /// analyzer when a later fact sharpens a declaration.
     ///
@@ -244,10 +244,10 @@ impl IslandBuilder {
             .and_then(|decl| decl.integer_domain)
     }
 
-    /// Mark an already-declared signal as a computed (derived) cell.
+    /// Mark an already-declared signal as a memo (derived) cell.
     ///
     /// Used by the component inliner: child signal declarations are
-    /// copied before the child expression arena, so a child computed
+    /// copied before the child expression arena, so a child memo
     /// cell's remapped body id only becomes known after the arena copy.
     ///
     /// # Panics
@@ -287,7 +287,7 @@ impl IslandBuilder {
 
     /// Declare a new debounced event handler from an already-lowered
     /// Client IR v3 block. The emitted JS wraps the body with the
-    /// runtime's `debounce(ms, fn)` (trailing edge) and pushes the
+    /// runtime's `debounce(fn, delay_ms)` (trailing edge) and pushes the
     /// wrapper's `_dispose` into the island disposer list.
     pub fn debounce_handler_from_ir(&mut self, ms: u64, body_ir: ClientBlock) -> EventHandlerId {
         let id = EventHandlerId(self.handlers.len() as u32);

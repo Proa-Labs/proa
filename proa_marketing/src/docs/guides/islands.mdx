@@ -355,7 +355,7 @@ Once you have decided a component needs browser behaviour, this is the map:
 | Need | RSJS primitive |
 | --- | --- |
 | Owner-local browser state | `signal(...)` |
-| Read-only derived state | `computed(...)` |
+| Read-only derived state | `memo(...)` |
 | Typed state shared by independent owners | `SharedStateProvider` and `shared::<T>()` |
 | Click, input, keyboard, pointer, document, or window events | `event_handler(...)` and `on_*` attributes |
 | Form control state | `bind_value`, `bind_checked`, `bind_selected` |

@@ -18,7 +18,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NumericI64Di
         let neg_rhs = signal(-3_i64);
         let quotient = signal(0_i64);
         let remainder = signal(0_i64);
-        let doubled = rsjs::computed(|| neg_lhs.get() * 2_i64);
+        let doubled = rsjs::memo(|| neg_lhs.get() * 2_i64);
 
         proa_macros::html_sync! {
             <div>

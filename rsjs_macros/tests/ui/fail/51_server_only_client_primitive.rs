@@ -13,7 +13,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
-            <div>{rsjs::server_only(rsjs::computed(|| 1_i64))}</div>
+            <div>{rsjs::server_only(rsjs::memo(|| 1_i64))}</div>
         }
         .render(cx)
     }

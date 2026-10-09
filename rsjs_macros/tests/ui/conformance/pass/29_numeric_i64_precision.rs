@@ -15,7 +15,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NumericI64Pr
         // 9007199254740993 = 2^53 + 1, the first i64 a JS Number cannot
         // represent exactly.
         let big = signal(9007199254740993_i64);
-        let successor = rsjs::computed(|| big.get() + 1_i64);
+        let successor = rsjs::memo(|| big.get() + 1_i64);
 
         proa_macros::html_sync! {
             <div>
@@ -38,7 +38,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for NumericI64Pr
                 <button on_click={|_| {
                     big.set(successor.get() + 1_i64);
                 }}>
-                    "Increment via computed"
+                    "Increment via memo"
                 </button>
                 <span>{big.get()}</span>
                 <span>{successor.get()}</span>
