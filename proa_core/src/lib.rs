@@ -63,6 +63,8 @@ pub mod text {
 }
 
 // Primary public API
+#[cfg(feature = "html-to-markdown")]
+pub use md::{to_markdown, ToMarkdown};
 pub use md::{AsyncMd, AsyncMdFuture, MdCodeContent, OptimizedMd, TrustedMarkdown};
 #[allow(deprecated)]
 pub use render::{
