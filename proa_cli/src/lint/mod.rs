@@ -26,6 +26,7 @@ use crate::source::{
     display_path, file_line_column_for_body_span, find_macros, MacroDialect, MacroInvocation,
 };
 
+pub mod content;
 mod predicates;
 mod rsjs_strategy;
 mod scope;
@@ -43,6 +44,7 @@ pub(crate) use suppression::*;
 pub struct LintOptions {
     pub include_tests: bool,
     pub rsjs_strategy_cache: Option<RsjsStrategyCacheOptions>,
+    pub content: content::ContentOptions,
 }
 
 pub fn lint_file(path: &Path, source: &str) -> Vec<Diagnostic> {
@@ -54,12 +56,19 @@ pub fn lint_file_with_options(path: &Path, source: &str, options: LintOptions) -
         .rsjs_strategy_cache
         .as_ref()
         .map(RsjsStrategyCache::load);
-    lint_file_with_cache(
+    let mut diagnostics = lint_file_with_cache(
         path,
         source,
         options.include_tests,
         rsjs_strategy_cache.as_ref(),
-    )
+    );
+    diagnostics.extend(content::lint_sources(
+        &[(path.to_owned(), source.to_owned())],
+        &std::collections::BTreeSet::from([content::absolute(path)]),
+        options.include_tests,
+        &options.content,
+    ));
+    diagnostics
 }
 
 fn lint_file_with_cache(
@@ -250,6 +259,11 @@ pub fn lint_paths(paths: &[std::path::PathBuf], options: LintOptions) -> Result<
     for result in per_file {
         diagnostics.extend(result?);
     }
+    diagnostics.extend(content::lint_paths(
+        &files,
+        options.include_tests,
+        &options.content,
+    )?);
     Ok(diagnostics)
 }
 

@@ -96,3 +96,27 @@ proa check --staged
 With explicit paths or Git selection, `check` runs only those source checks. Run with no file selection, it scans the project's `src` and then also runs the linked RSJS Cargo check of the whole project. The Cargo flags (`-p`, `--bin`, `--profile`, `--target`, `--features`, `--all-features`, `--no-default-features`, `--locked`, `--offline`) select the one exact target the linked check compiles; in a multi-package workspace pass `-p` or `--bin` explicitly. Pass `--source-only` to run only the formatter and lints; Cargo flags cannot be combined with file selection or `--source-only`.
 
 Use `check` for local pre-push validation and CI. Use `fmt` or `lint` directly when you need write mode, JSON diagnostics, GitHub annotations, or severity filtering.
+
+
+## Content across representations
+
+`proa lint --min-severity info` also compares supported HTML contributions with
+Markdown when both views exist. Constructing a child or reading its fields does
+not count as rendering it. Single-target components are valid. Use
+`#[proa_macros::content(skip)]` on an impl or render method to exempt a whole
+view, or `proa_macros::omit_content!(self.image)` for one intentional omission.
+Child and named-part selectors are available when a value is ambiguous.
+
+`--content-summary --min-severity info` shows paired, unpaired, and exempt status.
+These are discovery statuses, not equivalence certificates. Supported omissions
+use `render/content-coverage`; opaque helpers or differing presence conditions
+use `render/content-coverage-unchecked`. Both are informational by default. For
+a reviewed scope, enforce them with `--deny render/content-coverage --deny
+render/content-coverage-unchecked`. Denied codes are always printed.
+
+Analysis loads unchanged counterparts for changed-file scans. `--root` selects
+an analysis root as well as the RSJS sidecar root. `--staged` selects staged paths
+but checks their working-tree contents, not Git index snapshots. See the
+[content coverage authoring reference](https://github.com/proa-labs/proa/blob/main/docs/agent/content-coverage.md)
+for supported analysis, targeted exceptions, explicit source pairs, and future
+target registration.

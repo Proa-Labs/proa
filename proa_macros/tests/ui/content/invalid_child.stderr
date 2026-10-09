@@ -1,0 +1,5 @@
+error: select the child type path without generic arguments
+ --> tests/ui/content/invalid_child.rs:4:25
+  |
+4 |     omit_content!(child Notice<String>);
+  |                         ^^^^^^^^^^^^^^
