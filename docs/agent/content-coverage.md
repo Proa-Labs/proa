@@ -22,7 +22,7 @@ and deliberately excludes it from Markdown:
 
 ```rust
 use proa_core::{MdRenderSync, WebContext, WebRenderSync, WriteError};
-use proa_macros::{html_sync, md_sync};
+use proa_macros::{html_sync, md_sync, omit};
 
 struct Product<'a> {
     title: &'a str,
@@ -44,7 +44,7 @@ impl WebRenderSync for Product<'_> {
 impl MdRenderSync for Product<'_> {
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
         // A Rust statement INSIDE the Markdown method, before its template.
-        proa_macros::omit_content!(self.image, "Image is only shown in HTML");
+        omit!(self.image, "Image is only shown in HTML");
 
         md_sync! { r###"# {self.title}"### }.render_md(cx)
     }
@@ -62,11 +62,12 @@ real typed `child` helper at file scope, and select the type inside `render_md`:
 
 ```rust
 use proa_core::content::child;
+use proa_macros::omit;
 use crate::product::RestockNotice;
 
 impl MdRenderSync for Product<'_> {
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        proa_macros::omit_content!(child::<RestockNotice<'_>>());
+        omit!(child::<RestockNotice<'_>>());
         md_sync! { r###"# {self.title}"### }.render_md(cx)
     }
 }
@@ -123,12 +124,13 @@ statement wrapper can map a helper that receives the output context or calls a
 registered render sink; an unused named value does not satisfy coverage. Name meaningful static text
 as a rendered child (for example, `content_part!("notice", text("…"))`).
 
-To omit a named part, put a string selector inside the Markdown method:
+To omit a named part, use the same file-level `omit` import shown above and
+put a string selector inside the Markdown method:
 
 ```rust
 impl MdRenderSync for Product<'_> {
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        proa_macros::omit_content!("stock-status", "Shown in the overview instead");
+        omit!("stock-status", "Shown in the overview instead");
         md_sync! { r###"# {self.title}"### }.render_md(cx)
     }
 }
@@ -136,8 +138,8 @@ impl MdRenderSync for Product<'_> {
 
 The string selects the matching `content_part!` name in the source view.
 
-A marker can filter its source target: `omit_content!(self.image, from = "html")`
-or `omit_content!(child::<RestockNotice<'_>>(), "Browser only", from = "html")`.
+A marker can filter its source target: `omit!(self.image, from = "html")`
+or `omit!(child::<RestockNotice<'_>>(), "Browser only", from = "html")`.
 The initial registry uses `html` and `markdown` as target identifiers.
 
 ## Pairing and single-target components

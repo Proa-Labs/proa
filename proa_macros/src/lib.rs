@@ -56,14 +56,14 @@ pub fn content(args: TokenStream, input: TokenStream) -> TokenStream {
 /// omits the contribution, before its template. For a local, place it after
 /// the declaration and before the value is moved.
 ///
-/// Use `omit_content!(self.image)`, `omit_content!(notice, "reason")`,
-/// `omit_content!(proa_core::content::child::<crate::RestockNotice>())`, or
-/// `omit_content!("restock")`. Optional `from = "html"` restricts the
+/// Use `omit!(self.image)`, `omit!(notice, "reason")`,
+/// `omit!(proa_core::content::child::<crate::RestockNotice>())`, or
+/// `omit!("restock")`. Optional `from = "html"` restricts the
 /// source comparison. Value paths are type-checked without being evaluated
 /// or moved. The typed `proa_core::content::child::<ChildType>()` helper
 /// constructs no child; ordinary Rust generic arguments apply.
 #[proc_macro]
-pub fn omit_content(input: TokenStream) -> TokenStream {
+pub fn omit(input: TokenStream) -> TokenStream {
     content::omit(input.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()

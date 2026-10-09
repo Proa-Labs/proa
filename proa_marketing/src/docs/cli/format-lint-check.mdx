@@ -104,7 +104,10 @@ Use `check` for local pre-push validation and CI. Use `fmt` or `lint` directly w
 Markdown when both views exist. Constructing a child or reading its fields does
 not count as rendering it. Single-target components are valid. Use
 `#[proa_macros::content(skip)]` on an impl or render method to exempt a whole
-view, or `proa_macros::omit_content!(self.image)` for one intentional omission.
+view. For one intentional omission, put `proa_macros::omit!(self.image)`
+as a Rust statement inside the render method that leaves it out, before its
+template. For HTML → Markdown checks, that is the Markdown `render_md` method.
+For a local, put the marker after its declaration and before it is moved.
 Child and named-part selectors are available when a value is ambiguous.
 
 `--content-summary --min-severity info` shows paired, unpaired, and exempt status.

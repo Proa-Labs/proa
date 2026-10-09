@@ -1,6 +1,6 @@
-use proa_macros::omit_content;
+use proa_macros::omit;
 struct Product { title: String }
 fn main() {
     let product = Product { title: String::new() };
-    omit_content!(product.missing);
+    omit!(product.missing);
 }

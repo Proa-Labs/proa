@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use proa_core::{content::child, MdRenderSync, WebContext, WebRenderSync, WriteError};
-use proa_macros::{content, content_part, html_sync, md_sync, omit_content};
+use proa_macros::{content, content_part, html_sync, md_sync, omit};
 use std::{cell::Cell, ops::Deref};
 
 struct Product {
@@ -22,7 +22,7 @@ impl WebRenderSync for Product {
 impl MdRenderSync for Product {
     #[content(skip, reason = "Independent Markdown representation")]
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        omit_content!(self.title);
+        omit!(self.title);
         md_sync! { r###"# {content_part!("title", self.title)}"### }.render_md(cx)
     }
 }
@@ -78,11 +78,11 @@ fn omission_type_checks_without_evaluating_field_access_or_moving_values() {
         },
         dereferences: &dereferences,
     };
-    omit_content!(value.image, "Decorative", from = "html");
+    omit!(value.image, "Decorative", from = "html");
     assert_eq!(dereferences.get(), 0);
     assert_eq!(value.fields.image, "owned");
     let value = String::from("still owned");
-    omit_content!(value);
+    omit!(value);
     assert_eq!(value, "still owned");
 }
 
@@ -97,9 +97,9 @@ fn child_and_role_selectors_do_not_construct_or_evaluate_content() {
     const SELECTOR: proa_core::content::Child<Notice<'static, String>> =
         child::<Notice<'static, String>>();
     assert_eq!(std::mem::size_of_val(&SELECTOR), 0);
-    omit_content!(child::<Notice<'_, String>>());
-    omit_content!(child::<str>());
-    omit_content!("restock", "Intentionally omitted");
+    omit!(child::<Notice<'_, String>>());
+    omit!(child::<str>());
+    omit!("restock", "Intentionally omitted");
     let calls = Cell::new(0);
     let output = content_part!("title", {
         calls.set(calls.get() + 1);
@@ -113,8 +113,8 @@ fn child_and_role_selectors_do_not_construct_or_evaluate_content() {
 fn omission_selectors_allow_locals_named_child_and_role() {
     let child = String::from("child");
     let role = String::from("role");
-    omit_content!(child);
-    omit_content!(role, "intentional");
+    omit!(child);
+    omit!(role, "intentional");
     assert_eq!(child, "child");
     assert_eq!(role, "role");
 }

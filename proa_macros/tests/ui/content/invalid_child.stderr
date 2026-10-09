@@ -1,5 +1,5 @@
 error: omit a local or field, a named part string, or `proa_core::content::child::<ChildType>()`
- --> tests/ui/content/invalid_child.rs:3:19
+ --> tests/ui/content/invalid_child.rs:3:11
   |
-3 |     omit_content!(proa_core::content::child::<3>());
-  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+3 |     omit!(proa_core::content::child::<3>());
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

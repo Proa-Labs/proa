@@ -195,7 +195,7 @@ mod content_output_tests {
         .with_suggestion(Suggestion {
             message: "intentional omission".into(),
             range: primary,
-            replacement: "omit_content!(proa_core::content::child::<Notice>());".into(),
+            replacement: "omit!(proa_core::content::child::<Notice>());".into(),
             applicability: SuggestionApplicability::MaybeIncorrect,
         });
         let json = serde_json::to_value(DiagnosticJson::from(&d)).unwrap();
@@ -206,6 +206,6 @@ mod content_output_tests {
         let github = github_annotation(&d);
         assert!(github.contains("src/html.rs:8:9: HTML child"));
         assert!(github.contains("%0Anote: construction is not output"));
-        assert!(github.contains("omit_content!(proa_core::content::child::<Notice>());"));
+        assert!(github.contains("omit!(proa_core::content::child::<Notice>());"));
     }
 }

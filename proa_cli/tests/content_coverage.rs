@@ -111,7 +111,7 @@ fn changed_html_loads_unchanged_markdown_and_denied_info_is_visible() {
         .ends_with("src/html.rs"));
     assert_eq!(
         missing["suggestions"][0]["replacement"],
-        "proa_macros::omit_content!(proa_core::content::child::<crate::product::RestockNotice>());"
+        "proa_macros::omit!(proa_core::content::child::<crate::product::RestockNotice>());"
     );
     let text = cli(
         root.path(),
@@ -125,7 +125,7 @@ fn changed_html_loads_unchanged_markdown_and_denied_info_is_visible() {
     let github = String::from_utf8_lossy(&github.stdout);
     assert!(github.contains("title=render/content-coverage"));
     assert!(github.contains("src/html.rs"));
-    assert!(github.contains("omit_content!"));
+    assert!(github.contains("omit!"));
 }
 #[test]
 fn staged_paths_use_working_tree_contents_and_default_check_policy_stays_compatible() {

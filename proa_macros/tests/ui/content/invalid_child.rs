@@ -1,4 +1,4 @@
-use proa_macros::omit_content;
+use proa_macros::omit;
 fn main() {
-    omit_content!(proa_core::content::child::<3>());
+    omit!(proa_core::content::child::<3>());
 }

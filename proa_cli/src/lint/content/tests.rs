@@ -3,7 +3,7 @@
 
 use super::*;
 
-const IMPORTS:&str = "use proa_core::{WebRenderSync, WebRender, WebRenderSend, MdRenderSync, MdRender, to_async, to_md_async, text}; use proa_macros::{html_sync, html, md_sync, md, content_part, omit_content};";
+const IMPORTS:&str = "use proa_core::{WebRenderSync, WebRender, WebRenderSend, MdRenderSync, MdRender, to_async, to_md_async, text}; use proa_macros::{html_sync, html, md_sync, md, content_part, omit};";
 fn fixture(html: &str, markdown: &str) -> String {
     format!("{IMPORTS}\nstruct Product {{title: String, data: Data, stock:u32, items: Vec<Data>, image: String}}\nstruct Data; struct RestockNotice; struct Impact;\nimpl WebRenderSync for Product {{fn render(self, cx: &mut Cx)->Result {{ {html} }} }}\nimpl MdRenderSync for Product {{fn render_md(self, cx: &mut Cx)->Result {{ {markdown} }} }}")
 }
@@ -90,32 +90,32 @@ fn opaque_helpers_are_not_confirmed_absence() {
 #[test]
 fn line_omissions_are_precise_and_checked_for_rot() {
     let source = "html_sync! {{RestockNotice::new(self.data)} {Impact::new(self.data)}}.render(cx)";
-    let target="omit_content!(proa_core::content::child::<RestockNotice>()); md_sync! {r###\"{Impact::new(self.data)}\"###}.render_md(cx)";
+    let target="omit!(proa_core::content::child::<RestockNotice>()); md_sync! {r###\"{Impact::new(self.data)}\"###}.render_md(cx)";
     assert!(lint(&fixture(source, target)).is_empty());
     let ambiguous = fixture(
         source,
-        "omit_content!(self.data);md_sync! {r###\"\"###}.render_md(cx)",
+        "omit!(self.data);md_sync! {r###\"\"###}.render_md(cx)",
     );
     assert_eq!(code(&lint(&ambiguous), "render/content-omit-ambiguous"), 1);
     assert_eq!(missing(&ambiguous).len(), 2);
     let stale = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "omit_content!(self.image);md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        "omit!(self.image);md_sync! {r###\"{self.title}\"###}.render_md(cx)",
     );
     assert_eq!(code(&lint(&stale), "render/content-omit-stale"), 1);
     let redundant = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "omit_content!(self.title);md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        "omit!(self.title);md_sync! {r###\"{self.title}\"###}.render_md(cx)",
     );
     assert_eq!(code(&lint(&redundant), "render/content-omit-redundant"), 1);
 }
 #[test]
 fn local_and_role_omissions_allow_intentional_differences() {
-    let src=fixture("html_sync! {{RestockNotice::new(self.data)}}.render(cx)","let notice=RestockNotice::new(self.data);omit_content!(notice, \"Web only\", from=\"html\");md_sync! {r###\"\"###}.render_md(cx)");
+    let src=fixture("html_sync! {{RestockNotice::new(self.data)}}.render(cx)","let notice=RestockNotice::new(self.data);omit!(notice, \"Web only\", from=\"html\");md_sync! {r###\"\"###}.render_md(cx)");
     assert!(lint(&src).is_empty());
     let src = fixture(
         "html_sync! {{content_part!(\"notice\", RestockNotice::new(self.data))}}.render(cx)",
-        "omit_content!(\"notice\");md_sync! {r###\"\"###}.render_md(cx)",
+        "omit!(\"notice\");md_sync! {r###\"\"###}.render_md(cx)",
     );
     assert!(lint(&src).is_empty());
 }
@@ -241,7 +241,7 @@ fn registered_future_target_reuses_coverage_and_omissions() {
 
 #[test]
 fn child_local_does_not_waive_another_child_sharing_data() {
-    let src=fixture("html_sync! {{RestockNotice::new(self.data)} {Impact::new(self.data)}}.render(cx)","let notice=RestockNotice::new(self.data);omit_content!(notice);md_sync! {r###\"\"###}.render_md(cx)");
+    let src=fixture("html_sync! {{RestockNotice::new(self.data)} {Impact::new(self.data)}}.render(cx)","let notice=RestockNotice::new(self.data);omit!(notice);md_sync! {r###\"\"###}.render_md(cx)");
     let diags = missing(&src);
     assert_eq!(diags.len(), 1);
     assert!(diags[0].message.contains("Impact"));
@@ -400,7 +400,7 @@ fn nested_inline_module_resolves_out_of_line_counterpart() {
 fn unknown_selector_is_distinct_from_stale_selector() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "omit_content!(missing);md_sync! {r###\"\"###}.render_md(cx)",
+        "omit!(missing);md_sync! {r###\"\"###}.render_md(cx)",
     );
     assert_eq!(code(&lint(&src), "render/content-omit-unresolved"), 1);
     assert_eq!(code(&lint(&src), "render/content-omit-stale"), 0);
@@ -449,7 +449,7 @@ fn another_grammar_registers_a_parser_and_reuses_targeted_omissions() {
     assert_eq!(code(&run(src.clone()), "render/content-coverage"), 1);
     let intentional = src.replace(
         "plain::plain! {self.title}",
-        "omit_content!(proa_core::content::child::<RestockNotice>(),from=\"html\");plain::plain! {self.title}",
+        "omit!(proa_core::content::child::<RestockNotice>(),from=\"html\");plain::plain! {self.title}",
     );
     assert!(run(intentional).is_empty());
 }
@@ -514,7 +514,7 @@ fn skip_is_available_for_unresolved_types_and_status_is_honest() {
 }
 #[test]
 fn removing_source_impl_makes_its_omission_stale_without_forcing_a_pair() {
-    let src=format!("{IMPORTS} struct Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{omit_content!(\"notice\");md_sync!{{r###\"\"###}}.render_md(cx)}}}}");
+    let src=format!("{IMPORTS} struct Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{omit!(\"notice\");md_sync!{{r###\"\"###}}.render_md(cx)}}}}");
     let d = lint(&src);
     assert_eq!(code(&d, "render/content-omit-stale"), 1);
     assert_eq!(code(&d, "render/content-view-missing"), 0);
@@ -706,7 +706,7 @@ fn omission_suggestions_never_use_method_calls_or_collection_pseudo_paths() {
         let tokens = suggestion
             .replacement
             .trim()
-            .strip_prefix("proa_macros::omit_content!(")
+            .strip_prefix("proa_macros::omit!(")
             .unwrap()
             .strip_suffix(");")
             .unwrap();
@@ -719,7 +719,7 @@ fn omission_suggestions_never_use_method_calls_or_collection_pseudo_paths() {
     let d = missing(&field);
     assert_eq!(
         d[0].suggestions[0].replacement,
-        "proa_macros::omit_content!(self.title);"
+        "proa_macros::omit!(self.title);"
     );
 }
 
@@ -804,7 +804,7 @@ fn unresolved_render_contexts_and_context_presence_are_not_coverage_proofs() {
 #[test]
 fn typed_child_helpers_resolve_imports_and_do_not_trust_other_functions() {
     let source = "html_sync! {{RestockNotice::new(self.data)}}.render(cx)";
-    let target = "omit_content!(select::<RestockNotice>());md_sync! {r###\"\"###}.render_md(cx)";
+    let target = "omit!(select::<RestockNotice>());md_sync! {r###\"\"###}.render_md(cx)";
     let valid = format!(
         "use proa_core::content::child as select;{}",
         fixture(source, target)
@@ -817,7 +817,7 @@ fn typed_child_helpers_resolve_imports_and_do_not_trust_other_functions() {
     let d = lint(&unrelated);
     assert_eq!(code(&d, "render/content-omit-unresolved"), 1);
     assert_eq!(code(&d, "render/content-coverage"), 1);
-    let shadowed = valid.replace("omit_content!", "let select=|| ();omit_content!");
+    let shadowed = valid.replace("omit!", "let select=|| ();omit!");
     assert_eq!(code(&lint(&shadowed), "render/content-omit-unresolved"), 1);
 }
 
@@ -834,13 +834,13 @@ fn child_type_suggestions_include_lifetimes_and_never_guess_generic_arguments() 
     let d = missing(&lifetimes);
     assert_eq!(
         d[0].suggestions[0].replacement,
-        "proa_macros::omit_content!(proa_core::content::child::<crate::RestockNotice<'_>>());"
+        "proa_macros::omit!(proa_core::content::child::<crate::RestockNotice<'_>>());"
     );
     let generics = source.replace("struct RestockNotice;", "struct RestockNotice<T>{value:T}");
     assert!(missing(&generics)[0].suggestions.is_empty());
     let attempted = generics.replace(
         "md_sync!",
-        "omit_content!(proa_core::content::child::<RestockNotice<String>>());md_sync!",
+        "omit!(proa_core::content::child::<RestockNotice<String>>());md_sync!",
     );
     assert_eq!(code(&lint(&attempted), "render/content-omit-unresolved"), 1);
     assert_eq!(missing(&attempted).len(), 1);
@@ -851,7 +851,7 @@ fn child_type_suggestions_include_lifetimes_and_never_guess_generic_arguments() 
     );
     assert_eq!(
         missing(&local)[0].suggestions[0].replacement,
-        "proa_macros::omit_content!(notice);"
+        "proa_macros::omit!(notice);"
     );
     let d = missing(&local);
     let fix = &d[0].suggestions[0];

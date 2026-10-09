@@ -1070,9 +1070,7 @@ impl Analyzer<'_> {
                     }
                     self.local(local, &mut env, None);
                 }
-                Stmt::Macro(m)
-                    if self.resolver.path(&m.mac.path) == "proa_macros::omit_content" =>
-                {
+                Stmt::Macro(m) if self.resolver.path(&m.mac.path) == "proa_macros::omit" => {
                     self.marker(&m.mac, &env, guards)
                 }
                 Stmt::Macro(mac)
@@ -1333,7 +1331,7 @@ impl Analyzer<'_> {
                     Err(error) => self.boundary(expr, error.to_string(), None),
                 }
             }
-            Expr::Macro(m) if self.resolver.path(&m.mac.path) == "proa_macros::omit_content" => {
+            Expr::Macro(m) if self.resolver.path(&m.mac.path) == "proa_macros::omit" => {
                 self.marker(&m.mac, env, guards);
                 Value::default()
             }
