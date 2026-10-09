@@ -22,6 +22,12 @@ pub(crate) struct HotState {
 impl HotState {
     pub(crate) fn prepare(root: &Path) -> Result<Self> {
         let (shapes, manifest) = scan(root)?;
+        if !root.join("src").is_dir() {
+            eprintln!(
+                "--hot-static scans `src/` under the dev root, which {} does not have; every edit will use the linked rebuild",
+                root.display()
+            );
+        }
         let directory = root.join("target/proa-hot-static").join(format!(
             "{}-{}",
             std::process::id(),
@@ -109,7 +115,14 @@ fn scan(root: &Path) -> Result<(BTreeMap<PathBuf, String>, StaticManifest)> {
         schema: 1,
         ..Default::default()
     };
-    for entry in walkdir::WalkDir::new(root.join("src")).follow_links(false) {
+    let sources = root.join("src");
+    // A workspace root (`cargo run -p member`) has no package sources of its
+    // own. That is not an error: it has no hot templates, so every edit takes
+    // the ordinary Cargo rebuild.
+    if !sources.is_dir() {
+        return Ok((shapes, manifest));
+    }
+    for entry in walkdir::WalkDir::new(sources).follow_links(false) {
         let entry = entry?;
         if !entry.file_type().is_file() || entry.path().extension() != Some(OsStr::new("rs")) {
             continue;
@@ -205,6 +218,17 @@ fn scan_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_root_without_sources_has_no_hot_templates_instead_of_failing() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = HotState::prepare(temp.path()).unwrap();
+        assert!(state.shapes.is_empty());
+        assert!(!state
+            .try_update(temp.path(), &["member/src/main.rs".into()])
+            .unwrap());
+        assert!(state.candidate(temp.path()).unwrap().shapes.is_empty());
+    }
 
     #[test]
     fn static_run_layout_changes_require_a_real_rebuild() {
