@@ -337,6 +337,74 @@ The expression-visible token form remains supported for generated templates:
 `md_sync! { "# " { title } }`. In that form, a new top-level source line
 establishes a context-aware Markdown block boundary.
 
+### Convert existing HTML components to Markdown
+
+Enable the optional converter on the core dependency:
+
+```toml
+proa_core = { version = "0.3.0", features = ["html-to-markdown"] }
+```
+
+A synchronous HTML component can delegate its Markdown implementation without
+maintaining a second template:
+
+```rust
+impl<L: DataLoader> MdRenderSync<L> for Article {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        proa_core::to_markdown(self).render_md(cx)
+    }
+}
+```
+
+`to_markdown(value)` is an explicit adapter, not a blanket trait implementation.
+It always calls `WebRenderSync<L>` on the wrapped value, so delegation does not
+recurse into `render_md`. The source component uses its default owned
+`RenderBuffer`; the destination Markdown context can use any `WriteBuf`.
+
+You can also wrap an HTML fragment directly, without defining a component:
+
+```rust
+md_sync! { r###"
+    # Overview
+
+    {proa_core::to_markdown(html_sync! {
+        <p>"Compiled templates with " <strong>"fast rendering"</strong> "."</p>
+    })}
+
+    {custom_markdown_child}
+    "###
+}
+```
+
+The converter uses ATX headings, fenced code, inline links, dash lists, and
+GFM tables. Simple and headerless grids retain all cells; tables with spans or
+block content use a list of rows and cells. See the [element coverage and edge
+cases](html-to-markdown.md) for the full conversion policies and limits.
+Containers and CSS are dropped; metadata elements, scripts, noscript,
+styles, templates, SVG, and explicitly hidden/aria-hidden elements are omitted.
+CSS visibility is not evaluated. The result has no leading or trailing
+newline, so put separators in the surrounding template as shown above. Inline
+fragments can be interpolated inline.
+
+Capture preserves the live loader and request state, including request-state
+mutations made by the HTML renderer. HTML escaping, Markdown formatting state,
+and streaming hooks are isolated and restored even on errors or panics.
+Capture/conversion errors do not append partial HTML to the Markdown output;
+final Markdown writes still obey the destination writer's capacity and metering.
+
+This is a buffered, allocating conversion: it builds temporary HTML, a DOM, and
+a Markdown string. It is not the zero-allocation Markdown fast path and does
+not support async HTML sources. The synchronous adapter implements `MdRender`
+as an immediate completion, so it also composes directly inside async `md!`.
+
+Child components inside the converted subtree use their HTML representations,
+even when they implement a Markdown trait. To preserve a custom Markdown child,
+compose it beside the converted fragment as shown above. Semantics inferred
+from CSS or interactions cannot be recovered; keep handwritten Markdown for
+components that need different headings, summaries, or omitted controls.
+
+Runnable example: [`proa_core/examples/html_to_markdown.rs`](../../../proa_core/examples/html_to_markdown.rs).
+
 ## Inside an analyzed component
 
 The `#[rsjs(component)]` macro respects whichever trait you wrote. Add

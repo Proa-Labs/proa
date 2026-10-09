@@ -83,7 +83,10 @@ runs:
 
     - name: test (integration)
       shell: bash
-      run: cargo test --workspace --locked --test '*' --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa_showcase --exclude proa-lean-server --exclude proa-cli --exclude proa_webmcp_pizza --exclude proa_origin_routing_atlas
+      run: |
+        cargo test --workspace --locked --features proa_core/html-to-markdown --test '*' --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa_showcase --exclude proa-lean-server --exclude proa-cli --exclude proa_webmcp_pizza --exclude proa_origin_routing_atlas
+        # --test excludes doctests, so keep the converter's doc examples covered.
+        cargo test -p proa_core --features html-to-markdown --locked --doc
 
     - name: Check RSJS conformance manifest and snapshots
       shell: bash
