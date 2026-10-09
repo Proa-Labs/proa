@@ -4377,6 +4377,9 @@ fn emit_attr_initial_attrs(
                 }
                 AttrBindingKind::Value | AttrBindingKind::Url => {
                     let rust_expr = emit_expr_as_rust(expr, query_initializers)?;
+                    if matches!(expr, ClientExpr::Call { function: ClientFunctionRef::Runtime(name), .. } if name == "format_text" || name == "format_text_attr") {
+                        return Some(quote! { #attr_name={#rust_expr} });
+                    }
                     quote! {
                         #attr_name={
                             ::proa_core::shared::attr_value::display_attr(
@@ -4477,6 +4480,35 @@ fn emit_client_call_as_rust(
     let ClientExpr::Call { function, args } = expr else {
         return quote! { Default::default() };
     };
+    if matches!(function, ClientFunctionRef::Runtime(name) if name == "format_text" || name == "format_text_attr")
+    {
+        let Some(ClientExpr::Literal(Value::String(template))) = args.first() else {
+            return quote! { ::core::compile_error!("invalid text! intrinsic template") };
+        };
+        let template = syn::LitStr::new(template, proc_macro2::Span::call_site());
+        let string_args: Vec<bool> = match args.get(1) {
+            Some(ClientExpr::Literal(Value::String(plan))) => {
+                let parts: serde_json::Value =
+                    serde_json::from_str(plan).expect("compiler text plan is valid JSON");
+                (0..args.len().saturating_sub(2))
+                    .map(|index| {
+                        parts.as_array().unwrap().iter().any(|part| {
+                            part["arg"].as_u64() == Some(index as u64)
+                                && part["string"].as_bool() == Some(true)
+                        })
+                    })
+                    .collect()
+            }
+            _ => return quote! { ::core::compile_error!("invalid text! intrinsic plan") },
+        };
+        let values: Vec<_> = args
+            .iter()
+            .skip(2)
+            .enumerate()
+            .map(|(index, arg)| emit_text_arg_as_rust(arg, string_args[index], query_initializers))
+            .collect();
+        return quote! { ::proa_macros::text!(#template, #(#values),*) };
+    }
     let callee = match function {
         ClientFunctionRef::Import { module, name } => {
             let module_ts: TokenStream = module.parse().unwrap_or_else(|_| {
@@ -4497,6 +4529,96 @@ fn emit_client_call_as_rust(
         .map(|a| emit_client_call_arg_as_rust(a, query_initializers))
         .collect();
     quote! { #callee( #( #arg_tokens ),* ) }
+}
+
+/// JSON projections are serialized to a string before text! sees them on the
+/// server. Only native Rust bool arguments use AttrValue's empty-byte policy.
+pub(crate) fn text_arg_can_be_native_bool(
+    expr: &ClientExpr,
+    query_initializers: &[QueryInitializer],
+) -> bool {
+    match expr {
+        ClientExpr::Conditional {
+            then_expr,
+            else_expr,
+            ..
+        } => {
+            text_arg_can_be_native_bool(then_expr, query_initializers)
+                || text_arg_can_be_native_bool(else_expr, query_initializers)
+        }
+        _ => !matches!(
+            emit_server_expr(expr, query_initializers),
+            Some(ServerExpr::Json(_))
+        ),
+    }
+}
+
+fn emit_text_arg_as_rust(
+    expr: &ClientExpr,
+    is_string: bool,
+    query_initializers: &[QueryInitializer],
+) -> TokenStream {
+    match expr {
+        ClientExpr::SignalRead(id) => {
+            let local = signal_local_ident(*id);
+            if is_string {
+                quote! { ::core::convert::AsRef::<str>::as_ref(&#local) }
+            } else {
+                quote! { ::core::clone::Clone::clone(&#local) }
+            }
+        }
+        ClientExpr::Conditional { .. } if is_string => {
+            let value = emit_text_string_as_cow(expr, query_initializers);
+            quote! { ::rsjs::__private::TextString(#value) }
+        }
+        ClientExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            let condition = emit_expr_as_bool_rust(condition, query_initializers)
+                .expect("analyzed text condition has an SSR expression");
+            // An opaque seed can still be an owned String in Rust. Replay
+            // its ordinary Signal::get clone semantics rather than moving a
+            // nested snapshot whose type the analyzer cannot prove.
+            let then_expr = emit_text_arg_as_rust(then_expr, false, query_initializers);
+            let else_expr = emit_text_arg_as_rust(else_expr, false, query_initializers);
+            quote! { if #condition { #then_expr } else { #else_expr } }
+        }
+        _ => emit_expr_as_rust(expr, query_initializers)
+            .unwrap_or_else(|| emit_client_call_arg_as_rust(expr, query_initializers)),
+    }
+}
+
+/// Keep borrowed signal reads alive across string-valued branches without
+/// forcing an owned branch (such as `to_uppercase()`) to return a temporary
+/// reference. Cow owns only strings the authored expression already creates.
+fn emit_text_string_as_cow(
+    expr: &ClientExpr,
+    query_initializers: &[QueryInitializer],
+) -> TokenStream {
+    match expr {
+        ClientExpr::SignalRead(id) => {
+            let local = signal_local_ident(*id);
+            quote! { ::std::borrow::Cow::<str>::Borrowed(::core::convert::AsRef::<str>::as_ref(&#local)) }
+        }
+        ClientExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            let condition = emit_expr_as_bool_rust(condition, query_initializers)
+                .expect("analyzed text condition has an SSR expression");
+            let then_expr = emit_text_string_as_cow(then_expr, query_initializers);
+            let else_expr = emit_text_string_as_cow(else_expr, query_initializers);
+            quote! { if #condition { #then_expr } else { #else_expr } }
+        }
+        _ => {
+            let value = emit_expr_as_rust(expr, query_initializers)
+                .unwrap_or_else(|| emit_client_call_arg_as_rust(expr, query_initializers));
+            quote! { ::std::borrow::Cow::<str>::from(#value) }
+        }
+    }
 }
 
 fn emit_client_call_arg_as_rust(
@@ -5775,6 +5897,27 @@ mod tests {
             actual, expected,
             "emit_rust output drifted from golden; rerun with RSJS_BLESS_GOLDEN=1 to update"
         );
+    }
+
+    #[test]
+    fn text_attributes_distinguish_native_bools_from_json_text() {
+        let native = ClientExpr::SignalRead(SignalId(0));
+        assert!(text_arg_can_be_native_bool(&native, &[]));
+        let projection = ClientExpr::Project {
+            target: Box::new(native),
+            path: rsjs_ir::JsonPointer::new("/active"),
+        };
+        assert!(!text_arg_can_be_native_bool(&projection, &[]));
+        let fallback = ClientExpr::Coalesce {
+            target: Box::new(projection.clone()),
+            fallback: Value::Bool(false),
+        };
+        assert!(!text_arg_can_be_native_bool(&fallback, &[]));
+        let typed_bool = ClientExpr::AsType {
+            target: Box::new(projection),
+            ty: rsjs_ir::AsType::Bool,
+        };
+        assert!(text_arg_can_be_native_bool(&typed_bool, &[]));
     }
 
     /// Hand-build a tiny M8 StockTicker island. Mirrors

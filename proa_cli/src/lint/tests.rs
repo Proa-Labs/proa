@@ -5106,3 +5106,30 @@ impl<L: DataLoader> MdRenderSync<L> for Markdown {
     assert!(diagnostics.iter().any(|d| d.code == "md/manual-write"));
     assert!(!diagnostics.iter().any(|d| d.code == "perf/raw-write-html"));
 }
+
+#[test]
+fn reactive_text_arguments_keep_named_client_locals_reachable() {
+    let source = r#"
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for Counter {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let count = signal(1_u32);
+        let subtotal = computed(|| count.get() * 105_u32);
+        let label = proa_macros::text!("Subtotal {}", subtotal.get());
+        html_sync! {
+            <div title={::proa_macros::text!("Count {}", count.get())}>
+                {label}
+                <p>{text!("Count {}", count.get())}</p>
+            </div>
+        }.render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diag| diag.code == "rsjs/dead-client-primitive"),
+        "{diagnostics:#?}"
+    );
+}

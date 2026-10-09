@@ -1,0 +1,11 @@
+error: rsjs/integer-domain-unsupported: `i8` arithmetic is not yet supported by checked client lowering; use `i32`, `u32`, `i64`, or `u64`, or perform this operation in server Rust
+  --> tests/ui/conformance/fail/47_reactive_text_small_integer.rs:10:52
+   |
+10 |         let delta: rsjs::Signal<i8> = rsjs::signal(self.delta);
+   |                                                    ^^^^
+
+error: rsjs/integer-domain-unsupported: `i16` arithmetic is not yet supported by checked client lowering; use `i32`, `u32`, `i64`, or `u64`, or perform this operation in server Rust
+  --> tests/ui/conformance/fail/47_reactive_text_small_integer.rs:18:53
+   |
+18 |         let delta: rsjs::Signal<i16> = rsjs::signal(self.delta);
+   |                                                     ^^^^

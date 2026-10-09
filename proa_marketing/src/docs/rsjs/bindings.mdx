@@ -36,6 +36,41 @@ Use a binding when one DOM property maps directly to one writable cell. Use a na
 
 Booleans follow the same one-property rule under a different attribute name.
 
+## Formatting reactive text
+
+Use `text!()` to combine labels and live values without allocating an SSR
+formatting string:
+
+```rust
+let subtotal = quantity.get() * unit_price_cents.get();
+
+html_sync! {
+    <p>{text!("Subtotal: ${}.{:02}", subtotal / 100_u32, subtotal % 100_u32)}</p>
+}
+```
+
+Both signals in this example use the proven `u32` domain. Changes to either
+signal update the complete formatted text. Direct `text!` calls also work in
+ordinary value attributes, such as `title={text!("Quantity {}", quantity.get())}`.
+Static siblings remain intact and dynamic values use normal Proa escaping
+during SSR and DOM text/attribute writes after hydration.
+
+Client format specs cover integer display/binary/octal/hex and string display,
+including literal width and alignment. Float precision, scientific, debug,
+pointer and custom Rust formatting remain server-only; RSJS reports
+`rsjs/text-format-unsupported` for those reactive specs.
+
+Typed integer constants can accompany live arguments, for example
+`text!("{} {:02}", quantity.get(), 5_u32)`. Conditional string arguments preserve
+borrowed signal text and owned string transforms. Bare float placeholders keep
+Rust's `inf` and `-inf` spelling, including prop-seeded floats.
+
+Bare native Rust boolean arguments write no bytes in ordinary attributes,
+matching Proa's `AttrValue` rules. To show boolean labels, pass a string
+conditional such as `if enabled.get() { "true" } else { "false" }`. JSON projections retain their
+JSON text spelling. Formatted small integers (`i8` / `i16`) are rejected rather
+than widened to 32 bits; use a proven `i32` / `u32` / `i64` / `u64` domain.
+
 ## Binding checkboxes
 
 `bind_checked` expects a writable boolean cell and mirrors the control's `checked` property.

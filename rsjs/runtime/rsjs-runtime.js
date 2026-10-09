@@ -314,6 +314,61 @@ export function batch(run) {
     }
 }
 
+function rust_float_text(value) {
+    if (value === Infinity) return 'inf';
+    if (value === -Infinity) return '-inf';
+    return value == null ? '' : String(value);
+}
+
+/** Compiler-owned text! layout; values remain raw text for DOM bindings. */
+export function format_text(_template, plan, ...values) {
+    return render_text_plan(plan, values, false);
+}
+
+/** Attribute slots preserve Rust AttrValue's bare boolean semantics. */
+export function format_text_attr(_template, plan, ...values) {
+    return render_text_plan(plan, values, true);
+}
+
+function render_text_plan(plan, values, attribute) {
+    return JSON.parse(plan).map((part) => {
+        if (Object.hasOwn(part, 'text')) return part.text;
+        const value = values[part.arg];
+        if (!Object.hasOwn(part, 'width')) {
+            if (attribute && part.attr_bool && typeof value === 'boolean') return '';
+            return part.float || typeof value === 'number' ? rust_float_text(value) : String(value ?? '');
+        }
+        let text;
+        let sign = '';
+        let prefix = '';
+        if (part.domain !== null) {
+            let integer = BigInt(value);
+            if (part.kind !== 0 && integer < 0n) {
+                integer = BigInt.asUintN(part.domain.endsWith('32') ? 32 : 64, integer);
+            }
+            if (integer < 0n) {
+                sign = '-';
+                integer = -integer;
+            } else if (part.plus) {
+                sign = '+';
+            }
+            const radix = [10, 2, 8, 16, 16][part.kind];
+            text = integer.toString(radix);
+            if (part.kind === 4) text = text.toUpperCase();
+            if (part.alternate) prefix = ['', '0b', '0o', '0x', '0x'][part.kind];
+        } else {
+            text = String(value ?? '');
+            if (part.precision !== null) text = Array.from(text).slice(0, part.precision).join('');
+        }
+        const padding = Math.max(0, part.width - Array.from(sign + prefix + text).length);
+        if (part.zero && part.domain !== null) return sign + prefix + '0'.repeat(padding) + text;
+        text = sign + prefix + text;
+        const align = part.align || (part.domain === null ? 1 : 2);
+        const left = align === 1 ? 0 : align === 2 ? padding : Math.floor(padding / 2);
+        return part.fill.repeat(left) + text + part.fill.repeat(padding - left);
+    }).join('');
+}
+
 /**
  * Create a new reactive signal cell.
  *
@@ -2037,13 +2092,9 @@ export function bind_text(node, getter, deps, extra_handles, text_kind) {
     }
     const apply = () => {
         const value = getter();
-        if (text_kind === 'rust-float' && value === Infinity) {
-            node.textContent = 'inf';
-        } else if (text_kind === 'rust-float' && value === -Infinity) {
-            node.textContent = '-inf';
-        } else {
-            node.textContent = value == null ? '' : String(value);
-        }
+        node.textContent = text_kind === 'rust-float'
+            ? rust_float_text(value)
+            : value == null ? '' : String(value);
     };
     const has_signals = Array.isArray(deps);
     const has_handles = Array.isArray(extra_handles) && extra_handles.length > 0;

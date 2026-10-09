@@ -133,6 +133,10 @@ export interface SubscribableHandle {
  * `.peek()`. Equality on `.set` uses `Object.is`, so primitives
  * compare by value and reference types compare by identity.
  */
+/** Compiler-owned text! layout; arguments are rendered as raw DOM text. */
+export function format_text(template: string, plan: string, ...values: unknown[]): string;
+export function format_text_attr(template: string, plan: string, ...values: unknown[]): string;
+
 export function signal<T>(initial: T): Signal<T>;
 
 export type NarrowIntegerDomain = "i32" | "u32";

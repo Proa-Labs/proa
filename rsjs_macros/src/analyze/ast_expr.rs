@@ -381,6 +381,14 @@ pub(crate) enum FrontendExpr {
         accessor: MutationAccessor,
     },
 
+    /// Direct `text!` formatting in a render slot; SSR keeps the streaming macro.
+    Text {
+        template: String,
+        plan: String,
+        args: Vec<FrontendExpr>,
+        attribute: bool,
+    },
+
     /// A call to a `#[rsjs::client]` helper.
     ///
     /// Every lowered source occurrence receives its own dense `edge`. The

@@ -30,8 +30,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for QuantityStepper {
                         "Quantity"
                     </span>
                     <span class="text-sm text-zinc-500 dark:text-zinc-400" aria-live="polite">
-                        "Subtotal $"
-                        {subtotal.get()}
+                        {text!("Subtotal ${}", subtotal.get())}
                     </span>
                 </div>
                 <div class="mt-3 flex items-center gap-2">

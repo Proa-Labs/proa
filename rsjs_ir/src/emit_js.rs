@@ -1635,6 +1635,19 @@ fn extend_numeric_runtime_helpers_from_expr(
 
 fn record_numeric_runtime_helper(helpers: &mut BTreeSet<&'static str>, expression: &ClientExpr) {
     match expression {
+        ClientExpr::Call {
+            function: crate::ClientFunctionRef::Runtime(name),
+            ..
+        } if name == "format_text" => {
+            helpers.insert("format_text");
+        }
+        ClientExpr::Call {
+            function: crate::ClientFunctionRef::Runtime(name),
+            ..
+        } if name == "format_text_attr" => {
+            helpers.insert("format_text_attr");
+        }
+
         ClientExpr::Binary { op, .. } => {
             if let Some(helper) = op.dyn_helper_js() {
                 helpers.insert(helper);

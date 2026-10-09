@@ -41,6 +41,46 @@ Compile to JS literals on the client, render as text on the server.
 
 Auto-tracked: when the signal updates, the surrounding effect re-runs.
 
+### Reactive `text!` formatting
+
+Direct `text!` calls track their argument expressions in text slots and ordinary
+value attributes:
+
+```rust
+let subtotal = quantity.get() * unit_price_cents.get();
+
+html_sync! {
+    <p>{text!("Subtotal: ${}.{:02}", subtotal / 100_u32, subtotal % 100_u32)}</p>
+    <button title={text!("Quantity {}", quantity.get())}>"Add"</button>
+}
+```
+
+The arguments use the same supported reactive expression grammar as other
+slots. `text!`, `proa_macros::text!`, and `::proa_macros::text!` are recognized;
+other namespaces stay opaque. SSR retains Proa's streamed, escaped rendering.
+The browser updates text content or attribute values, preserving surrounding
+static markup. `{{` / `}}` still produce literal braces.
+
+Reactive formatted placeholders support proven `i32`/`u32`/`i64`/`u64`
+display, binary, octal and hex, plus string display, with literal width,
+alignment, fill, sign and alternate-prefix options. String precision counts
+Unicode scalars; integer display precision follows Rust and is ignored.
+Typed integer literals retain their Rust width, including signed radix output
+such as `text!("{} {:x}", quantity.get(), -1_i32)`. Conditional string arguments
+borrow signal text and can also select owned string transforms. Bare float
+placeholders retain Rust's `inf` / `-inf` spelling, including opaque float seeds.
+Float precision, scientific, debug, pointer and custom formatting traits remain
+server-only and produce `rsjs/text-format-unsupported` when used reactively.
+Server-only `text!` invocations keep the full existing Rust fmt support.
+
+Bare native Rust boolean arguments write no bytes in ordinary attributes,
+matching Proa's `AttrValue` rules. To show boolean labels, pass a string
+conditional such as `if enabled.get() { "true" } else { "false" }`. JSON projections retain their
+JSON text spelling. Formatted small integers (`i8` / `i16`) are rejected rather
+than widened to 32 bits; use a proven `i32` / `u32` / `i64` / `u64` domain.
+
+Composite URL attributes retain Proa's existing validation restrictions.
+
 ### Value-level conditionals
 
 ```rust

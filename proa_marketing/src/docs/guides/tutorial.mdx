@@ -455,7 +455,7 @@ impl<L: DataLoader> WebRenderSync<L> for QuantityStepper {
                 <div class="flex items-center justify-between">
                     <span class="text-base font-medium text-zinc-950">"Quantity"</span>
                     <span class="text-sm text-zinc-500" aria-live="polite">
-                        "Subtotal $"{subtotal.get()}
+                        {text!("Subtotal ${}", subtotal.get())}
                     </span>
                 </div>
                 <div class="mt-3 flex items-center gap-2">
@@ -695,14 +695,14 @@ script:
   <div>
     <div class="flex items-center justify-between">
       <span class="...">Quantity</span>
-      <span class="..." aria-live="polite">Subtotal $<span data-rsjs-bind="6">248</span></span>
+      <span class="..." aria-live="polite" data-rsjs-bind="4">Subtotal $248</span>
     </div>
     <div class="mt-3 flex items-center gap-2">
-      <button type="button" class="..." aria-label="Decrease quantity" disabled data-rsjs-attr="8" data-rsjs-handler="8">-</button>
-      <span class="..." data-rsjs-bind="10">1</span>
-      <button type="button" class="..." aria-label="Increase quantity" data-rsjs-handler="11">+</button>
+      <button type="button" class="..." aria-label="Decrease quantity" disabled data-rsjs-attr="6" data-rsjs-handler="6">-</button>
+      <span class="..." data-rsjs-bind="8">1</span>
+      <button type="button" class="..." aria-label="Increase quantity" data-rsjs-handler="9">+</button>
     </div>
-    <input type="hidden" name="qty" value="1" data-rsjs-attr="13">
+    <input type="hidden" name="qty" value="1" data-rsjs-attr="11">
   </div>
 </rsjs-island>
 <script type="application/json" data-rsjs-island="rsjs_owner_...">{"signals":["1","248"]}</script>

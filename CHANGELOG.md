@@ -4,6 +4,12 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- RSJS now lowers direct `text!()` calls with reactive arguments in text slots
+  and ordinary value attributes. Literal integer and string format plans run
+  in the browser while SSR preserves streamed formatting and escaping. Other
+  reactive Rust fmt traits receive a focused unsupported-format diagnostic.
+  Bare float infinities and native boolean attributes preserve server spelling
+  and rendering rules. Unsupported server-only formats leave no client state.
 - **Breaking:** renamed `rsjs::computed` / `Computed<T>` to `rsjs::memo` /
   `Memo<T>` and the browser runtime export to `memo`, without compatibility
   aliases. Memos remain read-only cached derivations with compiler-inferred

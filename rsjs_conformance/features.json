@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "gates": {
-      "coverage_min": {
-        "compile_pass": 12,
-        "compile_fail": 34,
-        "hir_snapshot": 12,
-        "ir_snapshot": 12,
-        "js_snapshot": 12,
-        "descriptor_snapshot": 4,
-        "runtime": 12
+    "coverage_min": {
+      "compile_pass": 12,
+      "compile_fail": 34,
+      "hir_snapshot": 12,
+      "ir_snapshot": 12,
+      "js_snapshot": 12,
+      "descriptor_snapshot": 4,
+      "runtime": 12
     },
     "fixture_min": {
       "pass": 24,
@@ -23,7 +23,9 @@
       "category": "handlers",
       "description": "event handlers can read event values and write signals",
       "status": "supported",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -52,7 +54,10 @@
       "category": "handlers",
       "description": "named event handler refs can read DOM events and accept one template payload",
       "status": "supported",
-      "source_positions": ["prelude_handler", "event_handler"],
+      "source_positions": [
+        "prelude_handler",
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -81,7 +86,10 @@
       "category": "components",
       "description": "component callback props link through the final owner plan and fragments resolve the current callback at invocation time",
       "status": "supported",
-      "source_positions": ["component_prop", "event_handler"],
+      "source_positions": [
+        "component_prop",
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -111,7 +119,10 @@
       "category": "control_flow",
       "description": "handler, component callback, and template bodies support nested if/else branches, template else-if chains, boolean, Option presence/payload including payload guards, literal, and bounded range match with guards, static array/range for-loop unrolling, dynamic numeric range loops, handler-local let mut reassignment, and arithmetic/remainder compound assignment",
       "status": "supported",
-      "source_positions": ["event_handler", "component_callback"],
+      "source_positions": [
+        "event_handler",
+        "component_callback"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -205,7 +216,10 @@
       "category": "control_flow",
       "description": "client helpers support if-guarded early returns followed by a tail value",
       "status": "supported",
-      "source_positions": ["client_helper", "reactive_expr"],
+      "source_positions": [
+        "client_helper",
+        "reactive_expr"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -237,7 +251,12 @@
       "category": "templates",
       "description": "template repetition can serialize loop payloads for supported handlers, inputs, and conditionals",
       "status": "partial",
-      "source_positions": ["template_loop", "event_handler", "bind_value", "if_template"],
+      "source_positions": [
+        "template_loop",
+        "event_handler",
+        "bind_value",
+        "if_template"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -267,7 +286,11 @@
       "category": "templates",
       "description": "template repetition binds document/window handlers for every repeated owner and decodes owner-local payloads",
       "status": "supported",
-      "source_positions": ["template_repetition", "event_handler", "global_event"],
+      "source_positions": [
+        "template_repetition",
+        "event_handler",
+        "global_event"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -329,7 +352,10 @@
       "category": "server_boundaries",
       "description": "server_only content stays outside Client IR and explicit island boundaries are cut by the final owner plan",
       "status": "supported",
-      "source_positions": ["template_expr", "component_prop"],
+      "source_positions": [
+        "template_expr",
+        "component_prop"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -359,7 +385,10 @@
       "category": "server_boundaries",
       "description": "server_only boundaries reject live signal reads because opaque SSR content is not hydrated reactively",
       "status": "expected_fail",
-      "source_positions": ["server_boundary", "template_expr"],
+      "source_positions": [
+        "server_boundary",
+        "template_expr"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -382,7 +411,10 @@
       "category": "server_boundaries",
       "description": "server_attr boundaries reject live signal reads because server-rendered attributes are static after hydration",
       "status": "expected_fail",
-      "source_positions": ["server_boundary", "attribute"],
+      "source_positions": [
+        "server_boundary",
+        "attribute"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -405,7 +437,10 @@
       "category": "server_boundaries",
       "description": "explicit child island boundaries reject parent signal captures because child islands hydrate as independent client scopes",
       "status": "expected_fail",
-      "source_positions": ["server_boundary", "template_expr"],
+      "source_positions": [
+        "server_boundary",
+        "template_expr"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -428,7 +463,11 @@
       "category": "server_boundaries",
       "description": "opaque server and island boundaries reject signal, query, and mutation state declarations inside boundary expressions",
       "status": "expected_fail",
-      "source_positions": ["server_boundary", "template_expr", "attribute"],
+      "source_positions": [
+        "server_boundary",
+        "template_expr",
+        "attribute"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -461,7 +500,10 @@
       "category": "browser_api",
       "description": "P0 browser reads/effects lower through typed rsjs helpers",
       "status": "partial",
-      "source_positions": ["event_handler", "reactive_expr"],
+      "source_positions": [
+        "event_handler",
+        "reactive_expr"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -490,7 +532,10 @@
       "category": "browser_api",
       "description": "rsjs::navigator::language() reads navigator.language in text slots and handler payloads via the declarative browser-helper registry (first DeclaredRead helper: the emitted JS comes from the registry entry's template)",
       "status": "supported",
-      "source_positions": ["reactive_expr", "event_handler"],
+      "source_positions": [
+        "reactive_expr",
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -520,7 +565,10 @@
       "category": "browser_api",
       "description": "node refs expose the supported DOM read/write surface",
       "status": "supported",
-      "source_positions": ["event_handler", "template_attr"],
+      "source_positions": [
+        "event_handler",
+        "template_attr"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -549,7 +597,9 @@
       "category": "control_flow",
       "description": "path-pattern matches and nested destructuring payload bindings inside handler bodies are future Client IR work",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -572,7 +622,9 @@
       "category": "control_flow",
       "description": "non-range dynamic iterators inside handler bodies are future Client IR work",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -595,7 +647,9 @@
       "category": "expressions",
       "description": "bare closure values in reactive expressions are rejected with a guided diagnostic",
       "status": "expected_fail",
-      "source_positions": ["reactive_expr"],
+      "source_positions": [
+        "reactive_expr"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -618,7 +672,10 @@
       "category": "iterators",
       "description": "iterator/map/lambda expressions are future Client IR work",
       "status": "expected_fail",
-      "source_positions": ["reactive_expr", "event_handler"],
+      "source_positions": [
+        "reactive_expr",
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -641,7 +698,11 @@
       "category": "queries",
       "description": "async islands can declare query and mutation handles with structural QueryKey cache keys and FetchRequest descriptors, read query state, progress, streaming text, and mutation state, manually refetch or invalidate queries, and run mutations from handlers",
       "status": "partial",
-      "source_positions": ["prelude", "reactive_expr", "event_handler"],
+      "source_positions": [
+        "prelude",
+        "reactive_expr",
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -670,7 +731,12 @@
       "category": "queries",
       "description": "async islands can load initial query data through cx/DataLoader, dehydrate the server-local query key, render initial projections, and refetch in the browser",
       "status": "supported",
-      "source_positions": ["prelude", "reactive_expr", "event_handler", "query_initial"],
+      "source_positions": [
+        "prelude",
+        "reactive_expr",
+        "event_handler",
+        "query_initial"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -699,7 +765,11 @@
       "category": "queries",
       "description": "query declarations with an already-available initial value can use WebRenderSync; callers switch to WebRender only when producing that value requires await",
       "status": "supported",
-      "source_positions": ["prelude", "reactive_expr", "event_handler"],
+      "source_positions": [
+        "prelude",
+        "reactive_expr",
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -728,7 +798,10 @@
       "category": "runtime",
       "description": "visible, idle, first-interaction, and media-query hydration strategies thread through macro parsing, manifest metadata, emitted island JS, and cancellable runtime scheduling",
       "status": "supported",
-      "source_positions": ["rsjs_attribute", "event_handler"],
+      "source_positions": [
+        "rsjs_attribute",
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -757,7 +830,9 @@
       "category": "queries",
       "description": "inline server_fetcher query initializers are rejected; server data must be loaded through render cx and passed to query_with_initial",
       "status": "expected_fail",
-      "source_positions": ["prelude"],
+      "source_positions": [
+        "prelude"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -780,7 +855,9 @@
       "category": "mutations",
       "description": "mutation declarations require async WebRender islands so mutation runners can share the async query surface",
       "status": "expected_fail",
-      "source_positions": ["prelude"],
+      "source_positions": [
+        "prelude"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -803,7 +880,9 @@
       "category": "browser_api",
       "description": "single-URL dynamic attributes lower to sanitized client bindings",
       "status": "supported",
-      "source_positions": ["reactive_attr"],
+      "source_positions": [
+        "reactive_attr"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -832,7 +911,13 @@
       "category": "expressions",
       "description": "direct self fields become typed inbound live reads across text, attributes, branches, query keys, and current callback payloads",
       "status": "supported",
-      "source_positions": ["component_prop", "reactive_expr", "reactive_attr", "if_template", "event_handler"],
+      "source_positions": [
+        "component_prop",
+        "reactive_expr",
+        "reactive_attr",
+        "if_template",
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -862,7 +947,9 @@
       "category": "components",
       "description": "Rust-resolved render traits reject an async component at a synchronous direct-component site; async composition uses WebRender and html!",
       "status": "expected_fail",
-      "source_positions": ["component_child"],
+      "source_positions": [
+        "component_child"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -885,7 +972,9 @@
       "category": "browser_api",
       "description": "node refs are stable-node handles and are rejected inside repeated template loops",
       "status": "expected_fail",
-      "source_positions": ["template_loop"],
+      "source_positions": [
+        "template_loop"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -908,7 +997,9 @@
       "category": "control_flow",
       "description": "handler-local let-else bindings are rejected until Client IR models early-exit binding control flow",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -931,7 +1022,9 @@
       "category": "handlers",
       "description": "named handler refs must be called with the payload arity declared by their rsjs::handler closure",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -954,7 +1047,9 @@
       "category": "handlers",
       "description": "event handler params expose a closed typed rsjs event API, not arbitrary raw DOM event methods",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -977,7 +1072,9 @@
       "category": "components",
       "description": "only self.on_* callback-slot calls are lowered inside client handlers; arbitrary Rust methods are rejected",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1000,7 +1097,9 @@
       "category": "components",
       "description": "rsjs handler refs cannot be captured through opaque server-only child boundaries",
       "status": "expected_fail",
-      "source_positions": ["server_boundary"],
+      "source_positions": [
+        "server_boundary"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1023,7 +1122,9 @@
       "category": "components",
       "description": "an ordinary server renderable cannot receive a compiler-owned handler through direct component syntax unless it carries the generated RSJS component ABI",
       "status": "expected_fail",
-      "source_positions": ["component_child"],
+      "source_positions": [
+        "component_child"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1046,7 +1147,10 @@
       "category": "components",
       "description": "parent handler refs cannot cross explicit rsjs::island child boundaries",
       "status": "expected_fail",
-      "source_positions": ["component_child", "server_boundary"],
+      "source_positions": [
+        "component_child",
+        "server_boundary"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1069,7 +1173,12 @@
       "category": "components",
       "description": "Rust-resolved render traits reject async query/mutation children in sync parents; the final linker fuses valid async parent/child state while fragments consume occurrence-local metadata",
       "status": "partial",
-      "source_positions": ["component_child", "prelude", "event_handler", "reactive_expr"],
+      "source_positions": [
+        "component_child",
+        "prelude",
+        "event_handler",
+        "reactive_expr"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": true,
@@ -1104,7 +1213,9 @@
       "category": "browser_api",
       "description": "node refs expose a closed typed DOM API and reject unsupported helper methods",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1127,7 +1238,9 @@
       "category": "browser_api",
       "description": "event attribute reads require static string literal names so emitted selectors stay explicit and safe",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1150,7 +1263,9 @@
       "category": "handlers",
       "description": "unknown on_* attributes are rejected with the supported event surface",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1173,7 +1288,9 @@
       "category": "control_flow",
       "description": "value-level if expressions require an else branch so generated JavaScript has a value in both cases",
       "status": "expected_fail",
-      "source_positions": ["reactive_expr"],
+      "source_positions": [
+        "reactive_expr"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1196,7 +1313,9 @@
       "category": "browser_api",
       "description": "node-ref attribute writes require static string literal names so emitted DOM operations stay explicit and safe",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1219,7 +1338,9 @@
       "category": "browser_api",
       "description": "node-ref attribute reads require static string literal names so generated accessors stay explicit and safe",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1242,7 +1363,9 @@
       "category": "syntax",
       "description": "ordinary server statements are preserved losslessly, but opaque server control flow cannot read compiler-owned client state",
       "status": "expected_fail",
-      "source_positions": ["prelude"],
+      "source_positions": [
+        "prelude"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1265,7 +1388,9 @@
       "category": "signals",
       "description": "signal.update closures compute a new value and reject signal.set-style assignment bodies",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1288,7 +1413,11 @@
       "category": "signals",
       "description": "memo(...) derived cells lower to the runtime memo(fn, deps) cell: SSR shows the value evaluated over signal initials, bindings subscribe to the derived cell, and a source-signal write updates the bound text through the microtask scheduler",
       "status": "supported",
-      "source_positions": ["prelude", "text_binding", "event_handler"],
+      "source_positions": [
+        "prelude",
+        "text_binding",
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -1317,7 +1446,10 @@
       "category": "timers",
       "description": "rsjs::interval(ms, || ...) prelude statements lower to a disposer-pushed runtime interval(ms, fn): the tick closure uses the event-handler statement grammar (no event parameter), nothing ticks during SSR, and island teardown clears the timer",
       "status": "supported",
-      "source_positions": ["prelude", "text_binding"],
+      "source_positions": [
+        "prelude",
+        "text_binding"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -1346,7 +1478,10 @@
       "category": "timers",
       "description": "on_input={rsjs::debounce(|event| ..., delay_ms)} wraps the lowered handler with the runtime debounce(fn, delay_ms) trailing-edge wrapper: bursts of events collapse to one call carrying the last value, the wrapper's _dispose joins the island disposer list, and the delegation table references the wrapped function",
       "status": "supported",
-      "source_positions": ["event_handler", "text_binding"],
+      "source_positions": [
+        "event_handler",
+        "text_binding"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -1375,7 +1510,9 @@
       "category": "syntax",
       "description": "async render sugar rejects method-level generic parameters; generics belong on the impl",
       "status": "expected_fail",
-      "source_positions": ["render_signature"],
+      "source_positions": [
+        "render_signature"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1398,7 +1535,9 @@
       "category": "browser_api",
       "description": "clipboard read helpers require a signal target rather than an arbitrary value",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1421,7 +1560,9 @@
       "category": "queries",
       "description": "query stream_text mode requires a text response decoder instead of the default JSON URL fetcher",
       "status": "expected_fail",
-      "source_positions": ["prelude"],
+      "source_positions": [
+        "prelude"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1444,7 +1585,9 @@
       "category": "browser_api",
       "description": "WebAuthn helpers require a signal target rather than an arbitrary value",
       "status": "expected_fail",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": false,
         "compile_fail": true,
@@ -1470,7 +1613,9 @@
       "semantic_contract": "parity",
       "differential_corpus": "rsjs_conformance/semantic-corpus.json",
       "notes": "The shared differential corpus computes expectations in Rust on every run, then executes the emitted helper bundle and rsjs runtime over Unicode, numeric boundaries/formatting, Option, fieldless-enum tagged strings, and nested ClientProps wire values. Browser length uses TextEncoder rather than JavaScript UTF-16 .length; browser trim uses an explicit Rust char::is_whitespace code-point set rather than native JavaScript trim. Known formatting divergences and unsupported data-carrying-enum/tuple/nested-Option shapes are classified separately and are not counted as parity.",
-      "source_positions": ["client_helper"],
+      "source_positions": [
+        "client_helper"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -1568,7 +1713,9 @@
       "status": "supported",
       "semantic_contract": "parity",
       "notes": "Value semantics use JavaScript's matching binary64 arithmetic. Statically proven f32/f64 text bindings opt into Rust-compatible non-finite spelling, so NaN renders as \"NaN\" and infinities as \"inf\" / \"-inf\" across SSR and client updates. Unknown/dynamic expressions retain generic JavaScript stringification.",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -1599,7 +1746,9 @@
       "status": "supported",
       "semantic_contract": "parity",
       "notes": "i32/u32 remain Number-backed for browser interoperability, but every fixed-width arithmetic operation first validates exact integral operands through BigInt and then enforces the declared Rust bounds. Overflow, underflow, zero division, signed MIN / -1, and representation mismatches throw deterministically before a signal write. This removes the old debug/release/JavaScript divergence at i32::MAX.",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": false,
@@ -1630,7 +1779,9 @@
       "status": "supported",
       "semantic_contract": "parity",
       "notes": "The whole-island typing pass rejects provably non-bool conditions in handler statements, value-level conditional expressions, template conditionals and else-if chains, literal-match guards, logical && / || operands, and unary ! operands. #[rsjs::client] helpers perform the same checks from concrete parameter and inferred local types. Unknown and runtime-dynamic expressions remain accepted because the macro cannot prove that their Rust type is non-bool.",
-      "source_positions": ["event_handler"],
+      "source_positions": [
+        "event_handler"
+      ],
       "coverage": {
         "compile_pass": true,
         "compile_fail": true,
@@ -1655,6 +1806,48 @@
         {
           "case_id": "semantics.conditional.non_bool_rejected",
           "path": "rsjs_macros/tests/ui/conformance/fail/44_non_bool_condition.rs",
+          "expect": "fail"
+        }
+      ]
+    },
+    {
+      "id": "reactive.text",
+      "category": "expressions",
+      "description": "Direct text! slots and ordinary attributes preserve streaming SSR and track reactive arguments; client formatting supports integer display/radix and string display with literal width/alignment/precision, while other fmt traits remain server-only.",
+      "status": "partial",
+      "source_positions": [
+        "text_binding",
+        "reactive_attr"
+      ],
+      "coverage": {
+        "compile_pass": true,
+        "compile_fail": true,
+        "hir_snapshot": true,
+        "ir_snapshot": true,
+        "js_snapshot": true,
+        "descriptor_snapshot": false,
+        "runtime": true
+      },
+      "snapshots": {
+        "hir_snapshot": "rsjs_conformance/snapshots/hir/reactive_text.hir.json",
+        "ir_snapshot": "rsjs_conformance/snapshots/client_ir/reactive_text.body-ir.json",
+        "js_snapshot": "rsjs_conformance/snapshots/expressions/reactive_text.island.js"
+      },
+      "runtime_script": "rsjs_conformance/runtime/reactive_text.mjs",
+      "fixtures": [
+        {
+          "case_id": "reactive.text",
+          "path": "rsjs_macros/tests/ui/conformance/pass/42_reactive_text.rs",
+          "expect": "pass"
+        },
+        {
+          "case_id": "reactive.text.unsupported_format",
+          "path": "rsjs_macros/tests/ui/conformance/fail/46_reactive_text_format.rs",
+          "expect": "fail"
+        },
+        {
+          "case_id": "reactive.text.small_integer",
+          "path": "rsjs_macros/tests/ui/conformance/fail/47_reactive_text_small_integer.rs",
           "expect": "fail"
         }
       ]

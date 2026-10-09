@@ -1,0 +1,114 @@
+{
+  "kind": "block",
+  "stmts": [
+    {
+      "closure": {
+        "body": {
+          "kind": "binary",
+          "left": {
+            "kind": "signal_read",
+            "signal": 0
+          },
+          "op": "checked_u32_add",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "int",
+              "value": 1
+            }
+          }
+        },
+        "param": "n"
+      },
+      "kind": "signal_update",
+      "signal": 0
+    },
+    {
+      "kind": "signal_set",
+      "signal": 1,
+      "value": {
+        "kind": "literal",
+        "value": {
+          "kind": "string",
+          "value": "<new & value>"
+        }
+      }
+    },
+    {
+      "closure": {
+        "body": {
+          "kind": "binary",
+          "left": {
+            "kind": "signal_read",
+            "signal": 2
+          },
+          "op": "eq",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          }
+        },
+        "param": "value"
+      },
+      "kind": "signal_update",
+      "signal": 2
+    },
+    {
+      "kind": "signal_set",
+      "signal": 8,
+      "value": {
+        "kind": "signal_read",
+        "signal": 2
+      }
+    },
+    {
+      "kind": "signal_set",
+      "signal": 6,
+      "value": {
+        "condition": {
+          "kind": "signal_read",
+          "signal": 2
+        },
+        "else": {
+          "kind": "binary",
+          "left": {
+            "kind": "signal_read",
+            "signal": 5
+          },
+          "op": "div",
+          "right": {
+            "kind": "signal_read",
+            "signal": 4
+          }
+        },
+        "kind": "conditional",
+        "then": {
+          "kind": "binary",
+          "left": {
+            "kind": "binary",
+            "left": {
+              "kind": "signal_read",
+              "signal": 5
+            },
+            "op": "div",
+            "right": {
+              "kind": "signal_read",
+              "signal": 4
+            }
+          },
+          "op": "mul",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "float",
+              "value": -1
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -36,6 +36,9 @@ impl Analyzer {
         }
 
         match expr {
+            Expr::Macro(m) if crate::is_text_intrinsic_path(&m.mac.path) => {
+                self.lower_text_intrinsic(expr, scope)
+            }
             Expr::Lit(ExprLit { lit, .. }) => {
                 Ok(FrontendExpr::Literal(lit_to_value(lit, expr.span())?))
             }
@@ -1926,7 +1929,8 @@ impl Analyzer {
                         .is_some_and(|value| self.frontend_expr_contains_shared_signal(value))
             }
             FrontendExpr::BrowserRead(BrowserRead::Declared { args, .. })
-            | FrontendExpr::ClientCall { args, .. } => args
+            | FrontendExpr::ClientCall { args, .. }
+            | FrontendExpr::Text { args, .. } => args
                 .iter()
                 .any(|arg| self.frontend_expr_contains_shared_signal(arg)),
             _ => false,
@@ -2453,7 +2457,9 @@ fn frontend_expr_contains_client_call(expr: &FrontendExpr) -> bool {
         FrontendExpr::EventCollectionRead { index, .. } => {
             frontend_expr_contains_client_call(index)
         }
-        FrontendExpr::QueryKey(parts) => parts.iter().any(frontend_expr_contains_client_call),
+        FrontendExpr::QueryKey(parts) | FrontendExpr::Text { args: parts, .. } => {
+            parts.iter().any(frontend_expr_contains_client_call)
+        }
         FrontendExpr::BrowserRead(BrowserRead::Storage { key, fallback, .. })
         | FrontendExpr::BrowserRead(BrowserRead::UrlSearchParam { key, fallback }) => {
             frontend_expr_contains_client_call(key)

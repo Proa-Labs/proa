@@ -2507,6 +2507,13 @@ impl<'ast> Visit<'ast> for RsjsNamedClientLocalUsageCollector<'_> {
     }
 
     fn visit_expr_macro(&mut self, node: &'ast ExprMacro) {
+        if let Some(Ok(text)) = proa_dsl::text::parse_expr(&Expr::Macro(node.clone())) {
+            for argument in &text.args {
+                self.visit_expr(argument);
+            }
+            return;
+        }
+
         if let Some(root) = parse_rsjs_template_macro(&node.mac) {
             for node in &root.nodes {
                 self.visit_template_node(node);
@@ -2563,6 +2570,13 @@ impl<'ast> Visit<'ast> for RsjsNamedClientLocalDepFinder<'_> {
             }
         }
         visit::visit_expr_call(self, node);
+    }
+    fn visit_expr_macro(&mut self, node: &'ast ExprMacro) {
+        if let Some(Ok(text)) = proa_dsl::text::parse_expr(&Expr::Macro(node.clone())) {
+            for argument in &text.args {
+                self.visit_expr(argument);
+            }
+        }
     }
 }
 
