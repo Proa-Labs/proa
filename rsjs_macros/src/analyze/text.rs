@@ -119,9 +119,14 @@ impl Analyzer {
                 }
             }
         }
+        // Workspace builds can enable serde_json/preserve_order through
+        // another crate. Keep the embedded plan (and descriptor hashes)
+        // identical across that feature graph and standalone consumers.
+        let plan = rsjs_transport::canonical_json_bytes(&serde_json::Value::Array(parts))
+            .expect("text format plan serializes");
         Ok(FrontendExpr::Text {
             template: parsed.template.value(),
-            plan: serde_json::to_string(&parts).expect("text format plan serializes"),
+            plan: String::from_utf8(plan).expect("JSON is UTF-8"),
             args,
             attribute: false,
         })
