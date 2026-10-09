@@ -7,7 +7,7 @@
 //! deliberately not interchangeable: a `NodeId` cannot be passed
 //! where a `SignalId` is expected, even though they share the same
 //! representation. This is the v0.1 surface; more identifier types
-//! (e.g. `ComputedId`, `QueryId`) land in later milestones.
+//! (e.g. `MemoId`, `QueryId`) land in later milestones.
 //!
 //! All identifiers are dense, monotonic indices: the builder hands
 //! them out in allocation order starting at `0`. This invariant lets

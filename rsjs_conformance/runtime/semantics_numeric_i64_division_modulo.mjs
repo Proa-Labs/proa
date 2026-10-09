@@ -62,7 +62,7 @@ assert(
 );
 
 // Division proofs through the whole-island typing pass: a handler local
-// (`dividend`), compound `/=` on a local, and a computed-cell read all
+// (`dividend`), compound `/=` on a local, and a memo-cell read all
 // retain the exact i64 domain. Rust: -7 / 3 == -2, -2 / 2 == -1,
 // and doubled == -14, so -14 / 4 == -3 (JS float division would give
 // -3.5 under floating-point division).
@@ -74,7 +74,7 @@ assert(
 );
 assert(
   remainder.textContent === "-3",
-  `-14 / 4 over a computed read should be -3 (matches Rust truncation), got ${JSON.stringify(remainder.textContent)}`,
+  `-14 / 4 over a memo read should be -3 (matches Rust truncation), got ${JSON.stringify(remainder.textContent)}`,
 );
 
 finish("rsjs conformance runtime semantics numeric i64 division/modulo");

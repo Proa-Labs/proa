@@ -21,7 +21,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for QuantityStepper {
         // The explicit `Signal<i64>` gives the multiply below a proven
         // fixed-width integer domain; without it rsjs cannot lower it.
         let unit_price: rsjs::Signal<i64> = signal(self.unit_price);
-        let subtotal = rsjs::computed(|| qty.get() * unit_price.get());
+        let subtotal = rsjs::memo(|| qty.get() * unit_price.get());
 
         proa_macros::html_sync! {
             <div>

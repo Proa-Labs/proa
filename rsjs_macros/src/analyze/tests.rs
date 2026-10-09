@@ -11,7 +11,7 @@ fn test_analyzer() -> Analyzer {
         shared_fields: HashMap::new(),
         signals: HashMap::new(),
         unsupported_integer_signals: HashMap::new(),
-        computed_cells: HashSet::new(),
+        memo_cells: HashSet::new(),
         queries: HashMap::new(),
         mutations: HashMap::new(),
         node_refs: HashMap::new(),
@@ -2129,7 +2129,7 @@ fn ordinary_local_shadow_deactivates_an_earlier_shared_provider() {
 }
 
 #[test]
-fn ordinary_local_shadow_deactivates_an_earlier_signal_for_computed_lowering() {
+fn ordinary_local_shadow_deactivates_an_earlier_signal_for_memo_lowering() {
     let lets = vec![
         local_from_stmt(syn::parse_quote! {
             let count = rsjs::signal(1_i64);
@@ -2138,13 +2138,13 @@ fn ordinary_local_shadow_deactivates_an_earlier_signal_for_computed_lowering() {
             let count = self.server_counter();
         }),
         local_from_stmt(syn::parse_quote! {
-            let doubled = rsjs::computed(|| count.get() * 2_i64);
+            let doubled = rsjs::memo(|| count.get() * 2_i64);
         }),
     ];
 
     let message = test_analyzer()
         .collect_shared_stores_and_signals(&lets)
-        .expect_err("computed cannot capture an ordinary server shadow")
+        .expect_err("memo cannot capture an ordinary server shadow")
         .to_string();
     assert!(
         message.contains("could not find a signal named `count`"),
@@ -2171,7 +2171,7 @@ fn signal_seed_reading_an_earlier_signal_has_a_focused_diagnostic() {
         message.contains("rsjs/signal-seed-client-dependency"),
         "unexpected diagnostic: {message}"
     );
-    assert!(message.contains("rsjs::computed"), "{message}");
+    assert!(message.contains("rsjs::memo"), "{message}");
 }
 
 #[test]

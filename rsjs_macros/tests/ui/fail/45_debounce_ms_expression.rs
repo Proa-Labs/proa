@@ -1,4 +1,4 @@
-// Category 45: the `ms` argument of `rsjs::debounce(...)` (and
+// Category 45: the `delay_ms` argument of `rsjs::debounce(...)` (and
 // `rsjs::interval(...)`) must be an integer literal; the window is
 // baked into the island module at compile time, so runtime
 // expressions are rejected.
@@ -26,7 +26,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DebouncedSea
         let query = signal(String::new());
         proa_macros::html_sync! {
             <div>
-                <input on_input={rsjs::debounce(SEARCH_DEBOUNCE_MS, |event| query.set(event.value()))}/>
+                <input on_input={rsjs::debounce(|event| query.set(event.value()), SEARCH_DEBOUNCE_MS)}/>
                 <span>{query.get()}</span>
             </div>
         }

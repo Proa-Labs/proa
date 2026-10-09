@@ -1,9 +1,9 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Computed (derived) cell emission: a hand-built island with two
+//! Memo (derived) cell emission: a hand-built island with two
 //! leaf signals and one derived cell bound to a `<span>` must emit a
-//! runtime `computed(...)` declaration with an explicit dep array,
+//! runtime `memo(...)` declaration with an explicit dep array,
 //! push its `_dispose` into the island disposer list, and keep the
 //! derived cell out of the seed-blob read path.
 
@@ -19,7 +19,7 @@ fn build_total_island() -> rsjs_ir::Island {
         left: Box::new(ClientExpr::SignalRead(price)),
         right: Box::new(ClientExpr::SignalRead(qty)),
     });
-    let total = b.computed(body);
+    let total = b.memo(body);
     let total_read = b.expr(ClientExpr::SignalRead(total));
 
     let root = b.element("div", None);
@@ -31,23 +31,23 @@ fn build_total_island() -> rsjs_ir::Island {
 }
 
 #[test]
-fn computed_cell_emits_runtime_computed_declaration() {
+fn memo_cell_emits_runtime_memo_declaration() {
     let island = build_total_island();
     let js = emit_js::emit(&island, "Total");
 
     assert!(
         js.contains(
-            "const __sig_2 = computed(() => (__sig_0.get() * __sig_1.get()), [__sig_0, __sig_1]);"
+            "const __sig_2 = memo(() => (__sig_0.get() * __sig_1.get()), [__sig_0, __sig_1]);"
         ),
-        "derived cell should declare a computed with its dep array, got:\n{js}"
+        "derived cell should declare a memo with its dep array, got:\n{js}"
     );
     assert!(
         js.contains("__rsjs_disposers.push(__sig_2._dispose);"),
         "derived cell teardown must join the island disposer list, got:\n{js}"
     );
     assert!(
-        js.contains(", computed,") || js.contains(" computed,") || js.contains(", computed "),
-        "runtime import line should include the computed helper, got:\n{js}"
+        js.contains(", memo,") || js.contains(" memo,") || js.contains(", memo "),
+        "runtime import line should include the memo helper, got:\n{js}"
     );
     assert!(
         !js.contains("signal_initial(__rsjs_signal_initials, 2,"),
@@ -60,7 +60,7 @@ fn computed_cell_emits_runtime_computed_declaration() {
 }
 
 #[test]
-fn computed_cell_keeps_leaf_signal_seed_reads() {
+fn memo_cell_keeps_leaf_signal_seed_reads() {
     let island = build_total_island();
     let js = emit_js::emit(&island, "Total");
 

@@ -88,7 +88,7 @@ impl<L: DataLoader> WebRenderSync<L> for ThemePanel {
         let mode = workbench.mode();
         let button_bg = workbench.button_bg();
         let show_grid = workbench.show_grid();
-        let is_editing = rsjs::computed(|| mode.get() == "edit");
+        let is_editing = rsjs::memo(|| mode.get() == "edit");
         let choose_edit = rsjs::event_handler(
             |_: rsjs::MouseEvent<rsjs::elem::Button>| {
                 rsjs::batch(|| {
@@ -114,7 +114,7 @@ impl<L: DataLoader> WebRenderSync<L> for ThemePanel {
 
 Each top-level field is an independently invalidating cell with `.get()`,
 `.set(...)`, and `.update(...)`. Field handles work in text, attributes,
-conditionals, computed values, handlers, and
+conditionals, memo values, handlers, and
 [`bind_value` / `bind_checked`](/docs/rsjs/bindings) bindings. Updating one
 field does not invalidate consumers of unrelated fields.
 
@@ -175,7 +175,7 @@ The batching contract is:
 
 - reads inside the batch see writes immediately;
 - nested batches share the outer boundary;
-- the scheduler deduplicates subscriber, computed, and DOM work across owners
+- the scheduler deduplicates subscriber, memo, and DOM work across owners
   into one next-microtask flush after the outer callback returns;
 - a thrown error does not roll back writes already made, but the scheduler
   restores its state and rethrows the error; and

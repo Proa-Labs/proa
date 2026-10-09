@@ -424,7 +424,7 @@ mod tests {
         // The conservative variant: only no-reader-AND-no-writer
         // signals are dead. A signal that is only written must
         // survive (writes can be observed through other paths once
-        // queries / computeds land).
+        // queries / memos land).
         let mut b = IslandBuilder::new();
         let count = b.signal(Value::Int(0));
 

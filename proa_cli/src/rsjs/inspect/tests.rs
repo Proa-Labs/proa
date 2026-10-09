@@ -247,7 +247,7 @@ fn explains_dead_client_primitives() {
                 "render_strategy":"server_only",
                 "dead_primitives":[
                     {"kind":"signal","signal":0,"label":"count","source_anchor":{"start_line":7,"start_column":21}},
-                    {"kind":"computed","signal":1,"label":"total","source_anchor":{"start_line":8,"start_column":25}},
+                    {"kind":"memo","signal":1,"label":"total","source_anchor":{"start_line":8,"start_column":25}},
                     {"kind":"handler","handler":2,"label":"on_save","source_anchor":{"start_line":9,"start_column":25}},
                     {"kind":"node_ref","node_ref":3,"label":"input_ref","source_anchor":{"start_line":10,"start_column":25}},
                     {"kind":"query","query":4,"label":"items","source_anchor":{"start_line":11,"start_column":25}},
@@ -285,11 +285,11 @@ fn explains_dead_client_primitives() {
     assert!(explanation.dead_primitives[0]
         .detail
         .contains("was declared but no reachable client root"));
-    assert_eq!(explanation.dead_primitives[1].kind, "computed");
+    assert_eq!(explanation.dead_primitives[1].kind, "memo");
     assert_eq!(explanation.dead_primitives[1].signal, Some(1));
     assert!(explanation.dead_primitives[1]
         .detail
-        .contains("computed signal 1"));
+        .contains("memo signal 1"));
     assert_eq!(explanation.dead_primitives[2].kind, "handler");
     assert_eq!(explanation.dead_primitives[2].handler, Some(2));
     assert_eq!(explanation.dead_primitives[3].kind, "node_ref");

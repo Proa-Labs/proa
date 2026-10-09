@@ -448,7 +448,7 @@ impl<L: DataLoader> WebRenderSync<L> for QuantityStepper {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let qty = signal(1_i64);
         let unit_price: rsjs::Signal<i64> = signal(self.unit_price);
-        let subtotal = rsjs::computed(|| qty.get() * unit_price.get());
+        let subtotal = rsjs::memo(|| qty.get() * unit_price.get());
 
         html_sync! {
             <div>
@@ -539,7 +539,7 @@ Four things in `quantity_stepper.rs` carry the whole idea:
   `rsjs::Signal<i64>` annotation gives the arithmetic a proven fixed-width
   integer domain, which the compiler requires before it will lower `*` into
   JavaScript; without it you get `rsjs/integer-domain-unproven`.
-- `rsjs::computed(...)` derives the subtotal. It recomputes in the browser when
+- `rsjs::memo(...)` derives the subtotal. It recomputes in the browser when
   either input changes, and it is evaluated once on the server for the initial
   HTML.
 - The hidden input is the bridge back to the plain form. Its `value` is a

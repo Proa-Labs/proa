@@ -3,27 +3,28 @@
 Reactive primitives inside RSJS-analyzed components. A component that declares
 local state or another browser origin uses `#[rsjs(component, client)]`; a
 component that only participates in an enclosing live graph can use
-`#[rsjs(component)]`. The `Signal<T>` type is created with `signal(initial)`
-for leaf state or `computed(|| expr)` for derived state, then read/written via
-the signal methods below. Outside an RSJS-analyzed body, `Signal` is a stub used
-only to satisfy the type-checker — the macro lifts it to IR before runtime.
+`#[rsjs(component)]`. `signal(initial)` creates writable `Signal<T>` state;
+`memo(|| expr)` creates a read-only, cached `Memo<T>` derived value. Outside an
+RSJS-analyzed body these are server-side placeholders — the macro lifts the
+reactive declarations to IR before browser runtime.
 
 ## Quickref
 
 ```rust
-use rsjs::signal;
+use rsjs::{memo, signal, Memo, Signal};
 
-let count: Signal<i64> = signal(0);
-let doubled: Signal<i64> = rsjs::computed(|| count.get() * 2);
+let count: Signal<i64> = signal(0_i64);
+let doubled: Memo<i64> = memo(|| count.get() * 2_i64);
+let open = signal(false);
 
 // In a reactive position (inside html_sync!):
 {count.get()}                                  // tracked read; updates trigger re-render
-{doubled.get()}                                // derived read; deps are tracked through computed
+{doubled.get()}                                // derived read; deps are tracked through memo
 
 // In a handler body (the closure on an `on_*` slot):
 on_click={|_| count.set(42)}                   // imperative replace
 on_click={|_| count.update(|c| c + 1)}         // closure update
-on_click={|_| count.set(!count.get())}         // bool toggle (works for any T)
+on_click={|_| open.set(!open.get())}           // bool toggle
 ```
 
 ## When to use which
@@ -31,11 +32,53 @@ on_click={|_| count.set(!count.get())}         // bool toggle (works for any T)
 | Method | Use case | Notes |
 |---|---|---|
 | `signal(initial)` | Declare reactive state at the top of an island's render fn | Reachable signals receive deterministic ids from declaration order; unused declarations can be removed by linking |
-| `computed(\|\| expr)` | Declare derived reactive state from signal/query reads | Read-only; no seed value is serialized for the derived cell |
+| `memo(\|\| expr)` | Cache a read-only value derived from live inputs | Dependencies are inferred; no derived seed value is serialized |
 | `.get()` | Read in any reactive position (text slot, attribute, conditional predicate) | Auto-tracks the surrounding effect; updates re-run the effect |
 | `.set(value)` | Replace the signal's value with a new one | Use in handler bodies; not in render-time computation |
 | `.update(\|prev\| next)` | Compute new value from current value | Equivalent to `signal.set(closure(signal.get()))`; preferred when next depends on previous |
 | `batch(\|\| { ... })` | Group several synchronous writes | Values change immediately; dependent DOM effects flush once in the next microtask |
+
+## Memo dependencies and caching
+
+Write `memo(|| expression)` without a manual dependency array. The compiler
+walks the lowered expression, deduplicates its signal reads, and emits the
+dependency list for the runtime. Reads in both arms of a supported conditional
+are included. Pure client helpers receive live values through their arguments;
+those argument reads contribute dependencies too.
+
+```rust
+let total = memo(|| price.get() * quantity.get());
+// Generated JavaScript subscribes to both price and quantity:
+// const total = memo(() => ..., [price, quantity]);
+```
+
+The browser evaluates the memo at creation and caches the current result.
+Source writes schedule recomputation in the microtask flush; several writes
+in one synchronous turn coalesce. Reads before that flush still return the
+previous result. Subscribers run only when the new result differs according
+to `Object.is`. This stores one current result, not a cache of past input
+combinations. Teardown unsubscribes the memo from its inputs.
+
+Use a memo when multiple consumers should share a cached derivation or when
+unchanged derived results should suppress downstream work. An inline reactive
+expression such as `{price.get() * quantity.get()}`, or a supported reactive
+prelude alias, can derive a value without creating a shared cached cell.
+Memo closures must be one supported reactive expression; put intermediate
+locals in a pure `#[rsjs::client]` helper and call it from that expression.
+
+## Debouncing event-driven writes
+
+`rsjs::debounce(handler, delay_ms)` wraps a closure directly in an `on_*`
+attribute. It waits for the trailing edge, passes the latest event, and cancels
+pending work on island teardown:
+
+```rust
+<input on_input={rsjs::debounce(|event| query.set(event.value()), 300)} />
+```
+
+The first argument must be a closure and the delay must be an integer literal.
+A named-handler reference or runtime delay expression is not supported in this
+analyzed form. `rsjs::interval(ms, || ...)` keeps its delay-first order.
 
 ## Initial-value rules
 
@@ -58,12 +101,12 @@ cell:
 
 ```rust
 let count = signal(1_i64);
-let doubled = computed(|| count.get() * 2_i64); // live derived value
+let doubled = memo(|| count.get() * 2_i64); // live derived value
 ```
 
 Writing `signal(count.get() * 2_i64)` is rejected with
 `rsjs/signal-seed-client-dependency`; use an ordinary server value when the
-value is truly a seed, or `computed` when it should follow another signal.
+value is truly a seed, or `memo` when it should follow another signal.
 
 Runtime expressions that do not implement `ClientEncode` fail at the generated
 impl with a normal rustc trait-bound error. If an integer expression is
@@ -231,7 +274,7 @@ threading and no shared component tree:
 ```rust
 let workbench = rsjs::shared::<WorkbenchState>();
 let button_bg = workbench.button_bg();
-let green = rsjs::computed(|| button_bg.get() == "#2f6b4f");
+let green = rsjs::memo(|| button_bg.get() == "#2f6b4f");
 
 html_sync! {
     <button on_click={|_| button_bg.set("#2f6b4f".to_string())}>
@@ -240,12 +283,12 @@ html_sync! {
 }
 ```
 
-Note the conditional around `green.get()`: a `bool` computed is read in
+Note the conditional around `green.get()`: a `bool` memo is read in
 predicate position (`if`, or an attribute value), not as a bare text slot,
 because `bool` does not implement `WebRenderSync`. String and numeric
-computeds may be rendered directly as text slots.
+memos may be rendered directly as text slots.
 
-Every top-level struct field is a separate page-runtime cell. A computed that
+Every top-level struct field is a separate page-runtime cell. A memo that
 reads `button_bg` does not subscribe to `selected_node`. Direct chains such as
 `workbench.button_bg().get()` and `workbench.button_bg().set(...)` are also
 supported; binding a field to a local is useful when it is read repeatedly.

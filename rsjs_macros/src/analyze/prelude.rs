@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Prelude `let` recognition (signal/computed/handler/node_ref/query/mutation declarations) and the Analyzer collection passes.
+//! Prelude `let` recognition (signal/memo/handler/node_ref/query/mutation declarations) and the Analyzer collection passes.
 use super::*;
 
 impl Analyzer {
@@ -199,7 +199,7 @@ impl Analyzer {
         })
     }
 
-    /// Pass 1: scan shared-store, shared-field, signal, and computed bindings
+    /// Pass 1: scan shared-store, shared-field, signal, and memo bindings
     /// in lexical order. This keeps source shadowing and runtime initializer
     /// identity exact while preventing a field from seeing a store declared
     /// later in the Rust prelude.
@@ -208,8 +208,8 @@ impl Analyzer {
     /// its syntax and lets rustc/`SharedState` resolve it.
     ///
     /// `let <name> = signal(<lit>)` / `signal(<runtime expr>)` and
-    /// `let <name> = computed(|| <expr>)`, allocating both in source
-    /// order so a computed cell's id is greater than the ids of every
+    /// `let <name> = memo(|| <expr>)`, allocating both in source
+    /// order so a memo cell's id is greater than the ids of every
     /// signal its body reads (Rust scoping guarantees the names it
     /// references were declared earlier in the prelude).
     // proa-perf-ok(scope): compiler analysis builds diagnostics and IR; it never renders request HTML
@@ -246,8 +246,8 @@ impl Analyzer {
                     // The pattern enters scope only after its initializer.
                     // From the next declaration onward, an ordinary Rust
                     // binding with this name hides any earlier signal,
-                    // computed cell, shared field, or SharedState provider.
-                    // Keeping the old entries here made later computed/shared
+                    // memo cell, shared field, or SharedState provider.
+                    // Keeping the old entries here made later memo/shared
                     // declarations bind to a value Rust itself could no
                     // longer see.
                     self.signals.remove(&name);
@@ -404,10 +404,10 @@ impl Analyzer {
                 ));
             }
         }
-        if let Some((name, call)) = computed_local_call(local) {
-            let body = self.lower_computed_body(call)?;
+        if let Some((name, call)) = memo_local_call(local) {
+            let body = self.lower_memo_body(call)?;
             let body_id = self.alloc_expr(body, call.span())?;
-            let id = self.builder.computed(body_id);
+            let id = self.builder.memo(body_id);
             // Backfill the derived cell's declared type from its
             // body. Rust scoping guarantees the body only reads
             // earlier prelude declarations, so the typing pass
@@ -418,7 +418,7 @@ impl Analyzer {
             self.shadow_prelude_binding(&name);
             self.signals.insert(name, id);
             self.prelude_signal_ids.insert(index, id);
-            self.computed_cells.insert(id);
+            self.memo_cells.insert(id);
             return Ok(true);
         }
         Ok(false)
@@ -455,7 +455,7 @@ impl Analyzer {
             "rsjs/signal-seed-client-dependency: a signal initializer is a \
              one-time server seed and cannot read an earlier RSJS client cell \
              or browser operation\nhelp: compute an ordinary server value \
-             before declaring client state, or use `rsjs::computed(|| ...)` \
+             before declaring client state, or use `rsjs::memo(|| ...)` \
              when the value should stay derived from another signal",
         ))
     }
@@ -497,14 +497,14 @@ impl Analyzer {
         Ok(ClientType::Dyn)
     }
 
-    /// Validate and lower the closure body of a `computed(...)`
+    /// Validate and lower the closure body of a `memo(...)`
     /// prelude declaration into a reactive [`FrontendExpr`].
-    pub(super) fn lower_computed_body(&mut self, call: &ExprCall) -> syn::Result<FrontendExpr> {
+    pub(super) fn lower_memo_body(&mut self, call: &ExprCall) -> syn::Result<FrontendExpr> {
         if call.args.len() != 1 {
             return Err(syn::Error::new(
                 call.span(),
-                "`computed(...)` takes exactly one zero-argument closure, \
-                 e.g. `let total = rsjs::computed(|| price.get() * qty.get());`",
+                "`memo(...)` takes exactly one zero-argument closure, \
+                 e.g. `let total = rsjs::memo(|| price.get() * qty.get());`",
             ));
         }
         let closure = match &call.args[0] {
@@ -512,23 +512,23 @@ impl Analyzer {
             other => {
                 return Err(syn::Error::new(
                     other.span(),
-                    "`computed(...)` expects a closure argument; the closure body is the \
+                    "`memo(...)` expects a closure argument; the closure body is the \
                      derived expression that re-evaluates when its signals change, \
-                     e.g. `let total = rsjs::computed(|| price.get() * qty.get());`",
+                     e.g. `let total = rsjs::memo(|| price.get() * qty.get());`",
                 ));
             }
         };
         if !closure.inputs.is_empty() {
             return Err(syn::Error::new(
                 closure.inputs.span(),
-                "`computed(...)` closures take no parameters; they read signals directly, \
-                 e.g. `rsjs::computed(|| price.get() * qty.get())`",
+                "`memo(...)` closures take no parameters; they read signals directly, \
+                 e.g. `rsjs::memo(|| price.get() * qty.get())`",
             ));
         }
         let body = match closure.body.as_ref() {
             Expr::Block(ExprBlock { block, .. }) => match block.stmts.as_slice() {
                 [Stmt::Expr(expr, None)] => expr,
-                _ => return Err(computed_body_error(block.span())),
+                _ => return Err(memo_body_error(block.span())),
             },
             expr => expr,
         };
@@ -650,9 +650,9 @@ impl Analyzer {
                         call.args[0].span(),
                         format!(
                             "rsjs/query-key-not-synchronous: query keys may depend only on \
-                             literals, signals, computed values, SharedState fields, and pure \
+                             literals, signals, memo values, SharedState fields, and pure \
                              client helpers; {reason}\nhelp: move the value into the structural \
-                             key's signal/computed dependency closure"
+                             key's signal/memo dependency closure"
                         ),
                     )
                 })?;
@@ -667,7 +667,7 @@ impl Analyzer {
                         format!(
                             "rsjs/query-key-client-expression-unsupported: query key depends on \
                              client value `{name}`, but that expression cannot be lowered into \
-                             the synchronous live-key graph\nhelp: use the signal/computed/shared \
+                             the synchronous live-key graph\nhelp: use the signal/memo/shared \
                              value directly or a supported pure `#[rsjs::client]` helper\n\
                              caused by: {lowering_error}"
                         ),
@@ -695,7 +695,7 @@ impl Analyzer {
                 call.args[2].span(),
                 format!(
                     "rsjs/query-request-not-synchronous: query request descriptors may depend \
-                     only on literals, signals, computed values, SharedState fields, and pure \
+                     only on literals, signals, memo values, SharedState fields, and pure \
                      client helpers; {reason}\nhelp: snapshot browser, DOM, query, or mutation \
                      state into an explicit signal and include that signal in both the \
                      structural key and request descriptor"
@@ -851,7 +851,7 @@ impl Analyzer {
     pub(super) fn collect_client_prelude_locals(&mut self, lets: &[Local]) -> syn::Result<()> {
         for (index, local) in lets.iter().enumerate() {
             let compiler_owned = is_signal_local(local)
-                || is_computed_local(local)
+                || is_memo_local(local)
                 || shared_store_local_decl(local)?.is_some()
                 || shared_field_local_decl(local, &self.shared_stores)?.is_some()
                 || is_handler_local(local)
@@ -1293,7 +1293,7 @@ impl<'ast> Visit<'ast> for OpaqueServerStatementValidator<'_> {
                 if matches!(
                     name.as_str(),
                     "signal"
-                        | "computed"
+                        | "memo"
                         | "handler"
                         | "event_handler"
                         | "interval"
@@ -1479,15 +1479,15 @@ pub(crate) fn is_signal_local(local: &Local) -> bool {
 }
 
 /// Returns `true` if `local` matches the shape recognised by
-/// [`Analyzer::collect_signals`] as a computed (derived) cell
-/// declaration (`let <name> = computed(|| ...);`).
+/// [`Analyzer::collect_signals`] as a memo (derived) cell
+/// declaration (`let <name> = memo(|| ...);`).
 ///
 /// Used alongside [`is_signal_local`] to keep analyser-lowered prelude
 /// `let` bindings out of the verbatim server-render replay: the
 /// generated render body declares its own `__rsjs_initial_signal_<N>`
 /// local for the derived value instead.
-pub(crate) fn is_computed_local(local: &Local) -> bool {
-    computed_local_call(local).is_some()
+pub(crate) fn is_memo_local(local: &Local) -> bool {
+    memo_local_call(local).is_some()
 }
 
 /// Returns `true` if `local` matches the rsjs callback-ref shape
@@ -1545,7 +1545,7 @@ pub(crate) fn signal_initializers(
     lets: &[Local],
 ) -> syn::Result<Vec<(SignalId, Expr, Option<syn::Type>)>> {
     let mut out = Vec::new();
-    // Computed declarations consume signal ids too (they share the id
+    // Memo declarations consume signal ids too (they share the id
     // space, allocated in source order), so the running id must count
     // both shapes to keep runtime-initializer ids aligned with the ids
     // the analyser allocates.
@@ -1559,7 +1559,7 @@ pub(crate) fn signal_initializers(
                 out.push((SignalId(next_id), expr, local.explicit_ty));
             }
             next_id += 1;
-        } else if is_computed_local(local)
+        } else if is_memo_local(local)
             || shared_field_receiver_name(local)
                 .is_some_and(|receiver| shared_stores.contains(&receiver))
         {
@@ -1767,7 +1767,7 @@ fn server_replayed_prelude_names(lets: &[Local]) -> HashSet<String> {
     let mut names = HashSet::new();
     for local in lets {
         if is_signal_local(local)
-            || is_computed_local(local)
+            || is_memo_local(local)
             || is_handler_local(local)
             || is_node_ref_local(local)
             || is_query_local(local)
@@ -2570,7 +2570,7 @@ pub(super) fn handler_payload_param_name(
 /// Parse one prelude `let` binding as a `signal(...)` declaration.
 ///
 /// Returns `Ok(None)` when the local is not a signal declaration
-/// (e.g. `computed(...)`, `cx.load(...).await?`); only signal
+/// (e.g. `memo(...)`, `cx.load(...).await?`); only signal
 /// declarations contribute entries.
 pub(super) fn signal_local_decl(local: &Local) -> syn::Result<Option<SignalLocal>> {
     // Pattern: must be a plain ident (no destructuring).
@@ -3035,30 +3035,30 @@ pub(super) fn rust_type_leaf_name(ty: &syn::Type) -> Option<String> {
     }
 }
 
-/// Match `let <name> = computed(|| ...);` (bare or `rsjs::`-qualified,
+/// Match `let <name> = memo(|| ...);` (bare or `rsjs::`-qualified,
 /// mirroring how `signal(...)` is matched by path leaf).
-pub(super) fn computed_local_call(local: &Local) -> Option<(syn::Ident, &ExprCall)> {
+pub(super) fn memo_local_call(local: &Local) -> Option<(syn::Ident, &ExprCall)> {
     let name = local_ident(local)?;
     let init = local.init.as_ref()?;
     let Expr::Call(call) = init.expr.as_ref() else {
         return None;
     };
-    if !is_rsjs_root_call(&call.func, "computed") {
+    if !is_rsjs_root_call(&call.func, "memo") {
         return None;
     }
     Some((name, call))
 }
 
-pub(super) fn computed_body_error(span: proc_macro2::Span) -> syn::Error {
+pub(super) fn memo_body_error(span: proc_macro2::Span) -> syn::Error {
     syn::Error::new(
         span,
-        "`computed(...)` closures must be a single reactive expression (signal reads, \
+        "`memo(...)` closures must be a single reactive expression (signal reads, \
          literals, arithmetic and comparisons, the supported string methods, and \
          `if`/`else` expressions). Statements such as `let` bindings or signal writes \
          cannot run inside a derived cell: it re-evaluates automatically whenever its \
          inputs change, so side effects would fire on every recomputation. Move the \
          statements into an event handler and keep the closure to one expression, \
-         e.g. `rsjs::computed(|| price.get() * qty.get())`",
+         e.g. `rsjs::memo(|| price.get() * qty.get())`",
     )
 }
 
@@ -3203,13 +3203,13 @@ pub(super) fn is_rsjs_handler_call(expr: &Expr) -> bool {
 
 /// Returns `true` if `expr` is a `debounce` / `rsjs::debounce` path,
 /// the wrapper recognised inside event-handler attribute values:
-/// `on_input={rsjs::debounce(300, |event| ...)}`.
+/// `on_input={rsjs::debounce(|event| ..., 300)}`.
 pub(super) fn is_rsjs_debounce_call(expr: &Expr) -> bool {
     path_ends_with(expr, "debounce")
 }
 
-/// Parse the `ms` argument of `rsjs::interval(...)` /
-/// `rsjs::debounce(...)`. The window must be an integer literal: the
+/// Parse the delay argument of `rsjs::interval(ms, ...)` /
+/// `rsjs::debounce(..., delay_ms)`. The window must be an integer literal: the
 /// emitted JS bakes the value into the island module, so there is no
 /// place for a runtime expression to flow into it.
 pub(super) fn timer_ms_literal(expr: &Expr, what: &str) -> syn::Result<u64> {
@@ -3217,14 +3217,25 @@ pub(super) fn timer_ms_literal(expr: &Expr, what: &str) -> syn::Result<u64> {
         Expr::Lit(ExprLit {
             lit: Lit::Int(int), ..
         }) => int.base10_parse::<u64>(),
-        other => Err(syn::Error::new(
-            other.span(),
-            format!(
-                "`rsjs::{what}(ms, ...)` requires an integer literal for `ms` \
-                 (e.g. `rsjs::{what}(300, ...)`); expressions are not supported \
-                 because the window is baked into the island module at compile time"
-            ),
-        )),
+        other => {
+            let (signature, parameter, example) = if what == "debounce" {
+                (
+                    "rsjs::debounce(handler, delay_ms)",
+                    "delay_ms",
+                    "rsjs::debounce(|event| ..., 300)",
+                )
+            } else {
+                ("rsjs::interval(ms, ...)", "ms", "rsjs::interval(300, ...)")
+            };
+            Err(syn::Error::new(
+                other.span(),
+                format!(
+                    "`{signature}` requires an integer literal for `{parameter}` \
+                     (e.g. `{example}`); expressions are not supported \
+                     because the window is baked into the island module at compile time"
+                ),
+            ))
+        }
     }
 }
 

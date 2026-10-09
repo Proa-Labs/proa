@@ -171,7 +171,7 @@ pub struct DeadClientPrimitive {
 #[non_exhaustive]
 pub enum DeadClientPrimitiveKind {
     Signal { signal: SignalId },
-    Computed { signal: SignalId },
+    Memo { signal: SignalId },
     Handler { handler: EventHandlerId },
     NodeRef { node_ref: NodeRefId },
     Query { query: QueryId },
@@ -402,7 +402,7 @@ fn dead_client_primitives(
         }
         dead.push(DeadClientPrimitive {
             kind: if signal.derived.is_some() {
-                DeadClientPrimitiveKind::Computed { signal: signal.id }
+                DeadClientPrimitiveKind::Memo { signal: signal.id }
             } else {
                 DeadClientPrimitiveKind::Signal { signal: signal.id }
             },
@@ -3016,17 +3016,17 @@ mod tests {
                 start_column: 13,
             }),
         );
-        let computed_body = b.expr(ClientExpr::signal_read(dead_signal));
-        let dead_computed = b.signal(Value::Null);
+        let memo_body = b.expr(ClientExpr::signal_read(dead_signal));
+        let dead_memo = b.signal(Value::Null);
         b.set_signal_source(
-            dead_computed,
+            dead_memo,
             Some("total".to_string()),
             Some(crate::SourceAnchor {
                 start_line: 6,
                 start_column: 21,
             }),
         );
-        b.set_signal_derived(dead_computed, computed_body);
+        b.set_signal_derived(dead_memo, memo_body);
         let dead_handler = b.handler_from_ir(ClientBlock::from_stmts(Vec::new()));
         b.set_handler_source(
             dead_handler,
@@ -3090,9 +3090,7 @@ mod tests {
                     }),
                 },
                 DeadClientPrimitive {
-                    kind: DeadClientPrimitiveKind::Computed {
-                        signal: dead_computed
-                    },
+                    kind: DeadClientPrimitiveKind::Memo { signal: dead_memo },
                     label: Some("total".to_string()),
                     source_anchor: Some(crate::SourceAnchor {
                         start_line: 6,
@@ -3354,12 +3352,12 @@ mod tests {
             id: query,
             accessor: QueryAccessor::Data,
         });
-        let computed = b.signal(Value::Null);
-        b.set_signal_derived(computed, query_read);
-        let computed_read = b.expr(ClientExpr::signal_read(computed));
+        let memo = b.signal(Value::Null);
+        b.set_signal_derived(memo, query_read);
+        let memo_read = b.expr(ClientExpr::signal_read(memo));
         let root = b.element("div", None);
         let span = b.element("span", Some(root));
-        b.bind_text(span, computed_read);
+        b.bind_text(span, memo_read);
         b.set_root(root);
 
         let analysis = classify_render_strategy(&b.build());
@@ -3368,11 +3366,11 @@ mod tests {
             analysis.roots,
             vec![
                 ClientReachabilityRoot::TextBinding { node: span },
-                ClientReachabilityRoot::Signal { id: computed },
+                ClientReachabilityRoot::Signal { id: memo },
                 ClientReachabilityRoot::Query { id: query },
             ]
         );
-        assert_eq!(analysis.reachable_signal_ids(), vec![computed]);
+        assert_eq!(analysis.reachable_signal_ids(), vec![memo]);
     }
 
     #[test]

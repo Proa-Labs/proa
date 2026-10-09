@@ -43,9 +43,9 @@ function sleep(ms) {
 
 {
     const calls = [];
-    const search = debounce(30, (q) => {
+    const search = debounce((q) => {
         calls.push(q);
-    });
+    }, 30);
     search('a');
     search('ab');
     search('abc');
@@ -63,9 +63,9 @@ function sleep(ms) {
 
 {
     let fired = 0;
-    const handler = debounce(30, () => {
+    const handler = debounce(() => {
         fired += 1;
-    });
+    }, 30);
     handler();
     handler._dispose();
     await sleep(80);

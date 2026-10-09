@@ -3505,8 +3505,8 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for CartPanel {
         let cart = rsjs::shared::<CartState>();
         let count = cart.count();
         let local = rsjs::signal(0);
-        let next = rsjs::computed(|| count.get() + 1);
-        let local_next = rsjs::computed(|| local.get() + 1);
+        let next = rsjs::memo(|| count.get() + 1);
+        let local_next = rsjs::memo(|| local.get() + 1);
         html_sync! {
             <output>{next.get()}</output>
             <span>{local_next.get()}</span>
@@ -3955,7 +3955,7 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for Counter {
     fn render(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
         html_sync! {
             <div>
-                {rsjs::server_only(rsjs::computed(|| 1_i64))}
+                {rsjs::server_only(rsjs::memo(|| 1_i64))}
                 <span data-ref={rsjs::server_attr(rsjs::node_ref::<rsjs::elem::Input>())}>"Name"</span>
             </div>
         }.render(cx)
@@ -3972,9 +3972,7 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for Counter {
         2,
         "expected client primitive capture diagnostics: {diagnostics:#?}"
     );
-    assert!(captures
-        .iter()
-        .any(|diag| diag.message.contains("computed")));
+    assert!(captures.iter().any(|diag| diag.message.contains("memo")));
     assert!(captures
         .iter()
         .any(|diag| diag.message.contains("node_ref")));
@@ -4025,7 +4023,7 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for BrowserPanel {
     fn render(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
         html_sync! {
             <div>
-                {rsjs::island(BoundaryChild { value: rsjs::computed(|| 1_i64) })}
+                {rsjs::island(BoundaryChild { value: rsjs::memo(|| 1_i64) })}
                 {rsjs::island(BoundaryChild { value: rsjs::window::inner_width() })}
             </div>
         }.render(cx)
@@ -4053,9 +4051,7 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for BrowserPanel {
         .help
         .as_deref()
         .is_some_and(|help| help.contains("server_only/server_attr"))));
-    assert!(captures
-        .iter()
-        .any(|diag| diag.message.contains("computed")));
+    assert!(captures.iter().any(|diag| diag.message.contains("memo")));
     assert!(captures
         .iter()
         .any(|diag| diag.message.contains("rsjs::window")));
@@ -4323,14 +4319,14 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for Counter {
 }
 
 #[test]
-fn lint_reports_unused_rsjs_computed_local() {
+fn lint_reports_unused_rsjs_memo_local() {
     let source = r#"
 #[rsjs(component, client)]
 impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for CartTotal {
     fn render(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
         let price = signal(10_i64);
         let qty = signal(2_i64);
-        let total = rsjs::computed(|| price.get() * qty.get());
+        let total = rsjs::memo(|| price.get() * qty.get());
         html_sync! {
             <p>"Static"</p>
         }.render(cx)
@@ -4341,21 +4337,21 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for CartTotal {
     let diag = diagnostics
         .iter()
         .find(|diag| {
-            diag.code == "rsjs/dead-client-primitive" && diag.message.contains("`total` computed")
+            diag.code == "rsjs/dead-client-primitive" && diag.message.contains("`total` memo")
         })
-        .expect("unused computed local should be reported");
+        .expect("unused memo local should be reported");
     assert_eq!(diag.severity, Severity::Info);
 }
 
 #[test]
-fn lint_computed_reachability_keeps_signal_deps_live() {
+fn lint_memo_reachability_keeps_signal_deps_live() {
     let source = r#"
 #[rsjs(component, client)]
 impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for CartTotal {
     fn render(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
         let price = signal(10_i64);
         let qty = signal(2_i64);
-        let total = rsjs::computed(|| price.get() * qty.get());
+        let total = rsjs::memo(|| price.get() * qty.get());
         html_sync! {
             <span>{total.get()}</span>
         }.render(cx)
@@ -4367,7 +4363,7 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for CartTotal {
         !diagnostics
             .iter()
             .any(|diag| diag.code == "rsjs/dead-client-primitive"),
-        "template-used computed local and its signal deps should not be reported: {diagnostics:#?}"
+        "template-used memo local and its signal deps should not be reported: {diagnostics:#?}"
     );
 }
 

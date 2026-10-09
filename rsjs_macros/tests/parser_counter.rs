@@ -4630,7 +4630,7 @@ pub struct RepeatedProjectedRow {
 }
 
 impl RepeatedProjectedRow {
-    fn computed_key(&self) -> u32 {
+    fn memo_key(&self) -> u32 {
         self.key
     }
 }
@@ -4772,8 +4772,8 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RepeatedPayl
                                 selected.set(row.key as u32);
                                 console::log(row.key as u32);
                                 console::log(row.alternate_key as u32);
-                                console::log(row.computed_key() as u32);
-                                console::log(row.computed_key() as u32);
+                                console::log(row.memo_key() as u32);
+                                console::log(row.memo_key() as u32);
                             }}>
                                 "Primary"
                             </button>
@@ -5329,7 +5329,7 @@ fn rsjs_payload_cse_keeps_distinct_tokens_on_one_node() {
                     == 1
                 && attrs
                     .iter()
-                    .filter(|tokens| tokens.contains("computed_key"))
+                    .filter(|tokens| tokens.contains("memo_key"))
                     .count()
                     == 2
         }),
