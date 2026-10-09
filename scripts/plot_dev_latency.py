@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Render an observed dev rebuild waterfall (requires matplotlib)."""
 
 import argparse

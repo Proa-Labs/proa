@@ -1,6 +1,6 @@
 Analysis of sampling cargo-proa (pid 29077) every 1 millisecond
 Process:         cargo-proa [29077]
-Path:            /Users/USER/Desktop/*/cargo-proa
+Path:            <checkout>/cargo-proa
 Load Address:    0x1000c4000
 Identifier:      cargo-proa
 Version:         0

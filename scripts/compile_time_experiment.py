@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Stage an isolated CLI experiment; never edit framework/CLI sources in place.
 
 The staged workspace references the current libraries by absolute paths and
