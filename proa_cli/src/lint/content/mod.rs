@@ -487,7 +487,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
             if let Some((name, _)) = target
                 .bindings
                 .iter()
-                .find(|(_, keys)| keys.contains(&part.key))
+                .find(|(name, keys)| name.as_str() != "self" && keys.contains(&part.key))
             {
                 d = d.with_help(format!("add `{{{name}}}` to the {} template; constructing or testing a value does not render it", target.target_label));
             } else {

@@ -695,6 +695,30 @@ fn child_presentation_fields_can_differ_without_changing_content_inputs() {
     assert!(lint(&source).is_empty());
 }
 #[test]
+fn missing_field_repair_names_the_field_or_its_local_instead_of_self() {
+    let source = fixture(
+        "html_sync! {<img src={self.image} alt=\"\" />}.render(cx)",
+        "md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+    );
+    let diagnostics = missing(&source);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].help.as_deref(),
+        Some("render `self.image` in the Markdown view")
+    );
+    let with_local = source.replace(
+        "md_sync! {r###\"{self.title}\"###}",
+        "let image=self.image;md_sync! {r###\"{self.title}\"###}",
+    );
+    let diagnostics = missing(&with_local);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].help.as_deref(),
+        Some("add `{image}` to the Markdown template; constructing or testing a value does not render it")
+    );
+}
+
+#[test]
 fn omission_suggestions_never_use_method_calls_or_collection_pseudo_paths() {
     let source = fixture(
         "html_sync! {{self.items.len()}}.render(cx)",
