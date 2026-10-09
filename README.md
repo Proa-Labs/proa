@@ -164,6 +164,13 @@ impl<L: DataLoader> MdRenderSync<L> for Greeting {
 escaped, and typed children compose into larger documents. Both renderers
 use the same component data and define their own output.
 
+For an existing synchronous HTML component, enable the core crate's
+`html-to-markdown` feature and delegate with
+`proa_core::to_markdown(self).render_md(cx)`. The adapter captures its HTML and
+converts semantic elements to Markdown. It allocates during conversion;
+handwritten Markdown remains the fast path and controls custom representations.
+See the [HTML-to-Markdown example](proa_core/examples/html_to_markdown.rs).
+
 See the [Markdown rendering guide](https://proa.so/docs/core/markdown) for
 composition, async rendering, and serving Markdown alongside HTML.
 
