@@ -1145,7 +1145,8 @@ fn run_linked_dev_cycle(
     println!("running linked RSJS Cargo dev build: {}", shellish(command));
     println!("Preparing the Cargo project and build cache...");
     let environment = hot.map(|state| state.environment()).unwrap_or_default();
-    let prepared = prepare_linked_cargo_with_environment(root, command, LinkedCargoAction::Dev, &environment)?;
+    let prepared =
+        prepare_linked_cargo_with_environment(root, command, LinkedCargoAction::Dev, &environment)?;
     let output = run_linked_cargo_cached_with_progress(
         &prepared.request,
         &prepared.descriptor_cache_directory,

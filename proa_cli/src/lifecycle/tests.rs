@@ -1172,7 +1172,13 @@ fn compile_test_wrapper(directory: &Path) -> PathBuf {
         "cargo-proa-test-wrapper{}",
         std::env::consts::EXE_SUFFIX
     ));
-    fs::write(&source, "fn main() {}\n").unwrap();
+    // Distinct fixture bytes keep the corruption test's snapshot private
+    // while other lifecycle tests run against the same Cargo target cache.
+    let fixture = format!(
+        "fn main() {{ std::hint::black_box({:?}); }}\n",
+        directory.to_string_lossy()
+    );
+    fs::write(&source, fixture).unwrap();
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc"));
     let output = Command::new(rustc)
         .args(["--edition=2021", "-C", "debuginfo=0", "-C", "opt-level=s"])
