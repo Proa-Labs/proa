@@ -45,6 +45,26 @@ The first closure parameter is the browser event. An optional second parameter c
 
 To say which element a handler runs on, give its event a type parameter.
 
+## Debouncing a handler
+
+Use `rsjs::debounce(handler, delay_ms)` directly in an event attribute:
+
+```rust filename="src/components/search.rs"
+let query = signal(String::new());
+
+html_sync! {
+    <input on_input={rsjs::debounce(|event| query.set(event.value()), 300)} />
+    <output>{query.get()}</output>
+}
+```
+
+The handler runs once after 300 milliseconds without another call, with the
+most recent event. This is trailing-edge debounce: it does not run immediately
+on the first call. Pending work is canceled when the island is disposed.
+The analyzed form requires a closure as the first argument and an integer
+literal delay as the second; wrapping a previously declared named handler is
+not currently supported.
+
 ## Typing events
 
 Event generics describe the handler's `currentTarget`, not the raw bubbling target. Use `rsjs::elem` markers for element-specific helpers. Document handlers use `rsjs::web::dom::Document`; window handlers use `rsjs::web::dom::Window`.

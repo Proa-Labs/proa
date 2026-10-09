@@ -2003,20 +2003,22 @@ pub fn signal<T>(initial: T) -> Signal<T> {
     Signal { _value: initial }
 }
 
-/// A computed (derived) cell: the read-only half of [`Signal`], whose
-/// value is re-evaluated whenever the signals its closure reads change.
+/// A reactive memo: a read-only derived cell that caches its current value.
+/// Inputs come from the reactive reads in its closure; no manual dependency
+/// array is required. Input writes schedule a batched recomputation, and
+/// downstream subscribers are notified only when the result changes.
 ///
 /// **Note**: this server-side type is a placeholder, like [`Signal`].
 /// On the server the closure runs once over the signals' initial
 /// values and the result is what SSR renders. On the client the
-/// compiler lowers `computed(...)` to the runtime's `computed()`
+/// compiler lowers `memo(...)` to the runtime's `memo()`
 /// derived cell, which recomputes on input writes and only notifies
 /// subscribers when the derived value actually changes.
-pub struct Computed<T> {
+pub struct Memo<T> {
     _value: T,
 }
 
-impl<T> Computed<T> {
+impl<T> Memo<T> {
     /// Read the current derived value. Inside an RSJS-analyzed render body this
     /// subscribes the surrounding reactive scope; on the server it
     /// returns the value computed from the signals' initial values.
@@ -2037,20 +2039,24 @@ impl<T> Computed<T> {
     }
 }
 
-/// Construct a computed (derived) cell from a closure over signals.
+/// Construct a reactive memo from a closure over live inputs.
+///
+/// Inside an RSJS-analyzed component, the compiler derives the dependency
+/// list from the closure's reads and emits it for the browser runtime. The
+/// closure must use the supported reactive expression grammar; use a pure
+/// `#[rsjs::client]` helper for supported calculations with intermediate locals.
 ///
 /// ```ignore
-/// let first = signal("Ada".to_string());
-/// let last = signal("Lovelace".to_string());
-/// let full = rsjs::computed(|| format!("{} {}", first.get(), last.get()));
+/// let count = signal(0_i64);
+/// let doubled = rsjs::memo(|| count.get() * 2_i64);
 /// ```
 ///
-/// **Note**: see [`Computed`] for the build-time vs runtime semantics.
-pub fn computed<T, F>(f: F) -> Computed<T>
+/// **Note**: see [`Memo`] for the build-time vs runtime semantics.
+pub fn memo<T, F>(f: F) -> Memo<T>
 where
     F: Fn() -> T,
 {
-    Computed { _value: f() }
+    Memo { _value: f() }
 }
 
 /// Run `f` every `ms` milliseconds for the lifetime of the island.
@@ -2065,14 +2071,16 @@ where
 {
 }
 
-/// Wrap an event handler so bursts of calls collapse until `ms`
+/// Wrap an event handler so bursts of calls collapse until `delay_ms`
 /// milliseconds pass without a new call (trailing edge only).
 ///
 /// The compiler lowers this to the runtime's `debounce()` wrapper and
 /// ties cancellation of any pending invocation to the island's
 /// teardown. On the server the closure is returned unchanged so the
 /// authoring shape type-checks.
-pub fn debounce<F>(_ms: u32, f: F) -> F {
+/// In analyzed templates, the handler must be a closure and the delay must
+/// be an integer literal, e.g. `debounce(|event| query.set(event.value()), 300)`.
+pub fn debounce<F>(f: F, _delay_ms: u32) -> F {
     f
 }
 

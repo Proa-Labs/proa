@@ -3526,10 +3526,10 @@ fn prelude_local_source_ide_hint(local: &syn::Local) -> Option<TokenStream2> {
     if analyze::is_signal_local(local) {
         return signal_local_source_ide_hint(local);
     }
-    if analyze::is_computed_local(local) {
+    if analyze::is_memo_local(local) {
         // Replay verbatim: the signal hints above rebind the source
         // names as real `::rsjs::Signal` values, so the original
-        // `computed(|| ...)` closure type-checks against the rsjs stub
+        // `memo(|| ...)` closure type-checks against the rsjs stub
         // and IDE go-to-def / inference keep working.
         return Some(quote! { #local });
     }
@@ -3819,7 +3819,7 @@ fn collect_rsjs_source_ide_hints_from_attrs(
                 collect_source_expr_ide_hints(&value, hints);
                 continue;
             };
-            // `on_*={rsjs::debounce(ms, |event| ...)}`: hint the wrapped
+            // `on_*={rsjs::debounce(|event| ..., delay_ms)}`: hint the wrapped
             // closure like a plain handler closure. Referencing the bare
             // generic `debounce` fn item would fail `F` inference.
             let value = debounce_wrapped_handler_expr(&value).unwrap_or(&value);
@@ -3844,7 +3844,7 @@ fn collect_rsjs_source_ide_hints_from_attrs(
     }
 }
 
-/// Match `rsjs::debounce(ms, <closure>)` (bare or `rsjs::`-qualified)
+/// Match `rsjs::debounce(<closure>, delay_ms)` (bare or `rsjs::`-qualified)
 /// and return the wrapped closure expression.
 fn debounce_wrapped_handler_expr(expr: &syn::Expr) -> Option<&syn::Expr> {
     let syn::Expr::Call(call) = expr else {
@@ -3853,7 +3853,7 @@ fn debounce_wrapped_handler_expr(expr: &syn::Expr) -> Option<&syn::Expr> {
     if !analyze::path_ends_with(&call.func, "debounce") {
         return None;
     }
-    call.args.iter().nth(1)
+    call.args.first()
 }
 
 fn collect_named_event_handler_call_ide_hints(
@@ -7063,17 +7063,17 @@ mod tests {
                 start_column: 21,
             }),
         );
-        let computed_body = builder.expr(rsjs_ir::ClientExpr::signal_read(signal));
-        let computed = builder.signal(rsjs_ir::Value::Null);
+        let memo_body = builder.expr(rsjs_ir::ClientExpr::signal_read(signal));
+        let memo = builder.signal(rsjs_ir::Value::Null);
         builder.set_signal_source(
-            computed,
+            memo,
             Some("total".to_string()),
             Some(rsjs_ir::SourceAnchor {
                 start_line: 13,
                 start_column: 21,
             }),
         );
-        builder.set_signal_derived(computed, computed_body);
+        builder.set_signal_derived(memo, memo_body);
         let handler = builder.handler_from_ir(rsjs_ir::ClientBlock::from_stmts(Vec::new()));
         builder.set_handler_source(
             handler,
@@ -7138,8 +7138,8 @@ mod tests {
         assert_eq!(dead[0]["label"], "draft_count");
         assert_eq!(dead[0]["source_anchor"]["start_line"], 12);
         assert_eq!(dead[0]["source_anchor"]["start_column"], 21);
-        assert_eq!(dead[1]["kind"], "computed");
-        assert_eq!(dead[1]["signal"], computed.0);
+        assert_eq!(dead[1]["kind"], "memo");
+        assert_eq!(dead[1]["signal"], memo.0);
         assert_eq!(dead[1]["label"], "total");
         assert_eq!(dead[1]["source_anchor"]["start_line"], 13);
         assert_eq!(dead[2]["kind"], "handler");
@@ -8455,7 +8455,7 @@ fn strategy_dead_primitive_json(dead: &rsjs_ir::DeadClientPrimitive) -> serde_js
         rsjs_ir::DeadClientPrimitiveKind::Signal { signal } => {
             value["signal"] = serde_json::json!(signal.0);
         }
-        rsjs_ir::DeadClientPrimitiveKind::Computed { signal } => {
+        rsjs_ir::DeadClientPrimitiveKind::Memo { signal } => {
             value["signal"] = serde_json::json!(signal.0);
         }
         rsjs_ir::DeadClientPrimitiveKind::Handler { handler } => {
@@ -8479,7 +8479,7 @@ fn strategy_dead_primitive_json(dead: &rsjs_ir::DeadClientPrimitive) -> serde_js
 fn dead_primitive_kind_json(kind: rsjs_ir::DeadClientPrimitiveKind) -> &'static str {
     match kind {
         rsjs_ir::DeadClientPrimitiveKind::Signal { .. } => "signal",
-        rsjs_ir::DeadClientPrimitiveKind::Computed { .. } => "computed",
+        rsjs_ir::DeadClientPrimitiveKind::Memo { .. } => "memo",
         rsjs_ir::DeadClientPrimitiveKind::Handler { .. } => "handler",
         rsjs_ir::DeadClientPrimitiveKind::NodeRef { .. } => "node_ref",
         rsjs_ir::DeadClientPrimitiveKind::Query { .. } => "query",

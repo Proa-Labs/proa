@@ -16,7 +16,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for IslandClient
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         proa_macros::html_sync! {
             <section>
-                {rsjs::island(BoundaryChild { value: rsjs::computed(|| 1_i64) })}
+                {rsjs::island(BoundaryChild { value: rsjs::memo(|| 1_i64) })}
             </section>
         }
         .render(cx)

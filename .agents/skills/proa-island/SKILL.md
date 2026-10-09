@@ -34,7 +34,7 @@ problem.
 5. Use typed events when the handler needs element-specific data:
    `MouseEvent<elem::Button>`, `InputEvent<elem::Input>`, and
    `event.current_value()` / `event.current_checked()`.
-6. Use `signal(...)`, `.get()`, `.set(...)`, `.update(|x| expr)`, and computed
+6. Use `signal(...)`, `.get()`, `.set(...)`, `.update(|x| expr)`, and memo
    cells exactly as documented in `docs/agent/api-reference/signals.md`.
    Signal receivers must stay bare identifiers.
 7. Ordinary dependency-free locals and opaque calls remain SSR. Direct inbound

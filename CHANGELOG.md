@@ -4,6 +4,14 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- **Breaking:** renamed `rsjs::computed` / `Computed<T>` to `rsjs::memo` /
+  `Memo<T>` and the browser runtime export to `memo`, without compatibility
+  aliases. Memos remain read-only cached derivations with compiler-inferred
+  dependencies and batched recomputation.
+- **Breaking:** RSJS debounce now takes the handler first:
+  `rsjs::debounce(|event| ..., delay_ms)` and runtime `debounce(fn, delay_ms)`.
+  The analyzed delay remains an integer literal; trailing-edge behavior and
+  cancellation on island teardown are unchanged.
 - HTML and Markdown now share `WebContext<L, B>`. `MdRenderSync` and `MdRender`
   take loader-first generics, default to `NoLoader` and `RenderBuffer`, and no
   longer require context or render-method lifetimes. `MdContext` is removed

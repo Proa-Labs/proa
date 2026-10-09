@@ -215,7 +215,7 @@ impl Analyzer {
             self.copy_component_arena_expr(&descriptor.island, old, &mut maps)?;
         }
 
-        // Child computed cells: the signal copy above ran before the
+        // Child memo cells: the signal copy above ran before the
         // arena copy, so the remapped derived-body id only became
         // available now. Patch it in and record the parent-side id as
         // read-only so parent handlers cannot write a child derived cell.
@@ -229,7 +229,7 @@ impl Analyzer {
             let mapped_body =
                 self.copy_component_arena_expr(&descriptor.island, body, &mut maps)?;
             self.builder.set_signal_derived(mapped_signal, mapped_body);
-            self.computed_cells.insert(mapped_signal);
+            self.memo_cells.insert(mapped_signal);
         }
 
         for handler in &descriptor.island.handlers {

@@ -14,7 +14,7 @@ struct ThemePanel;
 
 struct CanvasPreview;
 
-struct DirectComputedPreview;
+struct DirectMemoPreview;
 
 struct AliasedFieldPreview;
 
@@ -125,10 +125,10 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CanvasPrevie
 }
 
 #[rsjs::rsjs(component, client)]
-impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DirectComputedPreview {
+impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DirectMemoPreview {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let workbench = rsjs::shared::<WorkbenchState>();
-        let label = rsjs::computed(|| workbench.button_bg().get());
+        let label = rsjs::memo(|| workbench.button_bg().get());
 
         proa_macros::html_sync! {
             <output on_click={|_| rsjs::batch(|| {
@@ -250,21 +250,21 @@ fn nested_provider_resolves_to_a_distinct_nearest_scope() {
 }
 
 #[test]
-fn direct_field_chains_work_in_computeds_and_handlers() {
+fn direct_field_chains_work_in_memos_and_handlers() {
     let mut out = Vec::new();
     let mut cx = Ctx::<NoLoader, &mut Vec<u8>>::with_buffer(&mut out);
     rsjs::SharedStateProvider {
         state: WorkbenchState {
-            button_bg: "computed-green".into(),
+            button_bg: "memo-green".into(),
             button_radius: 8,
         },
-        children: DirectComputedPreview,
+        children: DirectMemoPreview,
     }
     .render(&mut cx)
     .unwrap();
     let html = String::from_utf8(out).unwrap();
 
-    assert!(html.contains(">computed-green</output>"), "{html}");
+    assert!(html.contains(">memo-green</output>"), "{html}");
     assert!(html.contains("\"shared\":[{\"scope_id\":0"), "{html}");
 }
 

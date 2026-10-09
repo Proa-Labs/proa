@@ -1943,8 +1943,8 @@ fn rsjs_dead_client_primitive_help(kind: &str) -> &'static str {
         "signal" => {
             "remove the unused signal local, or connect it to a reachable binding, handler, effect, query, or mutation call; signal seeds, including prop-derived seeds, are serialized only when reachable"
         }
-        "computed" => {
-            "remove the unused computed local, or connect it to a reachable binding, handler, effect, query, or mutation call; computed cells do not force hydration unless something reachable reads them"
+        "memo" => {
+            "remove the unused memo local, or connect it to a reachable binding, handler, effect, query, or mutation call; memo cells do not force hydration unless something reachable reads them"
         }
         "handler" | "event_handler" => {
             "remove the unused handler local, or connect it to a reachable event attribute, callback prop, interval, or handler call"
@@ -2266,10 +2266,10 @@ impl RsjsNamedClientLocalInfo {
                 "remove the unused signal local, or connect it to a reachable binding, handler, expression, query, or mutation call; signal seeds, including prop-derived seeds, are serialized only when reachable"
             }
             RsjsNamedClientLocalKind::SharedState => {
-                "remove the unused shared-state acquisition, or read/write one of its typed field cells from a reachable binding, computed, or handler"
+                "remove the unused shared-state acquisition, or read/write one of its typed field cells from a reachable binding, memo, or handler"
             }
-            RsjsNamedClientLocalKind::Computed => {
-                "remove the unused computed local, or connect it to a reachable binding, handler, expression, query, or mutation call; computed cells do not force hydration unless something reachable reads them"
+            RsjsNamedClientLocalKind::Memo => {
+                "remove the unused memo local, or connect it to a reachable binding, handler, expression, query, or mutation call; memo cells do not force hydration unless something reachable reads them"
             }
             RsjsNamedClientLocalKind::Handler | RsjsNamedClientLocalKind::EventHandler => {
                 "remove the unused handler local, or connect it to a reachable event attribute, callback prop, interval, or handler call"
@@ -2291,7 +2291,7 @@ impl RsjsNamedClientLocalInfo {
 enum RsjsNamedClientLocalKind {
     Signal,
     SharedState,
-    Computed,
+    Memo,
     Handler,
     EventHandler,
     NodeRef,
@@ -2304,7 +2304,7 @@ impl std::fmt::Display for RsjsNamedClientLocalKind {
         f.write_str(match self {
             Self::Signal => "signal",
             Self::SharedState => "shared state",
-            Self::Computed => "computed",
+            Self::Memo => "memo",
             Self::Handler => "handler",
             Self::EventHandler => "event_handler",
             Self::NodeRef => "node_ref",
@@ -2460,7 +2460,7 @@ impl<'ast> Visit<'ast> for RsjsNamedClientLocalUsageCollector<'_> {
         match rsjs_named_client_local_kind(&init.expr) {
             Some(RsjsNamedClientLocalKind::Signal | RsjsNamedClientLocalKind::SharedState) => {}
             Some(
-                RsjsNamedClientLocalKind::Computed
+                RsjsNamedClientLocalKind::Memo
                 | RsjsNamedClientLocalKind::Handler
                 | RsjsNamedClientLocalKind::EventHandler
                 | RsjsNamedClientLocalKind::Query
@@ -2592,9 +2592,7 @@ fn rsjs_named_client_local_kind(expr: &Expr) -> Option<RsjsNamedClientLocalKind>
         Expr::Call(call) if call_path_is_rsjs_shared_state(call) => {
             Some(RsjsNamedClientLocalKind::SharedState)
         }
-        Expr::Call(call) if call_path_ends(call, &["computed"]) => {
-            Some(RsjsNamedClientLocalKind::Computed)
-        }
+        Expr::Call(call) if call_path_ends(call, &["memo"]) => Some(RsjsNamedClientLocalKind::Memo),
         Expr::Call(call) if call_path_ends(call, &["handler"]) => {
             Some(RsjsNamedClientLocalKind::Handler)
         }

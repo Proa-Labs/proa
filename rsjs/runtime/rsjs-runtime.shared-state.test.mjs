@@ -5,7 +5,7 @@ import {
     acquire_shared_state,
     batch,
     bind_text,
-    computed,
+    memo,
     dispose_hydrated,
     dispose_page_shared_state,
     install_page_shared_state,
@@ -197,18 +197,18 @@ await tick();
 assert(node.textContent === 'purple', 'writes update another island after the batched flush');
 
 // A computation only subscribes to the field it reads.
-let computed_runs = 0;
-const label = computed(() => {
-    computed_runs += 1;
+let memo_runs = 0;
+const label = memo(() => {
+    memo_runs += 1;
     return `color:${preview.field('button_bg').get()}`;
 }, [preview.field('button_bg')]);
 preview.field('selected_node').set(9);
 await tick();
-assert(computed_runs === 1, 'unrelated shared field does not invalidate computed');
+assert(memo_runs === 1, 'unrelated shared field does not invalidate memo');
 preview.field('button_bg').set('orange');
 await tick();
-assert(computed_runs === 2, 'read shared field invalidates computed');
-assert(label.get() === 'color:orange', 'computed observes the new shared field');
+assert(memo_runs === 2, 'read shared field invalidates memo');
+assert(label.get() === 'color:orange', 'memo observes the new shared field');
 
 // Nested batches across independent owners sharing one provider commit the
 // subscriber once. Both owners see every write synchronously; only subscriber
@@ -219,7 +219,7 @@ const preview_bg = preview.field('button_bg');
 const preview_selection = preview.field('selected_node');
 let cross_owner_runs = 0;
 const cross_owner_snapshots = [];
-const cross_owner = computed(() => {
+const cross_owner = memo(() => {
     cross_owner_runs += 1;
     const snapshot = [preview_bg.get(), preview_selection.get()];
     cross_owner_snapshots.push(snapshot);

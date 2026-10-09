@@ -2015,7 +2015,7 @@ fn runtime_import_line(
             && reachable_signal_ids.contains(&sig.id)
     }) || island_has_live_query_keys(island, reachable_query_ids)
     {
-        imports.push("computed");
+        imports.push("memo");
     }
     if !island.intervals.is_empty() {
         imports.push("interval");
@@ -2146,13 +2146,13 @@ fn client_type_needs_typed_seed_decode(ty: &ClientType) -> bool {
 }
 
 /// Emit `const __sig_<id> = signal(<initial>);` for every leaf signal
-/// and `const __sig_<id> = computed(() => <body>, [<deps>]);` for
+/// and `const __sig_<id> = memo(() => <body>, [<deps>]);` for
 /// every derived cell.
 ///
 /// Declarations are emitted in id order. Source order guarantees a
-/// computed cell's dependencies were declared before it (the body
+/// memo cell's dependencies were declared before it (the body
 /// closure can only reference names already in scope), so every
-/// `__sig_<n>` a computed body reads exists by the time its line runs.
+/// `__sig_<n>` a memo body reads exists by the time its line runs.
 fn emit_signals(
     out: &mut String,
     island: &Island,
@@ -2214,11 +2214,7 @@ fn emit_signals(
             // Derived cell: re-evaluated from its source signals; never
             // seeded from the dehydrated blob and never overridable by
             // a parent fragment mount.
-            let _ = write!(
-                out,
-                "    const {v} = computed(() => ",
-                v = signal_var(decl.id)
-            );
+            let _ = write!(out, "    const {v} = memo(() => ", v = signal_var(decl.id));
             emit_arena_expr(out, island, body, ctx);
             out.push_str(", ");
             emit_dep_array(out, &collect_deps(&island.exprs, body));
@@ -2375,7 +2371,7 @@ fn island_has_live_query_keys(island: &Island, reachable_query_ids: &[QueryId]) 
 ///
 /// Static keys retain the compact one-shot registration shape. A key that
 /// reads one or more signals gets a stable registration factory plus one
-/// scheduler-backed watcher. `computed` deduplicates synchronous writes in the
+/// scheduler-backed watcher. `memo` deduplicates synchronous writes in the
 /// runtime scheduler, while [`collect_deps`] deduplicates repeated reads of the
 /// same signal before the dependency array is emitted.
 fn emit_query_registration(
@@ -2436,7 +2432,7 @@ fn emit_live_query_registration(
 
     let _ = writeln!(
         out,
-        "    const {v} = computed(() => {{",
+        "    const {v} = memo(() => {{",
         v = query_key_watcher_var(q.id)
     );
     let _ = writeln!(
@@ -2648,7 +2644,7 @@ fn emit_handlers_v3(
             continue;
         }
         if let Some(ms) = handler.debounce_ms() {
-            // Debounced handler: the runtime `debounce(ms, fn)` wrapper
+            // Debounced handler: the runtime `debounce(fn, delay_ms)` wrapper
             // owns the trailing-edge timer; the delegation tables
             // reference the wrapped function by the usual
             // `__handler_<id>` name, and the wrapper's `_dispose`
@@ -2656,10 +2652,10 @@ fn emit_handlers_v3(
             // pending trailing call.
             out.push('\n');
             let _ = write!(out, "    const {v}", v = handler_var(handler.id));
-            let _ = write!(out, " = debounce({ms}, (event) => {{");
+            out.push_str(" = debounce((event) => {");
             out.push('\n');
             emit_client_block_js_with_context_and_indent(out, handler.body_ir(), &client_ctx, 2)?;
-            out.push_str("    });\n");
+            let _ = writeln!(out, "    }}, {ms});");
             let _ = writeln!(
                 out,
                 "    __rsjs_disposers.push({v}._dispose);",
@@ -5510,7 +5506,7 @@ mod tests {
             },
             vec![ClientExpr::SignalRead(leaf)],
         ));
-        let derived = builder.computed(derived_body);
+        let derived = builder.memo(derived_body);
         let root = builder.element("section", None);
         builder.set_root(root);
         let island = builder.build();
@@ -5551,7 +5547,7 @@ mod tests {
             fragment.contains("const __sig_0 = __rsjs_signal_overrides[0]"),
             "{fragment}"
         );
-        assert!(fragment.contains("const __sig_1 = computed("), "{fragment}");
+        assert!(fragment.contains("const __sig_1 = memo("), "{fragment}");
         assert!(fragment.contains("function __rsjs_helper_0("), "{fragment}");
         assert!(!fragment.contains("__rsjs_unlinked_"), "{fragment}");
     }
@@ -6274,7 +6270,7 @@ mod tests {
             );
             assert!(
                 js.contains(
-                    "const __rsjs_query_key_watcher_0 = computed(() => {\n\
+                    "const __rsjs_query_key_watcher_0 = memo(() => {\n\
                      \u{20}\u{20}\u{20}\u{20}\u{20}\u{20}\u{20}\u{20}rebind_query(\
                      __rsjs_query_0, __rsjs_query_registration_0());"
                 ) && js.contains("}, [__sig_0]);")

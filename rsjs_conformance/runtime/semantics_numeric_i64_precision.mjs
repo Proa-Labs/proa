@@ -27,13 +27,13 @@ const div = makeElement("div");
 const increment = makeElement("button", { "data-rsjs-handler": "1" });
 const incrementViaUpdate = makeElement("button", { "data-rsjs-handler": "3" });
 const incrementViaLocal = makeElement("button", { "data-rsjs-handler": "5" });
-const incrementViaComputed = makeElement("button", { "data-rsjs-handler": "7" });
+const incrementViaMemo = makeElement("button", { "data-rsjs-handler": "7" });
 const value = makeElement("span", { "data-rsjs-bind": "9" });
 const successor = makeElement("span", { "data-rsjs-bind": "10" });
 div.appendChild(increment);
 div.appendChild(incrementViaUpdate);
 div.appendChild(incrementViaLocal);
-div.appendChild(incrementViaComputed);
+div.appendChild(incrementViaMemo);
 div.appendChild(value);
 div.appendChild(successor);
 root.appendChild(div);
@@ -83,7 +83,7 @@ assert(
 // of the derived `successor` cell are all BigInt-backed, so their
 // `+ 1_i64` literals emit as `1n` and arithmetic stays exact.
 //
-// Bindings subscribed to a computed observe the new value one
+// Bindings subscribed to a memo observe the new value one
 // microtask flush after the source signal (write-during-flush
 // semantics), hence the extra await before successor assertions.
 await Promise.resolve();
@@ -106,11 +106,11 @@ assert(
   `a BigInt-backed handler local + 1_i64 must increment exactly (expected 9007199254740997), got ${JSON.stringify(value.textContent)}`,
 );
 
-incrementViaComputed.dispatchEvent({ type: "click", target: incrementViaComputed });
+incrementViaMemo.dispatchEvent({ type: "click", target: incrementViaMemo });
 await Promise.resolve();
 assert(
   value.textContent === "9007199254740999",
-  `successor.get() + 1_i64 through the computed read must stay exact (expected 9007199254740999), got ${JSON.stringify(value.textContent)}`,
+  `successor.get() + 1_i64 through the memo read must stay exact (expected 9007199254740999), got ${JSON.stringify(value.textContent)}`,
 );
 await Promise.resolve();
 assert(

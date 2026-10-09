@@ -1,9 +1,0 @@
-error: `computed(...)` closures must be a single reactive expression (signal reads, literals, arithmetic and comparisons, the supported string methods, and `if`/`else` expressions). Statements such as `let` bindings or signal writes cannot run inside a derived cell: it re-evaluates automatically whenever its inputs change, so side effects would fire on every recomputation. Move the statements into an event handler and keep the closure to one expression, e.g. `rsjs::computed(|| price.get() * qty.get())`
-  --> tests/ui/fail/42_computed_statement_body.rs:24:39
-   |
-24 |           let total = rsjs::computed(|| {
-   |  _______________________________________^
-25 | |             let subtotal = price.get() * qty.get();
-26 | |             subtotal + 1
-27 | |         });
-   | |_________^

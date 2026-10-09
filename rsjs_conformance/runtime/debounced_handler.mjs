@@ -2,8 +2,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Debounced handlers: `on_input={rsjs::debounce(30, |event| ...)}`
-// lowers to `const __handler_0 = debounce(30, (event) => { ... });`
+// Debounced handlers: `on_input={rsjs::debounce(|event| ..., 30)}`
+// lowers to `const __handler_0 = debounce((event) => { ... }, 30);`
 // with the wrapper's `_dispose` in the island disposer list and the
 // delegation table referencing the wrapped function. A burst of input
 // events must collapse to exactly one trailing call carrying the last

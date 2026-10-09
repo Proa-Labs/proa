@@ -1,4 +1,4 @@
-error: rsjs boundary: `rsjs::server_only(...)` cannot declare or read `computed(...)`
+error: rsjs boundary: `rsjs::server_only(...)` cannot declare or read `memo(...)`
 
        Why:
          Opaque server-only boundaries render static SSR content and are not lowered into Client IR. A client primitive declared there would either be dropped or would never hydrate.
@@ -12,5 +12,5 @@ error: rsjs boundary: `rsjs::server_only(...)` cannot declare or read `computed(
          server_boundary.client_primitive
   --> tests/ui/fail/51_server_only_client_primitive.rs:16:43
    |
-16 |             <div>{rsjs::server_only(rsjs::computed(|| 1_i64))}</div>
-   |                                           ^^^^^^^^
+16 |             <div>{rsjs::server_only(rsjs::memo(|| 1_i64))}</div>
+   |                                           ^^^^

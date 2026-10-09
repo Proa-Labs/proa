@@ -1397,8 +1397,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AirbnbParityApp {
         let auth_open = signal(false);
         let footer_tab = signal("popular");
         let footer_expanded = signal(false);
-        let guest_count = rsjs::computed(|| adults.get() + children.get());
-        let header_compact = rsjs::computed(|| header_stuck.get() && !search_expanded.get());
+        let guest_count = rsjs::memo(|| adults.get() + children.get());
+        let header_compact = rsjs::memo(|| header_stuck.get() && !search_expanded.get());
         let favorite_requested = rsjs::handler(|_: ()| auth_open.set(true));
 
         let show_homes = event_handler(|_: rsjs::Event| {

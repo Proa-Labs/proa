@@ -14,7 +14,7 @@ import {
     rsjs,
     set_data,
 } from './rsjs-runtime-query.js';
-import { computed, signal } from './rsjs-runtime.js';
+import { memo, signal } from './rsjs-runtime.js';
 
 let failed = 0;
 function assert(cond, msg) {
@@ -658,7 +658,7 @@ try {
         );
     }
 
-    // Generated live-key owners use a computed watcher over the compiler's
+    // Generated live-key owners use a memo watcher over the compiler's
     // deduplicated signal dependency array. The core scheduler must collapse
     // same-tick writes to the final structural identity, and owner disposal
     // must stop all later rebinds.
@@ -692,7 +692,7 @@ try {
         });
         const handle = register_query(registration());
         const off = handle.subscribe(() => {});
-        const watcher = computed(() => {
+        const watcher = memo(() => {
             rebind_query(handle, registration());
             return null;
         }, [selected]);

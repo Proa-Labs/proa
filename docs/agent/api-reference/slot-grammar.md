@@ -844,7 +844,7 @@ the per-island JS.
 Constraints:
 - Cannot capture or read a `signal(...)` local (compile error).
 - Cannot declare/read client primitives such as `signal(...)`,
-  `computed(...)`, `query_with_initial(...)`, `mutation(...)`,
+  `memo(...)`, `query_with_initial(...)`, `mutation(...)`,
   `node_ref(...)`, `handler(...)`, `event_handler(...)`, or
   `interval(...)`.
 - Cannot call rsjs browser helpers such as `rsjs::window::inner_width()`,

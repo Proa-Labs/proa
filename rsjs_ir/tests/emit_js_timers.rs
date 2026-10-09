@@ -7,7 +7,7 @@
 //!
 //! - `__rsjs_disposers.push(interval(<ms>, () => { ... }));` for the
 //!   interval, gated behind an `interval` runtime import, and
-//! - `const __handler_<id> = debounce(<ms>, (event) => { ... });` plus
+//! - `const __handler_<id> = debounce((event) => { ... }, <delay_ms>);` plus
 //!   a `__rsjs_disposers.push(__handler_<id>._dispose);` line for the
 //!   debounced handler, gated behind a `debounce` runtime import,
 //!
@@ -60,7 +60,7 @@ fn build_debounced_island() -> rsjs_ir::Island {
     let span = b.element("span", Some(root));
     b.bind_text(span, query_read);
 
-    // on_input={rsjs::debounce(300, |event| query.set(event.value()))}
+    // on_input={rsjs::debounce(|event| query.set(event.value()), 300)}
     let body = ClientBlock::from_stmts(vec![ClientStmt::signal_set(
         query,
         ClientExpr::EventRead(EventValue::TargetValue),
@@ -105,8 +105,12 @@ fn debounced_handler_emits_wrapped_const_with_disposer() {
     let js = emit_js::emit(&island, "Search");
 
     assert!(
-        js.contains("const __handler_0 = debounce(300, (event) => {"),
+        js.contains("const __handler_0 = debounce((event) => {"),
         "debounced handlers should declare the runtime debounce wrapper, got:\n{js}"
+    );
+    assert!(
+        js.contains("    }, 300);"),
+        "the delay must follow the handler in the runtime call, got:\n{js}"
     );
     assert!(
         js.contains("__rsjs_disposers.push(__handler_0._dispose);"),

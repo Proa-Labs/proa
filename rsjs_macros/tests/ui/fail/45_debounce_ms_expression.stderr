@@ -1,5 +1,5 @@
-error: `rsjs::debounce(ms, ...)` requires an integer literal for `ms` (e.g. `rsjs::debounce(300, ...)`); expressions are not supported because the window is baked into the island module at compile time
-  --> tests/ui/fail/45_debounce_ms_expression.rs:29:49
+error: `rsjs::debounce(handler, delay_ms)` requires an integer literal for `delay_ms` (e.g. `rsjs::debounce(|event| ..., 300)`); expressions are not supported because the window is baked into the island module at compile time
+  --> tests/ui/fail/45_debounce_ms_expression.rs:29:83
    |
-29 |                 <input on_input={rsjs::debounce(SEARCH_DEBOUNCE_MS, |event| query.set(event.value()))}/>
-   |                                                 ^^^^^^^^^^^^^^^^^^
+29 |                 <input on_input={rsjs::debounce(|event| query.set(event.value()), SEARCH_DEBOUNCE_MS)}/>
+   |                                                                                   ^^^^^^^^^^^^^^^^^^

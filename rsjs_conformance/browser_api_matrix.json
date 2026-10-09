@@ -470,7 +470,7 @@
       ],
       "baseline": "high",
       "evidence": "rsjs_conformance/features.json timers.interval.basic and timers.debounce.basic; runtime primitives in rsjs/runtime/rsjs-runtime.js (interval, debounce) with disposal tests in rsjs-runtime.timers.test.mjs",
-      "notes": "Sanctioned surface only: rsjs::interval(ms, || ...) prelude timers and rsjs::debounce(ms, |event| ...) handler wrappers, both disposed on island teardown. Raw setTimeout / setInterval access stays rejected."
+      "notes": "Sanctioned surface only: rsjs::interval(ms, || ...) prelude timers and rsjs::debounce(|event| ..., delay_ms) handler wrappers, both disposed on island teardown. Raw setTimeout / setInterval access stays rejected."
     },
     {
       "id": "console",

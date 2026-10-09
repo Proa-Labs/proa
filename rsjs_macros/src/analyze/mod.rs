@@ -94,7 +94,7 @@ pub(crate) use hir_json::hir_sidecar_json;
 #[cfg(test)]
 pub(crate) use prelude::signal_initializers;
 pub(crate) use prelude::{
-    is_computed_local, is_handler_local, is_mutation_local, is_node_ref_local, is_query_local,
+    is_handler_local, is_memo_local, is_mutation_local, is_node_ref_local, is_query_local,
     is_query_runtime_initial_local, is_signal_local, path_ends_with, query_initializers,
     signal_call_explicit_type,
 };
@@ -121,7 +121,7 @@ pub(crate) fn analyze(parsed: &ParsedIsland) -> syn::Result<AnalysisOutput> {
         shared_fields: HashMap::new(),
         signals: HashMap::new(),
         unsupported_integer_signals: HashMap::new(),
-        computed_cells: HashSet::new(),
+        memo_cells: HashSet::new(),
         queries: HashMap::new(),
         mutations: HashMap::new(),
         node_refs: HashMap::new(),
@@ -580,20 +580,20 @@ struct Analyzer {
     /// authoring uses the accessor chain in multiple places.
     shared_fields: HashMap<(SharedStoreId, String), SignalId>,
     /// Map from the source-level `let <name> = signal(...);` or
-    /// `let <name> = computed(|| ...);` ident string to the
-    /// [`SignalId`] the builder allocated. Computed cells share the
+    /// `let <name> = memo(|| ...);` ident string to the
+    /// [`SignalId`] the builder allocated. Memo cells share the
     /// signal id space (see `rsjs_ir::SignalDecl::derived`), so reads
-    /// resolve through this one map; `computed_cells` records which of
+    /// resolve through this one map; `memo_cells` records which of
     /// these ids are read-only derived cells.
     signals: HashMap<String, SignalId>,
     /// Explicit fixed-width integer signal types outside the checked v1
     /// domain set. Their Number/BigInt representation is known, but arithmetic
     /// must reject rather than silently inherit JavaScript overflow behavior.
     unsupported_integer_signals: HashMap<SignalId, String>,
-    /// Ids in `signals` that were declared with `computed(...)`.
+    /// Ids in `signals` that were declared with `memo(...)`.
     /// Writes (`.set`, `.update`, `bind_*`, `*_into(&...)` targets)
     /// against these ids are rejected.
-    computed_cells: HashSet<SignalId>,
+    memo_cells: HashSet<SignalId>,
     /// Map from `let <name> = query_with_initial(...);` locals to query ids.
     queries: HashMap<String, QueryId>,
     /// Map from `let <name> = mutation(...);` locals to mutation ids.
@@ -2222,7 +2222,7 @@ struct HandlerLowering {
     body_ir: ClientBlock,
     body_hir: Vec<HandlerHirStmt>,
     /// Trailing-edge debounce window from an
-    /// `on_*={rsjs::debounce(ms, |event| ...)}` attribute value, or
+    /// `on_*={rsjs::debounce(|event| ..., delay_ms)}` attribute value, or
     /// `None` for an ordinary handler.
     debounce_ms: Option<u64>,
     source_name: Option<String>,
@@ -2419,22 +2419,22 @@ impl Analyzer {
             }
         };
         // `*_into(&target)` helpers write the target signal, so a
-        // computed cell can never be the destination.
-        self.reject_computed_write(id, expr.span(), &format!("pass it to `{helper}`"))?;
+        // memo cell can never be the destination.
+        self.reject_memo_write(id, expr.span(), &format!("pass it to `{helper}`"))?;
         Ok(id)
     }
 
-    /// Reject `action` against a computed (derived) cell.
+    /// Reject `action` against a memo (derived) cell.
     ///
     /// `action` completes the sentence "you cannot <action> ...", e.g.
     /// "call `.set(...)` on it" or "bind it with `bind_value`".
-    fn reject_computed_write(
+    fn reject_memo_write(
         &self,
         id: SignalId,
         span: proc_macro2::Span,
         action: &str,
     ) -> syn::Result<()> {
-        if !self.computed_cells.contains(&id) {
+        if !self.memo_cells.contains(&id) {
             return Ok(());
         }
         let name = self
@@ -2446,7 +2446,7 @@ impl Analyzer {
         Err(syn::Error::new(
             span,
             format!(
-                "`{name}` is a computed cell, and computed cells are read-only: their value \
+                "`{name}` is a memo cell, and memo cells are read-only: their value \
                  always derives from the signals their closure reads, so you cannot {action}. \
                  Write to one of the source signals instead, or declare `{name}` with \
                  `signal(...)` if it should hold independent state"

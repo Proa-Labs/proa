@@ -1157,7 +1157,7 @@ pub(crate) fn rsjs_client_primitive_capture(
         // helpers and must not be treated as client primitives.
         "shared" | "batch" => path_is_rsjs_dialect_call(&path.path),
         "signal"
-        | "computed"
+        | "memo"
         | "query"
         | "query_with_options"
         | "query_with_initial"

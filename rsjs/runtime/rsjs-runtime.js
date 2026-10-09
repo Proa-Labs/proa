@@ -524,10 +524,10 @@ export function integer_signal(initial, domain) {
  *
  * The result has the read half of the Signal interface (`.get()`,
  * `.peek()`, `_subscribe` / `_unsubscribe`) so bindings can list a
- * computed in their `deps` array exactly like a plain signal.
+ * memo in their `deps` array exactly like a plain signal.
  * `.set()` / `.update()` exist but throw: derived state has no
  * writable identity, and failing loudly beats silently desyncing
- * the computed from its inputs.
+ * the memo from its inputs.
  *
  * Dependency wiring follows bind_text:
  *   - `deps` supplied (the compile-time list from
@@ -538,7 +538,7 @@ export function integer_signal(initial, domain) {
  * Recomputation is microtask-batched like every other effect, and the
  * inner cell's `Object.is` equality means downstream subscribers only
  * run when the derived value actually changed. A write to an input
- * during flush N recomputes during flush N; dependents of the computed
+ * during flush N recomputes during flush N; dependents of the memo
  * observe the new value at flush N+1 (write-during-flush semantics,
  * see the scheduler comment block).
  *
@@ -546,7 +546,7 @@ export function integer_signal(initial, domain) {
  * from every input. Island init code must push `_dispose` into the
  * island's disposer list alongside binding disposers.
  */
-export function computed(fn, deps) {
+export function memo(fn, deps) {
     const inner = signal(undefined);
     const apply = () => {
         inner.set(fn());
@@ -570,12 +570,12 @@ export function computed(fn, deps) {
         peek: inner.peek,
         set() {
             throw new Error(
-                'rsjs: computed cells are read-only; write to one of the source signals instead',
+                'rsjs: memo cells are read-only; write to one of the source signals instead',
             );
         },
         update() {
             throw new Error(
-                'rsjs: computed cells are read-only; write to one of the source signals instead',
+                'rsjs: memo cells are read-only; write to one of the source signals instead',
             );
         },
         _subscribe: inner._subscribe,
@@ -609,7 +609,7 @@ export function interval(ms, fn) {
 }
 
 /**
- * Wrap `fn` so calls collapse until `ms` milliseconds pass without a
+ * Wrap `fn` so calls collapse until `delay_ms` milliseconds pass without a
  * new call; the wrapper then invokes `fn` with the most recent
  * arguments. The trailing edge only: there is no leading-edge mode in
  * v0.1.
@@ -618,7 +618,7 @@ export function interval(ms, fn) {
  * pending invocation; island init code pushes it into the island's
  * disposer list so teardown never fires a stale handler.
  */
-export function debounce(ms, fn) {
+export function debounce(fn, delay_ms) {
     let id = null;
     const wrapped = (...args) => {
         if (id !== null) {
@@ -627,7 +627,7 @@ export function debounce(ms, fn) {
         id = setTimeout(() => {
             id = null;
             fn(...args);
-        }, ms);
+        }, delay_ms);
     };
     wrapped._dispose = once_disposer(() => {
         if (id !== null) {
@@ -1908,7 +1908,7 @@ function tracked_effect(fn) {
     // re-running: signals are pinned to the island's lifetime in v0.1, and
     // re-reading the same dep just re-adds the effect to its subscriber
     // set (a Set, so duplicates are free). When the runtime grows
-    // computed() / cleanup() in M4+ this needs revisiting.
+    // memo() / cleanup() in M4+ this needs revisiting.
     const effect = {
         active: true,
         deps: new Set(),
