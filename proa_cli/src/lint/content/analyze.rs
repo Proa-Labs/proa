@@ -20,6 +20,8 @@ struct Value {
     template: bool,
     elements: Vec<Value>,
     fields: BTreeMap<String, Value>,
+    /// A proven Proa metadata handle; mutations here do not write the body.
+    metadata: bool,
 }
 impl Value {
     fn append(&mut self, other: Value) {
@@ -41,6 +43,7 @@ struct Analyzer<'a> {
     target: &'a TargetDescriptor,
     resolver: &'a Resolver,
     context: String,
+    proa_context: bool,
     omissions: Vec<Omission>,
     bindings: BTreeMap<String, Vec<ContentKey>>,
     bindings_initialized: bool,
@@ -453,6 +456,15 @@ impl Analyzer<'_> {
                 }
             }
             Expr::MethodCall(m) => {
+                if self.metadata_receiver(expr, env) {
+                    let mut value = self.boundary(
+                        expr,
+                        "context metadata needs an explicit content mapping when rendered",
+                        override_range,
+                    );
+                    value.metadata = true;
+                    return value;
+                }
                 let receiver = self.expr(&m.receiver, env, override_range);
                 if m.args.is_empty()
                     && matches!(
@@ -1119,9 +1131,100 @@ impl Analyzer<'_> {
     }
     fn output_arg(&self, expr: &Expr, env: &Env) -> bool {
         bare(expr).is_some_and(|name| {
-            name == self.context
-                || env.get(&name).and_then(|v| v.symbol.as_deref()) == Some("@context")
+            env.get(&name).and_then(|v| v.symbol.as_deref()) == Some("@context")
         })
+    }
+    fn metadata_receiver(&self, expr: &Expr, env: &Env) -> bool {
+        match expr {
+            Expr::Paren(p) => self.metadata_receiver(&p.expr, env),
+            Expr::Reference(r) => self.metadata_receiver(&r.expr, env),
+            Expr::Path(_) => bare(expr)
+                .and_then(|name| env.get(&name))
+                .is_some_and(|value| value.metadata),
+            Expr::MethodCall(m) if m.args.is_empty() => {
+                let name = m.method.to_string();
+                (self.proa_context
+                    && self.output_arg(&m.receiver, env)
+                    && matches!(
+                        name.as_str(),
+                        "request"
+                            | "request_mut"
+                            | "response"
+                            | "response_mut"
+                            | "head"
+                            | "head_mut"
+                            | "cache_trace"
+                            | "cache_trace_mut"
+                            | "telemetry"
+                            | "telemetry_mut"
+                            | "locals"
+                            | "locals_mut"
+                    ))
+                    || (self.metadata_receiver(&m.receiver, env)
+                        && matches!(
+                            name.as_str(),
+                            "headers"
+                                | "headers_mut"
+                                | "locals"
+                                | "locals_mut"
+                                | "clone"
+                                | "as_ref"
+                                | "as_deref"
+                        ))
+            }
+            _ => false,
+        }
+    }
+    fn context_preparation(&self, method: &syn::ExprMethodCall, env: &Env) -> bool {
+        self.proa_context
+            && self.output_arg(&method.receiver, env)
+            && matches!(
+                method.method.to_string().as_str(),
+                "loader"
+                    | "render_mode"
+                    | "set_render_mode"
+                    | "with_render_mode"
+                    | "request"
+                    | "request_mut"
+                    | "set_request"
+                    | "with_request"
+                    | "response"
+                    | "response_mut"
+                    | "set_response"
+                    | "with_response"
+                    | "head"
+                    | "head_mut"
+                    | "set_head"
+                    | "with_head"
+                    | "cache_trace"
+                    | "cache_trace_mut"
+                    | "set_cache_trace"
+                    | "with_cache_trace"
+                    | "telemetry"
+                    | "telemetry_mut"
+                    | "set_telemetry"
+                    | "with_telemetry"
+                    | "locals"
+                    | "locals_mut"
+                    | "set_locals"
+                    | "with_locals"
+                    | "csp_nonce"
+                    | "set_csp_nonce"
+                    | "with_csp_nonce"
+                    | "request_location"
+                    | "set_loader_dyn"
+                    | "with_loader_dyn"
+                    | "load"
+                    | "load_with"
+                    | "load_request"
+                    | "load_bytes"
+                    | "load_bytes_request"
+                    | "load_json"
+                    | "load_json_with"
+                    | "load_json_request"
+                    | "load_typed"
+                    | "load_typed_request"
+            )
     }
     fn sinks(&mut self, expr: &Expr, env: &mut Env, guards: &[Presence]) -> Value {
         match expr {
@@ -1327,6 +1430,23 @@ impl Analyzer<'_> {
                 Value::default()
             }
             Expr::MethodCall(m) => {
+                // Context/loader usage is preparation, not an obligation.
+                // This applies only to proven WebContext APIs and metadata
+                // handles, never arbitrary methods with familiar spellings.
+                if (self.context_preparation(m, env) || self.metadata_receiver(&m.receiver, env))
+                    && !m.args.iter().any(|arg| self.output_arg(arg, env))
+                {
+                    let mut value = self.sinks(&m.receiver, env, guards);
+                    for arg in &m.args {
+                        if matches!(arg, Expr::Async(_) | Expr::Closure(_)) {
+                            value.append(self.boundary(arg,
+                                "preparation receives a callback whose output reachability is unknown", None));
+                        } else {
+                            value.append(self.sinks(arg, env, guards));
+                        }
+                    }
+                    return value;
+                }
                 if matches!(
                     m.method.to_string().as_str(),
                     "push"
@@ -1358,7 +1478,19 @@ impl Analyzer<'_> {
                 {
                     self.boundary(expr,"direct context writes or unregistered output methods need a named content mapping",None)
                 } else {
-                    self.sinks(&m.receiver, env, guards)
+                    let mut value = self.sinks(&m.receiver, env, guards);
+                    for arg in &m.args {
+                        if matches!(arg, Expr::Async(_) | Expr::Closure(_)) {
+                            value.append(self.boundary(
+                                arg,
+                                "method receives a callback whose output reachability is unknown",
+                                None,
+                            ));
+                        } else {
+                            value.append(self.sinks(arg, env, guards));
+                        }
+                    }
+                    value
                 }
             }
             Expr::Match(_) | Expr::While(_) | Expr::Loop(_) | Expr::Unsafe(_) => self.boundary(
@@ -1385,24 +1517,35 @@ pub(super) fn summarize(
     resolver: &Resolver,
     skip: bool,
 ) -> ViewSummary {
-    let context = method
+    let context_input = method
         .sig
         .inputs
         .iter()
         .filter_map(|a| match a {
             syn::FnArg::Typed(t) => match t.pat.as_ref() {
-                Pat::Ident(i) => Some(i.ident.to_string()),
+                Pat::Ident(i) => Some((i.ident.to_string(), t.ty.as_ref())),
                 _ => None,
             },
             _ => None,
         })
-        .last()
+        .last();
+    let proa_context = context_input.as_ref().is_some_and(|(_, ty)| {
+        let mut ty = *ty;
+        while let syn::Type::Reference(reference) = ty {
+            ty = &reference.elem;
+        }
+        matches!(ty, syn::Type::Path(path) if path.qself.is_none()
+            && resolver.path(&path.path) == "proa_core::WebContext")
+    });
+    let context = context_input
+        .map(|(name, _)| name)
         .unwrap_or_else(|| "cx".into());
     let mut analyzer = Analyzer {
         path,
         target,
         resolver,
         context,
+        proa_context,
         omissions: Vec::new(),
         bindings: BTreeMap::new(),
         bindings_initialized: false,

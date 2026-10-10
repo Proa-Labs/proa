@@ -9,6 +9,29 @@ This is a bounded source check. It catches supported omissions; it does not
 certify equivalent meaning, order, cardinality, or accessibility across formats.
 Rust continues to check field and child render types.
 
+## Context and loaders are preparation
+
+The check compares contributions that reach the rendered body. It does not
+require matching `cx` accesses, queries, cache lookups, or loader calls between
+views. Known `proa_core::WebContext` loader operations and request, response,
+head, telemetry, and local-state setup do not create content obligations or
+unchecked-body diagnostics by themselves. This also applies to supported aliases
+of those context and metadata handles.
+
+A loaded result only enters the comparison when it reaches a render sink.
+An unused fetch cannot satisfy a missing component field or child. When views
+load or transform equivalent content through different helpers, wrap the
+rendered values with the same `content_part!` name. The name declares the
+correspondence; the checker does not infer equivalence from query strings or
+local variable names. Unmapped loaded output remains unchecked.
+
+Direct writes and opaque helpers that receive the output context remain
+unchecked unless their contributions have explicit mappings. The exemptions
+apply to recognized Proa APIs, rather than arbitrary methods named `load` or
+`loader`; nested render operations in preparation arguments are still inspected,
+and callbacks that may write remain unchecked. This body-content check does not
+compare response headers, head assets, or telemetry across targets.
+
 ## Use the smallest intentional exception
 
 Put the marker **inside the render method that deliberately leaves content out**.

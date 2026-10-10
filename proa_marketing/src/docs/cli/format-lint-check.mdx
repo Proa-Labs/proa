@@ -81,6 +81,22 @@ The summary distinguishes **paired**, **unpaired**, and **exempt** views.
 An opaque helper or different presence condition can leave a contribution
 **unchecked** even when its views are paired.
 
+#### Context and loader usage
+
+Content coverage follows values into the rendered body. It does not require
+matching `cx` accesses, loader queries, cache operations, or metadata setup.
+Known `proa_core::WebContext` preparation APIs and supported metadata aliases do
+not create content obligations or unchecked-body diagnostics on their own.
+An unused fetch does not cover missing content.
+
+Loaded data that reaches output still needs correspondence. If the two views
+fetch or transform it differently, put the same `content_part!` name around the
+rendered contribution in each template. That name is an author assertion, not a
+proof that two queries or helpers are equivalent. Unmapped loaded output,
+direct writer calls, and opaque helpers receiving `cx` remain **unchecked**.
+Custom methods merely named `load` are not treated as known Proa preparation.
+Response headers, head assets, and telemetry are outside this body-content check.
+
 #### Intentional omissions: put the marker inside the checked view
 
 Import `omit` at file scope in the file containing the view that leaves content

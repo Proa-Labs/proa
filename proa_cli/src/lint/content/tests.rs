@@ -88,6 +88,114 @@ fn opaque_helpers_are_not_confirmed_absence() {
     assert!(diags[0].notes.iter().any(|n| n.contains("helper")));
 }
 #[test]
+fn context_and_loader_preparation_do_not_create_content_obligations() {
+    for preparation in [
+        "let loader = cx.loader(); let unused = loader.load(query).await?;",
+        "let unused = cx.load_typed::<Data>(query).await?;",
+        "let mode = cx.render_mode(); cx.set_render_mode(mode);",
+        "let request = cx.request(); let headers = request.headers(); let _ = headers;",
+        "let request = cx.request_mut(); let headers = request.headers_mut(); headers.insert(name, value);",
+        "cx.head_mut().add_asset(asset); cx.telemetry_mut().record(event);",
+        "let locals = cx.locals_mut(); locals.insert(42u32);",
+        "let output = &mut *cx; let unused = output.load_bytes(query).await?;",
+    ] {
+        let src = fixture(
+            "html_sync! {{self.title}}.render(cx)",
+            &format!("{preparation} md_sync! {{r###\"{{self.title}}\"###}}.render_md(cx)"),
+        )
+        .replace("&mut Cx", "&mut proa_core::WebContext");
+        assert!(lint(&src).is_empty(), "{preparation}: {:?}", lint(&src));
+    }
+    let src = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "let unused = cx.load_typed::<Data>(query).await?; md_sync! {r###\"\"###}.render_md(cx)",
+    )
+    .replace("&mut Cx", "&mut RenderCx");
+    let src = format!("use proa_core::WebContext as RenderCx; {src}");
+    assert_eq!(
+        missing(&src).len(),
+        1,
+        "unused loader data cannot cover a field"
+    );
+    assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 0);
+}
+#[test]
+fn rendered_loader_and_context_data_need_explicit_correspondence() {
+    let src = fixture(
+        "let stock = cx.load_typed::<Data>(html_query).await?; html_sync! {{content_part!(\"stock\", badge(stock))}}.render(cx)",
+        "let stock = cx.load_typed::<Data>(md_query).await?; md_sync! {r###\"{content_part!(\"stock\", summary(stock))}\"###}.render_md(cx)",
+    ).replace("&mut Cx", "&mut proa_core::WebContext");
+    assert!(lint(&src).is_empty(), "{:?}", lint(&src));
+    for output in [
+        "let stock = cx.load_typed::<Data>(query).await?; md_sync! {r###\"{stock}\"###}.render_md(cx)",
+        "let response = cx.response(); md_sync! {r###\"{response}\"###}.render_md(cx)",
+    ] {
+        let src = fixture("html_sync! {{self.title}}.render(cx)", output)
+            .replace("&mut Cx", "&mut proa_core::WebContext");
+        assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1, "{output}");
+        assert!(missing(&src).is_empty());
+    }
+}
+#[test]
+fn infrastructure_exemptions_preserve_actual_and_opaque_output() {
+    for preparation in [
+        "cx.write_md_text(value)?;",
+        "cx.output_mut().write(value)?;",
+        "write_summary(self.data, cx)?;",
+        "cx.set_csp_nonce({ write_summary(self.data, cx)?; None });",
+        "cx.locals_mut().insert(|| write_summary(self.data, cx));",
+        "cx.response_mut().custom_write(cx);",
+        "let loader = cx.loader().clone(); loader.load({ write_summary(self.data, cx)?; query }).await?;",
+    ] {
+        let src = fixture(
+            "html_sync! {{self.title}}.render(cx)",
+            &format!("{preparation} md_sync! {{r###\"\"###}}.render_md(cx)"),
+        )
+        .replace("&mut Cx", "&mut proa_core::WebContext");
+        assert_eq!(
+            code(&lint(&src), "render/content-coverage-unchecked"),
+            1,
+            "{preparation}"
+        );
+        assert!(missing(&src).is_empty(), "{preparation}");
+    }
+}
+#[test]
+fn familiar_method_names_do_not_exempt_custom_or_shadowed_contexts() {
+    let src = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "cx.load(query); md_sync! {r###\"\"###}.render_md(cx)",
+    );
+    assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
+    let local = format!("mod proa_core {{ pub struct WebContext; }} {src}")
+        .replace("impl WebRenderSync", "impl ::proa_core::WebRenderSync")
+        .replace("impl MdRenderSync", "impl ::proa_core::MdRenderSync")
+        .replace("&mut Cx", "&mut proa_core::WebContext");
+    assert_eq!(
+        code(&lint(&local), "render/content-coverage-unchecked"),
+        1,
+        "{:?}",
+        lint(&local)
+    );
+    let shadowed = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "let cx = custom_context(); cx.load(query); md_sync! {r###\"\"###}.render_md(cx)",
+    )
+    .replace("&mut Cx", "&mut proa_core::WebContext");
+    assert_eq!(
+        code(&lint(&shadowed), "render/content-coverage-unchecked"),
+        1
+    );
+    let reassigned = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "let mut locals = cx.locals_mut(); locals = custom_storage(); locals.insert(value); md_sync! {r###\"\"###}.render_md(cx)",
+    ).replace("&mut Cx", "&mut proa_core::WebContext");
+    assert_eq!(
+        code(&lint(&reassigned), "render/content-coverage-unchecked"),
+        1
+    );
+}
+#[test]
 fn line_omissions_are_precise_and_checked_for_rot() {
     let source = "html_sync! {{RestockNotice::new(self.data)} {Impact::new(self.data)}}.render(cx)";
     let target =
