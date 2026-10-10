@@ -22,6 +22,8 @@ struct Value {
     fields: BTreeMap<String, Value>,
     /// A proven Proa metadata handle; mutations here do not write the body.
     metadata: bool,
+    /// A deferred callback/future; handing it to opaque code may execute writes.
+    callback: bool,
 }
 impl Value {
     fn append(&mut self, other: Value) {
@@ -551,11 +553,15 @@ impl Analyzer<'_> {
                 }
                 output
             }
-            Expr::Closure(_) => self.boundary(
-                expr,
-                "a rendered closure requires a known invocation/iteration model",
-                override_range,
-            ),
+            Expr::Closure(_) | Expr::Async(_) => {
+                let mut value = self.boundary(
+                    expr,
+                    "a deferred callback requires a known invocation/iteration model",
+                    override_range,
+                );
+                value.callback = true;
+                value
+            }
             Expr::Await(a) => {
                 let mut v = self.expr(&a.base, env, override_range);
                 v.boundaries.push(Boundary {
@@ -1134,6 +1140,18 @@ impl Analyzer<'_> {
             env.get(&name).and_then(|v| v.symbol.as_deref()) == Some("@context")
         })
     }
+    fn callback_arg(&self, expr: &Expr, env: &Env) -> bool {
+        match expr {
+            Expr::Reference(reference) => self.callback_arg(&reference.expr, env),
+            Expr::Paren(paren) => self.callback_arg(&paren.expr, env),
+            Expr::Group(group) => self.callback_arg(&group.expr, env),
+            Expr::Closure(_) | Expr::Async(_) => true,
+            Expr::Path(_) => bare(expr)
+                .and_then(|name| env.get(&name))
+                .is_some_and(|value| value.callback),
+            _ => false,
+        }
+    }
     fn metadata_receiver(&self, expr: &Expr, env: &Env) -> bool {
         match expr {
             Expr::Paren(p) => self.metadata_receiver(&p.expr, env),
@@ -1281,10 +1299,16 @@ impl Analyzer<'_> {
                         None,
                     );
                 }
-                if c.args
-                    .iter()
-                    .any(|a| matches!(a, Expr::Async(_) | Expr::Closure(_)))
+                if !matches!(c.func.as_ref(), Expr::Path(_))
+                    || bare(&c.func).is_some_and(|name| env.contains_key(&name))
                 {
+                    return self.boundary(
+                        expr,
+                        "a dynamic callable may write through captured context; its invocation is not analyzed",
+                        None,
+                    );
+                }
+                if c.args.iter().any(|a| self.callback_arg(a, env)) {
                     return self.boundary(
                         expr,
                         "helper receives a future or closure whose output reachability is unknown",
@@ -1301,6 +1325,7 @@ impl Analyzer<'_> {
             Expr::Await(a) => self.sinks(&a.base, env, guards),
             Expr::Paren(p) => self.sinks(&p.expr, env, guards),
             Expr::Group(g) => self.sinks(&g.expr, env, guards),
+            Expr::Reference(reference) => self.sinks(&reference.expr, env, guards),
             Expr::Block(b) => self.statements(&b.block, env, guards),
             Expr::If(i) => {
                 let mut yes = guards.to_vec();
@@ -1438,7 +1463,7 @@ impl Analyzer<'_> {
                 {
                     let mut value = self.sinks(&m.receiver, env, guards);
                     for arg in &m.args {
-                        if matches!(arg, Expr::Async(_) | Expr::Closure(_)) {
+                        if self.callback_arg(arg, env) {
                             value.append(self.boundary(arg,
                                 "preparation receives a callback whose output reachability is unknown", None));
                         } else {
@@ -1480,7 +1505,7 @@ impl Analyzer<'_> {
                 } else {
                     let mut value = self.sinks(&m.receiver, env, guards);
                     for arg in &m.args {
-                        if matches!(arg, Expr::Async(_) | Expr::Closure(_)) {
+                        if self.callback_arg(arg, env) {
                             value.append(self.boundary(
                                 arg,
                                 "method receives a callback whose output reachability is unknown",

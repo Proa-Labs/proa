@@ -161,6 +161,36 @@ fn infrastructure_exemptions_preserve_actual_and_opaque_output() {
     }
 }
 #[test]
+fn borrowed_loader_arguments_preserve_opaque_output_writes() {
+    let source = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "let loader = cx.loader().clone(); let _unused = loader.load(&{ write_summary(self.title, cx)?; request }).await?; md_sync! {r###\"\"###}.render_md(cx)",
+    )
+    .replace("&mut Cx", "&mut proa_core::WebContext");
+    let diagnostics = lint(&source);
+    assert_eq!(code(&diagnostics, "render/content-coverage-unchecked"), 1);
+    assert_eq!(code(&diagnostics, "render/content-coverage"), 0);
+}
+#[test]
+fn borrowed_callbacks_remain_unchecked_instead_of_confirmed_missing() {
+    for call in [
+        "invoke(&mut || write_summary(self.title, cx))",
+        "handler.invoke(&mut || write_summary(self.title, cx))",
+        "let mut callback = || write_summary(self.title, cx); invoke(&mut callback)",
+        "let mut callback = || write_summary(self.title, cx); callback()",
+    ] {
+        let source = fixture("html_sync! {{self.title}}.render(cx)", call)
+            .replace("&mut Cx", "&mut proa_core::WebContext");
+        let diagnostics = lint(&source);
+        assert_eq!(
+            code(&diagnostics, "render/content-coverage-unchecked"),
+            1,
+            "{call}"
+        );
+        assert_eq!(code(&diagnostics, "render/content-coverage"), 0, "{call}");
+    }
+}
+#[test]
 fn familiar_method_names_do_not_exempt_custom_or_shadowed_contexts() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
