@@ -1,0 +1,5 @@
+error: expected a child type (`Impact<'_>`), field (`self.image`), borrowed local (`&notice`), or named part (`"stock-status"`)
+ --> tests/ui/content/invalid_child.rs:3:11
+  |
+3 |     omit!(3);
+  |           ^

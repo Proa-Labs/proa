@@ -18,7 +18,7 @@ use crate::util::resolve_config_root;
 pub(crate) struct LintArgs {
     #[command(flatten)]
     files: FileSelectionArgs,
-    /// Proa project root used to discover compiler-emitted RSJS strategy sidecars.
+    /// Project root for content counterpart discovery and RSJS strategy sidecars.
     /// Defaults to the nearest Cargo workspace/package or proa.config.json.
     #[arg(long)]
     root: Option<PathBuf>,
@@ -41,6 +41,9 @@ pub(crate) struct LintArgs {
     /// Include Rust test files and #[cfg(test)] modules.
     #[arg(long)]
     include_tests: bool,
+    /// Show paired, unpaired, and whole-view-exempt content status (info).
+    #[arg(long)]
+    content_summary: bool,
     /// Use compiler-emitted target/rsjs/strategy sidecars for rsjs strategy lints.
     #[arg(long)]
     use_rsjs_strategy_cache: bool,
@@ -67,6 +70,11 @@ pub(crate) fn run(args: LintArgs) -> Result<()> {
             lint::LintOptions {
                 include_tests: args.include_tests,
                 rsjs_strategy_cache,
+                content: lint::content::ContentOptions {
+                    root: args.root.clone(),
+                    report_status: args.content_summary,
+                    ..Default::default()
+                },
             },
         )?
     };
@@ -74,7 +82,10 @@ pub(crate) fn run(args: LintArgs) -> Result<()> {
     let min_severity = resolve_min_severity(&args)?;
     let shown: Vec<_> = diagnostics
         .iter()
-        .filter(|diag| diag.severity.rank() >= min_severity.rank())
+        .filter(|diag| {
+            diag.severity.rank() >= min_severity.rank()
+                || args.deny.iter().any(|code| code == diag.code)
+        })
         .cloned()
         .collect();
     print_diagnostics(&shown, args.json, args.github)?;
@@ -173,6 +184,7 @@ mod tests {
             min_severity: None,
             github: false,
             include_tests: false,
+            content_summary: false,
             use_rsjs_strategy_cache: false,
             require_fresh_strategy_cache: false,
         };
@@ -218,6 +230,7 @@ mod tests {
             min_severity: None,
             github: false,
             include_tests: false,
+            content_summary: false,
             use_rsjs_strategy_cache: false,
             require_fresh_strategy_cache: false,
         };

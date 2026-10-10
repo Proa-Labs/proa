@@ -1,0 +1,5 @@
+error: expected `skip`, `reason`, `source`, or `from`
+ --> tests/ui/content/removed_requirement.rs:6:24
+  |
+6 | #[proa_macros::content(require = "markdown")]
+  |                        ^^^^^^^

@@ -1,0 +1,5 @@
+error: `content` belongs on a render trait impl or its render method
+ --> tests/ui/content/invalid_policy.rs:2:1
+  |
+2 | struct Product;
+  | ^^^^^^^^^^^^^^^

@@ -17,6 +17,7 @@ readonly -a MAIN_SHARD_2=(
   rsjs_linked_site_codegen
   rsjs_build_wrapper
   cli
+  content_coverage
   rsjs_final
 )
 readonly -a MAIN_SHARD_3=(

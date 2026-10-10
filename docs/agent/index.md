@@ -15,6 +15,7 @@ per task rather than skimming the whole thing.
 |---|---|
 | Add a local render component | [`components.md`](components.md) |
 | Add an RSJS-analyzed/composable component (with or without browser origins) | [`rsjs-islands.md`](rsjs-islands.md) |
+| Keep intended content across HTML and Markdown | [`content-coverage.md`](content-coverage.md) |
 | Pick `WebRenderSync` vs `WebRender` | [`api-reference/render-traits.md`](api-reference/render-traits.md) |
 | Understand the `Send` / local-future streaming policy | [`../../proa_framework/proa_framework_core/README.md#send-policy-and-runtime-portability`](../../proa_framework/proa_framework_core/README.md#send-policy-and-runtime-portability) |
 | Pick `md_sync!` vs `md!` | [`api-reference/render-traits.md#markdown-has-the-same-split`](api-reference/render-traits.md#markdown-has-the-same-split) |

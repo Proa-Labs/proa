@@ -21,6 +21,7 @@ use syn::LitStr;
 mod action_derive;
 mod component_derive;
 mod const_recipe;
+mod content;
 mod form_schema_derive;
 mod island_attr;
 mod md;
@@ -34,6 +35,51 @@ mod tsx_resolve;
 mod variant_derive;
 
 use parse::{HtmlRoot, XmlRoot};
+
+/// Describe a render view's content-coverage policy for `proa lint`.
+///
+/// `#[content(skip)]` exempts a view on its impl or render method. Pair a
+/// separate representation with `#[content(source = HtmlProduct)]`. An optional
+/// `reason = "..."` documents intent. This attribute preserves the renderer;
+/// content coverage is checked by the linter, not macro expansion.
+#[proc_macro_attribute]
+pub fn content(args: TokenStream, input: TokenStream) -> TokenStream {
+    content::policy(args.into(), input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Acknowledge one intentionally omitted content contribution.
+///
+/// Put this as a Rust statement inside the render method that deliberately
+/// omits the contribution, before its template. For a local, place it after
+/// the declaration and before the value is moved.
+///
+/// Use `omit!(self.image)`, `omit!(&notice, "reason")`,
+/// `omit!(crate::RestockNotice)`, or
+/// `omit!("restock")`. Optional `from = "html"` restricts the
+/// source comparison. Value paths are type-checked without being evaluated
+/// or moved. Bare paths select child types; borrow a local with `&notice` to
+/// select its value. Child types are checked without constructing them, and
+/// ordinary Rust generic arguments apply, e.g. `omit!(RestockNotice<'_>)`.
+#[proc_macro]
+pub fn omit(input: TokenStream) -> TokenStream {
+    content::omit(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Give a rendered value a shared semantic identity across representations.
+///
+/// `content_part!("restock", RestockNotice::new(data))` returns the supplied
+/// expression unchanged. The name lets `proa lint` recognize corresponding
+/// content even when targets use different wrappers or helper functions.
+#[proc_macro]
+pub fn content_part(input: TokenStream) -> TokenStream {
+    content::part(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 /// The `html!` macro for generating async-capable HTML fragments.
 ///

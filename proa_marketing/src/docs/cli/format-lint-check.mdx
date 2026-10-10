@@ -42,16 +42,253 @@ proa lint --json --min-severity info src
 proa lint --github --changed --base origin/main
 ```
 
-The linter checks template formatting, accessibility-sensitive markup, render-path performance, component composition, and `rsjs` slot restrictions.
+The linter checks template formatting, accessibility-sensitive markup, render-path performance, component composition, content coverage across render targets, and `rsjs` slot restrictions.
 
 | Flag | Behavior |
 |------|----------|
 | `--deny-warnings` | Exit non-zero when warnings are found. |
-| `--deny <LEVEL_OR_CODE>` | `--deny warnings` is the equivalent warning-deny mode; a diagnostic code such as `--deny rsjs/client-crossing` fails the run when that code is found. Repeatable. |
+| `--deny <LEVEL_OR_CODE>` | `--deny warnings` is the equivalent warning-deny mode; a diagnostic code such as `--deny render/content-coverage` fails the run when that code is found. Repeatable. Denied codes are printed even below `--min-severity`. |
 | `--json` | Emit stable JSON diagnostics. |
 | `--github` | Emit GitHub Actions annotations. |
 | `--min-severity error\|warning\|info` | Control printed diagnostics. Text defaults to warnings and errors. JSON and GitHub output default to all diagnostics. |
 | `--include-tests` | Include Rust test files and `#[cfg(test)]` modules. |
+| `--content-summary` | Report paired, unpaired, and whole-view-exempt content status as informational diagnostics. Use `--min-severity info` to show them in text output. |
+| `--root <PATH>` | Select the project root for content counterpart discovery and RSJS strategy sidecars. Defaults to the nearest Cargo workspace/package or `proa.config.json`. |
+
+### Content coverage
+
+A component can render a field or child in HTML and accidentally leave it out of
+Markdown. Both views still compile. Content coverage compares supported rendered
+contributions across the component's views and points to the missing content.
+Reading a field, constructing a child, or creating an unused template does not
+count as rendering it.
+
+The default policy checks HTML → Markdown when both views exist for the same
+component. Sync and async implementations belong to the same logical target
+family. HTML-only and Markdown-only components are valid; neither needs an
+exception. Other targets can be registered through the content-analysis API;
+a trait name ending in `Render` does not register it automatically.
+
+Start by showing informational diagnostics and discovery status:
+
+```bash
+proa lint src --min-severity info
+proa lint src --content-summary --min-severity info
+```
+
+The summary distinguishes **paired**, **unpaired**, and **exempt** views.
+“Paired” means the views were discovered; it does not certify equivalent content.
+An opaque helper or different presence condition can leave a contribution
+**unchecked** even when its views are paired.
+
+#### Context and loader usage
+
+Content coverage follows values into the rendered body. It does not require
+matching `cx` accesses, loader queries, cache operations, or metadata setup.
+Known `proa_core::WebContext` preparation APIs and supported metadata aliases do
+not create content obligations or unchecked-body diagnostics on their own.
+An unused fetch does not cover missing content.
+
+Loaded data that reaches output still needs correspondence. If the two views
+fetch or transform it differently, put the same `content_part!` name around the
+rendered contribution in each template. That name is an author assertion, not a
+proof that two queries or helpers are equivalent. Unmapped loaded output,
+direct writer calls, and opaque helpers receiving `cx` remain **unchecked**.
+Custom methods merely named `load` are not treated as known Proa preparation.
+Response headers, head assets, and telemetry are outside this body-content check.
+
+#### Intentional omissions: put the marker inside the checked view
+
+Import `omit` at file scope in the file containing the view that leaves content
+out. Put the invocation **inside its render method, before the template**.
+For HTML → Markdown, that is `MdRenderSync::render_md` or `MdRender::render_md`.
+If the views live in separate files, edit the file containing the Markdown impl.
+
+This complete `src/components/product.rs` deliberately keeps the image in HTML:
+
+```rust
+use proa_core::{MdRenderSync, WebContext, WebRenderSync, WriteError};
+use proa_macros::{html_sync, md_sync, omit};
+
+struct Product<'a> {
+    title: &'a str,
+    image: &'a str,
+}
+
+impl WebRenderSync for Product<'_> {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <article data-product>
+                <h1>{self.title}</h1>
+                <img src={self.image} alt="" />
+            </article>
+        }
+        .render(cx)
+    }
+}
+
+impl MdRenderSync for Product<'_> {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        omit!(self.image, "Image is only shown in HTML");
+        md_sync! { r###"# {self.title}"### }.render_md(cx)
+    }
+}
+```
+
+The reason is optional. The value must type-check, but the marker does not
+evaluate or move it. Future HTML additions still get checked. Bare paths select
+child types; use a Rust borrow (`&image`) to select a local value. Put a local's
+marker after its declaration and before it is moved. For example,
+replace the Markdown impl above with:
+
+```rust
+impl MdRenderSync for Product<'_> {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let image = self.image;
+        omit!(&image, "Image is only shown in HTML");
+        md_sync! { r###"# {self.title}"### }.render_md(cx)
+    }
+}
+```
+
+An existing child local works the same way. When the HTML view renders a child
+that has no local in Markdown, select its type directly. For a product whose
+HTML view renders `RestockNotice`, this could live
+in `src/views/product_markdown.rs`, with the types imported from `crate::product`.
+That module must expose the product's `title` and the notice type:
+
+```rust
+use proa_core::{MdRenderSync, WebContext, WriteError};
+use proa_macros::{md_sync, omit};
+use crate::product::{Product, RestockNotice};
+
+impl MdRenderSync for Product<'_> {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        omit!(RestockNotice<'_>, "Browser-only notice");
+        md_sync! { r###"# {self.title}"### }.render_md(cx)
+    }
+}
+```
+
+This is an alternative example for that product, rather than another impl to add
+alongside the earlier one. The macro checks the type without constructing a child.
+Use `omit!(RestockNotice)` for a type without generic arguments. Lifetime-only child
+types can use `'_`. For type/const-generic children, or several occurrences with
+different inputs or conditions, use an existing child local or a named part to
+narrow the exception. A field used by several distinct children is ambiguous
+and waives none of their contributions.
+
+When HTML names a rendered contribution with
+`content_part!("stock-status", ...)`, use that name as a string selector. In the
+same file as the Markdown impl, with `omit` imported as above:
+
+```rust
+impl MdRenderSync for Product<'_> {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        omit!("stock-status", "Shown in the overview instead");
+        proa_macros::md_sync! { r###"# {self.title}"### }.render_md(cx)
+    }
+}
+```
+
+Use matching `content_part!` names in rendered slots when the views present the
+same content through different helpers. A name is an author assertion about
+correspondence; the linter does not prove the helpers equivalent.
+
+#### Exempt a whole view
+
+To intentionally exclude a whole view, including future additions, put the
+attribute **above its impl**:
+
+```rust
+#[proa_macros::content(skip, reason = "This view is a brief summary")]
+impl MdRenderSync for Product<'_> {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        proa_macros::md_sync! { r###"# {self.title}"### }.render_md(cx)
+    }
+}
+```
+
+Alternatively, put the attribute **above the render method inside the impl**:
+
+```rust
+impl MdRenderSync for Product<'_> {
+    #[proa_macros::content(skip)]
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        proa_macros::md_sync! { r###"# {self.title}"### }.render_md(cx)
+    }
+}
+```
+
+Both placements exempt the view's pair checks, including omission-marker checks.
+The reason is optional. A parent's exemption does not exempt its child's own
+paired views.
+
+HTML-only and Markdown-only components need no exceptions. Content is compared
+when both views exist; the linter does not require another render implementation.
+Separate representation types can pair explicitly with
+`#[proa_macros::content(source = HtmlProduct, from = "html")]` above the Markdown
+impl; use shared `content_part!` names to establish correspondence between them.
+
+#### Diagnostics and CI enforcement
+
+Diagnostics name the component and missing contribution, show source frames for
+both views, and suggest a repair at the correct location. Omissions are explicit
+author decisions; the linter never inserts them automatically.
+
+For example, removing the `omit!` line from the complete product above reports:
+
+```text
+info[render/content-coverage]: `Product<'_>`'s Markdown view does not render `self.image` from its HTML view
+  --> src/components/product.rs:23:9
+    |
+ 22 |     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+ 23 |         md_sync! { r###"# {self.title}"### }.render_md(cx)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this view does not render the contribution
+ 24 |     }
+ 25 | }
+    |
+  ::: src/components/product.rs:14:27
+    |
+ 13 |                 <h1>{self.title}</h1>
+ 14 |                 <img src={self.image} alt="" />
+    |                           ---------- `self.image` rendered in HTML
+ 15 |             </article>
+ 16 |         }
+    |
+   = help: render `self.image` in the Markdown view
+   = help: to omit it intentionally, add this inside the render method before its template
+           proa_macros::omit!(self.image);
+```
+
+| Diagnostic | Meaning and repair |
+|------------|--------------------|
+| `render/content-coverage` | A supported rendered contribution is missing. Render it in the checked view or acknowledge the intentional omission with `omit!`. |
+| `render/content-coverage-unchecked` | A helper, presence condition, or discovery boundary prevents a conclusion. Align the supported conditions or declare correspondence with named parts where appropriate. |
+| `render/content-omit-stale`, `render/content-omit-redundant` | The source no longer contributes the selected content, or the checked view now renders it. Remove the marker. |
+| `render/content-omit-ambiguous`, `render/content-omit-unresolved`, `render/content-policy-invalid` | Narrow the selector, fix its resolution, or correct the policy. |
+
+Coverage and omission diagnostics are informational by default. `--deny-warnings`
+and the default `proa check` policy do not enforce them. After reviewing a scope,
+opt it into CI with explicit codes:
+
+```bash
+proa lint src/components/product \
+  --deny render/content-coverage \
+  --deny render/content-coverage-unchecked
+```
+
+Also deny the four omission-marker codes when enforcing exception hygiene.
+Denied codes are printed even at the default warning threshold; `--deny` changes
+exit status without changing a diagnostic's printed severity. `--json` includes
+related ranges and structured suggestions. `--github` includes counterpart
+locations and repair guidance in Actions annotations.
+
+The checker follows supported output contributions, rather than proving
+equivalent meaning, order, cardinality, or accessibility across formats. See
+the [content coverage authoring reference](https://github.com/Proa-Labs/proa/blob/main/docs/agent/content-coverage.md)
+for supported analysis, explicit source pairs, scoped source selectors, and
+future target registration.
 
 ## Changed Files
 
@@ -65,7 +302,17 @@ proa lint --staged
 
 `--base <REF>` implies changed-file selection against that ref. `--staged` cannot be combined with `--changed` or `--base`.
 
+For content coverage, selected files determine which pairs are reported; analysis
+also loads unchanged counterparts from their enclosing Cargo packages. A pair's
+diagnostic is reported when either view is selected. `--staged` reads the selected
+paths' working-tree contents, rather than Git index snapshots. Deleted paths are
+excluded from Git selection; use a full source scan when the only change deletes
+a view.
+
 ## Suppressions
+
+For intentional content differences, use the [targeted omission or whole-view
+exemption](#intentional-omissions-put-the-marker-inside-the-checked-view) above.
 
 Performance suppressions must include a reason:
 

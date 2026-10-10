@@ -18,7 +18,7 @@ pub mod chunks;
 mod cli;
 mod commands;
 pub mod config;
-mod diagnostic;
+pub mod diagnostic;
 pub mod fmt;
 pub mod font;
 pub mod lifecycle;

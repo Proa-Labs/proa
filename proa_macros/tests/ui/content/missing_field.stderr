@@ -1,0 +1,7 @@
+error[E0609]: no field `missing` on type `Product`
+ --> tests/ui/content/missing_field.rs:5:19
+  |
+5 |     omit!(product.missing);
+  |                   ^^^^^^^ unknown field
+  |
+  = note: available field is: `title`

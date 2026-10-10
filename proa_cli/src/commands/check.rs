@@ -135,6 +135,10 @@ pub(crate) fn run(args: CheckArgs) -> Result<()> {
             lint::LintOptions {
                 include_tests: args.include_tests,
                 rsjs_strategy_cache,
+                content: lint::content::ContentOptions {
+                    root: args.root.clone(),
+                    ..Default::default()
+                },
             },
         )?
     };

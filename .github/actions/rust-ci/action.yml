@@ -88,6 +88,15 @@ runs:
         # --test excludes doctests, so keep the converter's doc examples covered.
         cargo test -p proa_core --features html-to-markdown --locked --doc
 
+    - name: Check the reviewed HTML and Markdown content pair
+      shell: bash
+      run: |
+        cargo test --locked -p proa-cli --test content_coverage
+        cargo run --locked -p proa-cli --bin proa -- lint proa_macros/tests/content_coverage.rs --include-tests \
+          --deny render/content-coverage --deny render/content-coverage-unchecked \
+          --deny render/content-omit-stale --deny render/content-omit-redundant \
+          --deny render/content-omit-ambiguous --deny render/content-omit-unresolved --deny render/content-policy-invalid
+
     - name: Check RSJS conformance manifest and snapshots
       shell: bash
       run: node rsjs_conformance/report.mjs --check
