@@ -195,7 +195,7 @@ Use matching `content_part!` names in rendered slots when the views present the
 same content through different helpers. A name is an author assertion about
 correspondence; the linter does not prove the helpers equivalent.
 
-#### Exempt a whole view or require a counterpart
+#### Exempt a whole view
 
 To intentionally exclude a whole view, including future additions, put the
 attribute **above its impl**:
@@ -224,9 +224,9 @@ Both placements exempt the view's pair checks, including omission-marker checks.
 The reason is optional. A parent's exemption does not exempt its child's own
 paired views.
 
-To require a Markdown counterpart, put
-`#[proa_macros::content(require = "markdown")]` above the HTML impl or its render
-method. Separate representation types can pair explicitly with
+HTML-only and Markdown-only components need no exceptions. Content is compared
+when both views exist; the linter does not require another render implementation.
+Separate representation types can pair explicitly with
 `#[proa_macros::content(source = HtmlProduct, from = "html")]` above the Markdown
 impl; use shared `content_part!` names to establish correspondence between them.
 
@@ -265,7 +265,6 @@ info[render/content-coverage]: `Product<'_>`'s Markdown view does not render `se
 |------------|--------------------|
 | `render/content-coverage` | A supported rendered contribution is missing. Render it in the checked view or acknowledge the intentional omission with `omit!`. |
 | `render/content-coverage-unchecked` | A helper, presence condition, or discovery boundary prevents a conclusion. Align the supported conditions or declare correspondence with named parts where appropriate. |
-| `render/content-view-missing` | An explicitly required counterpart was not found in a complete module graph. Add the view or revise the requirement. |
 | `render/content-omit-stale`, `render/content-omit-redundant` | The source no longer contributes the selected content, or the checked view now renders it. Remove the marker. |
 | `render/content-omit-ambiguous`, `render/content-omit-unresolved`, `render/content-policy-invalid` | Narrow the selector, fix its resolution, or correct the policy. |
 
@@ -276,8 +275,7 @@ opt it into CI with explicit codes:
 ```bash
 proa lint src/components/product \
   --deny render/content-coverage \
-  --deny render/content-coverage-unchecked \
-  --deny render/content-view-missing
+  --deny render/content-coverage-unchecked
 ```
 
 Also deny the four omission-marker codes when enforcing exception hygiene.

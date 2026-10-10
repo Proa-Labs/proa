@@ -3,7 +3,7 @@
 
 //! A small, compiled application-style pair kept under the content CI gate.
 use proa_core::{MdRenderSync, WebContext, WebRenderSync, WriteError};
-use proa_macros::{content, html_sync, md_sync};
+use proa_macros::{html_sync, md_sync};
 
 struct Product<'a> {
     title: &'a str,
@@ -13,7 +13,6 @@ struct RestockNotice<'a> {
     at: &'a str,
 }
 
-#[content(require = "markdown")]
 impl WebRenderSync for RestockNotice<'_> {
     fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
         html_sync! {
@@ -28,7 +27,6 @@ impl MdRenderSync for RestockNotice<'_> {
     }
 }
 
-#[content(require = "markdown")]
 impl WebRenderSync for Product<'_> {
     fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
         html_sync! {

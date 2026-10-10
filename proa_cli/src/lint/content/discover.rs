@@ -1013,9 +1013,6 @@ pub(super) fn lint_sources(
                             if method_policy.from.is_none() {
                                 method_policy.from = impl_policy.from.clone();
                             }
-                            if method_policy.require.is_empty() {
-                                method_policy.require = impl_policy.require.clone();
-                            }
                             if method_policy.reason.is_none() {
                                 method_policy.reason = impl_policy.reason.clone();
                             }
@@ -1262,45 +1259,6 @@ pub(super) fn lint_sources(
             diagnostics.extend(compare_views(&source_summary, &target_summary));
         }
         if reporting.contains(&target.context.path) {
-            for required in &target.policy.require {
-                let name = required.value();
-                if !options.targets.iter().any(|t| t.name == name) {
-                    diagnostics.push(diag(
-                        &summaries[target_index],
-                        target.policy_range.clone(),
-                        "render/content-policy-invalid",
-                        format!("unknown required render target `{name}`"),
-                        "register this target before requiring it",
-                    ));
-                    continue;
-                }
-                if !views.iter().any(|v| {
-                    v.context.crate_id == target.context.crate_id
-                        && v.identity == target.identity
-                        && v.target.name == name
-                }) {
-                    let code = if target.context.complete {
-                        "render/content-view-missing"
-                    } else {
-                        "render/content-coverage-unchecked"
-                    };
-                    diagnostics.push(
-                        diag(
-                            &summaries[target_index],
-                            target.policy_range.clone(),
-                            code,
-                            format!(
-                                "the required {name} view for `{}` was not found",
-                                target.component
-                            ),
-                            "this declaration requires another view",
-                        )
-                        .with_help(
-                            "implement the required render trait, or remove this requirement",
-                        ),
-                    );
-                }
-            }
             for omission in &summaries[target_index].omissions {
                 if let Some(from) = &omission.from {
                     if !options.targets.iter().any(|t| &t.name == from) {

@@ -93,7 +93,7 @@ runs:
       run: |
         cargo test --locked -p proa-cli --test content_coverage
         cargo run --locked -p proa-cli --bin proa -- lint proa_macros/tests/content_coverage.rs --include-tests \
-          --deny render/content-coverage --deny render/content-coverage-unchecked --deny render/content-view-missing \
+          --deny render/content-coverage --deny render/content-coverage-unchecked \
           --deny render/content-omit-stale --deny render/content-omit-redundant \
           --deny render/content-omit-ambiguous --deny render/content-omit-unresolved --deny render/content-policy-invalid
 

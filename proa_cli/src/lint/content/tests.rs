@@ -344,11 +344,22 @@ fn whole_view_skip_on_impl_or_method_and_single_target_are_valid() {
     );
     let html = html.split("impl MdRenderSync").next().unwrap();
     assert!(lint(html).is_empty());
-    let required = html.replace(
+}
+#[test]
+fn removed_counterpart_requirement_is_rejected_as_an_unknown_option() {
+    let source = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+    )
+    .replace(
         "impl WebRenderSync",
         "#[proa_macros::content(require=\"markdown\")] impl WebRenderSync",
     );
-    assert_eq!(code(&lint(&required), "render/content-view-missing"), 1);
+    let diagnostics = lint(&source);
+    assert_eq!(code(&diagnostics, "render/content-policy-invalid"), 1);
+    assert!(diagnostics[0]
+        .message
+        .contains("expected `skip`, `reason`, `source`, or `from`"));
 }
 #[test]
 fn registered_future_target_reuses_coverage_and_omissions() {
@@ -514,11 +525,18 @@ fn configuration_and_generic_identity_do_not_guess() {
 }
 
 #[test]
-fn incomplete_module_graph_never_asserts_missing_view() {
-    let src=format!("{IMPORTS} mod missing;struct Product; #[proa_macros::content(require=\"markdown\")] impl WebRenderSync for Product {{fn render(self,cx:&mut Cx)->Result {{html_sync! {{}}.render(cx)}}}}");
-    let d = lint(&src);
-    assert_eq!(code(&d, "render/content-view-missing"), 0);
-    assert_eq!(code(&d, "render/content-coverage-unchecked"), 1);
+fn incomplete_module_graph_does_not_create_a_counterpart_requirement() {
+    for (render_trait, method, template) in [
+        ("WebRenderSync", "render", "html_sync! {{self.title}}"),
+        (
+            "MdRenderSync",
+            "render_md",
+            "md_sync! {r###\"{self.title}\"###}",
+        ),
+    ] {
+        let source = format!("{IMPORTS} mod missing;struct Product {{title:String}} impl {render_trait} for Product {{fn {method}(self,cx:&mut Cx)->Result {{{template}.{method}(cx)}}}}");
+        assert!(lint(&source).is_empty());
+    }
 }
 #[test]
 fn nested_inline_module_resolves_out_of_line_counterpart() {
@@ -656,7 +674,7 @@ fn removing_source_impl_makes_its_omission_stale_without_forcing_a_pair() {
     let src=format!("{IMPORTS} struct Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{omit!(\"notice\");md_sync!{{r###\"\"###}}.render_md(cx)}}}}");
     let d = lint(&src);
     assert_eq!(code(&d, "render/content-omit-stale"), 1);
-    assert_eq!(code(&d, "render/content-view-missing"), 0);
+    assert_eq!(d.len(), 1);
 }
 #[test]
 fn package_entry_points_keep_equal_names_separate() {
@@ -819,10 +837,9 @@ fn loop_exits_compound_assignment_and_obvious_mutation_are_unchecked() {
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
 }
 #[test]
-fn item_macro_discovery_does_not_claim_a_hidden_required_view_is_missing() {
-    let source=format!("{IMPORTS} struct Product;generate_md!(Product);#[proa_macros::content(require=\"markdown\")] impl WebRenderSync for Product{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{}}.render(cx)}}}}");
-    assert_eq!(code(&lint(&source), "render/content-view-missing"), 0);
-    assert_eq!(code(&lint(&source), "render/content-coverage-unchecked"), 1);
+fn item_macro_discovery_does_not_create_a_counterpart_requirement() {
+    let source=format!("{IMPORTS} struct Product;generate_md!(Product);impl WebRenderSync for Product{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{}}.render(cx)}}}}");
+    assert!(lint(&source).is_empty());
 }
 
 #[test]

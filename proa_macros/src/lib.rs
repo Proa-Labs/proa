@@ -39,8 +39,7 @@ use parse::{HtmlRoot, XmlRoot};
 /// Describe a render view's content-coverage policy for `proa lint`.
 ///
 /// `#[content(skip)]` exempts a view on its impl or render method. Pair a
-/// separate representation with `#[content(source = HtmlProduct)]`, or require
-/// a counterpart with `#[content(require = "markdown")]`. An optional
+/// separate representation with `#[content(source = HtmlProduct)]`. An optional
 /// `reason = "..."` documents intent. This attribute preserves the renderer;
 /// content coverage is checked by the linter, not macro expansion.
 #[proc_macro_attribute]

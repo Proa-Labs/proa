@@ -167,17 +167,10 @@ The initial registry uses `html` and `markdown` as target identifiers.
 
 ## Pairing and single-target components
 
-HTML-only and Markdown-only components are valid. The linter does not require
-another representation unless you ask for it:
-
-```rust
-#[proa_macros::content(require = "markdown")]
-impl WebRenderSync for Product { /* ... */ }
-```
-
-`require = ["markdown", "plain"]` is available when those targets are registered.
-The declaration requires a counterpart; it does not make HTML the universal
-source of truth. Comparisons are directed policies in `ContentOptions`.
+HTML-only and Markdown-only components are valid and need no omission markers.
+The linter compares content when both views exist; it does not require a
+component to implement another render target. Comparisons are directed policies
+in `ContentOptions`.
 
 If HTML and Markdown use separate types, explicitly select the source:
 
@@ -215,7 +208,6 @@ never inserts an exception automatically.
 | --- | --- |
 | `render/content-coverage` | A supported rendered contribution is absent. |
 | `render/content-coverage-unchecked` | Conditions, helpers, discovery, or another boundary prevent a conclusion. |
-| `render/content-view-missing` | An explicitly required counterpart is absent from a complete module graph. |
 | `render/content-omit-stale` / `-redundant` / `-ambiguous` / `-unresolved` | The targeted exception needs repair. |
 | `render/content-policy-invalid` | The policy or target identifier is invalid. |
 
@@ -226,8 +218,7 @@ specific codes:
 ```bash
 proa lint src/components/product \
   --deny render/content-coverage \
-  --deny render/content-coverage-unchecked \
-  --deny render/content-view-missing
+  --deny render/content-coverage-unchecked
 ```
 
 Also deny the omission codes above when enforcing exception hygiene. Denied
@@ -241,9 +232,10 @@ counterparts from their enclosing Cargo packages. `--root` can select a broader
 analysis root; it also retains its RSJS sidecar role. A diagnostic affecting a
 pair is reported when either view is selected. `--staged` reads working-tree
 source from staged paths, as the CLI's other source checks do; it is not an
-analysis of Git index snapshots. A deleted or unresolvable module, or an unexpanded item macro, prevents a
-confirmed missing-counterpart assertion. Git selection excludes deleted paths;
-use a full source scan when the only change deletes a view. Standard Cargo
+analysis of Git index snapshots. A deleted or unresolvable module, or an
+unexpanded item macro, prevents a confirmed stale-omission assertion when a
+source view cannot be found. Git selection excludes deleted paths; use a full
+source scan when the only change deletes a view. Standard Cargo
 `src/lib.rs`, `src/main.rs`, and `src/bin/*.rs` roots are indexed. Custom Cargo
 entry paths are analyzed locally; their discovery remains bounded.
 

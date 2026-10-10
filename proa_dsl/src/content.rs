@@ -14,7 +14,6 @@ pub struct ContentPolicy {
     pub reason: Option<LitStr>,
     pub source: Option<Type>,
     pub from: Option<LitStr>,
-    pub require: Vec<LitStr>,
 }
 
 impl Parse for ContentPolicy {
@@ -43,31 +42,10 @@ impl Parse for ContentPolicy {
                     input.parse::<Token![=]>()?;
                     policy.from = Some(nonempty(input.parse()?, "source target")?);
                 }
-                "require" => {
-                    input.parse::<Token![=]>()?;
-                    if input.peek(syn::token::Bracket) {
-                        let list;
-                        syn::bracketed!(list in input);
-                        let items =
-                            syn::punctuated::Punctuated::<LitStr, Token![,]>::parse_terminated(
-                                &list,
-                            )?;
-                        for item in items {
-                            policy.require.push(nonempty(item, "required target")?);
-                        }
-                    } else {
-                        policy
-                            .require
-                            .push(nonempty(input.parse()?, "required target")?);
-                    }
-                    if policy.require.is_empty() {
-                        return Err(input.error("`require` needs at least one target"));
-                    }
-                }
                 _ => {
                     return Err(syn::Error::new(
                         option.span(),
-                        "expected `skip`, `reason`, `source`, `from`, or `require`",
+                        "expected `skip`, `reason`, `source`, or `from`",
                     ))
                 }
             }
@@ -76,9 +54,7 @@ impl Parse for ContentPolicy {
             }
             input.parse::<Token![,]>()?;
         }
-        if policy.skip
-            && (policy.source.is_some() || policy.from.is_some() || !policy.require.is_empty())
-        {
+        if policy.skip && (policy.source.is_some() || policy.from.is_some()) {
             return Err(input.error("`skip` exempts the whole view; use it alone or with `reason`"));
         }
         Ok(policy)
@@ -212,12 +188,10 @@ mod tests {
     #[test]
     fn policy_accepts_both_exemption_and_pairing() {
         assert!(syn::parse_str::<ContentPolicy>("skip").unwrap().skip);
-        let policy = syn::parse_str::<ContentPolicy>(
-            "source = HtmlProduct, from = \"html\", require = [\"text\", \"json\"]",
-        )
-        .unwrap();
-        assert_eq!(policy.require.len(), 2);
+        let policy =
+            syn::parse_str::<ContentPolicy>("source = HtmlProduct, from = \"html\"").unwrap();
         assert!(policy.source.is_some());
+        assert_eq!(policy.from.unwrap().value(), "html");
     }
     #[test]
     fn malformed_policy_is_actionable() {
@@ -226,6 +200,8 @@ mod tests {
             "skip, skip",
             "reason = \"\"",
             "require = []",
+            "require = \"markdown\"",
+            "require = [\"markdown\", \"plain\"]",
             "skpi",
         ] {
             assert!(syn::parse_str::<ContentPolicy>(input).is_err(), "{input}");
