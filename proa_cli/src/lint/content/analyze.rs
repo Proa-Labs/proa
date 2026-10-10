@@ -1011,17 +1011,8 @@ impl Analyzer<'_> {
                     OmissionKey::Values(value.deps)
                 }
             }
-            OmitSelector::Child { call, ty } => {
-                let helper = match call.func.as_ref() {
-                    Expr::Path(path) => self.resolver.path(&path.path),
-                    _ => String::new(),
-                };
-                let shadowed = bare(&call.func).is_some_and(|name| env.contains_key(&name));
-                if helper != "proa_core::content::child" || shadowed {
-                    OmissionKey::Unknown(
-                        "use the typed selector `proa_core::content::child::<ChildType>()`".into(),
-                    )
-                } else if let syn::Type::Path(path) = &ty {
+            OmitSelector::Child(ty) => {
+                if let syn::Type::Path(path) = &ty {
                     let generic_arguments = path.path.segments.iter().any(|segment| match &segment
                         .arguments
                     {

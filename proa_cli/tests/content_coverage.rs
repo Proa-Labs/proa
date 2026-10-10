@@ -111,7 +111,7 @@ fn changed_html_loads_unchanged_markdown_and_denied_info_is_visible() {
         .ends_with("src/html.rs"));
     assert_eq!(
         missing["suggestions"][0]["replacement"],
-        "proa_macros::omit!(proa_core::content::child::<crate::product::RestockNotice>());"
+        "proa_macros::omit!(crate::product::RestockNotice);"
     );
     let text = cli(
         root.path(),

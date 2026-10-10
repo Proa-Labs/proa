@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_core::{content::child, MdRenderSync, WebContext, WebRenderSync, WriteError};
+use proa_core::{MdRenderSync, WebContext, WebRenderSync, WriteError};
 use proa_macros::{content, content_part, html_sync, md_sync, omit};
 use std::{cell::Cell, ops::Deref};
 
@@ -82,7 +82,7 @@ fn omission_type_checks_without_evaluating_field_access_or_moving_values() {
     assert_eq!(dereferences.get(), 0);
     assert_eq!(value.fields.image, "owned");
     let value = String::from("still owned");
-    omit!(value);
+    omit!(&value);
     assert_eq!(value, "still owned");
 }
 
@@ -93,12 +93,8 @@ fn child_and_role_selectors_do_not_construct_or_evaluate_content() {
         label: &'a str,
         value: T,
     }
-    // These are ordinary Rust expressions outside the macro too.
-    const SELECTOR: proa_core::content::Child<Notice<'static, String>> =
-        child::<Notice<'static, String>>();
-    assert_eq!(std::mem::size_of_val(&SELECTOR), 0);
-    omit!(child::<Notice<'_, String>>());
-    omit!(child::<str>());
+    omit!(Notice<'_, String>);
+    omit!(str);
     omit!("restock", "Intentionally omitted");
     let calls = Cell::new(0);
     let output = content_part!("title", {
@@ -113,8 +109,28 @@ fn child_and_role_selectors_do_not_construct_or_evaluate_content() {
 fn omission_selectors_allow_locals_named_child_and_role() {
     let child = String::from("child");
     let role = String::from("role");
-    omit!(child);
-    omit!(role, "intentional");
+    omit!(&child);
+    omit!(&role, "intentional");
     assert_eq!(child, "child");
     assert_eq!(role, "role");
+}
+
+#[test]
+fn type_and_value_names_can_overlap_without_constructing_or_moving_them() {
+    #[allow(non_camel_case_types, dead_code)]
+    struct notice {
+        value: String,
+    }
+    let notice = String::from("still owned");
+    omit!(notice);
+    omit!(&notice);
+    assert_eq!(notice, "still owned");
+
+    struct Impact;
+    impl Drop for Impact {
+        fn drop(&mut self) {
+            panic!("a type omission must never construct the child");
+        }
+    }
+    omit!(Impact);
 }

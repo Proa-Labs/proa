@@ -16,9 +16,6 @@ pub mod email;
 pub mod md;
 pub mod web;
 
-/// Typed selectors for content-coverage intent.
-pub mod content;
-
 // Shared utilities (HTML building blocks used by web/email)
 pub mod shared;
 

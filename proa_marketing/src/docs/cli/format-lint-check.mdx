@@ -120,41 +120,43 @@ impl MdRenderSync for Product<'_> {
 ```
 
 The reason is optional. The value must type-check, but the marker does not
-evaluate or move it. Future HTML additions still get checked. For a local,
-put the marker after its declaration and before it is moved. For example,
+evaluate or move it. Future HTML additions still get checked. Bare paths select
+child types; use a Rust borrow (`&image`) to select a local value. Put a local's
+marker after its declaration and before it is moved. For example,
 replace the Markdown impl above with:
 
 ```rust
 impl MdRenderSync for Product<'_> {
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
         let image = self.image;
-        omit!(image, "Image is only shown in HTML");
+        omit!(&image, "Image is only shown in HTML");
         md_sync! { r###"# {self.title}"### }.render_md(cx)
     }
 }
 ```
 
 An existing child local works the same way. When the HTML view renders a child
-that has no local in Markdown, select its type with the ordinary Rust `child`
-function. For a product whose HTML view renders `RestockNotice`, this could live
+that has no local in Markdown, select its type directly. For a product whose
+HTML view renders `RestockNotice`, this could live
 in `src/views/product_markdown.rs`, with the types imported from `crate::product`.
 That module must expose the product's `title` and the notice type:
 
 ```rust
-use proa_core::{content::child, MdRenderSync, WebContext, WriteError};
+use proa_core::{MdRenderSync, WebContext, WriteError};
 use proa_macros::{md_sync, omit};
 use crate::product::{Product, RestockNotice};
 
 impl MdRenderSync for Product<'_> {
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        omit!(child::<RestockNotice<'_>>(), "Browser-only notice");
+        omit!(RestockNotice<'_>, "Browser-only notice");
         md_sync! { r###"# {self.title}"### }.render_md(cx)
     }
 }
 ```
 
 This is an alternative example for that product, rather than another impl to add
-alongside the earlier one. `child::<T>()` constructs no child. Lifetime-only child
+alongside the earlier one. The macro checks the type without constructing a child.
+Use `omit!(RestockNotice)` for a type without generic arguments. Lifetime-only child
 types can use `'_`. For type/const-generic children, or several occurrences with
 different inputs or conditions, use an existing child local or a named part to
 narrow the exception. A field used by several distinct children is ambiguous

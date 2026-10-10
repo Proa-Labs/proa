@@ -89,7 +89,7 @@ impl Parse for ContentPolicy {
 #[derive(Clone, Debug)]
 pub enum OmitSelector {
     Value(Expr),
-    Child { call: syn::ExprCall, ty: Type },
+    Child(Type),
     Role(LitStr),
 }
 
@@ -102,22 +102,7 @@ pub struct OmitContent {
 
 impl Parse for OmitContent {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let value: Expr = input.parse()?;
-        let selector = match value {
-            Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(role), .. }) => {
-                OmitSelector::Role(nonempty(role, "content role")?)
-            }
-            Expr::Call(call) => {
-                let ty = child_type(&call).ok_or_else(|| syn::Error::new_spanned(
-                    &call,
-                    "omit a local or field, a named part string, or `proa_core::content::child::<ChildType>()`",
-                ))?;
-                OmitSelector::Child { call, ty }
-            }
-            value if is_value_path(&value) => OmitSelector::Value(value),
-            value => return Err(syn::Error::new_spanned(value,
-                "omit a local or field, a named part string, or `proa_core::content::child::<ChildType>()`")),
-        };
+        let selector = parse_selector(input)?;
         let mut omission = Self {
             selector,
             reason: None,
@@ -152,27 +137,35 @@ impl Parse for OmitContent {
     }
 }
 
-fn child_type(call: &syn::ExprCall) -> Option<Type> {
-    if !call.args.is_empty() {
-        return None;
+fn parse_selector(input: ParseStream) -> syn::Result<OmitSelector> {
+    if input.peek(LitStr) {
+        return Ok(OmitSelector::Role(nonempty(
+            input.parse()?,
+            "content role",
+        )?));
     }
-    let Expr::Path(function) = call.func.as_ref() else {
-        return None;
-    };
-    if function.qself.is_some() {
-        return None;
+    // Bare paths are types. Fields and borrowed locals are values, so the
+    // compiler and linter never have to guess from identifier capitalization.
+    let probe = input.fork();
+    if let Ok(value) = probe.parse::<Expr>() {
+        if probe.is_empty() || probe.peek(Token![,]) {
+            match &value {
+                Expr::Field(_) | Expr::Reference(_) if is_value_path(&value) => {
+                    return Ok(OmitSelector::Value(input.parse()?));
+                }
+                Expr::Path(_) => {}
+                _ => return Err(syn::Error::new_spanned(value, SELECTOR_HELP)),
+            }
+        }
     }
-    let syn::PathArguments::AngleBracketed(args) = &function.path.segments.last()?.arguments else {
-        return None;
-    };
-    if args.colon2_token.is_none() || args.args.len() != 1 {
-        return None;
+    let ty: Type = input.parse().map_err(|_| input.error(SELECTOR_HELP))?;
+    if !matches!(ty, Type::Path(_)) {
+        return Err(syn::Error::new_spanned(ty, SELECTOR_HELP));
     }
-    match args.args.first()? {
-        syn::GenericArgument::Type(ty) => Some(ty.clone()),
-        _ => None,
-    }
+    Ok(OmitSelector::Child(ty))
 }
+
+const SELECTOR_HELP: &str = "expected a child type (`Impact<'_>`), field (`self.image`), borrowed local (`&notice`), or named part (`\"stock-status\"`)";
 
 /// Give a rendered expression an explicit semantic identity across targets.
 #[derive(Clone, Debug)]
@@ -208,6 +201,7 @@ fn is_value_path(value: &Expr) -> bool {
     match value {
         Expr::Path(path) => path.qself.is_none(),
         Expr::Field(field) => is_value_path(&field.base),
+        Expr::Reference(reference) => is_value_path(&reference.expr),
         _ => false,
     }
 }
@@ -241,8 +235,10 @@ mod tests {
     fn all_omission_scopes_parse() {
         for input in [
             "self.image",
-            "notice, \"Browser-only\"",
-            "child::<crate::Notice>()",
+            "&notice, \"Browser-only\"",
+            "crate::Notice",
+            "Notice<'_>",
+            "Notice<'_, String>",
             "\"restock\", from = \"html\"",
         ] {
             syn::parse_str::<OmitContent>(input).unwrap();
@@ -255,6 +251,8 @@ mod tests {
             "child Notice",
             "role \"notice\"",
             "child::<Notice>(value)",
+            "child::<Notice>()",
+            "&expensive()",
             "self.image()",
             "values[0]",
             "notice, \"\"",
@@ -271,11 +269,11 @@ mod selector_name_tests {
     #[test]
     fn child_and_role_remain_valid_local_variable_names() {
         for input in [
-            "child",
-            "role",
+            "&child",
+            "&role",
             "child.image",
-            "role, \"reason\"",
-            "child, from=\"html\"",
+            "&role, \"reason\"",
+            "&child, from=\"html\"",
         ] {
             assert!(matches!(
                 syn::parse_str::<OmitContent>(input).unwrap().selector,
@@ -283,11 +281,28 @@ mod selector_name_tests {
             ));
         }
         for input in [
-            "child::<crate::Notice>()",
-            "::proa_core::content::child::<module::Notice<String>>()",
+            "crate::Notice",
+            "module::Notice<String>",
+            "lowercase_type",
             "\"notice\"",
         ] {
             assert!(!matches!(
+                syn::parse_str::<OmitContent>(input).unwrap().selector,
+                OmitSelector::Value(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn type_and_value_selectors_do_not_guess_from_names() {
+        for input in ["Impact", "impact", "crate::Impact<'_>"] {
+            assert!(matches!(
+                syn::parse_str::<OmitContent>(input).unwrap().selector,
+                OmitSelector::Child(_)
+            ));
+        }
+        for input in ["&Impact", "&impact", "self.image", "value.image"] {
+            assert!(matches!(
                 syn::parse_str::<OmitContent>(input).unwrap().selector,
                 OmitSelector::Value(_)
             ));

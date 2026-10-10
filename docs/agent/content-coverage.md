@@ -52,22 +52,22 @@ impl MdRenderSync for Product<'_> {
 ```
 
 The value must exist and type-check. The marker neither evaluates nor moves it.
-For a local, place the marker after its declaration and before that local is moved.
+For a local, use `omit!(&notice)` after its declaration and before it is moved.
+Bare paths select types, while borrowed locals and dotted fields select values.
 A child local selects that child's contribution, including its input provenance.
 A field selects contributions depending on that field. If several children use
 `self.data`, omitting `self.data` is ambiguous and waives none of them.
 
-When the HTML view renders a child that has no local in Markdown, import the
-real typed `child` helper at file scope, and select the type inside `render_md`:
+When the HTML view renders a child that has no local in Markdown, import its
+type at file scope and select it directly inside `render_md`:
 
 ```rust
-use proa_core::content::child;
 use proa_macros::omit;
 use crate::product::RestockNotice;
 
 impl MdRenderSync for Product<'_> {
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        omit!(child::<RestockNotice<'_>>());
+        omit!(RestockNotice<'_>);
         md_sync! { r###"# {self.title}"### }.render_md(cx)
     }
 }
@@ -75,8 +75,8 @@ impl MdRenderSync for Product<'_> {
 
 This is an alternative Markdown implementation for a component whose HTML view
 renders that notice. Ordinary Rust type arguments apply: specify required
-lifetimes, type arguments, or const arguments as usual. The zero-sized selector
-constructs no child. For a child with type/const parameters, the bounded checker
+lifetimes, type arguments, or const arguments as usual. The macro checks the
+type without constructing a child. For a child with type/const parameters, the bounded checker
 cannot infer its concrete instantiation; use an existing child local or named
 part instead of a type selector. If several distinct occurrences have different inputs or
 presence conditions, use a local or named part to narrow the exception.
@@ -139,7 +139,7 @@ impl MdRenderSync for Product<'_> {
 The string selects the matching `content_part!` name in the source view.
 
 A marker can filter its source target: `omit!(self.image, from = "html")`
-or `omit!(child::<RestockNotice<'_>>(), "Browser only", from = "html")`.
+or `omit!(RestockNotice<'_>, "Browser only", from = "html")`.
 The initial registry uses `html` and `markdown` as target identifiers.
 
 ## Pairing and single-target components

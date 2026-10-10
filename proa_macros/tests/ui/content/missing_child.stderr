@@ -1,0 +1,5 @@
+error[E0425]: cannot find type `MissingNotice` in this scope
+ --> tests/ui/content/missing_child.rs:3:11
+  |
+3 |     omit!(MissingNotice);
+  |           ^^^^^^^^^^^^^ not found in this scope

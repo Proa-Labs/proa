@@ -338,7 +338,21 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                     .to_owned(),
             )
         } else if distinct.len() > 1 {
-            ("render/content-omit-ambiguous", format!("this omission selects {} distinct contributions", distinct.len()), format!("select one child with `omit!(proa_core::content::child::<path::Child>())` or one named part; candidates: {}", distinct.iter().map(|(key,_)| key.label()).collect::<Vec<_>>().join(", ")))
+            (
+                "render/content-omit-ambiguous",
+                format!(
+                    "this omission selects {} distinct contributions",
+                    distinct.len()
+                ),
+                format!(
+                    "select one child with `omit!(path::Child)` or one named part; candidates: {}",
+                    distinct
+                        .iter()
+                        .map(|(key, _)| key.label())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            )
         } else if matches.iter().all(|(_, s)| {
             target
                 .contributions
@@ -505,13 +519,13 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                 .flatten()
         });
         let omit = if let Some((name, _)) = &local {
-            Some(format!("proa_macros::omit!({name});"))
+            Some(format!("proa_macros::omit!(&{name});"))
         } else {
             match &part.key {
                 ContentKey::Child { ty, .. } => source
                     .child_selectors
                     .get(ty)
-                    .map(|ty| format!("proa_macros::omit!(proa_core::content::child::<{ty}>());")),
+                    .map(|ty| format!("proa_macros::omit!({ty});")),
                 ContentKey::Role(role) => Some(format!("proa_macros::omit!({role:?});")),
                 ContentKey::Value(value)
                     if value.starts_with("self.")
