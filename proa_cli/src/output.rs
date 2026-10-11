@@ -174,7 +174,7 @@ mod content_output_tests {
             &primary.path,
             3,
             4,
-            Severity::Info,
+            Severity::Error,
             "render/content-coverage",
             "Product omits Notice",
         )
@@ -199,11 +199,13 @@ mod content_output_tests {
             applicability: SuggestionApplicability::MaybeIncorrect,
         });
         let json = serde_json::to_value(DiagnosticJson::from(&d)).unwrap();
+        assert_eq!(json["severity"], "error");
         assert_eq!(json["labels"][1]["range"]["path"], "src/html.rs");
         assert_eq!(json["labels"][0]["range"]["end_column"], 10);
         assert_eq!(json["suggestions"][0]["applicability"], "maybe-incorrect");
         assert_eq!(json["notes"][0], "construction is not output");
         let github = github_annotation(&d);
+        assert!(github.starts_with("::error "));
         assert!(github.contains("src/html.rs:8:9: HTML child"));
         assert!(github.contains("%0Anote: construction is not output"));
         assert!(github.contains("omit!(Notice);"));

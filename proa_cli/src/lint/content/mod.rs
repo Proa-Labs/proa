@@ -211,10 +211,10 @@ fn diag(
         &range.path,
         range.line,
         range.column,
-        if code == "render/content-policy-invalid" {
-            Severity::Error
-        } else {
-            Severity::Info
+        match code {
+            "render/content-policy-invalid" | "render/content-coverage" => Severity::Error,
+            "render/content-coverage-unchecked" => Severity::Warning,
+            _ => Severity::Info,
         },
         code,
         message,

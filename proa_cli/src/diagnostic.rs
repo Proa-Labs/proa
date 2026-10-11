@@ -386,7 +386,7 @@ mod frame_tests {
             &range.path,
             2,
             5,
-            Severity::Info,
+            Severity::Error,
             "render/content-coverage",
             "Product Markdown omits RestockNotice",
         )
@@ -409,7 +409,7 @@ mod frame_tests {
             replacement: "proa_macros::omit!(RestockNotice);".into(),
             applicability: SuggestionApplicability::MaybeIncorrect,
         });
-        assert_eq!(diag.to_string(),"info[render/content-coverage]: Product Markdown omits RestockNotice\n  --> src/product.md.rs:2:5\n   |\n 1 | fn render_md() {\n 2 |     md_sync! {}\n   |     ^^^^^^^^ the notice is absent here\n 3 | }\n   |\n  ::: src/product.html.rs:1:1\n   |\n 1 | notice.render(cx)\n   | ------- rendered in HTML\n   |\n   = note: constructing a child does not render it\n   = help: acknowledge an intentional omission inside render_md\n           proa_macros::omit!(RestockNotice);\n");
+        assert_eq!(diag.to_string(),"error[render/content-coverage]: Product Markdown omits RestockNotice\n  --> src/product.md.rs:2:5\n   |\n 1 | fn render_md() {\n 2 |     md_sync! {}\n   |     ^^^^^^^^ the notice is absent here\n 3 | }\n   |\n  ::: src/product.html.rs:1:1\n   |\n 1 | notice.render(cx)\n   | ------- rendered in HTML\n   |\n   = note: constructing a child does not render it\n   = help: acknowledge an intentional omission inside render_md\n           proa_macros::omit!(RestockNotice);\n");
     }
     #[test]
     fn rust_span_columns_are_unicode_scalar_offsets() {

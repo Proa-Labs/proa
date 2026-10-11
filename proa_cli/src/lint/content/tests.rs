@@ -33,6 +33,7 @@ fn deletion_catches_child_even_when_inputs_are_equal() {
     let mutated = original.replace("{restock} {impact}", "{restock}");
     let diags = missing(&mutated);
     assert_eq!(diags.len(), 1);
+    assert_eq!(diags[0].severity, Severity::Error);
     assert!(diags[0].message.contains("Impact"));
     assert!(diags[0].help.as_ref().unwrap().contains("{impact}"));
     assert_eq!(diags[0].labels.len(), 2);
@@ -66,6 +67,7 @@ fn conditions_do_not_count_as_output_and_wrong_guard_is_unchecked() {
     let diags = lint(&src);
     assert_eq!(code(&diags, "render/content-coverage-unchecked"), 1);
     assert_eq!(code(&diags, "render/content-coverage"), 0);
+    assert_eq!(diags[0].severity, Severity::Warning);
     assert!(diags[0]
         .notes
         .iter()
@@ -86,6 +88,23 @@ fn opaque_helpers_are_not_confirmed_absence() {
     assert_eq!(code(&diags, "render/content-coverage"), 0);
     assert_eq!(code(&diags, "render/content-coverage-unchecked"), 1);
     assert!(diags[0].notes.iter().any(|n| n.contains("helper")));
+}
+
+#[test]
+fn unresolved_render_trait_discovery_is_a_warning() {
+    let source = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+    )
+    .replace(
+        IMPORTS,
+        "use proa_core::*; use proa_macros::{html_sync, md_sync};",
+    );
+    let diags = lint(&source);
+    assert!(!diags.is_empty());
+    assert!(diags.iter().all(|d| {
+        d.code == "render/content-coverage-unchecked" && d.severity == Severity::Warning
+    }));
 }
 #[test]
 fn context_and_loader_preparation_do_not_create_content_obligations() {

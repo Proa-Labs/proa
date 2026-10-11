@@ -1,6 +1,6 @@
 # Keep content across render targets
 
-Run `proa lint src --min-severity info` to discover content differences. The
+Run `proa lint src` to check content differences. The
 initial policy compares HTML output contributions with Markdown for the same
 component. It follows values into output: adding a field read, constructing a
 child, or creating an unused template does not satisfy coverage.
@@ -204,25 +204,27 @@ cause, and a repair. Suggested omissions are scoped to an actual value or
 resolvable child. They are suggestions requiring author judgment; the linter
 never inserts an exception automatically.
 
-| Code | Meaning |
-| --- | --- |
-| `render/content-coverage` | A supported rendered contribution is absent. |
-| `render/content-coverage-unchecked` | Conditions, helpers, discovery, or another boundary prevent a conclusion. |
-| `render/content-omit-stale` / `-redundant` / `-ambiguous` / `-unresolved` | The targeted exception needs repair. |
-| `render/content-policy-invalid` | The policy or target identifier is invalid. |
+| Code | Severity | Meaning |
+| --- | --- | --- |
+| `render/content-coverage` | Error | A supported rendered contribution is absent. |
+| `render/content-coverage-unchecked` | Warning | Conditions, helpers, discovery, or another boundary prevent a conclusion. |
+| `render/content-omit-stale` / `-redundant` / `-ambiguous` / `-unresolved` | Info | The targeted exception needs repair. |
+| `render/content-policy-invalid` | Error | The policy or target identifier is invalid. |
 
-Discovery uses informational diagnostics, so it preserves existing warning
-policies in `proa check` and lifecycle checks. Opt a reviewed scope into CI with
-specific codes:
+Missing contributions fail `proa lint` by default. Unchecked coverage is visible
+at the default warning threshold and fails with `--deny-warnings`. `proa check`
+and lifecycle source checks fail on both errors and warnings; `proa check
+--allow-warnings` permits unchecked coverage but still rejects missing content.
+A targeted `omit!` marker acknowledges an intentional content difference.
 
 ```bash
-proa lint src/components/product \
-  --deny render/content-coverage \
-  --deny render/content-coverage-unchecked
+proa lint src/components/product --deny-warnings
 ```
 
-Also deny the omission codes above when enforcing exception hygiene. Denied
-informational codes are shown even when the display threshold is `warning`.
+Paired, unpaired, and exempt discovery status remains informational. Omission
+hygiene diagnostics also remain informational; deny their specific codes when
+enforcing exception hygiene. Denied informational codes are shown even when the
+display threshold is `warning`.
 `--deny` changes exit status, not the printed severity. `--json` adds labels,
 notes, and structured suggestions to the existing diagnostic fields. `--github`
 includes counterpart locations and the same notes and repair guidance.
