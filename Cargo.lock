@@ -693,22 +693,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "const_json"
-version = "0.1.2"
-dependencies = [
- "const_json_macros",
-]
-
-[[package]]
-name = "const_json_macros"
-version = "0.1.2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "cookie"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2721,6 +2705,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "proa_const_json"
+version = "0.1.2"
+dependencies = [
+ "proa_const_json_macros",
+]
+
+[[package]]
+name = "proa_const_json_macros"
+version = "0.1.2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "proa_core"
 version = "0.3.0"
 dependencies = [
@@ -3059,6 +3059,27 @@ dependencies = [
  "proa_core",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "proa_tailwind_merge"
+version = "0.1.2"
+dependencies = [
+ "once_cell",
+ "pretty_assertions",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "proa_tailwind_merge_macro"
+version = "0.1.2"
+dependencies = [
+ "proa_tailwind_merge",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -4504,27 +4525,6 @@ checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
 dependencies = [
  "core-foundation-sys",
  "libc",
-]
-
-[[package]]
-name = "tailwind-merge"
-version = "0.1.2"
-dependencies = [
- "once_cell",
- "pretty_assertions",
- "regex",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "tailwind-merge-macro"
-version = "0.1.2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
- "tailwind-merge",
 ]
 
 [[package]]

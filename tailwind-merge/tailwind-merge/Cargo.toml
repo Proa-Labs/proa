@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [package]
-name = "tailwind-merge"
+name = "proa_tailwind_merge"
 version = "0.1.2"
 edition.workspace = true
 publish.workspace = true
@@ -12,6 +12,9 @@ description = "Runtime and const-evaluable Tailwind CSS class conflict resolutio
 license-file.workspace = true
 repository.workspace = true
 homepage.workspace = true
+
+[lib]
+name = "tailwind_merge"
 
 [dependencies]
 once_cell = { version = "1.20.2" }

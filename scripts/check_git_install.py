@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import re
+import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,9 +63,20 @@ def main() -> None:
             )
             manifest = project / "Cargo.toml"
             # Test the exact candidate commit, even before the PR merges.
-            source = manifest.read_text().replace(
-                'git = "https://github.com/Proa-Labs/proa.git"',
-                f'git = "{ROOT.as_uri()}", rev = "{revision}"',
+            def candidate_dependency(match: re.Match) -> str:
+                name, value = match.groups()
+                dependency = tomllib.loads(f"dependency = {value}")["dependency"]
+                if isinstance(dependency, str):
+                    dependency = f'version = "{dependency}"'
+                else:
+                    dependency = value.strip()[1:-1].strip()
+                return f'{name} = {{ {dependency}, git = "{ROOT.as_uri()}", rev = "{revision}" }}'
+
+            source = re.sub(
+                r"^(proa_[a-z_]+|rsjs)\s*=\s*(.+)$",
+                candidate_dependency,
+                manifest.read_text(),
+                flags=re.MULTILINE,
             )
             manifest.write_text(source)
             metadata = json.loads(subprocess.check_output(

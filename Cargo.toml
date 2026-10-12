@@ -81,7 +81,7 @@ brotli = { version = "8" }
 byteorder = { version = "1.5.0" }
 bytes = { version = "1" }
 chrono = { version = "0.4.38", features = ["clock", "serde"] }
-const_json_macros = { path = "const_json/const_json_macros", version = "0.1.2" }
+const_json_macros = { package = "proa_const_json_macros", path = "const_json/const_json_macros", version = "0.1.2" }
 criterion = { version = "0.5", default-features = false }
 dashmap = { version = "6.1.0", features = ["serde"] }
 futures = { version = "0.3.29" }
@@ -139,7 +139,7 @@ serde_json = { version = "1.0" }
 sha2 = { version = "0.10.8", features = ["oid"] }
 syn = { version = "2.0.89" }
 syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
-tailwind-merge = { path = "tailwind-merge/tailwind-merge", version = "0.1.2" }
+tailwind-merge = { package = "proa_tailwind_merge", path = "tailwind-merge/tailwind-merge", version = "0.1.2" }
 tempfile = { version = "3" }
 thiserror = { version = "2.0.17" }
 tokio = { version = "1.34.0", features = ["full"] }

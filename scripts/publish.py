@@ -6,7 +6,7 @@
 Publish selected Proa workspace crates to crates.io after ownership review.
 
 Usage:
-    export CARGO_REGISTRY_TOKEN=<publisher token>
+    cargo login  # or configure CARGO_REGISTRY_TOKEN through your secret manager
     scripts/publish.py [--dry-run] [--skip-published] [--only crate1,crate2]
 
 Dry runs execute the policy/archive preflight and print the dependency order;
@@ -19,7 +19,6 @@ See docs/registry.md for the repository-side release policy.
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 import time
@@ -228,13 +227,8 @@ def main():
         )
         return 0
 
-    if "CARGO_REGISTRY_TOKEN" not in os.environ:
-        print(
-            "ERROR: set CARGO_REGISTRY_TOKEN to an authorized publisher token",
-            file=sys.stderr,
-        )
-        return 2
-
+    # Cargo resolves its standard credential providers (including cargo login
+    # and CARGO_REGISTRY_TOKEN). Do not read or print publisher credentials here.
     if args.skip_published:
         try:
             published = list_remote_versions(order)

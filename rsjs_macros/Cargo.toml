@@ -30,6 +30,8 @@ sha2 = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits", "visit", "fold"] }
 
 [dev-dependencies]
+# Forward development dependencies stay local during the first crates.io release.
+# Cargo omits path-only dev dependencies from archives; workspace tests retain them.
 # `prettyplease` formats the emit_rust output before golden
 # comparison so the golden file stays human-readable across rustfmt
 # changes.
@@ -40,7 +42,7 @@ proa_macros = { workspace = true }
 # Cyclic dev-dep: integration tests for the proc-macro need to resolve
 # the `::rsjs::*` paths the macro expansion emits (manifest types,
 # linkme re-export). Cargo allows dev-dependency cycles.
-rsjs = { workspace = true }
+rsjs = { path = "../rsjs" }
 serde = { workspace = true }
 # Diagnostic golden suite (M7h): trybuild snapshots compile errors so
 # changes to the user-facing message surface require an intentional

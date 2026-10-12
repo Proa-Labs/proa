@@ -35,10 +35,12 @@ syn = { workspace = true, features = ["full", "parsing", "extra-traits", "visit"
 # generates code that references it, which is resolved in the user's crate
 
 [dev-dependencies]
-proa_actions = { workspace = true }
+# Forward development dependencies stay local during the first crates.io release.
+# Cargo omits path-only dev dependencies from archives; workspace tests retain them.
+proa_actions = { path = "../proa_actions" }
 proa_core = { workspace = true }
-proa_ir = { workspace = true }
-proa_react = { workspace = true }
+proa_ir = { path = "../proa_ir" }
+proa_react = { path = "../proa_react" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }

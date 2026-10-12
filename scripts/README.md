@@ -103,12 +103,13 @@ GitHub Release can publish. Exercise that contract locally with:
 python3 scripts/test_cli_binary_distribution.py
 ```
 
-## Future crates.io releases
+## crates.io releases
 
-GitHub releases and Git source installation are the current Proa distribution
-paths. The manual Cargo publishing tools target `crates-io`; no automatic
-Cargo publishing workflow is enabled. Before publishing, review package-name
-ownership and release readiness in [`docs/registry.md`](../docs/registry.md).
+The CLI and reusable libraries support crates.io installation. GitHub releases
+and Git source installation remain available. The manual publishing tools
+target `crates-io`; no automatic Cargo publishing workflow is enabled. Before
+publishing, review package-name ownership and release readiness in
+[`docs/registry.md`](../docs/registry.md).
 
 ```bash
 python3 scripts/check_publish_policy.py
@@ -122,7 +123,7 @@ unpublished dependent archives. Actual publication verifies each package and
 waits for its version to resolve before continuing with dependents:
 
 ```bash
-# Supply CARGO_REGISTRY_TOKEN through your secret manager.
+# Run cargo login locally, or supply CARGO_REGISTRY_TOKEN through your secret manager.
 python3 scripts/publish.py --skip-published
 ```
 

@@ -4,7 +4,7 @@ description: Create a Proa site, run it, and edit your first route in five minut
 sidebar_title: Quickstart
 ---
 
-This quickstart gets you from an empty directory to a hello world Proa. It should take about five minutes once Rust, GitHub access to the Proa repository, and the Proa CLI are ready.
+This quickstart gets you from an empty directory to a hello world Proa. It should take about five minutes once Rust and the Proa CLI are ready.
 
 <Callout type="info">
 Building with an AI agent? The complete documentation is served at [/llms-full.txt](/llms-full.txt) for agent consumption. [LLM docs](/docs/llms) lists the other machine-readable interfaces.
@@ -34,10 +34,14 @@ irm https://proa.so/install.ps1 | iex
 
 </Tabs>
 
-The current prebuilt binary targets 64-bit Ubuntu 24.04+. On macOS, Windows,
-ARM Linux, and older Linux releases, the installer builds the CLI from source
-automatically; while the source repository is private, that fallback requires
-GitHub access to it.
+The installer selects a checksum-verified release binary or builds the CLI
+from source for your platform. You can also install directly from crates.io:
+
+```bash
+cargo install proa-cli --version 0.1.1 --locked
+```
+
+Proa is public; no GitHub credential or Cargo publishing token is needed.
 
 <Accordions>
 
@@ -48,10 +52,10 @@ CARGO_NET_GIT_FETCH_WITH_CLI=true \
   cargo install --git https://github.com/proa-labs/proa --locked proa-cli
 ```
 
-The prefix matters: Proa crates are git dependencies, and the git CLI fetch
-picks up credential helpers and proxy settings that Cargo's built-in fetcher
-does not. [Troubleshooting](/docs/guides/troubleshooting) has the
-details.
+The Git CLI option uses your configured proxy settings and credential helpers
+when installing an unreleased source revision. Generated projects use crates.io
+dependencies. [Troubleshooting](/docs/guides/troubleshooting) covers dependency
+resolution failures.
 
 </Accordion>
 
