@@ -225,8 +225,8 @@ impl<L: DataLoader> WebRender<L> for DatabaseBadge {
             WebRenderSync::render(html_sync! {
                 <span data-database-badge data-driver={status.driver} class="status-pill">
                     <span class="status-dot"></span>
-                    {proa_macros::content_part!("database-driver", status.driver)} " "
-                    {proa_macros::content_part!("database-version", status.version.as_str())}
+                    {status.driver} " "
+                    {status.version.as_str()}
                 </span>
             }, cx)
         })
@@ -238,8 +238,8 @@ impl<L: DataLoader> proa_core::MdRender<L> for DatabaseBadge {
         RenderOutcome::pending(async move {
             let status = cx.load_typed::<DatabaseStatus>(database_status_key()).await?;
             proa_core::MdRenderSync::render_md(proa_macros::md_sync! {
-                {proa_macros::content_part!("database-driver", status.driver)} " "
-                {proa_macros::content_part!("database-version", status.version.as_str())}
+                {status.driver} " "
+                {status.version.as_str()}
             }, cx)
         })
     }
@@ -267,9 +267,9 @@ impl<L: DataLoader> WebRender<L> for DatabaseCard {
             let status = cx.load_typed::<DatabaseStatus>(database_status_key()).await?;
             WebRenderSync::render(html_sync! {
                 <article data-database-card class="metric-card">
-                    <p class="metric-label">{proa_macros::content_part!("database-origin", "DATA ORIGIN")}</p>
-                    <p class="metric-value">{proa_macros::content_part!("database-driver", status.driver)}</p>
-                    <p class="metric-note">{proa_macros::content_part!("database-loading", "Two component requests resolve through one keyed origin query.")}</p>
+                    <p class="metric-label">"DATA ORIGIN"</p>
+                    <p class="metric-value">{status.driver}</p>
+                    <p class="metric-note">"Two component requests resolve through one keyed origin query."</p>
                 </article>
             }, cx)
         })
@@ -281,9 +281,9 @@ impl<L: DataLoader> proa_core::MdRender<L> for DatabaseCard {
         RenderOutcome::pending(async move {
             let status = cx.load_typed::<DatabaseStatus>(database_status_key()).await?;
             proa_core::MdRenderSync::render_md(proa_macros::md_sync! {
-                "## " {proa_macros::content_part!("database-origin", "DATA ORIGIN")}
-                "\n\n" {proa_macros::content_part!("database-driver", status.driver)}
-                "\n\n" {proa_macros::content_part!("database-loading", "Two component requests resolve through one keyed origin query.")}
+                "## " "DATA ORIGIN"
+                "\n\n" {status.driver}
+                "\n\n" "Two component requests resolve through one keyed origin query."
             }, cx)
         })
     }
@@ -335,9 +335,9 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
         };
         let button = if has_ui {
             if has_database {
-                r#"{proa_core::to_async(Button { label: "READ THE MARKDOWN", href: proa_macros::content_part!("markdown-url", Some("/index.md")), class: None })}"#
+                r#"{proa_core::to_async(Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None })}"#
             } else {
-                r#"{Button { label: "READ THE MARKDOWN", href: proa_macros::content_part!("markdown-url", Some("/index.md")), class: None }}"#
+                r#"{Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }}"#
             }
         } else {
             "<a href=\"/index.md\">\"READ THE MARKDOWN\"</a>"
@@ -368,10 +368,10 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
             .replace("__CARD__", card)
             .replace("__HTML_MACRO__", html_macro)
     };
-    let (body, copy) = if markdown {
-        name_starter_copy(body)
+    let copy = if markdown {
+        starter_markdown_copy(&body)
     } else {
-        (body, String::new())
+        String::new()
     };
     let markdown_impl = if markdown {
         home_markdown_impl(has_database, has_ui, blank, &copy)
@@ -429,7 +429,7 @@ __MARKDOWN_IMPL__
     .replace("__MARKDOWN_IMPL__", &markdown_impl)
 }
 
-fn name_starter_copy(mut body: String) -> (String, String) {
+fn starter_markdown_copy(body: &str) -> String {
     use proa_dsl::parse::{Attribute, Node};
     fn collect(nodes: &[Node], values: &mut Vec<syn::LitStr>) {
         for node in nodes {
@@ -453,35 +453,30 @@ fn name_starter_copy(mut body: String) -> (String, String) {
             }
         }
     }
-    let invocation = crate::source::find_macros(&body).remove(0);
-    let root = crate::lint::parse_invocation(&body, &invocation).expect("valid starter HTML");
-    let source = crate::source::SourceMap::new(invocation.body(&body));
+    let invocation = crate::source::find_macros(body).remove(0);
+    let root = crate::lint::parse_invocation(body, &invocation).expect("valid starter HTML");
     let mut values = Vec::new();
     collect(&root.nodes, &mut values);
-    let mut replacements = Vec::new();
     let mut markdown = String::new();
-    for (index, value) in values.iter().enumerate() {
-        let span = value.span();
-        let start = invocation.body_start
-            + source
-                .byte_for_line_column(span.start().line, span.start().column)
-                .unwrap();
-        let end = invocation.body_start
-            + source
-                .byte_for_line_column(span.end().line, span.end().column)
-                .unwrap();
-        let expression = format!(
-            "{{proa_macros::content_part!(\"starter-copy-{index}\", {})}}",
-            &body[start..end]
-        );
-        markdown.push_str(&expression);
+    for value in values {
+        // Emit literal Markdown directly. Escape inline/list punctuation and
+        // double braces for the raw-template slot grammar.
+        for character in value.value().chars() {
+            match character {
+                '{' => markdown.push_str("{{"),
+                '}' => markdown.push_str("}}"),
+                '\\' | '`' | '*' | '_' | '[' | ']' | '(' | ')' | '<' | '>' | '|' | '~' | '&'
+                | '#' | '+' | '-' | '.' | '!' | '=' | ':' => {
+                    markdown.push('\\');
+                    markdown.push(character);
+                }
+                '\r' | '\n' | '\t' => markdown.push(' '),
+                _ => markdown.push(character),
+            }
+        }
         markdown.push_str("\n\n");
-        replacements.push((start, end, expression));
     }
-    for (start, end, replacement) in replacements.into_iter().rev() {
-        body.replace_range(start..end, &replacement);
-    }
-    (body, markdown)
+    markdown
 }
 
 fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool, copy: &str) -> String {
@@ -498,7 +493,7 @@ fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool, copy: &str)
             children.push_str(&lift("Badge::new(\"SERVER RENDERED IN RUST\")"));
             children.push_str("\n\n");
             children.push_str(&lift(
-                r#"Button { label: "READ THE MARKDOWN", href: proa_macros::content_part!("markdown-url", Some("/index.md")), class: None }"#,
+                r#"Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }"#,
             ));
             children.push_str("\n\n");
         }

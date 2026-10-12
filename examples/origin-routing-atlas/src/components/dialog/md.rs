@@ -5,7 +5,6 @@ use super::{
     Dialog, DialogButtonTrigger, DialogClose, DialogCloseButton, DialogContent, DialogDescription,
     DialogFooter, DialogHeader, DialogOverlay, DialogTitle, DialogTrigger,
 };
-use crate::components::_proa::md_support::block_boundary;
 use proa_core::WebContext;
 use proa_core::{MdRenderSync, WriteBuf, WriteError};
 use proa_macros::md_sync;
@@ -16,9 +15,9 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, Trigger, Content: MdRenderSyn
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         proa_macros::omit!(self.trigger);
-        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
+        cx.md_block_boundary()?;
         self.content.render_md(cx)?;
-        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
+        cx.md_block_boundary()?;
         Ok(())
     }
 }
@@ -53,10 +52,10 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for DialogContent<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        proa_macros::omit!("close-control");
-        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
+        proa_macros::omit!("Close");
+        cx.md_block_boundary()?;
         self.children.render_md(cx)?;
-        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
+        cx.md_block_boundary()?;
         Ok(())
     }
 }
@@ -76,11 +75,11 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for DialogTitle<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
+        cx.md_block_boundary()?;
         let prev = cx.md_set_inline(true);
         md_sync! { "**" { self.children } "**" }.render_md(cx)?;
         cx.md_set_inline(prev);
-        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
+        cx.md_block_boundary()?;
         Ok(())
     }
 }
@@ -90,9 +89,9 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for DialogDescription<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
+        cx.md_block_boundary()?;
         self.children.render_md(cx)?;
-        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
+        cx.md_block_boundary()?;
         Ok(())
     }
 }
@@ -102,9 +101,9 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for DialogFooter<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
+        cx.md_block_boundary()?;
         self.children.render_md(cx)?;
-        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
+        cx.md_block_boundary()?;
         Ok(())
     }
 }

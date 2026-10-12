@@ -2630,6 +2630,7 @@ dependencies = [
  "proa_dsl",
  "proa_fonts_build",
  "proc-macro2",
+ "pulldown-cmark",
  "quote",
  "rayon",
  "reqwest 0.12.24",

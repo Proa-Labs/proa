@@ -119,7 +119,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-slot="card-title"
                 class={proa_macros::text!("{} {}", CARD_RECIPE.title, self.class)}
             >
-                {proa_macros::content_part!("card-title", self.children)}
+                {self.children}
             </h3>
         }
         .render(cx)

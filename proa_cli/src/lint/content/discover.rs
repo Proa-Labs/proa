@@ -54,6 +54,10 @@ pub(super) struct Resolver {
     pub imports: BTreeMap<String, String>,
     pub symbols: BTreeSet<String>,
     pub fields: BTreeMap<String, Vec<String>>,
+    pub constants: BTreeMap<String, Option<String>>,
+    pub functions: BTreeSet<String>,
+    pub optional_fields: BTreeMap<String, BTreeSet<String>>,
+    pub unit_variants: BTreeSet<String>,
     pub child_selectors: BTreeMap<String, String>,
     pub generic_children: BTreeSet<String>,
     pub glob: bool,
@@ -675,10 +679,20 @@ pub(super) fn lint_sources(
             imports: context.imports.clone(),
             symbols: BTreeSet::new(),
             fields: BTreeMap::new(),
+            constants: BTreeMap::new(),
+            functions: BTreeSet::new(),
+            optional_fields: BTreeMap::new(),
+            unit_variants: BTreeSet::new(),
             child_selectors: BTreeMap::new(),
             generic_children: BTreeSet::new(),
             glob: context.glob,
-            extern_roots: ["proa_core".into(), "proa_macros".into()].into(),
+            extern_roots: [
+                "proa_core".into(),
+                "proa_macros".into(),
+                "std".into(),
+                "core".into(),
+            ]
+            .into(),
         };
         for item in &context.items {
             if let Item::Impl(item) = item {
@@ -849,6 +863,119 @@ pub(super) fn lint_sources(
             }
         }
     }
+    let mut constants = HashMap::<String, BTreeMap<String, Option<String>>>::new();
+    let mut functions = HashMap::<String, BTreeSet<String>>::new();
+    for context in &contexts {
+        for item in &context.items {
+            match item {
+                Item::Const(item) => {
+                    let unconditional = context.configuration.is_empty()
+                        && !item.attrs.iter().any(|attr| {
+                            attr.path().is_ident("cfg") || attr.path().is_ident("cfg_attr")
+                        });
+                    let text = match item.expr.as_ref() {
+                        syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Str(text),
+                            ..
+                        }) if unconditional => Some(text.value()),
+                        _ => None,
+                    };
+                    constants
+                        .entry(context.crate_id.clone())
+                        .or_default()
+                        .entry(format!("{}::{}", context.module, item.ident))
+                        .and_modify(|value| *value = None)
+                        .or_insert(text);
+                }
+                Item::Fn(item) => {
+                    functions
+                        .entry(context.crate_id.clone())
+                        .or_default()
+                        .insert(format!("{}::{}", context.module, item.sig.ident));
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut optional_fields = HashMap::<String, BTreeMap<String, BTreeSet<String>>>::new();
+    for context in &contexts {
+        let shadows_option = context.imports.get("Option").is_some_and(|path| {
+            !matches!(
+                path.as_str(),
+                "core::option::Option" | "std::option::Option"
+            )
+        }) || context.items.iter().any(|item| match item {
+            Item::Struct(item) => item.ident == "Option",
+            Item::Enum(item) => item.ident == "Option",
+            Item::Type(item) => item.ident == "Option",
+            _ => false,
+        });
+        for item in &context.items {
+            if let Item::Struct(item) = item {
+                if !context.configuration.is_empty()
+                    || item
+                        .attrs
+                        .iter()
+                        .any(|attr| attr.path().is_ident("cfg") || attr.path().is_ident("cfg_attr"))
+                {
+                    continue;
+                }
+                let fields = optional_fields
+                    .entry(context.crate_id.clone())
+                    .or_default()
+                    .entry(format!("{}::{}", context.module, item.ident))
+                    .or_default();
+                for field in &item.fields {
+                    if field
+                        .attrs
+                        .iter()
+                        .any(|attr| attr.path().is_ident("cfg") || attr.path().is_ident("cfg_attr"))
+                    {
+                        continue;
+                    }
+                    let Some(name) = &field.ident else {
+                        continue;
+                    };
+                    let syn::Type::Path(ty) = &field.ty else {
+                        continue;
+                    };
+                    let path = ty
+                        .path
+                        .segments
+                        .iter()
+                        .map(|segment| segment.ident.to_string())
+                        .collect::<Vec<_>>()
+                        .join("::");
+                    if (!shadows_option && path == "Option")
+                        || matches!(
+                            path.as_str(),
+                            "core::option::Option" | "std::option::Option"
+                        )
+                    {
+                        fields.insert(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let mut unit_variants = HashMap::<String, BTreeSet<String>>::new();
+    for context in &contexts {
+        for item in &context.items {
+            if let Item::Enum(item) = item {
+                for variant in &item.variants {
+                    if matches!(variant.fields, syn::Fields::Unit) {
+                        unit_variants
+                            .entry(context.crate_id.clone())
+                            .or_default()
+                            .insert(format!(
+                                "{}::{}::{}",
+                                context.module, item.ident, variant.ident
+                            ));
+                    }
+                }
+            }
+        }
+    }
     let mut views = Vec::new();
     for context in contexts {
         // Views share the parsed file/module rather than cloning its entire AST.
@@ -866,6 +993,22 @@ pub(super) fn lint_sources(
             imports: context.imports.clone(),
             symbols: symbols.get(&context.crate_id).cloned().unwrap_or_default(),
             fields: fields.get(&context.crate_id).cloned().unwrap_or_default(),
+            unit_variants: unit_variants
+                .get(&context.crate_id)
+                .cloned()
+                .unwrap_or_default(),
+            optional_fields: optional_fields
+                .get(&context.crate_id)
+                .cloned()
+                .unwrap_or_default(),
+            constants: constants
+                .get(&context.crate_id)
+                .cloned()
+                .unwrap_or_default(),
+            functions: functions
+                .get(&context.crate_id)
+                .cloned()
+                .unwrap_or_default(),
             child_selectors: child_selectors
                 .get(&context.crate_id)
                 .cloned()
@@ -874,23 +1017,28 @@ pub(super) fn lint_sources(
                 .get(&context.crate_id)
                 .cloned()
                 .unwrap_or_default(),
-            extern_roots: ["proa_core".to_owned(), "proa_macros".to_owned()]
-                .into_iter()
-                .chain(
-                    options
-                        .targets
-                        .iter()
-                        .flat_map(|t| {
-                            t.traits
-                                .iter()
-                                .chain(&t.templates)
-                                .chain(&t.adapters)
-                                .chain(&t.future_sinks)
-                        })
-                        .filter_map(|identity| identity.split("::").next().map(str::to_owned))
-                        .filter(|name| name != "crate"),
-                )
-                .collect(),
+            extern_roots: [
+                "proa_core".to_owned(),
+                "proa_macros".to_owned(),
+                "std".to_owned(),
+                "core".to_owned(),
+            ]
+            .into_iter()
+            .chain(
+                options
+                    .targets
+                    .iter()
+                    .flat_map(|t| {
+                        t.traits
+                            .iter()
+                            .chain(&t.templates)
+                            .chain(&t.adapters)
+                            .chain(&t.future_sinks)
+                    })
+                    .filter_map(|identity| identity.split("::").next().map(str::to_owned))
+                    .filter(|name| name != "crate"),
+            )
+            .collect(),
             glob: context.glob,
         };
         for value in resolver.imports.values_mut() {

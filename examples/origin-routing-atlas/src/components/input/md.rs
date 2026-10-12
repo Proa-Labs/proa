@@ -18,11 +18,9 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for I
             self.aria_label,
             "Screen-reader labels are HTML control metadata."
         );
-        proa_macros::content_part!("input-placeholder", {
-            if let Some(placeholder) = self.placeholder {
-                md_sync! { "[" { placeholder } "]" }.render_md(cx)?;
-            }
-            Ok(())
-        })
+        if let Some(placeholder) = self.placeholder {
+            md_sync! { "[" { placeholder } "]" }.render_md(cx)?;
+        }
+        Ok(())
     }
 }

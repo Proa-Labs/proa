@@ -125,6 +125,7 @@ pub enum ContentKey {
         inputs: BTreeSet<String>,
     },
     Role(String),
+    Literal(String),
 }
 impl ContentKey {
     fn label(&self) -> String {
@@ -132,13 +133,14 @@ impl ContentKey {
             Self::Value(v) => v.clone(),
             Self::Child { ty, .. } => ty.rsplit("::").next().unwrap_or(ty).into(),
             Self::Role(v) => format!("content part {v:?}"),
+            Self::Literal(v) => format!("text {v:?}"),
         }
     }
     fn inputs(&self) -> BTreeSet<String> {
         match self {
             Self::Value(v) => BTreeSet::from([v.clone()]),
             Self::Child { inputs, .. } => inputs.clone(),
-            Self::Role(_) => BTreeSet::new(),
+            Self::Role(_) | Self::Literal(_) => BTreeSet::new(),
         }
     }
 }
@@ -308,7 +310,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                         matches!(&part.key, ContentKey::Child {ty: child, ..} if child == ty)
                     }
                     OmissionKey::Role(role) => {
-                        matches!(&part.key, ContentKey::Role(r) if r == role)
+                        matches!(&part.key, ContentKey::Role(r) | ContentKey::Literal(r) if r == role)
                     }
                     OmissionKey::Unknown(_) => false,
                 };
@@ -526,7 +528,9 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                     .child_selectors
                     .get(ty)
                     .map(|ty| format!("proa_macros::omit!({ty});")),
-                ContentKey::Role(role) => Some(format!("proa_macros::omit!({role:?});")),
+                ContentKey::Role(role) | ContentKey::Literal(role) => {
+                    Some(format!("proa_macros::omit!({role:?});"))
+                }
                 ContentKey::Value(value)
                     if value.starts_with("self.")
                         && syn::parse_str::<proa_dsl::content::OmitContent>(value).is_ok()

@@ -145,7 +145,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Input {
                 id={self.id}
                 name={name_attr}
                 value={self.value}
-                placeholder={proa_macros::content_part!("input-placeholder", self.placeholder)}
+                placeholder={self.placeholder}
                 disabled={is_disabled}
                 required={self.required}
                 readonly={self.readonly}

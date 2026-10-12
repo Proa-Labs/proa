@@ -9,13 +9,10 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdCodeContent> MdRenderSyn
     for Badge<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        proa_macros::content_part!(
-            "badge-content",
-            cx.write_md_inline_code(
-                self.children
-                    .as_ref()
-                    .map_or("", MdCodeContent::md_code_content),
-            )
+        cx.write_md_inline_code(
+            self.children
+                .as_ref()
+                .map_or("", MdCodeContent::md_code_content),
         )
     }
 }

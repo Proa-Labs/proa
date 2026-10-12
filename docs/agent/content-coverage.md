@@ -19,11 +19,26 @@ unchecked-body diagnostics by themselves. This also applies to supported aliases
 of those context and metadata handles.
 
 A loaded result only enters the comparison when it reaches a render sink.
-An unused fetch cannot satisfy a missing component field or child. When views
-load or transform equivalent content through different helpers, wrap the
-rendered values with the same `content_part!` name. The name declares the
-correspondence; the checker does not infer equivalence from query strings or
-local variable names. Unmapped loaded output remains unchecked.
+An unused fetch cannot satisfy a missing component field or child. Matching
+`cx.load_typed::<Payload>(key)` calls preserve field provenance across views,
+even when their local variable names differ. The payload type, type arguments,
+and supported key expression must match. Different queries or arbitrary loader
+helpers are not assumed equivalent.
+
+## Ordinary content needs no wrappers
+
+Render fields and children directly. The checker also compares literal HTML
+text and semantic attributes with Markdown text, links, and code. It normalizes
+whitespace and removes Markdown formatting for this comparison; it does not
+infer that differently worded copy means the same thing. Literal contributions
+are compared by text node or Markdown block, so differently split text may need
+an explicit correspondence.
+
+Known Markdown layout operations such as `cx.md_block_boundary()?` do not
+create content obligations. `cx.write_md_inline_code(value)` and
+`cx.md_heading_with(level, |out| child.render_md(out))` retain the rendered
+value or child's coverage. Standard `Some(value)`, optional field presence,
+and `if let Some(value)` bindings are understood without annotations.
 
 Direct writes and opaque helpers that receive the output context remain
 unchecked unless their contributions have explicit mappings. The exemptions
@@ -128,8 +143,9 @@ An omitted child in a parent does not exempt that child's own paired views.
 
 ## Name contributions that look different
 
-Use the same semantic name for transformed content, static prose, or a helper
-whose internals are outside the supported analysis:
+Reserve named parts for transformed content or a helper whose internals are
+outside the supported analysis. Ordinary fields, literal copy, and supported
+Markdown writers do not need them:
 
 ```rust
 // HTML slot
@@ -144,8 +160,7 @@ The name is an explicit author assertion about correspondence. It does not
 check the helper's meaning. Place the wrapper around the contribution inside its presence condition.
 Supported structural conditions inside a wrapper also retain their guards. A
 statement wrapper can map a helper that receives the output context or calls a
-registered render sink; an unused named value does not satisfy coverage. Name meaningful static text
-as a rendered child (for example, `content_part!("notice", text("…"))`).
+registered render sink; an unused named value does not satisfy coverage.
 
 To omit a named part, use the same file-level `omit` import shown above and
 put a string selector inside the Markdown method:
@@ -159,7 +174,11 @@ impl MdRenderSync for Product<'_> {
 }
 ```
 
-The string selects the matching `content_part!` name in the source view.
+The string selects a matching `content_part!` name or inferred literal text in
+the source view. For example, `omit!("Loading", "Visual loading indicator")`
+acknowledges a literal `aria-label="Loading"` absent from Markdown. Changing that
+label makes the exception stale. A selector matching several distinct
+contributions is ambiguous and waives none of them.
 
 A marker can filter its source target: `omit!(self.image, from = "html")`
 or `omit!(RestockNotice<'_>, "Browser only", from = "html")`.

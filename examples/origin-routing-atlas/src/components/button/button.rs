@@ -192,7 +192,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-bind-disabled={disabled_binding}
                 data-bind-loading={loading_binding}
             >
-                {proa_macros::content_part!("button-loading", is_loading.then(|| Spinner { size: Some(SpinnerSize::Sm),..Spinner::default() }))}
+                {if is_loading { Spinner { size: Some(SpinnerSize::Sm), class: None, id: None } }}
                 {self.children}
             </button>
         }

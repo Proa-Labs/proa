@@ -377,6 +377,14 @@ mod tests {
             let mut value = options(root.clone());
             value.template = template.to_string();
             new_site(value).unwrap();
+            for path in crate::source::find_rust_files(&[root.join("src")]).unwrap() {
+                let source = std::fs::read_to_string(&path).unwrap();
+                assert!(
+                    !source.contains("content_part!"),
+                    "{template}: {}",
+                    path.display()
+                );
+            }
             let formatting =
                 crate::fmt::format_paths_with_options(&[root.clone()], true, true).unwrap();
             assert!(

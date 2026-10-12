@@ -82,7 +82,7 @@ impl<L: DataLoader> WebRenderSync<L> for Button {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let classes = button_classes().add_opt(self.class);
         if self.href.is_some() {
-            let href = proa_macros::content_part!("destination", self.href.unwrap_or_default());
+            let href = self.href.unwrap_or_default();
             html_sync! { <a data-button href={href} class={classes}>{self.label}</a> }.render(cx)
         } else {
             html_sync! { <button data-button class={classes}>{self.label}</button> }.render(cx)
@@ -112,7 +112,7 @@ use super::Button;
 impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Button {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if self.href.is_some() {
-            let href = proa_macros::content_part!("destination", self.href.unwrap_or_default());
+            let href = self.href.unwrap_or_default();
             md_sync! { "[" { self.label } "](" { href } ")" }.render_md(cx)
         } else {
             proa_core::MdRenderSync::render_md(self.label, cx)
