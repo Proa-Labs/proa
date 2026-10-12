@@ -76,6 +76,7 @@ pub fn populate(
 
     if selection.styling == StylingChoice::Tailwind {
         plan.write("styles/input.css", tailwind_input())?;
+        plan.write("styles/starter.css", css())?;
     }
     if selection.template == crate::capabilities::SiteTemplate::Docs {
         plan.write(
@@ -517,7 +518,7 @@ jobs:
 }
 
 fn tailwind_input() -> &'static str {
-    "@layer theme, base, proa-compat, components, utilities;\n@import \"tailwindcss\";\n@source \"../src/**/*.rs\";\n"
+    "@layer theme, base, proa-compat, components, utilities;\n@import \"tailwindcss\";\n@import \"./starter.css\" layer(components);\n@source \"../src/**/*.rs\";\n"
 }
 
 fn smoke_test() -> &'static str {

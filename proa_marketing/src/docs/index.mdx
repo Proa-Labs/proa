@@ -12,7 +12,13 @@ Building with an AI agent? The complete documentation is served at [/llms-full.t
 
 ## 1. Install Proa
 
-Install the CLI with the one-line installer.
+Install the released CLI from crates.io (Rust 1.93 or newer):
+
+```bash
+cargo install proa-cli --version 0.1.2 --locked
+```
+
+Alternatively, use the one-line installer:
 
 <Tabs items={['macOS and Linux', 'Windows']}>
 
@@ -34,12 +40,10 @@ irm https://proa.so/install.ps1 | iex
 
 </Tabs>
 
-The installer selects a checksum-verified release binary or builds the CLI
-from source for your platform. You can also install directly from crates.io:
-
-```bash
-cargo install proa-cli --version 0.1.2 --locked
-```
+The installer selects the latest binary release, which can lag the crates.io
+release. It downloads a checksum-verified archive when available and otherwise
+builds the selected version from source. Use the Cargo command above to install
+0.1.2 explicitly.
 
 Proa is public; no GitHub credential or Cargo publishing token is needed.
 
@@ -75,30 +79,7 @@ curl -fsSL https://proa.so/install.sh | PROA_VERSION="$PROA_CLI_VERSION" sh
 
 ## 2. Create A Site
 
-<Tabs items={['ORIGIN (kitchen sink)', 'Basic app']}>
-
-<Tab value="ORIGIN (kitchen sink)">
-
-The kitchen-sink starter, and the fastest way to see a production Proa app
-fit together:
-
-```bash
-proa new site origin-atlas --template origin --yes
-```
-
-This scaffolds ORIGIN, a live routing atlas that exercises the whole
-framework: a custom RIPEstat `DataLoader` with request-scoped deduplication
-and a TTL cache, streamed Suspense sections, proa-ui components that each
-carry a Markdown representation (the same page serves `/site/<host>.md` for
-agents), rsjs islands for the interactive surfaces, Tailwind styling with a
-themed token set, self-hosted fonts, and a golden test that pins the
-server-rendered document byte for byte. The generated `README.md` doubles as
-an editing guide.
-
-Checkpoint: `src/lib.rs`, `src/loader.rs`, and `src/components/` should
-exist, and `proa dev --open` shows the atlas.
-
-</Tab>
+<Tabs items={['Basic app', 'ORIGIN (kitchen sink)']}>
 
 <Tab value="Basic app">
 
@@ -127,6 +108,7 @@ public/
   styles.css
 styles/
   input.css
+  starter.css
 tests/
 ```
 
@@ -135,9 +117,35 @@ Checkpoint: `Cargo.toml`, `src/main.rs`, `src/pages/home.rs`, and
 
 </Tab>
 
+<Tab value="ORIGIN (kitchen sink)">
+
+The kitchen-sink starter, and the fastest way to see a production Proa app
+fit together:
+
+```bash
+proa new site origin-atlas --template origin --yes
+```
+
+This scaffolds ORIGIN, a live routing atlas that exercises the whole
+framework: a custom RIPEstat `DataLoader` with request-scoped deduplication
+and a TTL cache, streamed Suspense sections, proa-ui components that each
+carry a Markdown representation (the same page serves `/site/<host>.md` for
+agents), rsjs islands for the interactive surfaces, Tailwind styling with a
+themed token set, self-hosted fonts, and a golden test that pins the
+server-rendered document byte for byte. The generated `README.md` doubles as
+an editing guide.
+
+Checkpoint: `src/lib.rs`, `src/loader.rs`, and `src/components/` should
+exist, and `proa dev --open` shows the atlas.
+
+</Tab>
+
 </Tabs>
 
 You do not have to build the common UI yourself: [proa-ui](https://ui.proa.so) is a shadcn-style catalog of ready-made Proa components, and `proa ui add button` vendors the source into `src/components/` where you own and edit it like any other file. Worth knowing before you write your first card, dialog, or form by hand.
+
+The remaining steps use the **Basic app** named `hello-proa`. If you chose
+ORIGIN, follow its generated `README.md` and run commands inside `origin-atlas`.
 
 ## 3. Run The Server
 
@@ -160,25 +168,37 @@ retune it with `--no-reload`, `--no-css-hot-swap`, and `--debounce-ms`; see
 Set up [your editor](/docs/guides/editor-setup) for Rust navigation and
 completion, including expressions inside raw Markdown templates.
 
-Open `src/pages/home.rs` and find the `HomePage` render implementation. The
-default site ships with a database, so the page is an async `WebRender` impl
-built with `html!`; sites scaffolded without one use `WebRenderSync` and
-`html_sync!`. Either way, replace the placeholder copy inside the `<main>`
-with content for your first route, keeping the macro the file already uses:
+Open `src/pages/home.rs`. Inside `impl<L: DataLoader> WebRender<L> for
+HomePage`, find the `<section class="hero">` in the existing `html!` macro.
+Replace only its `<h1>` and `<p class="lede">` with these two elements:
 
 ```rust
-html! {
-    <main class="mx-auto max-w-4xl px-6 py-16">
-        <p class="font-mono text-sm uppercase tracking-[0.18em] text-zinc-500">"Proa"</p>
-        <h1 class="mt-4 text-5xl font-semibold">"Fast SSR, typed in Rust"</h1>
-        <p class="mt-4 text-lg leading-8 text-zinc-600">
-            "This page renders from a compiled template macro."
-        </p>
-    </main>
-}
+<h1>"Fast SSR, typed in Rust"</h1>
+<p class="lede">"This page renders from a compiled template macro."</p>
 ```
 
-Refresh the browser. You have now edited a server-rendered Proa route and seen the compiled template update in a real page.
+Keep the surrounding template, including `DatabaseBadge` and `DatabaseCard`.
+Those children load the database status, so this page uses async `WebRender`
+and `html!`. A static component can use `WebRenderSync` and `html_sync!`, as
+shown by the About page below.
+
+In **the same file**, find `impl<L: DataLoader> MdRender<L> for HomePage`.
+Inside `render_md`'s existing `md! { r###"…"### }` template, replace the old
+heading and the paragraph immediately after it with these Markdown lines:
+
+```markdown
+Fast SSR, typed in Rust
+
+This page renders from a compiled template macro.
+```
+
+Keep the other Markdown content and child expressions. Proa's content-coverage
+lint compares rendered content across the two implementations; changing both
+keeps browsers and agents informed of the same page edit.
+
+Refresh the browser and open [/index.md](http://localhost:3000/index.md) to see
+both representations. Edit `styles/starter.css` to change the starter's design;
+`public/styles.css` is the generated output and is rebuilt by Tailwind.
 
 ## 5. Add A Route
 
@@ -261,6 +281,7 @@ Run Proa's source-aware checks before the full build:
 ```bash
 proa fmt --check --verify src
 proa lint src --deny warnings
+proa test
 proa build
 ```
 
@@ -269,7 +290,8 @@ that formatting would preserve the rendered output. `proa lint` understands
 Proa render paths, so `--deny warnings` catches performance problems such as
 intermediate rendered strings, avoidable allocations, and async renderers that
 never await. Once those focused checks are clean, `proa build` validates the
-complete linked application.
+complete linked application. `proa test` also checks both page representations
+and that the two database components share one origin query.
 
 ## Next steps
 
