@@ -24,7 +24,7 @@ def run(arguments: list[str], cwd: Path, environment: dict[str, str]) -> None:
     subprocess.run(arguments, cwd=cwd, env=environment, check=True)
 
 
-def smoke_http(binary: Path, project: Path, environment: dict[str, str], origin: bool) -> None:
+def smoke_http(binary: Path, project: Path, environment: dict[str, str], template: str) -> None:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -47,7 +47,9 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], origin:
                         raise
                     time.sleep(0.1)
             paths = ["/", "/healthz", "/readyz"]
-            if origin:
+            if template != "minimal":
+                paths += ["/index.md"]
+            if template == "origin":
                 paths += ["/rsjs-runtime.js", "/rsjs-runtime-query.js", "/static/origin.js"]
             for path in paths:
                 with urllib.request.urlopen(base + path, timeout=60) as response:
@@ -58,6 +60,8 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], origin:
                         assert b"<html" in body and b"</html>" in body
                     if path.endswith(".js"):
                         assert "javascript" in response.headers.get("Content-Type", "")
+                    if path.endswith(".md"):
+                        assert "text/markdown" in response.headers.get("Content-Type", "")
                     print(f"HTTP {path}: {response.status}, {len(body)} bytes", flush=True)
         finally:
             if server.poll() is None:
@@ -96,7 +100,7 @@ def main() -> None:
     for name in ("proa", "cargo-proa"):
         run([str(destination / "bin" / (name + suffix)), "--help"], work, environment)
     proa = destination / "bin" / ("proa" + suffix)
-    for template in ("minimal", "origin"):
+    for template in ("minimal", "app", "marketing", "docs", "origin"):
         project = work / f"registry-smoke-{template}"
         run([str(proa), "new", "site", str(project), "--template", template,
              "--yes", "--no-git", "--offline"], work, environment)
@@ -110,13 +114,11 @@ def main() -> None:
         for package in proa_packages:
             assert package["source"] == "registry+https://github.com/rust-lang/crates.io-index", package
         print(f"{template}: {len(proa_packages)} Proa dependencies resolved from crates.io", flush=True)
-        if template == "origin":
-            run([str(proa), "test", "--root", str(project), "--locked", "--test", "atlas"],
-                project, environment)
+        run([str(proa), "test", "--root", str(project), "--locked"], project, environment)
         artifact = project / ("app" + suffix)
         run([str(proa), "build", "--root", str(project), "--locked", "--profile", "dev",
              "--no-check", "--no-assets", "--artifact-out", str(artifact)], project, environment)
-        smoke_http(artifact, project, environment, template == "origin")
+        smoke_http(artifact, project, environment, template)
     print("Registry install and linked-site acceptance passed", flush=True)
 
 

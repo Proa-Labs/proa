@@ -129,8 +129,8 @@ python3 scripts/publish.py --skip-published
 
 The publisher honors crates.io's retry time when new-crate registration is
 rate limited. It stops on authentication, verification, or other upload errors.
-After publishing, check a credential-free registry installation and linked
-minimal/ORIGIN applications, retaining artifacts for inspection:
+After publishing, check a credential-free registry installation and all five
+generated site templates, retaining artifacts for inspection:
 
 ```bash
 python3 scripts/check_registry_install.py --version 0.1.1 --work-dir /tmp/proa-registry-acceptance
