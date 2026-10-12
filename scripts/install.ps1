@@ -2377,10 +2377,11 @@ function Show-NextSteps {
 # ---------------------------------------------------------------------------
 
 function Get-SourceVersionText {
-    param([string]$VersionText, [bool]$BuildFromSource)
+    param([string]$VersionText, [bool]$BuildFromSource, [string]$Repository)
     if ($VersionText) { return $VersionText }
     if ($BuildFromSource) { return 'Git HEAD, as asked' }
-    return 'latest source release'
+    if ($Repository -ine 'Proa-Labs/proa') { return 'Git HEAD (custom repository)' }
+    return 'latest crates.io release'
 }
 
 function Get-SourceInstallArguments {
@@ -2786,7 +2787,7 @@ function Invoke-Main {
     $exePath = ''
     if ($buildFromSource) {
         Write-LogLine 'INFO' 'a source build was requested, skipping the prebuilt download'
-        Write-KeyValue 'version' ((Get-SourceVersionText $requestedVersion $true) + $replaces)
+        Write-KeyValue 'version' ((Get-SourceVersionText $requestedVersion $true $repository) + $replaces)
         Show-ToolchainNotes
         Write-Blank
         $exePath = Install-FromSource $repository $binDir $dirWasExplicit $requestedVersion $true
@@ -2800,7 +2801,7 @@ function Invoke-Main {
         if ([string]::IsNullOrEmpty($requestedVersion)) {
             $requestedVersion = Resolve-LatestVersion $downloadBase
         }
-        Write-KeyValue 'version' ((Get-SourceVersionText $requestedVersion $false) + $replaces)
+        Write-KeyValue 'version' ((Get-SourceVersionText $requestedVersion $false $repository) + $replaces)
         Show-ToolchainNotes
         Write-Blank
         Write-Note ('There is no prebuilt proa-cli archive for Windows ' + $architecture + ', so this builds from source.')
@@ -2824,7 +2825,7 @@ function Invoke-Main {
                     'Remove -PrebuiltOnly to allow a source build.')
             }
             Write-LogLine 'INFO' ('no usable release at ' + $downloadBase + ', falling back to source')
-            Write-KeyValue 'version' 'latest source release (binary channel unavailable)'
+            Write-KeyValue 'version' ((Get-SourceVersionText '' $false $repository) + ' (binary channel unavailable)')
             Show-ToolchainNotes
             Write-Blank
             Write-Note ('No published proa-cli release was found at ' + (Get-SourceText $downloadBase) + '.')
