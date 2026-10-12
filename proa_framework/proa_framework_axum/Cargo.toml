@@ -61,5 +61,5 @@ url = { version = "2.5" }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
-rsjs = { workspace = true }
+rsjs = { path = "../../rsjs" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

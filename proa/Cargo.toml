@@ -1,0 +1,32 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa"
+version = "0.3.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Compiled HTML and Markdown components for people and agents."
+readme = "README.md"
+keywords = ["ssr", "html", "markdown", "components", "web"]
+categories = ["web-programming", "template-engine"]
+
+[features]
+default = ["macros"]
+macros = ["dep:proa_macros"]
+html-to-markdown = ["proa_core/html-to-markdown"]
+axum = ["dep:proa_framework_axum"]
+
+[dependencies]
+proa_core = { workspace = true }
+proa_actions = { workspace = true }
+proa_ir = { workspace = true }
+proa_macros = { workspace = true, optional = true }
+proa_framework_axum = { workspace = true, optional = true }
+
+[lints]
+workspace = true

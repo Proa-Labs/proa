@@ -34,6 +34,23 @@ PATH_ATTRIBUTE = re.compile(
 )
 
 
+def without_raw_strings(text: str) -> str:
+    """Hide generated-source template data while preserving source offsets."""
+    opening = re.compile(r'(?<![A-Za-z0-9_])(?:br|r)(?P<hashes>#{0,255})"')
+    chunks: list[str] = []
+    offset = 0
+    while match := opening.search(text, offset):
+        end = text.find('"' + match.group("hashes"), match.end())
+        if end < 0:
+            break
+        end += 1 + len(match.group("hashes"))
+        chunks.append(text[offset:match.start()])
+        chunks.append("".join("\n" if char == "\n" else " " for char in text[match.start():end]))
+        offset = end
+    chunks.append(text[offset:])
+    return "".join(chunks)
+
+
 def workspace_packages() -> list[dict]:
     result = subprocess.run(
         [
@@ -166,11 +183,12 @@ def check_source_paths(
         return []
 
     problems: list[str] = []
+    code = without_raw_strings(text)
     for kind, pattern in (
         ("include", LITERAL_INCLUDE),
         ("path attribute", PATH_ATTRIBUTE),
     ):
-        for match in pattern.finditer(text):
+        for match in pattern.finditer(code):
             raw_path = match.group("path")
             target = (source.parent / raw_path).resolve(strict=False)
             line = text.count("\n", 0, match.start()) + 1

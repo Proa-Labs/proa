@@ -37,8 +37,8 @@ sha2 = { workspace = true }
 [dev-dependencies]
 # Used by integration tests that exercise the `#[rsjs::rsjs]`
 # attribute end-to-end (the macro emits `::proa_core::...` paths).
-proa_core = { workspace = true }
-proa_macros = { workspace = true }
+proa_core = { path = "../proa_core" }
+proa_macros = { path = "../proa_macros" }
 tokio = { workspace = true }
 
 [lints]

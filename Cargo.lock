@@ -693,22 +693,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "const_json"
-version = "0.1.2"
-dependencies = [
- "const_json_macros",
-]
-
-[[package]]
-name = "const_json_macros"
-version = "0.1.2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "cookie"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2632,6 +2616,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "proa"
+version = "0.3.0"
+dependencies = [
+ "proa_actions",
+ "proa_core",
+ "proa_framework_axum",
+ "proa_ir",
+ "proa_macros",
+]
+
+[[package]]
 name = "proa-cli"
 version = "0.1.1"
 dependencies = [
@@ -2662,7 +2657,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml 0.8.23",
- "toml_edit",
+ "toml_edit 0.22.27",
  "unicode-width",
  "walkdir",
  "windows-sys 0.61.2",
@@ -2717,6 +2712,22 @@ dependencies = [
  "quote",
  "serde",
  "serde_json",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "proa_const_json"
+version = "0.1.2"
+dependencies = [
+ "proa_const_json_macros",
+]
+
+[[package]]
+name = "proa_const_json_macros"
+version = "0.1.2"
+dependencies = [
+ "proc-macro2",
+ "quote",
  "syn 2.0.119",
 ]
 
@@ -2932,6 +2943,7 @@ dependencies = [
  "proa_dsl",
  "proa_ir",
  "proa_react",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "serde",
@@ -3062,6 +3074,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "proa_tailwind_merge"
+version = "0.1.2"
+dependencies = [
+ "once_cell",
+ "pretty_assertions",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "proa_tailwind_merge_macro"
+version = "0.1.2"
+dependencies = [
+ "proa_tailwind_merge",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "proa_third_party"
 version = "0.1.0"
 dependencies = [
@@ -3091,6 +3124,15 @@ dependencies = [
  "wellformed",
  "wellformed-macros",
  "wellformed-validate",
+]
+
+[[package]]
+name = "proc-macro-crate"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
+dependencies = [
+ "toml_edit 0.25.17+spec-1.1.0",
 ]
 
 [[package]]
@@ -4507,27 +4549,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tailwind-merge"
-version = "0.1.2"
-dependencies = [
- "once_cell",
- "pretty_assertions",
- "regex",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "tailwind-merge-macro"
-version = "0.1.2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
- "tailwind-merge",
-]
-
-[[package]]
 name = "target-triple"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4744,7 +4765,7 @@ dependencies = [
  "serde",
  "serde_spanned 0.6.9",
  "toml_datetime 0.6.11",
- "toml_edit",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]
@@ -4781,6 +4802,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml_datetime"
+version = "1.1.2+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b86d767906c6c42421dcba507eb9d203e779497710a47782a224bb871653053"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "toml_edit"
 version = "0.22.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4795,10 +4825,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml_parser"
-version = "1.1.2+spec-1.1.0"
+name = "toml_edit"
+version = "0.25.17+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
+checksum = "e3641d5bbb5349a79e1020a242d251efbc546ad8048d133958323ce9c40a9c9c"
+dependencies = [
+ "indexmap",
+ "toml_datetime 1.1.2+spec-1.1.0",
+ "toml_parser",
+ "winnow 1.0.4",
+]
+
+[[package]]
+name = "toml_parser"
+version = "1.1.5+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow 1.0.4",
 ]
@@ -5702,6 +5744,9 @@ name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "wit-bindgen"

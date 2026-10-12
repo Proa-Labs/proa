@@ -204,10 +204,10 @@ rust-version = "1.93"
 anyhow = "1"
 axum = "0.7.9"
 dotenvy = "0.15"
-proa_core = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
-proa_framework_axum = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
-proa_macros = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
-proa_stream = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_core = {{ version = "0.3" }}
+proa_framework_axum = {{ version = "0.3" }}
+proa_macros = {{ version = "0.3" }}
+proa_stream = {{ version = "0.3" }}
 serde = {{ version = "1", features = ["derive"] }}
 {database}thiserror = "2"
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "signal"] }}
@@ -370,7 +370,7 @@ fn components_mod(has_database: bool, has_ui: bool) -> String {
 
 fn readme(package: &str, title: &str, selection: CapabilitySelection) -> String {
     format!(
-        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa dev --open\n```\n\nProa dependencies come from GitHub. While that repository is private, configure your Git credential helper locally and set the `PROA_GITHUB_TOKEN` Actions secret to a token with repository read access. No private Cargo registry is required.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
+        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa dev --open\n```\n\nProa dependencies resolve from crates.io. Building this project needs no Proa registry credentials.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
         selection.template.as_str(),
         if selection.markdown { " and the same typed resource has semantic Markdown at `/index.md`" } else { "" }
     )
@@ -437,11 +437,6 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
   RUST_TEST_THREADS: "2"
-  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-  GIT_CONFIG_COUNT: "1"
-  GIT_CONFIG_KEY_0: credential.https://github.com.helper
-  GIT_CONFIG_VALUE_0: >-
-    !f() {{ if [ "$1" = get ] && [ -n "$PROA_GITHUB_TOKEN" ]; then printf 'username=x-access-token\npassword=%s\n' "$PROA_GITHUB_TOKEN"; fi; }}; f
 
 jobs:
   ci:
@@ -513,15 +508,9 @@ jobs:
       # never bypass its descriptor/final compilation), so any wrapper the
       # runner environment sets is dropped here.
       - name: Test ({package}, linked pipeline)
-        # Required only while the Proa dependency repository is private.
-        env:
-          PROA_GITHUB_TOKEN: ${{{{ secrets.PROA_GITHUB_TOKEN }}}}
         run: env -u RUSTC_WRAPPER proa test
 
       - name: Release build
-        # Required only while the Proa dependency repository is private.
-        env:
-          PROA_GITHUB_TOKEN: ${{{{ secrets.PROA_GITHUB_TOKEN }}}}
         run: env -u RUSTC_WRAPPER proa build
 "#
     )
@@ -727,7 +716,7 @@ fn add_deploy(
         deployment_dockerfile(migration_copy, CLI_DISTRIBUTION_VERSION),
     )?;
     plan.write(".dockerignore", "target\n.git\n.env\ndata/*.db*\n")?;
-    let mut deployment = "# Deployment\n\nBuild the generated Dockerfile. Proa dependencies come from GitHub; while the repository is private, provide a read token as a BuildKit secret:\n\n```bash\ndocker build --secret id=github_token,env=PROA_GITHUB_TOKEN .\n```\n\nThe credential helper reads the secret only during the build and does not store its value in Git configuration. Configure the equivalent build secret on your deployment provider. Use `/readyz` for readiness and `/healthz` for liveness.\n".to_string();
+    let mut deployment = "# Deployment\n\nBuild the generated Dockerfile. Proa dependencies resolve from crates.io. Build the image with:\n\n```bash\ndocker build .\n```\n\nUse `/readyz` for readiness and `/healthz` for liveness.\n".to_string();
     if has_database {
         deployment.push_str("\nMount persistent storage at `/app/data`, run one replica, and configure tested backups.\n");
     }
@@ -812,11 +801,7 @@ RUN set -eux; \
     rm -rf "$temp_dir"
 COPY . .
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
-RUN --mount=type=secret,id=github_token \
-    set -eu; \
-    export GIT_CONFIG_COUNT=1; \
-    export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
-    export GIT_CONFIG_VALUE_0='!f() {{ if [ "$1" = get ] && [ -s /run/secrets/github_token ]; then printf "username=x-access-token\npassword=%s\n" "$(cat /run/secrets/github_token)"; fi; }}; f'; \
+RUN set -eu; \
     if [ -f Cargo.lock ]; then \
         proa build --locked --artifact-out /tmp/proa-app; \
     else \
@@ -839,7 +824,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn standalone_manifests_share_one_git_source_without_a_private_registry() {
+    fn standalone_manifests_resolve_public_crates_io_versions() {
         for source in [
             cargo_toml("minimal", false),
             cargo_toml("app", true),
@@ -850,11 +835,11 @@ mod tests {
                 if let Some(dependencies) = manifest.get(section).and_then(toml::Value::as_table) {
                     for (name, dependency) in dependencies {
                         if name.starts_with("proa_") || name == "rsjs" {
-                            assert_eq!(
-                                dependency.get("git").and_then(toml::Value::as_str),
-                                Some("https://github.com/Proa-Labs/proa.git"),
-                                "{name} must resolve from the same Git source"
-                            );
+                            assert!(dependency.get("git").is_none(), "{name} must use crates.io");
+                            assert!(dependency
+                                .get("version")
+                                .and_then(toml::Value::as_str)
+                                .is_some());
                             assert!(dependency.get("registry").is_none());
                         }
                     }

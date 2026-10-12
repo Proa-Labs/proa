@@ -35,12 +35,12 @@ syn = { workspace = true, features = ["full", "extra-traits", "visit", "fold"] }
 # changes.
 bytes = { workspace = true }
 prettyplease = { version = "0.2" }
-proa_core = { workspace = true }
-proa_macros = { workspace = true }
+proa_core = { path = "../proa_core" }
+proa_macros = { path = "../proa_macros" }
 # Cyclic dev-dep: integration tests for the proc-macro need to resolve
 # the `::rsjs::*` paths the macro expansion emits (manifest types,
 # linkme re-export). Cargo allows dev-dependency cycles.
-rsjs = { workspace = true }
+rsjs = { path = "../rsjs" }
 serde = { workspace = true }
 # Diagnostic golden suite (M7h): trybuild snapshots compile errors so
 # changes to the user-facing message surface require an intentional

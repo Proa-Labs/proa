@@ -19,8 +19,8 @@ RELEASE_PLZ_CONFIG = REPO_ROOT / "release-plz.toml"
 RELEASE_PLZ_SCRIPT = REPO_ROOT / "scripts" / "release-plz.sh"
 WORKSPACE_MANIFEST = REPO_ROOT / "Cargo.toml"
 STANDALONE_BOOTSTRAP_BASELINES = {
-    "const_json": "0.1.2",
-    "const_json_macros": "0.1.2",
+    "proa_const_json": "0.1.2",
+    "proa_const_json_macros": "0.1.2",
     "itoa_lut": "0.1.2",
     "proa_actions": "0.3.0",
     "proa_codegen": "0.2.0",
@@ -39,8 +39,8 @@ STANDALONE_BOOTSTRAP_BASELINES = {
     "rsjs_ir": "0.2.0",
     "rsjs_macros": "0.2.0",
     "rsjs_web": "0.2.0",
-    "tailwind-merge": "0.1.2",
-    "tailwind-merge-macro": "0.1.2",
+    "proa_tailwind_merge": "0.1.2",
+    "proa_tailwind_merge_macro": "0.1.2",
 }
 
 

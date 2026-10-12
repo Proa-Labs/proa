@@ -18,5 +18,5 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-proa_core = { workspace = true }
-proa_macros = { workspace = true }
+proa_core = { path = "../proa_core" }
+proa_macros = { path = "../proa_macros" }

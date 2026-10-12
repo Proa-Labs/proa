@@ -26,6 +26,7 @@ mod form_schema_derive;
 mod island_attr;
 mod md;
 mod parse;
+mod runtime_paths;
 mod static_consolidation;
 mod text_macro;
 mod tree_codegen;
@@ -64,9 +65,12 @@ pub fn content(args: TokenStream, input: TokenStream) -> TokenStream {
 /// ordinary Rust generic arguments apply, e.g. `omit!(RestockNotice<'_>)`.
 #[proc_macro]
 pub fn omit(input: TokenStream) -> TokenStream {
-    content::omit(input.into())
-        .unwrap_or_else(syn::Error::into_compile_error)
-        .into()
+    let output: TokenStream = {
+        content::omit(input.into())
+            .unwrap_or_else(syn::Error::into_compile_error)
+            .into()
+    };
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// Give a rendered value a shared semantic identity across representations.
@@ -114,20 +118,23 @@ pub fn content_part(input: TokenStream) -> TokenStream {
 /// 10-20x faster than traditional approaches for pages with mostly static content.
 #[proc_macro]
 pub fn html(input: TokenStream) -> TokenStream {
-    let root = parse_macro_input!(input as HtmlRoot);
+    let output: TokenStream = {
+        let root = parse_macro_input!(input as HtmlRoot);
 
-    // Compile-time security, a11y, and performance validation.
-    // Hard errors (XSS, invalid ARIA) abort compilation.
-    // Soft warnings (a11y hints, perf hints) emit #[deprecated] structs
-    // that show as rustc warnings with file/line info.
-    let warnings = match static_consolidation::validate_security(&root) {
-        Err(errors) => return TokenStream::from(errors),
-        Ok(w) => w,
+        // Compile-time security, a11y, and performance validation.
+        // Hard errors (XSS, invalid ARIA) abort compilation.
+        // Soft warnings (a11y hints, perf hints) emit #[deprecated] structs
+        // that show as rustc warnings with file/line info.
+        let warnings = match static_consolidation::validate_security(&root) {
+            Err(errors) => return TokenStream::from(errors),
+            Ok(w) => w,
+        };
+
+        let expanded = static_consolidation::generate_optimized_async(&root);
+
+        TokenStream::from(quote::quote! { { #warnings #expanded } })
     };
-
-    let expanded = static_consolidation::generate_optimized_async(&root);
-
-    TokenStream::from(quote::quote! { { #warnings #expanded } })
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// The send-capable HTML macro for `WebRenderSend` component trees.
@@ -137,14 +144,17 @@ pub fn html(input: TokenStream) -> TokenStream {
 /// carries a compiler-checked `Send` bound.
 #[proc_macro]
 pub fn html_send(input: TokenStream) -> TokenStream {
-    let root = parse_macro_input!(input as HtmlRoot);
+    let output: TokenStream = {
+        let root = parse_macro_input!(input as HtmlRoot);
 
-    let warnings = match static_consolidation::validate_security(&root) {
-        Err(errors) => return TokenStream::from(errors),
-        Ok(warnings) => warnings,
+        let warnings = match static_consolidation::validate_security(&root) {
+            Err(errors) => return TokenStream::from(errors),
+            Ok(warnings) => warnings,
+        };
+        let expanded = static_consolidation::generate_optimized_send_async(&root);
+        TokenStream::from(quote::quote! { { #warnings #expanded } })
     };
-    let expanded = static_consolidation::generate_optimized_send_async(&root);
-    TokenStream::from(quote::quote! { { #warnings #expanded } })
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// The `html_sync!` macro for generating sync-only HTML fragments.
@@ -154,16 +164,19 @@ pub fn html_send(input: TokenStream) -> TokenStream {
 /// child composition.
 #[proc_macro]
 pub fn html_sync(input: TokenStream) -> TokenStream {
-    let root = parse_macro_input!(input as HtmlRoot);
+    let output: TokenStream = {
+        let root = parse_macro_input!(input as HtmlRoot);
 
-    let warnings = match static_consolidation::validate_security(&root) {
-        Err(errors) => return TokenStream::from(errors),
-        Ok(w) => w,
+        let warnings = match static_consolidation::validate_security(&root) {
+            Err(errors) => return TokenStream::from(errors),
+            Ok(w) => w,
+        };
+
+        let expanded = static_consolidation::generate_optimized(&root);
+
+        TokenStream::from(quote::quote! { { #warnings #expanded } })
     };
-
-    let expanded = static_consolidation::generate_optimized(&root);
-
-    TokenStream::from(quote::quote! { { #warnings #expanded } })
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// The `text!` macro for mixed static, Proa-rendered, and Rust-formatted text.
@@ -196,7 +209,8 @@ pub fn html_sync(input: TokenStream) -> TokenStream {
 /// plans; other Rust formatting traits remain server-only.
 #[proc_macro]
 pub fn text(input: TokenStream) -> TokenStream {
-    text_macro::expand(input)
+    let output: TokenStream = { text_macro::expand(input) };
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// The `xml!` macro for generating async-capable XML fragments.
@@ -207,16 +221,19 @@ pub fn text(input: TokenStream) -> TokenStream {
 /// are application-defined.
 #[proc_macro]
 pub fn xml(input: TokenStream) -> TokenStream {
-    let root = parse_macro_input!(input as XmlRoot).into_inner();
+    let output: TokenStream = {
+        let root = parse_macro_input!(input as XmlRoot).into_inner();
 
-    let warnings = match static_consolidation::validate_xml(&root) {
-        Err(errors) => return TokenStream::from(errors),
-        Ok(w) => w,
+        let warnings = match static_consolidation::validate_xml(&root) {
+            Err(errors) => return TokenStream::from(errors),
+            Ok(w) => w,
+        };
+
+        let expanded = static_consolidation::generate_optimized_async_xml(&root);
+
+        TokenStream::from(quote::quote! { { #warnings #expanded } })
     };
-
-    let expanded = static_consolidation::generate_optimized_async_xml(&root);
-
-    TokenStream::from(quote::quote! { { #warnings #expanded } })
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// The `xml_sync!` macro for generating sync-only XML fragments.
@@ -226,16 +243,19 @@ pub fn xml(input: TokenStream) -> TokenStream {
 /// renders.
 #[proc_macro]
 pub fn xml_sync(input: TokenStream) -> TokenStream {
-    let root = parse_macro_input!(input as XmlRoot).into_inner();
+    let output: TokenStream = {
+        let root = parse_macro_input!(input as XmlRoot).into_inner();
 
-    let warnings = match static_consolidation::validate_xml(&root) {
-        Err(errors) => return TokenStream::from(errors),
-        Ok(w) => w,
+        let warnings = match static_consolidation::validate_xml(&root) {
+            Err(errors) => return TokenStream::from(errors),
+            Ok(w) => w,
+        };
+
+        let expanded = static_consolidation::generate_optimized_xml(&root);
+
+        TokenStream::from(quote::quote! { { #warnings #expanded } })
     };
-
-    let expanded = static_consolidation::generate_optimized_xml(&root);
-
-    TokenStream::from(quote::quote! { { #warnings #expanded } })
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// The `md!` macro for generating async-capable Markdown fragments.
@@ -308,7 +328,8 @@ pub fn xml_sync(input: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro]
 pub fn md(input: TokenStream) -> TokenStream {
-    expand_md(input, md::EmitMode::Async)
+    let output: TokenStream = { expand_md(input, md::EmitMode::Async) };
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// The `md_sync!` macro for synchronous Markdown fragments.
@@ -346,7 +367,8 @@ pub fn md(input: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro]
 pub fn md_sync(input: TokenStream) -> TokenStream {
-    expand_md(input, md::EmitMode::Sync)
+    let output: TokenStream = { expand_md(input, md::EmitMode::Sync) };
+    runtime_paths::resolve(output.into()).into()
 }
 
 fn expand_md(input: TokenStream, mode: md::EmitMode) -> TokenStream {
@@ -378,15 +400,18 @@ fn expand_md(input: TokenStream, mode: md::EmitMode) -> TokenStream {
 /// ```
 #[proc_macro]
 pub fn include_css(input: TokenStream) -> TokenStream {
-    let path = parse_macro_input!(input as LitStr);
-    let path_value = path.value();
+    let output: TokenStream = {
+        let path = parse_macro_input!(input as LitStr);
+        let path_value = path.value();
 
-    let expanded = quote::quote! {{
-        const _: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/", #path_value));
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", #path_value))
-    }};
+        let expanded = quote::quote! {{
+            const _: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/", #path_value));
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", #path_value))
+        }};
 
-    TokenStream::from(expanded)
+        TokenStream::from(expanded)
+    };
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// The `html_with_tree!` macro for generating both optimized HTML and a ComponentTree.
@@ -423,24 +448,27 @@ pub fn include_css(input: TokenStream) -> TokenStream {
 /// - Identifies children slots
 #[proc_macro]
 pub fn html_with_tree(input: TokenStream) -> TokenStream {
-    let root = parse_macro_input!(input as HtmlRoot);
+    let output: TokenStream = {
+        let root = parse_macro_input!(input as HtmlRoot);
 
-    // Compile-time validation — same as html!
-    let warnings = match static_consolidation::validate_security(&root) {
-        Err(errors) => return TokenStream::from(errors),
-        Ok(w) => w,
+        // Compile-time validation — same as html!
+        let warnings = match static_consolidation::validate_security(&root) {
+            Err(errors) => return TokenStream::from(errors),
+            Ok(w) => w,
+        };
+
+        // Generate both outputs
+        let html_expanded = static_consolidation::generate_optimized(&root);
+        let tree_expanded = tree_codegen::generate_tree(&root);
+
+        // Return a tuple
+        let expanded = quote::quote! {
+            { #warnings (#html_expanded, #tree_expanded) }
+        };
+
+        TokenStream::from(expanded)
     };
-
-    // Generate both outputs
-    let html_expanded = static_consolidation::generate_optimized(&root);
-    let tree_expanded = tree_codegen::generate_tree(&root);
-
-    // Return a tuple
-    let expanded = quote::quote! {
-        { #warnings (#html_expanded, #tree_expanded) }
-    };
-
-    TokenStream::from(expanded)
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// The `html_tree!` macro for generating only a ComponentTree.
@@ -466,11 +494,14 @@ pub fn html_with_tree(input: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro]
 pub fn html_tree(input: TokenStream) -> TokenStream {
-    let root = parse_macro_input!(input as HtmlRoot);
+    let output: TokenStream = {
+        let root = parse_macro_input!(input as HtmlRoot);
 
-    let tree_expanded = tree_codegen::generate_tree(&root);
+        let tree_expanded = tree_codegen::generate_tree(&root);
 
-    TokenStream::from(tree_expanded)
+        TokenStream::from(tree_expanded)
+    };
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// Derive macro for creating zero-cost const recipe implementations.
@@ -511,7 +542,8 @@ pub fn html_tree(input: TokenStream) -> TokenStream {
 /// This eliminates the boilerplate of writing manual CLASS_CAPACITY and classes() method!
 #[proc_macro_derive(ProaRecipe)]
 pub fn derive_proa_recipe(input: TokenStream) -> TokenStream {
-    const_recipe::derive_const_recipe(input)
+    let output: TokenStream = { const_recipe::derive_const_recipe(input) };
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// Derive macro for automatically generating portable component render implementations.
@@ -610,7 +642,8 @@ pub fn derive_proa_recipe(input: TokenStream) -> TokenStream {
 /// component layout, render dispatch, or allocation behavior.
 #[proc_macro_derive(ProaComponent, attributes(component))]
 pub fn derive_proa_component(input: TokenStream) -> TokenStream {
-    component_derive::derive_proa_component(input)
+    let output: TokenStream = { component_derive::derive_proa_component(input) };
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// Derive macro for action enums that generates TypeScript bindings and collision detection.
@@ -648,8 +681,11 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
 /// - Registry entry for build-time collision detection
 #[proc_macro_derive(Action, attributes(action))]
 pub fn derive_action(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as syn::DeriveInput);
-    action_derive::derive_action(input)
+    let output: TokenStream = {
+        let input = parse_macro_input!(input as syn::DeriveInput);
+        action_derive::derive_action(input)
+    };
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// Derive macro for variant enums to implement VariantSpec.
@@ -696,7 +732,8 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
 /// - Default variant
 #[proc_macro_derive(ProaVariant, attributes(variant))]
 pub fn derive_proa_variant(input: TokenStream) -> TokenStream {
-    variant_derive::derive_proa_variant(input)
+    let output: TokenStream = { variant_derive::derive_proa_variant(input) };
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// Deprecated derive macro for the historical `proa_ir::FormSchema` trait.
@@ -721,8 +758,11 @@ pub fn derive_proa_variant(input: TokenStream) -> TokenStream {
 )]
 #[proc_macro_derive(FormSchema, attributes(form, validate))]
 pub fn derive_form_schema(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as syn::DeriveInput);
-    form_schema_derive::derive_form_schema(input)
+    let output: TokenStream = {
+        let input = parse_macro_input!(input as syn::DeriveInput);
+        form_schema_derive::derive_form_schema(input)
+    };
+    runtime_paths::resolve(output.into()).into()
 }
 
 /// Attribute macro for declaring typed React islands.
@@ -765,8 +805,11 @@ pub fn derive_form_schema(input: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn island(args: TokenStream, input: TokenStream) -> TokenStream {
-    match island_attr::island_attr(args.into(), input.into()) {
-        Ok(tokens) => tokens.into(),
-        Err(err) => err.to_compile_error().into(),
-    }
+    let output: TokenStream = {
+        match island_attr::island_attr(args.into(), input.into()) {
+            Ok(tokens) => tokens.into(),
+            Err(err) => err.to_compile_error().into(),
+        }
+    };
+    runtime_paths::resolve(output.into()).into()
 }

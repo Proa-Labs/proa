@@ -103,11 +103,11 @@ GitHub Release can publish. Exercise that contract locally with:
 python3 scripts/test_cli_binary_distribution.py
 ```
 
-## Future crates.io releases
+## crates.io release preparation
 
-GitHub releases and Git source installation are the current Proa distribution
-paths. The manual Cargo publishing tools target `crates-io`; no automatic
-Cargo publishing workflow is enabled. Before publishing, review package-name
+The initial crates.io release is being prepared alongside GitHub releases and
+public Git source installation. The manual Cargo publishing tools target
+`crates-io`; no automatic Cargo publishing workflow is enabled. Before publishing, review package-name
 ownership and release readiness in [`docs/registry.md`](../docs/registry.md).
 
 ```bash
@@ -142,5 +142,5 @@ scripts/release-plz.sh release
 
 Both tools run policy and archive/license checks before publishing. They do
 not discover credentials in other repositories or infrastructure services.
-Demos and tools remain `publish = false`; release libraries inherit the
+Demos and benchmark applications remain `publish = false`; the CLI and release libraries inherit the
 workspace's explicit crates.io destination policy.
