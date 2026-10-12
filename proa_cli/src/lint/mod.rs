@@ -672,6 +672,7 @@ fn check_markdown_render_api_perf(
         && !block_forwards_foreign_render_outcome(&method.block)
         && !block_contains_await(&method.block)
         && !block_contains_md_async_render_marker(&method.block)
+        && !block_has_possibly_async_md_template_child(&method.block)
     {
         push_expr_diag(
             path,
@@ -711,7 +712,8 @@ fn check_async_md_static_body(
                 let tokens = &node.mac.tokens;
                 let has_async = tokens_mention_ident(tokens, &["await"])
                     || tokens_mention_ident(tokens, MD_ASYNC_RENDER_MARKERS)
-                    || tokens_contain_await_in_literal(tokens);
+                    || tokens_contain_await_in_literal(tokens)
+                    || md_tokens_have_possibly_async_child(tokens);
                 if !has_async {
                     push_expr_diag(
                         self.path,
@@ -735,6 +737,46 @@ fn check_async_md_static_body(
         diagnostics,
     };
     visitor.visit_block(block);
+}
+
+fn md_tokens_have_possibly_async_child(tokens: &proc_macro2::TokenStream) -> bool {
+    use proa_dsl::md::{MdNodeKind, MdRoot, MdTemplateInput, TplNode};
+    fn nodes_have_child(nodes: &[TplNode]) -> bool {
+        nodes.iter().any(|node| match node {
+            TplNode::Expr(value) => expr_is_bare_uppercase_path(&value.expr),
+            TplNode::For { body, .. } => nodes_have_child(body),
+            TplNode::If { branches } => {
+                branches.iter().any(|branch| nodes_have_child(&branch.body))
+            }
+            TplNode::Text(_) => false,
+        })
+    }
+    if let Ok(input) = syn::parse2::<MdTemplateInput>(tokens.clone()) {
+        return input
+            .semantic_nodes()
+            .is_ok_and(|nodes| nodes_have_child(&nodes));
+    }
+    syn::parse2::<MdRoot>(tokens.clone()).is_ok_and(|root| {
+        root.nodes.iter().any(|node| {
+        matches!(&node.kind, MdNodeKind::Block(expr) if expr_is_bare_uppercase_path(expr))
+    })
+    })
+}
+
+fn block_has_possibly_async_md_template_child(block: &Block) -> bool {
+    struct Visitor(bool);
+    impl<'ast> Visit<'ast> for Visitor {
+        fn visit_expr_macro(&mut self, node: &'ast ExprMacro) {
+            if macro_path_ends(node, "md") && md_tokens_have_possibly_async_child(&node.mac.tokens)
+            {
+                self.0 = true;
+            }
+            visit::visit_expr_macro(self, node);
+        }
+    }
+    let mut visitor = Visitor(false);
+    visitor.visit_block(block);
+    visitor.0
 }
 
 #[allow(clippy::too_many_arguments)]

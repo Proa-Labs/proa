@@ -366,7 +366,7 @@ mod tests {
         let home = std::fs::read_to_string(root.join("src/pages/home.rs")).unwrap();
         syn::parse_file(&home).unwrap();
         assert!(home.contains("DataResolver::request_scope"));
-        assert!(home.contains("MdRenderSync<L, B> for HomePage"));
+        assert!(home.contains("MdRender<L> for HomePage"));
     }
 
     #[test]
@@ -383,6 +383,16 @@ mod tests {
                 formatting.changed.is_empty() && formatting.diagnostics.is_empty(),
                 "{template}: {:?}",
                 formatting.diagnostics
+            );
+            let diagnostics =
+                crate::lint::lint_paths(&[root.join("src")], crate::lint::LintOptions::default())
+                    .unwrap();
+            assert!(
+                diagnostics
+                    .iter()
+                    .all(|diagnostic| diagnostic.severity.rank()
+                        < crate::diagnostic::Severity::Warning.rank()),
+                "{template}: {diagnostics:?}"
             );
             let report = crate::scaffold::site_check(Some(root)).unwrap();
             assert!(report.errors.is_empty(), "{template}: {:?}", report.errors);
@@ -414,7 +424,7 @@ mod tests {
             &issue_path,
             source
                 .replace("DataResolver::request_scope", "DataResolver::new")
-                .replace("explicit_markdown(", "other_response("),
+                .replace("explicit_markdown_async_with_loader(", "other_response("),
         )
         .unwrap();
         let report = crate::scaffold::site_check(Some(root)).unwrap();

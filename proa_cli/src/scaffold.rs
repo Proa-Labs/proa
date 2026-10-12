@@ -670,7 +670,15 @@ pub fn site_check(root: Option<PathBuf>) -> Result<SiteCheckReport> {
                 }
             } else {
                 for contract in ["MdRenderSync", "explicit_markdown("] {
-                    if !has_source(contract) {
+                    let has_contract = has_source(contract)
+                        || match contract {
+                            "MdRenderSync" => has_source("MdRender<"),
+                            "explicit_markdown(" => {
+                                has_source("explicit_markdown_async_with_loader(")
+                            }
+                            _ => false,
+                        };
+                    if !has_contract {
                         report.errors.push(format!(
                             "Markdown representation contract is missing `{contract}`"
                         ));

@@ -15,9 +15,10 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, Trigger, Content: MdRenderSyn
     MdRenderSync<Loader, B> for Dialog<Trigger, Content>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        block_boundary(cx)?;
+        proa_macros::omit!(self.trigger);
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         self.content.render_md(cx)?;
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         Ok(())
     }
 }
@@ -25,6 +26,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, Trigger, Content: MdRenderSyn
 /// DialogTrigger is interaction chrome — renders nothing.
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C> MdRenderSync<Loader, B> for DialogTrigger<C> {
     fn render_md(self, _cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        proa_macros::omit!(self.children);
         Ok(())
     }
 }
@@ -34,6 +36,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C> MdRenderSync<Loader, B>
     for DialogButtonTrigger<C>
 {
     fn render_md(self, _cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        proa_macros::omit!(self.children);
         Ok(())
     }
 }
@@ -50,9 +53,10 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for DialogContent<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        block_boundary(cx)?;
+        proa_macros::omit!("close-control");
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         self.children.render_md(cx)?;
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         Ok(())
     }
 }
@@ -72,11 +76,11 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for DialogTitle<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         let prev = cx.md_set_inline(true);
         md_sync! { "**" { self.children } "**" }.render_md(cx)?;
         cx.md_set_inline(prev);
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         Ok(())
     }
 }
@@ -86,9 +90,9 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for DialogDescription<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         self.children.render_md(cx)?;
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         Ok(())
     }
 }
@@ -98,9 +102,9 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for DialogFooter<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         self.children.render_md(cx)?;
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         Ok(())
     }
 }
@@ -108,6 +112,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 /// DialogClose is interaction chrome — renders nothing.
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C> MdRenderSync<Loader, B> for DialogClose<C> {
     fn render_md(self, _cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        proa_macros::omit!(self.children);
         Ok(())
     }
 }
@@ -117,6 +122,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C> MdRenderSync<Loader, B>
     for DialogCloseButton<C>
 {
     fn render_md(self, _cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        proa_macros::omit!(self.children);
         Ok(())
     }
 }

@@ -10,9 +10,19 @@ use proa_macros::md_sync;
 /// so markdown shows a text indicator.
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Input {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        if let Some(placeholder) = self.placeholder {
-            md_sync! { "[" { placeholder } "]" }.render_md(cx)?;
-        }
-        Ok(())
+        proa_macros::omit!(
+            self.value,
+            "Markdown uses the placeholder as the form text indicator."
+        );
+        proa_macros::omit!(
+            self.aria_label,
+            "Screen-reader labels are HTML control metadata."
+        );
+        proa_macros::content_part!("input-placeholder", {
+            if let Some(placeholder) = self.placeholder {
+                md_sync! { "[" { placeholder } "]" }.render_md(cx)?;
+            }
+            Ok(())
+        })
     }
 }

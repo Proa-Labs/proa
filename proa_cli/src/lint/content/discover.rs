@@ -571,6 +571,7 @@ fn bound_key(item: &ItemImpl, resolver: &Resolver, options: &ContentOptions) -> 
                 if let syn::TypeParamBound::Trait(t) = bound {
                     let path = resolver.path(&t.path);
                     if path == "proa_core::DataLoader"
+                        || path == "proa_core::MdCodeContent"
                         || options
                             .targets
                             .iter()

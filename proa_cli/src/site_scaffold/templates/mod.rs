@@ -535,7 +535,7 @@ fn dataloader_test() -> &'static str {
 
 use std::{future::Future, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
 
-use proa_core::{DataLoader, LoadError, LoadRequest, LoadValue, WebContext, WebRender};
+use proa_core::{DataLoader, LoadError, LoadRequest, LoadValue, MdRender, WebContext, WebRender};
 use proa_stream::DataResolver;
 
 #[path = "../src/app.rs"] mod app;
@@ -592,6 +592,19 @@ async fn real_guided_page_deduplicates_two_components_per_request() {
     let second = render_request(loader).await;
     assert!(second.contains("data-database-badge"));
     assert_eq!(origin_loads.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn markdown_exposes_the_same_database_value_and_deduplicates_its_children() {
+    let origin_loads = Arc::new(AtomicUsize::new(0));
+    let loader = Arc::new(InstrumentedLoader { origin_loads: Arc::clone(&origin_loads) });
+    let resolver = DataResolver::request_scope(loader);
+    let mut cx = WebContext::with_loader(resolver);
+    pages::home::HomePage.render_md(&mut cx).resolve().await.unwrap();
+    let markdown = cx.into_output().into_string();
+    assert!(markdown.contains("9.9-test"));
+    assert!(!markdown.contains("<html"));
+    assert_eq!(origin_loads.load(Ordering::SeqCst), 1);
 }
 "#
 }

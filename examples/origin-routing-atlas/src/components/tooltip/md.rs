@@ -10,6 +10,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, Trigger: MdRenderSync<Loader,
     MdRenderSync<Loader, B> for Tooltip<Trigger, Content>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        proa_macros::omit!(self.content);
         let prev = cx.md_set_inline(true);
         self.trigger.render_md(cx)?;
         cx.md_set_inline(prev);
@@ -34,6 +35,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C> MdRenderSync<Loader, B>
     for TooltipContent<C>
 {
     fn render_md(self, _cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        proa_macros::omit!(self.children);
         Ok(())
     }
 }

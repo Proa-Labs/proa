@@ -458,7 +458,14 @@ impl Analyzer<'_> {
                 }
             }
             Expr::MethodCall(m) => {
-                if self.metadata_receiver(expr, env) {
+                if self.metadata_receiver(expr, env)
+                    || (self.proa_context
+                        && self.output_arg(&m.receiver, env)
+                        && matches!(
+                            m.method.to_string().as_str(),
+                            "md_set_inline" | "md_push_heading_offset" | "md_pop_heading_offset"
+                        ))
+                {
                     let mut value = self.boundary(
                         expr,
                         "context metadata needs an explicit content mapping when rendered",
@@ -1242,6 +1249,13 @@ impl Analyzer<'_> {
                     | "load_json_request"
                     | "load_typed"
                     | "load_typed_request"
+                    | "md_set_inline"
+                    | "md_push_heading_offset"
+                    | "md_pop_heading_offset"
+                    | "md_blank_line"
+                    | "md_block_boundary"
+                    | "md_line_boundary"
+                    | "md_hr"
             )
     }
     fn sinks(&mut self, expr: &Expr, env: &mut Env, guards: &[Presence]) -> Value {

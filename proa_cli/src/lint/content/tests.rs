@@ -38,6 +38,35 @@ fn deletion_catches_child_even_when_inputs_are_equal() {
     assert!(diags[0].help.as_ref().unwrap().contains("{impact}"));
     assert_eq!(diags[0].labels.len(), 2);
 }
+
+#[test]
+fn markdown_layout_state_does_not_hide_missing_content() {
+    let src = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "let previous=cx.md_set_inline(true); md_sync! {r###\"{self.title}\"###}.render_md(cx)?; cx.md_set_inline(previous); cx.md_blank_line()?; Ok(())",
+    ).replace("&mut Cx", "&mut proa_core::WebContext");
+    assert!(lint(&src).is_empty());
+    let missing_title = src.replace("{self.title}\"###", "\"###");
+    assert_eq!(missing(&missing_title).len(), 1);
+}
+
+#[test]
+fn markdown_code_content_is_a_render_capability_not_a_cfg_variant() {
+    let source = r#"
+use proa_core::{WebRenderSync, MdRenderSync, MdCodeContent};
+use proa_macros::{html_sync, md_sync};
+struct Badge<C> { children: C }
+impl<C: WebRenderSync> WebRenderSync for Badge<C> {
+    fn render(self, cx: &mut Cx) -> Result { html_sync! {{self.children}}.render(cx) }
+}
+impl<C: MdCodeContent> MdRenderSync for Badge<C> {
+    fn render_md(self, cx: &mut Cx) -> Result { md_sync! {{self.children}}.render_md(cx) }
+}
+"#;
+    assert!(lint(source).is_empty());
+    let changed = source.replace("md_sync! {{self.children}}", "md_sync! {}");
+    assert_eq!(missing(&changed).len(), 1);
+}
 #[test]
 fn unused_template_and_uncalled_closure_never_count() {
     for extra in [

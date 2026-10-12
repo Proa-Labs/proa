@@ -1614,10 +1614,30 @@ impl<B: WriteBuf, C: MdRender<::proa_core::NoLoader, B>> MdRender<::proa_core::N
         md! { r###"# Title"### }.render_md(cx)
     }
 }
+
+
 "####;
     let diagnostics = lint_file(Path::new("sample.rs"), source);
     assert!(!has_code(&diagnostics, "render/md-async-unneeded"));
     assert!(!has_code(&diagnostics, "perf/async-md-static-subtree"));
+}
+
+#[test]
+fn async_markdown_recognizes_opaque_children_but_ignores_code_fence_braces() {
+    let source = r####"
+impl MdRender for Page {
+    fn render_md(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        md! { r###"{DatabaseBadge}"### }.render_md(cx)
+    }
+}
+"####;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    assert!(!has_code(&diagnostics, "render/md-async-unneeded"));
+    assert!(!has_code(&diagnostics, "perf/async-md-static-subtree"));
+    let code_fence = source.replace("{DatabaseBadge}", "```rust\n{DatabaseBadge}\n```");
+    let diagnostics = lint_file(Path::new("sample.rs"), &code_fence);
+    assert!(has_code(&diagnostics, "render/md-async-unneeded"));
+    assert!(has_code(&diagnostics, "perf/async-md-static-subtree"));
 }
 
 #[test]

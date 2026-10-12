@@ -12,6 +12,7 @@ use proa_core::{MdRenderSync, WriteBuf, WriteError};
 /// purely presentational controls.
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ThemeToggle {
     fn render_md(self, _cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        proa_macros::omit!(self.aria_label);
         Ok(())
     }
 }

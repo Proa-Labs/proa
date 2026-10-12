@@ -65,7 +65,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Spinner {
                 stroke-linejoin="round"
                 class={proa_macros::text!("{} {}", style, self.class)}
                 role="status"
-                aria-label="Loading"
+                aria-label={proa_macros::content_part!("loading-indicator", "Loading")}
                 id={self.id}
             >
                 <path d="M21 12a9 9 0 1 1-6.219-8.56" />

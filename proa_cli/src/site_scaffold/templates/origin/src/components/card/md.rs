@@ -11,11 +11,11 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for Card<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         let prev = cx.md_push_heading_offset(1);
         self.children.render_md(cx)?;
         cx.md_pop_heading_offset(prev);
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         Ok(())
     }
 }
@@ -35,10 +35,13 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for CardTitle<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         // `heading` adds the current offset itself, so the logical level is
         // constant: a top-level Card title is `##`, one nesting deeper `###`.
-        cx.md_heading_with(1, |cx| self.children.render_md(cx))
+        proa_macros::content_part!(
+            "card-title",
+            cx.md_heading_with(1, |cx| self.children.render_md(cx))
+        )
     }
 }
 

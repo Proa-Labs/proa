@@ -51,7 +51,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-variant={style.variant().as_str()}
                 class={proa_macros::text!("{} {}", style, self.class)}
             >
-                {self.children}
+                {proa_macros::content_part!("badge-content", self.children)}
             </span>
         }
         .render(cx)

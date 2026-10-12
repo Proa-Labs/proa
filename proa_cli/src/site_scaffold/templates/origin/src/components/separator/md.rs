@@ -10,7 +10,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for S
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         // `---` directly under a paragraph line would turn that line into a
         // setext heading; a full blank-line boundary avoids it.
-        block_boundary(cx)?;
+        proa_macros::content_part!("layout-boundary", block_boundary(cx))?;
         cx.md_hr()?;
         Ok(())
     }
