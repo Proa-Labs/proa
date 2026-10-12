@@ -94,7 +94,7 @@ def main() -> None:
                        CARGO_PROFILE_TEST_DEBUG="0", RUST_TEST_THREADS="2")
     destination = work / "installed"
     run(["cargo", "install", "proa-cli", "--version", arguments.version, "--locked",
-         "--debug", "--root", str(destination), "--target-dir", str(work / "target")],
+         "--root", str(destination), "--target-dir", str(work / "target")],
         work, environment)
     suffix = ".exe" if os.name == "nt" else ""
     for name in ("proa", "cargo-proa"):
