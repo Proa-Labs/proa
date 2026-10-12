@@ -370,6 +370,26 @@ mod tests {
     }
 
     #[test]
+    fn every_preset_has_canonical_macros_and_clean_component_hashes() {
+        let temp = tempfile::tempdir().unwrap();
+        for template in ["minimal", "app", "marketing", "docs", "origin"] {
+            let root = temp.path().join(template);
+            let mut value = options(root.clone());
+            value.template = template.to_string();
+            new_site(value).unwrap();
+            let formatting =
+                crate::fmt::format_paths_with_options(&[root.clone()], true, true).unwrap();
+            assert!(
+                formatting.changed.is_empty() && formatting.diagnostics.is_empty(),
+                "{template}: {:?}",
+                formatting.diagnostics
+            );
+            let report = crate::scaffold::site_check(Some(root)).unwrap();
+            assert!(report.errors.is_empty(), "{template}: {:?}", report.errors);
+        }
+    }
+
+    #[test]
     fn customized_pages_preserve_capability_checks() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("customized");
