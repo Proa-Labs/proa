@@ -5,7 +5,7 @@ registry, GitHub credential, or registry token is required to install or build
 Proa.
 
 ```bash
-cargo install proa-cli --version 0.1.1 --locked
+cargo install proa-cli --version 0.1.2 --locked
 ```
 
 Cargo installs both `proa` and `cargo-proa`. Generated projects use compatible

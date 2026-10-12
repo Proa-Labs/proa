@@ -57,7 +57,7 @@ irm https://proa.so/install.ps1 | iex
 Or install through Cargo (Rust 1.93+):
 
 ```bash
-cargo install proa-cli --version 0.1.1 --locked
+cargo install proa-cli --version 0.1.2 --locked
 ```
 
 Open a new terminal, then create a site:
