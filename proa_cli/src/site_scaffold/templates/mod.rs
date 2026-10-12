@@ -602,7 +602,7 @@ async fn markdown_exposes_the_same_database_value_and_deduplicates_its_children(
     let mut cx = WebContext::with_loader(resolver);
     pages::home::HomePage.render_md(&mut cx).resolve().await.unwrap();
     let markdown = cx.into_output().into_string();
-    assert!(markdown.contains("9.9-test"));
+    assert!(markdown.contains(r"9\.9\-test"), "{markdown}");
     assert!(!markdown.contains("<html"));
     assert_eq!(origin_loads.load(Ordering::SeqCst), 1);
 }
