@@ -12,9 +12,7 @@ Everything on this page renders on the server. That is not a mode you select per
 route or per component: a component writes bytes into the response, the reader
 gets a complete page, and nothing on it needs JavaScript to appear. There is no
 hydration pass by default, and a page ships no client JavaScript at all until you
-add an [island](/docs/guides/islands), which is opt-in per component. A wholly
-client-rendered SPA is mounted separately with `ExternalApp::csr_app`; it is not
-a Proa component render mode.
+add an [island](/docs/guides/islands), which is opt-in per component.
 
 ## Writing templates
 
