@@ -97,8 +97,10 @@ def main() -> None:
          "--root", str(destination), "--target-dir", str(work / "target")],
         work, environment)
     suffix = ".exe" if os.name == "nt" else ""
+    environment["PATH"] = str(destination / "bin") + os.pathsep + environment.get("PATH", "")
     for name in ("proa", "cargo-proa"):
         run([str(destination / "bin" / (name + suffix)), "--help"], work, environment)
+    run(["cargo", "proa", "--help"], work, environment)
     proa = destination / "bin" / ("proa" + suffix)
     for template in ("minimal", "app", "marketing", "docs", "origin"):
         project = work / f"registry-smoke-{template}"
