@@ -94,8 +94,13 @@ def topo_sort(crates: dict) -> list[str]:
         visited.add(n)
         ordered.append(n)
 
+    # Scaffolds emitted by the CLI depend on libraries beyond the CLI's own
+    # build graph. Publish those libraries before making the CLI installable.
     for name in crates:
-        visit(name)
+        if name != "proa-cli":
+            visit(name)
+    if "proa-cli" in crates:
+        visit("proa-cli")
     return ordered
 
 

@@ -37,6 +37,12 @@ class PublishedVersionsTests(unittest.TestCase):
         crates = {"app": (None, "1.0.0", ["core"]), "core": (None, "1.0.0", [])}
         self.assertEqual(publish.topo_sort(crates), ["core", "app"])
 
+    def test_cli_follows_the_libraries_its_scaffolds_emit(self):
+        crates = {"proa-cli": (None, "1.0.0", ["core"]),
+                  "framework": (None, "1.0.0", ["core"]),
+                  "core": (None, "1.0.0", [])}
+        self.assertEqual(publish.topo_sort(crates), ["core", "framework", "proa-cli"])
+
     def test_publish_honors_the_registry_retry_date(self):
         message = ("status 429 Too Many Requests: Please try again after "
                    "Mon, 12 Oct 2026 16:09:51 GMT")
