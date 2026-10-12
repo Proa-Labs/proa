@@ -123,7 +123,7 @@ def main() -> None:
                 project, environment)
         artifact = project / ("app" + suffix)
         run([str(proa), "build", "--root", str(project), "--locked", "--profile", "dev",
-             "--no-check", "--artifact-out", str(artifact)], project, environment)
+             "--artifact-out", str(artifact)], project, environment)
         smoke_http(artifact, project, environment, template)
     print("Registry install and linked-site acceptance passed", flush=True)
 
