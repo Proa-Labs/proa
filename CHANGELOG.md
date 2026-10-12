@@ -4,6 +4,11 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- Content coverage now reports supported missing contributions across render
+  targets as errors, failing `proa lint` by default. Unchecked coverage is a
+  visible warning enforced by `--deny-warnings` and the default `proa check`
+  policy. Discovery status and omission-marker hygiene remain informational.
+
 - RSJS now lowers direct `text!()` calls with reactive arguments in text slots
   and ordinary value attributes. Literal integer and string format plans run
   in the browser while SSR preserves streamed formatting and escaping. Other

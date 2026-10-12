@@ -71,7 +71,7 @@ fn diagnostics(output: &Output) -> Vec<serde_json::Value> {
     })
 }
 #[test]
-fn changed_html_loads_unchanged_markdown_and_denied_info_is_visible() {
+fn changed_html_loads_unchanged_markdown_and_missing_content_fails_by_default() {
     let root = fixture();
     std::fs::write(
         root.path().join("src/html.rs"),
@@ -81,22 +81,14 @@ fn changed_html_loads_unchanged_markdown_and_denied_info_is_visible() {
         ),
     )
     .unwrap();
-    let output = cli(
-        root.path(),
-        &[
-            "lint",
-            "--changed",
-            "--json",
-            "--deny",
-            "render/content-coverage",
-        ],
-    );
+    let output = cli(root.path(), &["lint", "--changed", "--json"]);
     assert!(!output.status.success());
     let diagnostics = diagnostics(&output);
     let missing = diagnostics
         .iter()
         .find(|d| d["code"] == "render/content-coverage")
         .unwrap();
+    assert_eq!(missing["severity"], "error");
     assert!(missing["message"]
         .as_str()
         .unwrap()
@@ -113,22 +105,23 @@ fn changed_html_loads_unchanged_markdown_and_denied_info_is_visible() {
         missing["suggestions"][0]["replacement"],
         "proa_macros::omit!(crate::product::RestockNotice);"
     );
-    let text = cli(
-        root.path(),
-        &["lint", "--changed", "--deny", "render/content-coverage"],
-    );
+    let text = cli(root.path(), &["lint", "--changed"]);
     assert!(!text.status.success());
     let stderr = String::from_utf8_lossy(&text.stderr);
-    assert!(stderr.contains("info[render/content-coverage]"));
+    assert!(stderr.contains("error[render/content-coverage]"));
     assert!(stderr.contains("-->") && stderr.contains(":::"));
-    let github = cli(root.path(), &["lint", "--changed", "--github"]);
-    let github = String::from_utf8_lossy(&github.stdout);
+    let github_output = cli(root.path(), &["lint", "--changed", "--github"]);
+    assert!(!github_output.status.success());
+    let github = String::from_utf8_lossy(&github_output.stdout);
+    assert!(github.lines().any(|line| {
+        line.starts_with("::error ") && line.contains("title=render/content-coverage::")
+    }));
     assert!(github.contains("title=render/content-coverage"));
     assert!(github.contains("src/html.rs"));
     assert!(github.contains("omit!"));
 }
 #[test]
-fn staged_paths_use_working_tree_contents_and_default_check_policy_stays_compatible() {
+fn staged_paths_use_working_tree_contents_and_checks_enforce_missing_content() {
     let root = fixture();
     let md = root.path().join("src/md.rs");
     let clean = std::fs::read_to_string(&md).unwrap();
@@ -141,27 +134,88 @@ fn staged_paths_use_working_tree_contents_and_default_check_policy_stays_compati
         .iter()
         .any(|d| d["code"] == "render/content-coverage"));
     std::fs::write(&md, clean.replace("{self.title}", "")).unwrap();
-    let output = cli(
-        root.path(),
-        &[
-            "lint",
-            "--staged",
-            "--json",
-            "--deny",
-            "render/content-coverage",
-        ],
-    );
+    let output = cli(root.path(), &["lint", "--staged", "--json"]);
     assert!(!output.status.success());
     assert!(diagnostics(&output)
         .iter()
         .any(|d| d["code"] == "render/content-coverage"));
     assert!(cli(root.path(), &["fmt", "src"]).status.success());
     let check = cli(root.path(), &["check", "src", "--source-only"]);
-    assert!(
-        check.status.success(),
-        "{}",
-        String::from_utf8_lossy(&check.stderr)
+    assert!(!check.status.success());
+    assert!(String::from_utf8_lossy(&check.stderr).contains("error[render/content-coverage]"));
+    let allow = cli(
+        root.path(),
+        &["check", "src", "--source-only", "--allow-warnings"],
     );
+    assert!(!allow.status.success());
     let warnings = cli(root.path(), &["lint", "src", "--deny-warnings"]);
-    assert!(warnings.status.success());
+    assert!(!warnings.status.success());
+}
+
+#[test]
+fn unchecked_coverage_is_visible_and_obeys_warning_policy() {
+    let root = fixture();
+    std::fs::write(
+        root.path().join("src/md.rs"),
+        MD.replace("{self.title}", "{opaque(self.title)}"),
+    )
+    .unwrap();
+    assert!(cli(root.path(), &["fmt", "src"]).status.success());
+
+    let output = cli(root.path(), &["lint", "src", "--json"]);
+    assert!(output.status.success());
+    let diagnostics = diagnostics(&output);
+    assert!(diagnostics.iter().any(|d| {
+        d["code"] == "render/content-coverage-unchecked" && d["severity"] == "warning"
+    }));
+    assert!(!diagnostics.iter().any(|d| d["severity"] == "error"));
+
+    let text = cli(root.path(), &["lint", "src"]);
+    assert!(text.status.success());
+    assert!(String::from_utf8_lossy(&text.stderr)
+        .contains("warning[render/content-coverage-unchecked]"));
+    let github = cli(root.path(), &["lint", "src", "--github"]);
+    assert!(github.status.success());
+    assert!(String::from_utf8_lossy(&github.stdout).lines().any(|line| {
+        line.starts_with("::warning ") && line.contains("title=render/content-coverage-unchecked::")
+    }));
+
+    for args in [
+        vec!["lint", "src", "--deny-warnings"],
+        vec!["lint", "src", "--deny", "warnings"],
+        vec!["lint", "src", "--deny", "render/content-coverage-unchecked"],
+        vec!["check", "src", "--source-only"],
+    ] {
+        assert!(!cli(root.path(), &args).status.success(), "{args:?}");
+    }
+    assert!(cli(
+        root.path(),
+        &["check", "src", "--source-only", "--allow-warnings"]
+    )
+    .status
+    .success());
+}
+
+#[test]
+fn intentional_omissions_pass_and_discovery_status_remains_informational() {
+    let root = fixture();
+    std::fs::write(
+        root.path().join("src/md.rs"),
+        MD.replace("md_sync!", "proa_macros::omit!(self.title); md_sync!")
+            .replace("{self.title}", ""),
+    )
+    .unwrap();
+    assert!(cli(root.path(), &["fmt", "src"]).status.success());
+    assert!(cli(root.path(), &["lint", "src", "--deny-warnings"])
+        .status
+        .success());
+    assert!(cli(root.path(), &["check", "src", "--source-only"])
+        .status
+        .success());
+
+    let output = cli(root.path(), &["lint", "src", "--content-summary", "--json"]);
+    assert!(output.status.success());
+    let diagnostics = diagnostics(&output);
+    assert!(!diagnostics.is_empty());
+    assert!(diagnostics.iter().all(|d| d["severity"] == "info"));
 }

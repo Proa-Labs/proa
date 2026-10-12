@@ -239,7 +239,7 @@ author decisions; the linter never inserts them automatically.
 For example, removing the `omit!` line from the complete product above reports:
 
 ```text
-info[render/content-coverage]: `Product<'_>`'s Markdown view does not render `self.image` from its HTML view
+error[render/content-coverage]: `Product<'_>`'s Markdown view does not render `self.image` from its HTML view
   --> src/components/product.rs:23:9
     |
  22 |     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
@@ -268,17 +268,20 @@ info[render/content-coverage]: `Product<'_>`'s Markdown view does not render `se
 | `render/content-omit-stale`, `render/content-omit-redundant` | The source no longer contributes the selected content, or the checked view now renders it. Remove the marker. |
 | `render/content-omit-ambiguous`, `render/content-omit-unresolved`, `render/content-policy-invalid` | Narrow the selector, fix its resolution, or correct the policy. |
 
-Coverage and omission diagnostics are informational by default. `--deny-warnings`
-and the default `proa check` policy do not enforce them. After reviewing a scope,
-opt it into CI with explicit codes:
+Missing content (`render/content-coverage`) is an error and fails `proa lint`
+by default. Unchecked coverage (`render/content-coverage-unchecked`) is a warning:
+it is visible by default and fails with `--deny-warnings`. `proa check` and
+lifecycle source checks reject both errors and warnings. `proa check
+--allow-warnings` permits unchecked coverage while still rejecting missing content.
+Use `omit!` to acknowledge an intentional difference.
 
 ```bash
-proa lint src/components/product \
-  --deny render/content-coverage \
-  --deny render/content-coverage-unchecked
+proa lint src/components/product --deny-warnings
 ```
 
-Also deny the four omission-marker codes when enforcing exception hygiene.
+Paired, unpaired, and exempt discovery status stays informational. The four
+omission-marker hygiene codes also remain informational; deny them individually
+when enforcing exception hygiene.
 Denied codes are printed even at the default warning threshold; `--deny` changes
 exit status without changing a diagnostic's printed severity. `--json` includes
 related ranges and structured suggestions. `--github` includes counterpart

@@ -962,7 +962,7 @@ pub(super) fn lint_sources(
                                 &context.path,
                                 item.span().start().line,
                                 1,
-                                Severity::Info,
+                                Severity::Warning,
                                 "render/content-coverage-unchecked",
                                 "render trait identity is hidden by a glob import",
                             )
@@ -977,7 +977,7 @@ pub(super) fn lint_sources(
                                 &context.path,
                                 item.span().start().line,
                                 1,
-                                Severity::Info,
+                                Severity::Warning,
                                 "render/content-coverage-unchecked",
                                 "content policy is attached to an unregistered render trait",
                             )
@@ -1032,7 +1032,7 @@ pub(super) fn lint_sources(
                                         .get(&(context.crate_id.clone(), tokens(&item.self_ty)))
                                         .is_some_and(|targets| targets.len() > 1))
                             {
-                                diagnostics.push(Diagnostic::new(&context.path,item.span().start().line,1,Severity::Info,"render/content-coverage-unchecked","render component identity is not resolved (blanket impl, alias, or imported type)").with_help("use a locally declared component or explicit registered source identity"));
+                                diagnostics.push(Diagnostic::new(&context.path,item.span().start().line,1,Severity::Warning,"render/content-coverage-unchecked","render component identity is not resolved (blanket impl, alias, or imported type)").with_help("use a locally declared component or explicit registered source identity"));
                             }
                             continue;
                         };
