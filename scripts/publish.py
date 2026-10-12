@@ -6,7 +6,7 @@
 Publish selected Proa workspace crates to crates.io after ownership review.
 
 Usage:
-    export CARGO_REGISTRY_TOKEN=<publisher token>
+    cargo login  # or configure CARGO_REGISTRY_TOKEN through your secret manager
     scripts/publish.py [--dry-run] [--skip-published] [--only crate1,crate2]
 
 Dry runs execute the policy/archive preflight and print the dependency order;
@@ -19,7 +19,7 @@ See docs/registry.md for the repository-side release policy.
 
 import argparse
 import json
-import os
+import re
 import subprocess
 import sys
 import time
@@ -27,6 +27,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from email.utils import parsedate_to_datetime
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = "crates-io"
@@ -93,8 +94,13 @@ def topo_sort(crates: dict) -> list[str]:
         visited.add(n)
         ordered.append(n)
 
+    # Scaffolds emitted by the CLI depend on libraries beyond the CLI's own
+    # build graph. Publish those libraries before making the CLI installable.
     for name in crates:
-        visit(name)
+        if name != "proa-cli":
+            visit(name)
+    if "proa-cli" in crates:
+        visit("proa-cli")
     return ordered
 
 
@@ -125,14 +131,29 @@ def publish_one(name: str, no_verify: bool = False) -> tuple[int, str]:
       "already"       - already published at this version (treat as skip)
       "error"         - real failure; caller should bail
     """
+    if name == "proa-cli":
+        preflight = subprocess.run(
+            ["cargo", "test", "--locked", "-p", name, "--lib"],
+            cwd=REPO_ROOT,
+        )
+        if preflight.returncode:
+            return preflight.returncode, "error"
     cmd = ["cargo", "publish", "--registry", REGISTRY, "-p", name]
     if no_verify:
         cmd.append("--no-verify")
     print(f"\n=== publishing {name} ===")
     print(f"$ {' '.join(cmd)}")
-    proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
+    while True:
+        proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+        sys.stdout.write(proc.stdout)
+        sys.stderr.write(proc.stderr)
+        retry = rate_limit_retry_at(proc.stdout + proc.stderr) if proc.returncode else None
+        if retry is None:
+            break
+        print(f"crates.io rate limit: retrying {name} after the server's requested time")
+        while (remaining := retry - time.time()) > 0:
+            print(f"rate-limit wait: {name}, {int(remaining) + 1}s remaining", flush=True)
+            time.sleep(min(60, remaining))
     if proc.returncode == 0:
         return 0, "ok"
     # Detect "already published at this version" so re-runs are idempotent.
@@ -145,6 +166,19 @@ def publish_one(name: str, no_verify: bool = False) -> tuple[int, str]:
     if any(marker in combined for marker in already_markers):
         return proc.returncode, "already"
     return proc.returncode, "error"
+
+
+def rate_limit_retry_at(output: str) -> float | None:
+    """Honor crates.io's explicit retry date; never retry an unrelated failure."""
+    if "status 429 Too Many Requests" not in output:
+        return None
+    match = re.search(r"Please try again after (.+? GMT)", output)
+    if match is None:
+        return None
+    try:
+        return parsedate_to_datetime(match.group(1)).timestamp() + 2
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 def wait_until_available(name: str, version: str) -> bool:
@@ -228,13 +262,8 @@ def main():
         )
         return 0
 
-    if "CARGO_REGISTRY_TOKEN" not in os.environ:
-        print(
-            "ERROR: set CARGO_REGISTRY_TOKEN to an authorized publisher token",
-            file=sys.stderr,
-        )
-        return 2
-
+    # Cargo resolves its standard credential providers (including cargo login
+    # and CARGO_REGISTRY_TOKEN). Do not read or print publisher credentials here.
     if args.skip_published:
         try:
             published = list_remote_versions(order)

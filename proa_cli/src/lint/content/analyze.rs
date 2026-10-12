@@ -35,6 +35,10 @@ impl Value {
         for part in &mut self.parts {
             let mut p = guards.to_vec();
             p.extend(part.presence.clone());
+            // Implicit Option presence and an explicit `if let Some(...)`
+            // can prove the same guard. Keep one obligation, in source order.
+            let mut seen = BTreeSet::new();
+            p.retain(|guard| seen.insert(guard.expression.clone()));
             part.presence = p;
         }
         self
@@ -46,6 +50,7 @@ struct Analyzer<'a> {
     resolver: &'a Resolver,
     context: String,
     proa_context: bool,
+    optional_inputs: BTreeSet<String>,
     omissions: Vec<Omission>,
     bindings: BTreeMap<String, Vec<ContentKey>>,
     bindings_initialized: bool,
@@ -263,6 +268,168 @@ impl Analyzer<'_> {
             ..Value::default()
         }
     }
+    fn option_variant(&self, path: &syn::Path, env: &Env, variant: &str) -> bool {
+        let name = self.resolver.path(path);
+        (name == format!("core::option::Option::{variant}")
+            || name == format!("std::option::Option::{variant}"))
+            || (path.segments.len() == 1
+                && path.is_ident(variant)
+                && name == format!("{}::{variant}", self.resolver.module)
+                && !env.contains_key(variant)
+                && !self.resolver.functions.contains(&name)
+                && !self.resolver.constants.contains_key(&name)
+                && self.resolver.known_type(path).is_none())
+    }
+
+    fn bind_condition(
+        &mut self,
+        binding: &syn::ExprLet,
+        env: &Env,
+        inner: &mut Env,
+        location: Option<&SourceRange>,
+    ) {
+        let value = self.expr(&binding.expr, env, location);
+        if let Pat::TupleStruct(pattern) = binding.pat.as_ref() {
+            if self.option_variant(&pattern.path, env, "Some") && pattern.elems.len() == 1 {
+                bind(&pattern.elems[0], value, inner);
+                return;
+            }
+        }
+        bind(&binding.pat, value, inner);
+    }
+
+    fn type_identity(&self, ty: &syn::TypePath) -> String {
+        if ty.qself.is_some() {
+            return syntax(ty);
+        }
+        let mut identity = self.resolver.path(&ty.path);
+        for segment in &ty.path.segments {
+            if let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments {
+                let arguments = arguments
+                    .args
+                    .iter()
+                    .map(|argument| match argument {
+                        syn::GenericArgument::Type(syn::Type::Path(ty)) => self.type_identity(ty),
+                        _ => syntax(argument),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
+                identity.push_str(&format!("<{arguments}>"));
+            }
+        }
+        identity
+    }
+
+    fn input_identity(&self, expr: &Expr, env: &Env) -> Option<String> {
+        if let Some(identity) = predicate_expression(expr, env) {
+            return Some(identity);
+        }
+        match expr {
+            Expr::Call(call) => {
+                let Expr::Path(function) = call.func.as_ref() else {
+                    return None;
+                };
+                if bare(&call.func).is_some_and(|name| env.contains_key(&name)) {
+                    return None;
+                }
+                let args = call
+                    .args
+                    .iter()
+                    .map(|arg| self.input_identity(arg, env))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(format!(
+                    "{}({})",
+                    self.resolver.path(&function.path),
+                    args.join(",")
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    fn static_markup(
+        &mut self,
+        expr: &Expr,
+        env: &Env,
+        location: Option<&SourceRange>,
+    ) -> Option<Value> {
+        let text = match expr {
+            Expr::Lit(literal) => {
+                let syn::Lit::Str(text) = &literal.lit else {
+                    return None;
+                };
+                text.value()
+            }
+            Expr::Path(path) if !bare(expr).is_some_and(|name| env.contains_key(&name)) => self
+                .resolver
+                .constants
+                .get(&self.resolver.path(&path.path))?
+                .clone()?,
+            _ => return None,
+        };
+        let root = syn::parse2::<HtmlRoot>(text.parse().ok()?).ok()?;
+        // Rust-template expressions and bare text are not a valid model of raw
+        // HTML. Only inspect fully static markup; otherwise retain the boundary.
+        fn static_nodes(nodes: &[Node]) -> bool {
+            nodes.iter().all(|node| match node {
+                Node::Element(element) => {
+                    !element
+                        .attrs
+                        .iter()
+                        .any(|attr| matches!(attr, Attribute::Dynamic { .. }))
+                        && static_nodes(&element.children)
+                }
+                Node::Fragment(children) => static_nodes(children),
+                Node::Doctype(_) => true,
+                _ => false,
+            })
+        }
+        static_nodes(&root.nodes).then(|| self.html(&root.nodes, env, location))
+    }
+
+    fn literal(&self, text: &str, range: SourceRange) -> Value {
+        let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !text.chars().any(char::is_alphanumeric) {
+            return Value::default();
+        }
+        Value {
+            parts: vec![Contribution {
+                key: ContentKey::Literal(text),
+                presence: Vec::new(),
+                range,
+            }],
+            ..Value::default()
+        }
+    }
+
+    fn markdown_text(&self, text: &str, range: SourceRange) -> Value {
+        use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+        let mut value = Value::default();
+        let mut paragraph = String::new();
+        for event in Parser::new(text) {
+            match event {
+                Event::Text(text) | Event::Code(text) => paragraph.push_str(&text),
+                Event::SoftBreak | Event::HardBreak => paragraph.push(' '),
+                Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                    value.append(self.literal(&dest_url, range.clone()));
+                }
+                Event::End(
+                    TagEnd::Paragraph
+                    | TagEnd::Heading(_)
+                    | TagEnd::CodeBlock
+                    | TagEnd::Item
+                    | TagEnd::TableCell,
+                ) => {
+                    value.append(self.literal(&paragraph, range.clone()));
+                    paragraph.clear();
+                }
+                _ => {}
+            }
+        }
+        value.append(self.literal(&paragraph, range));
+        value
+    }
+
     fn predicate(
         &mut self,
         expr: &Expr,
@@ -270,6 +437,22 @@ impl Analyzer<'_> {
         negated: bool,
         override_range: Option<&SourceRange>,
     ) -> Presence {
+        if let Expr::Let(condition) = expr {
+            if let Pat::TupleStruct(pattern) = condition.pat.as_ref() {
+                if self.option_variant(&pattern.path, env, "Some") && pattern.elems.len() == 1 {
+                    if let Some(symbol) = self.expr(&condition.expr, env, override_range).symbol {
+                        return Presence {
+                            expression: if negated {
+                                format!("!({symbol}.is_some())")
+                            } else {
+                                format!("{symbol}.is_some()")
+                            },
+                            range: self.range(expr.span(), override_range),
+                        };
+                    }
+                }
+            }
+        }
         // Rewrite only proven local input aliases. Never resolve a local by
         // looking up later bindings with the same spelling.
         let expression = predicate_expression(expr, env).unwrap_or_else(|| {
@@ -297,6 +480,9 @@ impl Analyzer<'_> {
             Expr::Reference(r) => self.expr(&r.expr, env, override_range),
             Expr::Try(t) => self.expr(&t.expr, env, override_range),
             Expr::Path(p) => {
+                if self.option_variant(&p.path, env, "None") {
+                    return Value::default();
+                }
                 if let Some(name) = bare(expr) {
                     if name == "self" {
                         return Value {
@@ -322,6 +508,14 @@ impl Analyzer<'_> {
                         }
                         return v;
                     }
+                }
+                let path = self.resolver.path(&p.path);
+                if self.resolver.unit_variants.contains(&path) {
+                    let symbol = format!("@variant:{path}");
+                    let mut value =
+                        self.part(ContentKey::Value(symbol.clone()), expr, override_range);
+                    value.symbol = Some(symbol);
+                    return value;
                 }
                 if let Some(ty) = self.resolver.known_type(&p.path) {
                     return self.part(
@@ -366,7 +560,15 @@ impl Analyzer<'_> {
                     let field = format!("{symbol}.{}", syntax(&f.member));
                     let mut value =
                         self.part(ContentKey::Value(field.clone()), expr, override_range);
-                    value.symbol = Some(field);
+                    value.symbol = Some(field.clone());
+                    if self.optional_inputs.contains(&field) {
+                        for part in &mut value.parts {
+                            part.presence.push(Presence {
+                                expression: format!("{field}.is_some()"),
+                                range: self.range(expr.span(), override_range),
+                            });
+                        }
+                    }
                     value
                 } else {
                     self.boundary(
@@ -380,6 +582,14 @@ impl Analyzer<'_> {
             Expr::Call(c) => {
                 if let Expr::Path(function) = c.func.as_ref() {
                     let path = self.resolver.path(&function.path);
+                    if path == "proa_core::StaticRaw" && c.args.len() == 1 {
+                        if let Some(value) = self.static_markup(&c.args[0], env, override_range) {
+                            return value;
+                        }
+                    }
+                    if c.args.len() == 1 && self.option_variant(&function.path, env, "Some") {
+                        return self.expr(&c.args[0], env, override_range);
+                    }
                     if self.target.adapters.contains(&path) && c.args.len() == 1 {
                         return self.expr(&c.args[0], env, override_range);
                     }
@@ -458,7 +668,14 @@ impl Analyzer<'_> {
                 }
             }
             Expr::MethodCall(m) => {
-                if self.metadata_receiver(expr, env) {
+                if self.metadata_receiver(expr, env)
+                    || (self.proa_context
+                        && self.output_arg(&m.receiver, env)
+                        && matches!(
+                            m.method.to_string().as_str(),
+                            "md_set_inline" | "md_push_heading_offset" | "md_pop_heading_offset"
+                        ))
+                {
                     let mut value = self.boundary(
                         expr,
                         "context metadata needs an explicit content mapping when rendered",
@@ -467,7 +684,48 @@ impl Analyzer<'_> {
                     value.metadata = true;
                     return value;
                 }
+                if self.proa_context
+                    && self.output_arg(&m.receiver, env)
+                    && m.method == "load_typed"
+                {
+                    if let Some(key) = m
+                        .args
+                        .iter()
+                        .map(|arg| self.input_identity(arg, env))
+                        .collect::<Option<Vec<_>>>()
+                    {
+                        let types = m
+                            .turbofish
+                            .as_ref()
+                            .map(|args| {
+                                args.args
+                                    .iter()
+                                    .map(|arg| match arg {
+                                        syn::GenericArgument::Type(syn::Type::Path(ty)) => {
+                                            self.type_identity(ty)
+                                        }
+                                        _ => syntax(arg),
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+                        let symbol = format!("@load:typed:{types:?}:{key:?}");
+                        return Value {
+                            symbol: Some(symbol.clone()),
+                            deps: BTreeSet::from([symbol]),
+                            ..Value::default()
+                        };
+                    }
+                }
                 let receiver = self.expr(&m.receiver, env, override_range);
+                if m.method == "map_or"
+                    && m.args.len() == 2
+                    && matches!(&m.args[0], Expr::Lit(lit) if matches!(&lit.lit, syn::Lit::Str(text) if text.value().is_empty()))
+                    && matches!(&m.args[1], Expr::Path(path) if self.resolver.path(&path.path) == "proa_core::MdCodeContent::md_code_content")
+                {
+                    return receiver;
+                }
+
                 if m.args.is_empty()
                     && matches!(
                         m.method.to_string().as_str(),
@@ -479,6 +737,7 @@ impl Analyzer<'_> {
                             | "cloned"
                             | "iter"
                             | "into_iter"
+                            | "unwrap_or_default"
                     )
                 {
                     return receiver;
@@ -509,7 +768,12 @@ impl Analyzer<'_> {
                     _ => true,
                 };
                 let mut value = if meaningful {
-                    self.boundary(expr,"unnamed static literal output has no shared semantic identity; name meaningful content with `content_part!`",override_range)
+                    match &l.lit {
+                        syn::Lit::Str(text) => {
+                            self.literal(&text.value(), self.range(expr.span(), override_range))
+                        }
+                        _ => self.part(ContentKey::Literal(syntax(&l.lit)), expr, override_range),
+                    }
                 } else {
                     Value::default()
                 };
@@ -521,8 +785,12 @@ impl Analyzer<'_> {
             }
             Expr::If(i) => {
                 let condition = self.predicate(&i.cond, env, false, override_range);
+                let mut branch_env = env.clone();
+                if let Expr::Let(binding) = i.cond.as_ref() {
+                    self.bind_condition(binding, env, &mut branch_env, override_range);
+                }
                 let mut v = self
-                    .value_block(&i.then_branch, env, override_range)
+                    .value_block(&i.then_branch, &branch_env, override_range)
                     .guarded(&[condition]);
                 if let Some((_, other)) = &i.else_branch {
                     let condition = self.predicate(&i.cond, env, true, override_range);
@@ -564,11 +832,17 @@ impl Analyzer<'_> {
             }
             Expr::Await(a) => {
                 let mut v = self.expr(&a.base, env, override_range);
-                v.boundaries.push(Boundary {
-                    may_hide_content: true,
-                    message: "awaited output needs an explicit named content mapping".into(),
-                    range: self.range(expr.span(), override_range),
-                });
+                if !v
+                    .symbol
+                    .as_deref()
+                    .is_some_and(|symbol| symbol.starts_with("@load:"))
+                {
+                    v.boundaries.push(Boundary {
+                        may_hide_content: true,
+                        message: "awaited output needs an explicit named content mapping".into(),
+                        range: self.range(expr.span(), override_range),
+                    });
+                }
                 v
             }
             _ => self.boundary(
@@ -829,9 +1103,10 @@ impl Analyzer<'_> {
                                         v.append(self.expr(e, env, override_range))
                                     }
                                     MdNodeKind::Text { value, .. } => {
-                                        if value.value().chars().any(char::is_alphanumeric) {
-                                            v.boundaries.push(Boundary {may_hide_content:false,message:"unnamed static Markdown text has no shared semantic identity".into(),range:self.range(value.span(),override_range)});
-                                        }
+                                        v.append(self.markdown_text(
+                                            &value.value(),
+                                            self.range(value.span(), override_range),
+                                        ));
                                     }
                                 }
                             }
@@ -871,7 +1146,10 @@ impl Analyzer<'_> {
                                     | "aria-valuetext"
                             ) && !value.value().is_empty()
                             {
-                                v.boundaries.push(Boundary {may_hide_content:false,message:format!("static semantic attribute `{name}` has no named content identity"),range:self.range(value.span(),override_range)});
+                                v.append(self.literal(
+                                    &value.value(),
+                                    self.range(value.span(), override_range),
+                                ));
                             }
                         }
                         if let Attribute::Dynamic { name, value } = attr {
@@ -894,14 +1172,7 @@ impl Analyzer<'_> {
                     v.append(self.html(&e.children, env, override_range));
                 }
                 Node::Text(t) => {
-                    if t.value().chars().any(char::is_alphanumeric) {
-                        v.boundaries.push(Boundary {
-                            may_hide_content: false,
-                            message: "unnamed static HTML text has no shared semantic identity"
-                                .into(),
-                            range: self.range(t.span(), override_range),
-                        });
-                    }
+                    v.append(self.literal(&t.value(), self.range(t.span(), override_range)));
                 }
                 Node::Doctype(_) => {}
             }
@@ -949,9 +1220,7 @@ impl Analyzer<'_> {
         for node in nodes {
             match node {
                 TplNode::Text(text) => {
-                    if text.chars().any(char::is_alphanumeric) {
-                        result.boundaries.push(Boundary {may_hide_content:false,message:"unnamed static template text (including code literals) has no shared semantic identity".into(),range:fallback.clone()});
-                    }
+                    result.append(self.markdown_text(text, fallback.clone()));
                 }
                 TplNode::Expr(e) => {
                     let range = self.template_range(e);
@@ -1242,6 +1511,13 @@ impl Analyzer<'_> {
                     | "load_json_request"
                     | "load_typed"
                     | "load_typed_request"
+                    | "md_set_inline"
+                    | "md_push_heading_offset"
+                    | "md_pop_heading_offset"
+                    | "md_blank_line"
+                    | "md_block_boundary"
+                    | "md_line_boundary"
+                    | "md_hr"
             )
     }
     fn sinks(&mut self, expr: &Expr, env: &mut Env, guards: &[Presence]) -> Value {
@@ -1330,7 +1606,11 @@ impl Analyzer<'_> {
             Expr::If(i) => {
                 let mut yes = guards.to_vec();
                 yes.push(self.predicate(&i.cond, env, false, None));
-                let mut v = self.statements(&i.then_branch, env, &yes);
+                let mut branch_env = env.clone();
+                if let Expr::Let(binding) = i.cond.as_ref() {
+                    self.bind_condition(binding, env, &mut branch_env, None);
+                }
+                let mut v = self.statements(&i.then_branch, &branch_env, &yes);
                 if let Some((_, other)) = &i.else_branch {
                     let mut no = guards.to_vec();
                     no.push(self.predicate(&i.cond, env, true, None));
@@ -1454,6 +1734,43 @@ impl Analyzer<'_> {
                 self.marker(&m.mac, env, guards);
                 Value::default()
             }
+            Expr::MethodCall(m)
+                if self.proa_context
+                    && self.output_arg(&m.receiver, env)
+                    && m.method == "write_md_inline_code"
+                    && m.args.len() == 1 =>
+            {
+                self.expr(&m.args[0], env, None).guarded(guards)
+            }
+            Expr::MethodCall(m)
+                if self.proa_context
+                    && self.output_arg(&m.receiver, env)
+                    && m.method == "md_heading_with"
+                    && m.args.len() == 2 =>
+            {
+                let mut value = self.sinks(&m.args[0], env, guards);
+                if let Expr::Closure(callback) = &m.args[1] {
+                    if callback.inputs.len() == 1 {
+                        let mut inner = env.clone();
+                        bind(
+                            &callback.inputs[0],
+                            Value {
+                                symbol: Some("@context".into()),
+                                ..Value::default()
+                            },
+                            &mut inner,
+                        );
+                        value.append(self.sinks(&callback.body, &mut inner, guards));
+                        return value;
+                    }
+                }
+                value.append(self.boundary(
+                    expr,
+                    "Markdown heading callback cannot be resolved",
+                    None,
+                ));
+                value
+            }
             Expr::MethodCall(m) => {
                 // Context/loader usage is preparation, not an obligation.
                 // This applies only to proven WebContext APIs and metadata
@@ -1565,12 +1882,28 @@ pub(super) fn summarize(
     let context = context_input
         .map(|(name, _)| name)
         .unwrap_or_else(|| "cx".into());
+    let mut self_type = item.self_ty.as_ref();
+    while let syn::Type::Reference(reference) = self_type {
+        self_type = &reference.elem;
+    }
+    let optional_inputs = if let syn::Type::Path(ty) = self_type {
+        resolver
+            .known_type(&ty.path)
+            .and_then(|name| resolver.optional_fields.get(&name))
+            .into_iter()
+            .flatten()
+            .map(|field| format!("self.{field}"))
+            .collect()
+    } else {
+        BTreeSet::new()
+    };
     let mut analyzer = Analyzer {
         path,
         target,
         resolver,
         context,
         proa_context,
+        optional_inputs,
         omissions: Vec::new(),
         bindings: BTreeMap::new(),
         bindings_initialized: false,

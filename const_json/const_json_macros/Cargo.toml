@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [package]
-name = "const_json_macros"
+name = "proa_const_json_macros"
 version = "0.1.2"
 edition.workspace = true
 publish.workspace = true
@@ -13,6 +13,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [lib]
+name = "const_json_macros"
 proc-macro = true
 
 [dependencies]

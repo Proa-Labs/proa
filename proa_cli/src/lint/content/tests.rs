@@ -38,6 +38,35 @@ fn deletion_catches_child_even_when_inputs_are_equal() {
     assert!(diags[0].help.as_ref().unwrap().contains("{impact}"));
     assert_eq!(diags[0].labels.len(), 2);
 }
+
+#[test]
+fn markdown_layout_state_does_not_hide_missing_content() {
+    let src = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "let previous=cx.md_set_inline(true); md_sync! {r###\"{self.title}\"###}.render_md(cx)?; cx.md_set_inline(previous); cx.md_blank_line()?; Ok(())",
+    ).replace("&mut Cx", "&mut proa_core::WebContext");
+    assert!(lint(&src).is_empty());
+    let missing_title = src.replace("{self.title}\"###", "\"###");
+    assert_eq!(missing(&missing_title).len(), 1);
+}
+
+#[test]
+fn markdown_code_content_is_a_render_capability_not_a_cfg_variant() {
+    let source = r#"
+use proa_core::{WebRenderSync, MdRenderSync, MdCodeContent};
+use proa_macros::{html_sync, md_sync};
+struct Badge<C> { children: C }
+impl<C: WebRenderSync> WebRenderSync for Badge<C> {
+    fn render(self, cx: &mut Cx) -> Result { html_sync! {{self.children}}.render(cx) }
+}
+impl<C: MdCodeContent> MdRenderSync for Badge<C> {
+    fn render_md(self, cx: &mut Cx) -> Result { md_sync! {{self.children}}.render_md(cx) }
+}
+"#;
+    assert!(lint(source).is_empty());
+    let changed = source.replace("md_sync! {{self.children}}", "md_sync! {}");
+    assert_eq!(missing(&changed).len(), 1);
+}
 #[test]
 fn unused_template_and_uncalled_closure_never_count() {
     for extra in [
@@ -296,15 +325,12 @@ fn ordinary_static_copy_does_not_hide_a_missing_dynamic_child() {
         "html_sync! { \"Notice\" {RestockNotice::new(self.data)}}.render(cx)",
         "md_sync! {r###\"# Product\"###}.render_md(cx)",
     );
-    assert_eq!(missing(&src).len(), 1);
+    assert_eq!(missing(&src).len(), 2);
     let static_only = fixture(
         "html_sync! {\"Available\"}.render(cx)",
         "md_sync! {r###\"\"###}.render_md(cx)",
     );
-    assert_eq!(
-        code(&lint(&static_only), "render/content-coverage-unchecked"),
-        1
-    );
+    assert_eq!(code(&lint(&static_only), "render/content-coverage"), 1);
 }
 #[test]
 fn semantic_attributes_count_styling_does_not() {
@@ -1067,5 +1093,226 @@ fn child_type_suggestions_include_lifetimes_and_never_guess_generic_arguments() 
     assert_eq!(
         code(&lint(&acknowledged), "render/content-omit-unresolved"),
         0
+    );
+}
+
+#[test]
+fn literal_copy_matches_markdown_blocks_and_links_without_annotations() {
+    let source = fixture(
+        r#"html_sync! { <h1>"Available soon"</h1><a href="/stock">"View stock"</a> }.render(cx)"#,
+        r####"md_sync! {r###"# Available **soon**
+
+[View stock](/stock)
+"###}.render_md(cx)"####,
+    );
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+    let deleted = source.replace("Available **soon**", "Available");
+    assert_eq!(missing(&deleted).len(), 1);
+    let missing_url = source.replace("[View stock](/stock)", "View stock");
+    assert_eq!(missing(&missing_url).len(), 1);
+}
+
+#[test]
+fn literal_omissions_are_explicit_and_detect_stale_exceptions() {
+    let source = fixture(
+        r#"html_sync! { <span aria-label="Loading"></span> }.render(cx)"#,
+        r#"omit!("Loading"); md_sync! {}.render_md(cx)"#,
+    );
+    assert!(lint(&source).is_empty());
+    let stale = source.replace("aria-label=\"Loading\"", "aria-label=\"Working\"");
+    assert_eq!(code(&lint(&stale), "render/content-omit-stale"), 1);
+}
+
+#[test]
+fn proven_markdown_writers_preserve_child_coverage() {
+    let source = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "cx.md_block_boundary()?; cx.md_heading_with(1, |out| self.title.render_md(out))",
+    )
+    .replace("&mut Cx", "&mut proa_core::WebContext");
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+    let deleted = source.replace("self.title.render_md(out)", "md_sync! {}.render_md(out)");
+    assert_eq!(missing(&deleted).len(), 1);
+    let opaque = source.replace("md_heading_with", "custom_heading_with");
+    assert_eq!(code(&lint(&opaque), "render/content-coverage-unchecked"), 1);
+    let opaque_level = source.replace("md_heading_with(1,", "md_heading_with(custom_level(cx),");
+    assert_eq!(
+        code(&lint(&opaque_level), "render/content-coverage-unchecked"),
+        1
+    );
+}
+
+#[test]
+fn typed_loader_fields_match_by_query_and_payload_not_local_spelling() {
+    let source = fixture(
+        "let html_data = cx.load_typed::<Data>(query()).await?; html_sync! {{html_data.title}}.render(cx)",
+        "let markdown_data = cx.load_typed::<Data>(query()).await?; md_sync! {{markdown_data.title}}.render_md(cx)",
+    ).replace("&mut Cx", "&mut proa_core::WebContext");
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+    let deleted = source.replace("{{markdown_data.title}}", "{}");
+    assert_eq!(missing(&deleted).len(), 1);
+    let changed_key = source.replace(
+        "::<Data>(query()).await?; md_sync",
+        "::<Data>(other_query()).await?; md_sync",
+    );
+    assert_eq!(missing(&changed_key).len(), 1);
+    let generic = source.replace("::<Data>", "::<Data<First>>");
+    let changed_type = generic.replace(
+        "::<Data<First>>(query()).await?; md_sync",
+        "::<Data<Second>>(query()).await?; md_sync",
+    );
+    assert_eq!(missing(&changed_type).len(), 1);
+}
+
+#[test]
+fn optional_attributes_match_if_let_bindings_without_suppressing_missing_fields() {
+    let source = r#"
+use proa_core::{WebRenderSync, MdRenderSync, WebContext};
+use proa_macros::{html_sync, md_sync};
+struct Input { placeholder: Option<String> }
+impl WebRenderSync for Input {
+    fn render(self, cx: &mut WebContext) -> Result { html_sync! {<input placeholder={self.placeholder}/>} .render(cx) }
+}
+impl MdRenderSync for Input {
+    fn render_md(self, cx: &mut WebContext) -> Result {
+        if let Some(label) = self.placeholder { md_sync! {{label}}.render_md(cx)?; }
+        Ok(())
+    }
+}
+"#;
+    assert!(lint(source).is_empty(), "{:?}", lint(source));
+    let qualified = source.replace(
+        "if let Some(label)",
+        "if let std::option::Option::Some(label)",
+    );
+    assert!(lint(&qualified).is_empty(), "{:?}", lint(&qualified));
+    let borrowed = source.replace("= self.placeholder {", "= self.placeholder.as_ref() {");
+    assert!(lint(&borrowed).is_empty(), "{:?}", lint(&borrowed));
+    let deleted = source.replace("md_sync! {{label}}", "md_sync! {}");
+    assert_eq!(missing(&deleted).len(), 1);
+    let guarded = source
+        .replace("if let Some(label)", "if self.allowed { if let Some(label)")
+        .replace("        Ok(())", "        } Ok(())");
+    assert_eq!(
+        code(&lint(&guarded), "render/content-coverage-unchecked"),
+        1
+    );
+}
+
+#[test]
+fn only_fully_static_markup_is_inferred_for_the_framework_raw_adapter() {
+    let source = fixture(
+        "html_sync! {{proa_core::StaticRaw(ICON)} {self.title}}.render(cx)",
+        "md_sync! {{self.title}}.render_md(cx)",
+    );
+    let source = format!("const ICON: &str = r#\"<svg aria-hidden=\"true\"><path d=\"M0 0L1 1\"/></svg>\"#;\n{source}");
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+    let dynamic_raw = source.replace(
+        "proa_core::StaticRaw(ICON)",
+        "proa_core::StaticRaw(self.image)",
+    );
+    assert_eq!(
+        code(&lint(&dynamic_raw), "render/content-coverage-unchecked"),
+        1
+    );
+    let opaque_raw = source.replace("proa_core::StaticRaw", "custom::StaticRaw");
+    assert_eq!(
+        code(&lint(&opaque_raw), "render/content-coverage-unchecked"),
+        1
+    );
+    let erased_title = source.replace("md_sync! {{self.title}}", "md_sync! {}");
+    assert_eq!(missing(&erased_title).len(), 1);
+}
+
+#[test]
+fn shadowed_some_function_is_not_treated_as_the_option_constructor() {
+    let source = fixture(
+        "html_sync! {{Some(self.title)}}.render(cx)",
+        "md_sync! {}.render_md(cx)",
+    );
+    let source = format!("fn Some(value: String) -> String {{ value }}\n{source}");
+    assert_eq!(code(&lint(&source), "render/content-coverage-unchecked"), 1);
+    assert!(missing(&source).is_empty());
+}
+
+#[test]
+fn child_options_and_unit_variants_keep_input_identity() {
+    let source = fixture(
+        "html_sync! {{RestockNotice { size: Some(Size::Small), id: None }}}.render(cx)",
+        "md_sync! {{RestockNotice { size: Some(Size::Small), id: None }}}.render_md(cx)",
+    );
+    let source = format!("enum Size {{ Small, Large }}\n{source}");
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+    let changed = source.replace(
+        "size: Some(Size::Small), id: None }}}.render_md",
+        "size: Some(Size::Large), id: None }}}.render_md",
+    );
+    assert_eq!(
+        code(&lint(&changed), "render/content-coverage-unchecked"),
+        1
+    );
+    let deleted = source.replace(
+        "md_sync! {{RestockNotice { size: Some(Size::Small), id: None }}}",
+        "md_sync! {}",
+    );
+    assert_eq!(missing(&deleted).len(), 1);
+    let unknown = source.replace("Size::Small", "external::Size::Small");
+    assert_eq!(
+        code(&lint(&unknown), "render/content-coverage-unchecked"),
+        1
+    );
+    let shadowed = format!("const None: &str = \"visible\";\n{source}");
+    assert_eq!(
+        code(&lint(&shadowed), "render/content-coverage-unchecked"),
+        1
+    );
+}
+
+#[test]
+fn raw_markup_constants_cannot_override_shadowing_or_configuration() {
+    let source = fixture(
+        "html_sync! {{proa_core::StaticRaw(ICON)} {self.title}}.render(cx)",
+        "md_sync! {{self.title}}.render_md(cx)",
+    );
+    let constant = "const ICON: &str = r#\"<svg aria-hidden=\"true\"/>\"#;";
+    for prefix in [
+        format!("#[cfg(feature=\"icon\")] {constant}"),
+        format!("#[cfg_attr(feature=\"icon\", cfg(unix))] {constant}"),
+        format!("{constant}\nconst ICON: &str = other();"),
+    ] {
+        let conditional = format!("{prefix}\n{source}");
+        assert_eq!(
+            code(&lint(&conditional), "render/content-coverage-unchecked"),
+            1,
+            "{:?}",
+            lint(&conditional)
+        );
+    }
+    let shadowed = format!(
+        "{constant}\n{}",
+        source.replace("html_sync!", "let ICON = self.image; html_sync!")
+    );
+    assert_eq!(
+        code(&lint(&shadowed), "render/content-coverage-unchecked"),
+        1
+    );
+}
+
+#[test]
+fn inline_code_projection_is_supported_but_arbitrary_callbacks_are_opaque() {
+    let source = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        "cx.write_md_inline_code(Some(self.title).as_ref().map_or(\"\", proa_core::MdCodeContent::md_code_content))",
+    ).replace("&mut Cx", "&mut proa_core::WebContext");
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+    let deleted = source.replace("cx.write_md_inline_code(Some(self.title).as_ref().map_or(\"\", proa_core::MdCodeContent::md_code_content))", "cx.write_md_inline_code(\"\")");
+    assert_eq!(missing(&deleted).len(), 1);
+    let callback = source.replace(
+        "proa_core::MdCodeContent::md_code_content",
+        "custom::md_code_content",
+    );
+    assert_eq!(
+        code(&lint(&callback), "render/content-coverage-unchecked"),
+        1
     );
 }

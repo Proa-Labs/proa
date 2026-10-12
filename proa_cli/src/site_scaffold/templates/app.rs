@@ -225,8 +225,21 @@ impl<L: DataLoader> WebRender<L> for DatabaseBadge {
             WebRenderSync::render(html_sync! {
                 <span data-database-badge data-driver={status.driver} class="status-pill">
                     <span class="status-dot"></span>
-                    {status.driver} " " {status.version.as_str()}
+                    {status.driver} " "
+                    {status.version.as_str()}
                 </span>
+            }, cx)
+        })
+    }
+}
+
+impl<L: DataLoader> proa_core::MdRender<L> for DatabaseBadge {
+    fn render_md(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let status = cx.load_typed::<DatabaseStatus>(database_status_key()).await?;
+            proa_core::MdRenderSync::render_md(proa_macros::md_sync! {
+                {status.driver} " "
+                {status.version.as_str()}
             }, cx)
         })
     }
@@ -235,7 +248,7 @@ impl<L: DataLoader> WebRender<L> for DatabaseBadge {
 }
 
 pub fn database_card_rs() -> &'static str {
-    r#"use std::future::Future;
+    r###"use std::future::Future;
 
 use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError};
 use proa_macros::html_sync;
@@ -262,7 +275,20 @@ impl<L: DataLoader> WebRender<L> for DatabaseCard {
         })
     }
 }
-"#
+
+impl<L: DataLoader> proa_core::MdRender<L> for DatabaseCard {
+    fn render_md(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let status = cx.load_typed::<DatabaseStatus>(database_status_key()).await?;
+            proa_core::MdRenderSync::render_md(proa_macros::md_sync! {
+                "## " "DATA ORIGIN"
+                "\n\n" {status.driver}
+                "\n\n" "Two component requests resolve through one keyed origin query."
+            }, cx)
+        })
+    }
+}
+"###
 }
 
 pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) -> String {
@@ -309,9 +335,9 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
         };
         let button = if has_ui {
             if has_database {
-                "{proa_core::to_async(Button::link(\"READ THE MARKDOWN\", \"/index.md\"))}"
+                r#"{proa_core::to_async(Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None })}"#
             } else {
-                "{Button::link(\"READ THE MARKDOWN\", \"/index.md\")}"
+                r#"{Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }}"#
             }
         } else {
             "<a href=\"/index.md\">\"READ THE MARKDOWN\"</a>"
@@ -342,30 +368,15 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
             .replace("__CARD__", card)
             .replace("__HTML_MACRO__", html_macro)
     };
-    let markdown_impl = if markdown {
-        r####"
-impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for HomePage {
-    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        md_sync! { r###"
-            # Welcome to Proa
-
-            This application renders browser HTML and agent-friendly Markdown from the same typed page.
-
-            - Server-rendered HTML compiled from Rust
-            - SQLite and SQLx configured
-            - Request-scoped keyed loading through `cx` on the HTML path
-            - Two HTML component requests deduplicate to one origin query
-            - No application JavaScript on the starter route
-
-            Edit `src/pages/home.rs` to get started.
-            "###
-        }
-        .render_md(cx)
-    }
-}
-"####
+    let copy = if markdown {
+        starter_markdown_copy(&body)
     } else {
-        ""
+        String::new()
+    };
+    let markdown_impl = if markdown {
+        home_markdown_impl(has_database, has_ui, blank, &copy)
+    } else {
+        String::new()
     };
     let (core_imports, macro_import, render_impl) = if has_database {
         (
@@ -404,14 +415,120 @@ __MARKDOWN_IMPL__
     .replace(
         "__MD_IMPORTS__",
         if markdown {
-            "use proa_core::{MdRenderSync, WriteBuf};\nuse proa_macros::md_sync;"
+            if has_database {
+                "use proa_core::MdRender;\nuse proa_macros::md;"
+            } else {
+                "use proa_core::{MdRenderSync, WriteBuf};\nuse proa_macros::md_sync;"
+            }
         } else {
             ""
         },
     )
     .replace("__COMPONENT_IMPORTS__", imports)
     .replace("__RENDER_IMPL__", &render_impl.replace("__BODY__", &body))
-    .replace("__MARKDOWN_IMPL__", markdown_impl)
+    .replace("__MARKDOWN_IMPL__", &markdown_impl)
+}
+
+fn starter_markdown_copy(body: &str) -> String {
+    use proa_dsl::parse::{Attribute, Node};
+    fn collect(nodes: &[Node], values: &mut Vec<syn::LitStr>) {
+        for node in nodes {
+            match node {
+                Node::Text(value) if value.value().chars().any(char::is_alphanumeric) => {
+                    values.push(value.clone());
+                }
+                Node::Element(element) => {
+                    for attribute in &element.attrs {
+                        if let Attribute::Static { name, value } = attribute {
+                            if matches!(name.to_string().as_str(), "href" | "src" | "alt" | "title")
+                            {
+                                values.push(value.clone());
+                            }
+                        }
+                    }
+                    collect(&element.children, values);
+                }
+                Node::Fragment(children) => collect(children, values),
+                _ => {}
+            }
+        }
+    }
+    let invocation = crate::source::find_macros(body).remove(0);
+    let root = crate::lint::parse_invocation(body, &invocation).expect("valid starter HTML");
+    let mut values = Vec::new();
+    collect(&root.nodes, &mut values);
+    let mut markdown = String::new();
+    for value in values {
+        // Emit literal Markdown directly. Escape inline/list punctuation and
+        // double braces for the raw-template slot grammar.
+        for character in value.value().chars() {
+            match character {
+                '{' => markdown.push_str("{{"),
+                '}' => markdown.push_str("}}"),
+                '\\' | '`' | '*' | '_' | '[' | ']' | '(' | ')' | '<' | '>' | '|' | '~' | '&'
+                | '#' | '+' | '-' | '.' | '!' | '=' | ':' => {
+                    markdown.push('\\');
+                    markdown.push(character);
+                }
+                '\r' | '\n' | '\t' => markdown.push(' '),
+                _ => markdown.push(character),
+            }
+        }
+        markdown.push_str("\n\n");
+    }
+    markdown
+}
+
+fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool, copy: &str) -> String {
+    let mut children = copy.to_string();
+    let lift = |child: &str| {
+        if has_database {
+            format!("{{proa_core::to_md_async({child})}}")
+        } else {
+            format!("{{{child}}}")
+        }
+    };
+    if !blank {
+        if has_ui {
+            children.push_str(&lift("Badge::new(\"SERVER RENDERED IN RUST\")"));
+            children.push_str("\n\n");
+            children.push_str(&lift(
+                r#"Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }"#,
+            ));
+            children.push_str("\n\n");
+        }
+        if has_database {
+            children.push_str("{DatabaseBadge}\n\n{DatabaseCard}\n\n");
+        }
+        if has_ui {
+            children.push_str(&lift(r#"Card { eyebrow: "REPRESENTATIONS", title: "HTML + Markdown", body: "One typed page serves browsers and agents without duplicating route policy.", class: None }"#));
+        }
+    }
+    let implementation = if has_database {
+        "impl<L: DataLoader> MdRender<L> for HomePage"
+    } else {
+        "impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for HomePage"
+    };
+    let signature = if has_database {
+        "fn render_md(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>>"
+    } else {
+        "fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError>"
+    };
+    r####"
+__IMPL__ {
+    __SIGNATURE__ {
+        __MACRO__! { r###"
+            __CHILDREN__
+            "###
+        }
+        .render_md(cx)
+    }
+}
+"####
+        .replace("__IMPL__", implementation)
+        .replace("__SIGNATURE__", signature)
+        .replace("__MACRO__", if has_database { "md" } else { "md_sync" })
+        .replace("__CHILDREN__", &children.replace('\n', "\n            "))
 }
 
 pub fn home_handler(has_database: bool, markdown: bool, title: &str) -> String {
@@ -425,7 +542,7 @@ pub fn home_handler(has_database: bool, markdown: bool, title: &str) -> String {
         r#"let resolver = DataResolver::request_scope(state.loader.clone());
     let html = RouteResponse::ssr_async_with_loader(
         RootDocument { title: __TITLE__, content: HomePage },
-        resolver,
+        resolver.clone(),
     );"#
     } else {
         r#"let html = RouteResponse::ssr_async(
@@ -433,16 +550,29 @@ pub fn home_handler(has_database: bool, markdown: bool, title: &str) -> String {
     );"#
     };
     let response = if markdown {
-        r#"Ok(negotiate(&headers, html, HomePage, MarkdownAlternate::new("/index.md"))?)"#
+        if has_database {
+            r#"Ok(negotiate_async_with_loader(&headers, html, HomePage, resolver, MarkdownAlternate::new("/index.md")))"#
+        } else {
+            r#"Ok(negotiate(&headers, html, HomePage, MarkdownAlternate::new("/index.md"))?)"#
+        }
     } else {
         "Ok(html)"
     };
     let md_handler = if markdown {
-        r#"
+        if has_database {
+            r#"
+pub async fn markdown(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    let resolver = DataResolver::request_scope(state.loader.clone());
+    Ok(explicit_markdown_async_with_loader(HomePage, resolver))
+}
+"#
+        } else {
+            r#"
 pub async fn markdown() -> Result<impl IntoResponse, AppError> {
     Ok(explicit_markdown(HomePage)?)
 }
 "#
+        }
     } else {
         ""
     };
@@ -473,7 +603,11 @@ __MD_HANDLER__
     .replace(
         "__FRAMEWORK_IMPORT__",
         if markdown {
-            "use proa_framework_axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};"
+            if has_database {
+                "use proa_framework_axum::{explicit_markdown_async_with_loader, negotiate_async_with_loader, MarkdownAlternate, RouteResponse};"
+            } else {
+                "use proa_framework_axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};"
+            }
         } else {
             "use proa_framework_axum::RouteResponse;"
         },

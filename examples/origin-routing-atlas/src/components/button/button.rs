@@ -151,9 +151,21 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
             variant: self.variant,
             radius: self.radius,
         });
-        let onclick_action = self.onclick.as_ref().map(|a| a.action);
-        let onblur_action = self.onblur.as_ref().map(|a| a.action);
-        let onfocus_action = self.onfocus.as_ref().map(|a| a.action);
+        let onclick_action = if let Some(action) = self.onclick.as_ref() {
+            Some(action.action)
+        } else {
+            None
+        };
+        let onblur_action = if let Some(action) = self.onblur.as_ref() {
+            Some(action.action)
+        } else {
+            None
+        };
+        let onfocus_action = if let Some(action) = self.onfocus.as_ref() {
+            Some(action.action)
+        } else {
+            None
+        };
         let is_disabled = self.disabled.default || self.loading.default;
         let disabled_binding_string = binding_to_js_attr(&self.disabled.binding);
         let loading_binding_string = binding_to_js_attr(&self.loading.binding);
@@ -180,7 +192,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-bind-disabled={disabled_binding}
                 data-bind-loading={loading_binding}
             >
-                {is_loading.then(|| Spinner { size: Some(SpinnerSize::Sm),..Spinner::default() })}
+                {if is_loading { Spinner { size: Some(SpinnerSize::Sm), class: None, id: None } }}
                 {self.children}
             </button>
         }

@@ -13,10 +13,10 @@ Add the build crate to `build-dependencies` and the runtime crate to normal depe
 
 ```toml filename="Cargo.toml"
 [build-dependencies]
-proa_docs_build = { git = "https://github.com/Proa-Labs/proa.git" }
+proa_docs_build = "0.2.0"
 
 [dependencies]
-proa_docs = { git = "https://github.com/Proa-Labs/proa.git", features = ["axum"] }
+proa_docs = { version = "0.2.0", features = ["axum"] }
 ```
 
 These git dependencies work from a standalone application checkout.

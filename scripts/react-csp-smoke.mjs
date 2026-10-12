@@ -24,9 +24,12 @@ async function loadPlaywright() {
 }
 
 function packageFile(packageName, relativePath) {
-  const packageJson = require.resolve(`${packageName}/package.json`, {
-    paths: [workspaceRoot],
-  });
+  // Scheduler belongs to react-dom's dependency graph. Resolve it there so
+  // strict package managers do not need to hoist a transitive dependency.
+  const packageRequire = packageName === "scheduler"
+    ? createRequire(require.resolve("react-dom/package.json", { paths: [workspaceRoot] }))
+    : require;
+  const packageJson = packageRequire.resolve(`${packageName}/package.json`);
   return resolve(dirname(packageJson), relativePath);
 }
 

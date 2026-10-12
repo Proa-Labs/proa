@@ -1,36 +1,35 @@
 # Package distribution
 
-Proa currently distributes its CLI through GitHub releases and Git source
-installation. Applications use Proa crates from the same Git repository;
-third-party dependencies resolve from crates.io. No private Cargo registry,
-index variable, or Cargo registry token is required to install or build Proa.
+Install the CLI and framework libraries from crates.io. No private Cargo
+registry, GitHub credential, or registry token is required to install or build
+Proa.
+
+```bash
+cargo install proa-cli --version 0.1.1 --locked
+```
+
+Cargo installs both `proa` and `cargo-proa`. Generated projects use compatible
+crates.io versions and commit their `Cargo.lock` for reproducible builds.
+Git source installation remains available for unreleased revisions:
 
 ```bash
 CARGO_NET_GIT_FETCH_WITH_CLI=true \
   cargo install --git https://github.com/proa-labs/proa --locked proa-cli
 ```
 
-While the repository is private, Git needs a credential with repository read
-access. The Git CLI option uses your configured Git credential helper.
-For reproducible installs, add `--rev <full-commit-sha>`. Generated projects
-use one canonical Git URL, `https://github.com/Proa-Labs/proa.git`; commit their
-`Cargo.lock` and use the same revision for every Proa dependency. Existing
-projects pinned to earlier commits need a dependency update to remove the old
-registry metadata. See the [migration guide](migrations/0.3-standalone.md).
-
 ## crates.io publication
 
-The Proa CLI and framework crates are not currently published on crates.io.
-Do not use `cargo install proa-cli` or version-only Proa dependencies yet.
-Selected library manifests restrict future publication to `crates-io`;
-this allowlist is a destination policy, not a claim that releases exist.
-The CLI, demos, and repository-only tools keep `publish = false`.
+Reusable libraries and `proa-cli` restrict publication to `crates-io`. The
+marketing site, demos, benchmarks, and example applications remain unpublished.
+The JSON and Tailwind helpers use Proa-prefixed package names because the
+unprefixed names belong to unrelated crates.io projects:
 
-Before publishing, verify ownership of every package name and review the
-packaged contents. Some dependency names, including `const_json` and
-`tailwind-merge`, already exist on crates.io under other projects. Resolve
-ownership or rename those packages before attempting a release. Never replace
-a Git dependency with an unrelated package just because its name matches.
+| Package | Rust crate name |
+| --- | --- |
+| `proa_const_json` | `const_json` |
+| `proa_const_json_macros` | `const_json_macros` |
+| `proa_tailwind_merge` | `tailwind_merge` |
+| `proa_tailwind_merge_macro` | `tailwind_merge_macro` |
 
 For a library intended for publication:
 
@@ -47,10 +46,13 @@ python3 scripts/publish.py --dry-run
 ```
 
 The dry run checks policy and archive boundaries and prints dependency order.
-It does not upload, verify name ownership, or prove that unpublished dependency
-archives can build on crates.io. Actual publication requires a separate release
-review and `CARGO_REGISTRY_TOKEN`. No automatic Cargo publishing workflow is
-enabled. See [`scripts/README.md`](../scripts/README.md) for manual tooling.
+It does not upload or prove that dependent archives build against the registry.
+Actual publication verifies each archive and waits for registry visibility
+before proceeding. Forward development dependencies are path-only during the
+initial bootstrap, so Cargo can publish production dependencies in order without
+a cycle through test-only crates. Workspace tests retain those dependencies.
+Configure a current crates.io publishing token locally; never commit it. See
+[`scripts/README.md`](../scripts/README.md) for manual tooling.
 
 ## Component catalogs
 

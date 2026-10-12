@@ -366,7 +366,45 @@ mod tests {
         let home = std::fs::read_to_string(root.join("src/pages/home.rs")).unwrap();
         syn::parse_file(&home).unwrap();
         assert!(home.contains("DataResolver::request_scope"));
-        assert!(home.contains("MdRenderSync<L, B> for HomePage"));
+        assert!(home.contains("MdRender<L> for HomePage"));
+    }
+
+    #[test]
+    fn every_preset_has_canonical_macros_and_clean_component_hashes() {
+        let temp = tempfile::tempdir().unwrap();
+        for template in ["minimal", "app", "marketing", "docs", "origin"] {
+            let root = temp.path().join(template);
+            let mut value = options(root.clone());
+            value.template = template.to_string();
+            new_site(value).unwrap();
+            for path in crate::source::find_rust_files(&[root.join("src")]).unwrap() {
+                let source = std::fs::read_to_string(&path).unwrap();
+                assert!(
+                    !source.contains("content_part!"),
+                    "{template}: {}",
+                    path.display()
+                );
+            }
+            let formatting =
+                crate::fmt::format_paths_with_options(&[root.clone()], true, true).unwrap();
+            assert!(
+                formatting.changed.is_empty() && formatting.diagnostics.is_empty(),
+                "{template}: {:?}",
+                formatting.diagnostics
+            );
+            let diagnostics =
+                crate::lint::lint_paths(&[root.join("src")], crate::lint::LintOptions::default())
+                    .unwrap();
+            assert!(
+                diagnostics
+                    .iter()
+                    .all(|diagnostic| diagnostic.severity.rank()
+                        < crate::diagnostic::Severity::Warning.rank()),
+                "{template}: {diagnostics:?}"
+            );
+            let report = crate::scaffold::site_check(Some(root)).unwrap();
+            assert!(report.errors.is_empty(), "{template}: {:?}", report.errors);
+        }
     }
 
     #[test]
@@ -394,7 +432,7 @@ mod tests {
             &issue_path,
             source
                 .replace("DataResolver::request_scope", "DataResolver::new")
-                .replace("explicit_markdown(", "other_response("),
+                .replace("explicit_markdown_async_with_loader(", "other_response("),
         )
         .unwrap();
         let report = crate::scaffold::site_check(Some(root)).unwrap();

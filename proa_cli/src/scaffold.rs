@@ -388,7 +388,8 @@ pub(crate) fn new_site_with_tailwind_ready(
             coolify_readme(&project_name),
         );
         plan.follow_up.push(
-            "configure Coolify with Dockerfile build, port 3000, /healthz health check, and (while the Proa repo is private) a GitHub read token as build secret github_token".to_string(),
+            "configure Coolify with Dockerfile build, port 3000, and /healthz health check"
+                .to_string(),
         );
         plan.follow_up.push(
             "set up wildcard DNS and Coolify Preview Deployments for pull request URLs".to_string(),
@@ -669,7 +670,15 @@ pub fn site_check(root: Option<PathBuf>) -> Result<SiteCheckReport> {
                 }
             } else {
                 for contract in ["MdRenderSync", "explicit_markdown("] {
-                    if !has_source(contract) {
+                    let has_contract = has_source(contract)
+                        || match contract {
+                            "MdRenderSync" => has_source("MdRender<"),
+                            "explicit_markdown(" => {
+                                has_source("explicit_markdown_async_with_loader(")
+                            }
+                            _ => false,
+                        };
+                    if !has_contract {
                         report.errors.push(format!(
                             "Markdown representation contract is missing `{contract}`"
                         ));
@@ -1310,27 +1319,23 @@ fn fill(mut template: String, replacements: &[(&str, &str)]) -> String {
     template
 }
 
-/// Cargo rejects scp-style locations (`git@github.com:...`), so the scaffold
-/// always emits the https form of the Proa repository URL.
-const PROA_GIT_URL: &str = "https://github.com/Proa-Labs/proa.git";
-
 fn cargo_toml(project_name: &str, options: &NewSiteOptions) -> String {
     // Mirrors `new_site`: font wiring is tied to the generated Axum crate
     // root, since the include! boilerplate lives in src/main.rs.
     let has_fonts = !options.empty && options.server == ServerIntegration::Axum;
     let mut deps = vec![
-        format!("proa_core = {{ git = \"{PROA_GIT_URL}\" }}"),
-        format!("proa_macros = {{ git = \"{PROA_GIT_URL}\" }}"),
+        "proa_core = \"0.3.0\"".to_string(),
+        "proa_macros = \"0.3.0\"".to_string(),
     ];
     if has_fonts {
         deps.extend([
-            format!("proa_fonts = {{ git = \"{PROA_GIT_URL}\" }}"),
-            format!("proa_fonts_macros = {{ git = \"{PROA_GIT_URL}\" }}"),
+            "proa_fonts = \"0.1.0\"".to_string(),
+            "proa_fonts_macros = \"0.1.0\"".to_string(),
         ]);
     }
     if options.server == ServerIntegration::Axum {
         deps.extend([
-            format!("proa_framework_axum = {{ git = \"{PROA_GIT_URL}\" }}"),
+            "proa_framework_axum = \"0.3.0\"".to_string(),
             "anyhow = \"1\"".to_string(),
             "axum = \"0.7\"".to_string(),
             "tokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\"] }".to_string(),
@@ -1342,9 +1347,7 @@ fn cargo_toml(project_name: &str, options: &NewSiteOptions) -> String {
         ]);
     }
     if options.docs == DocsIntegration::ProaDocs || options.blog {
-        deps.push(format!(
-            "proa_docs = {{ git = \"{PROA_GIT_URL}\", features = [\"axum\"] }}"
-        ));
+        deps.push("proa_docs = { version = \"0.2.0\", features = [\"axum\"] }".to_string());
     }
 
     let has_docs_build = options.docs == DocsIntegration::ProaDocs || options.blog;
@@ -1352,14 +1355,10 @@ fn cargo_toml(project_name: &str, options: &NewSiteOptions) -> String {
     if has_fonts || has_docs_build {
         build_deps.push_str("\n[build-dependencies]\n");
         if has_fonts {
-            build_deps.push_str(&format!(
-                "proa_fonts_build = {{ git = \"{PROA_GIT_URL}\" }}\n"
-            ));
+            build_deps.push_str("proa_fonts_build = \"0.1.0\"\n");
         }
         if has_docs_build {
-            build_deps.push_str(&format!(
-                "proa_docs_build = {{ git = \"{PROA_GIT_URL}\" }}\n"
-            ));
+            build_deps.push_str("proa_docs_build = \"0.2.0\"\n");
         }
     }
 
@@ -1774,16 +1773,8 @@ WORKDIR /app
 
 COPY . .
 
-# Fetch Proa git dependencies through the git CLI. While the Proa repository
-# is private, pass a GitHub token with read access as Docker secret
-# `github_token`; drop the secret once the repository is public.
-ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
-RUN --mount=type=secret,id=github_token \
-    set -eu; \
-    export GIT_CONFIG_COUNT=1; \
-    export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
-    export GIT_CONFIG_VALUE_0='!f() {{ if [ "$1" = get ] && [ -s /run/secrets/github_token ]; then printf "username=x-access-token\npassword=%s\n" "$(cat /run/secrets/github_token)"; fi; }}; f'; \
-    cargo build --release --bin {project_name}
+# Public Proa dependencies resolve from crates.io without credentials.
+RUN cargo build --release --bin {project_name}
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
@@ -1824,8 +1815,6 @@ PORT=3000
 STATIC_DIR=/app/public
 RUST_LOG=info
 
-# Build-only secret while the Proa git repository is private.
-# GITHUB_TOKEN=ghp_...
 "#
     .to_string()
 }
@@ -1839,9 +1828,7 @@ This Proa app is ready for Coolify's Dockerfile deployment path.
 ## Local image check
 
 ```bash
-docker build \
-  --secret id=github_token,env=GITHUB_TOKEN \
-  -t {project_name} .
+docker build -t {project_name} .
 
 docker run --rm -p 3000:3000 -e PORT=3000 {project_name}
 curl -fsS http://127.0.0.1:3000/healthz
@@ -1853,12 +1840,9 @@ curl -fsS http://127.0.0.1:3000/healthz
 - Exposed port: `3000`
 - Health check path: `/healthz`
 - Runtime variables: copy from `coolify.env.example`
-- Build secret while the Proa repository is private: a GitHub token with read
-  access to `Proa-Labs/proa` as Docker secret `github_token`
 
-Proa dependencies are fetched from the Proa git repository at build time. Keep
-the token build-only; the running container does not need it. Once the
-repository is public, the build needs no credentials at all.
+Proa dependencies resolve from crates.io at build time. No registry or GitHub
+credentials are required.
 
 ## Pull request previews
 
@@ -2720,10 +2704,9 @@ mod tests {
         assert!(agent_instructions.contains("`signal(self.value)` initializer samples"));
 
         let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
-        assert!(cargo.contains("proa_core = { git = \"https://github.com/Proa-Labs/proa.git\" }"));
-        assert!(cargo.contains("proa_macros = { git = \"https://github.com/Proa-Labs/proa.git\" }"));
-        assert!(cargo
-            .contains("proa_framework_axum = { git = \"https://github.com/Proa-Labs/proa.git\" }"));
+        assert!(cargo.contains("proa_core = \"0.3.0\""));
+        assert!(cargo.contains("proa_macros = \"0.3.0\""));
+        assert!(cargo.contains("proa_framework_axum = \"0.3.0\""));
         assert!(!cargo.contains("registry = \"proa\""));
         assert!(!cargo.contains("proa_core = { path ="));
         let cargo_config = fs::read_to_string(root.join(".cargo/config.toml")).unwrap();
@@ -2785,11 +2768,8 @@ mod tests {
 
         let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
         assert_eq!(cargo.matches("[build-dependencies]").count(), 1);
-        assert!(cargo
-            .contains("proa_fonts_build = { git = \"https://github.com/Proa-Labs/proa.git\" }"));
-        assert!(
-            cargo.contains("proa_docs_build = { git = \"https://github.com/Proa-Labs/proa.git\" }")
-        );
+        assert!(cargo.contains("proa_fonts_build = \"0.1.0\""));
+        assert!(cargo.contains("proa_docs_build = \"0.2.0\""));
     }
 
     #[test]
@@ -2816,12 +2796,9 @@ mod tests {
         .unwrap();
 
         let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
-        assert!(cargo.contains("proa_fonts = { git = \"https://github.com/Proa-Labs/proa.git\" }"));
-        assert!(cargo
-            .contains("proa_fonts_macros = { git = \"https://github.com/Proa-Labs/proa.git\" }"));
-        assert!(cargo.contains(
-            "[build-dependencies]\nproa_fonts_build = { git = \"https://github.com/Proa-Labs/proa.git\" }"
-        ));
+        assert!(cargo.contains("proa_fonts = \"0.1.0\""));
+        assert!(cargo.contains("proa_fonts_macros = \"0.1.0\""));
+        assert!(cargo.contains("[build-dependencies]\nproa_fonts_build = \"0.1.0\""));
         assert!(!cargo.contains("proa_docs_build"));
 
         let build = fs::read_to_string(root.join("build.rs")).unwrap();
@@ -2923,9 +2900,7 @@ mod tests {
         let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
         assert!(!cargo.contains("proa_fonts"));
         assert_eq!(cargo.matches("[build-dependencies]").count(), 1);
-        assert!(
-            cargo.contains("proa_docs_build = { git = \"https://github.com/Proa-Labs/proa.git\" }")
-        );
+        assert!(cargo.contains("proa_docs_build = \"0.2.0\""));
 
         let build = fs::read_to_string(root.join("build.rs")).unwrap();
         assert!(!build.contains("proa_fonts_build"));
@@ -2964,8 +2939,8 @@ mod tests {
         assert!(root.join("COOLIFY.md").exists());
         let dockerfile = fs::read_to_string(root.join("Dockerfile")).unwrap();
         assert!(!dockerfile.contains("CARGO_REGISTRIES_PROA_TOKEN"));
-        assert!(dockerfile.contains("ENV CARGO_NET_GIT_FETCH_WITH_CLI=true"));
-        assert!(dockerfile.contains("--mount=type=secret,id=github_token"));
+        assert!(!dockerfile.contains("GIT_CONFIG"));
+        assert!(!dockerfile.contains("github_token"));
         assert!(dockerfile.contains("cargo build --release --bin deploy-demo"));
         assert!(dockerfile.contains("EXPOSE 3000"));
         let main = fs::read_to_string(root.join("src/main.rs")).unwrap();

@@ -10,19 +10,19 @@ The Proa CLI is developer tooling for Proa templates and opinionated Proa sites.
 The one-line installer downloads a checksum-verified release build. See
 [Install Proa](/docs#1-install-proa).
 
-To build from the source repository instead (needs GitHub access while the
-repository is private):
+Install from crates.io:
+
+```bash
+cargo install proa-cli --version 0.1.1 --locked
+```
+
+No GitHub credential or Cargo publishing token is required. To install an
+unreleased source revision instead:
 
 ```bash
 CARGO_NET_GIT_FETCH_WITH_CLI=true \
   cargo install --git https://github.com/proa-labs/proa --locked proa-cli
 ```
-
-No private Cargo registry or Cargo token is required. The Git CLI option
-uses your existing Git credential helpers and proxy settings. You can omit
-it when your Cargo configuration already enables `git-fetch-with-cli`.
-`proa-cli` is distributed through GitHub and the release installer; it is
-not currently published on crates.io.
 
 Then confirm the binary is on your path:
 
@@ -38,7 +38,7 @@ CARGO_NET_GIT_FETCH_WITH_CLI=true \
   cargo install --git https://github.com/proa-labs/proa --rev <full-commit-sha> --locked --force proa-cli
 ```
 
-Project builds fetch Proa crates as git dependencies of the same repository; the generated `.cargo/config.toml` enables the git-CLI fetch. Follow [Installation](/docs) if Cargo cannot download dependencies. When working from this repository, use:
+Generated project builds resolve Proa crates from crates.io and use `Cargo.lock` for reproducibility. Follow [Installation](/docs) if Cargo cannot download dependencies. When working from this repository, use:
 
 ```bash
 cargo run -p proa-cli --bin proa -- <command>

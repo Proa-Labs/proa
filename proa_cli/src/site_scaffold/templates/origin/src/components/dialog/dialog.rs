@@ -279,14 +279,14 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                     tabindex="-1"
                 >
                     {self.children}
-                    {self.show_close.then(|| html_sync! {
+                    {if self.show_close { html_sync! {
                             <button type="button" data-dialog-close data-scope={DIALOG_ANATOMY.scope()} data-part="close-button" data-slot="dialog-close-button" class={DIALOG_RECIPE.close_button}>
                                 <span data-scope={DIALOG_ANATOMY.scope()} data-part="close-label" data-slot="dialog-close-label" class={DIALOG_RECIPE.close_label}>
                                     "Close"
                                 </span>
                                 {StaticRaw(CLOSE_ICON)}
                             </button>
-                        })}
+                        } }}
                 </div>
             </div>
         }

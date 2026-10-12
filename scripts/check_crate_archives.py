@@ -32,6 +32,10 @@ LITERAL_INCLUDE = re.compile(
 PATH_ATTRIBUTE = re.compile(
     r"#\s*\[\s*path\s*=\s*\"(?P<path>[^\"\\\r\n]+)\"\s*\]"
 )
+RAW_STRING = re.compile(r'(?:br|cr|r)(#*)"')
+CHAR_LITERAL = re.compile(
+    r"'(?:\\(?:u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|.)|[^'\\\n])'"
+)
 
 
 def workspace_packages() -> list[dict]:
@@ -154,6 +158,56 @@ def check_package_metadata(package: dict) -> list[str]:
     return problems
 
 
+def rust_code_mask(text: str) -> str:
+    """Keep source offsets while masking literals and nested Rust comments.
+
+    Scaffold generators contain entire Rust files in strings. Their includes
+    belong to the generated application, not to the generator's archive.
+    """
+    masked = list(text)
+    index = 0
+    while index < len(text):
+        start = index
+        if text.startswith("//", index):
+            end = text.find("\n", index)
+            index = len(text) if end < 0 else end
+        elif text.startswith("/*", index):
+            index += 2
+            depth = 1
+            while index < len(text) and depth:
+                if text.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif text.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+        elif raw := RAW_STRING.match(text, index):
+            closing = '"' + raw.group(1)
+            end = text.find(closing, raw.end())
+            index = len(text) if end < 0 else end + len(closing)
+        elif text[index] == '"':
+            index += 1
+            while index < len(text):
+                if text[index] == "\\":
+                    index += 2
+                elif text[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+        elif char := CHAR_LITERAL.match(text, index):
+            index = char.end()
+        else:
+            index += 1
+            continue
+        for position in range(start, min(index, len(text))):
+            if text[position] != "\n":
+                masked[position] = " "
+    return "".join(masked)
+
+
 def check_source_paths(
     package_name: str,
     package_root: Path,
@@ -165,12 +219,15 @@ def check_source_paths(
     except (OSError, UnicodeError):
         return []
 
+    code = rust_code_mask(text)
     problems: list[str] = []
     for kind, pattern in (
         ("include", LITERAL_INCLUDE),
         ("path attribute", PATH_ATTRIBUTE),
     ):
         for match in pattern.finditer(text):
+            if code[match.start()] == " ":
+                continue
             raw_path = match.group("path")
             target = (source.parent / raw_path).resolve(strict=False)
             line = text.count("\n", 0, match.start()) + 1

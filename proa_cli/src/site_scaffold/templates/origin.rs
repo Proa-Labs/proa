@@ -20,7 +20,7 @@ use super::super::plan::SitePlan;
 /// Where the emitted manifest resolves its Proa dependencies from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManifestFlavor {
-    /// Git dependencies for standalone scaffolds.
+    /// crates.io dependencies for standalone scaffolds.
     Standalone,
     /// Path dependencies for the in-repository example.
     #[cfg(test)]
@@ -438,7 +438,7 @@ pub fn populate(
     plan.write(".env.example", env_example(&ident))?;
     plan.write(".gitignore", super::gitignore())?;
     plan.write(".gitattributes", "*.sql text eol=lf\n")?;
-    plan.write("README.md", format!("{}\n## Dependency access\n\nProa dependencies come from GitHub. While the repository is private, configure your Git credential helper locally and set the `PROA_GITHUB_TOKEN` Actions secret to a token with repository read access. No private Cargo registry is required.\n", readme(package, title)))?;
+    plan.write("README.md", format!("{}\n## Dependency access\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n", readme(package, title)))?;
     plan.write(".github/workflows/ci.yml", super::github_ci(package))?;
     plan.write(
         "proa.config.json",
@@ -572,16 +572,16 @@ anyhow = {{ version = "1" }}
 axum = {{ version = "0.7.9" }}
 const_format = {{ version = "0.2" }}
 heapless = {{ version = "0.8" }}
-proa_actions = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
-proa_core = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
-proa_fonts = {{ version = "0.1", git = "https://github.com/Proa-Labs/proa.git" }}
-proa_fonts_macros = {{ version = "0.1", git = "https://github.com/Proa-Labs/proa.git" }}
-proa_framework_axum = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
-proa_ir = {{ version = "0.1", git = "https://github.com/Proa-Labs/proa.git" }}
-proa_macros = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
-proa_stream = {{ version = "0.3", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_actions = {{ version = "0.3.0" }}
+proa_core = {{ version = "0.3.0" }}
+proa_fonts = {{ version = "0.1.0" }}
+proa_fonts_macros = {{ version = "0.1.0" }}
+proa_framework_axum = {{ version = "0.3.0" }}
+proa_ir = {{ version = "0.1.2" }}
+proa_macros = {{ version = "0.3.0" }}
+proa_stream = {{ version = "0.3.0" }}
 reqwest = {{ version = "0.12", features = ["json"] }}
-rsjs = {{ version = "0.2", git = "https://github.com/Proa-Labs/proa.git" }}
+rsjs = {{ version = "0.2.0" }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = {{ version = "1" }}
 thiserror = {{ version = "2" }}
@@ -591,7 +591,7 @@ tracing = {{ version = "0.1" }}
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 
 [build-dependencies]
-proa_fonts_build = {{ version = "0.1", git = "https://github.com/Proa-Labs/proa.git" }}
+proa_fonts_build = {{ version = "0.1.0" }}
 
 [dev-dependencies]
 http-body-util = {{ version = "0.1" }}

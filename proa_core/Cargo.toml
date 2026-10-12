@@ -33,10 +33,12 @@ tracing = { workspace = true }
 zmij = { version = "1.0" }
 
 [dev-dependencies]
+# Forward development dependencies stay local during the first crates.io release.
+# Cargo omits path-only dev dependencies from archives; workspace tests retain them.
 bytes = { workspace = true }
 criterion = { workspace = true, features = ["rayon"] }
-proa_macros = { workspace = true }
-proa_react = { workspace = true }
+proa_macros = { path = "../proa_macros" }
+proa_react = { path = "../proa_react" }
 proptest = { version = "1.5" }
 pulldown-cmark = { workspace = true, features = ["html"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

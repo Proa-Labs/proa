@@ -18,7 +18,7 @@ Until this crate is published on crates.io, use the workspace's Git source
 consistently for your Proa dependencies:
 
 ```toml
-proa_third_party = { git = "https://github.com/proa-labs/proa", default-features = false, features = ["google-analytics", "youtube"] }
+proa_third_party = { version = "0.1.0", default-features = false, features = ["google-analytics", "youtube"] }
 ```
 
 The default features include both providers. Disable defaults and select just

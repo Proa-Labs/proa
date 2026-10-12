@@ -118,15 +118,26 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Input {
         let disabled_binding = disabled_binding_string.as_deref();
         let aria_invalid_binding = aria_invalid_binding_string.as_deref();
         let registration = self.registration.as_ref();
-        let rules_attr = JsonAttr(registration.map(|reg| reg.rules.as_slice()));
-        let data_field = registration.map(|reg| reg.data_field);
-        let name_attr = registration.map(|reg| reg.name).or(self.name);
-        let validate_on = registration.map(|reg| match reg.validate_on {
-            proa_ir::ValidationTrigger::Blur => "blur",
-            proa_ir::ValidationTrigger::Input => "input",
-            proa_ir::ValidationTrigger::Change => "change",
-            proa_ir::ValidationTrigger::Submit => "submit",
+        let rules_attr = JsonAttr(if let Some(reg) = registration {
+            Some(reg.rules.as_slice())
+        } else {
+            None
         });
+        let data_field = if let Some(reg) = registration {
+            Some(reg.data_field)
+        } else {
+            None
+        };
+        let name_attr = if let Some(reg) = registration {
+            Some(reg.name)
+        } else {
+            self.name
+        };
+        let validate_on = if let Some(reg) = registration {
+            Some(validation_trigger_label(reg.validate_on))
+        } else {
+            None
+        };
         html_sync! {
             <input
                 type={self.input_type.as_str()}
@@ -160,5 +171,14 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Input {
             />
         }
         .render(cx)
+    }
+}
+
+fn validation_trigger_label(trigger: proa_ir::ValidationTrigger) -> &'static str {
+    match trigger {
+        proa_ir::ValidationTrigger::Blur => "blur",
+        proa_ir::ValidationTrigger::Input => "input",
+        proa_ir::ValidationTrigger::Change => "change",
+        proa_ir::ValidationTrigger::Submit => "submit",
     }
 }

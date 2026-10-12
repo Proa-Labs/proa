@@ -324,7 +324,7 @@ cargo check
 proa check src
 ```
 
-If CI fails before compilation, check GitHub access for the Proa git dependencies first. While the repository is private, every Cargo invocation that resolves dependencies needs credentials for it, including `cargo check`, `cargo test`, and `cargo clippy`.
+If CI fails before compilation, check access to crates.io and the version requirements in `Cargo.toml`. Generated sites use public registry dependencies and need no GitHub credential or Cargo registry token. Commit `Cargo.lock` and use `--locked` to keep CI on the same resolved dependencies as local development.
 
 For GitHub annotations, run:
 

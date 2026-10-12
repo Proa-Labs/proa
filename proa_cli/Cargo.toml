@@ -5,10 +5,12 @@
 name = "proa-cli"
 version = "0.1.1"
 edition.workspace = true
-publish = false
+publish.workspace = true
 rust-version.workspace = true
 description = "CLI for scaffolding, inspecting, formatting, and validating Proa web projects"
 license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
 
 [[bin]]
 name = "proa"
@@ -32,6 +34,7 @@ proa_dsl = { workspace = true }
 proa_fonts_build = { workspace = true }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 quote = { workspace = true }
+pulldown-cmark = { workspace = true }
 rayon = { version = "1.10" }
 reqwest = { workspace = true, features = ["blocking"] }
 rsjs_ir = { workspace = true }
