@@ -20,7 +20,7 @@ use super::super::plan::SitePlan;
 /// Where the emitted manifest resolves its Proa dependencies from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManifestFlavor {
-    /// Git dependencies for standalone scaffolds.
+    /// crates.io dependencies for standalone scaffolds.
     Standalone,
     /// Path dependencies for the in-repository example.
     #[cfg(test)]

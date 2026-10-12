@@ -9,7 +9,7 @@ Read [what self-managed Docker costs you](/docs/framework/deployment) first. Tak
 
 ## Build the image
 
-Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. The GitHub token that fetches Proa's git dependencies stays in the build stage, which never ships. `proa new site --deploy docker` writes this Dockerfile for you; the version below is the same shape, using the installer script for the CLI.
+Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes this Dockerfile for you; the version below is the same shape, using the installer script for the CLI.
 
 ```dockerfile filename="Dockerfile"
 # syntax=docker/dockerfile:1.7
@@ -27,17 +27,7 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \
 
 COPY . .
 
-# Fetch Proa git dependencies through the git CLI. While the Proa repository
-# is private, pass a GitHub token with read access as Docker secret
-# `github_token`; drop the secret once the repository is public.
-ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
-RUN --mount=type=secret,id=github_token \
-    --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    set -eu; \
-    export GIT_CONFIG_COUNT=1; \
-    export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
-    export GIT_CONFIG_VALUE_0='!f() { if [ "$1" = get ] && [ -s /run/secrets/github_token ]; then printf "username=x-access-token\npassword=%s\n" "$(cat /run/secrets/github_token)"; fi; }; f'; \
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
     proa build --locked --artifact-out /tmp/proa-app
 
 FROM debian:bookworm-slim AS runtime
@@ -60,12 +50,12 @@ CMD ["my-site"]
 `proa build` runs the configured asset build and the linked RSJS pipeline, then copies the attested binary to `--artifact-out`. A plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The generated server reads `PROA_HOST` and `PORT` and serves `public/` relative to its working directory, which is why the runtime stage sets `WORKDIR /app` and copies `public/` beside it.
 
 ```bash
-docker build --secret id=github_token,env=GITHUB_TOKEN -t my-site:$(git rev-parse --short HEAD) .
+docker build -t my-site:$(git rev-parse --short HEAD) .
 ```
 
 **Tag with the commit SHA, never `latest`.** Rollback means pointing at the previous tag. Without immutable tags you have nothing to point at.
 
-Build in CI rather than on the production box. Rust release builds want CPU and RAM that your web server should be spending on requests, and it keeps the GitHub token off the host entirely.
+Build in CI rather than on the production box. Rust release builds want CPU and RAM that your web server should be spending on requests.
 
 ## Run it
 
@@ -173,11 +163,10 @@ For more than one host, this is the point where Kubernetes, Nomad, or ECS stops 
 ## Verify before you deploy
 
 ```bash
-docker build --secret id=github_token,env=GITHUB_TOKEN -t my-site:test .
+docker build -t my-site:test .
 docker run --rm -p 3000:3000 -e PORT=3000 my-site:test
 curl -fsS http://127.0.0.1:3000/healthz
 curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
-docker run --rm my-site:test env | grep -c GITHUB_TOKEN   # expect 0
 docker image inspect my-site:test --format '{{.Size}}'                  # expect ~100MB, not ~2GB
 ```
 

@@ -58,18 +58,16 @@ Whatever you pick, the app must:
 - Bind `0.0.0.0`, or `::` on IPv6-only private networks such as Railway's.
 - Serve static assets from `public/` beside the binary (the generated server reads them relative to its working directory).
 - Answer `200` on a cheap `/healthz`, with dependency checks on a separate `/readyz`.
-- Receive the `GITHUB_TOKEN` that fetches Proa's git dependencies at build time only, while the Proa repository is private. It should never appear in the running container.
 
-Verify all five before you deploy anywhere:
+Verify these before you deploy anywhere:
 
 ```bash
 docker run --rm -p 3000:3000 -e PORT=3000 my-site
 curl -fsS http://127.0.0.1:3000/healthz
 curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
-docker run --rm my-site env | grep -c GITHUB_TOKEN   # expect 0
 ```
 
-Build a release binary with `proa build --locked --artifact-out <path>`, which runs the asset build and the linked RSJS pipeline (a plain `cargo build --release` skips the assets and fails at link time on any crate with islands), and make the GitHub token available to that build step in CI while the Proa repository is private. The exported binary and `public/` are the deployable artifact; the token is never needed at runtime.
+Build a release binary with `proa build --locked --artifact-out <path>`, which runs the asset build and the linked RSJS pipeline (a plain `cargo build --release` skips the assets and fails at link time on any crate with islands). Public Proa dependencies resolve from crates.io without credentials. The exported binary and `public/` are the deployable artifact.
 
 ## Next steps
 

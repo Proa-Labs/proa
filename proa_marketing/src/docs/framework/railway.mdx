@@ -59,7 +59,7 @@ Already have a project? Copy the Dockerfile below instead.
 
 ## Adapt the Dockerfile
 
-The generated Dockerfile installs a pinned, checksum-verified Proa CLI, builds through `proa build --locked --artifact-out`, and reads the GitHub token from a BuildKit secret. Railway does not support BuildKit secret mounts, so replace the `--mount=type=secret` block with a build argument. The builder stage is discarded, so the token never reaches the published image.
+The generated Dockerfile installs a pinned, checksum-verified Proa CLI and builds through `proa build --locked --artifact-out`. Proa dependencies resolve from crates.io without credentials. Add Railway's cache mounts to reuse downloaded crates and compiled dependencies:
 
 ```dockerfile filename="Dockerfile"
 FROM rust:1.93-bookworm AS build
@@ -74,18 +74,8 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \
 
 COPY . .
 
-# Railway injects service variables at build time only when you declare them.
-# The token fetches Proa's git dependencies while the repository is private.
-ARG GITHUB_TOKEN
-
-ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN --mount=type=cache,id=s/<service-id>-/usr/local/cargo/registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=s/<service-id>-/usr/local/cargo/git,target=/usr/local/cargo/git \
     --mount=type=cache,id=s/<service-id>-/app/target,target=/app/target \
-    set -eu; \
-    export GIT_CONFIG_COUNT=1; \
-    export GIT_CONFIG_KEY_0=credential.https://github.com.helper; \
-    export GIT_CONFIG_VALUE_0='!f() { if [ "$1" = get ] && [ -n "$GITHUB_TOKEN" ]; then printf "username=x-access-token\npassword=%s\n" "$GITHUB_TOKEN"; fi; }; f'; \
     proa build --locked --artifact-out /app/my-site
 
 FROM debian:bookworm-slim AS runtime
@@ -102,7 +92,7 @@ CMD ["my-site"]
 
 Three changes from the generated version:
 
-- **`ARG`** replaces the BuildKit secret mount.
+- **Cache mounts** reuse Cargo's registry downloads and build output.
 - **`PROA_HOST=::`** replaces `PROA_HOST=0.0.0.0`, so private networking works.
 - **No `ENV PORT`, no `EXPOSE`.** Railway sets `PORT` and routes to it.
 

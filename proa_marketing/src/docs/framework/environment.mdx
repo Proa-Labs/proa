@@ -179,7 +179,7 @@ Keep these separate:
 
 | Variable | Phase | Notes |
 |----------|-------|-------|
-| `GITHUB_TOKEN` | Build | Lets the git CLI fetch Proa git dependencies while the Proa repository is private. Never required at runtime. Generated sites name this secret `PROA_GITHUB_TOKEN` in their Actions workflow (see [CI](/docs/guides/ci)). |
+| `PROA_VERSION` | Build | Pins the CLI installed by the Dockerfile or CI installer. Public Proa dependencies require no GitHub credential or registry token. |
 | `STATIC_DIR` | Runtime | Points the running server at public assets. |
 | `DATABASE_URL` | Runtime | App startup or handlers read it. |
 | `PUBLIC_BASE_URL` | Runtime | Safe to expose only if you explicitly render it. |
