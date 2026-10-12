@@ -131,6 +131,12 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingNav {
                     active: self.active == MarketingNavActive::Ecosystem,
                     variant: self.variant,
                 }}
+                {MarketingNavLink {
+                    href: "https://ui.proa.so",
+                    label: "Proa UI",
+                    active: false,
+                    variant: self.variant,
+                }}
             </nav>
         }
         .render(cx)
@@ -525,7 +531,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
 #[cfg(test)]
 mod tests {
     use super::{
-        LandingFooter, LandingHeader, MarketingEcosystemNav, MarketingNavActive,
+        LandingFooter, LandingHeader, MarketingEcosystemNav, MarketingNav, MarketingNavActive,
         MarketingNavVariant,
     };
     use proa_core::{RenderBuffer, WebContext, WebRenderSync};
@@ -584,6 +590,26 @@ mod tests {
         assert!(html.contains(r#"data-component="marketing-ecosystem-menu""#));
         assert!(html.contains("data-dropdown-content"));
         assert_eq!(html.matches("data-dropdown-item").count(), 2);
+    }
+
+    #[test]
+    fn both_header_navigation_variants_link_to_proa_ui() {
+        for variant in [MarketingNavVariant::Landing, MarketingNavVariant::Docs] {
+            let mut output = RenderBuffer::new();
+            let mut cx = WebContext::with_buffer(&mut output);
+
+            MarketingNav {
+                variant,
+                active: MarketingNavActive::Docs,
+            }
+            .render(&mut cx)
+            .unwrap();
+
+            let html = output.into_string();
+            assert_eq!(html.matches(r#"href="https://ui.proa.so""#).count(), 1);
+            assert!(html.contains(r#"href="https://ui.proa.so" class="marketing-nav-link">"#));
+            assert!(html.contains(r#"href="/docs" class="marketing-nav-link" data-active="true">"#));
+        }
     }
 
     #[test]
