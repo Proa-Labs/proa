@@ -16,6 +16,9 @@ homepage.workspace = true
 route-export = []
 
 [dependencies]
+# Security floors also constrain applications with pre-existing lockfiles.
+h2 = { workspace = true }
+rustls = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }

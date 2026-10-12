@@ -32,7 +32,7 @@ sha2 = "0.10"
 subtle = "2"
 rand = "0.8"
 rsa = { version = "0.9", features = ["pem"] }
-jsonwebtoken = "9.3"
+jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
 argon2 = "0.5"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
