@@ -131,6 +131,13 @@ def publish_one(name: str, no_verify: bool = False) -> tuple[int, str]:
       "already"       - already published at this version (treat as skip)
       "error"         - real failure; caller should bail
     """
+    if name == "proa-cli":
+        preflight = subprocess.run(
+            ["cargo", "test", "--locked", "-p", name, "--lib"],
+            cwd=REPO_ROOT,
+        )
+        if preflight.returncode:
+            return preflight.returncode, "error"
     cmd = ["cargo", "publish", "--registry", REGISTRY, "-p", name]
     if no_verify:
         cmd.append("--no-verify")

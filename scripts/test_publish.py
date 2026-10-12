@@ -61,6 +61,13 @@ class PublishedVersionsTests(unittest.TestCase):
                         "status 429 Too Many Requests: Please try again after invalid GMT"):
             self.assertIsNone(publish.rate_limit_retry_at(message))
 
+    def test_cli_is_not_uploaded_when_its_library_checks_fail(self):
+        with patch("publish.subprocess.run", return_value=CompletedProcess([], 101)) as command:
+            self.assertEqual(publish.publish_one("proa-cli"), (101, "error"))
+        command.assert_called_once()
+        self.assertEqual(command.call_args.args[0],
+                         ["cargo", "test", "--locked", "-p", "proa-cli", "--lib"])
+
 
 if __name__ == "__main__":
     unittest.main()
