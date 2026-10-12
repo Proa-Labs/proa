@@ -114,10 +114,16 @@ def main() -> None:
         for package in proa_packages:
             assert package["source"] == "registry+https://github.com/rust-lang/crates.io-index", package
         print(f"{template}: {len(proa_packages)} Proa dependencies resolved from crates.io", flush=True)
-        run([str(proa), "test", "--root", str(project), "--locked"], project, environment)
+        application = next(package for package in metadata["packages"]
+                           if Path(package["manifest_path"]).resolve() == (project / "Cargo.toml").resolve())
+        tests = [target["name"] for target in application["targets"] if "test" in target["kind"]]
+        assert tests, "generated site must contain integration tests"
+        for target in tests:
+            run([str(proa), "test", "--root", str(project), "--locked", "--test", target],
+                project, environment)
         artifact = project / ("app" + suffix)
         run([str(proa), "build", "--root", str(project), "--locked", "--profile", "dev",
-             "--no-check", "--no-assets", "--artifact-out", str(artifact)], project, environment)
+             "--no-check", "--artifact-out", str(artifact)], project, environment)
         smoke_http(artifact, project, environment, template)
     print("Registry install and linked-site acceptance passed", flush=True)
 
