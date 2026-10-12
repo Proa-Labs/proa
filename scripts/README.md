@@ -127,6 +127,15 @@ waits for its version to resolve before continuing with dependents:
 python3 scripts/publish.py --skip-published
 ```
 
+The publisher honors crates.io's retry time when new-crate registration is
+rate limited. It stops on authentication, verification, or other upload errors.
+After publishing, check a credential-free registry installation and linked
+minimal/ORIGIN applications, retaining artifacts for inspection:
+
+```bash
+python3 scripts/check_registry_install.py --version 0.1.1 --work-dir /tmp/proa-registry-acceptance
+```
+
 `--only crate1,crate2` selects packages. `--skip-published` checks exact versions
 through the public crates.io API without sending a token. `--no-verify` skips
 Cargo's package rebuild; prefer the default verification.

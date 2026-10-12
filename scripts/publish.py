@@ -19,6 +19,7 @@ See docs/registry.md for the repository-side release policy.
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
@@ -26,6 +27,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from email.utils import parsedate_to_datetime
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = "crates-io"
@@ -129,9 +131,17 @@ def publish_one(name: str, no_verify: bool = False) -> tuple[int, str]:
         cmd.append("--no-verify")
     print(f"\n=== publishing {name} ===")
     print(f"$ {' '.join(cmd)}")
-    proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
+    while True:
+        proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+        sys.stdout.write(proc.stdout)
+        sys.stderr.write(proc.stderr)
+        retry = rate_limit_retry_at(proc.stdout + proc.stderr) if proc.returncode else None
+        if retry is None:
+            break
+        print(f"crates.io rate limit: retrying {name} after the server's requested time")
+        while (remaining := retry - time.time()) > 0:
+            print(f"rate-limit wait: {name}, {int(remaining) + 1}s remaining", flush=True)
+            time.sleep(min(60, remaining))
     if proc.returncode == 0:
         return 0, "ok"
     # Detect "already published at this version" so re-runs are idempotent.
@@ -144,6 +154,19 @@ def publish_one(name: str, no_verify: bool = False) -> tuple[int, str]:
     if any(marker in combined for marker in already_markers):
         return proc.returncode, "already"
     return proc.returncode, "error"
+
+
+def rate_limit_retry_at(output: str) -> float | None:
+    """Honor crates.io's explicit retry date; never retry an unrelated failure."""
+    if "status 429 Too Many Requests" not in output:
+        return None
+    match = re.search(r"Please try again after (.+? GMT)", output)
+    if match is None:
+        return None
+    try:
+        return parsedate_to_datetime(match.group(1)).timestamp() + 2
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 def wait_until_available(name: str, version: str) -> bool:
