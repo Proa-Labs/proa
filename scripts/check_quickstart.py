@@ -32,6 +32,11 @@ def fences(section: str, language: str) -> list[str]:
 
 
 def apply_documented_edits(project: Path, guide: str) -> str:
+    setup = guide.split("## 2. Create A Site\n", 1)[1].split("## 3. Run The Server", 1)[0]
+    starter = project / "styles/starter.css"
+    if not starter.exists():
+        (project / "public/styles.css").rename(starter)
+    (project / "styles/input.css").write_text(fences(setup, "css")[0] + "\n", encoding="utf-8")
     edit = guide.split("## 4. Edit The First Page\n", 1)[1].split("## 5. Add A Route", 1)[0]
     html = fences(edit, "rust")[0]
     markdown = fences(edit, "markdown")[0]

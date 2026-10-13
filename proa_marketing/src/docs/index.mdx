@@ -18,64 +18,12 @@ Install the released CLI from crates.io (Rust 1.93 or newer):
 cargo install proa-cli --version 0.1.2 --locked
 ```
 
-Alternatively, use the one-line installer:
-
-<Tabs items={['macOS and Linux', 'Windows']}>
-
-<Tab value="macOS and Linux">
-
-```bash
-curl -fsSL https://proa.so/install.sh | sh
-```
-
-</Tab>
-
-<Tab value="Windows">
-
-```powershell
-irm https://proa.so/install.ps1 | iex
-```
-
-</Tab>
-
-</Tabs>
-
-The installer selects the latest binary release, which can lag the crates.io
-release. It downloads a checksum-verified archive when available and otherwise
-builds the selected version from source. Use the Cargo command above to install
-0.1.2 explicitly.
-
+Use CLI **0.1.2** for the steps below; 0.1.1 generates a different starter.
 Proa is public; no GitHub credential or Cargo publishing token is needed.
-
-<Accordions>
-
-<Accordion title="Prefer building from source?">
-
-```bash
-CARGO_NET_GIT_FETCH_WITH_CLI=true \
-  cargo install --git https://github.com/proa-labs/proa --locked proa-cli
-```
-
-The Git CLI option uses your configured proxy settings and credential helpers
-when installing an unreleased source revision. Generated projects use crates.io
-dependencies. [Troubleshooting](/docs/guides/troubleshooting) covers dependency
-resolution failures.
-
-</Accordion>
-
-<Accordion title="Pin a specific version?">
-
-Set `PROA_CLI_VERSION` to a version that is already published on the stable
-channel, then pass it to the installer:
-
-```bash
-curl -fsSL https://proa.so/install.sh | PROA_VERSION="$PROA_CLI_VERSION" sh
-```
-
-</Accordion>
-
-</Accordions>
-
+[Troubleshooting](/docs/guides/troubleshooting) covers dependency resolution
+failures. The Basic app also requires the Tailwind CSS CLI on your `PATH`;
+see [Tailwind prerequisite](/docs/cli/new-site#tailwind-prerequisite) before
+continuing.
 
 ## 2. Create A Site
 
@@ -108,7 +56,6 @@ public/
   styles.css
 styles/
   input.css
-  starter.css
 tests/
 ```
 
@@ -146,6 +93,22 @@ You do not have to build the common UI yourself: [proa-ui](https://ui.proa.so) i
 
 The remaining steps use the **Basic app** named `hello-proa`. If you chose
 ORIGIN, follow its generated `README.md` and run commands inside `origin-atlas`.
+
+CLI 0.1.2 puts the starter design in `public/styles.css`, which Tailwind replaces
+on the first build. Inside `hello-proa`, before starting the server:
+
+1. Move `public/styles.css` to `styles/starter.css`. If `styles/starter.css`
+   already exists in your scaffold, keep that file.
+2. Replace the contents of `styles/input.css` with:
+
+```css
+@layer theme, base, proa-compat, components, utilities;
+@import "tailwindcss";
+@import "./starter.css" layer(components);
+@source "../src/**/*.rs";
+```
+
+Tailwind will regenerate `public/styles.css` with the starter design included.
 
 ## 3. Run The Server
 
