@@ -136,13 +136,30 @@ pub fn run_linked_cargo_cached(
     request: &LinkedCargoRequest,
     cache_directory: &std::path::Path,
 ) -> Result<LinkedCargoOutput, LinkedCargoError> {
+    run_linked_cargo_cached_with_progress(request, cache_directory, |_| {})
+}
+
+pub(crate) enum LinkedCargoStage {
+    Descriptor,
+    Link,
+    Final,
+}
+
+pub(crate) fn run_linked_cargo_cached_with_progress(
+    request: &LinkedCargoRequest,
+    cache_directory: &Path,
+    mut progress: impl FnMut(LinkedCargoStage),
+) -> Result<LinkedCargoOutput, LinkedCargoError> {
     let managed = validate_request(request)?;
     validate_cache_against_linked_paths(cache_directory, &managed)?;
     prepare_linked_managed_directories(request)?;
+    progress(LinkedCargoStage::Descriptor);
     let lease = run_descriptor_cargo_cached(&request.descriptor, cache_directory)
         .map_err(LinkedCargoError::DescriptorCache)?;
+    progress(LinkedCargoStage::Link);
     let linked = link_descriptor_transport(lease, request.invocation, &request.root)?;
     let prepared = prepare_linked_cargo(request, linked)?;
+    progress(LinkedCargoStage::Final);
     finish_prepared_linked_cargo(request, prepared)
 }
 

@@ -22,7 +22,7 @@ pub(crate) struct DevArgs {
     /// Port value passed to the dev command as PORT.
     #[arg(long)]
     port: Option<u16>,
-    /// Open the resolved local URL in the default browser.
+    /// Open the resolved local URL in the default browser once the server is ready.
     #[arg(long)]
     open: bool,
     /// Disable Cargo and managed-tool network access.
@@ -56,15 +56,11 @@ pub(crate) struct DevArgs {
 }
 
 pub(crate) fn run(args: DevArgs) -> Result<()> {
-    if args.open {
-        let host = args.host.as_deref().unwrap_or("127.0.0.1");
-        let port = args.port.unwrap_or(3000);
-        open_url(&format!("http://{host}:{port}"));
-    }
     lifecycle::dev(lifecycle::DevOptions {
         root: args.root,
         host: args.host,
         port: args.port,
+        open: args.open,
         offline: args.offline,
         no_assets: args.no_assets,
         no_restart: args.no_restart,
@@ -74,18 +70,4 @@ pub(crate) fn run(args: DevArgs) -> Result<()> {
         debounce_ms: args.debounce_ms,
         command: args.command,
     })
-}
-
-fn open_url(url: &str) {
-    #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
-    #[cfg(target_os = "linux")]
-    let mut command = std::process::Command::new("xdg-open");
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = std::process::Command::new("cmd");
-        command.args(["/C", "start"]);
-        command
-    };
-    let _ = command.arg(url).spawn();
 }

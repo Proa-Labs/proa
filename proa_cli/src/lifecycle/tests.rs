@@ -725,6 +725,7 @@ fn dev_options(debounce_ms: Option<u64>) -> DevOptions {
         root: None,
         host: None,
         port: None,
+        open: false,
         offline: false,
         no_assets: false,
         no_restart: false,
@@ -733,6 +734,20 @@ fn dev_options(debounce_ms: Option<u64>) -> DevOptions {
         reload_port: None,
         debounce_ms,
         command: Vec::new(),
+    }
+}
+
+#[test]
+fn browser_urls_use_connectable_hosts_and_bracket_ipv6() {
+    for (host, expected) in [
+        ("127.0.0.1", "http://127.0.0.1:4321"),
+        ("localhost", "http://localhost:4321"),
+        ("0.0.0.0", "http://127.0.0.1:4321"),
+        ("::", "http://[::1]:4321"),
+        ("::1", "http://[::1]:4321"),
+        ("[::1]", "http://[::1]:4321"),
+    ] {
+        assert_eq!(dev_url(host, 4321), expected);
     }
 }
 

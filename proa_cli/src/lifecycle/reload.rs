@@ -24,7 +24,7 @@
 
 use std::{
     io::{self, BufRead, BufReader, Read, Write},
-    net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream},
     sync::{
         mpsc::{self, RecvTimeoutError, Sender},
         Arc, Mutex, MutexGuard, PoisonError,
@@ -541,7 +541,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Wait until the restarted server accepts connections again.
+/// Wait until a started or restarted server accepts connections.
 ///
 /// Reloading a tab into a connection-refused error page is worse than
 /// reloading a beat later, so the dev loop always probes before broadcasting.
@@ -554,9 +554,12 @@ pub(crate) fn wait_until_serving(
     let targets = probe_addresses(host, port);
     let deadline = Instant::now() + timeout;
     loop {
+        if !still_running() {
+            return false;
+        }
         for target in &targets {
             if TcpStream::connect_timeout(target, Duration::from_millis(250)).is_ok() {
-                return true;
+                return still_running();
             }
         }
         // A server that died on boot is never going to answer. Waiting out the
@@ -577,9 +580,13 @@ pub(crate) fn wait_until_serving(
 fn probe_addresses(host: &str, port: u16) -> Vec<SocketAddr> {
     use std::net::ToSocketAddrs;
 
-    if let Ok(address) = host.parse::<IpAddr>() {
+    if let Ok(address) = host.trim_matches(['[', ']']).parse::<IpAddr>() {
         return if address.is_unspecified() {
-            vec![SocketAddr::from((Ipv4Addr::LOCALHOST, port))]
+            let loopback = match address {
+                IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
+                IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
+            };
+            vec![SocketAddr::new(loopback, port)]
         } else {
             vec![SocketAddr::new(address, port)]
         };

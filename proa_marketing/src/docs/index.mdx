@@ -131,6 +131,10 @@ cd hello-proa && proa dev --open
 Axum server on [http://localhost:3000](http://localhost:3000), and restarts
 when Rust, style, or config files change.
 
+The first build downloads dependencies and compiles the Rust crates, which can
+take several minutes. The terminal reports each build stage; `--open` waits
+until the server accepts connections before opening your browser.
+
 Open tabs reload themselves once the rebuilt server is accepting connections
 again, so you do not have to refresh by hand. Stylesheet edits are applied
 without navigating, which keeps scroll position and form state. Turn it off or
