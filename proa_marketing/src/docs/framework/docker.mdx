@@ -9,7 +9,7 @@ Read [what self-managed Docker costs you](/docs/framework/deployment) first. Tak
 
 ## Build the image
 
-Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes deployment files for you. With CLI 0.1.2, replace its generated Dockerfile with the example below: the generator expects binary archives that have not been published for that version.
+Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes deployment files for you. If its pinned binary archive is unavailable, use the Cargo-based Dockerfile below. It reads the CLI version from the generated `proa.lock.json`, so the build stays pinned to your project's tooling without a version copied from these docs.
 
 ```dockerfile filename="Dockerfile"
 # syntax=docker/dockerfile:1.7
@@ -17,13 +17,14 @@ Multi-stage: install the Proa CLI beside the Rust toolchain, build through the l
 FROM rust:1.93-bookworm AS build
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git \
+    && apt-get install -y --no-install-recommends ca-certificates curl git jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Compile the pinned Proa CLI from crates.io.
-ARG PROA_VERSION=0.1.2
+# Install the CLI version recorded when this project was scaffolded.
+COPY proa.lock.json /tmp/proa.lock.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo install proa-cli --version "=$PROA_VERSION" --locked
+    proa_version="$(jq -er '.scaffold.cliVersion' /tmp/proa.lock.json)" \
+    && cargo install proa-cli --version "=$proa_version" --locked
 
 # Install the checksum-verified standalone Tailwind CLI.
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \
@@ -51,7 +52,7 @@ EXPOSE 3000
 CMD ["my-site"]
 ```
 
-The first image build compiles CLI 0.1.2 from crates.io, which takes several
+The first image build compiles your project's pinned CLI from crates.io, which takes several
 minutes. Docker caches that installation layer separately from your application
 source. The installer handles only Tailwind and verifies its standalone binary's
 checksum. This source-build path also works with the Bookworm base images.

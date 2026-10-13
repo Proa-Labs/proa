@@ -126,8 +126,16 @@ runs formatting, strict lint, site checks, generated integration tests, and a
 linked build. HTTP checks cover HTML, both Markdown entry points, the About
 route, readiness, and retention of the starter design in the generated CSS.
 It also removes the Markdown heading temporarily to verify that content lint
-rejects the omission, then restores the source. Use `--profile release` to verify an optimized build as well. The work directory
-keeps the generated source, binary, and server log for inspection.
+rejects the omission, then restores the source. Use `--profile release` to verify
+an optimized build as well. The work directory keeps the generated source,
+binary, and server log for inspection.
+
+Workspace CI runs `--source-only` against the candidate CLI: formatting, strict
+lint, site checks, and the omission probe, without compiling another app.
+The `Released CLI quickstart` workflow performs the full check against the
+latest stable crates.io CLI every Monday. It can also run manually or be called
+by a release workflow with an exact candidate version. That provides a place to
+verify public installation after publication without changing the docs.
 
 ## crates.io releases
 
@@ -159,8 +167,11 @@ After publishing, check a credential-free registry installation and all five
 generated site templates, retaining artifacts for inspection:
 
 ```bash
-python3 scripts/check_registry_install.py --version 0.1.2 --work-dir /tmp/proa-registry-acceptance
+python3 scripts/check_registry_install.py --work-dir /tmp/proa-registry-acceptance
 ```
+
+The registry checker installs the latest stable CLI by default. Its optional
+`--version` flag selects an exact release when reproducing a failure.
 
 `--only crate1,crate2` selects packages. `--skip-published` checks exact versions
 through the public crates.io API without sending a token. `--no-verify` skips

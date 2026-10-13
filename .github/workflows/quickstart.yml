@@ -1,0 +1,81 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Released CLI quickstart
+
+# The workspace CI checks the examples against the candidate CLI. This check
+# also exercises what a reader actually downloads, without a version to bump.
+on:
+  schedule:
+    - cron: "17 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional exact crates.io version; empty checks latest stable"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Optional exact crates.io version for a release verification"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quickstart-released-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: true
+
+jobs:
+  quickstart:
+    name: Verify the published CLI and documented guide
+    runs-on: gcp-pr-ci
+    timeout-minutes: 30
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
+      RUST_TEST_THREADS: "2"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Install the released CLI and Tailwind
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          export CARGO_HOME="$RUNNER_TEMP/quickstart-cargo"
+          echo "CARGO_HOME=$CARGO_HOME" >> "$GITHUB_ENV"
+          arguments=(install proa-cli --locked --root "$RUNNER_TEMP/proa-tools")
+          if [ -n "$RELEASE_VERSION" ]; then
+            arguments+=(--version "=$RELEASE_VERSION")
+          fi
+          cargo +stable "${arguments[@]}"
+          sh scripts/install.sh --tailwind-only --to "$RUNNER_TEMP/proa-tools/bin" --no-modify-path --yes
+
+      - name: Follow the quickstart from a fresh project
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/proa-tools/bin:$PATH"
+          proa --version
+          python3 scripts/check_quickstart.py \
+            --cli "$RUNNER_TEMP/proa-tools/bin/proa" \
+            --work-dir "$RUNNER_TEMP/quickstart-released" \
+            2>&1 | tee "$RUNNER_TEMP/quickstart-released.log"
+
+      - name: Keep the verification log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: quickstart-released
+          path: ${{ runner.temp }}/quickstart-released.log
+          if-no-files-found: ignore
+          retention-days: 7

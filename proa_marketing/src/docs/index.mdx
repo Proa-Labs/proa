@@ -12,13 +12,13 @@ Building with an AI agent? The complete documentation is served at [/llms-full.t
 
 ## 1. Install Proa
 
-Install the released CLI from crates.io (Rust 1.93 or newer):
+Install the latest stable CLI from crates.io using a current Rust toolchain:
 
 ```bash
-cargo install proa-cli --version 0.1.2 --locked
+cargo install proa-cli --locked
 ```
 
-Use CLI **0.1.2** for the steps below; 0.1.1 generates a different starter.
+Run the same command to update an existing Cargo installation.
 Proa is public; no GitHub credential or Cargo publishing token is needed.
 [Troubleshooting](/docs/guides/troubleshooting) covers dependency resolution
 failures. The Basic app also requires the Tailwind CSS CLI on your `PATH`;
@@ -94,11 +94,18 @@ You do not have to build the common UI yourself: [proa-ui](https://ui.proa.so) i
 The remaining steps use the **Basic app** named `hello-proa`. If you chose
 ORIGIN, follow its generated `README.md` and run commands inside `origin-atlas`.
 
-CLI 0.1.2 puts the starter design in `public/styles.css`, which Tailwind replaces
-on the first build. Inside `hello-proa`, before starting the server:
+If `styles/starter.css` already exists and `styles/input.css` imports it,
+continue to the next step.
+
+<Accordions>
+
+<Accordion title="My starter has no styles/starter.css yet">
+
+Inside `hello-proa`, preserve the starter design before Tailwind rebuilds
+`public/styles.css`:
 
 1. Move `public/styles.css` to `styles/starter.css`. If `styles/starter.css`
-   already exists in your scaffold, keep that file.
+   already exists, keep that file.
 2. Replace the contents of `styles/input.css` with:
 
 ```css
@@ -109,6 +116,10 @@ on the first build. Inside `hello-proa`, before starting the server:
 ```
 
 Tailwind will regenerate `public/styles.css` with the starter design included.
+
+</Accordion>
+
+</Accordions>
 
 ## 3. Run The Server
 

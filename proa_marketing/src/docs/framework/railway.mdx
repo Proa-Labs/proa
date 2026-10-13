@@ -55,13 +55,14 @@ src/main.rs
 public/
 ```
 
-With CLI 0.1.2, replace the generated Dockerfile with the example below: the
-generator expects binary archives that have not been published for that version.
-For an existing project, add the example at its root.
+If the generated Dockerfile's pinned binary archive is unavailable, use the
+Cargo-based example below. For an existing scaffolded project, add it at the
+root beside `proa.lock.json`.
 
 ## Adapt the Dockerfile
 
-This Dockerfile compiles the pinned CLI 0.1.2 from crates.io and builds the app
+This Dockerfile reads the CLI version from your project's `proa.lock.json`,
+compiles that pinned version from crates.io, and builds the app
 through `proa build --locked --artifact-out`. The first CLI compilation takes
 several minutes; Docker caches that layer separately from your application
 source. The installer handles only Tailwind and verifies its standalone binary's
@@ -72,12 +73,13 @@ Railway's cache mounts reuse downloaded crates and compiled dependencies:
 FROM rust:1.93-bookworm AS build
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git \
+    && apt-get install -y --no-install-recommends ca-certificates curl git jq \
     && rm -rf /var/lib/apt/lists/*
 
-ARG PROA_VERSION=0.1.2
+COPY proa.lock.json /tmp/proa.lock.json
 RUN --mount=type=cache,id=s/<service-id>-/usr/local/cargo/registry,target=/usr/local/cargo/registry \
-    cargo install proa-cli --version "=$PROA_VERSION" --locked
+    proa_version="$(jq -er '.scaffold.cliVersion' /tmp/proa.lock.json)" \
+    && cargo install proa-cli --version "=$proa_version" --locked
 
 # Install the checksum-verified standalone Tailwind CLI.
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \

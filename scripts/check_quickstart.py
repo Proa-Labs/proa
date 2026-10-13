@@ -34,9 +34,11 @@ def fences(section: str, language: str) -> list[str]:
 def apply_documented_edits(project: Path, guide: str) -> str:
     setup = guide.split("## 2. Create A Site\n", 1)[1].split("## 3. Run The Server", 1)[0]
     starter = project / "styles/starter.css"
-    if not starter.exists():
-        (project / "public/styles.css").rename(starter)
-    (project / "styles/input.css").write_text(fences(setup, "css")[0] + "\n", encoding="utf-8")
+    stylesheet = project / "styles/input.css"
+    if not starter.exists() or './starter.css' not in stylesheet.read_text(encoding="utf-8"):
+        if not starter.exists():
+            (project / "public/styles.css").rename(starter)
+        stylesheet.write_text(fences(setup, "css")[0] + "\n", encoding="utf-8")
     edit = guide.split("## 4. Edit The First Page\n", 1)[1].split("## 5. Add A Route", 1)[0]
     html = fences(edit, "rust")[0]
     markdown = fences(edit, "markdown")[0]
@@ -137,9 +139,11 @@ def verify_content_lint(cli: Path, project: Path, environment: dict[str, str], c
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cli", type=Path, required=True, help="locally built proa binary")
+    parser.add_argument("--cli", type=Path, required=True, help="proa binary to verify")
     parser.add_argument("--work-dir", type=Path, help="keep generated project and logs here")
     parser.add_argument("--profile", default="dev", choices=("dev", "release"))
+    parser.add_argument("--source-only", action="store_true",
+                        help="check documented edits without compiling a generated app")
     arguments = parser.parse_args()
     cli = arguments.cli.resolve()
     work = (arguments.work_dir or Path(tempfile.mkdtemp(prefix="proa-quickstart-"))).resolve()
@@ -150,17 +154,22 @@ def main() -> None:
                    and key not in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CARGO_TARGET_DIR")}
     environment.update(CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0", RUST_TEST_THREADS="2")
     environment["PATH"] = str(cli.parent) + os.pathsep + environment.get("PATH", "")
+    run([str(cli), "--version"], work, environment)
     run([str(cli), "new", "site", str(project), "--yes", "--no-git", "--offline"], work, environment)
     copy = apply_documented_edits(project, (ROOT / "proa_marketing/src/docs/index.mdx").read_text(encoding="utf-8"))
+    for command in (["fmt", "--check", "--verify", "src"], ["lint", "src", "--deny", "warnings"],
+                    ["site", "check"]):
+        run([str(cli), *command], project, environment)
+    verify_content_lint(cli, project, environment, copy)
+    if arguments.source_only:
+        print(f"Quickstart source checks passed; artifacts: {work}", flush=True)
+        return
     metadata = json.loads(subprocess.check_output(
         ["cargo", "metadata", "--format-version", "1"], cwd=project, env=environment, text=True))
     for package in metadata["packages"]:
         if package["name"].startswith(("proa_", "rsjs")):
             assert package["source"] == "registry+https://github.com/rust-lang/crates.io-index", package
-    for command in (["fmt", "--check", "--verify", "src"], ["lint", "src", "--deny", "warnings"],
-                    ["site", "check"], ["test", "--locked"]):
-        run([str(cli), *command], project, environment)
-    verify_content_lint(cli, project, environment, copy)
+    run([str(cli), "test", "--locked"], project, environment)
     artifact = work / ("hello-proa-app.exe" if os.name == "nt" else "hello-proa-app")
     run([str(cli), "build", "--locked", "--profile", arguments.profile,
          "--artifact-out", str(artifact)], project, environment)
