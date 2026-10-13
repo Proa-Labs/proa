@@ -68,7 +68,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git \
     && rm -rf /var/lib/apt/lists/*
 
-ARG PROA_VERSION=0.1.1
+ARG PROA_VERSION=0.1.2
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \
     | PROA_VERSION=$PROA_VERSION PROA_INSTALL_DIR=/usr/local/bin PROA_TAILWIND=yes PROA_YES=1 sh
 

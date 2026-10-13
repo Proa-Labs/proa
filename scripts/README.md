@@ -133,7 +133,7 @@ After publishing, check a credential-free registry installation and all five
 generated site templates, retaining artifacts for inspection:
 
 ```bash
-python3 scripts/check_registry_install.py --version 0.1.1 --work-dir /tmp/proa-registry-acceptance
+python3 scripts/check_registry_install.py --version 0.1.2 --work-dir /tmp/proa-registry-acceptance
 ```
 
 `--only crate1,crate2` selects packages. `--skip-published` checks exact versions

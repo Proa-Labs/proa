@@ -75,7 +75,7 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", default="0.1.1", help="released proa-cli version")
+    parser.add_argument("--version", default="0.1.2", help="released proa-cli version")
     parser.add_argument("--work-dir", type=Path, help="keep generated projects and logs here")
     arguments = parser.parse_args()
     work = arguments.work_dir or Path(tempfile.mkdtemp(prefix="proa-registry-install-"))
