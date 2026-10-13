@@ -55,22 +55,35 @@ src/main.rs
 public/
 ```
 
-Already have a project? Copy the Dockerfile below instead.
+If the generated Dockerfile's pinned binary archive is unavailable, use the
+Cargo-based example below. For an existing scaffolded project, add it at the
+root beside `proa.lock.json`.
 
 ## Adapt the Dockerfile
 
-The generated Dockerfile installs a pinned, checksum-verified Proa CLI and builds through `proa build --locked --artifact-out`. Proa dependencies resolve from crates.io without credentials. Add Railway's cache mounts to reuse downloaded crates and compiled dependencies:
+This Dockerfile reads the CLI version from your project's `proa.lock.json`,
+compiles that pinned version from crates.io, and builds the app
+through `proa build --locked --artifact-out`. The first CLI compilation takes
+several minutes; Docker caches that layer separately from your application
+source. The installer handles only Tailwind and verifies its standalone binary's
+checksum. Proa dependencies resolve from crates.io without credentials.
+Railway's cache mounts reuse downloaded crates and compiled dependencies:
 
 ```dockerfile filename="Dockerfile"
 FROM rust:1.93-bookworm AS build
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git \
+    && apt-get install -y --no-install-recommends ca-certificates curl git jq \
     && rm -rf /var/lib/apt/lists/*
 
-ARG PROA_VERSION=0.1.2
+COPY proa.lock.json /tmp/proa.lock.json
+RUN --mount=type=cache,id=s/<service-id>-/usr/local/cargo/registry,target=/usr/local/cargo/registry \
+    proa_version="$(jq -er '.scaffold.cliVersion' /tmp/proa.lock.json)" \
+    && cargo install proa-cli --version "=$proa_version" --locked
+
+# Install the checksum-verified standalone Tailwind CLI.
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \
-    | PROA_VERSION=$PROA_VERSION PROA_INSTALL_DIR=/usr/local/bin PROA_TAILWIND=yes PROA_YES=1 sh
+    | sh -s -- --tailwind-only --to /usr/local/bin --no-modify-path --yes
 
 COPY . .
 
@@ -90,7 +103,7 @@ ENV RUST_LOG=info
 CMD ["my-site"]
 ```
 
-Three changes from the generated version:
+The Railway-specific settings are:
 
 - **Cache mounts** reuse Cargo's registry downloads and build output.
 - **`PROA_HOST=::`** replaces `PROA_HOST=0.0.0.0`, so private networking works.
@@ -98,7 +111,8 @@ Three changes from the generated version:
 
 `--artifact-out /app/my-site` matters: cache mounts do not persist into the final layer, so the binary must land outside `/app/target`. The generated server serves `public/` relative to its working directory, so keep `WORKDIR /app` and copy `public/` beside the binary.
 
-Replace `<service-id>` with the service ID shown by `railway status --json`.
+Replace every `<service-id>` placeholder with the service ID shown by
+`railway status --json`.
 Railway requires that literal `s/<service-id>-` cache-key prefix and does not
 allow variables in cache-mount IDs.
 

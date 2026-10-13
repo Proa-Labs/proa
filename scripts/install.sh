@@ -50,7 +50,7 @@ set_defaults() {
     # Bump this when the installer itself changes. It is the only thing in a
     # pasted log that identifies which installer produced it, since the script
     # is served from a URL and carries no other version.
-    INSTALLER_REVISION="2026-08-25"
+    INSTALLER_REVISION="2026-10-12"
 
     # Tailwind is an optional companion install. Keep the version and hashes
     # pinned together: changing the version without updating every hash below
@@ -62,7 +62,8 @@ set_defaults() {
     # well as in --help:
     #
     #   DOWNLOAD_BASE  where prebuilt archives and the version lookup come from.
-    #   REPO           the git remote the SOURCE fallback builds from.
+    #   REPO           the git remote for snapshots and explicit Git builds.
+    #                  Official released versions build from crates.io.
     #
     # They used to be the same thing, back when this script fetched archives
     # straight off GitHub Releases. It no longer does. proa.so sits in front of
@@ -73,10 +74,7 @@ set_defaults() {
     REPO="${PROA_REPO:-Proa-Labs/proa}"
     VERSION="${PROA_VERSION:-}"
 
-    # Index of the workspace's named cargo registry, mirroring the committed
-    # .cargo/config.toml. Only the source build needs it, and only to make the
-    # name resolvable; see install_from_source for why.
-        PROA_ROOT="${PROA_HOME:-$HOME/.proa}"
+    PROA_ROOT="${PROA_HOME:-$HOME/.proa}"
     INSTALL_DIR="${PROA_INSTALL_DIR:-}"
     NO_MODIFY_PATH="${PROA_NO_MODIFY_PATH:-}"
     BUILD_FROM_SOURCE="${PROA_BUILD_FROM_SOURCE:-}"
@@ -1064,7 +1062,8 @@ usage() {
 "    --no-modify-path      Never write to a shell profile. The installer still" \
 "                          prints the line to add." \
 "    --build-from-source   Skip the prebuilt download and run" \
-"                          'cargo install --git ... --locked proa-cli'." \
+"                          'cargo install'. With no version, build Git HEAD;" \
+"                          a version pins the release or snapshot source." \
 "                          Requires cargo and takes several minutes." \
 "    --prebuilt-only       Fail if the matching release archive cannot be" \
 "                          downloaded. Never fall back to a source build." \
@@ -2553,7 +2552,12 @@ print_header() {
     # paths: a download names the host it downloads from, a source build names
     # the repository it compiles.
     if [ "$INSTALL_MODE" = "source" ]; then
-        fact "source" "github.com/$REPO (built on this machine)"
+        if source_uses_registry; then
+            fact "source" "crates.io/proa-cli (built on this machine)"
+        else
+            fact "source" "github.com/$REPO (built on this machine)"
+        fi
+        if [ -n "$VERSION" ]; then fact "version" "$VERSION"; fi
     else
         fact "source" "$(display_url "$DOWNLOAD_BASE")"
         fact "version" "$VERSION"
@@ -2631,6 +2635,21 @@ print_tailwind_only_summary() {
 # Install paths
 # ---------------------------------------------------------------------------
 
+# Released versions come from crates.io. An explicit unversioned source build
+# or a custom repository uses Git; main snapshots always pin their full SHA.
+source_uses_registry() {
+    case "$VERSION" in
+        *-main.*) return 1 ;;
+    esac
+    local normalized_repo
+    normalized_repo=$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')
+    case "$normalized_repo" in
+        proa-labs/proa) ;;
+        *) return 1 ;;
+    esac
+    [ -n "$VERSION" ] || [ -z "$BUILD_FROM_SOURCE" ]
+}
+
 install_from_source() {
     local cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
 
@@ -2666,7 +2685,32 @@ install_from_source() {
     # still does. Setting it here makes the robust path the default. A caller
     # who exported a value keeps it, and without a git binary the built-in
     # fetcher is the only option anyway.
-    log_info "running: cargo install --git https://github.com/$REPO --locked proa-cli"
+    set -- install --locked proa-cli
+    if source_uses_registry; then
+        set -- "$@" --registry crates-io
+        if [ -n "$VERSION" ]; then set -- "$@" --version "=$VERSION"; fi
+    else
+        set -- "$@" --git "https://github.com/$REPO"
+        case "$VERSION" in
+            *-main.*)
+                local revision="${VERSION#*-main.}"
+                revision="${revision%%.*}"
+                case "$revision" in
+                    *[!0-9a-fA-F]*) err "main snapshot version must contain a full 40-character commit SHA" ;;
+                esac
+                [ "${#revision}" -eq 40 ] || err "main snapshot version must contain a full 40-character commit SHA"
+                set -- "$@" --rev "$revision"
+                ;;
+            "") ;;
+            *) set -- "$@" --tag "proa-cli-v$VERSION" ;;
+        esac
+    fi
+    if source_uses_registry; then
+        detail "Building proa-cli ${VERSION:-latest} from crates.io."
+    else
+        detail "Building proa-cli ${VERSION:-Git HEAD} from github.com/$REPO."
+    fi
+    log_info "running: cargo $*"
     local fetch_with_cli
     if check_cmd git; then
         fetch_with_cli="${CARGO_NET_GIT_FETCH_WITH_CLI:-true}"
@@ -2676,7 +2720,7 @@ install_from_source() {
     fi
     log_debug "CARGO_NET_GIT_FETCH_WITH_CLI=$fetch_with_cli"
     CARGO_NET_GIT_FETCH_WITH_CLI="$fetch_with_cli" \
-        cargo install --git "https://github.com/$REPO" --locked proa-cli ||
+        cargo "$@" ||
         err "cargo install failed. The output above has the compiler error."
     log_info "cargo install finished, binaries are in $cargo_bin"
 
@@ -2806,6 +2850,7 @@ choose_install_mode() {
         if [ -n "$PREBUILT_ONLY" ]; then
             err "no prebuilt proa-cli archive is published for $OS_NAME $ARCH_NAME; remove --prebuilt-only to allow a source build"
         fi
+        if [ -z "$VERSION" ]; then resolve_latest_version || :; fi
         INSTALL_MODE="source"
         log_info "decision: building from source because there is no prebuilt asset for this machine"
         MODE_NOTE="There is no prebuilt proa-cli archive for $OS_NAME $ARCH_NAME."

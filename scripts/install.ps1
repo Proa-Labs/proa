@@ -54,7 +54,8 @@ never use it. Default: Proa-Labs/proa.
 Never change the user PATH. The installer still prints what to add.
 
 .PARAMETER BuildFromSource
-Skip the prebuilt download and run cargo install. Requires cargo and takes
+Skip the prebuilt download and run cargo install. With no version, build Git
+HEAD; a version pins the release or snapshot source. Requires cargo and takes
 several minutes.
 
 .PARAMETER PrebuiltOnly
@@ -140,9 +141,6 @@ $script:DefaultDownloadBase = 'https://proa.so/downloads/cli'
 # it is here so -Version accepts a whole tag and strips it back to a version.
 $script:TagPrefix = 'proa-cli-v'
 $script:Msrv = '1.93.0'
-# Index of the workspace's named cargo registry, mirroring the committed
-# .cargo/config.toml. Only the source build needs it, and only to make the name
-# resolvable; see Install-FromSource for why.
 # Sent on every request. Hosts in front of a release, github.com included,
 # answer 403 to requests without a User-Agent, and it is what identifies an
 # installer run in the download logs.
@@ -1515,7 +1513,8 @@ OPTIONS
     -NoModifyPath         Never change the user PATH. The installer still
                           prints what to add.
     -BuildFromSource      Skip the prebuilt download and run
-                          'cargo install --git ... --locked proa-cli'.
+                          'cargo install'. With no version, build Git HEAD;
+                          a version pins the release or snapshot source.
                           Requires cargo and takes several minutes.
     -PrebuiltOnly         Fail if the matching release archive cannot be
                           downloaded. Never fall back to a source build.
@@ -2377,8 +2376,37 @@ function Show-NextSteps {
 # Install paths
 # ---------------------------------------------------------------------------
 
+function Get-SourceVersionText {
+    param([string]$VersionText, [bool]$BuildFromSource, [string]$Repository)
+    if ($VersionText) { return $VersionText }
+    if ($BuildFromSource) { return 'Git HEAD, as asked' }
+    if ($Repository -ine 'Proa-Labs/proa') { return 'Git HEAD (custom repository)' }
+    return 'latest crates.io release'
+}
+
+function Get-SourceInstallArguments {
+    param([string]$Repository, [string]$VersionText, [bool]$BuildFromSource)
+
+    $arguments = @('install', '--locked', 'proa-cli')
+    if ($VersionText -like '*-main.*') {
+        if ($VersionText -notmatch '-main\.([0-9a-fA-F]{40})(?:\.|$)') {
+            Stop-Install 'main snapshot version must contain a full 40-character commit SHA'
+        }
+        return $arguments + @('--git', ('https://github.com/' + $Repository), '--rev', $Matches[1])
+    }
+    if ($Repository -ieq 'Proa-Labs/proa' -and ($VersionText -or -not $BuildFromSource)) {
+        $arguments += @('--registry', 'crates-io')
+        if ($VersionText) { $arguments += @('--version', ('=' + $VersionText)) }
+        return $arguments
+    }
+    $arguments += @('--git', ('https://github.com/' + $Repository))
+    if ($VersionText) { $arguments += @('--tag', ('proa-cli-v' + $VersionText)) }
+    return $arguments
+}
+
 function Install-FromSource {
-    param([string]$Repository, [string]$BinDir, [bool]$DirWasExplicit)
+    param([string]$Repository, [string]$BinDir, [bool]$DirWasExplicit,
+          [string]$VersionText, [bool]$BuildFromSource = $false)
 
     $cargoBin = Get-CargoBinDir
 
@@ -2409,7 +2437,14 @@ function Install-FromSource {
         $env:CARGO_NET_GIT_FETCH_WITH_CLI = 'true'
     }
     try {
-        $code = Invoke-NativeCommand 'cargo' @('install', '--git', ('https://github.com/' + $Repository), '--locked', 'proa-cli')
+        $arguments = @(Get-SourceInstallArguments $Repository $VersionText $BuildFromSource)
+        if ($arguments -contains '--registry') {
+            Write-KeyValue 'source' 'crates.io/proa-cli (built on this machine)'
+        } else {
+            Write-KeyValue 'source' ('github.com/' + $Repository + ' (built on this machine)')
+        }
+        Write-LogLine 'INFO' ('running: cargo ' + ($arguments -join ' '))
+        $code = Invoke-NativeCommand 'cargo' $arguments
     } finally {
         if ([string]::IsNullOrEmpty($callerFetch)) {
             Remove-Item -LiteralPath 'Env:\CARGO_NET_GIT_FETCH_WITH_CLI' -ErrorAction SilentlyContinue
@@ -2752,13 +2787,10 @@ function Invoke-Main {
     $exePath = ''
     if ($buildFromSource) {
         Write-LogLine 'INFO' 'a source build was requested, skipping the prebuilt download'
-        # The repository, not the download base: -Repo is only ever the argument
-        # to 'cargo install --git', and this is the one path that uses it.
-        Write-KeyValue 'source' ('github.com/' + $repository)
-        Write-KeyValue 'version' ('built from source, as asked' + $replaces)
+        Write-KeyValue 'version' ((Get-SourceVersionText $requestedVersion $true $repository) + $replaces)
         Show-ToolchainNotes
         Write-Blank
-        $exePath = Install-FromSource $repository $binDir $dirWasExplicit
+        $exePath = Install-FromSource $repository $binDir $dirWasExplicit $requestedVersion $true
     } elseif ([string]::IsNullOrEmpty($target)) {
         if ($prebuiltOnly) {
             Stop-Install ('no prebuilt proa-cli archive is published for Windows ' + $architecture) @(
@@ -2766,13 +2798,15 @@ function Invoke-Main {
                 'Remove -PrebuiltOnly to allow a source build.')
         }
         Write-LogLine 'INFO' ('no prebuilt asset for Windows ' + $architecture + ', falling back to source')
-        Write-KeyValue 'source' ('github.com/' + $repository)
-        Write-KeyValue 'version' ('built from source' + $replaces)
+        if ([string]::IsNullOrEmpty($requestedVersion)) {
+            $requestedVersion = Resolve-LatestVersion $downloadBase
+        }
+        Write-KeyValue 'version' ((Get-SourceVersionText $requestedVersion $false $repository) + $replaces)
         Show-ToolchainNotes
         Write-Blank
         Write-Note ('There is no prebuilt proa-cli archive for Windows ' + $architecture + ', so this builds from source.')
         Write-Blank
-        $exePath = Install-FromSource $repository $binDir $dirWasExplicit
+        $exePath = Install-FromSource $repository $binDir $dirWasExplicit $requestedVersion
     } else {
         Write-KeyValue 'source' (Get-SourceText $downloadBase)
 
@@ -2791,13 +2825,13 @@ function Invoke-Main {
                     'Remove -PrebuiltOnly to allow a source build.')
             }
             Write-LogLine 'INFO' ('no usable release at ' + $downloadBase + ', falling back to source')
-            Write-KeyValue 'version' 'none published, building from source'
+            Write-KeyValue 'version' ((Get-SourceVersionText '' $false $repository) + ' (binary channel unavailable)')
             Show-ToolchainNotes
             Write-Blank
             Write-Note ('No published proa-cli release was found at ' + (Get-SourceText $downloadBase) + '.')
             Write-Note 'Either none has been published yet, or the download service is unreachable or rate limited.'
             Write-Blank
-            $exePath = Install-FromSource $repository $binDir $dirWasExplicit
+            $exePath = Install-FromSource $repository $binDir $dirWasExplicit $resolvedVersion
         } else {
             Write-LogLine 'INFO' ('installing proa-cli ' + $resolvedVersion + ' for ' + $target + ' from a release archive')
             Write-KeyValue 'version' ($resolvedVersion + $replaces)
@@ -2813,7 +2847,7 @@ function Invoke-Main {
                 }
                 Write-Note 'Falling back to a source build.'
                 Write-Blank
-                $exePath = Install-FromSource $repository $binDir $dirWasExplicit
+                $exePath = Install-FromSource $repository $binDir $dirWasExplicit $resolvedVersion
             }
         }
     }

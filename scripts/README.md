@@ -103,6 +103,40 @@ GitHub Release can publish. Exercise that contract locally with:
 python3 scripts/test_cli_binary_distribution.py
 ```
 
+Source fallbacks preserve the selected release: official versions build from
+crates.io, main snapshots build their full commit SHA, and custom repositories
+build the matching `proa-cli-v<version>` tag. An explicit unversioned
+`--build-from-source` / `-BuildFromSource` request builds Git HEAD. If binary
+metadata is unavailable, the official installer uses the latest crates.io
+release. A failed pinned build stops rather than retrying another revision.
+
+## Quickstart acceptance
+
+Build both local CLI binaries, then verify the Basic app using the examples
+extracted from `proa_marketing/src/docs/index.mdx`:
+
+```bash
+cargo build -p proa-cli --bins
+python3 scripts/check_quickstart.py --cli target/debug/proa --work-dir /tmp/proa-quickstart-acceptance
+```
+
+This requires Rust 1.93 or newer, Cargo registry access, and the standalone
+Tailwind CLI on PATH. It creates a new project, applies the documented edits,
+runs formatting, strict lint, site checks, generated integration tests, and a
+linked build. HTTP checks cover HTML, both Markdown entry points, the About
+route, readiness, and retention of the starter design in the generated CSS.
+It also removes the Markdown heading temporarily to verify that content lint
+rejects the omission, then restores the source. Use `--profile release` to verify
+an optimized build as well. The work directory keeps the generated source,
+binary, and server log for inspection.
+
+Workspace CI runs `--source-only` against the candidate CLI: formatting, strict
+lint, site checks, and the omission probe, without compiling another app.
+The `Released CLI quickstart` workflow performs the full check against the
+latest stable crates.io CLI every Monday. It can also run manually or be called
+by a release workflow with an exact candidate version. That provides a place to
+verify public installation after publication without changing the docs.
+
 ## crates.io releases
 
 The CLI and reusable libraries support crates.io installation. GitHub releases
@@ -133,8 +167,11 @@ After publishing, check a credential-free registry installation and all five
 generated site templates, retaining artifacts for inspection:
 
 ```bash
-python3 scripts/check_registry_install.py --version 0.1.2 --work-dir /tmp/proa-registry-acceptance
+python3 scripts/check_registry_install.py --work-dir /tmp/proa-registry-acceptance
 ```
+
+The registry checker installs the latest stable CLI by default. Its optional
+`--version` flag selects an exact release when reproducing a failure.
 
 `--only crate1,crate2` selects packages. `--skip-published` checks exact versions
 through the public crates.io API without sending a token. `--no-verify` skips

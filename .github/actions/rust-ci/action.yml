@@ -60,6 +60,14 @@ runs:
           -A clippy::all \
           -D clippy::correctness
 
+    - name: Check quickstart examples against the workspace CLI
+      shell: bash
+      run: |
+        cargo build --locked -p proa-cli --bin proa
+        python3 scripts/check_quickstart.py \
+          --cli "${CARGO_TARGET_DIR:-target}/debug/proa" \
+          --source-only --work-dir "$RUNNER_TEMP/quickstart-workspace"
+
     - name: Check generated RSJS web bindings
       shell: bash
       run: cargo run --locked -p rsjs_web --bin rsjs-web-codegen -- --check

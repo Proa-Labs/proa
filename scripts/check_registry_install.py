@@ -75,7 +75,7 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", default="0.1.2", help="released proa-cli version")
+    parser.add_argument("--version", help="specific released proa-cli version (default: latest stable)")
     parser.add_argument("--work-dir", type=Path, help="keep generated projects and logs here")
     arguments = parser.parse_args()
     work = arguments.work_dir or Path(tempfile.mkdtemp(prefix="proa-registry-install-"))
@@ -93,9 +93,11 @@ def main() -> None:
     environment.update(CARGO_HOME=str(cargo_home), CARGO_PROFILE_DEV_DEBUG="0",
                        CARGO_PROFILE_TEST_DEBUG="0", RUST_TEST_THREADS="2")
     destination = work / "installed"
-    run(["cargo", "install", "proa-cli", "--version", arguments.version, "--locked",
-         "--root", str(destination), "--target-dir", str(work / "target")],
-        work, environment)
+    install = ["cargo", "install", "proa-cli", "--locked",
+               "--root", str(destination), "--target-dir", str(work / "target")]
+    if arguments.version:
+        install += ["--version", "=" + arguments.version]
+    run(install, work, environment)
     suffix = ".exe" if os.name == "nt" else ""
     environment["PATH"] = str(destination / "bin") + os.pathsep + environment.get("PATH", "")
     for name in ("proa", "cargo-proa"):

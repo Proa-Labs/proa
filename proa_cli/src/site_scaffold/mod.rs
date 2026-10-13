@@ -361,6 +361,15 @@ mod tests {
         ] {
             assert!(root.join(path).exists(), "missing {path}");
         }
+        // Tailwind owns the generated public output; its input must include
+        // the starter design so the first asset build retains that design.
+        let input = std::fs::read_to_string(root.join("styles/input.css")).unwrap();
+        assert!(input.contains("@import \"./starter.css\" layer(components);"));
+        let starter = std::fs::read_to_string(root.join("styles/starter.css")).unwrap();
+        assert_eq!(
+            starter,
+            std::fs::read_to_string(root.join("public/styles.css")).unwrap()
+        );
         assert!(!root.join("scripts").exists());
         assert!(!root.join("src/islands").exists());
         let home = std::fs::read_to_string(root.join("src/pages/home.rs")).unwrap();

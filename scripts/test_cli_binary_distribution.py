@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import re
 import shutil
@@ -209,7 +210,7 @@ class InstallerContractTests(unittest.TestCase):
             cargo = binaries / "cargo"
             cargo.write_text("""#!/bin/sh
 if [ "$1" = --version ]; then echo 'cargo 1.93.0'; exit 0; fi
-[ "$*" = 'install --git https://github.com/Proa-Labs/proa --locked proa-cli' ] || exit 91
+[ "$*" = 'install --locked proa-cli --git https://github.com/Proa-Labs/proa' ] || exit 91
 [ -z "${CARGO_REGISTRIES_PROA_INDEX+x}" ] || exit 92
 [ "$CARGO_NET_GIT_FETCH_WITH_CLI" = true ] || exit 93
 mkdir -p "$CARGO_HOME/bin"
@@ -231,6 +232,172 @@ chmod +x "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((root / "cargo-home/bin/proa").is_file())
+
+    def run_unix_fallback(self, arguments: list[str], *, latest: str = "",
+                          cargo_status: int = 0, architecture: str = "x86_64") -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binaries = root / "bin"
+            binaries.mkdir()
+            fixtures = {
+                "cargo": """#!/bin/sh
+if [ "$1" = --version ]; then echo 'cargo 1.93.0'; exit 0; fi
+printf '%s\\n' "$@" >> "$FIXTURE_ARGUMENTS"
+[ "$FIXTURE_CARGO_STATUS" = 0 ] || exit "$FIXTURE_CARGO_STATUS"
+mkdir -p "$CARGO_HOME/bin"
+printf '#!/bin/sh\\necho proa 9.8.7\\n' > "$CARGO_HOME/bin/proa"
+cp "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
+chmod +x "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
+""",
+                "rustc": "#!/bin/sh\necho 'rustc 1.93.0'\n",
+                "uname": "#!/bin/sh\ncase \"$1\" in -s) echo Linux ;; -m) echo \"$FIXTURE_ARCH\" ;; *) echo Linux ;; esac\n",
+                "curl": """#!/usr/bin/env python3
+import json, os, pathlib, sys
+if sys.argv[1:] == ['--version']:
+    print('curl fixture'); sys.exit(0)
+if sys.argv[-1].endswith('/latest.json') and os.environ['FIXTURE_LATEST']:
+    pathlib.Path(sys.argv[sys.argv.index('--output') + 1]).write_text(
+        json.dumps({'version': os.environ['FIXTURE_LATEST']}))
+    print('200 100'); sys.exit(0)
+print('404 0'); sys.exit(22)
+""",
+            }
+            for name, source in fixtures.items():
+                path = binaries / name
+                path.write_text(source)
+                path.chmod(0o755)
+            environment = {key: value for key, value in os.environ.items()
+                           if not key.startswith(("CARGO_", "PROA_"))}
+            environment.update(CARGO_HOME=str(root / "cargo-home"),
+                               PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                               PROA_HOME=str(root / "proa-home"), PROA_LOG="off", NO_COLOR="1",
+                               FIXTURE_ARGUMENTS=str(root / "arguments"), FIXTURE_LATEST=latest,
+                               FIXTURE_CARGO_STATUS=str(cargo_status), FIXTURE_ARCH=architecture)
+            result = subprocess.run(
+                ["sh", str(ROOT / "scripts/install.sh"), "--no-modify-path",
+                 "--no-tailwind", "--yes", *arguments], cwd=root, env=environment,
+                capture_output=True, text=True, timeout=30)
+            path = root / "arguments"
+            return result, path.read_text().splitlines() if path.exists() else []
+
+    def test_missing_archive_preserves_selected_release(self) -> None:
+        for arguments, latest in [(["--version", VERSION], ""), ([], VERSION),
+                                  (["--build-from-source", "--version", VERSION], ""),
+                                  (["--repo", "PROA-LABS/PROA", "--version", VERSION], "")]:
+            with self.subTest(arguments=arguments):
+                result, actual = self.run_unix_fallback(arguments, latest=latest)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(actual, ["install", "--locked", "proa-cli", "--registry",
+                                          "crates-io", "--version", "=" + VERSION])
+
+    def test_unsupported_architecture_resolves_channel_version_before_source_build(self) -> None:
+        result, actual = self.run_unix_fallback([], latest=VERSION, architecture="s390x")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(actual, ["install", "--locked", "proa-cli", "--registry",
+                                  "crates-io", "--version", "=" + VERSION])
+
+    def test_missing_metadata_uses_latest_registry_release(self) -> None:
+        result, actual = self.run_unix_fallback([])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(actual, ["install", "--locked", "proa-cli", "--registry", "crates-io"])
+
+    def test_main_snapshot_fallback_pins_full_revision(self) -> None:
+        version = main_snapshot_version("0.1.1-beta.1")
+        result, actual = self.run_unix_fallback(["--version", version])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(actual, ["install", "--locked", "proa-cli", "--git",
+                                  "https://github.com/Proa-Labs/proa", "--rev", FULL_COMMIT])
+
+    def test_custom_repository_fallback_pins_release_tag(self) -> None:
+        result, actual = self.run_unix_fallback(["--version", VERSION, "--repo", "example/proa"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(actual, ["install", "--locked", "proa-cli", "--git",
+                                  "https://github.com/example/proa", "--tag", "proa-cli-v" + VERSION])
+
+    def test_failed_selected_release_never_retries_git_head(self) -> None:
+        result, actual = self.run_unix_fallback(["--version", VERSION], cargo_status=91)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(actual.count("install"), 1)
+        self.assertNotIn("--git", actual)
+        self.assertIn("cargo install failed", result.stdout + result.stderr)
+
+    def test_malformed_main_revision_is_rejected_before_cargo(self) -> None:
+        result, actual = self.run_unix_fallback(["--version", "0.1.1-main.short"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(actual, [])
+        self.assertIn("full 40-character commit SHA", result.stdout + result.stderr)
+
+    def test_prebuilt_only_never_invokes_cargo_on_missing_archive(self) -> None:
+        result, actual = self.run_unix_fallback(["--version", VERSION, "--prebuilt-only"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(actual, [])
+
+    @unittest.skipUnless(shutil.which("pwsh"), "requires PowerShell")
+    def test_windows_source_install_preserves_version_and_revision(self) -> None:
+        # Load the real functions through the parser without running Invoke-Main;
+        # Windows PATH/registry operations need not run to exercise Cargo calls.
+        harness = r"""
+param([string]$Installer)
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Installer, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw ($errors | Out-String) }
+foreach ($name in @('Get-SourceInstallArguments', 'Install-FromSource')) {
+    $definition = $ast.Find({ param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+    }, $true)
+    Invoke-Expression $definition.Extent.Text
+}
+function Get-CargoBinDir { return '/tmp/cargo/bin' }
+function Test-CommandExists { return $true }
+function Set-PreviousVersion {}
+function Write-LogSection {}
+function Write-StepStart {}
+function Write-Blank {}
+function Get-EnvValue { return 'true' }
+function Write-LogLine {}
+function Write-StepOk {}
+function Write-KeyValue {}
+function Get-DisplayPath { param($Path); return $Path }
+function Stop-Install { param($Message); throw $Message }
+function Invoke-NativeCommand { param($Program, $Arguments)
+    $script:Captured = @($Program) + $Arguments; return 0
+}
+$cases = @(
+    @('Proa-Labs/proa', '9.8.7', $false),
+    @('Proa-Labs/proa', '9.8.7', $true),
+    @('Proa-Labs/proa', '', $false),
+    @('Proa-Labs/proa', '', $true),
+    @('Proa-Labs/proa', ('0.1.1-main.' + ('0' * 40) + '.beta.1'), $false),
+    @('example/proa', '9.8.7', $false)
+)
+foreach ($case in $cases) {
+    $null = Install-FromSource $case[0] '/tmp/cargo/bin' $false $case[1] $case[2]
+    ConvertTo-Json -Compress -InputObject $script:Captured
+}
+try {
+    $null = Install-FromSource 'Proa-Labs/proa' '/tmp/cargo/bin' $false '0.1.1-main.short'
+    throw 'malformed snapshot accepted'
+} catch {
+    if ($_.Exception.Message -ne 'main snapshot version must contain a full 40-character commit SHA') { throw }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "test.ps1"
+            path.write_text(harness)
+            result = subprocess.run(["pwsh", "-NoLogo", "-NoProfile", "-File", str(path),
+                                     str(ROOT / "scripts/install.ps1")],
+                                    capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        actual = [json.loads(line) for line in result.stdout.splitlines()]
+        base = ["cargo", "install", "--locked", "proa-cli"]
+        self.assertEqual(actual, [
+            base + ["--registry", "crates-io", "--version", "=9.8.7"],
+            base + ["--registry", "crates-io", "--version", "=9.8.7"],
+            base + ["--registry", "crates-io"],
+            base + ["--git", "https://github.com/Proa-Labs/proa"],
+            base + ["--git", "https://github.com/Proa-Labs/proa", "--rev", FULL_COMMIT],
+            base + ["--git", "https://github.com/example/proa", "--tag", "proa-cli-v9.8.7"],
+        ])
 
     def test_unix_installer_rejects_opposing_source_modes(self) -> None:
         result = subprocess.run(

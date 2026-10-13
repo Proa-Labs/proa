@@ -42,35 +42,14 @@ production.
 
 ## Start in five minutes
 
-On macOS or Linux:
+Install the latest stable CLI through Cargo using a current Rust toolchain:
 
 ```bash
-curl -fsSL https://proa.so/install.sh | sh
+cargo install proa-cli --locked
 ```
 
-On Windows, run this in PowerShell:
-
-```powershell
-irm https://proa.so/install.ps1 | iex
-```
-
-Or install through Cargo (Rust 1.93+):
-
-```bash
-cargo install proa-cli --version 0.1.2 --locked
-```
-
-Open a new terminal, then create a site:
-
-```bash
-proa new site hello-proa --template marketing --docs proa_docs --tailwind --yes
-cd hello-proa
-proa dev
-```
-
-Follow the [full quickstart](https://proa.so/docs) to add a
-route, inspect the generated project, and run Proa's source-aware checks.
-
+Follow the [quickstart](https://proa.so/docs) to install the styling tools,
+create a site, edit its first route, and run Proa's checks.
 
 ## Your first page is a typed Rust component
 
