@@ -7,7 +7,9 @@ use proa_core::{
     csp_nonce_attr, DataLoader, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
 use proa_macros::html_sync;
-use proa_third_party::google::{AnalyticsConsent, GoogleAnalytics};
+use proa_third_party::google::{AnalyticsConsent, GoogleAnalytics, InvalidMeasurementId};
+
+const DEFAULT_MEASUREMENT_ID: &str = "G-7WSVNZVD6V";
 
 static MEASUREMENT_ID: OnceLock<Option<String>> = OnceLock::new();
 
@@ -15,8 +17,17 @@ static MEASUREMENT_ID: OnceLock<Option<String>> = OnceLock::new();
 pub(crate) fn google_analytics() -> Option<MarketingAnalytics> {
     let measurement_id = MEASUREMENT_ID
         .get_or_init(|| {
-            let value = env::var("GOOGLE_ANALYTICS_MEASUREMENT_ID").ok()?;
-            let Ok(analytics) = GoogleAnalytics::new(&value) else {
+            let value = match env::var("GOOGLE_ANALYTICS_MEASUREMENT_ID") {
+                Ok(value) => Some(value),
+                Err(env::VarError::NotPresent) => None,
+                Err(env::VarError::NotUnicode(_)) => {
+                    tracing::warn!(
+                        "Google Analytics disabled: invalid GOOGLE_ANALYTICS_MEASUREMENT_ID"
+                    );
+                    return None;
+                }
+            };
+            let Ok(analytics) = configured_analytics(value.as_deref()) else {
                 tracing::warn!(
                     "Google Analytics disabled: invalid GOOGLE_ANALYTICS_MEASUREMENT_ID"
                 );
@@ -26,10 +37,15 @@ pub(crate) fn google_analytics() -> Option<MarketingAnalytics> {
         })
         .as_deref()?;
     Some(MarketingAnalytics {
-        analytics: GoogleAnalytics::new(measurement_id)
-            .ok()?
-            .consent(AnalyticsConsent::Granted),
+        analytics: configured_analytics(Some(measurement_id)).ok()?,
     })
+}
+
+fn configured_analytics(
+    measurement_id: Option<&str>,
+) -> Result<GoogleAnalytics<'_>, InvalidMeasurementId> {
+    GoogleAnalytics::new(measurement_id.unwrap_or(DEFAULT_MEASUREMENT_ID))
+        .map(|analytics| analytics.consent(AnalyticsConsent::Granted))
 }
 
 pub(crate) struct MarketingAnalytics {
@@ -56,6 +72,65 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingAnalytics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absent_configuration_uses_the_site_measurement_id() {
+        assert_eq!(
+            configured_analytics(None).unwrap().measurement_id(),
+            "G-7WSVNZVD6V"
+        );
+    }
+
+    #[test]
+    fn explicit_configuration_overrides_the_default_and_validates_the_id() {
+        assert_eq!(
+            configured_analytics(Some(" G-OVERRIDE123 \n"))
+                .unwrap()
+                .measurement_id(),
+            "G-OVERRIDE123"
+        );
+        for invalid in ["", " \n", "GTM-123", "G-lowercase", "G-ABC</script>"] {
+            assert!(configured_analytics(Some(invalid)).is_err());
+        }
+    }
+
+    #[test]
+    fn rendered_default_markup_initializes_the_correct_google_tag() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let mut cx =
+            WebContext::new().with_csp_nonce(proa_core::CspNonce::new("YWJjZA==").unwrap());
+        MarketingAnalytics {
+            analytics: configured_analytics(None).unwrap(),
+        }
+        .render(&mut cx)
+        .unwrap();
+        let html = cx.into_output().into_string();
+        let mut child = Command::new("node")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/analytics-markup.test.mjs"
+            ))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("Node.js is required to validate rendered Google Analytics markup");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(html.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn browser_policy_excludes_previews_and_embedded_pages() {
