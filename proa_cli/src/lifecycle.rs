@@ -40,7 +40,8 @@ use crate::{
     },
     rsjs::cache::DESCRIPTOR_CACHE_SCHEMA_VERSION,
     rsjs::pipeline::{
-        run_linked_cargo_cached, DescriptorRootSelector, LinkedCargoOutput, LinkedCargoRequest,
+        run_linked_cargo_cached, run_linked_cargo_cached_with_progress, DescriptorRootSelector,
+        LinkedCargoOutput, LinkedCargoRequest, LinkedCargoStage,
     },
     scaffold,
 };
@@ -60,14 +61,15 @@ pub const DEV_WATCH_DEBOUNCE: Duration = Duration::from_millis(300);
 /// Refuse debounce windows shorter than one poll interval: they would claim a
 /// precision the poller cannot deliver.
 const DEV_WATCH_MIN_DEBOUNCE: Duration = DEV_WATCH_POLL;
-/// How long a restarted server gets to accept connections before tabs are
-/// told to reload anyway.
+/// How long startup and restart probes wait for the server. A startup timeout
+/// leaves the browser closed; a restart timeout still reloads existing tabs.
 const DEV_READY_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub struct DevOptions {
     pub root: Option<PathBuf>,
     pub host: Option<String>,
     pub port: Option<u16>,
+    pub open: bool,
     pub offline: bool,
     pub no_assets: bool,
     pub no_restart: bool,
@@ -161,9 +163,13 @@ pub fn dev(options: DevOptions) -> Result<()> {
 
     println!("Proa dev root: {}", root.display());
     println!(
-        "Proa dev URL: http://{}:{}",
-        config.dev.host, config.dev.port
+        "Proa dev URL: {}",
+        dev_url(&config.dev.host, config.dev.port)
     );
+    println!("Building your site. The first build downloads dependencies and compiles crates; this can take several minutes.");
+    if options.open {
+        println!("The browser will open when the server is ready.");
+    }
     task::run_lifecycle_tasks(&root, &config, &config.dev.before, &BTreeMap::new())?;
 
     if options.no_restart {
@@ -171,7 +177,13 @@ pub fn dev(options: DevOptions) -> Result<()> {
             build_assets(&root, &config)?;
         }
         let launch = run_linked_dev_cycle(&root, &config.dev.command)?;
-        return run_linked_dev_foreground(&root, &launch, &config.dev.host, config.dev.port, None);
+        return run_linked_dev_foreground(
+            &root,
+            &launch,
+            &config.dev.host,
+            config.dev.port,
+            options.open,
+        );
     }
 
     // Live reload is a watch-mode feature. Without restarts there is nothing
@@ -195,6 +207,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
         session.as_ref(),
     )?;
     set_active_child_group(&child);
+    announce_dev_start(options.open, &config.dev.host, config.dev.port, &mut child);
 
     let clock = Instant::now();
     let mut debouncer = DevWatchDebouncer::new(baseline, debounce);
@@ -363,6 +376,65 @@ fn dev_watch_debounce(options: &DevOptions) -> Result<Duration> {
 fn notify(reload: Option<&ReloadServer>, event: &ReloadEvent) {
     if let Some(reload) = reload {
         reload.broadcast(event);
+    }
+}
+
+fn dev_url(host: &str, port: u16) -> String {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    match host.trim_matches(['[', ']']).parse::<IpAddr>() {
+        Ok(IpAddr::V4(address)) => {
+            let address = if address.is_unspecified() {
+                Ipv4Addr::LOCALHOST
+            } else {
+                address
+            };
+            format!("http://{address}:{port}")
+        }
+        Ok(IpAddr::V6(address)) => {
+            let address = if address.is_unspecified() {
+                Ipv6Addr::LOCALHOST
+            } else {
+                address
+            };
+            format!("http://[{address}]:{port}")
+        }
+        Err(_) => format!("http://{host}:{port}"),
+    }
+}
+
+fn announce_dev_start(open: bool, host: &str, port: u16, child: &mut Child) {
+    let url = dev_url(host, port);
+    println!("Waiting for the server to accept connections at {url}...");
+    let mut still_running = || matches!(child.try_wait(), Ok(None));
+    if reload::wait_until_serving(host, port, DEV_READY_TIMEOUT, &mut still_running) {
+        println!("Proa dev ready: {url}");
+        if open {
+            open_url(&url);
+        }
+    } else if let Ok(Some(status)) = child.try_wait() {
+        eprintln!("Proa dev server exited before accepting connections ({status}).");
+    } else {
+        eprintln!("Proa dev server did not accept a connection within {}s at {url}; the server process is still running.", DEV_READY_TIMEOUT.as_secs());
+        if open {
+            eprintln!("The browser was not opened. Open {url} once the server is ready.");
+        }
+    }
+}
+
+fn open_url(url: &str) {
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(target_os = "linux")]
+    let mut command = Command::new("xdg-open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", ""]);
+        command
+    };
+    if let Err(error) = command.arg(url).spawn() {
+        eprintln!("Could not open the browser: {error}. Open {url} manually.");
     }
 }
 
@@ -952,10 +1024,24 @@ fn print_linked_cache_reuse(action: LinkedCargoAction, output: &LinkedCargoOutpu
 }
 
 fn run_linked_dev_cycle(root: &Path, command: &[String]) -> Result<LinkedDevLaunch> {
-    let prepared = prepare_linked_cargo(root, command, LinkedCargoAction::Dev)?;
+    let _progress = DevBuildProgress::start();
     println!("running linked RSJS Cargo dev build: {}", shellish(command));
-    let output = run_linked_cargo_cached(&prepared.request, &prepared.descriptor_cache_directory)
-        .context("linked RSJS dev build failed")?;
+    println!("Preparing the Cargo project and build cache...");
+    let prepared = prepare_linked_cargo(root, command, LinkedCargoAction::Dev)?;
+    let output = run_linked_cargo_cached_with_progress(
+        &prepared.request,
+        &prepared.descriptor_cache_directory,
+        |stage| match stage {
+            LinkedCargoStage::Descriptor => {
+                println!("Building site (1/2): resolving dependencies and compiling Rust...")
+            }
+            LinkedCargoStage::Link => println!("Linking browser components..."),
+            LinkedCargoStage::Final => {
+                println!("Building site (2/2): compiling the final server...")
+            }
+        },
+    )
+    .context("linked RSJS dev build failed")?;
     let executable =
         select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Dev)?;
     let descriptor_artifacts = output.descriptor.cargo_artifacts.len();
@@ -985,6 +1071,46 @@ fn run_linked_dev_cycle(root: &Path, command: &[String]) -> Result<LinkedDevLaun
         reused_descriptor_artifacts,
         reused_final_artifacts,
     })
+}
+
+// Cargo can be quiet while downloading, linking, or validating cached build
+// artifacts. Keep the dev terminal visibly active until the entire build ends.
+struct DevBuildProgress {
+    done: std::sync::mpsc::Sender<()>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl DevBuildProgress {
+    fn start() -> Self {
+        use std::sync::mpsc::{self, RecvTimeoutError};
+
+        let (done, receiver) = mpsc::channel();
+        let thread = thread::spawn(move || {
+            let started = Instant::now();
+            while matches!(
+                receiver.recv_timeout(Duration::from_secs(10)),
+                Err(RecvTimeoutError::Timeout)
+            ) {
+                eprintln!(
+                    "Still building your site ({}s elapsed)...",
+                    started.elapsed().as_secs()
+                );
+            }
+        });
+        Self {
+            done,
+            thread: Some(thread),
+        }
+    }
+}
+
+impl Drop for DevBuildProgress {
+    fn drop(&mut self) {
+        let _ = self.done.send(());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 fn select_final_root_executable(
@@ -2597,18 +2723,16 @@ fn run_linked_dev_foreground(
     launch: &LinkedDevLaunch,
     host: &str,
     port: u16,
-    session: Option<&(u16, String)>,
+    open: bool,
 ) -> Result<()> {
-    print_linked_dev_launch(launch);
-    let status = linked_dev_command(root, launch, host, port, session)
-        .status()
-        .with_context(|| {
-            format!(
-                "run linked dev executable `{}`",
-                launch.executable.display()
-            )
-        })?;
-    exit_status_to_result(status, "linked dev server")
+    let mut child = spawn_linked_dev(root, launch, host, port, None)?;
+    set_active_child_group(&child);
+    if open {
+        announce_dev_start(true, host, port, &mut child);
+    }
+    let status = child.wait().context("wait for linked dev server");
+    clear_active_child_group();
+    exit_status_to_result(status?, "linked dev server")
 }
 
 fn spawn_linked_dev(
@@ -2646,6 +2770,7 @@ fn linked_dev_command(
     cmd.args(&launch.arguments);
     cmd.current_dir(root);
     cmd.env("HOST", host);
+    cmd.env("PROA_HOST", host);
     cmd.env("PORT", port.to_string());
     // These two are the whole contract with `proa_framework_axum::serve`, which
     // injects the live-reload client only when both are present. A stale

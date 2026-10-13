@@ -12,6 +12,10 @@ proa new site my-app --yes
 cd my-app && proa dev --open
 ```
 
+The first `proa dev` build downloads dependencies and compiles the Rust crates,
+which can take several minutes. Build stages appear in the terminal, and
+`--open` opens your browser once the server accepts connections.
+
 To study a complete production-shaped application, scaffold ORIGIN:
 
 ```bash

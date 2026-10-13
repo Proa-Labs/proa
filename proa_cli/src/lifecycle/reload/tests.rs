@@ -357,7 +357,7 @@ fn readiness_probes_every_address_the_host_could_be_listening_on() {
     );
     assert_eq!(
         probe_addresses("::", 3000),
-        [SocketAddr::from((Ipv4Addr::LOCALHOST, 3000))]
+        [SocketAddr::from((Ipv6Addr::LOCALHOST, 3000))]
     );
     assert_eq!(
         probe_addresses("127.0.0.1", 3000),
@@ -426,6 +426,13 @@ fn readiness_waits_for_a_listener_and_gives_up_on_a_dead_port() {
         port,
         Duration::from_secs(5),
         &mut || true
+    ));
+    // An unrelated listener must not make an exited server look ready.
+    assert!(!wait_until_serving(
+        "127.0.0.1",
+        port,
+        Duration::from_secs(5),
+        &mut || false
     ));
 
     drop(listener);
