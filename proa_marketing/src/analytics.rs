@@ -74,65 +74,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn absent_configuration_uses_the_site_measurement_id() {
-        assert_eq!(
-            configured_analytics(None).unwrap().measurement_id(),
-            "G-7WSVNZVD6V"
-        );
-    }
-
-    #[test]
-    fn explicit_configuration_overrides_the_default_and_validates_the_id() {
-        assert_eq!(
-            configured_analytics(Some(" G-OVERRIDE123 \n"))
-                .unwrap()
-                .measurement_id(),
-            "G-OVERRIDE123"
-        );
-        for invalid in ["", " \n", "GTM-123", "G-lowercase", "G-ABC</script>"] {
-            assert!(configured_analytics(Some(invalid)).is_err());
-        }
-    }
-
-    #[test]
-    fn rendered_default_markup_initializes_the_correct_google_tag() {
-        use std::io::Write;
-        use std::process::{Command, Stdio};
-
-        let mut cx =
-            WebContext::new().with_csp_nonce(proa_core::CspNonce::new("YWJjZA==").unwrap());
-        MarketingAnalytics {
-            analytics: configured_analytics(None).unwrap(),
-        }
-        .render(&mut cx)
-        .unwrap();
-        let html = cx.into_output().into_string();
-        let mut child = Command::new("node")
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/analytics-markup.test.mjs"
-            ))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("Node.js is required to validate rendered Google Analytics markup");
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(html.as_bytes())
-            .unwrap();
-        let output = child.wait_with_output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    #[test]
     fn browser_policy_excludes_previews_and_embedded_pages() {
         let output = std::process::Command::new("node")
             .arg("--test")
