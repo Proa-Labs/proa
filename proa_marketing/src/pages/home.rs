@@ -473,6 +473,7 @@ const SECTION_LEAD: &str = "mt-5 max-w-[60ch] text-balance text-base leading-[1.
 const SECTION_ACTIONS: &str = "mt-8 flex flex-wrap items-center justify-center gap-x-7 gap-y-4";
 const CTA_PRIMARY: &str = "inline-flex items-center justify-center gap-2 rounded-full border border-zinc-950 bg-zinc-950 px-6 py-3 text-sm font-medium text-white transition-transform duration-200 hover:-translate-y-0.5 dark:border-[#dd7627] dark:bg-[#dd7627] dark:text-black";
 const CTA_SECONDARY: &str = "inline-flex items-center gap-2 text-sm font-medium text-zinc-950 transition-colors hover:text-[#dd7627] dark:text-zinc-100 dark:hover:text-[#ffb070]";
+const CTA_VIDEO: &str = "inline-flex min-h-[46px] items-center justify-center gap-2.5 whitespace-nowrap rounded-full border border-black/10 bg-white/80 px-6 py-3 text-sm font-medium text-zinc-950 transition-colors hover:border-[#dd7627]/60 hover:bg-[#dd7627]/[0.07] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#dd7627] dark:border-white/20 dark:bg-white/[0.04] dark:text-zinc-100 dark:hover:border-[#dd7627]/60 dark:hover:bg-[#dd7627]/10";
 const BENCHMARK_CONTAINER: &str = "mx-auto w-full max-w-[1080px] px-4 sm:px-6 lg:px-8";
 const BENCHMARK_TAB: &str = "rounded-[10px] px-2 py-3 text-sm font-medium text-[#777169] transition-colors hover:text-zinc-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dd7627] data-[state=active]:bg-white data-[state=active]:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100 dark:data-[state=active]:bg-zinc-950 dark:data-[state=active]:text-zinc-50 sm:px-4";
 const BENCHMARK_PANEL: &str = "overflow-x-auto rounded-[20px] border border-black/10 bg-[#fcfcfb] p-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#dd7627] dark:border-white/10 sm:p-5";
@@ -530,6 +531,7 @@ const COMPOSABLE_CONNECTORS_HTML: &str = r##"<svg data-composable-connectors cla
 
 struct ArrowRightIcon;
 struct ArrowUpRightIcon;
+struct PlayIcon;
 struct ComposableSourceCode;
 struct ComposableMdRenderCode;
 struct ComposableWebRenderCode;
@@ -737,8 +739,27 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ArrowRightIcon {
     }
 }
 
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PlayIcon {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <svg
+                data-component="play-icon"
+                data-play-icon
+                viewBox="0 0 24 24"
+                class="size-4 shrink-0 text-[#dd7627] dark:text-[#ffb070]"
+                fill="currentColor"
+                aria-hidden="true"
+                focusable="false"
+            >
+                <path d="M8 5.5a1 1 0 0 1 1.5-.86l10 6.5a1 1 0 0 1 0 1.72l-10 6.5A1 1 0 0 1 8 18.5z" />
+            </svg>
+        }
+        .render(cx)
+    }
+}
+
 /// The opening statement of the page: one centered claim, one supporting
-/// sentence, and the two paths a first-time visitor takes from here.
+/// sentence, and the quickstart or introduction video for first-time visitors.
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
@@ -760,13 +781,24 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
                         </a>
                         " batteries included Rust web framework built for people and agents, with composable, multiformat components, lean JavaScript, and fast server rendering."
                     </p>
-                    <div class={SECTION_ACTIONS}>
+                    <div class="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
                         <a
                             href="/docs"
                             class={CTA_PRIMARY}
                         >
                             "Get started"
                             {ArrowRightIcon}
+                        </a>
+                        <a
+                            href="https://youtu.be/kGhNsD772gg?si=s-YcVTx78kJ1M8o6"
+                            data-video-cta="intro"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label="Watch intro on YouTube (opens in a new tab)"
+                            class={CTA_VIDEO}
+                        >
+                            {PlayIcon}
+                            "Watch intro"
                         </a>
                     </div>
                 </div>
@@ -2130,6 +2162,19 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomePage {
                             <p class={SECTION_LEAD}>
                                 "HTML, Markdown, or another target, from one typed component."
                             </p>
+                            <div class={SECTION_ACTIONS}>
+                                <a
+                                    href="https://youtu.be/pJx84jdBDKU?si=z3pK3vvzYmSo-Sz_"
+                                    data-video-cta="render-targets"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label="Watch multi-target rendering on YouTube (opens in a new tab)"
+                                    class={CTA_VIDEO}
+                                >
+                                    {PlayIcon}
+                                    "Watch multi-target rendering"
+                                </a>
+                            </div>
                         </div>
                         <div
                             data-composable-flow
@@ -2396,9 +2441,8 @@ mod tests {
         }
     }
 
-    /// The centered statement hero opens the page. The benchmark hero that
-    /// used to hold that slot moved below it, so the page keeps exactly one
-    /// `<h1>` and the hero's secondary link must resolve to a real section.
+    /// The centered hero opens the page, with video links scoped to the intro
+    /// and render-target sections before the performance content.
     #[test]
     fn interface_layer_hero_opens_the_page() {
         let html = crate::layout::render_page(
@@ -2434,5 +2478,37 @@ mod tests {
             hero < benchmark_hero,
             "the statement hero must render above the benchmark hero"
         );
+
+        let hero_section = &html[hero..render_targets];
+        let render_section = &html[render_targets..benchmark_hero];
+        let intro_video = "https://youtu.be/kGhNsD772gg?si=s-YcVTx78kJ1M8o6";
+        let render_video = "https://youtu.be/pJx84jdBDKU?si=z3pK3vvzYmSo-Sz_";
+        assert!(
+            hero_section.find("href=\"/docs\"").unwrap() < hero_section.find(intro_video).unwrap()
+        );
+        assert!(render_section.find("</p>").unwrap() < render_section.find(render_video).unwrap());
+        assert!(
+            render_section.find(render_video).unwrap()
+                < render_section.find("data-composable-flow").unwrap()
+        );
+        assert!(!hero_section.contains(render_video));
+        assert!(!render_section.contains(intro_video));
+
+        for (section, url) in [(hero_section, intro_video), (render_section, render_video)] {
+            assert_eq!(html.matches(url).count(), 1);
+            let link = section
+                .split_once(url)
+                .unwrap()
+                .1
+                .split_once("</a>")
+                .unwrap()
+                .0;
+            assert!(link.contains(r#"target="_blank""#));
+            assert!(link.contains(r#"rel="noopener noreferrer""#));
+            assert!(link.contains("opens in a new tab"));
+            assert!(link.contains(r#"aria-hidden="true""#));
+            assert!(link.contains(r#"focusable="false""#));
+            assert!(link.contains("data-play-icon"));
+        }
     }
 }
