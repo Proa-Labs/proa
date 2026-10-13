@@ -116,16 +116,18 @@ RSJS client-helper edges used by browser hydration.
 
 ### Google Analytics
 
-Set `GOOGLE_ANALYTICS_MEASUREMENT_ID` to the GA4 web stream's public `G-...`
-measurement ID in the production service's runtime variables. Restart or
-redeploy after changing it. No Google OAuth token, service-account key, or
-Analytics API secret belongs in the site configuration.
+The site defaults to the GA4 web stream `G-7WSVNZVD6V`. Set
+`GOOGLE_ANALYTICS_MEASUREMENT_ID` in the production service's runtime variables
+to override that public measurement ID; an explicitly empty or malformed value
+disables analytics. Restart or redeploy after changing it. No Google OAuth
+token, service-account key, or Analytics API secret belongs in the site
+configuration.
 
 The shared document head uses `proa_third_party::google::GoogleAnalytics` on
 marketing, docs, and ecosystem pages. The Google SDK waits until `window.load`
 so it does not compete with the page's initial resources. The application
 explicitly enables collection with `AnalyticsConsent::Granted`; the shared
-crate otherwise requires a consent decision from its caller. An unset or malformed ID disables it. The browser bootstrap
+crate otherwise requires a consent decision from its caller. The browser bootstrap
 only loads Google's script on `proa.so` and `www.proa.so`, outside iframes, so
 localhost, Railway previews, and embedded demos do not add production page
 views. Google Signals and advertising personalization signals are disabled.

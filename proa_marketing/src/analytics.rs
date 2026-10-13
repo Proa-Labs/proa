@@ -7,7 +7,9 @@ use proa_core::{
     csp_nonce_attr, DataLoader, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
 use proa_macros::html_sync;
-use proa_third_party::google::{AnalyticsConsent, GoogleAnalytics};
+use proa_third_party::google::{AnalyticsConsent, GoogleAnalytics, InvalidMeasurementId};
+
+const DEFAULT_MEASUREMENT_ID: &str = "G-7WSVNZVD6V";
 
 static MEASUREMENT_ID: OnceLock<Option<String>> = OnceLock::new();
 
@@ -15,8 +17,17 @@ static MEASUREMENT_ID: OnceLock<Option<String>> = OnceLock::new();
 pub(crate) fn google_analytics() -> Option<MarketingAnalytics> {
     let measurement_id = MEASUREMENT_ID
         .get_or_init(|| {
-            let value = env::var("GOOGLE_ANALYTICS_MEASUREMENT_ID").ok()?;
-            let Ok(analytics) = GoogleAnalytics::new(&value) else {
+            let value = match env::var("GOOGLE_ANALYTICS_MEASUREMENT_ID") {
+                Ok(value) => Some(value),
+                Err(env::VarError::NotPresent) => None,
+                Err(env::VarError::NotUnicode(_)) => {
+                    tracing::warn!(
+                        "Google Analytics disabled: invalid GOOGLE_ANALYTICS_MEASUREMENT_ID"
+                    );
+                    return None;
+                }
+            };
+            let Ok(analytics) = configured_analytics(value.as_deref()) else {
                 tracing::warn!(
                     "Google Analytics disabled: invalid GOOGLE_ANALYTICS_MEASUREMENT_ID"
                 );
@@ -26,10 +37,15 @@ pub(crate) fn google_analytics() -> Option<MarketingAnalytics> {
         })
         .as_deref()?;
     Some(MarketingAnalytics {
-        analytics: GoogleAnalytics::new(measurement_id)
-            .ok()?
-            .consent(AnalyticsConsent::Granted),
+        analytics: configured_analytics(Some(measurement_id)).ok()?,
     })
+}
+
+fn configured_analytics(
+    measurement_id: Option<&str>,
+) -> Result<GoogleAnalytics<'_>, InvalidMeasurementId> {
+    GoogleAnalytics::new(measurement_id.unwrap_or(DEFAULT_MEASUREMENT_ID))
+        .map(|analytics| analytics.consent(AnalyticsConsent::Granted))
 }
 
 pub(crate) struct MarketingAnalytics {
