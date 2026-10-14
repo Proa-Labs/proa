@@ -383,7 +383,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                             {ProaBrand}
                         </a>
                         <p class="mt-4 text-sm leading-7 text-zinc-600 dark:text-zinc-300">
-                            "The Rust web framework for people and agents. Build fast interfaces, from the server to the browser."
+                            "The next era of web interfaces. Built in Rust."
                         </p>
                         <nav
                             data-footer-socials
