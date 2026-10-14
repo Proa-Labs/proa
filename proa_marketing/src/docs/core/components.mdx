@@ -170,9 +170,11 @@ Two conventions show up in that output and both are deliberate:
 - **`data-button`** marks the component root. Every component renders a bare `data-<name>` attribute so tests and browser automation can select it without depending on class strings.
 - **`data-variant` / `data-size`** publish the resolved variant. Styling reads from `class`, but assertions, visual regression tooling, and CSS overrides read the semantic value.
 
-## One component, two output targets
+## One component, multiple render targets
 
-Rendering is a trait implemented by a component's Rust type. Implement `WebRenderSync` and `MdRenderSync` on the same struct to expose HTML and Markdown representations, sharing data and typed children while each implementation defines its output. A route can then serve either representation to browsers, command-line clients, retrieval pipelines, or agents.
+Rendering is a trait implemented by a component's Rust type. Components share data and typed children across HTML, Markdown, and other render targets, while each implementation defines its output. HTML uses `WebRenderSync` and Markdown uses `MdRenderSync`; other targets can define their own rendering traits. A target can produce a document format or use a different rendering backend.
+
+The following example gives a button a Markdown implementation alongside its HTML implementation.
 
 Most interactive chrome has no Markdown equivalent, so the Markdown impl usually renders the meaning rather than the widget. A button is its label:
 
@@ -194,7 +196,7 @@ impl<L: DataLoader, C: MdRenderSync<L>> MdRenderSync<L> for Button<C> {
 
 A component that emits block-level Markdown (a heading, a table, a list) has the opposite obligation: call `cx.md_block_boundary()` before its first block byte and after its last, because it cannot know what its previous sibling wrote. `md_block_boundary` is a no-op in inline context, so the same impl stays correct in both.
 
-> **Good to know**: The two impls are independent. A component can implement `WebRenderSync` only, both, or add `WebRender` when it needs to `.await`. See [HTML rendering](/docs/core/html-rendering) for the sync and async split, and [Markdown rendering](/docs/core/markdown) for the Markdown macros.
+> **Good to know**: Target implementations are independent. A component can support one target or several. For HTML, use `WebRenderSync` by default and `WebRender` when rendering needs to `.await`; Markdown has the same split with `MdRenderSync` and `MdRender`. See [HTML rendering](/docs/core/html-rendering) and [Markdown rendering](/docs/core/markdown) for those built-in traits and macros.
 
 ## Crossing the sync and async boundary
 

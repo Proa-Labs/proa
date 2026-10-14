@@ -2159,7 +2159,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomePage {
                         <div class={SECTION_HEADER}>
                             <h2 class={SECTION_TITLE}>"One object. Every render target."</h2>
                             <p class={SECTION_LEAD}>
-                                "HTML, Markdown, or another target, from one typed component."
+                                "HTML, Markdown, and other render targets, from one typed component."
                             </p>
                             <div class={SECTION_ACTIONS}>
                                 <a

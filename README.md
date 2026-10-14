@@ -36,13 +36,16 @@ representation of the same underlying content and capabilities. Building
 those representations independently creates more work to keep them coherent.
 
 Proa's component model puts data and typed composition at the center.
-A component can implement HTML and Markdown rendering on the same Rust type,
-sharing fields and children while defining how each target presents them.
+A component can render across HTML, Markdown, and other render targets from
+the same Rust type, sharing fields and children while defining how each target
+presents them.
 Agents consuming Markdown are one use case; documentation, feeds, and
 command-line clients can use that representation too.
 
-This repository provides the compiled renderer, HTML and Markdown render
-traits, browser interactivity, streaming, data loading, and framework tooling.
+This repository provides the compiled renderer, built-in render traits for
+HTML and Markdown, browser interactivity, streaming, data loading, and framework
+tooling. Other render targets can define their own rendering implementations,
+whether for a format such as JSON or for a native rendering backend.
 The larger ambition is interface infrastructure that lets an application
 support new ways of being accessed through a shared programming model.
 

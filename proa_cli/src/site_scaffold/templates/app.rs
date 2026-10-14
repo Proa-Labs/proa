@@ -321,9 +321,9 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
         };
         let card = if has_ui {
             if has_database {
-                r#"{proa_core::to_async(Card { eyebrow: "REPRESENTATIONS", title: "HTML + Markdown", body: "One typed page serves browsers and agents without duplicating route policy.", class: None })}"#
+                r#"{proa_core::to_async(Card { eyebrow: "REPRESENTATIONS", title: "Multi-target rendering", body: "Share component data and typed children across HTML, Markdown, and other render targets.", class: None })}"#
             } else {
-                r#"{Card { eyebrow: "REPRESENTATIONS", title: "HTML + Markdown", body: "One typed page serves browsers and agents without duplicating route policy.", class: None }}"#
+                r#"{Card { eyebrow: "REPRESENTATIONS", title: "Multi-target rendering", body: "Share component data and typed children across HTML, Markdown, and other render targets.", class: None }}"#
             }
         } else {
             r#"<article class="metric-card"><h2>"HTML from Rust"</h2></article>"#
@@ -357,7 +357,7 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
                     __DB_CARD__
                     __CARD__
                 </section>
-                <footer class="receipt"><span>"2 component requests → 1 origin query"</span><span>"HTML + semantic Markdown"</span><strong>"Rendered by Proa"</strong></footer>
+                <footer class="receipt"><span>"2 component requests → 1 origin query"</span><span>"Composable, multi-target rendering"</span><strong>"Rendered by Proa"</strong></footer>
             </main>
         }
         .render(cx)"#
@@ -501,7 +501,7 @@ fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool, copy: &str)
             children.push_str("{DatabaseBadge}\n\n{DatabaseCard}\n\n");
         }
         if has_ui {
-            children.push_str(&lift(r#"Card { eyebrow: "REPRESENTATIONS", title: "HTML + Markdown", body: "One typed page serves browsers and agents without duplicating route policy.", class: None }"#));
+            children.push_str(&lift(r#"Card { eyebrow: "REPRESENTATIONS", title: "Multi-target rendering", body: "Share component data and typed children across HTML, Markdown, and other render targets.", class: None }"#));
         }
     }
     let implementation = if has_database {

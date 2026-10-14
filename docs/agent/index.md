@@ -15,7 +15,7 @@ per task rather than skimming the whole thing.
 |---|---|
 | Add a local render component | [`components.md`](components.md) |
 | Add an RSJS-analyzed/composable component (with or without browser origins) | [`rsjs-islands.md`](rsjs-islands.md) |
-| Keep intended content across HTML and Markdown | [`content-coverage.md`](content-coverage.md) |
+| Check HTML → Markdown content coverage | [`content-coverage.md`](content-coverage.md) |
 | Pick `WebRenderSync` vs `WebRender` | [`api-reference/render-traits.md`](api-reference/render-traits.md) |
 | Understand the `Send` / local-future streaming policy | [`../../proa_framework/proa_framework_core/README.md#send-policy-and-runtime-portability`](../../proa_framework/proa_framework_core/README.md#send-policy-and-runtime-portability) |
 | Pick `md_sync!` vs `md!` | [`api-reference/render-traits.md#markdown-has-the-same-split`](api-reference/render-traits.md#markdown-has-the-same-split) |
@@ -30,7 +30,12 @@ The `proa_ui` component library is a downstream integration. Changes to that
 library, its catalog, or its recipes belong in the component library's owning
 repository and should follow that repository's agent instructions.
 
-## Core mental model in three sentences
+## Core mental model
+
+Components share data and typed children across HTML, Markdown, and other
+render targets. Each target defines its own rendering implementation; a target
+can be a document format or a different rendering backend. The built-in traits
+and macros described below cover HTML and Markdown.
 
 Proa compiles HTML and Markdown templates into byte sequences at compile time,
 so SSR is allocation-free on the hot path. Custom HTML components normally

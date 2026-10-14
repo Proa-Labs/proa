@@ -22,7 +22,7 @@ The alternative is a parallel surface: a site, an API, an `llms.txt`, a scraping
 
 Multiple representations of one resource is the design the web already has. `rel="alternate"` is [RFC 8288](https://www.rfc-editor.org/rfc/rfc8288) web linking, and content negotiation is as old as HTTP. The agent needs no prior knowledge of your conventions beyond the standard.
 
-Proa's programming model supports this directly: a component is a typed Rust value with rendering implementations for different targets. Its [`MdRenderSync`](/docs/core/markdown) implementation defines a Markdown representation using the same data and typed children as its HTML implementation.
+Proa's programming model supports rendering across HTML, Markdown, and other render targets: a component is a typed Rust value with an implementation for each target. In this HTTP example, [`MdRenderSync`](/docs/core/markdown) defines a Markdown representation using the same data and typed children as the HTML implementation.
 
 ## What Proa emits today
 
