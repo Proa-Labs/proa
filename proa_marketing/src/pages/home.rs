@@ -13,7 +13,7 @@ pub async fn handler() -> Html<String> {
     render_page(
         PageMeta {
             title: "Proa — The next era of web interfaces. Built in Rust.",
-            description: "A batteries-included Rust web framework with multiformat components, lean JavaScript, and fast server rendering.",
+            description: "A batteries-included Rust web framework built around a new programming model for composable, multi-target rendering.",
             path: "/",
         },
         HomePage,
@@ -770,15 +770,16 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
                 <div class="mx-auto flex max-w-[1000px] flex-col items-center text-center">
                     <h1 class={HERO_TITLE}>"The next era of web interfaces. Built in Rust."</h1>
                     <p class={HERO_LEAD}>
-                        "A batteries-included Rust web framework with typed, composable components for HTML, Markdown, and other render targets, browser interactivity authored in Rust, and "
+                        "An "
                         <a
                             href={BENCHMARKS_URL}
                             rel="noreferrer noopener"
                             target="_blank"
                             class={LEAD_LINK}
                         >
-                            "extremely fast server rendering."
+                            "extremely performant"
                         </a>
+                        ", batteries-included Rust web framework built around a new programming model for composable, multi-target rendering."
                     </p>
                     <div class="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
                         <a

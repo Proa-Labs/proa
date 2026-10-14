@@ -6,8 +6,10 @@
 
 **The next era of web interfaces. Built in Rust.**
 
-Proa is a batteries-included Rust web framework built around composable,
-multi-target rendering. Typed components share data and children across HTML,
+An extremely performant, batteries-included Rust web framework built around a
+new programming model for composable, multi-target rendering.
+
+Typed components share data and children across HTML,
 Markdown, and other render targets, with each implementation defining its
 output. Compiled templates, streaming SSR, data loading, and browser
 interactivity authored in Rust bring that model into complete applications.
