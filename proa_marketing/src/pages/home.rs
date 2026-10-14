@@ -12,8 +12,8 @@ use crate::layout::{render_page, PageMeta};
 pub async fn handler() -> Html<String> {
     render_page(
         PageMeta {
-            title: "Proa — The web framework for people and agents",
-            description: "The web framework for people and agents. Build with Rust, composable components, and fast server rendering.",
+            title: "Proa — The next era of web interfaces. Built in Rust.",
+            description: "A batteries-included Rust web framework built around a new programming model for composable, multi-target rendering.",
             path: "/",
         },
         HomePage,
@@ -768,7 +768,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
                 class="bg-[oklch(1_0_0)] px-4 pb-16 pt-20 dark:bg-transparent sm:px-6 sm:pb-24 sm:pt-28 lg:px-8"
             >
                 <div class="mx-auto flex max-w-[1000px] flex-col items-center text-center">
-                    <h1 class={HERO_TITLE}>"The web framework for people and agents."</h1>
+                    <h1 class={HERO_TITLE}>"The next era of web interfaces. Built in Rust."</h1>
                     <p class={HERO_LEAD}>
                         "An "
                         <a
@@ -777,9 +777,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
                             target="_blank"
                             class={LEAD_LINK}
                         >
-                            "extremely performant,"
+                            "extremely performant"
                         </a>
-                        " batteries included Rust web framework built for people and agents, with composable, multiformat components, lean JavaScript, and fast server rendering."
+                        ", batteries-included Rust web framework built around a new programming model for composable, multi-target rendering."
                     </p>
                     <div class="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
                         <a
@@ -2160,7 +2160,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomePage {
                         <div class={SECTION_HEADER}>
                             <h2 class={SECTION_TITLE}>"One object. Every render target."</h2>
                             <p class={SECTION_LEAD}>
-                                "HTML, Markdown, or another target, from one typed component."
+                                "HTML, Markdown, and other render targets, from one typed component."
                             </p>
                             <div class={SECTION_ACTIONS}>
                                 <a

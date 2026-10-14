@@ -1,9 +1,9 @@
 ---
 title: Content negotiation
-description: Serve one resource as HTML for humans and Markdown for agents.
+description: Serve HTML and Markdown representations of one resource through HTTP content negotiation.
 ---
 
-One URL, one resource, more than one representation. A browser asks for `text/html` and gets a page; an agent asks for `text/markdown` and gets the same content without the layout, scripts, and styling it would only have to strip.
+One URL, one resource, more than one representation. A browser asks for `text/html` and gets a page. A command-line client, retrieval pipeline, or agent can ask for `text/markdown` and get the content as a document.
 
 This is ordinary HTTP. The resource advertises what else it can be, and the client picks.
 
@@ -22,7 +22,7 @@ The alternative is a parallel surface: a site, an API, an `llms.txt`, a scraping
 
 Multiple representations of one resource is the design the web already has. `rel="alternate"` is [RFC 8288](https://www.rfc-editor.org/rfc/rfc8288) web linking, and content negotiation is as old as HTTP. The agent needs no prior knowledge of your conventions beyond the standard.
 
-Proa is unusually well placed for this, because a component is a typed Rust value rather than a DOM description. The Markdown representation is not a conversion of the HTML, it is the same component rendered through [`MdRenderSync`](/docs/core/markdown).
+Proa's programming model supports rendering across HTML, Markdown, and other render targets: a component is a typed Rust value with an implementation for each target. In this HTTP example, [`MdRenderSync`](/docs/core/markdown) defines a Markdown representation using the same data and typed children as the HTML implementation.
 
 ## What Proa emits today
 

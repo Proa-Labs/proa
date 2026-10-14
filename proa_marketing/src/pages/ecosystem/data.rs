@@ -240,7 +240,7 @@ const ECOSYSTEM_TOOLS: &[EcosystemTool<'static>] = &[
         name: "proa_core",
         version: "v0.3.0",
         version_tone: ToolVersionTone::Default,
-        description: "Typed HTML and Markdown rendering with composable components, template macros, escaping, and class lists.",
+        description: "Composable, typed components across HTML, Markdown, and other render targets, with template macros, escaping, and class lists.",
         kind: "crate",
         detail: "SSR runtime primitives",
         cta_label: "Docs",

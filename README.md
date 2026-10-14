@@ -4,6 +4,8 @@
 
 # Proa
 
+**The next era of web interfaces. Built in Rust.**
+
 Proa is building the next generation of interface infrastructure for the web.
 It enables you to create extremely fast, scalable applications and services in
 Rust by bringing compiled components, streaming, data
@@ -25,20 +27,16 @@ loading, and fine-grained interactive islands into one framework.
 
 ---
 
-## Next-generation interface infrastructure
-
-The web's interface layer was designed around a person opening one page at a
-time in a browser. The next web must also serve crawlers and software agents
-that read and act across hundreds of interfaces in parallel, at massive scale.
+## A programming model for multiple interfaces
 
 Proa's larger vision is one typed, compiled interface layer that produces the
 right representation for whoever asks: complete HTML for people, targeted
 behavior for browsers, and dense machine-readable output for agents.
 
-This repository is the foundation of that vision: a high-performance server
-renderer, a typed component model, fine-grained browser interactivity,
-streaming, data loading, and the framework machinery needed to run them in
-production.
+This repository provides the compiled renderer, built-in render traits for
+HTML and Markdown, browser interactivity, streaming, data loading, and framework
+tooling. Other render targets can define their own rendering implementations,
+whether for a format such as JSON or for a native rendering backend.
 
 ## Start in five minutes
 
@@ -124,8 +122,8 @@ current limitations.
 
 ## Markdown interfaces with MdRender
 
-A component can render Markdown for agents as well as HTML for people. Give
-the `Greeting` component above a Markdown implementation:
+A component can expose both an HTML page and a Markdown document from the
+same data. Give the `Greeting` component above a Markdown implementation:
 
 ```rust
 use proa_core::{DataLoader, WebContext, MdRenderSync};

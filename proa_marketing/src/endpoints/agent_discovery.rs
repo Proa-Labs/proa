@@ -15,7 +15,7 @@ const SITE_METADATA: &str = r#"{
   "status": "experimental",
   "site": {
     "name": "Proa",
-    "description": "A Rust framework for server-rendered, agent-readable web applications.",
+    "description": "An extremely performant, batteries-included Rust web framework built around a new programming model for composable, multi-target rendering.",
     "homepage": "/"
   },
   "interfaces": [

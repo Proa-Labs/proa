@@ -1,6 +1,6 @@
 # Incident Desk
 
-Incident Desk is a production-shaped Proa example that serves the same authorized incident data to people and agents. The browser gets server-rendered HTML. MCP clients get a concise Markdown brief or a typed JSON projection. Report sections, SQLx policy, the request-scoped loader, and the resolve command are shared.
+Incident Desk is a production-shaped Proa example that exposes the same authorized incident data through browser and MCP interfaces. The browser gets server-rendered HTML. MCP clients get a concise Markdown brief or a typed JSON projection. Report sections, SQLx policy, the request-scoped loader, and the resolve command are shared.
 
 The app is fictional and Sentry-inspired. It is not affiliated with Sentry and contains no copied product UI or customer data.
 
