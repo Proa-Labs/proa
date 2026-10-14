@@ -29,11 +29,6 @@ loading, and fine-grained interactive islands into one framework.
 
 ## A programming model for multiple interfaces
 
-An application can appear as a web page, a document inside a conversation, or
-a tool accessed through another application. Each interface needs a useful
-representation of the same underlying content and capabilities. Building
-those representations independently creates more work to keep them coherent.
-
 Proa's larger vision is one typed, compiled interface layer that produces the
 right representation for whoever asks: complete HTML for people, targeted
 behavior for browsers, and dense machine-readable output for agents.
