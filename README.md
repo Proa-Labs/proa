@@ -6,13 +6,10 @@
 
 **The next era of web interfaces. Built in Rust.**
 
-An extremely performant, batteries-included Rust web framework built around a
-new programming model for composable, multi-target rendering.
-
-Typed components share data and children across HTML,
-Markdown, and other render targets, with each implementation defining its
-output. Compiled templates, streaming SSR, data loading, and browser
-interactivity authored in Rust bring that model into complete applications.
+Proa is building the next generation of interface infrastructure for the web.
+It enables you to create extremely fast, scalable applications and services in
+Rust by bringing compiled components, streaming, data
+loading, and fine-grained interactive islands into one framework.
 
 [![Axum adapter](https://img.shields.io/badge/proa__framework__axum-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_framework/proa_framework_axum/README.md)
 [![Core](https://img.shields.io/badge/proa__core-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_core)
