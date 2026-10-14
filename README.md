@@ -33,13 +33,6 @@ Proa's larger vision is one typed, compiled interface layer that produces the
 right representation for whoever asks: complete HTML for people, targeted
 behavior for browsers, and dense machine-readable output for agents.
 
-Proa's component model puts data and typed composition at the center.
-A component can render across HTML, Markdown, and other render targets from
-the same Rust type, sharing fields and children while defining how each target
-presents them.
-Agents consuming Markdown are one use case; documentation, feeds, and
-command-line clients can use that representation too.
-
 This repository provides the compiled renderer, built-in render traits for
 HTML and Markdown, browser interactivity, streaming, data loading, and framework
 tooling. Other render targets can define their own rendering implementations,
