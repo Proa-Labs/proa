@@ -1,15 +1,13 @@
 ---
 title: Markdown rendering
-description: Compose Markdown from typed components, as a first-class interface for humans and agents.
+description: Render composable Rust components to Markdown alongside HTML from shared data and typed children.
 ---
 
-For an agent, context is the scarce resource, and most of a web page is scaffolding. A real HTML document averages [over 80K tokens, of which more than 90% are CSS, JavaScript, comments, and other tokens carrying no content](https://arxiv.org/abs/2411.02959). Converting that page to Markdown drops about 90% of its tokens, roughly 10× fewer. Generating the Markdown from structured content instead of scraping it back out of the DOM does better still: Sanity measured one lesson page at 392 KB of HTML, about 100K tokens, against 13 KB of Markdown, [about 3,300](https://www.sanity.io/blog/how-to-serve-content-to-agents-a-field-guide).
+Markdown is an interface for documentation, feeds, command-line clients, and content inside conversations. These consumers need a useful representation of the same application data a browser displays.
 
-That ratio decides how much of your site an agent holds before it has to compact, and every compaction is an extra model call that drops detail it will not get back.
+Proa makes rendering a trait rather than a fixed output format. A Rust component can implement `WebRenderSync` for HTML and `MdRenderSync` for Markdown, sharing fields and typed children while defining its output for each target. Use `WebRender` and `MdRender` when a rendering implementation needs to await work.
 
-Proa's goal is to bring the latency of the web as close to zero as possible, for everyone. An agent that spawns a browser to read a page, or compacts because the page was mostly markup, is paying latency you can delete.
-
-Markdown interfaces have been an afterthought until now: scraped, converted from HTML, or hand-maintained beside the real templates. Proa makes rendering a trait rather than a fixed output format, so one component implements `WebRender` for HTML and `MdRender` for Markdown. One typed tree, two outputs, neither derived from the other.
+For an agent consuming content, direct Markdown rendering also avoids extracting text from browser markup. The Markdown implementation chooses which content and structure to include, using the same component data as the HTML implementation.
 
 ```rust filename="src/components/product_summary.rs"
 use proa_core::{DataLoader, MdRenderSync, WebContext, WriteError};
@@ -325,4 +323,4 @@ Use it for `text/markdown` responses where a generated document should stream to
 - [Sink](/docs/core/sink)
   - Render streamed output into recycled pages instead of fresh allocations.
 - [Content negotiation](/docs/framework/content-negotiation)
-  - Serve one resource as HTML for humans and Markdown for agents.
+  - Serve HTML and Markdown representations of one resource through HTTP content negotiation.

@@ -2,9 +2,11 @@
 
 ## Welcome
 
-Welcome to Proa — a place to build fast web applications in Rust.
+Welcome to Proa.
 
-Proa brings compiled components, streaming SSR, data loading, and fine-grained interactive islands into one framework. Whether you are trying your first component or shipping an application, you are welcome here.
+**The next era of web interfaces. Built in Rust.**
+
+Proa brings composable, multi-target rendering, compiled templates, streaming SSR, data loading, and browser interactivity authored in Rust into one framework. Components share data and typed children across HTML and Markdown, while each rendering implementation defines its output. Whether you are trying your first component or shipping an application, you are welcome here.
 
 - Get started: https://proa.so/docs
 - Source and contributions: https://github.com/Proa-Labs/proa

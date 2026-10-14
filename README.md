@@ -4,10 +4,13 @@
 
 # Proa
 
-Proa is building the next generation of interface infrastructure for the web.
-It enables you to create extremely fast, scalable applications and services in
-Rust by bringing compiled components, streaming, data
-loading, and fine-grained interactive islands into one framework.
+**The next era of web interfaces. Built in Rust.**
+
+Proa is a batteries-included Rust web framework built around composable,
+multi-target rendering. Typed components share data and children across HTML,
+Markdown, and other render targets, with each implementation defining its
+output. Compiled templates, streaming SSR, data loading, and browser
+interactivity authored in Rust bring that model into complete applications.
 
 [![Axum adapter](https://img.shields.io/badge/proa__framework__axum-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_framework/proa_framework_axum/README.md)
 [![Core](https://img.shields.io/badge/proa__core-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_core)
@@ -25,20 +28,23 @@ loading, and fine-grained interactive islands into one framework.
 
 ---
 
-## Next-generation interface infrastructure
+## A programming model for multiple interfaces
 
-The web's interface layer was designed around a person opening one page at a
-time in a browser. The next web must also serve crawlers and software agents
-that read and act across hundreds of interfaces in parallel, at massive scale.
+An application can appear as a web page, a document inside a conversation, or
+a tool accessed through another application. Each interface needs a useful
+representation of the same underlying content and capabilities. Building
+those representations independently creates more work to keep them coherent.
 
-Proa's larger vision is one typed, compiled interface layer that produces the
-right representation for whoever asks: complete HTML for people, targeted
-behavior for browsers, and dense machine-readable output for agents.
+Proa's component model puts data and typed composition at the center.
+A component can implement HTML and Markdown rendering on the same Rust type,
+sharing fields and children while defining how each target presents them.
+Agents consuming Markdown are one use case; documentation, feeds, and
+command-line clients can use that representation too.
 
-This repository is the foundation of that vision: a high-performance server
-renderer, a typed component model, fine-grained browser interactivity,
-streaming, data loading, and the framework machinery needed to run them in
-production.
+This repository provides the compiled renderer, HTML and Markdown render
+traits, browser interactivity, streaming, data loading, and framework tooling.
+The larger ambition is interface infrastructure that lets an application
+support new ways of being accessed through a shared programming model.
 
 ## Start in five minutes
 
@@ -124,8 +130,8 @@ current limitations.
 
 ## Markdown interfaces with MdRender
 
-A component can render Markdown for agents as well as HTML for people. Give
-the `Greeting` component above a Markdown implementation:
+A component can expose both an HTML page and a Markdown document from the
+same data. Give the `Greeting` component above a Markdown implementation:
 
 ```rust
 use proa_core::{DataLoader, WebContext, MdRenderSync};

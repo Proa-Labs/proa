@@ -77,8 +77,9 @@ This scaffolds ORIGIN, a live routing atlas that exercises the whole
 framework: a custom RIPEstat `DataLoader` with request-scoped deduplication
 and a TTL cache, streamed Suspense sections, proa-ui components that each
 carry a Markdown representation (the same page serves `/site/<host>.md` for
-agents), rsjs islands for the interactive surfaces, Tailwind styling with a
-themed token set, self-hosted fonts, and a golden test that pins the
+command-line clients, retrieval pipelines, and agents), rsjs islands for the
+interactive surfaces, Tailwind styling with a themed token set, self-hosted
+fonts, and a golden test that pins the
 server-rendered document byte for byte. The generated `README.md` doubles as
 an editing guide.
 
@@ -172,7 +173,7 @@ This page renders from a compiled template macro.
 
 Keep the other Markdown content and child expressions. Proa's content-coverage
 lint compares rendered content across the two implementations; changing both
-keeps browsers and agents informed of the same page edit.
+keeps the HTML and Markdown representations consistent with the same page edit.
 
 Refresh the browser and open [/index.md](http://localhost:3000/index.md) to see
 both representations. Edit `styles/starter.css` to change the starter's design;

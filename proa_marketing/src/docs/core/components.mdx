@@ -172,7 +172,7 @@ Two conventions show up in that output and both are deliberate:
 
 ## One component, two output targets
 
-A component is not tied to HTML. Implement `MdRenderSync` on the same struct and it renders into a Markdown response as well, which is how a route serves HTML to browsers and Markdown to agents from a single component tree.
+Rendering is a trait implemented by a component's Rust type. Implement `WebRenderSync` and `MdRenderSync` on the same struct to expose HTML and Markdown representations, sharing data and typed children while each implementation defines its output. A route can then serve either representation to browsers, command-line clients, retrieval pipelines, or agents.
 
 Most interactive chrome has no Markdown equivalent, so the Markdown impl usually renders the meaning rather than the widget. A button is its label:
 

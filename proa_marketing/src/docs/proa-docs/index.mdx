@@ -23,7 +23,7 @@ The practical consequences:
 - **Syntax highlighting costs nothing at runtime.** Syntect runs in your build; tokens carry semantic `hl-*` classes your stylesheet colours.
 - **Math is MathML.** Where most sites ship KaTeX and a font, Proa compiles TeX during the build and ships markup the browser already renders.
 - **Tabs, accordions, and the code explorer need no JavaScript.** They lower to CSS-only patterns.
-- **Every page has a Markdown representation** alongside its HTML, which is what makes the site legible to agents without a second pipeline.
+- **Every page has HTML and Markdown representations** generated from the same source, so browsers, command-line clients, retrieval pipelines, and agents can access the content without a second authoring pipeline.
 
 ## Two crates, two jobs
 
@@ -44,7 +44,7 @@ You can also ignore the default theme entirely and write your own against the [s
 | Runtime cost | None — static HTML | React hydration | React hydration | None |
 | Components | 13, build-time | Large, React | MDX | Limited |
 | Theming | 15 CSS properties | CSS variables + presets | Themes | Handlebars |
-| Agent output | Per-page Markdown | `llms.txt`, per-page `.md` | — | — |
+| Markdown access | Per-page Markdown | `llms.txt`, per-page `.md` | — | — |
 
 **Choose Fumadocs or Nextra** if your site is already React and you want the largest component library and ecosystem.
 
