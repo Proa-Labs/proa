@@ -790,7 +790,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
                             {ArrowRightIcon}
                         </a>
                         <a
-                            href="https://youtu.be/kGhNsD772gg?si=s-YcVTx78kJ1M8o6"
+                            href="https://youtu.be/-CfCyvIKYyo?si=l1-0A5BsuLU2Bc9T"
                             data-video-cta="intro"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -2481,7 +2481,7 @@ mod tests {
 
         let hero_section = &html[hero..render_targets];
         let render_section = &html[render_targets..benchmark_hero];
-        let intro_video = "https://youtu.be/kGhNsD772gg?si=s-YcVTx78kJ1M8o6";
+        let intro_video = "https://youtu.be/-CfCyvIKYyo?si=l1-0A5BsuLU2Bc9T";
         let render_video = "https://youtu.be/pJx84jdBDKU?si=z3pK3vvzYmSo-Sz_";
         assert!(
             hero_section.find("href=\"/docs\"").unwrap() < hero_section.find(intro_video).unwrap()
