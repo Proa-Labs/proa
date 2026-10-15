@@ -5,6 +5,7 @@ mod app;
 pub(crate) mod origin;
 mod ui;
 
+use base16ct::HexDisplay;
 use std::collections::BTreeMap;
 
 use anyhow::Result;
@@ -179,7 +180,10 @@ fn add_component<const N: usize>(
 }
 
 fn sha256(source: &str) -> String {
-    format!("sha256:{:x}", Sha256::digest(source.as_bytes()))
+    format!(
+        "sha256:{:x}",
+        HexDisplay(&Sha256::digest(source.as_bytes()))
+    )
 }
 
 fn rust_string_literal(value: &str) -> String {

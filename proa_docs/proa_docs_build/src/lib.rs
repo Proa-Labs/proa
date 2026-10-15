@@ -9,6 +9,7 @@ mod compiler;
 mod components;
 mod config;
 mod frontmatter;
+mod highlight_cache;
 mod link_validation;
 mod markdown;
 mod mdx;

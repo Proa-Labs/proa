@@ -1,6 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use base16ct::HexDisplay;
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -768,7 +769,7 @@ fn validate_component_hashes(root: &Path, report: &mut SiteCheckReport) -> Resul
             let path = root.join(relative);
             let actual = fs::read(&path)
                 .ok()
-                .map(|bytes| format!("sha256:{:x}", Sha256::digest(bytes)));
+                .map(|bytes| format!("sha256:{:x}", HexDisplay(&Sha256::digest(bytes))));
             if actual.as_deref() != expected.as_str() {
                 report.errors.push(format!(
                     "component {component} has local drift in {relative}"

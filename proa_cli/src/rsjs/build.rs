@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2_accelerated::{Digest, Sha256};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use rsjs_ir::abi::{CargoUnitId, InvocationId, PlanId, SemanticHash};

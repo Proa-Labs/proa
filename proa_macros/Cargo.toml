@@ -24,7 +24,6 @@ no-perf-hints = ["proa_dsl/no-perf-hints"]
 
 [dependencies]
 heapless = { workspace = true }
-proa_core = { workspace = true }
 proa_dsl = { workspace = true }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 quote = { workspace = true }

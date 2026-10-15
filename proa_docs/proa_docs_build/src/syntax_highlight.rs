@@ -198,6 +198,7 @@ impl SemanticHighlighter {
 
 static HIGHLIGHTER: OnceLock<SemanticHighlighter> = OnceLock::new();
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct HighlightedLine {
     pub(crate) html: String,
     pub(crate) ending: String,

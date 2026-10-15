@@ -1,60 +1,89 @@
 # Measuring compile times
 
-Use Cargo timings to distinguish dependency compilation, crate compilation,
-and linking before changing crate boundaries:
+Use `proa build` to measure the complete linked application pipeline. Use
+`cargo check` to isolate compiler and type-checking costs. Record the revision,
+toolchain, profile, enabled features, and machine when comparing results.
 
-```bash
+## Repeated edit probes
+
+Run the benchmark driver from the repository root in a dedicated worktree:
+
+```sh
+cargo build --locked -p proa-cli --bins
+python3 scripts/benchmark_compile_times.py --label check --repetitions 5
+python3 scripts/benchmark_compile_times.py --label linked --repetitions 5 -- \
+  target/debug/proa build --root . -p proa_marketing --bin proa_marketing \
+  --profile dev --locked --offline --no-check --no-assets
+```
+
+The linked command measures compilation with asset building and Proa source
+checks skipped. Validate those separately. Deployable RSJS applications use
+the linked build pipeline; ordinary `cargo check` remains useful for checking
+Rust without producing a deployable executable.
+
+The driver requires Python 3.10 or newer and clean versions of its probe inputs.
+Use `--case` repeatedly to select a subset:
+
+| Case | Change |
+|---|---|
+| `noop` | Run the command with unchanged source |
+| `page` | Change homepage metadata in a Rust function body |
+| `docs-prose` | Append a paragraph to a documentation page |
+| `docs-code` | Append a new Rust fence to a documentation page |
+| `core` | Change a rendering-core error message in a function body |
+
+Each case discards a warmup, then measures the requested number of edits.
+Fresh per-run markers prevent a previous trial's cached results from
+satisfying an edit probe. Compare medians and ranges, and repeat a baseline
+when machine load or run order may affect the result.
+
+To compare revisions, run the same driver in each worktree after building that
+revision's CLI. For a revision without the driver, invoke the script by its
+path in the newer checkout while keeping the older worktree as the working
+directory. Use separate labels and the same build command and environment.
+
+`target/compile-time-benchmark/<label>/` contains the command, compiler and
+platform metadata, per-run logs, samples, summary statistics, and recovery
+copies of source files. The driver restores source after success, command
+failure, Ctrl-C, or SIGTERM. After a forced kill or machine interruption,
+restore the files from `originals/` before continuing. Run no other builds or
+source edits in that worktree during a measurement.
+
+## Inspecting compiler units
+
+```sh
 cargo build --locked -p proa-cli --bins --timings
 cargo check --locked -p rsjs_macros -p proa_macros --timings
 ```
 
-Cargo writes an HTML report under `target/cargo-timings/`. A fresh target
-directory measures a clean build; an existing directory measures the work
-invalidated since its previous build. Record the compiler version, profile,
-target, enabled features, and command when comparing results. See the
-[Cargo timing documentation](https://doc.rust-lang.org/cargo/reference/timings.html)
-for the unit graph and compiler concurrency information.
+Cargo writes HTML reports under `target/cargo-timings/`. A fresh target
+directory measures clean compilation; an existing directory measures the work
+invalidated since its previous build. The
+[Cargo timing guide](https://doc.rust-lang.org/cargo/reference/timings.html)
+explains the unit graph and compiler concurrency information. Assess clean,
+development, release, and linked application builds separately.
 
-## Testing an RSJS build engine extraction
+## Compile work avoided by the workspace
 
-`scripts/compile_time_experiment.py` measures a specific proposed boundary:
-moving the CLI's descriptor build, cache, linking, ABI adaptation, and final
-compilation modules into a separate library crate. Inspection stays in the
-CLI because it depends on the linter's source fingerprinting.
+The template compiler and RSJS IR do not depend on the renderer's implementation.
+`proa_html_policy` holds the allocation-free URL policy shared by `proa_dsl`
+and `proa_core`. The renderer re-exports the existing validator path. Changing
+rendering internals can therefore reuse the compiler crates.
 
-Run the experiment in a dedicated worktree, with Python 3.10 or newer and the
-repository's pinned Rust toolchain:
+The docs compiler stores disposable syntax-highlight results under
+`OUT_DIR/.proa-docs-highlight-cache/`. Entries depend on code bytes, language,
+and the content hash of the actual compiler executable, including its embedded
+grammars. Compiler changes invalidate the cache automatically. Unavailable or
+malformed entries fall back to highlighting; writes publish complete entries
+atomically. `cargo clean` removes the cache.
 
-```bash
-python3 scripts/compile_time_experiment.py --repetitions 5
-```
+Only highlighted fence output is reused. Markdown parsing, page metadata,
+navigation, search, link validation, and removal of deleted pages still run
+on every docs compilation. Filename and selected-line markup are applied after
+the cached highlighting, so changing fence metadata remains effective.
 
-The script requires clean versions of the source files it edits. It temporarily
-changes workspace manifests, module declarations, and five internal visibility
-boundaries. An unpublished crate under `target/compile-time-experiment/` compiles
-the existing source files through path attributes; the CLI re-exports those
-modules. No source files are moved.
-
-Each of the baseline, split, and restored phases measures `cargo build` and
-`cargo check` for both CLI binaries. It measures unchanged builds, a diagnostic
-string edit in `chunks.rs`, and a validation string edit in the RSJS pipeline.
-It warms each command and changed item before collecting samples, and tests
-the extracted engine's library tests before the restored phase. Compare medians
-and ranges, and verify the restored phase agrees with the baseline.
-
-The output directory contains:
-
-- `metadata.json`: revision, toolchain, and probe definitions.
-- `results.json`: wall times and the full Cargo timing units for each run.
-- Per-run logs, including the extracted engine's test output.
-- `originals/`: recovery copies of every file the experiment can edit.
-
-Source and manifests are restored on normal completion, build failure,
-Ctrl-C, or SIGTERM. After a forced process kill or machine interruption,
-restore the files from `originals/` before continuing. Run no other Cargo
-commands or source edits in the worktree during the experiment.
-
-This experiment measures warmed development builds for two specific edits.
-Assess clean builds, release builds, application builds, and edits to shared
-dependencies separately. A crate split can avoid rebuilding unaffected code
-while adding another compilation step when the extracted code itself changes.
+Linked builds still hash artifact and input bytes for verification. SHA-256
+uses runtime hardware detection on supported CPUs with a portable software
+fallback; see the [RustCrypto backend documentation](https://docs.rs/sha2/0.11.0/sha2/#backends).
+The development profile optimizes these hashing dependencies without changing
+application optimization settings or requiring a native CPU target.

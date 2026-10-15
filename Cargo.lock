@@ -304,6 +304,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base16ct"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1636,9 +1642,9 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hybrid-array"
-version = "0.4.14"
+version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "707114b52a152fa7bdb290cd7cd5912d9467273b6d74e21b8d81aca1f8533f6b"
+checksum = "27f864f10dfb56725ce5ce5472bc52252c8f93a4ab86327122cebf62c5f59a17"
 dependencies = [
  "typenum",
 ]
@@ -3092,6 +3098,7 @@ name = "proa-cli"
 version = "0.1.3"
 dependencies = [
  "anyhow",
+ "base16ct",
  "clap",
  "clap_complete",
  "getrandom 0.3.4",
@@ -3111,7 +3118,6 @@ dependencies = [
  "serde",
  "serde_ignored",
  "serde_json",
- "sha2 0.10.9",
  "sha2 0.11.0",
  "similar",
  "sqlx",
@@ -3208,6 +3214,7 @@ dependencies = [
  "itoa_lut",
  "markup5ever_rcdom",
  "memchr",
+ "proa_html_policy",
  "proa_macros",
  "proa_react",
  "proptest",
@@ -3241,7 +3248,7 @@ dependencies = [
  "seq-macro",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tokio",
  "tower-http 0.6.11",
 ]
@@ -3255,18 +3262,19 @@ dependencies = [
  "proa_core",
  "proa_macros",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
 ]
 
 [[package]]
 name = "proa_docs_build"
 version = "0.2.0"
 dependencies = [
+ "base16ct",
  "latex2mathml",
  "pulldown-cmark",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "syntect",
  "tempfile",
  "thiserror",
@@ -3276,7 +3284,7 @@ dependencies = [
 name = "proa_dsl"
 version = "0.1.3"
 dependencies = [
- "proa_core",
+ "proa_html_policy",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -3299,7 +3307,7 @@ dependencies = [
  "proa_fonts_parse",
  "reqwest 0.12.24",
  "serde",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "syn 2.0.119",
  "tempfile",
  "thiserror",
@@ -3334,6 +3342,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base16ct",
  "base64 0.22.1",
  "bytes",
  "chrono",
@@ -3363,7 +3372,7 @@ dependencies = [
  "rsjs",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -3393,6 +3402,10 @@ dependencies = [
  "tokio",
  "tracing",
 ]
+
+[[package]]
+name = "proa_html_policy"
+version = "0.1.0"
 
 [[package]]
 name = "proa_ir"
@@ -4112,7 +4125,7 @@ dependencies = [
  "rsjs_web",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tokio",
 ]
 
@@ -4120,11 +4133,10 @@ dependencies = [
 name = "rsjs_ir"
 version = "0.2.0"
 dependencies = [
- "proa_core",
  "rsjs_web",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
 ]
 
 [[package]]
@@ -4143,7 +4155,7 @@ dependencies = [
  "rsjs_transport",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "syn 2.0.119",
  "trybuild",
 ]
@@ -4155,7 +4167,7 @@ dependencies = [
  "object",
  "rsjs_ir",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "tempfile",
  "thiserror",
 ]

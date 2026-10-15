@@ -51,6 +51,7 @@ For example, the `proa_framework_axum` package sources are under
 
 | Crate | Purpose |
 |-------|---------|
+| `proa_html_policy` | Allocation-free URL policy shared by compilers and the renderer, without rendering dependencies |
 | `proa_core` | Rendering primitives: `WebRenderSync`, `WebRender`, `WriteBuf`, `ClassList`, HTML elements |
 | `proa_macros` | Proc macros: `html!`, `html_sync!`, `md!`, `md_sync!`, `#[derive(ProaRecipe)]`, `#[derive(ProaVariant)]`, `#[derive(ProaComponent)]`, `#[derive(Action)]`, `#[island]` |
 | `proa_stream` | Streaming SSR substrate: loaders, stream handles, `Suspense`, out-of-order driver |

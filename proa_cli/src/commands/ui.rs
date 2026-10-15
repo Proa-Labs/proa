@@ -3,6 +3,7 @@
 
 //! `proa ui`: install source components from the Proa UI registries.
 
+use base16ct::HexDisplay;
 use std::{fs, path::PathBuf};
 
 use anyhow::Result;
@@ -178,7 +179,7 @@ fn installed(root: Option<PathBuf>, json: bool, filter: Option<&str>) -> Result<
                 let file = root.join(relative);
                 let actual = fs::read(&file)
                     .ok()
-                    .map(|bytes| format!("sha256:{:x}", Sha256::digest(bytes)));
+                    .map(|bytes| format!("sha256:{:x}", HexDisplay(&Sha256::digest(bytes))));
                 if actual.as_deref() != expected.as_str() {
                     state = if file.exists() { "modified" } else { "missing" };
                     changed.push(relative.clone());

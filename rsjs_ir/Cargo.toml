@@ -14,10 +14,6 @@ homepage.workspace = true
 
 [dependencies]
 serde = { workspace = true }
-# Foundational: rsjs islands lower to proa server components, and the
-# emitted Rust references proa's rendering-trait contracts. The IR
-# itself doesn't carry syn types, so this dep stays light.
-proa_core = { workspace = true }
 rsjs_web = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

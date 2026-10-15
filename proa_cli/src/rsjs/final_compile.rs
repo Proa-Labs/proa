@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use object::{Architecture, BinaryFormat, Object as _};
 use rsjs_ir::abi::{FinalUnitId, InvocationId, LinkUnitId, PlanId, SemanticHash};
 use serde_json::Value;
-use sha2_accelerated::{Digest, Sha256};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::rsjs::build::{

@@ -13,6 +13,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+base16ct = { workspace = true }
 latex2mathml = { version = "0.2" }
 pulldown-cmark = { workspace = true }
 serde = { workspace = true }

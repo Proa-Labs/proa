@@ -6,6 +6,7 @@ use std::{fmt::Write as _, path::Path};
 use crate::{
     code_fence::{CodeFenceInfo, LineHighlights},
     config::{MarkdownPipeline, MermaidFallback},
+    highlight_cache::HighlightCache,
     markdown::{escape_attr, escape_text},
     syntax_highlight::HighlightedLine,
 };
@@ -18,6 +19,7 @@ pub(crate) struct CodeBlock<'a> {
     info: &'a str,
     source_path: &'a Path,
     pipeline: &'a MarkdownPipeline,
+    highlight_cache: Option<&'a HighlightCache>,
 }
 
 impl<'a> CodeBlock<'a> {
@@ -32,7 +34,13 @@ impl<'a> CodeBlock<'a> {
             info,
             source_path,
             pipeline,
+            highlight_cache: None,
         }
+    }
+
+    pub(crate) fn with_highlight_cache(mut self, cache: Option<&'a HighlightCache>) -> Self {
+        self.highlight_cache = cache;
+        self
     }
 
     /// Emit the complete highlighted block and its optional filename chrome.
@@ -116,7 +124,12 @@ impl<'a> CodeBlock<'a> {
             return None;
         }
 
-        match crate::syntax_highlight::highlight_lines(self.code, language) {
+        let compute = || crate::syntax_highlight::highlight_lines(self.code, language);
+        let result = match self.highlight_cache {
+            Some(cache) => cache.get_or_compute(self.code, language, compute),
+            None => compute(),
+        };
+        match result {
             Ok(highlighted) => highlighted,
             Err(error) => {
                 println!(

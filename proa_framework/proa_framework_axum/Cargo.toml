@@ -16,6 +16,7 @@ homepage.workspace = true
 route-export = []
 
 [dependencies]
+base16ct = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }

@@ -6,6 +6,7 @@
 //! This is an origin cache. Downstream caches must revalidate so deploying a
 //! new executable cannot leave an old HTML response fresh at an unrelated CDN.
 
+use base16ct::HexDisplay;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -425,7 +426,7 @@ where
         let mut hash = Sha256::new();
         hash.update(key);
         hash.update(&bytes);
-        let etag = HeaderValue::from_str(&format!("\"{:x}\"", hash.finalize()))
+        let etag = HeaderValue::from_str(&format!("\"{:x}\"", HexDisplay(&hash.finalize())))
             .expect("hex digest is a valid ETag");
         parts.headers.insert(header::ETAG, etag.clone());
         parts

@@ -4,6 +4,7 @@
 [workspace]
 members = [
     "proa_core",
+    "proa_html_policy",
     "proa_cli",
     "proa_dsl",
     "proa_macros",
@@ -44,6 +45,7 @@ members = [
 ]
 default-members = [
     "proa_core",
+    "proa_html_policy",
     "proa_cli",
     "proa_dsl",
     "proa_macros",
@@ -77,6 +79,7 @@ anyhow = { version = "1" }
 arrayvec = { version = "0.7", default-features = false }
 axum = { version = "0.7.9" }
 base64 = { version = "0.22.1" }
+base16ct = { version = "0.2", default-features = false }
 brotli = { version = "8" }
 byteorder = { version = "1.5.0" }
 bytes = { version = "1" }
@@ -97,6 +100,7 @@ pretty_assertions = { version = "1.4.1" }
 proa_actions = { path = "proa_actions", version = "0.3.0" }
 proa_bench = { path = "proa_bench", version = "0.1.0" }
 proa_core = { path = "proa_core", version = "0.3.0" }
+proa_html_policy = { path = "proa_html_policy", version = "0.1.0" }
 proa_demo = { path = "proa_demo", version = "0.1.0" }
 proa_docs = { path = "proa_docs/proa_docs", version = "0.2.0" }
 proa_docs_build = { path = "proa_docs/proa_docs_build", version = "0.2.0" }
@@ -130,13 +134,10 @@ rsjs_transport = { path = "rsjs_transport", version = "0.1.0" }
 rsjs_web = { path = "rsjs_web", version = "0.2.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
-# The `asm` feature is not portable to generic AArch64 targets with the
-# pinned Rust toolchain: sha2 0.10 emits SHA-2/SHA-3 instructions that the
-# assembler correctly rejects unless the whole target guarantees them. The
-# default backend still runtime-dispatches to SHA extensions on x86 and uses a
-# portable software backend elsewhere, which is the right contract for release
-# images that may be built on heterogeneous remote Docker hosts.
-sha2 = { version = "0.10.8", features = ["oid"] }
+# sha2 0.11 dispatches to hardware SHA instructions at runtime on AArch64
+# without the old non-portable `asm` feature; generic targets keep a software
+# fallback. Descriptor/artifact commitments remain standard SHA-256.
+sha2 = { version = "0.11", features = ["oid"] }
 syn = { version = "2.0.89" }
 syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
 tailwind-merge = { package = "proa_tailwind_merge", path = "tailwind-merge/tailwind-merge", version = "0.1.2" }
@@ -166,22 +167,14 @@ codegen-units = 1
 [profile.release.package.proa_demo]
 strip = true
 
-# cargo-proa hashes every compiler artifact and source input with SHA-256 on
-# each linked build. In a dev-profile `proa` binary (what CI runs through
-# `cargo run -p proa-cli`) an unoptimized sha2 spent 20 to 30 seconds per
-# invocation between the descriptor and final stages, so the hashing crates
-# are always optimized. Everything else keeps the dev profile; `test`
-# inherits these overrides.
-[profile.dev.package."sha2:0.10.9"]
+# Artifact verification and compiler commitments run during every linked build.
+# Optimize their SHA-256 implementation in dev/test without optimizing the
+# application or requiring CPU-specific flags. Older digest versions pulled in
+# by third-party crates keep the normal development profile.
+[profile.dev.package."sha2@0.11"]
 opt-level = 3
 
-[profile.dev.package."digest:0.10.7"]
-opt-level = 3
-
-[profile.dev.package."sha2:0.11.0"]
-opt-level = 3
-
-[profile.dev.package."digest:0.11.3"]
+[profile.dev.package."digest@0.11"]
 opt-level = 3
 
 # proa_showcase pages are rendered by the playground in production

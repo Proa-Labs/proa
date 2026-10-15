@@ -244,7 +244,7 @@ pub fn is_event_handler_attr_name(name: &str) -> bool {
 /// Canonical static/runtime URL policy. The source-compatible alias keeps
 /// existing macro consumers on the single implementation owned by
 /// `proa_core`.
-pub use proa_core::shared::attr::has_dangerous_url_scheme as is_dangerous_url_value;
+pub use proa_html_policy::has_dangerous_url_scheme as is_dangerous_url_value;
 
 /// Walk the AST and collect compile-time security errors/warnings.
 ///

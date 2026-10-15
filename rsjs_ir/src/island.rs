@@ -518,8 +518,8 @@ pub struct Island {
     /// Reference to the view tree (placeholder in v0.1, lifted
     /// parse tree in M7).
     pub view_tree: ViewTreeRef,
-    /// Whether the authored component uses [`proa_core::WebRender`] rather
-    /// than [`proa_core::WebRenderSync`]. The Rust emitter preserves that
+    /// Whether the authored component uses `proa_core::WebRender` rather
+    /// than `proa_core::WebRenderSync`. The Rust emitter preserves that
     /// trait choice while rewriting the render body through
     /// `proa_macros::html!` or `proa_macros::html_sync!`.
     ///
