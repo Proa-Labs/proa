@@ -71,7 +71,7 @@ def runtime(binary, artifacts, report):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--variants", nargs="+", default=["1:thin", "16:thin", "8:thin", "16:off"])
+    parser.add_argument("--variants", nargs="+", default=["1:thin", "16:thin", "8:thin", "16:false", "16:off"])
     args = parser.parse_args()
     incoming = Path("/workspace")
     original = incoming / "proa_marketing/src/pages/home.rs"

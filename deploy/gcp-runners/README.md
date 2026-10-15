@@ -136,6 +136,8 @@ runner identity may submit builds as the release builder and mint short-lived
 registry read tokens as the Railway pull identity. No Google service-account
 key or public registry access is required. Configure a **production-scoped**
 Railway project token in the repository secret `RAILWAY_PRODUCTION_TOKEN`.
+Private registry credentials require Railway Pro; the workspace was upgraded
+with the owner's consent during validation.
 The first successful image deployment disconnects only production's GitHub
 build trigger; preview environments retain their source configuration.
 
@@ -162,7 +164,17 @@ This runs cold, unchanged, and one-link-change builds for each codegen/LTO
 configuration, with the application always at optimization level 3. Reports
 include elapsed time, peak RSS and CPU, Cargo timing HTML, fingerprint logs,
 binary sizes/checksums, and 1,000 SSR samples per showcase page. The descriptor
-pass emits compiler transport at optimization level 0; final compilation keeps
+pass emits compiler transport at optimization level 0 while preserving the
+original profile's assertion configuration; final compilation keeps
 the selected application profile. The CLI itself uses `release-fast` because
 its own executable is a build tool rather than a published render benchmark.
 Reports are stored under the build ID in the private marketing cache bucket.
+Successful benchmark builds also retain their binaries and packaged assets for
+controlled runtime comparisons. Record worker CPU models alongside timings:
+native Cloud Build workers of the same machine class can still vary.
+
+Download reports and compare complete results with:
+
+```sh
+python3 deploy/marketing/report.py path/to/cgu1-thin path/to/cgu16-thin
+```

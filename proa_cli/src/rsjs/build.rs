@@ -42,7 +42,7 @@ pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 6;
 /// This is deliberately independent of sidecar schema: bump it whenever a
 /// previous target may contain wrapper/proc-macro artifacts that must never
 /// participate in current build identity.
-pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 5;
+pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 6;
 /// Explicit host-local staging directory for descriptor objects and sidecars.
 pub const DESCRIPTOR_STAGING_DIR_ENV: &str = "PROA_RSJS_DESCRIPTOR_STAGING_DIR";
 /// Exact runner-owned Cargo target directory for descriptor compilation.
@@ -100,8 +100,9 @@ const LOGICAL_ENVIRONMENT_HASH_DOMAIN: &[u8] = b"proa.rsjs.logical-environment.v
 const REALIZED_ENVIRONMENT_HASH_DOMAIN: &[u8] = b"proa.rsjs.realized-rustc-environment.v1";
 pub(crate) const DESCRIPTOR_OBJECT_HASH_DOMAIN: &[u8] = b"proa.rsjs.descriptor-object.v1";
 const LINK_ARTIFACT_HASH_DOMAIN: &[u8] = b"proa.rsjs.link-artifact.v1";
-const DESCRIPTOR_CODEGEN_POLICY: [&str; 5] = [
+const DESCRIPTOR_CODEGEN_POLICY: [&str; 6] = [
     "opt-level=0",
+    "debug-assertions=original-profile",
     "codegen-units=1",
     "incremental=disabled",
     "link-dead-code=yes",
@@ -1442,25 +1443,39 @@ fn descriptor_rustc_args(
     descriptor_object: &Path,
 ) -> Result<Vec<OsString>, WrapperError> {
     let mut result = Vec::with_capacity(rustc_args.len() + 6);
+    let mut original_opt_level = "0";
+    let mut explicit_debug_assertions = false;
     let mut index = 0;
     while index < rustc_args.len() {
         let argument = rustc_args[index]
             .to_str()
             .ok_or_else(|| WrapperError::NonUtf8RustcArgument(rustc_args[index].clone()))?;
 
-        if argument == "-C" {
+        if argument == "-O" {
+            original_opt_level = "2";
+            index += 1;
+            continue;
+        } else if argument == "-C" {
             let value = rustc_args
                 .get(index + 1)
                 .and_then(|value| value.to_str())
                 .ok_or(WrapperError::MissingRustcOptionValue("-C"))?;
-            let key = split_key_value(value).0;
+            let (key, value) = split_key_value(value);
+            if key == "opt-level" {
+                original_opt_level = value;
+            }
+            explicit_debug_assertions |= key == "debug-assertions";
             if key == "opt-level" || descriptor_codegen_option(key) {
                 index += 2;
                 continue;
             }
         } else if let Some(value) = argument.strip_prefix("-C") {
-            let key = split_key_value(value).0;
-            if !value.is_empty() && (key == "opt-level" || descriptor_codegen_option(key)) {
+            let (key, value) = split_key_value(value);
+            if key == "opt-level" {
+                original_opt_level = value;
+            }
+            explicit_debug_assertions |= key == "debug-assertions";
+            if key == "opt-level" || descriptor_codegen_option(key) {
                 index += 1;
                 continue;
             }
@@ -1489,6 +1504,18 @@ fn descriptor_rustc_args(
         index += 1;
     }
 
+    if !explicit_debug_assertions {
+        // rustc derives this cfg (and default overflow checks) from opt-level.
+        // Lowering codegen must not change cfg branches or descriptor inputs.
+        result.push(OsString::from(format!(
+            "-Cdebug-assertions={}",
+            if original_opt_level == "0" {
+                "yes"
+            } else {
+                "no"
+            }
+        )));
+    }
     result.extend([
         // This artifact is inspected for descriptors, never served. Preserve
         // the original profile in the unit coordinate so the final pass still

@@ -54,7 +54,8 @@ def build(incoming, cache, output, report, units, lto, label):
     # profile is independent of the fully optimized application profile.
     run(["cargo", "build", "--profile", "release-fast", "--locked", "-p", "proa-cli", "--bin", "proa"],
         cwd=source, env=env, report=report, label=f"{label}-cli")
-    env.update(CARGO_PROFILE_RELEASE_CODEGEN_UNITS=str(units), CARGO_PROFILE_RELEASE_LTO=lto)
+    env.update(CARGO_PROFILE_RELEASE_OPT_LEVEL="3", CARGO_PROFILE_RELEASE_CODEGEN_UNITS=str(units),
+               CARGO_PROFILE_RELEASE_LTO=lto)
     env["CARGO_LOG"] = "cargo::core::compiler::fingerprint=info"
     run([str(target / "release-fast/proa"), "build", "--root", str(source),
          "--package", "proa_marketing", "--bin", "proa_marketing", "--locked", "--no-check",
@@ -73,7 +74,10 @@ def build(incoming, cache, output, report, units, lto, label):
         "codegen_units": units, "lto": lto, "opt_level": 3,
         "descriptor_wrapper_sha256": hashlib.sha256((source / "proa_cli/src/rsjs/build.rs").read_bytes()).hexdigest(),
         "rustc": subprocess.check_output(["rustc", "-vV"], text=True),
-        "cpus": os.cpu_count(), "binary_bytes": (output / "proa_marketing").stat().st_size,
+        "cpus": os.cpu_count(),
+        "cpu_model": next((line.split(":", 1)[1].strip() for line in Path("/proc/cpuinfo").read_text().splitlines()
+                           if line.startswith("model name")), "unknown"),
+        "binary_bytes": (output / "proa_marketing").stat().st_size,
         "binary_sha256": binary_sha256,
     }
     (report / f"{label}-build.json").write_text(json.dumps(metadata, indent=2) + "\n")
@@ -86,7 +90,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default=Path("/release/artifacts"))
     parser.add_argument("--report", type=Path, default=Path("/release/report"))
     parser.add_argument("--units", type=int, choices=(1, 8, 16), default=16)
-    parser.add_argument("--lto", choices=("thin", "off"), default="thin")
+    parser.add_argument("--lto", choices=("thin", "false", "off"), default="thin")
     parser.add_argument("--label", default="release")
     args = parser.parse_args()
     build(args.incoming.resolve(), args.cache.resolve(), args.output.resolve(), args.report.resolve(),

@@ -17,7 +17,8 @@ def api(query, variables):
     request = urllib.request.Request(
         "https://backboard.railway.app/graphql/v2",
         data=json.dumps({"query": query, "variables": variables}).encode(),
-        headers={"Project-Access-Token": os.environ["RAILWAY_TOKEN"], "Content-Type": "application/json"},
+        headers={"Project-Access-Token": os.environ["RAILWAY_TOKEN"],
+                 "Content-Type": "application/json", "User-Agent": "proa-release-ci/1"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         result = json.load(response)

@@ -75,6 +75,6 @@ options:
 substitutions:
   _IMAGE: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/proa-marketing
   _REVISION: manual
-  _CACHE: gs://airy-cycle-504821-k9-marketing-cache/release-v2-descriptor0-cgu16-thin
+  _CACHE: gs://airy-cycle-504821-k9-marketing-cache/release-v3-descriptor0-cgu16-thin
   _UNITS: '16'
   _LTO: thin

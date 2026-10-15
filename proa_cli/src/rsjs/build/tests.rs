@@ -1428,6 +1428,7 @@ fn descriptor_codegen_replaces_incremental_lto_and_object_outputs() {
     assert!(rewritten.contains(&"--emit=obj=/staging/objects/unit.o"));
     assert!(rewritten.contains(&"-Ccodegen-units=1"));
     assert!(rewritten.contains(&"-Copt-level=0"));
+    assert!(rewritten.contains(&"-Cdebug-assertions=no"));
     assert!(!rewritten.contains(&"-Copt-level=3"));
     assert!(rewritten.contains(&"-Clto=off"));
     assert!(rewritten.contains(&"-Clink-dead-code=yes"));
@@ -1445,6 +1446,33 @@ fn descriptor_codegen_replaces_incremental_lto_and_object_outputs() {
             .count(),
         1
     );
+}
+
+#[test]
+fn descriptor_codegen_preserves_rustc_profile_cfg() {
+    for options in [
+        vec!["-Copt-level=0"],
+        vec!["-C", "opt-level=1"],
+        vec!["-Copt-level=3"],
+        vec!["-Copt-level=s"],
+        vec!["-Copt-level=z"],
+        vec!["-O"],
+        vec!["-Copt-level=3", "-Cdebug-assertions=yes"],
+        vec!["-Copt-level=0", "-C", "debug-assertions=no"],
+    ] {
+        let original = options.iter().map(OsString::from).collect::<Vec<_>>();
+        let rewritten = descriptor_rustc_args(&original, Path::new("/unused.o")).unwrap();
+        let cfg = |args: &[OsString]| {
+            let output = std::process::Command::new("rustc")
+                .args(["--print", "cfg"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{:?}", output.stderr);
+            output.stdout
+        };
+        assert_eq!(cfg(&original), cfg(&rewritten), "profile: {options:?}");
+    }
 }
 
 fn cargo_artifact(path: &str, features: &[&str]) -> CargoCompilerArtifact {
