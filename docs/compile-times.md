@@ -101,6 +101,13 @@ workspace-wide `full` feature. Keep normal dependencies separate from those
 needed only by examples, tests, or benchmarks. Check crates individually when
 changing features; workspace feature unification can hide a missing feature.
 
+Linked builds also compare the exact serialized descriptor-cache indexes and
+snapshots before rewriting them. Identical records keep their existing files;
+changed records still use atomic replacement and durable synchronization.
+This avoids repeating hundreds of file and directory syncs on a warm build.
+Cargo freshness, source/environment/dependency checks, and exact descriptor
+object validation still run on every invocation.
+
 Final RSJS macro expansion caches validated component and helper topology.
 Each cache retains only its last exact plan per expansion thread. Every expansion still reads the current plan file and verifies its
 expected SHA-256 commitment. Parsed topology is reused only for identical bytes

@@ -355,6 +355,73 @@ fn replaceable_pointer_can_be_committed_more_than_once() {
 }
 
 #[test]
+fn replaceable_pointer_repairs_equal_length_changes_and_missing_newline() {
+    let temp = TempDir::new().unwrap();
+    let pointer = temp.path().join("cache/snapshots/current.json");
+    let expected = br#"{"generation":"next"}"#;
+    atomic_write_replaceable(&pointer, expected).unwrap();
+
+    // Length alone cannot authorize reuse, and the newline is part of the
+    // exact persisted representation even though JSON accepts its omission.
+    for damaged in [
+        b"{\"generation\":\"past\"}\n".as_slice(),
+        expected.as_slice(),
+        b"broken",
+    ] {
+        fs::write(&pointer, damaged).unwrap();
+        atomic_write_replaceable(&pointer, expected).unwrap();
+        assert_eq!(
+            fs::read(&pointer).unwrap(),
+            [expected.as_slice(), b"\n"].concat()
+        );
+    }
+    assert_eq!(fs::read_dir(pointer.parent().unwrap()).unwrap().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn replaceable_pointer_keeps_identical_file_and_atomically_replaces_changed_bytes() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let temp = TempDir::new().unwrap();
+    let pointer = temp.path().join("cache/snapshots/current.json");
+    atomic_write_replaceable(&pointer, br#"{"generation":"first"}"#).unwrap();
+    // Keep the original inode alive so replacement cannot reuse its identity.
+    let original = File::open(&pointer).unwrap();
+    let identity = original.metadata().unwrap().ino();
+    atomic_write_replaceable(&pointer, br#"{"generation":"first"}"#).unwrap();
+    assert_eq!(fs::metadata(&pointer).unwrap().ino(), identity);
+
+    atomic_write_replaceable(&pointer, br#"{"generation":"other"}"#).unwrap();
+    assert_ne!(fs::metadata(&pointer).unwrap().ino(), identity);
+    let mut previous = String::new();
+    (&original).read_to_string(&mut previous).unwrap();
+    assert_eq!(previous, "{\"generation\":\"first\"}\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn replaceable_pointer_rejects_symlink_even_when_target_bytes_match() {
+    let temp = TempDir::new().unwrap();
+    let target = temp.path().join("elsewhere.json");
+    let pointer = temp.path().join("cache/snapshots/current.json");
+    let expected = br#"{"generation":"first"}"#;
+    fs::create_dir_all(pointer.parent().unwrap()).unwrap();
+    fs::write(&target, [expected.as_slice(), b"\n"].concat()).unwrap();
+    std::os::unix::fs::symlink(&target, &pointer).unwrap();
+
+    assert!(matches!(
+        atomic_write_replaceable(&pointer, expected),
+        Err(DescriptorCacheError::UnsafeCacheEntry(path)) if path == pointer
+    ));
+    assert!(fs::symlink_metadata(&pointer)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(fs::read_dir(pointer.parent().unwrap()).unwrap().count(), 1);
+}
+
+#[test]
 fn cached_unit_validation_ignores_unobserved_assets_and_rejects_exact_extern_changes() {
     let temp = TempDir::new().unwrap();
     let (unit, cargo, _source, manifest) = cached_unit_fixture(&temp);
