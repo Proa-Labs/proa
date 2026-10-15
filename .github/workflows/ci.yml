@@ -43,7 +43,7 @@ jobs:
           project_id: airy-cycle-504821-k9
       - name: Compile and verify the release image
         id: build
-        run: python3 deploy/marketing/submit.py
+        run: python3 deploy/marketing/release.py build
 
   deploy-release:
     name: Deploy verified image to Railway
@@ -74,7 +74,7 @@ jobs:
           RAILWAY_SERVICE_ID: 8a6d0a70-bfd2-4e6e-bf87-048c563a7044
           RAILWAY_ENVIRONMENT_ID: 9348508f-a2a4-48bb-b18b-803ccb33dd9a
           RAILWAY_READY_URL: https://proa.so/readyz
-        run: python3 deploy/marketing/deploy.py
+        run: python3 deploy/marketing/release.py deploy
 
   marketing-tests:
     name: Marketing linked tests

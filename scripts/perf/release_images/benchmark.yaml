@@ -10,7 +10,7 @@ steps:
       - -ceu
       - |
         bash deploy/marketing/install-tools.sh
-        python3 deploy/marketing/benchmark.py --variants ${_VARIANTS}
+        python3 scripts/perf/release_images/benchmark.py --variants ${_VARIANTS}
         touch /release/benchmark-success
     volumes: [{name: release, path: /release}]
   - name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable

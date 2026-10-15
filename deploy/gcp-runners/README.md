@@ -122,6 +122,12 @@ passes the immutable image digest to Railway only after the CI gate succeeds.
 The `release-image` and `deploy-release` jobs run only on trusted `main` events.
 PR jobs cannot access the release builder, its cache, or the Railway credential.
 
+The release entry point is `deploy/marketing/release.py`: CI calls it with
+`build` to submit and await Cloud Build, or `deploy` to cut over Railway. The
+compilation and packaging commands live directly in `cloudbuild.yaml`.
+Experimental profiling tools live separately in `scripts/perf/release_images/`;
+the release workflow does not invoke them.
+
 The runner has no Docker daemon. It submits `deploy/marketing/cloudbuild.yaml`
 to native x86-64 Cloud Build workers. The build retains the existing linked Proa
 pipeline and produces the same binary, static assets, and Node/Bun companions.
@@ -188,7 +194,7 @@ attempts before cancellation.
 To reproduce compilation and runtime measurements:
 
 ```sh
-gcloud builds submit --config deploy/marketing/benchmark.yaml --async .
+gcloud builds submit --config scripts/perf/release_images/benchmark.yaml --async .
 ```
 
 This runs cold, unchanged, and one-link-change builds for each codegen/LTO
@@ -209,7 +215,7 @@ native Cloud Build workers of the same machine class can still vary.
 Download reports and compare complete results with:
 
 ```sh
-python3 deploy/marketing/report.py path/to/cgu1-thin path/to/cgu16-thin
+python3 scripts/perf/release_images/report.py path/to/cgu1-thin path/to/cgu16-thin
 ```
 
 Compare retained binaries on the same native Linux worker before selecting a
@@ -218,7 +224,7 @@ with 100 warmups and 1,000 timed SSR samples per page in each round:
 
 ```sh
 chmod +x artifacts/cgu1-thin/proa_marketing artifacts/cgu16-thin/proa_marketing
-python3 deploy/marketing/runtime_compare.py \
+python3 scripts/perf/release_images/runtime_compare.py \
   artifacts/cgu1-thin/proa_marketing artifacts/cgu16-thin/proa_marketing \
   artifacts/cgu16-thin runtime-comparison
 ```
