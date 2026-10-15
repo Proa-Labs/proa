@@ -9,7 +9,7 @@ use proa_core::{
 use proa_macros::html_sync;
 use proa_third_party::google::{AnalyticsConsent, GoogleAnalytics, InvalidMeasurementId};
 
-const DEFAULT_MEASUREMENT_ID: &str = "G-7WSVNZVD6V";
+const DEFAULT_MEASUREMENT_ID: &str = "G-5XSLT8GCN3";
 
 static MEASUREMENT_ID: OnceLock<Option<String>> = OnceLock::new();
 
