@@ -116,7 +116,7 @@ RSJS client-helper edges used by browser hydration.
 
 ### Google Analytics
 
-The site defaults to the GA4 web stream `G-7WSVNZVD6V`. Set
+The site defaults to the GA4 web stream `G-5XSLT8GCN3`. Set
 `GOOGLE_ANALYTICS_MEASUREMENT_ID` in the production service's runtime variables
 to override that public measurement ID; an explicitly empty or malformed value
 disables analytics. Restart or redeploy after changing it. No Google OAuth
