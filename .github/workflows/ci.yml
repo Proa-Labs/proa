@@ -88,6 +88,10 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
+      # Analytics policy tests execute their browser code in Node.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
       - name: Test marketing with its linked island manifest
         run: |
           cargo run --locked -p proa-cli --bin proa -- \
