@@ -168,6 +168,12 @@ walkdir = { version = "2.4" }
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(rust_analyzer)"] }
 
+# Keep source-line backtraces while reducing codegen, linking, and the bytes
+# verified by linked builds. Opt into full type/variable debugging with
+# CARGO_PROFILE_DEV_DEBUG=2 (and CARGO_PROFILE_TEST_DEBUG=2 for tests).
+[profile.dev]
+debug = 1
+
 [profile.release]
 opt-level = 3
 lto = "thin"

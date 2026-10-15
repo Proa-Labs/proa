@@ -60,6 +60,16 @@ runs:
           -A clippy::all \
           -D clippy::correctness
 
+    # Workspace/all-targets checks unify dev features. These normal library
+    # graphs catch runtime features accidentally supplied only by tests.
+    - name: Check independent library feature sets
+      shell: bash
+      run: |
+        cargo check --locked -p proa_stream --lib
+        cargo check --locked -p proa_framework_axum --lib
+        cargo check --locked -p proa_framework_core --no-default-features --lib
+        cargo check --locked -p proa_fonts -p rsjs_transport --no-default-features --lib
+
     - name: Check quickstart examples against the workspace CLI
       shell: bash
       run: |

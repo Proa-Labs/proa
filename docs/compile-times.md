@@ -4,6 +4,12 @@ Use `proa build` to measure the complete linked application pipeline. Use
 `cargo check` to isolate compiler and type-checking costs. Record the revision,
 toolchain, profile, enabled features, and machine when comparing results.
 
+Development builds use limited debug metadata (`debug = 1`) to reduce code
+generation, linking, and artifact-verification work. Source-line backtraces
+remain available. For full type and variable information in a debugger, set
+`CARGO_PROFILE_DEV_DEBUG=2`; use `CARGO_PROFILE_TEST_DEBUG=2` for test binaries.
+These settings do not change application optimization levels or release profiles.
+
 ## Repeated edit probes
 
 Run the benchmark driver from the repository root in a dedicated worktree:
@@ -95,8 +101,8 @@ workspace-wide `full` feature. Keep normal dependencies separate from those
 needed only by examples, tests, or benchmarks. Check crates individually when
 changing features; workspace feature unification can hide a missing feature.
 
-Final RSJS macro expansion retains one exact validated plan per expansion
-thread. Every expansion still reads the current plan file and verifies its
+Final RSJS macro expansion caches validated component and helper topology.
+Each cache retains only its last exact plan per expansion thread. Every expansion still reads the current plan file and verifies its
 expected SHA-256 commitment. Parsed topology is reused only for identical bytes
 and plan identity; changed plans are validated again, and validation errors are
 not cached. Definition selection still uses the current Cargo unit and record
