@@ -1147,8 +1147,9 @@ fn normalize_rustc_invocation_with_package_root(
             }
         } else if let Some(value) = short_option_value(&args, &mut index, "-C")? {
             let (key, value) = split_key_value(&value);
-            if !descriptor_codegen_option(key) && !linker_only_codegen_option(key) {
-                codegen_options.insert(key.to_string(), value.to_string());
+            let key = key.replace('_', "-");
+            if !descriptor_codegen_option(&key) && !linker_only_codegen_option(&key) {
+                codegen_options.insert(key, value.to_string());
             }
         } else if let Some(value) = short_option_value(&args, &mut index, "-Z")? {
             let (key, value) = split_key_value(&value);
@@ -1461,21 +1462,23 @@ fn descriptor_rustc_args(
                 .and_then(|value| value.to_str())
                 .ok_or(WrapperError::MissingRustcOptionValue("-C"))?;
             let (key, value) = split_key_value(value);
+            let key = key.replace('_', "-");
             if key == "opt-level" {
                 original_opt_level = value;
             }
             explicit_debug_assertions |= key == "debug-assertions";
-            if key == "opt-level" || descriptor_codegen_option(key) {
+            if key == "opt-level" || descriptor_codegen_option(&key) {
                 index += 2;
                 continue;
             }
         } else if let Some(value) = argument.strip_prefix("-C") {
             let (key, value) = split_key_value(value);
+            let key = key.replace('_', "-");
             if key == "opt-level" {
                 original_opt_level = value;
             }
             explicit_debug_assertions |= key == "debug-assertions";
-            if key == "opt-level" || descriptor_codegen_option(key) {
+            if key == "opt-level" || descriptor_codegen_option(&key) {
                 index += 1;
                 continue;
             }

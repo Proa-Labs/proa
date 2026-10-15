@@ -25,6 +25,12 @@ for (let attempt = 0; attempt < 120; attempt++) {
   }
 }
 assert.ok(healthy, "release image must serve /healthz within 60 seconds");
+if (process.argv[3]) {
+  assert.match(process.argv[3], /^[0-9a-f]{40}$/);
+  const ready = await request("/readyz");
+  assert.equal(ready.headers.get("x-proa-revision"), process.argv[3], "readyz must identify the packaged commit");
+  assert.equal(ready.headers.get("cache-control"), "no-store");
+}
 
 const assets = new Set();
 for (const path of ["/", "/docs", "/showcase/nike/proa/product", "/showcase/airbnb/proa"]) {

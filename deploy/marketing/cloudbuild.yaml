@@ -48,7 +48,7 @@ steps:
   - id: package
     name: gcr.io/cloud-builders/docker
     env: [DOCKER_BUILDKIT=1]
-    args: [build, --build-arg, BUILD_ARTIFACTS=prebuilt, -f, proa_marketing/Dockerfile, -t, '${_IMAGE}:${_REVISION}', .]
+    args: [build, --build-arg, BUILD_ARTIFACTS=prebuilt, --build-arg, 'PROA_BUILD_REVISION=${_COMMIT}', -f, proa_marketing/Dockerfile, -t, '${_IMAGE}:${_REVISION}', .]
 
   - id: smoke
     name: gcr.io/cloud-builders/docker
@@ -59,7 +59,7 @@ steps:
         docker run -d --name proa-release --network cloudbuild -e PORT=5000 '${_IMAGE}:${_REVISION}'
         trap 'docker logs proa-release; docker rm -f proa-release' EXIT
         docker run --rm --network cloudbuild -v /workspace:/work -w /work \
-          node:22-bookworm-slim node deploy/marketing/smoke.mjs http://proa-release:5000
+          node:22-bookworm-slim node deploy/marketing/smoke.mjs http://proa-release:5000 '${_COMMIT}'
         docker run --rm --network cloudbuild -v /workspace:/work -w /work \
           mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48 \
           bash -ceu 'npm install --ignore-scripts --no-audit --no-fund --prefix /tmp/pw playwright@1.61.1; \
@@ -75,6 +75,7 @@ options:
 substitutions:
   _IMAGE: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/proa-marketing
   _REVISION: manual
+  _COMMIT: ''
   _CACHE: gs://airy-cycle-504821-k9-marketing-cache/release-v3-descriptor0-cgu16-thin
   _UNITS: '16'
   _LTO: thin

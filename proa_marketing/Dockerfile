@@ -165,6 +165,10 @@ RUN set -eu; \
 
 FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS runtime
 
+# Package the source commit without recompiling the cached application binary.
+ARG PROA_BUILD_REVISION=""
+ENV PROA_BUILD_REVISION=${PROA_BUILD_REVISION}
+
 # libstdc++6 is for the node and bun binaries copied in below, neither of
 # which ships its own C++ runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends \

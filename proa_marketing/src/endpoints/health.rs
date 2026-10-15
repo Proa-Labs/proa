@@ -26,8 +26,9 @@ pub async fn readyz() -> impl axum::response::IntoResponse {
 
 fn build_revision() -> Option<String> {
     std::env::var("PROA_BUILD_REVISION")
-        .or_else(|_| std::env::var("RAILWAY_GIT_COMMIT_SHA"))
         .ok()
+        .filter(|revision| !revision.is_empty())
+        .or_else(|| std::env::var("RAILWAY_GIT_COMMIT_SHA").ok())
 }
 
 fn revision_header_value(revision: &str) -> Option<HeaderValue> {

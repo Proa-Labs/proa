@@ -2350,6 +2350,37 @@ mod tests {
         assert!(html.contains("data-rsjs-island-root"));
     }
 
+    /// The tab widgets were driven by `HERO_TABS_SCRIPT`, a hand-written DOM
+    /// script. They are rsjs islands now, so the page must ship the runtime
+    /// and their island modules or the tabs are inert.
+    #[test]
+    fn home_page_ships_hydration_for_its_tab_islands() {
+        let html = crate::layout::render_page(
+            crate::layout::PageMeta {
+                title: "Home",
+                description: "Home",
+                path: "/",
+            },
+            super::HomePage,
+        )
+        .0;
+
+        assert!(
+            html.contains(r#"<script type="module" src="/rsjs-runtime.js""#),
+            "home page must load the rsjs runtime"
+        );
+        // Search modal, hero tabs, and benchmark chart tabs.
+        assert!(
+            html.matches("/rsjs/island/").count() >= 3,
+            "expected an island module per hydrated island, got: {}",
+            html.matches("/rsjs/island/").count()
+        );
+
+        // The hero tab root still renders its server-side contract.
+        assert_eq!(html.matches("data-tabs-root").count(), 1);
+        assert!(html.contains("proa-hero-tabs"));
+    }
+
     #[test]
     fn homepage_metadata_fits_social_preview_limits() {
         use futures::FutureExt;

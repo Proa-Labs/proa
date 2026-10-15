@@ -568,7 +568,7 @@ fn normalized_flag_spelling_and_order_hash_identically() {
         format!("dep={}", dependency.display()).into(),
         "--cfg=feature=\"alpha\"".into(),
         "--crate-type=rlib,lib".into(),
-        "-Copt-level=2".into(),
+        "-Copt_level=2".into(),
         "--emit".into(),
         "metadata,link".into(),
         "--edition".into(),
@@ -1413,8 +1413,8 @@ fn descriptor_codegen_replaces_incremental_lto_and_object_outputs() {
         "-Cincremental=/host/incremental".into(),
         "-C".into(),
         "lto=fat".into(),
-        "-Clinker-plugin-lto".into(),
-        "-Ccodegen-units=16".into(),
+        "-Clinker_plugin_lto".into(),
+        "-Ccodegen_units=16".into(),
         "-Copt-level=3".into(),
         "/host/source.rs".into(),
     ];
@@ -1459,6 +1459,9 @@ fn descriptor_codegen_preserves_rustc_profile_cfg() {
         vec!["-O"],
         vec!["-Copt-level=3", "-Cdebug-assertions=yes"],
         vec!["-Copt-level=0", "-C", "debug-assertions=no"],
+        vec!["-Copt_level=3"],
+        vec!["-C", "opt_level=3", "-Cdebug_assertions=yes"],
+        vec!["-Copt_level=0", "-C", "debug_assertions=no"],
     ] {
         let original = options.iter().map(OsString::from).collect::<Vec<_>>();
         let rewritten = descriptor_rustc_args(&original, Path::new("/unused.o")).unwrap();

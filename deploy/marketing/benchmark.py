@@ -8,6 +8,7 @@ import argparse
 import http.client
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import statistics
@@ -76,11 +77,14 @@ if __name__ == "__main__":
     incoming = Path("/workspace")
     original = incoming / "proa_marketing/src/pages/home.rs"
     contents = original.read_bytes()
-    old = b"https://youtu.be/-CfCyvIKYyo?si=l1-0A5BsuLU2Bc9T"
     # Change exactly one authored href, keeping the rest of the page intact.
-    changed = contents.replace(old, old + b"&release-benchmark=1", 1)
-    if changed == contents:
-        raise RuntimeError("benchmark input link moved; choose a real authored content change")
+    pattern = rb'(href=")([^"\r\n]+)("\s+data-video-cta="intro")'
+    def change_link(match):
+        separator = b"&" if b"?" in match[2] else b"?"
+        return match[1] + match[2] + separator + b"release-benchmark=1" + match[3]
+    changed, count = re.subn(pattern, change_link, contents)
+    if count != 1:
+        raise RuntimeError("expected exactly one intro video CTA for the benchmark edit")
     for variant in args.variants:
         units, lto = variant.split(":")
         root = Path("/cache") / f"cgu{units}-{lto}"

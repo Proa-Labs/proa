@@ -14,7 +14,33 @@ import time
 
 
 def gcloud(*args):
-    return subprocess.check_output(["gcloud", *args, "--quiet", "--format=json"], text=True)
+    return subprocess.check_output(["gcloud", *args, "--quiet", "--format=json"], text=True, timeout=120)
+
+
+def await_build(result):
+    """Cancel a submitted build whenever polling exits without a terminal result."""
+    build_id = result["id"]
+    finished = False
+    failures = 0
+    try:
+        while True:
+            if result["status"] not in ("QUEUED", "WORKING", "PENDING", "STATUS_UNKNOWN"):
+                finished = True
+                return result
+            time.sleep(10)
+            try:
+                result = json.loads(gcloud("builds", "describe", build_id, "--project=airy-cycle-504821-k9"))
+                failures = 0
+            except (subprocess.SubprocessError, json.JSONDecodeError):
+                failures += 1
+                if failures >= 3:
+                    raise
+    finally:
+        if not finished:
+            subprocess.run([
+                "gcloud", "builds", "cancel", build_id,
+                "--project=airy-cycle-504821-k9", "--quiet",
+            ], check=True, timeout=60)
 
 
 if __name__ == "__main__":
@@ -27,20 +53,17 @@ if __name__ == "__main__":
         "--project=airy-cycle-504821-k9",
         "--service-account=projects/airy-cycle-504821-k9/serviceAccounts/proa-marketing-builder@airy-cycle-504821-k9.iam.gserviceaccount.com",
         "--gcs-source-staging-dir=gs://airy-cycle-504821-k9-marketing-cache/sources",
-        f"--substitutions=_REVISION={tag}",
+        f"--substitutions=_REVISION={tag},_COMMIT={revision}",
     ))
     build_id = result["id"]
     print(f"Release build: https://console.cloud.google.com/cloud-build/builds/{build_id}?project=airy-cycle-504821-k9", flush=True)
 
     def cancel(signum, _frame):
-        subprocess.run(["gcloud", "builds", "cancel", build_id, "--project=airy-cycle-504821-k9", "--quiet"], check=False)
         raise SystemExit(128 + signum)
 
     signal.signal(signal.SIGTERM, cancel)
     signal.signal(signal.SIGINT, cancel)
-    while result["status"] in ("QUEUED", "WORKING", "PENDING"):
-        time.sleep(10)
-        result = json.loads(gcloud("builds", "describe", build_id, "--project=airy-cycle-504821-k9"))
+    result = await_build(result)
     if result["status"] != "SUCCESS":
         raise RuntimeError(f"Release image build {build_id}: {result['status']}")
     expected = f"us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/proa-marketing:{tag}"

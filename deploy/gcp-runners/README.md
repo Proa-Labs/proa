@@ -133,27 +133,57 @@ Run `bash deploy/marketing/setup-gcp.sh` once with project administrator access.
 It creates a private release repository and separates compiler-cache writes,
 image writes, and image pulls across scoped identities. The existing trusted
 runner identity may submit builds as the release builder and mint short-lived
-registry read tokens as the Railway pull identity. No Google service-account
-key or public registry access is required. Configure a **production-scoped**
-Railway project token in the repository secret `RAILWAY_PRODUCTION_TOKEN`.
+registry read tokens as the scoped pull identity for validation. Those expiring
+tokens must not be persisted as Railway production pull credentials. Configure a
+**production-scoped** Railway project token in the repository secret
+`RAILWAY_PRODUCTION_TOKEN`.
 Private registry credentials require Railway Pro; the workspace was upgraded
 with the owner's consent during validation.
 The first CI cutover changes production to the image source and removes only
 its GitHub build trigger. The deployment must then pass Railway's health check
 before the job succeeds. Preview environments retain their source configuration.
 
-Registry pull credentials expire after one hour. Use the CI workflow's manual
-`workflow_dispatch` to redeploy, including after reverting a commit: it refreshes
-pull authorization before deploying. Avoid Railway's direct redeploy action,
-which cannot refresh an expired external registry token. Existing containers
-continue running independently of that token's expiry.
+**Merge/cutover blocker:** the former Artifact Registry pull credential expires
+after one hour. A later restart, host migration, dashboard rollback, or redeploy
+can require a fresh pull and fail. Railway documents this limitation for expiring
+registry tokens in its [private registry guide](https://docs.railway.com/guides/private-container-registry).
+Do not cut production over until it has durable, private-registry read credentials.
+This GCP organization blocks service-account keys; moving the runtime image to
+private GHCR with a package-read credential is the proposed replacement. The
+deployment script now refuses missing registry credentials and the expiring
+`oauth2accesstoken` scheme before staging a source. Durable credentials must be
+configured in `RAILWAY_REGISTRY_USERNAME` / `RAILWAY_REGISTRY_PASSWORD` GitHub
+Actions secrets after choosing the replacement registry. Compiler caches and
+build reports can remain in private GCS.
+
+Manual `workflow_dispatch` currently repeats the complete native compilation,
+image packaging, HTTP and Playwright checks, and normal CI gate before deploying.
+It is **not** a credential-only refresh or a fast rollback. Reverting on `main`
+and dispatching runs that same full pipeline. There
+is currently no supported production image deployment path until durable pull
+credentials are configured; dispatch cannot bypass this blocker.
+
+The image packages the full Git commit in `PROA_BUILD_REVISION`; image smoke
+checks and the final public `/readyz` probe must return that exact revision in
+`x-proa-revision`, in addition to Railway's digest check.
+
+Main CI runs serialize so a newer push cannot cancel a source cutover between
+staging and deployment. The current-main check rejects superseded queued runs.
+If a staging API call fails or the job receives SIGTERM/SIGINT before requesting
+deployment, the script restores the previous source/config-file selection while
+leaving a source changed by another operator alone. Trigger deletion happens
+after deployment is requested. SIGKILL, runner loss, and an unavailable Railway
+API can prevent cleanup: inspect the service's staged source and restore its
+previous selection before any dashboard deploy; then revert/dispatch through CI.
 
 The cache archive includes the content-stable source tree, Cargo registry, CLI,
 descriptor artifacts, and final artifacts. It is restored into the same paths
 on fresh workers; this preserves Cargo's timestamp and Proa's identity checks.
 A missing archive starts a cold build. Never share this bucket or identity with
 PR runners. To invalidate incompatible caches, change `_CACHE` in the build
-configuration. The cloud build is cancelled when its CI job receives SIGTERM.
+configuration. The cloud build is cancelled when its CI job receives SIGTERM or
+polling exits without a terminal result; transient polling errors get three
+attempts before cancellation.
 
 To reproduce compilation and runtime measurements:
 
