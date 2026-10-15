@@ -138,8 +138,9 @@ key or public registry access is required. Configure a **production-scoped**
 Railway project token in the repository secret `RAILWAY_PRODUCTION_TOKEN`.
 Private registry credentials require Railway Pro; the workspace was upgraded
 with the owner's consent during validation.
-The first successful image deployment disconnects only production's GitHub
-build trigger; preview environments retain their source configuration.
+The first CI cutover changes production to the image source and removes only
+its GitHub build trigger. The deployment must then pass Railway's health check
+before the job succeeds. Preview environments retain their source configuration.
 
 Registry pull credentials expire after one hour. Use the CI workflow's manual
 `workflow_dispatch` to redeploy, including after reverting a commit: it refreshes
@@ -169,6 +170,8 @@ original profile's assertion configuration; final compilation keeps
 the selected application profile. The CLI itself uses `release-fast` because
 its own executable is a build tool rather than a published render benchmark.
 Reports are stored under the build ID in the private marketing cache bucket.
+CPU time and peak RSS describe each timed build stage; descriptor and final
+elapsed times come from Cargo's completion lines.
 Successful benchmark builds also retain their binaries and packaged assets for
 controlled runtime comparisons. Record worker CPU models alongside timings:
 native Cloud Build workers of the same machine class can still vary.
@@ -178,3 +181,79 @@ Download reports and compare complete results with:
 ```sh
 python3 deploy/marketing/report.py path/to/cgu1-thin path/to/cgu16-thin
 ```
+
+Compare retained binaries on the same native Linux worker before selecting a
+runtime profile. The comparison alternates execution order over three rounds,
+with 100 warmups and 1,000 timed SSR samples per page in each round:
+
+```sh
+chmod +x artifacts/cgu1-thin/proa_marketing artifacts/cgu16-thin/proa_marketing
+python3 deploy/marketing/runtime_compare.py \
+  artifacts/cgu1-thin/proa_marketing artifacts/cgu16-thin/proa_marketing \
+  artifacts/cgu16-thin runtime-comparison
+```
+
+### Native measurements, 2026-10-15
+
+The initial profile sweep used native `E2_HIGHCPU_8` workers, Rust 1.95.0,
+application optimization level 3, and descriptor policy 5. Times below include
+CSS generation, source reconciliation, CLI compilation, and the linked build;
+they exclude worker setup, cache transfer, image packaging, and rollout.
+
+| Codegen units | LTO | Cold | No-op | One href edit |
+|---|---|---:|---:|---:|
+| 1 | thin | 14m38s | 14.6s | 11m14s |
+| 8 | thin | 14m57s | 29.1s | 8m46s |
+| 16 | thin | 10m35s | 17.2s | 6m26s |
+| 16 | false (local ThinLTO) | 13m00s | 24.2s | 7m15s |
+| 16 | off | 7m22s | 9.3s | 3m33s |
+
+Workers varied substantially. This sweep identifies candidates, and does not
+establish render-performance equivalence across profiles. Build IDs, in the
+table's row order: `346c5683-aa8e-4737-9811-8ae35be865ab`,
+`8e00c1e1-a61d-407f-b2c4-b6e9ebf9d05e`,
+`59d7e8eb-56c3-4482-aac1-c044c1f2ad96`,
+`7e54010e-8179-4d2d-ac6c-e7b942c4fe54`, and
+`314232a6-b974-44db-9fad-a086d410b27b`.
+
+The reviewed descriptor policy 6 preserves the original assertion cfg. Its
+CGU16/ThinLTO cold build took **9m50s** on an AMD EPYC 7B12 worker. A new worker
+restored the full archive and rebuilt one authored href in **5m22s**, reusing
+309/310 descriptor artifacts and 306/310 final artifacts; the CLI took 1.3s.
+Those four final rebuilds remain the existing global RSJS invalidation behavior.
+Cold build: `851e3fda-909f-45d5-9535-17bcc1ff7801`; fresh-worker build:
+`f42e19aa-2a3c-4a0b-b308-d429282a6dde`.
+The descriptor phase fell from 8m41s to 1m06s; final optimized compilation was
+6m32s before and 6m39s after. The earlier whole-build baseline took 17m16s
+(`e4c190b5-70fe-403d-adb0-59fc84173243`).
+
+That CGU16 image was deployed by its exact digest to an isolated Railway
+environment in **15.4s**. Public HTTP checks covered health, four routes,
+16 browser assets, and Proa/Node/Bun rendering. Browser checks exercised homepage
+mouse/keyboard tab navigation and ESPN panel hydration. Production switches to
+this release path only after the PR is merged and main's validation gate passes.
+
+The final policy-6 runtime comparison put the exact CGU16 binary from build
+`851e3fda-909f-45d5-9535-17bcc1ff7801` and a freshly compiled CGU1 binary on
+one Intel Xeon 2.20GHz worker. Three rounds alternated execution order, with 1,000 measured samples
+per page per binary per round. Median render times across rounds were:
+
+| Workload | CGU1, microseconds | CGU16, microseconds |
+|---|---:|---:|
+| eBay SRP | 339.027 | 323.402 |
+| Nike catalog | 56.105 | 55.183 |
+| Nike PDP | 10.392 | 10.314 |
+| ESPN gamecast | 23.494 | 22.815 |
+| GitHub PR diff | 70.493 | 70.357 |
+
+CGU16 matched or improved median rendering on all five workloads in this
+comparison. CI therefore uses **optimization level 3, CGU16, and full ThinLTO**;
+the workspace's release defaults for other commands remain unchanged. Separate
+workers' SSR deltas did not reproduce in this controlled comparison. Comparison
+build: `fe700146-5b34-429e-8084-b116b2c9491e`; raw rounds and binary checksums are
+under its `report/control` directory in the private cache bucket.
+
+The five-minute warm compilation target remains unmet: the measured fresh-worker
+edit took 5m22s, and overall commit-to-production latency also includes the
+existing CI validation gate. Narrowing global RSJS invalidation is separate
+work; this change deliberately preserves the existing unit-map/plan witnesses.

@@ -77,7 +77,7 @@ if __name__ == "__main__":
     original = incoming / "proa_marketing/src/pages/home.rs"
     contents = original.read_bytes()
     old = b"https://youtu.be/-CfCyvIKYyo?si=l1-0A5BsuLU2Bc9T"
-    # Exactly the authored href changes, not the copy-pinning test below it.
+    # Change exactly one authored href, keeping the rest of the page intact.
     changed = contents.replace(old, old + b"&release-benchmark=1", 1)
     if changed == contents:
         raise RuntimeError("benchmark input link moved; choose a real authored content change")

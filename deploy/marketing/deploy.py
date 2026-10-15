@@ -31,6 +31,19 @@ def deploy(image, service, environment):
     if not re.fullmatch(r"us-west1-docker\.pkg\.dev/airy-cycle-504821-k9/releases/proa-marketing@sha256:[0-9a-f]{64}", image):
         raise ValueError("Deploy requires a complete digest from the marketing release repository")
     variables = {"service": service, "environment": environment}
+    # Image sources do not need GitHub build triggers. Remove only the
+    # selected environment's main trigger, leaving PR environments intact.
+    trigger_query = """query($project:String!,$service:String!,$environment:String!) {
+        deploymentTriggers(projectId:$project,serviceId:$service,environmentId:$environment,first:100) {
+            edges { node { id repository branch environmentId } }
+        }
+    }"""
+    trigger_variables = variables | {"project": "36d8b540-8f29-4abf-befa-6f3f80646be7"}
+    triggers = api(trigger_query, trigger_variables)["deploymentTriggers"]
+    selected_triggers = [edge["node"] for edge in triggers["edges"]]
+    for trigger in selected_triggers:
+        if trigger["environmentId"] != environment or trigger["repository"] != "Proa-Labs/proa" or trigger["branch"] != "main":
+            raise RuntimeError("Unexpected Railway trigger; refusing to remove it")
     registry_token = subprocess.check_output([
         "gcloud", "auth", "print-access-token", "--impersonate-service-account",
         "proa-railway-pull@airy-cycle-504821-k9.iam.gserviceaccount.com", "--quiet",
@@ -50,18 +63,13 @@ def deploy(image, service, environment):
     }""", variables)["serviceInstance"]
     if instance["source"]["image"] != image or instance["source"].get("repo"):
         raise RuntimeError("Railway did not apply the requested image source")
-    # Image sources do not need GitHub build triggers. Remove only the
-    # selected environment's main trigger, leaving PR environments intact.
-    triggers = api("""query($project:String!,$service:String!,$environment:String!) {
-        deploymentTriggers(projectId:$project,serviceId:$service,environmentId:$environment,first:100) {
-            edges { node { id repository branch environmentId } }
-        }
-    }""", variables | {"project": "36d8b540-8f29-4abf-befa-6f3f80646be7"})["deploymentTriggers"]
-    for edge in triggers["edges"]:
-        trigger = edge["node"]
-        if trigger["environmentId"] != environment or trigger["repository"] != "Proa-Labs/proa" or trigger["branch"] != "main":
-            raise RuntimeError("Unexpected Railway trigger; refusing to remove it")
-        api("mutation($id:String!){deploymentTriggerDelete(id:$id)}", {"id": trigger["id"]})
+    # Refresh after the source update so already-removed triggers are harmless.
+    remaining = api(trigger_query, trigger_variables)["deploymentTriggers"]
+    remaining_ids = {edge["node"]["id"] for edge in remaining["edges"]}
+    if not remaining_ids.issubset({trigger["id"] for trigger in selected_triggers}):
+        raise RuntimeError("Railway triggers changed during cutover; refusing to remove them")
+    for trigger_id in sorted(remaining_ids):
+        api("mutation($id:String!){deploymentTriggerDelete(id:$id)}", {"id": trigger_id})
     deployment = api("""mutation($service:String!,$environment:String!) {
         serviceInstanceDeployV2(serviceId:$service,environmentId:$environment)
     }""", variables)["serviceInstanceDeployV2"]

@@ -55,16 +55,16 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@01af06c41d9aa0790d6fdc8f0b982b768ca4d102
+        with:
+          project_id: airy-cycle-504821-k9
       - name: Reject a superseded revision
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
           test "$current" = "$GITHUB_SHA"
-      - name: Install Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@01af06c41d9aa0790d6fdc8f0b982b768ca4d102
-        with:
-          project_id: airy-cycle-504821-k9
       - name: Deploy the exact image that passed validation
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_TOKEN }}

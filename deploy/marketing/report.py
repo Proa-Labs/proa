@@ -25,8 +25,18 @@ def summarize(directory):
             phases.append(round(int(minutes or 0) * 60 + float(seconds), 3))
         if len(phases) != 2:
             raise ValueError(f"{directory}: expected completed descriptor and final phases for {label}")
+        reuse = re.search(r"descriptor (\d+)/(\d+) Cargo artifacts reused; final (\d+)/(\d+) reused", log)
+        if reuse is None:
+            raise ValueError(f"{directory}: missing artifact reuse report for {label}")
+        resources = dict(line.strip().split(": ", 1) for line in
+                         (directory / f"{label}-linked.resources").read_text().splitlines() if ": " in line)
         builds[label] = {"seconds": round(sum(stage["seconds"] for stage in selected), 3),
-                         "descriptor_seconds": phases[0], "final_seconds": phases[1]}
+                         "descriptor_seconds": phases[0], "final_seconds": phases[1],
+                         "descriptor_reuse": f"{reuse[1]}/{reuse[2]}",
+                         "final_reuse": f"{reuse[3]}/{reuse[4]}",
+                         "peak_rss_mib": round(float(resources["Maximum resident set size (kbytes)"]) / 1024, 1),
+                         "cpu_seconds": round(float(resources["User time (seconds)"])
+                                              + float(resources["System time (seconds)"]), 3)}
     return {"directory": str(directory), "builds": builds,
             "artifact": json.loads((directory / "link-change-build.json").read_text()),
             "runtime": json.loads((directory / "runtime.json").read_text())}
