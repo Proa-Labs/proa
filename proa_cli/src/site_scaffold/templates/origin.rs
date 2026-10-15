@@ -474,7 +474,7 @@ fn env_example(ident: &str) -> String {
     )
 }
 
-// proa-perf-ok(scope): scaffold generation assembles README Markdown, not response HTML.
+// proa-perf-ok(scope): scaffolding writes a Markdown file with trusted HTML framing, outside request rendering
 fn readme(package: &str, title: &str) -> String {
     format!(
         r#"<div align="center">

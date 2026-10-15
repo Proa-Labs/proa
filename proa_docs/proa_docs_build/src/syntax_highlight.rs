@@ -273,6 +273,7 @@ pub(crate) fn highlight_lines(
     Ok(Some(lines))
 }
 
+// proa-perf-ok(scope): build-time syntax framing uses trusted spans and escapes source fragments
 fn emit_highlighted_line(
     body: &str,
     styled_regions: &[StyledRegion],

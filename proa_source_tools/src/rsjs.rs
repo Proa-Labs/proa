@@ -1499,6 +1499,7 @@ fn strategy_dead_primitive_anchor(
     }
 }
 
+// proa-perf-ok(scope): terminal strategy diagnostics format plain text outside the render path
 fn server_surface_detail(surface: &ServerSurfaceSidecar) -> String {
     let reason = surface
         .reason
@@ -1557,6 +1558,7 @@ fn client_crossing_detail(crossing: &ClientCrossingSidecar) -> String {
     client_crossing_summary_detail(&strategy_client_crossing_summary(crossing))
 }
 
+// proa-perf-ok(scope): terminal strategy diagnostics format plain text outside the render path
 pub(crate) fn client_crossing_summary_detail(crossing: &StrategyClientCrossingSummary) -> String {
     let label = crossing.label.as_deref().unwrap_or("<unlabeled>");
     let surface = crossing.surface.as_deref().unwrap_or("browser_state");
@@ -1635,6 +1637,7 @@ fn server_surface_source_label(source: &str) -> &'static str {
     }
 }
 
+// proa-perf-ok(scope): terminal strategy diagnostics format plain text outside the render path
 fn root_detail(root: &StrategyRoot) -> String {
     match root.kind.as_str() {
         "text_binding" => format_node("text binding", root.node),

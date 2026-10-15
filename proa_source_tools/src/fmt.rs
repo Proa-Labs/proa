@@ -770,6 +770,7 @@ fn node_has_noncanonical_expression_layout(
     }
 }
 
+// proa-perf-ok(scope): the formatter emits template source at build time, outside the SSR render path
 fn format_node(
     out: &mut String,
     source: &SourceMap<'_>,
@@ -803,6 +804,7 @@ fn format_node(
     }
 }
 
+// proa-perf-ok(scope): the formatter emits template source at build time, outside the SSR render path
 fn format_fragment(
     out: &mut String,
     source: &SourceMap<'_>,
@@ -833,6 +835,7 @@ fn format_fragment(
     out.push_str("</>");
 }
 
+// proa-perf-ok(scope): the formatter emits template source at build time, outside the SSR render path
 fn format_element(
     out: &mut String,
     source: &SourceMap<'_>,
@@ -902,6 +905,7 @@ fn format_element(
     out.push('>');
 }
 
+// proa-perf-ok(scope): the formatter emits template source at build time, outside the SSR render path
 fn format_element_with_multiline_attrs(
     out: &mut String,
     source: &SourceMap<'_>,

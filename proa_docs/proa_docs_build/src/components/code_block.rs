@@ -105,6 +105,7 @@ impl<'a> CodeBlock<'a> {
         html.push_str("</code></pre></div>");
     }
 
+    // proa-perf-ok(scope): build-time Mermaid framing is trusted HTML; source code is escaped before insertion
     fn emit_mermaid(&self, html: &mut String) {
         html.push_str("<figure data-proa-docs-mermaid><pre data-proa-docs-mermaid-source hidden>");
         escape_text(self.code, html);
