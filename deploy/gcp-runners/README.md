@@ -113,3 +113,56 @@ Three stacked faults, in causal order:
 3. **Scale-set name reuse** after uninstall-while-jobs-queued leaves
    orphaned assignments; the fleet label is now `gcp-ci` and CI_RUNNER
    points at it.
+
+
+## Marketing release images
+
+`ci.yml` builds the marketing release image in parallel with validation, then
+passes the immutable image digest to Railway only after the CI gate succeeds.
+The `release-image` and `deploy-release` jobs run only on trusted `main` events.
+PR jobs cannot access the release builder, its cache, or the Railway credential.
+
+The runner has no Docker daemon. It submits `deploy/marketing/cloudbuild.yaml`
+to native x86-64 Cloud Build workers. The build retains the existing linked Proa
+pipeline and produces the same binary, static assets, and Node/Bun companions.
+`BUILD_ARTIFACTS=prebuilt` skips the Rust Docker stage during packaging. Image
+checks exercise HTTP routes, asset delivery, companions, and browser hydration
+before the image is published.
+
+Run `bash deploy/marketing/setup-gcp.sh` once with project administrator access.
+It creates a private release repository and separates compiler-cache writes,
+image writes, and image pulls across scoped identities. The existing trusted
+runner identity may submit builds as the release builder and mint short-lived
+registry read tokens as the Railway pull identity. No Google service-account
+key or public registry access is required. Configure a **production-scoped**
+Railway project token in the repository secret `RAILWAY_PRODUCTION_TOKEN`.
+The first successful image deployment disconnects only production's GitHub
+build trigger; preview environments retain their source configuration.
+
+Registry pull credentials expire after one hour. Use the CI workflow's manual
+`workflow_dispatch` to redeploy, including after reverting a commit: it refreshes
+pull authorization before deploying. Avoid Railway's direct redeploy action,
+which cannot refresh an expired external registry token. Existing containers
+continue running independently of that token's expiry.
+
+The cache archive includes the content-stable source tree, Cargo registry, CLI,
+descriptor artifacts, and final artifacts. It is restored into the same paths
+on fresh workers; this preserves Cargo's timestamp and Proa's identity checks.
+A missing archive starts a cold build. Never share this bucket or identity with
+PR runners. To invalidate incompatible caches, change `_CACHE` in the build
+configuration. The cloud build is cancelled when its CI job receives SIGTERM.
+
+To reproduce compilation and runtime measurements:
+
+```sh
+gcloud builds submit --config deploy/marketing/benchmark.yaml --async .
+```
+
+This runs cold, unchanged, and one-link-change builds for each codegen/LTO
+configuration, with the application always at optimization level 3. Reports
+include elapsed time, peak RSS and CPU, Cargo timing HTML, fingerprint logs,
+binary sizes/checksums, and 1,000 SSR samples per showcase page. The descriptor
+pass emits compiler transport at optimization level 0; final compilation keeps
+the selected application profile. The CLI itself uses `release-fast` because
+its own executable is a build tool rather than a published render benchmark.
+Reports are stored under the build ID in the private marketing cache bucket.

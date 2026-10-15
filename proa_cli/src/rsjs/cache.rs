@@ -1451,7 +1451,8 @@ fn validate_cached_sidecar_semantics(
         })?;
     }
     let codegen = &sidecar.descriptor_codegen;
-    if codegen.codegen_units != 1
+    if codegen.opt_level != 0
+        || codegen.codegen_units != 1
         || codegen.incremental
         || !codegen.link_dead_code
         || codegen.lto != "off"

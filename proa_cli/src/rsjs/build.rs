@@ -42,7 +42,7 @@ pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 6;
 /// This is deliberately independent of sidecar schema: bump it whenever a
 /// previous target may contain wrapper/proc-macro artifacts that must never
 /// participate in current build identity.
-pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 4;
+pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 5;
 /// Explicit host-local staging directory for descriptor objects and sidecars.
 pub const DESCRIPTOR_STAGING_DIR_ENV: &str = "PROA_RSJS_DESCRIPTOR_STAGING_DIR";
 /// Exact runner-owned Cargo target directory for descriptor compilation.
@@ -76,7 +76,7 @@ pub const FINAL_CARGO_UNIT_STATUS_UNMAPPED: &str = "unmapped-v1";
 /// Marks rustc as running the descriptor phase rather than final compilation.
 pub const DESCRIPTOR_PHASE_ENV: &str = "RSJS_DESCRIPTOR_PHASE";
 /// Schema version of [`DescriptorUnitSidecar`].
-pub const DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION: u16 = 10;
+pub const DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION: u16 = 11;
 /// Schema version of [`FinalUnitMap`].
 pub const FINAL_UNIT_MAP_SCHEMA_VERSION: u16 = 7;
 const FINAL_UNIT_MAP_FORMAT: &str = "proa.rsjs.final_unit_map";
@@ -100,7 +100,8 @@ const LOGICAL_ENVIRONMENT_HASH_DOMAIN: &[u8] = b"proa.rsjs.logical-environment.v
 const REALIZED_ENVIRONMENT_HASH_DOMAIN: &[u8] = b"proa.rsjs.realized-rustc-environment.v1";
 pub(crate) const DESCRIPTOR_OBJECT_HASH_DOMAIN: &[u8] = b"proa.rsjs.descriptor-object.v1";
 const LINK_ARTIFACT_HASH_DOMAIN: &[u8] = b"proa.rsjs.link-artifact.v1";
-const DESCRIPTOR_CODEGEN_POLICY: [&str; 4] = [
+const DESCRIPTOR_CODEGEN_POLICY: [&str; 5] = [
+    "opt-level=0",
     "codegen-units=1",
     "incremental=disabled",
     "link-dead-code=yes",
@@ -357,6 +358,7 @@ where
         environment_dependencies: observed.environment_dependencies,
         realized_environment_hash: hex_digest(&realized_environment_hash(&environment)),
         descriptor_codegen: DescriptorCodegenSidecar {
+            opt_level: 0,
             codegen_units: 1,
             incremental: false,
             link_dead_code: true,
@@ -1451,12 +1453,14 @@ fn descriptor_rustc_args(
                 .get(index + 1)
                 .and_then(|value| value.to_str())
                 .ok_or(WrapperError::MissingRustcOptionValue("-C"))?;
-            if descriptor_codegen_option(split_key_value(value).0) {
+            let key = split_key_value(value).0;
+            if key == "opt-level" || descriptor_codegen_option(key) {
                 index += 2;
                 continue;
             }
         } else if let Some(value) = argument.strip_prefix("-C") {
-            if !value.is_empty() && descriptor_codegen_option(split_key_value(value).0) {
+            let key = split_key_value(value).0;
+            if !value.is_empty() && (key == "opt-level" || descriptor_codegen_option(key)) {
                 index += 1;
                 continue;
             }
@@ -1486,6 +1490,10 @@ fn descriptor_rustc_args(
     }
 
     result.extend([
+        // This artifact is inspected for descriptors, never served. Preserve
+        // the original profile in the unit coordinate so the final pass still
+        // matches it and honors the application's chosen optimization level.
+        OsString::from("-Copt-level=0"),
         OsString::from("-Ccodegen-units=1"),
         OsString::from("-Clink-dead-code=yes"),
         OsString::from("-Clto=off"),
@@ -3307,6 +3315,8 @@ pub struct DescriptorEnvironmentDependency {
 /// Descriptor-only rustc policy recorded beside each exact unit object.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DescriptorCodegenSidecar {
+    /// Descriptor objects are compiler transport, not runtime artifacts.
+    pub opt_level: u8,
     /// Descriptor pass always emits one object from one codegen unit.
     pub codegen_units: u32,
     /// Incremental object production is disabled.
@@ -4119,6 +4129,7 @@ fn load_descriptor_unit_sidecars_with_object_validation(
     }
 
     let expected_codegen = DescriptorCodegenSidecar {
+        opt_level: 0,
         codegen_units: 1,
         incremental: false,
         link_dead_code: true,

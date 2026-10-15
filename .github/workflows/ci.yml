@@ -24,6 +24,55 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  release-image:
+    name: Build release image
+    # This workflow reference is the one permitted on the trusted runner
+    # group. PR code never gets its Cloud Build identity or production cache.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ${{ vars.CI_RUNNER }}
+    timeout-minutes: 65
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@01af06c41d9aa0790d6fdc8f0b982b768ca4d102
+        with:
+          project_id: airy-cycle-504821-k9
+      - name: Compile and verify the release image
+        id: build
+        run: python3 deploy/marketing/submit.py
+
+  deploy-release:
+    name: Deploy verified image to Railway
+    needs: [ci, release-image]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ${{ vars.CI_RUNNER }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Reject a superseded revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$current" = "$GITHUB_SHA"
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@01af06c41d9aa0790d6fdc8f0b982b768ca4d102
+        with:
+          project_id: airy-cycle-504821-k9
+      - name: Deploy the exact image that passed validation
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_TOKEN }}
+          RELEASE_IMAGE: ${{ needs.release-image.outputs.image }}
+          RAILWAY_SERVICE_ID: 8a6d0a70-bfd2-4e6e-bf87-048c563a7044
+          RAILWAY_ENVIRONMENT_ID: 9348508f-a2a4-48bb-b18b-803ccb33dd9a
+        run: python3 deploy/marketing/deploy.py
+
   workflow-lint:
     name: GitHub Actions syntax and shell safety
     # Hosted Actions are unavailable when the organization spending limit is

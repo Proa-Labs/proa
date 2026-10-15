@@ -132,6 +132,7 @@ fn cached_unit_fixture(
             environment_dependencies: vec![],
             realized_environment_hash: "45".repeat(32),
             descriptor_codegen: DescriptorCodegenSidecar {
+                opt_level: 0,
                 codegen_units: 1,
                 incremental: false,
                 link_dead_code: true,

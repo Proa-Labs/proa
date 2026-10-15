@@ -135,3 +135,4 @@ drizzle/meta/
 
 # Local-only working directories: machine state, private notes, scratch.
 .local/
+/release-artifacts/

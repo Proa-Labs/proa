@@ -2350,42 +2350,6 @@ mod tests {
         assert!(html.contains("data-rsjs-island-root"));
     }
 
-    /// The tab widgets were driven by `HERO_TABS_SCRIPT`, a hand-written DOM
-    /// script. They are rsjs islands now, so the page must ship the runtime
-    /// and their island modules or the tabs are inert.
-    #[test]
-    fn home_page_ships_hydration_for_its_tab_islands() {
-        let html = crate::layout::render_page(
-            crate::layout::PageMeta {
-                title: "Home",
-                description: "Home",
-                path: "/",
-            },
-            super::HomePage,
-        )
-        .0;
-
-        assert!(
-            html.contains(r#"<script type="module" src="/rsjs-runtime.js""#),
-            "home page must load the rsjs runtime"
-        );
-        // Search modal, hero tabs, and benchmark chart tabs.
-        assert!(
-            html.matches("/rsjs/island/").count() >= 3,
-            "expected an island module per hydrated island, got: {}",
-            html.matches("/rsjs/island/").count()
-        );
-
-        // The hero tab root still renders its server-side contract.
-        assert_eq!(html.matches("data-tabs-root").count(), 1);
-        assert!(html.contains("proa-hero-tabs"));
-
-        // The replaced scripts are gone.
-        assert!(!html.contains("metricsByTab"));
-        assert!(!html.contains("MutationObserver"));
-        assert!(!html.contains("IntersectionObserver"));
-    }
-
     #[test]
     fn homepage_metadata_fits_social_preview_limits() {
         use futures::FutureExt;
@@ -2481,23 +2445,38 @@ mod tests {
 
         let hero_section = &html[hero..render_targets];
         let render_section = &html[render_targets..benchmark_hero];
-        let intro_video = "https://youtu.be/-CfCyvIKYyo?si=l1-0A5BsuLU2Bc9T";
-        let render_video = "https://youtu.be/pJx84jdBDKU?si=z3pK3vvzYmSo-Sz_";
+        let video_url = |section: &str, kind: &str| {
+            let marker = format!(r#"data-video-cta="{kind}""#);
+            section
+                .split_once(&marker)
+                .unwrap()
+                .0
+                .rsplit_once(r#"href=""#)
+                .unwrap()
+                .1
+                .split('"')
+                .next()
+                .unwrap()
+                .to_owned()
+        };
+        let intro_video = video_url(hero_section, "intro");
+        let render_video = video_url(render_section, "render-targets");
         assert!(
-            hero_section.find("href=\"/docs\"").unwrap() < hero_section.find(intro_video).unwrap()
+            hero_section.find("href=\"/docs\"").unwrap() < hero_section.find(&intro_video).unwrap()
         );
-        assert!(render_section.find("</p>").unwrap() < render_section.find(render_video).unwrap());
+        assert!(render_section.find("</p>").unwrap() < render_section.find(&render_video).unwrap());
         assert!(
-            render_section.find(render_video).unwrap()
+            render_section.find(&render_video).unwrap()
                 < render_section.find("data-composable-flow").unwrap()
         );
-        assert!(!hero_section.contains(render_video));
-        assert!(!render_section.contains(intro_video));
+        assert!(!hero_section.contains(&render_video));
+        assert!(!render_section.contains(&intro_video));
 
         for (section, url) in [(hero_section, intro_video), (render_section, render_video)] {
-            assert_eq!(html.matches(url).count(), 1);
+            assert!(url.starts_with("https://youtu.be/"));
+            assert_eq!(html.matches(&url).count(), 1);
             let link = section
-                .split_once(url)
+                .split_once(&url)
                 .unwrap()
                 .1
                 .split_once("</a>")

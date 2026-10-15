@@ -5,6 +5,7 @@
 # Build from the repository root:
 #   docker build -f proa_marketing/Dockerfile .
 
+ARG BUILD_ARTIFACTS=builder
 FROM rust:1.95.0-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00db7aeb69f4b3d170c3e4082 AS builder
 
 ARG TARGETARCH
@@ -89,6 +90,14 @@ RUN --mount=type=cache,id=s/8a6d0a70-bfd2-4e6e-bf87-048c563a7044-/workspace/sour
     && cp -a proa_showcase/src/espn/data/images/. /out/static/images/ \
     && cp -a proa_showcase_web/public/. /out/showcase/
 
+# CI supplies the output of the exact same linked build. BuildKit omits the
+# Rust builder above when BUILD_ARTIFACTS=prebuilt; Railway pulls the resulting
+# runtime image by digest and never invokes Cargo.
+FROM scratch AS prebuilt
+COPY release-artifacts/ /out/
+
+FROM ${BUILD_ARTIFACTS} AS artifacts
+
 # ── SSR companions ──────────────────────────────────────────────────────────
 #
 # The playground renders Proa in-process and reaches every other engine over
@@ -166,9 +175,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY --from=builder /out/proa_marketing /usr/local/bin/proa_marketing
-COPY --from=builder /out/static /app/static
-COPY --from=builder /out/showcase /app/showcase
+COPY --from=artifacts /out/proa_marketing /usr/local/bin/proa_marketing
+COPY --from=artifacts /out/static /app/static
+COPY --from=artifacts /out/showcase /app/showcase
 
 # The two runtimes the Hono companion runs under. Same server, same install;
 # only the interpreter differs, which is the whole point of the Node vs Bun

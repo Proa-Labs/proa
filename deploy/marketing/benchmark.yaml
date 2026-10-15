@@ -1,0 +1,24 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+steps:
+  - name: rust:1.95.0-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00db7aeb69f4b3d170c3e4082
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        bash deploy/marketing/install-tools.sh
+        python3 deploy/marketing/benchmark.py --variants ${_VARIANTS}
+    volumes: [{name: release, path: /release}]
+  - name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args: [-ceu, "gcloud storage cp --recursive /release/report '${_REPORTS}/$BUILD_ID/'"]
+    volumes: [{name: release, path: /release}]
+timeout: 7200s
+options:
+  machineType: E2_HIGHCPU_8
+  diskSizeGb: 200
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _VARIANTS: '1:thin 16:thin 8:thin 16:off'
+  _REPORTS: gs://airy-cycle-504821-k9-marketing-cache/benchmarks

@@ -1,0 +1,13 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+.git
+.local
+.tools
+output
+release-artifacts
+**/target
+**/node_modules
+**/__pycache__
+.env
+.env.*
+*.log

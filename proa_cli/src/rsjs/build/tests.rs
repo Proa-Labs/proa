@@ -1415,6 +1415,7 @@ fn descriptor_codegen_replaces_incremental_lto_and_object_outputs() {
         "lto=fat".into(),
         "-Clinker-plugin-lto".into(),
         "-Ccodegen-units=16".into(),
+        "-Copt-level=3".into(),
         "/host/source.rs".into(),
     ];
     let rewritten = descriptor_rustc_args(&args, Path::new("/staging/objects/unit.o")).unwrap();
@@ -1426,6 +1427,8 @@ fn descriptor_codegen_replaces_incremental_lto_and_object_outputs() {
     assert!(rewritten.contains(&"--emit=metadata,link"));
     assert!(rewritten.contains(&"--emit=obj=/staging/objects/unit.o"));
     assert!(rewritten.contains(&"-Ccodegen-units=1"));
+    assert!(rewritten.contains(&"-Copt-level=0"));
+    assert!(!rewritten.contains(&"-Copt-level=3"));
     assert!(rewritten.contains(&"-Clto=off"));
     assert!(rewritten.contains(&"-Clink-dead-code=yes"));
     assert!(rewritten.contains(&"-Cstrip=none"));
@@ -1574,6 +1577,7 @@ fn manifest_unit_fixture(
             environment_dependencies: vec![],
             realized_environment_hash: "55".repeat(32),
             descriptor_codegen: DescriptorCodegenSidecar {
+                opt_level: 0,
                 codegen_units: 1,
                 incremental: false,
                 link_dead_code: true,
@@ -1842,6 +1846,7 @@ fn suffix_join_unit(
             environment_dependencies: vec![],
             realized_environment_hash: "55".repeat(32),
             descriptor_codegen: DescriptorCodegenSidecar {
+                opt_level: 0,
                 codegen_units: 1,
                 incremental: false,
                 link_dead_code: true,
