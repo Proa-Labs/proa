@@ -28,7 +28,6 @@ oxc_ast_visit = "0.75"
 oxc_parser = "0.75"
 oxc_semantic = "0.75"
 oxc_span = "0.75"
-chrono = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 hyper = { workspace = true }
@@ -57,14 +56,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt", "signal", "sync", "time"] }
 tokio-stream = { version = "0.1" }
 # `limit` for the builder's global concurrency cap, `util` for
 # `ServiceExt` in tests and combinators.
 tower = { workspace = true, features = ["limit", "util"] }
-# Workspace declaration enables `full`, which covers the `timeout`,
-# `catch-panic`, and `set-header` features the builder uses.
-tower-http = { workspace = true }
+# Enable only the middleware used by the builder; avoid unrelated codecs.
+tower-http = { workspace = true, features = ["catch-panic", "fs", "set-header", "timeout"] }
 tracing = { workspace = true }
 url = { version = "2.5" }
 

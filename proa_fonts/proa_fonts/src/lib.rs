@@ -5,7 +5,7 @@
 //!
 //! `proa_fonts` is the *runtime* half of Proa's font story. It defines a small
 //! set of `const`-constructible descriptor types ([`Font`], [`FontFace`]) and a
-//! zero-allocation `<head>` renderer ([`Font::head`]). The *build* half (asset
+//! zero-allocation `<head>` renderer (`Font::head`). The *build* half (asset
 //! fetching, content-hashing, fallback-metric computation, and code generation)
 //! lives in `proa_fonts_build`: a `build.rs` collector scans the crate for
 //! `google_font!` / `local_font!` declarations, vendors the files, and emits
@@ -50,14 +50,19 @@
 //! //   class={GEIST.variable()}     // sets `--font-geist` for your own CSS
 //! ```
 //!
-//! [`Font::head`] emits preload hints and a `<style>` block only; it never
+//! `Font::head` emits preload hints and a `<style>` block only; it never
 //! allocates and is generic over the output buffer, so it composes inside any
 //! `WebRenderSync` head. The stylesheet is developer-controlled generated
 //! content. Its static segments are preserved, with the request's base path
 //! inserted into known face URLs when the application is mounted under a prefix.
+//!
+//! The default `render` feature enables these rendering methods. Build scripts
+//! and proc macros can disable default features to use descriptors and request
+//! IDs without compiling the renderer.
 
 pub mod request;
 
+#[cfg(feature = "render")]
 use proa_core::{StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError};
 
 /// Web-served font container format. Proa prefers `Woff2` everywhere (it is the
@@ -283,6 +288,7 @@ impl Font {
     /// Font preloads are always fetched in CORS-anonymous mode, so the hint
     /// carries `crossorigin` even for same-origin files; omitting it would
     /// cause the browser to fetch the file twice.
+    #[cfg(feature = "render")]
     pub fn preload_links<B: WriteBuf>(
         &self,
         cx: &mut WebContext<impl proa_core::DataLoader, B>,
@@ -306,6 +312,7 @@ impl Font {
     /// Emit the `<style>` element carrying this font's generated stylesheet
     /// (real `@font-face` rules, the metric-matched fallback, and the utility
     /// classes).
+    #[cfg(feature = "render")]
     pub fn style<B: WriteBuf>(
         &self,
         cx: &mut WebContext<impl proa_core::DataLoader, B>,
@@ -348,6 +355,7 @@ impl Font {
     /// any `WebRenderSync` head builder.
     /// Both preload links and generated CSS face URLs follow the base path on
     /// `cx.request()`. Render with the page's context so each mount stays local.
+    #[cfg(feature = "render")]
     pub fn head<B: WriteBuf>(
         &self,
         cx: &mut WebContext<impl proa_core::DataLoader, B>,
@@ -360,6 +368,7 @@ impl Font {
 // Escape an unquoted CSS url() token, including '<' so a mount containing
 // '</style>' cannot terminate the enclosing HTML raw-text element. CSS hex
 // escapes decode to the original URL before the browser resolves it.
+#[cfg(feature = "render")]
 fn write_css_url_prefix<B: WriteBuf>(out: &mut B, prefix: &str) -> Result<(), WriteError> {
     let mut start = 0;
     for (index, byte) in prefix.bytes().enumerate() {
@@ -381,9 +390,10 @@ fn write_css_url_prefix<B: WriteBuf>(out: &mut B, prefix: &str) -> Result<(), Wr
     out.extend(prefix[start..].as_bytes())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "render"))]
 mod tests {
     use super::*;
+    #[cfg(feature = "render")]
     use proa_core::{RenderBuffer, WebContext};
 
     /// A structurally realistic fixture standing in for a generated module: two

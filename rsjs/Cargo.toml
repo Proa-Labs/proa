@@ -39,7 +39,7 @@ sha2 = { workspace = true }
 # attribute end-to-end (the macro emits `::proa_core::...` paths).
 proa_core = { workspace = true }
 proa_macros = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
 
 [lints]
 workspace = true

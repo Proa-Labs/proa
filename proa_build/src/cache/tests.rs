@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use crate::rsjs::build::{
+use crate::build::{
     CargoArtifactTarget, DescriptorCodegenSidecar, DescriptorDependencyArtifact,
     DescriptorUnitSidecar, DESCRIPTOR_STAGING_MARKER_BYTES, DESCRIPTOR_STAGING_MARKER_FILE,
     DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION,

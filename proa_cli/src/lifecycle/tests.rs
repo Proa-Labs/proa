@@ -856,7 +856,7 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
     let first =
         prepare_linked_cargo_with_wrapper(&root, &command, LinkedCargoAction::Dev, wrapper.clone())
             .unwrap();
-    crate::rsjs::pipeline::validate_request(&first.request).unwrap();
+    crate::rsjs::pipeline::validate_linked_cargo_request(&first.request).unwrap();
     fs::write(
         temp.path().join("src/main.rs"),
         "fn main() { println!(\"changed\"); }\n",
@@ -935,7 +935,7 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
         wrapper.clone(),
     )
     .unwrap();
-    crate::rsjs::pipeline::validate_request(&linked_run.request).unwrap();
+    crate::rsjs::pipeline::validate_linked_cargo_request(&linked_run.request).unwrap();
     assert_eq!(first.request.invocation, linked_run.request.invocation);
     assert_eq!(
         first.descriptor_cache_directory,
@@ -970,7 +970,7 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
         wrapper,
     )
     .unwrap();
-    crate::rsjs::pipeline::validate_request(&linked_test.request).unwrap();
+    crate::rsjs::pipeline::validate_linked_cargo_request(&linked_test.request).unwrap();
     assert_ne!(first.request.invocation, linked_test.request.invocation);
     assert_ne!(
         first.descriptor_cache_directory,

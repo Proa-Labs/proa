@@ -1,0 +1,35 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_source_tools"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Source formatting, linting, and inspection engines for Proa"
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+pathdiff = "0.2"
+proa_dsl = { workspace = true }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+pulldown-cmark = { workspace = true }
+quote = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+similar = { workspace = true }
+syn = { workspace = true, features = ["full", "visit"] }
+unicode-width = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

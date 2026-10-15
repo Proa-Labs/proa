@@ -8,7 +8,9 @@ use crate::abi::{HELPER_CODEGEN_IR_JSON_HASH_DOMAIN, HELPER_SIGNATURE_JSON_HASH_
 use serde::Serialize;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 const PLAN_FORMAT: &str = "proa.rsjs.semantic_link_plan";
 const PLAN_SCHEMA_VERSION: u64 = 15;
@@ -1217,15 +1219,20 @@ pub fn validate_helper_plan_bytes(
     bytes: &[u8],
 ) -> Result<FinalPlanSelection, String> {
     let expected_plan_id = hex_id(&plan_id);
-    let value = validate_plan_header(bytes, &expected_plan_id)?;
-    let root = object(&value, "final RSJS plan")?;
-    let helpers = parse_helpers(root)?;
-    parse_helper_codegen(root, &helpers)?;
+    let helpers = HELPER_PLAN_CACHE.with(|cache| {
+        cache.borrow_mut().get_or_parse(plan_id, bytes, || {
+            let value = validate_plan_header(bytes, &expected_plan_id)?;
+            let root = object(&value, "final RSJS plan")?;
+            let helpers = parse_helpers(root)?;
+            parse_helper_codegen(root, &helpers)?;
+            Ok(helpers.into_keys().collect())
+        })
+    })?;
     let expected_definition = DefinitionId {
         cargo_unit_id,
         record_id,
     };
-    if helpers.contains_key(&expected_definition) {
+    if helpers.contains(&expected_definition) {
         Ok(FinalPlanSelection {
             plan_id,
             dependency_id: plan_id,
@@ -1373,14 +1380,54 @@ enum StandaloneRootDispositionRecord {
     ContextRequired,
 }
 
+// Retain only the last exact plan per thread. Macro callers still freshly
+// read and verify the full plan and unit projection on every expansion.
+struct ExactPlanCache<T> {
+    entry: Option<([u8; 32], Vec<u8>, Rc<T>)>,
+}
+
+impl<T> ExactPlanCache<T> {
+    const fn new() -> Self {
+        Self { entry: None }
+    }
+
+    fn get_or_parse(
+        &mut self,
+        plan_id: [u8; 32],
+        bytes: &[u8],
+        parse: impl FnOnce() -> Result<T, String>,
+    ) -> Result<Rc<T>, String> {
+        if let Some((cached_id, cached_bytes, value)) = &self.entry {
+            if *cached_id == plan_id && cached_bytes == bytes {
+                return Ok(Rc::clone(value));
+            }
+        }
+        let value = Rc::new(parse()?);
+        self.entry = Some((plan_id, bytes.to_vec(), Rc::clone(&value)));
+        Ok(value)
+    }
+}
+
+thread_local! {
+    static COMPONENT_PLAN_CACHE: RefCell<ExactPlanCache<ValidatedComponentPlan>> =
+        const { RefCell::new(ExactPlanCache::new()) };
+    static HELPER_PLAN_CACHE: RefCell<ExactPlanCache<BTreeSet<DefinitionId>>> =
+        const { RefCell::new(ExactPlanCache::new()) };
+}
+
 pub fn validate_component_plan_bytes(
     cargo_unit_id: [u8; 32],
     record_id: [u8; 32],
     plan_id: [u8; 32],
     bytes: &[u8],
 ) -> Result<FinalComponentSelection, String> {
-    let value = validate_plan_header(bytes, &hex_id(&plan_id))?;
-    ValidatedComponentPlan::from_value(plan_id, &value)?.select(DefinitionId {
+    let parsed = COMPONENT_PLAN_CACHE.with(|cache| {
+        cache.borrow_mut().get_or_parse(plan_id, bytes, || {
+            let value = validate_plan_header(bytes, &hex_id(&plan_id))?;
+            ValidatedComponentPlan::from_value(plan_id, &value)
+        })
+    })?;
+    parsed.select(DefinitionId {
         cargo_unit_id,
         record_id,
     })
@@ -4072,6 +4119,57 @@ fn member_seed_key(site_id: [u8; 32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_plan_cache_reuses_validation_and_invalidates_bytes_and_identity() {
+        let mut cache = super::ExactPlanCache::new();
+        let first = cache.get_or_parse([1; 32], b"plan-a", || Ok(10)).unwrap();
+        let hit = cache
+            .get_or_parse([1; 32], b"plan-a", || panic!("validated plan was reparsed"))
+            .unwrap();
+        assert!(std::rc::Rc::ptr_eq(&first, &hit));
+        let changed = cache.get_or_parse([1; 32], b"plan-b", || Ok(20)).unwrap();
+        assert_eq!(*changed, 20);
+        let new_id = cache.get_or_parse([2; 32], b"plan-b", || Ok(30)).unwrap();
+        assert_eq!(*new_id, 30);
+        // The single-entry cache does not retain earlier compilation plans.
+        let old = cache.get_or_parse([1; 32], b"plan-a", || Ok(40)).unwrap();
+        assert_eq!(*old, 40);
+    }
+
+    #[test]
+    fn exact_plan_cache_does_not_turn_failed_validation_into_a_hit() {
+        let mut cache = super::ExactPlanCache::<u32>::new();
+        assert!(cache
+            .get_or_parse([1; 32], b"invalid", || Err("invalid topology".into()))
+            .is_err());
+        assert!(cache
+            .get_or_parse([1; 32], b"invalid", || Err("invalid topology again".into()))
+            .is_err());
+        assert_eq!(
+            *cache.get_or_parse([1; 32], b"invalid", || Ok(7)).unwrap(),
+            7
+        );
+    }
+    #[test]
+    fn cached_topology_still_selects_the_current_definition_and_rejects_changes() {
+        let bytes = encode(&linked_plan());
+        let first =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &bytes).unwrap();
+        let hit =
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, &bytes).unwrap();
+        assert_eq!(first, hit);
+        assert!(validate_component_plan_bytes([99; 32], PARENT_RECORD, PLAN_ID, &bytes).is_err());
+        assert!(
+            validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, [99; 32], &bytes).is_err()
+        );
+        assert!(validate_component_plan_bytes(PARENT_UNIT, PARENT_RECORD, PLAN_ID, b"{}").is_err());
+        let child =
+            validate_component_plan_bytes(CHILD_UNIT, CHILD_RECORD, PLAN_ID, &bytes).unwrap();
+        assert_ne!(child.sites, first.sites);
+        assert_eq!(child.all_sites, first.all_sites);
+    }
+
     use serde_json::json;
 
     const PLAN_ID: [u8; 32] = [0x22; 32];

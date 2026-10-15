@@ -31,6 +31,21 @@ PROBES = {
     "docs-prose": "proa_marketing/src/docs/index.mdx",
     "docs-code": "proa_marketing/src/docs/index.mdx",
     "core": "proa_core/src/shared/write_buf.rs",
+    "cli-command": "proa_cli/src/commands/fmt.rs",
+    "cli-lint": "proa_source_tools/src/lint/mod.rs",
+    "cli-engine": "proa_build/src/pipeline.rs",
+}
+
+
+DEFAULT_CASES = ("noop", "page", "docs-prose", "docs-code", "core")
+LEGACY_PROBES = {
+    "cli-lint": "proa_cli/src/lint/mod.rs",
+    "cli-engine": "proa_cli/src/rsjs/pipeline.rs",
+}
+CLI_ANCHORS = {
+    "cli-command": "Proa formatting check failed",
+    "cli-lint": "failed to read {}",
+    "cli-engine": "linked Cargo test requires exactly one descriptor-only",
 }
 
 
@@ -47,7 +62,10 @@ def edited_source(case: str, source: str, nonce: str, iteration: int) -> str:
             f"\n\n```rust\n// {marker}\n"
             f"fn compile_probe() -> u64 {{ {iteration + 2} }}\n```\n"
         )
-    if case == "core":
+    if case in CLI_ANCHORS:
+        needle = CLI_ANCHORS[case]
+        replacement = f"{needle} [{marker}]"
+    elif case == "core":
         needle = 'write!(f, "stream closed")'
         replacement = f'write!(f, "stream closed [{marker}]")'
     elif case == "page":
@@ -69,11 +87,15 @@ def benchmark(args: argparse.Namespace) -> None:
         command = command[1:]
     if not command:
         command = ["cargo", "check", "--locked", "-p", "proa_marketing", "--timings"]
-    cases = args.case or list(PROBES)
+    cases = args.case or list(DEFAULT_CASES)
+    paths = {case: PROBES[case] for case in cases}
+    for case, name in paths.items():
+        if name is not None and not (root / name).exists() and case in LEGACY_PROBES:
+            paths[case] = LEGACY_PROBES[case]
     output = args.output.resolve() / args.label
     output.mkdir(parents=True, exist_ok=True)
     (output / "summary.json").unlink(missing_ok=True)
-    names = sorted({PROBES[case] for case in cases if PROBES[case] is not None})
+    names = sorted({name for name in paths.values() if name is not None})
     if names:
         subprocess.run(["git", "diff", "--exit-code", "HEAD", "--", *names], check=True)
     originals = {name: (root / name).read_bytes() for name in names}
@@ -105,7 +127,7 @@ def benchmark(args: argparse.Namespace) -> None:
     results = []
     try:
         for case in cases:
-            name = PROBES[case]
+            name = paths[case]
             try:
                 # The first run warms the command and the edited item's caches.
                 for iteration in range(-1, args.repetitions):

@@ -20,10 +20,10 @@ use rsjs_ir::abi::{AbiVersion, InvocationId, ProducerVersion, SemanticHash};
 use rsjs_ir::build::ArtifactRole;
 use thiserror::Error;
 
-use crate::rsjs::abi_adapter::{
+use crate::abi_adapter::{
     adapt_transport_plan, AbiAdapterContext, AbiAdapterError, AdaptedTransportAbi,
 };
-use crate::rsjs::build::{
+use crate::build::{
     build_link_unit_manifest, descriptor_run_sealed, join_cargo_enumerated_descriptor_units,
     managed_paths_overlap, normalize_managed_path_identity, remove_successful_descriptor_staging,
     run_descriptor_cargo, validate_descriptor_managed_paths, CargoCompilerArtifact,
@@ -31,16 +31,16 @@ use crate::rsjs::build::{
     DescriptorCargoRunError, DescriptorCargoUnitId, LinkManifestAssemblyError,
     UnitArtifactJoinError, ValidatedDescriptorUnit,
 };
-use crate::rsjs::cache::{run_descriptor_cargo_cached, DescriptorCacheError};
+use crate::cache::{run_descriptor_cargo_cached, DescriptorCacheError};
 #[cfg(test)]
-use crate::rsjs::final_compile::FinalCargoArtifactReport;
-use crate::rsjs::final_compile::{
+use crate::final_compile::FinalCargoArtifactReport;
+use crate::final_compile::{
     ensure_plain_managed_directory, ensure_plain_managed_file, run_final_cargo_leased,
     snapshot_final_artifact, FinalCargoError, FinalCargoOutput, FinalCargoRequest,
     ManagedPathError,
 };
-use crate::rsjs::link::{link_transport_manifest, TransportLinkError, TransportLinkPlan};
-use crate::rsjs::semantic_link::{
+use crate::link::{link_transport_manifest, TransportLinkError, TransportLinkPlan};
+use crate::semantic_link::{
     link_semantic_plan, write_content_addressed_semantic_plan, SemanticLinkError, SemanticLinkPlan,
     SemanticPlanWriteError,
 };
@@ -139,13 +139,13 @@ pub fn run_linked_cargo_cached(
     run_linked_cargo_cached_with_progress(request, cache_directory, |_| {})
 }
 
-pub(crate) enum LinkedCargoStage {
+pub enum LinkedCargoStage {
     Descriptor,
     Link,
     Final,
 }
 
-pub(crate) fn run_linked_cargo_cached_with_progress(
+pub fn run_linked_cargo_cached_with_progress(
     request: &LinkedCargoRequest,
     cache_directory: &Path,
     mut progress: impl FnMut(LinkedCargoStage),
@@ -676,6 +676,11 @@ fn split_cargo_runtime_arguments(arguments: &[OsString]) -> (&[OsString], Option
 pub(crate) struct ValidatedLinkedManagedPaths {
     plan: PathBuf,
     final_target: PathBuf,
+}
+
+/// Check managed-path and invocation constraints without starting a build.
+pub fn validate_linked_cargo_request(request: &LinkedCargoRequest) -> Result<(), LinkedCargoError> {
+    validate_request(request).map(|_| ())
 }
 
 pub(crate) fn validate_request(

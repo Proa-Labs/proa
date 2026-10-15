@@ -18,10 +18,12 @@ wpe = []  # Use WPE WebKit instead of WebKitGTK
 
 [dependencies]
 libc = { workspace = true }
-png = { version = "0.17" }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [build-dependencies]
 bindgen = { version = "0.71" }
 pkg-config = { version = "0.3" }
+
+[dev-dependencies]
+png = { version = "0.17" }

@@ -34,8 +34,6 @@ path = "src/bin/sentry_otel_dump.rs"
 required-features = ["sentry-otel"]
 
 [dependencies]
-icondata_lu = { version = "0.1" }
-icondata_si = { version = "0.1" }
 proa_core = { workspace = true }
 proa_macros = { workspace = true }
 proa_react = { workspace = true }

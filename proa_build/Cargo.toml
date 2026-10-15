@@ -1,0 +1,33 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_build"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Linked RSJS build engine and artifact cache for Proa"
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+object = { workspace = true }
+rayon = { workspace = true }
+rsjs_ir = { workspace = true }
+rsjs_transport = { workspace = true, features = ["extract"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+syn = { workspace = true, features = ["full"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

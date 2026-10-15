@@ -25,7 +25,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::rsjs::build::{
+use crate::build::{
     acquire_descriptor_target_lease, atomic_write_exact, final_unit_tracking_inputs,
     scrub_wrapper_control_environment, wrapper_control_environment,
     write_content_addressed_final_unit_map, CargoArtifactCollector, CargoArtifactTarget,
@@ -36,11 +36,11 @@ use crate::rsjs::build::{
     FINAL_WRAPPER_POLICY_VERSION, SOURCE_EXCLUSION_DIR_ENV, WRAPPER_MODE_ENV,
     WRAPPER_MODE_FINAL_V2,
 };
-pub use crate::rsjs::build::{
+pub use crate::build::{
     FINAL_PHASE_ENV, FINAL_PLAN_FILE_HASH_ENV, FINAL_PLAN_ID_ENV, FINAL_PLAN_PATH_ENV,
 };
-use crate::rsjs::link::{transport_plan_json, TransportLinkPlan};
-use crate::rsjs::semantic_link::{
+use crate::link::{transport_plan_json, TransportLinkPlan};
+use crate::semantic_link::{
     semantic_plan_json, SemanticLinkPlan, SEMANTIC_PLAN_FILE_SUFFIX, SEMANTIC_PLAN_FORMAT,
 };
 
@@ -985,7 +985,7 @@ fn snapshot_final_file(
 /// executable snapshots. The returned path is content addressed and can
 /// therefore be bound into the linked invocation identity without trusting the
 /// caller's mutable pathname.
-pub(crate) fn snapshot_wrapper_executable(
+pub fn snapshot_wrapper_executable(
     source_exclusion: &Path,
     snapshot_root: &Path,
     source: &Path,

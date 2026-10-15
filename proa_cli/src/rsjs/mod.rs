@@ -9,19 +9,9 @@
 //! final Cargo compilation. [`pipeline`] orchestrates the cached end-to-end
 //! run, [`cache`] owns the persistent descriptor caches, and [`abi_adapter`]
 //! bridges compiler ABI revisions. The `proa rsjs` inspection surface
-//! (strategy explanations and crossing reports) lives in [`inspect`] and is
+//! (strategy explanations and crossing reports) lives in [`proa_source_tools::rsjs`] and is
 //! re-exported at this module's root.
 
-pub mod abi_adapter;
-pub mod build;
-pub mod cache;
-pub mod final_compile;
-mod inspect;
-pub(crate) mod legacy_graph;
-pub mod link;
-pub mod pipeline;
-pub mod semantic_link;
+pub use proa_source_tools::rsjs::*;
 
-pub use inspect::*;
-mod descriptor_objects;
-pub(crate) mod timing;
+pub use proa_build::{abi_adapter, build, cache, final_compile, link, pipeline, semantic_link};

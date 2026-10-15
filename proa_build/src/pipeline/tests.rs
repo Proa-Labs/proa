@@ -228,7 +228,7 @@ fn selector_rejects_non_root_roles_and_relative_artifacts() {
     let artifact = CargoCompilerArtifact {
         package_id: selector.package_id.clone(),
         manifest_path: PathBuf::from("/fixture/Cargo.toml"),
-        target: crate::rsjs::build::CargoArtifactTarget {
+        target: crate::build::CargoArtifactTarget {
             name: selector.target_name.clone(),
             kind: selector.target_kinds.clone(),
             crate_types: BTreeSet::from(["bin".to_string()]),
@@ -265,7 +265,7 @@ fn final_root_attestation_requires_the_descriptor_coordinate_and_real_file() {
     let descriptor_root = CargoCompilerArtifact {
         package_id: selector.package_id.clone(),
         manifest_path: temp.path().join("Cargo.toml"),
-        target: crate::rsjs::build::CargoArtifactTarget {
+        target: crate::build::CargoArtifactTarget {
             name: selector.target_name.clone(),
             kind: selector.target_kinds.clone(),
             crate_types: BTreeSet::from(["bin".to_string()]),
@@ -442,7 +442,7 @@ fn fixture_root_artifact(
     CargoCompilerArtifact {
         package_id: selector.package_id.clone(),
         manifest_path: root.join("Cargo.toml"),
-        target: crate::rsjs::build::CargoArtifactTarget {
+        target: crate::build::CargoArtifactTarget {
             name: selector.target_name.clone(),
             kind: selector.target_kinds.clone(),
             crate_types: BTreeSet::from(["bin".to_string()]),

@@ -5387,7 +5387,7 @@ pub(crate) struct DescriptorTargetLease {
 
 /// Opaque lease retaining exclusive authority over one descriptor target.
 ///
-/// Consume it with `crate::rsjs::pipeline::link_descriptor_transport` or
+/// Consume it with `crate::pipeline::link_descriptor_transport` or
 /// [`finish_descriptor_run`].
 #[must_use = "descriptor Cargo leases retain filesystem locks until consumed or dropped"]
 pub struct DescriptorCargoLease {
@@ -6332,9 +6332,7 @@ fn ownership_marker_is_valid(path: &Path, name: &str, bytes: &[u8]) -> io::Resul
     Ok(fs::read(marker)? == bytes)
 }
 
-pub(crate) fn prepare_descriptor_target_directory(
-    path: &Path,
-) -> Result<(), DescriptorCargoRunError> {
+pub fn prepare_descriptor_target_directory(path: &Path) -> Result<(), DescriptorCargoRunError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if !metadata.file_type().is_dir() => {
             return Err(DescriptorCargoRunError::DescriptorTargetNotDirectory(
@@ -8413,7 +8411,7 @@ pub(crate) fn rustc_wrapper_diagnostic_json(error: &WrapperError) -> String {
 }
 
 /// Emit one Cargo-readable compiler diagnostic for a hidden wrapper failure.
-pub(crate) fn emit_rustc_wrapper_diagnostic(error: &WrapperError) -> io::Result<()> {
+pub fn emit_rustc_wrapper_diagnostic(error: &WrapperError) -> io::Result<()> {
     let stderr = io::stderr();
     let mut stderr = stderr.lock();
     writeln!(stderr, "{}", rustc_wrapper_diagnostic_json(error))

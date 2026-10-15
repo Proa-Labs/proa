@@ -140,11 +140,7 @@ pub fn format_file(path: &Path, source: &str) -> Result<FormattedFile> {
 /// formatted output must parse to a structurally identical template tree.
 /// Differences mean the formatter changed semantics, not just layout, and
 /// the write is refused.
-pub(crate) fn verify_render_preserving(
-    path: &Path,
-    original: &str,
-    formatted: &str,
-) -> Vec<Diagnostic> {
+pub fn verify_render_preserving(path: &Path, original: &str, formatted: &str) -> Vec<Diagnostic> {
     let display = display_path(path);
     let mut diagnostics = Vec::new();
     let before = find_macros(original);

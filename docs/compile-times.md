@@ -32,6 +32,18 @@ Use `--case` repeatedly to select a subset:
 | `docs-code` | Append a new Rust fence to a documentation page |
 | `core` | Change a rendering-core error message in a function body |
 
+The tooling probes use the CLI build command:
+
+```sh
+python3 scripts/benchmark_compile_times.py --label cli --repetitions 5 \
+  --case cli-command --case cli-lint --case cli-engine -- \
+  cargo build --locked -p proa-cli --bins --timings
+```
+
+These probes change a diagnostic inside a command, the lint engine, or the
+linked compiler engine. The driver recognizes the corresponding source paths
+in revisions before the tooling crates were extracted.
+
 Each case discards a warmup, then measures the requested number of edits.
 Fresh per-run markers prevent a previous trial's cached results from
 satisfying an edit probe. Compare medians and ranges, and repeat a baseline
@@ -64,6 +76,32 @@ explains the unit graph and compiler concurrency information. Assess clean,
 development, release, and linked application builds separately.
 
 ## Compile work avoided by the workspace
+
+The CLI command layer, source tools (`proa_source_tools`), and linked build
+engine (`proa_build`) compile separately. A command edit reuses both engines;
+an edit to either engine reuses the other. Existing `proa_cli` module paths
+remain available through re-exports.
+
+Font descriptors and request identities are available without the default
+`proa_fonts/render` feature. Build collectors and font macros use that smaller
+surface; applications enable rendering. Likewise, RSJS macros and runtime code
+use the transport wire ABI without the default `rsjs_transport/extract` feature,
+which enables object-file readers for build tools. Runtime rendering changes
+therefore do not invalidate font tooling, and object extraction changes do not
+invalidate application macros.
+
+Tokio and Tower HTTP features belong to each consuming crate rather than a
+workspace-wide `full` feature. Keep normal dependencies separate from those
+needed only by examples, tests, or benchmarks. Check crates individually when
+changing features; workspace feature unification can hide a missing feature.
+
+Final RSJS macro expansion retains one exact validated plan per expansion
+thread. Every expansion still reads the current plan file and verifies its
+expected SHA-256 commitment. Parsed topology is reused only for identical bytes
+and plan identity; changed plans are validated again, and validation errors are
+not cached. Definition selection still uses the current Cargo unit and record
+identity. This avoids repeatedly parsing and validating a whole application
+plan for each component or helper.
 
 The template compiler and RSJS IR do not depend on the renderer's implementation.
 `proa_html_policy` holds the allocation-free URL policy shared by `proa_dsl`

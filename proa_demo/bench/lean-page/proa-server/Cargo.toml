@@ -17,4 +17,4 @@ axum = { workspace = true }
 proa_core = { workspace = true }
 proa_demo = { workspace = true }
 rsjs = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }

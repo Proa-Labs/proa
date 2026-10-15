@@ -553,10 +553,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "145052bdd345b87320e369255277e3fb5152762ad123a901ef5c262dd38fe8d2"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
  "windows-link 0.2.1",
 ]
 
@@ -696,8 +694,6 @@ dependencies = [
  "compression-core",
  "flate2",
  "memchr",
- "zstd",
- "zstd-safe",
 ]
 
 [[package]]
@@ -748,24 +744,6 @@ dependencies = [
  "percent-encoding",
  "time",
  "version_check",
-]
-
-[[package]]
-name = "cookie_store"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2eac901828f88a5241ee0600950ab981148a18f2f756900ffba1b125ca6a3ef9"
-dependencies = [
- "cookie",
- "document-features",
- "idna",
- "log",
- "publicsuffix",
- "serde",
- "serde_derive",
- "serde_json",
- "time",
- "url",
 ]
 
 [[package]]
@@ -1741,30 +1719,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "icondata_core"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c97be924215abd5e630d84e95a47c710138a6559b4c55039f4f33aa897fa859"
-
-[[package]]
-name = "icondata_lu"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f25663a6cc5371e9e33c98bab870f4aa2fd68c88853f1467c8fccfaf112782b1"
-dependencies = [
- "icondata_core",
-]
-
-[[package]]
-name = "icondata_si"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68943eec8a766d8e5213385610aa47bf0bec5ddb76fdcf819721a05fb5c8f6c5"
-dependencies = [
- "icondata_core",
-]
-
-[[package]]
 name = "icu_collections"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2261,7 +2215,6 @@ dependencies = [
  "base64 0.22.1",
  "const_format",
  "dotenvy",
- "futures",
  "heapless",
  "http",
  "http-body-util",
@@ -2284,14 +2237,11 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
- "strum",
- "strum_macros",
  "subtle",
  "tempfile",
  "thiserror",
  "tiktoken-rs",
  "tokio",
- "tokio-util",
  "tower 0.5.2",
  "tower-http 0.6.11",
  "tracing",
@@ -3104,14 +3054,12 @@ dependencies = [
  "getrandom 0.3.4",
  "glob",
  "libc",
- "object",
- "pathdiff",
+ "proa_build",
  "proa_dsl",
  "proa_fonts_build",
+ "proa_source_tools",
  "proc-macro2",
- "pulldown-cmark",
  "quote",
- "rayon",
  "reqwest 0.12.24",
  "rsjs_ir",
  "rsjs_transport",
@@ -3119,7 +3067,6 @@ dependencies = [
  "serde_ignored",
  "serde_json",
  "sha2 0.11.0",
- "similar",
  "sqlx",
  "syn 2.0.119",
  "tempfile",
@@ -3127,7 +3074,6 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "toml_edit",
- "unicode-width",
  "walkdir",
  "windows-sys 0.61.2",
 ]
@@ -3174,14 +3120,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "proa_build"
+version = "0.1.0"
+dependencies = [
+ "object",
+ "rayon",
+ "rsjs_ir",
+ "rsjs_transport",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "syn 2.0.119",
+ "tempfile",
+ "thiserror",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "proa_codegen"
 version = "0.2.0"
 dependencies = [
- "proc-macro2",
- "quote",
  "serde",
  "serde_json",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -3250,7 +3210,6 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "tokio",
- "tower-http 0.6.11",
 ]
 
 [[package]]
@@ -3345,7 +3304,6 @@ dependencies = [
  "base16ct",
  "base64 0.22.1",
  "bytes",
- "chrono",
  "cssparser",
  "futures",
  "http",
@@ -3422,7 +3380,6 @@ dependencies = [
 name = "proa_macros"
 version = "0.3.0"
 dependencies = [
- "heapless",
  "proa_actions",
  "proa_core",
  "proa_dsl",
@@ -3522,8 +3479,6 @@ dependencies = [
 name = "proa_showcase"
 version = "0.2.1"
 dependencies = [
- "icondata_lu",
- "icondata_si",
  "proa_core",
  "proa_macros",
  "proa_react",
@@ -3542,6 +3497,27 @@ dependencies = [
  "proa_showcase",
  "rsjs",
  "tokio",
+]
+
+[[package]]
+name = "proa_source_tools"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "pathdiff",
+ "proa_dsl",
+ "proc-macro2",
+ "pulldown-cmark",
+ "quote",
+ "rayon",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "similar",
+ "syn 2.0.119",
+ "tempfile",
+ "unicode-width",
+ "walkdir",
 ]
 
 [[package]]
@@ -3596,7 +3572,6 @@ dependencies = [
  "axum",
  "proa_core",
  "proa_macros",
- "regex",
  "rsjs",
  "rsjs_macros",
  "serde",
@@ -3607,7 +3582,6 @@ dependencies = [
  "tracing-subscriber",
  "wellformed",
  "wellformed-macros",
- "wellformed-validate",
 ]
 
 [[package]]
@@ -3945,8 +3919,6 @@ checksum = "9d0946410b9f7b082a427e4ef5c8ff541a88b357bc6c637c40db3a68ac70a36f"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "cookie",
- "cookie_store 0.21.1",
  "encoding_rs",
  "futures-channel",
  "futures-core",
@@ -3994,7 +3966,7 @@ dependencies = [
  "base64 0.23.1",
  "bytes",
  "cookie",
- "cookie_store 0.22.1",
+ "cookie_store",
  "encoding_rs",
  "futures-core",
  "futures-util",
@@ -4951,27 +4923,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
-name = "strum"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
-dependencies = [
- "strum_macros",
-]
-
-[[package]]
-name = "strum_macros"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5224,7 +5175,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -5418,8 +5368,6 @@ version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
 dependencies = [
- "async-compression",
- "base64 0.22.1",
  "bitflags 2.10.0",
  "bytes",
  "futures-core",
@@ -5440,7 +5388,6 @@ dependencies = [
  "tower-service",
  "tracing",
  "url",
- "uuid",
 ]
 
 [[package]]
@@ -6399,31 +6346,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[package]]
-name = "zstd"
-version = "0.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
-dependencies = [
- "zstd-safe",
-]
-
-[[package]]
-name = "zstd-safe"
-version = "7.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
-dependencies = [
- "zstd-sys",
-]
-
-[[package]]
-name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
-dependencies = [
- "cc",
- "pkg-config",
-]

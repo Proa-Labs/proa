@@ -592,7 +592,7 @@ rsjs = {{ version = "0.2.0" }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = {{ version = "1" }}
 thiserror = {{ version = "2" }}
-tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "signal"] }}
+tokio = {{ version = "1", features = ["macros", "net", "rt-multi-thread", "time"] }}
 tower-http = {{ version = "0.6", features = ["fs", "trace"] }}
 tracing = {{ version = "0.1" }}
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
@@ -630,7 +630,7 @@ const_format = {{ version = "0.2" }}
 heapless = {{ workspace = true }}
 proa_actions = {{ workspace = true }}
 proa_core = {{ workspace = true }}
-proa_fonts = {{ workspace = true }}
+proa_fonts = {{ workspace = true, features = ["render"] }}
 proa_fonts_macros = {{ workspace = true }}
 proa_framework_axum = {{ workspace = true }}
 proa_ir = {{ workspace = true }}
@@ -641,8 +641,8 @@ rsjs = {{ workspace = true }}
 serde = {{ workspace = true }}
 serde_json = {{ workspace = true }}
 thiserror = {{ workspace = true }}
-tokio = {{ workspace = true }}
-tower-http = {{ workspace = true }}
+tokio = {{ workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }}
+tower-http = {{ workspace = true, features = ["fs", "trace"] }}
 tracing = {{ workspace = true }}
 tracing-subscriber = {{ workspace = true, features = ["env-filter"] }}
 

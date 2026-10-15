@@ -37,8 +37,8 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 #[cfg(test)]
-use crate::rsjs::build::DESCRIPTOR_OBJECT_HASH_DOMAIN;
-use crate::rsjs::build::{DescriptorObjectSnapshot, ValidatedDescriptorUnit};
+use crate::build::DESCRIPTOR_OBJECT_HASH_DOMAIN;
+use crate::build::{DescriptorObjectSnapshot, ValidatedDescriptorUnit};
 
 const TRANSPORT_LINK_SCHEMA_VERSION: u16 = 5;
 #[cfg(test)]

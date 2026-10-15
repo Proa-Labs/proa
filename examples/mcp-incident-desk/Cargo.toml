@@ -41,15 +41,11 @@ rustls = "0.23"
 reqwest = { version = "0.13", features = ["json", "form", "cookies"] }
 rmcp = { version = "=3.2.0", features = ["client", "server", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "transport-io", "reqwest"] }
 schemars = "1"
-futures = "0.3"
-tokio-util = "0.7"
 tiktoken-rs = "0.7"
 const_format = { version = "0.2" }
 heapless = { version = "0.8" }
 proa_actions = { workspace = true }
 proa_ir = { workspace = true }
-strum = { version = "0.27.2", features = ["derive"] }
-strum_macros = { version = "0.27.2" }
 
 [dev-dependencies]
 pulldown-cmark = { workspace = true, features = ["html"] }
