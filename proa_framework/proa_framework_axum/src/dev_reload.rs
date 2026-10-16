@@ -39,7 +39,7 @@ use axum::{
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use hyper::body::{Body as HttpBody, Frame, SizeHint};
-use tower::{Layer, Service};
+use tower::{Layer, Service, ServiceExt};
 
 /// Environment variable carrying the live-reload port. `proa dev` sets it on
 /// the server process it spawns; nothing else should.
@@ -134,6 +134,7 @@ pub struct DevReloadLayer {
     port: u16,
     token: Arc<str>,
     relay: bool,
+    public_events_path: Arc<str>,
     relay_stop: tokio::sync::watch::Sender<bool>,
 }
 
@@ -151,6 +152,7 @@ impl DevReloadLayer {
             port,
             token: Arc::from(parse_reload_token(token).unwrap_or_default()),
             relay: false,
+            public_events_path: Arc::from(DEV_EVENTS_PATH),
             relay_stop,
         }
         .with_base_path(&proa_core::BasePath::default())
@@ -161,6 +163,7 @@ impl DevReloadLayer {
     pub fn with_base_path(mut self, base_path: &proa_core::BasePath) -> Self {
         self.relay = !base_path.as_str().is_empty();
         let path = base_path.url(DEV_EVENTS_PATH).to_string();
+        self.public_events_path = Arc::from(path.as_str());
         // This JSON literal is embedded in an HTML script raw-text element.
         let path = serde_json::to_string(&path)
             .expect("serialize dev event URL")
@@ -190,6 +193,8 @@ impl DevReloadLayer {
     }
 
     /// Add the development event relay when mounted, then inject the client.
+    /// Accept both the local path (prefix-stripping proxies) and the public
+    /// path (prefix-preserving proxies with a nested application router).
     pub fn wrap(self, app: axum::Router) -> axum::Router {
         let app = if self.relay {
             let host = env::var("PROA_HOST").unwrap_or_else(|_| "127.0.0.1".into());
@@ -216,61 +221,82 @@ impl DevReloadLayer {
                 .build()
                 .expect("build local dev event client");
             let relay_stop = self.relay_stop.clone();
-            app.route(
-                DEV_EVENTS_PATH,
-                axum::routing::get(
-                    move |axum::extract::OriginalUri(uri): axum::extract::OriginalUri| {
-                        let client = client.clone();
-                        let target = target.clone();
-                        let mut stopped = relay_stop.subscribe();
-                        async move {
-                            if *stopped.borrow() { return Response::new(Body::empty()); }
-                            let target = match uri.query() {
-                                Some(query) => format!("{target}?{query}"),
-                                None => target,
-                            };
-                            let upstream = tokio::select! {
-                                biased;
-                                _ = stopped.changed() => return Response::new(Body::empty()),
-                                upstream = client.get(target).send() => upstream,
-                            };
-                            match upstream {
-                                Ok(response) => {
-                                    let status = response.status();
-                                    let content_type =
-                                        response.headers().get(CONTENT_TYPE).cloned();
-                                    let stream = futures::stream::try_unfold(
-                                        (response, stopped),
-                                        |(mut response, mut stopped)| async move {
-                                            if *stopped.borrow() { return Ok::<_, reqwest::Error>(None); }
-                                            tokio::select! {
-                                                biased;
-                                                _ = stopped.changed() => Ok(None),
-                                                chunk = response.chunk() => Ok(chunk?.map(|bytes| (bytes, (response, stopped)))),
-                                            }
-                                        },
-                                    );
-                                    let mut response = Response::new(Body::from_stream(stream));
-                                    *response.status_mut() = status;
-                                    if let Some(content_type) = content_type {
-                                        response.headers_mut().insert(CONTENT_TYPE, content_type);
-                                    }
-                                    response.headers_mut().insert(
-                                        axum::http::header::CACHE_CONTROL,
-                                        axum::http::HeaderValue::from_static("no-cache"),
-                                    );
-                                    response.headers_mut().insert("x-accel-buffering", axum::http::HeaderValue::from_static("no"));
-                                    response
+            let relay = axum::routing::get(
+                move |axum::extract::OriginalUri(uri): axum::extract::OriginalUri| {
+                    let client = client.clone();
+                    let target = target.clone();
+                    let mut stopped = relay_stop.subscribe();
+                    async move {
+                        if *stopped.borrow() {
+                            return Response::new(Body::empty());
+                        }
+                        let target = match uri.query() {
+                            Some(query) => format!("{target}?{query}"),
+                            None => target,
+                        };
+                        let upstream = tokio::select! {
+                            biased;
+                            _ = stopped.changed() => return Response::new(Body::empty()),
+                            upstream = client.get(target).send() => upstream,
+                        };
+                        match upstream {
+                            Ok(response) => {
+                                let status = response.status();
+                                let content_type = response.headers().get(CONTENT_TYPE).cloned();
+                                let stream = futures::stream::try_unfold(
+                                    (response, stopped),
+                                    |(mut response, mut stopped)| async move {
+                                        if *stopped.borrow() {
+                                            return Ok::<_, reqwest::Error>(None);
+                                        }
+                                        tokio::select! {
+                                            biased;
+                                            _ = stopped.changed() => Ok(None),
+                                            chunk = response.chunk() => Ok(chunk?.map(|bytes| (bytes, (response, stopped)))),
+                                        }
+                                    },
+                                );
+                                let mut response = Response::new(Body::from_stream(stream));
+                                *response.status_mut() = status;
+                                if let Some(content_type) = content_type {
+                                    response.headers_mut().insert(CONTENT_TYPE, content_type);
                                 }
-                                Err(_) => Response::builder()
-                                    .status(axum::http::StatusCode::BAD_GATEWAY)
-                                    .body(Body::empty())
-                                    .expect("valid dev relay response"),
+                                response.headers_mut().insert(
+                                    axum::http::header::CACHE_CONTROL,
+                                    axum::http::HeaderValue::from_static("no-cache"),
+                                );
+                                response.headers_mut().insert(
+                                    "x-accel-buffering",
+                                    axum::http::HeaderValue::from_static("no"),
+                                );
+                                response
+                            }
+                            Err(_) => Response::builder()
+                                .status(axum::http::StatusCode::BAD_GATEWAY)
+                                .body(Body::empty())
+                                .expect("valid dev relay response"),
+                        }
+                    }
+                },
+            );
+            let public_path = self.public_events_path.clone();
+            app.route(DEV_EVENTS_PATH, relay.clone())
+                .layer(axum::middleware::from_fn(
+                    move |request: Request<Body>, next: axum::middleware::Next| {
+                        let relay = relay.clone();
+                        let public_path = public_path.clone();
+                        async move {
+                            // Compare the literal path rather than registering a
+                            // route pattern: valid mount segments may start with
+                            // `:` or `*`, which Axum interprets as route parameters.
+                            if request.uri().path() == public_path.as_ref() {
+                                relay.oneshot(request).await.expect("infallible dev relay")
+                            } else {
+                                next.run(request).await
                             }
                         }
                     },
-                ),
-            )
+                ))
         } else {
             app
         };

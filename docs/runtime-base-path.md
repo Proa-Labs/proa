@@ -40,7 +40,9 @@ or changing routing. Managed CSS/JS is parsed at the asset boundary.
    are content-cached within a fixed budget; transformed validators and HEAD
    lengths describe the actual representation.
 8. Mounted development reload relays the authenticated CLI stream through the
-   application origin, preserving prefix-only proxy access.
+   application origin, preserving prefix-only proxy access. Its relay accepts
+   the local path and the literal public path, supporting stripping proxies
+   and preserving proxies with a nested application router.
 
 Focused tests cover prefix normalization, nested links/forms/redirects, linked
 asset types, deferred hydration, incremental streaming, default-root

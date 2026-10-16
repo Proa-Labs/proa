@@ -172,6 +172,8 @@ The same setting covers framework assets, fonts, query/mutation requests, docs
 navigation and article URL attributes, docs search artifacts, and the ORIGIN
 starter. `proa dev` uses a prefixed same-origin event stream when
 `PROA_BASE_PATH` is set, so the proxy only needs to expose the app's mount.
+The relay accepts both stripped incoming paths and preserved paths when the
+application router is nested under that prefix.
 
 `with_static_service(...)` automatically composes recognized URL syntax in
 CSS and JavaScript assets when a prefix is configured. This includes CSS

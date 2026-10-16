@@ -488,32 +488,49 @@ async fn mounted_reload_uses_the_public_path_and_relays_authenticated_events() {
     let server = tokio::spawn(async move {
         axum::serve(listener, upstream).await.unwrap();
     });
-    let layer = DevReloadLayer::new(port, TOKEN)
-        .with_base_path(&proa_core::BasePath::new("/user/demo/proxy/3000").unwrap());
-    let response = inject(html("<html><head></head></html>"), &layer);
-    let output = body_string(response).await;
-    assert!(output.contains("var SAME_ORIGIN = true;"));
-    assert!(output.contains("/user/demo/proxy/3000/__proa/dev-events"));
-    let router = layer.wrap(Router::new());
-    for (token, expected) in [(TOKEN, StatusCode::OK), ("invalid", StatusCode::FORBIDDEN)] {
-        let response = router
-            .clone()
+    for prefix in ["/user/demo/proxy/3000", "/apps/*literal/:name"] {
+        let layer = DevReloadLayer::new(port, TOKEN)
+            .with_base_path(&proa_core::BasePath::new(prefix).unwrap());
+        let response = inject(html("<html><head></head></html>"), &layer);
+        let output = body_string(response).await;
+        assert!(output.contains("var SAME_ORIGIN = true;"));
+        assert!(output.contains(&format!("{prefix}{DEV_EVENTS_PATH}")));
+        let router = layer.wrap(Router::new());
+        for path in [
+            DEV_EVENTS_PATH.to_string(),
+            format!("{prefix}{DEV_EVENTS_PATH}"),
+        ] {
+            for (token, expected) in [(TOKEN, StatusCode::OK), ("invalid", StatusCode::FORBIDDEN)] {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .uri(format!("{path}?token={token}"))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), expected, "{path}");
+                if expected == StatusCode::OK {
+                    assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
+                    assert_eq!(
+                        body_string(response).await,
+                        "event: reload\ndata: ready\n\n"
+                    );
+                }
+            }
+        }
+        let miss = router
             .oneshot(
                 Request::builder()
-                    .uri(format!("{DEV_EVENTS_PATH}?token={token}"))
+                    .uri("/apps/other/value/__proa/dev-events")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), expected);
-        if expected == StatusCode::OK {
-            assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
-            assert_eq!(
-                body_string(response).await,
-                "event: reload\ndata: ready\n\n"
-            );
-        }
+        assert_eq!(miss.status(), StatusCode::NOT_FOUND);
     }
     server.abort();
 }
