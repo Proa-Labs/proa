@@ -53,7 +53,8 @@
 //! [`Font::head`] emits preload hints and a `<style>` block only; it never
 //! allocates and is generic over the output buffer, so it composes inside any
 //! `WebRenderSync` head. The stylesheet is developer-controlled generated
-//! content, rendered via [`StaticRaw`].
+//! content. Its static segments are preserved, with the request's base path
+//! inserted into known face URLs when the application is mounted under a prefix.
 
 pub mod request;
 
@@ -240,8 +241,8 @@ pub struct Font {
     /// The complete, pre-rendered stylesheet: real `@font-face` rules, the
     /// synthesized metric-matched fallback `@font-face`, and the utility classes
     /// named by [`class_name`](Font::class_name) and [`variable`](Font::variable).
-    /// Developer-controlled generated content; rendered verbatim inside a
-    /// `<style>` element.
+    /// Developer-controlled generated content. [`style`](Font::style) preserves
+    /// its bytes apart from prefixing known face URLs for the request's mount.
     pub css: &'static str,
 }
 
