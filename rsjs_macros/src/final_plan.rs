@@ -395,9 +395,14 @@ mod tests {
     fn unit_projection_rejects_tampering_and_wrong_unit_even_with_matching_file_hash() {
         let unit = [1; 32];
         let plan_id = [2; 32];
+        // Even an empty unit projection validates the complete plan graph.
         let plan_bytes = serde_json::to_vec(&serde_json::json!({
             "format": "proa.rsjs.semantic_link_plan", "schema_version": 15,
             "plan_id": hex_id(&plan_id), "components": [], "helpers": [], "helper_codegen": [],
+            "component_codegen": [], "component_sites": [], "standalone_roots": [],
+            "owners": [], "candidate_to_owner": [],
+            "component_inputs": { "live_props": [], "live_callbacks": [] },
+            "shared_state_providers": [], "shared_state_requirements": [], "node_ref_aliases": [],
         }))
         .unwrap();
         let bytes = unit_projection_bytes(unit, plan_id, &plan_bytes).unwrap();
