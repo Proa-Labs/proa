@@ -1006,10 +1006,11 @@ pub fn render_sync_html_response(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan(
+    append_rsjs_runtime_plan_with_base_path(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
+        request.request.base_path(),
     )?;
     render_bootstrap_if_needed(
         &mut buffer,
@@ -1062,10 +1063,11 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan(
+    append_rsjs_runtime_plan_with_base_path(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
+        request.request.base_path(),
     )?;
     render_bootstrap_if_needed(
         &mut buffer,
@@ -1115,10 +1117,11 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan(
+    append_rsjs_runtime_plan_with_base_path(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
+        request.request.base_path(),
     )?;
     render_bootstrap_if_needed(
         &mut buffer,
@@ -1258,10 +1261,11 @@ fn render_sync_component_to_html(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan(
+    append_rsjs_runtime_plan_with_base_path(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
+        request.request.base_path(),
     )?;
     Ok(std::str::from_utf8(&buffer)?.to_owned())
 }
@@ -1296,10 +1300,11 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan(
+    append_rsjs_runtime_plan_with_base_path(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
+        request.request.base_path(),
     )?;
     Ok(std::str::from_utf8(&buffer)?.to_owned())
 }
@@ -1332,10 +1337,11 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan(
+    append_rsjs_runtime_plan_with_base_path(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
+        request.request.base_path(),
     )?;
     Ok(std::str::from_utf8(&buffer)?.to_owned())
 }
@@ -1416,11 +1422,12 @@ where
                 shared_seed_table_json.as_deref(),
                 request.csp_nonce.as_ref(),
             )?;
-            append_rsjs_runtime_plan_delta(
+            append_rsjs_runtime_plan_delta_with_base_path(
                 &mut shell,
                 rsjs_artifacts.rendered_islands(),
                 &mut rsjs_emission,
                 request.csp_nonce.as_ref(),
+                request.request.base_path(),
             )?;
             render_bootstrap_delta_if_needed(
                 &mut shell,
@@ -1473,11 +1480,12 @@ where
                                 shared_seed_table_json.as_deref(),
                                 request.csp_nonce.as_ref(),
                             )?;
-                            append_rsjs_runtime_plan_delta(
+                            append_rsjs_runtime_plan_delta_with_base_path(
                                 &mut chunk,
                                 artifacts.rsjs.rendered_islands(),
                                 &mut rsjs_emission,
                                 request.csp_nonce.as_ref(),
+                                request.request.base_path(),
                             )?;
                             render_bootstrap_delta_if_needed(
                                 &mut chunk,
@@ -1587,11 +1595,12 @@ where
                 shared_seed_table_json.as_deref(),
                 request.csp_nonce.as_ref(),
             )?;
-            append_rsjs_runtime_plan_delta(
+            append_rsjs_runtime_plan_delta_with_base_path(
                 &mut shell,
                 rsjs_artifacts.rendered_islands(),
                 &mut rsjs_emission,
                 request.csp_nonce.as_ref(),
+                request.request.base_path(),
             )?;
             render_bootstrap_delta_if_needed(
                 &mut shell,
@@ -1644,11 +1653,12 @@ where
                                 shared_seed_table_json.as_deref(),
                                 request.csp_nonce.as_ref(),
                             )?;
-                            append_rsjs_runtime_plan_delta(
+                            append_rsjs_runtime_plan_delta_with_base_path(
                                 &mut chunk,
                                 artifacts.rsjs.rendered_islands(),
                                 &mut rsjs_emission,
                                 request.csp_nonce.as_ref(),
+                                request.request.base_path(),
                             )?;
                             render_bootstrap_delta_if_needed(
                                 &mut chunk,
@@ -1778,10 +1788,11 @@ where
                     shared_seed_table_json.as_deref(),
                     request.csp_nonce.as_ref(),
                 )?;
-                append_rsjs_runtime_plan(
+                append_rsjs_runtime_plan_with_base_path(
                     &mut shell,
                     rsjs_artifacts.rendered_islands(),
                     request.csp_nonce.as_ref(),
+                    request.request.base_path(),
                 )?;
                 render_bootstrap_if_needed(
                     &mut shell,
@@ -1894,10 +1905,11 @@ where
                     shared_seed_table_json.as_deref(),
                     request.csp_nonce.as_ref(),
                 )?;
-                append_rsjs_runtime_plan(
+                append_rsjs_runtime_plan_with_base_path(
                     &mut shell,
                     rsjs_artifacts.rendered_islands(),
                     request.csp_nonce.as_ref(),
+                    request.request.base_path(),
                 )?;
                 render_bootstrap_if_needed(
                     &mut shell,
@@ -2153,8 +2165,51 @@ where
     S: AsRef<str>,
     B: proa_core::WriteBuf,
 {
+    append_rsjs_runtime_plan_delta_with_base_path(
+        buffer,
+        rendered_islands,
+        emission,
+        nonce,
+        &proa_core::BasePath::default(),
+    )
+}
+
+fn append_rsjs_runtime_plan_with_base_path<I, S, B>(
+    buffer: &mut B,
+    rendered_islands: I,
+    nonce: Option<&CspNonce>,
+    base_path: &proa_core::BasePath,
+) -> Result<(), FrameworkError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+    B: proa_core::WriteBuf,
+{
+    let mut emission = rsjs::PageRuntimeEmissionState::new();
+    append_rsjs_runtime_plan_delta_with_base_path(
+        buffer,
+        rendered_islands,
+        &mut emission,
+        nonce,
+        base_path,
+    )
+}
+
+fn append_rsjs_runtime_plan_delta_with_base_path<I, S, B>(
+    buffer: &mut B,
+    rendered_islands: I,
+    emission: &mut rsjs::PageRuntimeEmissionState,
+    nonce: Option<&CspNonce>,
+    base_path: &proa_core::BasePath,
+) -> Result<(), FrameworkError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+    B: proa_core::WriteBuf,
+{
     let manifest = rsjs::manifest();
-    let plan = manifest.page_runtime_plan(rendered_islands)?;
+    let urls = rsjs::CanonicalRsjsAssetUrls::new(base_path.as_str());
+    let plan = manifest.page_runtime_plan_with_urls(rendered_islands, &urls)?;
     plan.write_html_delta(buffer, emission, nonce)?;
     Ok(())
 }

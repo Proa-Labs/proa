@@ -22,7 +22,7 @@ mod spec;
 mod tests;
 
 // Public exports
-pub use context::{RouteContextLayer, RouteContextService};
+pub use context::{app_url, RouteContextLayer, RouteContextService};
 pub use layout::{Layout, LayoutRef};
 pub use local_executor::LocalStreamExecutorConfig;
 pub use metadata::{

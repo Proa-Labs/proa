@@ -31,20 +31,24 @@ pub fn config_rs(package: &str, has_database: bool) -> String {
         ""
     };
     let initializer = if has_database {
-        "Self { address: SocketAddr::new(host, port), database_url }"
+        "Self { address: SocketAddr::new(host, port), base_path, database_url }"
     } else {
-        "Self { address: SocketAddr::new(host, port) }"
+        "Self { address: SocketAddr::new(host, port), base_path }"
     };
     r#"use std::net::{IpAddr, SocketAddr};
 
 pub struct Config {
     pub address: SocketAddr,
+    pub base_path: proa_core::BasePath,
 __DATABASE_FIELD__
 }
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         dotenvy::dotenv().ok();
+        let base_path = proa_core::BasePath::new(
+            &std::env::var("PROA_BASE_PATH").unwrap_or_default(),
+        )?;
         let host: IpAddr = std::env::var("PROA_HOST")
             .unwrap_or_else(|_| "127.0.0.1".to_string())
             .parse()?;
@@ -181,6 +185,8 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let RootDocument { title, content } = self;
+            // proa-perf-ok: Arc shares the immutable prefix without allocating.
+            let base_path = cx.request().base_path().clone();
             html! {
                 <!DOCTYPE html>
                 <html lang="en">
@@ -189,8 +195,8 @@ where
                         <meta name="viewport" content="width=device-width, initial-scale=1">
                         <meta name="color-scheme" content="dark">
                         <title>{raw_text_ok(title)}</title>
-                        <link rel="icon" href="/static/favicon.svg">
-                        <link rel="stylesheet" href="/static/styles.css">
+                        <link rel="icon" href={base_path.url("/static/favicon.svg")}>
+                        <link rel="stylesheet" href={base_path.url("/static/styles.css")}>
                     </head>
                     <body>{content}</body>
                 </html>
@@ -340,11 +346,11 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
                 r#"{Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }}"#
             }
         } else {
-            "<a href=\"/index.md\">\"READ THE MARKDOWN\"</a>"
+            r#"<a href={cx.request().url("/index.md")}>"READ THE MARKDOWN"</a>"#
         };
         r#"__HTML_MACRO__! {
             <main>
-                <header class="topbar"><a class="wordmark" href="/">"PROA"</a><span>"COMPILED APPLICATION STARTER"</span></header>
+                <header class="topbar"><a class="wordmark" href={cx.request().url("/")}>"PROA"</a><span>"COMPILED APPLICATION STARTER"</span></header>
                 <section class="hero">
                     <p class="kicker">"THE SERVER ALREADY DID THE WORK"</p>
                     <h1>"Build the page in Rust. Ship only what moves."</h1>
@@ -439,9 +445,27 @@ fn starter_markdown_copy(body: &str) -> String {
                 }
                 Node::Element(element) => {
                     for attribute in &element.attrs {
-                        if let Attribute::Static { name, value } = attribute {
-                            if matches!(name.to_string().as_str(), "href" | "src" | "alt" | "title")
-                            {
+                        let (name, value) = match attribute {
+                            Attribute::Static { name, value } => (name, Some(value)),
+                            Attribute::Dynamic { name, value } => {
+                                let literal = match value.as_ref() {
+                                    syn::Expr::MethodCall(call) if call.method == "url" => {
+                                        match call.args.first() {
+                                            Some(syn::Expr::Lit(lit)) => match &lit.lit {
+                                                syn::Lit::Str(value) => Some(value),
+                                                _ => None,
+                                            },
+                                            _ => None,
+                                        }
+                                    }
+                                    _ => None,
+                                };
+                                (name, literal)
+                            }
+                            _ => continue,
+                        };
+                        if matches!(name.to_string().as_str(), "href" | "src" | "alt" | "title") {
+                            if let Some(value) = value {
                                 values.push(value.clone());
                             }
                         }
@@ -644,7 +668,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::{app::AppState, endpoints, pages, static_assets};
 
-pub fn router(state: AppState) -> Router {
+pub fn router(state: AppState, base_path: proa_core::BasePath) -> Router {
     let (router, metadata) = router_from_spec(vec![
         // proa:route-specs:start
         Route::endpoint("/", get(pages::home::handler)),
@@ -664,7 +688,8 @@ pub fn router(state: AppState) -> Router {
         // proa:explicit-routes:end
         .nest_service("/static", static_assets::service())
         .with_state(state)
-        .layer(RouteContextLayer::new(manifest, metadata))
+        .merge(proa_framework_axum::rsjs_assets_router(&base_path))
+        .layer(RouteContextLayer::new(manifest, metadata).with_base_path(base_path))
         .layer(TraceLayer::new_for_http())
 }
 "#
@@ -745,7 +770,7 @@ mod static_assets;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
     let config = config::Config::from_env()?;
-__STATE__    let app = routes::router(state);
+__STATE__    let app = routes::router(state, config.base_path);
     let listener = TcpListener::bind(config.address).await?;
     tracing::info!(address = %listener.local_addr()?, "Proa site listening");
     let _ = proa_framework_axum::serve(listener, app, Duration::from_secs(30)).await?;

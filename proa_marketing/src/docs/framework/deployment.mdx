@@ -69,6 +69,85 @@ curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
 
 Build a release binary with `proa build --locked --artifact-out <path>`, which runs the asset build and the linked RSJS pipeline (a plain `cargo build --release` skips the assets and fails at link time on any crate with islands). Public Proa dependencies resolve from crates.io without credentials. The exported binary and `public/` are the deployable artifact.
 
+## Serving behind a URL path prefix
+
+For a proxy that exposes `/apps/demo/` but strips `/apps/demo` before forwarding,
+configure the public prefix at startup. Keep your incoming routes at `/`,
+`/docs/start`, `/static/...`, and so on:
+
+```rust filename="src/main.rs"
+use proa_framework_axum::{BasePath, FrameworkBuilder};
+
+let base_path = BasePath::new(
+    &std::env::var("PROA_BASE_PATH").unwrap_or_default(),
+)?;
+let app = FrameworkBuilder::new(manifest)
+    .with_base_path(base_path)
+    .with_rsjs_assets()
+    .with_static_service(static_router)
+    .with_dynamic_routes(router)
+    .build();
+```
+
+Set `PROA_BASE_PATH=/apps/demo` when starting the binary. This value is read by
+your startup code, so the same build can run at different prefixes. Empty or `/`
+keeps origin-root URLs; a trailing slash is normalized away. The framework does
+not infer the prefix from forwarded headers.
+
+`with_rsjs_assets()` installs the linked runtime and generated module routes.
+It rewrites runtime imports once at startup. Use it instead of registering your
+own `/rsjs-runtime.js`, `/rsjs-runtime-query.js`, and `/rsjs/island/:file` handlers.
+Runtime scripts, preloads, query runtime, dependency modules, and deferred island
+loading use the same prefix, including islands arriving in streamed boundaries.
+HTML responses remain streamed.
+
+For a custom Axum router, merge `rsjs_assets_router(&base_path)` and apply
+`RouteContextLayer::new(manifest, metadata).with_base_path(base_path)`. Custom
+asset pipelines can retain their handlers and call
+`rsjs::rewrite_runtime_import_specifiers` with the two public runtime URLs.
+
+Application-authored links, forms, images, and redirects opt into URL composition:
+
+```rust filename="src/components/nav.rs"
+// proa-perf-ok: Arc shares the immutable prefix without allocating.
+let base_path = cx.request().base_path().clone();
+html_sync! {
+    <nav>
+        <a href={base_path.url("/docs/start")}>"Start"</a>
+        <img src={base_path.url("/static/logo.svg")} />
+    </nav>
+}
+.render(cx)
+```
+
+```rust filename="src/endpoints/redirect.rs"
+use axum::response::Redirect;
+use proa_framework_axum::app_url;
+
+async fn go_home() -> Redirect {
+    Redirect::to(&app_url("/").to_string())
+}
+```
+
+Pass unprefixed application paths to these helpers. `BasePath::url` produces an
+attribute value without allocating an intermediate string. External URLs and
+fragment/query-only references pass through. Treat URL input with the same
+validation policy you would use without this helper.
+
+The framework's CSS manifest URLs, React manifest URLs, and Markdown alternate
+links also follow the configured prefix. Existing raw HTML, third-party output,
+CSS `url(...)` references, and URLs inside application JavaScript are owned by
+the application; configure those asset pipelines or compose their URLs explicitly.
+The basic site and application scaffolds read `PROA_BASE_PATH` for their layout assets
+and navigation.
+
+For example, at `/apps/demo/docs/start`, `/static/styles.css` requests a file
+outside the app. The helper generates `/apps/demo/static/styles.css`. Replacing
+the URL with `./static/styles.css` would request
+`/apps/demo/docs/static/styles.css`, so document-relative URLs are insufficient
+for nested routes. The proxy should serve or redirect the mount root to its
+trailing-slash form (`/apps/demo/`).
+
 ## Next steps
 
 - [Railway](/docs/framework/railway)

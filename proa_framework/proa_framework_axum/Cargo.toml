@@ -40,6 +40,7 @@ proa_core = { workspace = true }
 proa_framework_core = { workspace = true }
 proa_macros = { workspace = true }
 proa_react = { workspace = true }
+rsjs = { workspace = true }
 proa_stream = { workspace = true, features = ["rt-tokio"] }
 # CSP nonce generation: OS-seeded CSPRNG plus base64 encoding.
 rand = { workspace = true }
@@ -61,5 +62,4 @@ url = { version = "2.5" }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
-rsjs = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

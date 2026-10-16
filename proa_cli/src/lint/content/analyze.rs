@@ -668,6 +668,20 @@ impl Analyzer<'_> {
                 }
             }
             Expr::MethodCall(m) => {
+                // RequestContext::url only changes the deployment mount. Its
+                // semantic contribution remains the application-local path.
+                // Recognize the typed context receiver, never arbitrary `url`
+                // methods with application-defined behavior.
+                if self.proa_context && m.method == "url" && m.args.len() == 1 {
+                    if let Expr::MethodCall(request) = m.receiver.as_ref() {
+                        if request.method == "request"
+                            && request.args.is_empty()
+                            && self.output_arg(&request.receiver, env)
+                        {
+                            return self.expr(&m.args[0], env, override_range);
+                        }
+                    }
+                }
                 if self.metadata_receiver(expr, env)
                     || (self.proa_context
                         && self.output_arg(&m.receiver, env)

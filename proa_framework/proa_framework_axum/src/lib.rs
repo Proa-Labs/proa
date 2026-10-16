@@ -16,6 +16,7 @@ pub mod readiness;
 pub mod route;
 #[cfg(feature = "route-export")]
 pub mod route_export;
+pub mod rsjs_assets;
 pub mod security_headers;
 pub mod server;
 pub mod shard;
@@ -30,10 +31,10 @@ pub use external::{ExternalApp, ExternalAppStrategy};
 pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
 };
-pub use proa_core::CspNonce;
+pub use proa_core::{AppUrl, BasePath, CspNonce, InvalidBasePath};
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
-    css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
+    app_url, css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
     explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader, render_css_link,
     render_metadata_head, resolved_metadata, router_from_spec, CascadeOpenGraph, CascadeValue,
     ComputedRouteMeta, DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend,
@@ -42,6 +43,7 @@ pub use route::{
     RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage, ResolvedOpenGraphMedia,
     Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec, StaticPathsFn,
 };
+pub use rsjs_assets::rsjs_assets_router;
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};
 pub use server::{serve, serve_with_shutdown, ShutdownOutcome, DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT};
 pub use shard::{ShardCache, ShardCacheConfig};
@@ -103,6 +105,8 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// and [`with_catch_panic`](Self::with_catch_panic).
 pub struct FrameworkBuilder {
     manifest: Arc<IslandManifest>,
+    base_path: BasePath,
+    rsjs_assets: bool,
     config: ProaConfig,
     static_router: Option<Router>,
     dynamic_router: Option<Router>,
@@ -139,6 +143,8 @@ impl FrameworkBuilder {
     pub fn new(manifest: IslandManifest) -> Self {
         Self {
             manifest: Arc::new(manifest),
+            base_path: BasePath::default(),
+            rsjs_assets: false,
             config: ProaConfig::default(),
             static_router: None,
             dynamic_router: None,
@@ -155,6 +161,24 @@ impl FrameworkBuilder {
             catch_panic: false,
             local_stream_executor: LocalStreamExecutorConfig::default(),
         }
+    }
+
+    /// Set the browser-visible mount prefix for a prefix-stripping proxy.
+    /// Configure from an environment variable at startup with
+    /// `BasePath::new(&std::env::var("PROA_BASE_PATH").unwrap_or_default())?`.
+    /// Incoming routes remain rooted at `/`. Application-authored links and
+    /// redirects use `app_url` or `cx.request().url` explicitly.
+    pub fn with_base_path(mut self, base_path: BasePath) -> Self {
+        self.base_path = base_path;
+        self
+    }
+
+    /// Serve linked RSJS assets, rewriting runtime imports once at startup.
+    /// Do not also register custom routes at `/rsjs-runtime.js`,
+    /// `/rsjs-runtime-query.js`, or `/rsjs/island/:file`.
+    pub fn with_rsjs_assets(mut self) -> Self {
+        self.rsjs_assets = true;
+        self
     }
 
     /// Override the default 1 MiB request-body size limit. Returns the
@@ -356,6 +380,8 @@ impl FrameworkBuilder {
     pub fn build(self) -> Router {
         let FrameworkBuilder {
             manifest,
+            base_path,
+            rsjs_assets,
             config,
             static_router,
             dynamic_router,
@@ -376,6 +402,9 @@ impl FrameworkBuilder {
         let body_limit_bytes = body_limit.unwrap_or(DEFAULT_BODY_LIMIT_BYTES);
 
         let mut app = Router::new();
+        if rsjs_assets {
+            app = app.merge(rsjs_assets_router(&base_path));
+        }
 
         // Mount external apps first (before /static and dynamic routes)
         for external_app in external_apps {
@@ -398,6 +427,7 @@ impl FrameworkBuilder {
 
         let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
         let layer = RouteContextLayer::new(manifest.clone(), computed_metadata)
+            .with_base_path(base_path)
             .with_local_stream_executor_config(local_stream_executor);
         app = app.layer(layer);
         // Apply a global body-size limit so a single oversized POST cannot

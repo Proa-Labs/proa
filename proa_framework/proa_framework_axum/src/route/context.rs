@@ -35,6 +35,7 @@ pub struct RouteContext {
     request_method: Option<http::Method>,
     request_headers: http::HeaderMap,
     csp_nonce: Option<CspNonce>,
+    base_path: proa_core::BasePath,
 }
 
 impl RouteContext {
@@ -47,7 +48,12 @@ impl RouteContext {
             request_method: None,
             request_headers: http::HeaderMap::new(),
             csp_nonce: None,
+            base_path: proa_core::BasePath::default(),
         }
+    }
+
+    pub(super) fn base_path(&self) -> &proa_core::BasePath {
+        &self.base_path
     }
 
     pub(super) fn set_is_client_request(&mut self, is_client: bool) {
@@ -301,8 +307,10 @@ fn restore_context(
 #[derive(Clone)]
 pub struct RouteContextLayer {
     manifest: Arc<IslandManifest>,
+    unprefixed_manifest: Arc<IslandManifest>,
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
+    base_path: proa_core::BasePath,
 }
 
 impl RouteContextLayer {
@@ -311,10 +319,28 @@ impl RouteContextLayer {
         computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     ) -> Self {
         Self {
+            unprefixed_manifest: manifest.clone(),
             manifest,
             computed_metadata,
             local_stream_executor: LocalStreamExecutor::new(LocalStreamExecutorConfig::default()),
+            base_path: proa_core::BasePath::default(),
         }
+    }
+
+    /// Set the public mount prefix without changing incoming routes.
+    pub fn with_base_path(mut self, base_path: proa_core::BasePath) -> Self {
+        self.manifest = if base_path.as_str().is_empty() {
+            self.unprefixed_manifest.clone()
+        } else {
+            Arc::new(
+                self.unprefixed_manifest
+                    .as_ref()
+                    .clone()
+                    .with_base_path(&base_path),
+            )
+        };
+        self.base_path = base_path;
+        self
     }
 
     /// Configure the bounded executor used only for genuinely local streams.
@@ -333,6 +359,7 @@ impl<S> Layer<S> for RouteContextLayer {
             manifest: self.manifest.clone(),
             computed_metadata: self.computed_metadata.clone(),
             local_stream_executor: self.local_stream_executor.clone(),
+            base_path: self.base_path.clone(),
         }
     }
 }
@@ -343,6 +370,7 @@ pub struct RouteContextService<S> {
     manifest: Arc<IslandManifest>,
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
+    base_path: proa_core::BasePath,
 }
 
 impl<S> Service<axum::http::Request<Body>> for RouteContextService<S>
@@ -359,7 +387,8 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: axum::http::Request<Body>) -> Self::Future {
+    fn call(&mut self, mut req: axum::http::Request<Body>) -> Self::Future {
+        req.extensions_mut().insert(self.base_path.clone());
         // Check if this is a client-side navigation request
         let is_client_request = req
             .headers()
@@ -375,6 +404,7 @@ where
         context.set_is_client_request(is_client_request);
         context.set_current_request_parts(current_method, current_headers, current_uri);
         context.set_csp_nonce(csp_nonce);
+        context.base_path = self.base_path.clone();
 
         let future = self.inner.call(req);
         let scoped = ROUTE_CONTEXT.scope(RefCell::new(context), future);
@@ -384,4 +414,14 @@ where
             Ok(prepare_deferred_framework_stream(response, local_stream_executor).await)
         })
     }
+}
+
+/// Compose a public URL for an application-local path in the current request.
+/// Outside a framework request, the prefix defaults to the origin root.
+/// Prefer `cx.request().url(path)` inside components, which also works in
+/// suspended boundaries after the HTTP handler has completed.
+pub fn app_url(path: &str) -> proa_core::AppUrl<'_> {
+    ROUTE_CONTEXT
+        .try_with(|ctx| ctx.borrow().base_path().url(path))
+        .unwrap_or_else(|_| proa_core::BasePath::default().url(path))
 }

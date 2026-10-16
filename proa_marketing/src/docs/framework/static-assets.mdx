@@ -35,7 +35,10 @@ let app = FrameworkBuilder::new(manifest)
     .build();
 ```
 
-The final URL for the nested example is `/static/assets/...`.
+The final URL for the nested example is `/static/assets/...`. When deployed
+under a public prefix, configure `FrameworkBuilder::with_base_path` and use
+`cx.request().url("/static/assets/...")` in templates. The manifest CSS link is
+prefixed automatically. See [URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix).
 
 A single-binary deploy skips the directory entirely and carries the files inside the executable.
 

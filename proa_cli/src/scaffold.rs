@@ -1457,10 +1457,12 @@ struct SiteNav;
 
 impl<L: DataLoader> WebRenderSync<L> for SiteNav {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        // proa-perf-ok: Arc shares the immutable prefix without allocating.
+        let base_path = cx.request().base_path().clone();
         html_sync! {
             {for item in NAV_ITEMS {
                 html_sync! {
-                    <a class="text-sm text-zinc-600 hover:text-zinc-900" href={item.href}>
+                    <a class="text-sm text-zinc-600 hover:text-zinc-900" href={base_path.url(item.href)}>
                         {item.label}
                     </a>
                 }
@@ -1476,6 +1478,8 @@ where
     C: WebRenderSync<L>,
 {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        // proa-perf-ok: Arc shares the immutable prefix without allocating.
+        let base_path = cx.request().base_path().clone();
         html_sync! {
             <!DOCTYPE html>
             <html lang="en">
@@ -1485,8 +1489,8 @@ where
                     <title>{raw_text_ok(self.meta.title)}</title>
                     <meta name="description" content={self.meta.description} />
                     <meta name="proa-route" content={self.meta.path} />
-                    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-                    <link rel="stylesheet" href="/static/styles.css" />
+                    <link rel="icon" href={base_path.url("/static/favicon.svg")} type="image/svg+xml" />
+                    <link rel="stylesheet" href={base_path.url("/static/styles.css")} />
                 </head>
                 <body>
                     <header class="mx-auto max-w-4xl px-6 pt-8">
@@ -1506,7 +1510,7 @@ where
 // proa-perf-ok(scope): trusted scaffold emitter assembles Rust source, not response HTML
 fn home_page(title: &str, axum: bool) -> String {
     let response = if axum {
-        "use axum::response::Html;\n\npub async fn handler() -> Html<String> {\n    // proa-perf-ok: top-level Axum response finalization owns the HTML String\n    Html(render())\n}\n\n"
+        "use axum::{extract::Extension, response::Html};\n\npub async fn handler(Extension(base_path): Extension<proa_core::BasePath>) -> Html<String> {\n    // proa-perf-ok: top-level Axum response finalization owns the HTML String\n    Html(render_with_base_path(base_path))\n}\n\n"
     } else {
         ""
     };
@@ -1514,22 +1518,28 @@ fn home_page(title: &str, axum: bool) -> String {
     fill(
         format!(
             r#"{}use proa_core::{{
-    render_to_string, DataLoader, WebContext, WebRenderSync, WriteError,
+    BasePath, DataLoader, WebContext, WebRenderSync, WriteError,
 }};
 use proa_macros::html_sync;
 
 use crate::layouts::root::{{PageMeta, RootDocument}};
 
 pub fn render() -> String {{
-    // proa-perf-ok: generated scaffold owns the top-level HTML String at the HTTP boundary
-    render_to_string(RootDocument {{
+    render_with_base_path(BasePath::default())
+}}
+
+pub fn render_with_base_path(base_path: BasePath) -> String {{
+    let mut cx = WebContext::new();
+    cx.request_mut().set_base_path(base_path);
+    RootDocument {{
         meta: PageMeta {{
             title: "__TITLE__",
             description: "A Proa site.",
             path: "/",
         }},
         content: HomePage,
-    }})
+    }}.render(&mut cx).expect("render home page");
+    cx.into_output().into_string()
 }}
 
 struct HomePage;
@@ -1669,9 +1679,13 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|port| port.parse::<u16>().ok())
         .unwrap_or(3000);
 
+    let base_path = proa_core::BasePath::new(
+        &std::env::var("PROA_BASE_PATH").unwrap_or_default(),
+    )?;
     let app = Router::new()
 __ROUTES__        .route("/robots.txt", get(robots_txt))
 __FONTS_ROUTE__        .nest_service("/static", static_assets::service())
+        .layer(axum::Extension(base_path))
         .layer(TraceLayer::new_for_http())
         .layer(SetResponseHeaderLayer::if_not_present(
             X_CONTENT_TYPE_OPTIONS,
@@ -2688,7 +2702,7 @@ mod tests {
         let home = fs::read_to_string(root.join("src/pages/home.rs")).unwrap();
         assert!(home.contains("fn home_page_renders"));
         assert!(home.contains("impl<L: DataLoader> WebRenderSync<L> for HomePage"));
-        assert!(home.contains("render_to_string(RootDocument"));
+        assert!(home.contains("cx.request_mut().set_base_path(base_path)"));
         assert!(!home.contains("WebContext::with_buffer(&mut out)"));
         syn::parse_file(&home).expect("generated home page must be valid Rust syntax");
 

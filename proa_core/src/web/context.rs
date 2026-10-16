@@ -54,6 +54,7 @@ pub struct RequestContext {
     headers: Option<HeaderMap>,
     client_ip: Option<String>,
     original_pathname: Option<String>,
+    base_path: super::BasePath,
 }
 
 fn empty_headers() -> &'static HeaderMap {
@@ -64,6 +65,25 @@ fn empty_headers() -> &'static HeaderMap {
 impl RequestContext {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Browser-visible mount prefix. Incoming request paths stay unprefixed.
+    pub fn base_path(&self) -> &super::BasePath {
+        &self.base_path
+    }
+
+    pub fn set_base_path(&mut self, base_path: super::BasePath) {
+        self.base_path = base_path;
+    }
+
+    pub fn with_base_path(mut self, base_path: super::BasePath) -> Self {
+        self.set_base_path(base_path);
+        self
+    }
+
+    /// Compose a browser URL without allocating a string in the render path.
+    pub fn url<'a>(&self, path: &'a str) -> super::AppUrl<'a> {
+        self.base_path.url(path)
     }
 
     pub fn method(&self) -> Option<&Method> {
