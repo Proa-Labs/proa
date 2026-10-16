@@ -16,10 +16,10 @@ help: the trait `proa_core::WebRenderSync<_, _>` is not implemented for `QueryCh
    = help: the following other types implement trait `proa_core::WebRenderSync<L, B>`:
              `&str` implements `proa_core::WebRenderSync<L, B>`
              `()` implements `proa_core::WebRenderSync<L, B>`
+             `BasePathHtml` implements `proa_core::WebRenderSync<L, B>`
              `BoxedWebRenderSync<L, B>` implements `proa_core::WebRenderSync<L, B>`
              `ClassList<N>` implements `proa_core::WebRenderSync<L, B>`
              `ConstHtml` implements `proa_core::WebRenderSync<proa_core::NoLoader, Vec<u8>>`
              `Elem<'a, Void, N, B, F, L>` implements `proa_core::WebRenderSync<L, B>`
              `Elem<'a, proa_core::Normal, N, B, F, L>` implements `proa_core::WebRenderSync<L, B>`
-             `ErrorBoundary<C, Ef>` implements `proa_core::WebRenderSync<L, B>`
            and $N others

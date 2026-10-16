@@ -16,10 +16,10 @@ help: the trait `WebRenderSync<_, _>` is not implemented for `AsyncChild`
    = help: the following other types implement trait `WebRenderSync<L, B>`:
              `&str` implements `WebRenderSync<L, B>`
              `()` implements `WebRenderSync<L, B>`
+             `BasePathHtml` implements `WebRenderSync<L, B>`
              `BoxedWebRenderSync<L, B>` implements `WebRenderSync<L, B>`
              `ClassList<N>` implements `WebRenderSync<L, B>`
              `ConstHtml` implements `WebRenderSync<proa_core::NoLoader, Vec<u8>>`
              `Elem<'a, Void, N, B, F, L>` implements `WebRenderSync<L, B>`
              `Elem<'a, proa_core::Normal, N, B, F, L>` implements `WebRenderSync<L, B>`
-             `ErrorBoundary<C, Ef>` implements `WebRenderSync<L, B>`
            and $N others
