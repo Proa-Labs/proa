@@ -1,6 +1,18 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// The framework configures this module once when serving linked assets.
+const PROA_BASE_PATH = "";
+
+/** Resolve an application URL, preserving external and already-mounted URLs. */
+export function app_url(path) {
+    if (!PROA_BASE_PATH || typeof path !== 'string' ||
+        !path.startsWith('/') || path.startsWith('//')) return path;
+    if (path === PROA_BASE_PATH || path.startsWith(PROA_BASE_PATH + '/') ||
+        path.startsWith(PROA_BASE_PATH + '?') || path.startsWith(PROA_BASE_PATH + '#')) return path;
+    return PROA_BASE_PATH + path;
+}
+
 // rsjs runtime — signal scheduler + DOM bindings + hydration entry.
 //
 // Stage-1 (M2) implementation. Plain ESM, named exports.

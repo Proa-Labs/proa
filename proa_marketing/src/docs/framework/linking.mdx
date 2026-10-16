@@ -16,6 +16,28 @@ html_sync! {
 
 There is no `<Link>` component or client router to configure. Proa pages are server-rendered HTML, so normal document navigation is the baseline. Prefetching and Turbo Drive are optional enhancements to those same anchors; neither changes your routes.
 
+## Deployments under a path prefix
+
+When serving behind a prefix-stripping proxy, configure a runtime base path and
+use `cx.request().url("/blog")` for your anchors, forms, and asset attributes:
+
+```rust filename="src/components/nav.rs"
+let blog = cx.request().url("/blog");
+let about = cx.request().url("/about");
+html_sync! {
+    <nav>
+        <a href={blog}>"Blog"</a>
+        <a href={about}>"About"</a>
+    </nav>
+}
+.render(cx)
+```
+
+This also works in streamed components. In an Axum handler, use
+`Redirect::to(&proa_framework_axum::app_url("/").to_string())` for an
+application-root redirect. See [URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix)
+for startup configuration and island asset serving.
+
 ## Why there is no Link component
 
 Client-side routing avoids a full document reload, but it does not eliminate network requests for server data. Proa keeps routing and rendering on the server, where a route can return useful HTML immediately.

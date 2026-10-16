@@ -6,6 +6,14 @@ keywords: [query, mutation, fetch]
 
 An RSJS query starts from the value the server already rendered, so the first paint and the browser cache agree. This page covers [seeding a query](#seeding-a-query-from-server-data), [awaiting the initial value](#awaiting-the-initial-value), [query keys](#choosing-query-keys), [reads](#reading-query-state), and [mutations](#running-mutations).
 
+When served with `FrameworkBuilder::with_rsjs_assets()` and
+`with_base_path(...)`, root-relative query and mutation endpoints follow that
+public mount automatically. For example, `/api/items` becomes
+`/apps/demo/api/items`. Keep the endpoint's server route unprefixed; absolute
+external URLs and already-mounted browser URLs remain unchanged. Custom runtime
+handlers configure the source with `rsjs::runtime_assets::with_base_path`.
+See [runtime wiring](/docs/rsjs/runtime#serving-linked-assets-with-axum).
+
 ## Seeding a query from server data
 
 Use a **query** when the server renders data first and the browser later

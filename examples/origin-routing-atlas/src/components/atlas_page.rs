@@ -51,9 +51,19 @@ impl AtlasPage {
 /// Render the dossier markdown document to a string (for the overlay).
 // proa-perf-ok(scope): one owned document per request.
 pub fn markdown_string(query: &str, dossier: Option<Arc<Dossier>>) -> String {
+    markdown_string_with_base_path(query, dossier, &proa_core::BasePath::default())
+}
+
+// proa-perf-ok(scope): one owned overlay document per request.
+pub fn markdown_string_with_base_path(
+    query: &str,
+    dossier: Option<Arc<Dossier>>,
+    base_path: &proa_core::BasePath,
+) -> String {
     let mut out = Vec::new();
     {
         let mut cx = WebContext::with_buffer(&mut out);
+        cx.request_mut().set_base_path(base_path.clone());
         let _ = AtlasMd {
             query: query.to_string(),
             host: None,

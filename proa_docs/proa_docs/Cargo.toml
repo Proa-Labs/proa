@@ -22,6 +22,8 @@ axum = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 proa_core = { workspace = true }
 proa_macros = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 
 [lints]
 workspace = true

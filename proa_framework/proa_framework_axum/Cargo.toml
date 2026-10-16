@@ -20,6 +20,13 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
+cssparser = "0.35"
+oxc_allocator = "0.75"
+oxc_ast = "0.75"
+oxc_ast_visit = "0.75"
+oxc_parser = "0.75"
+oxc_semantic = "0.75"
+oxc_span = "0.75"
 chrono = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
@@ -40,6 +47,7 @@ proa_core = { workspace = true }
 proa_framework_core = { workspace = true }
 proa_macros = { workspace = true }
 proa_react = { workspace = true }
+rsjs = { workspace = true }
 proa_stream = { workspace = true, features = ["rt-tokio"] }
 # CSP nonce generation: OS-seeded CSPRNG plus base64 encoding.
 rand = { workspace = true }
@@ -61,5 +69,4 @@ url = { version = "2.5" }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
-rsjs = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

@@ -1316,3 +1316,21 @@ fn inline_code_projection_is_supported_but_arbitrary_callbacks_are_opaque() {
         1
     );
 }
+
+#[test]
+fn request_url_preserves_path_content_without_trusting_arbitrary_url_methods() {
+    let source = fixture(
+        "html_sync! { <a href={cx.request().url(self.image)}>{self.title}</a> }.render(cx)",
+        "let url = cx.request().url(self.image); md_sync! {r###\"[{self.title}]({url})\"###}.render_md(cx)",
+    ).replace("&mut Cx", "&mut proa_core::WebContext");
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+    let missing_path = source.replace(
+        "let url = cx.request().url(self.image);",
+        "let url = \"/other\";",
+    );
+    assert_eq!(missing(&missing_path).len(), 1);
+    let unknown = source.replace("cx.request().url(self.image)", "self.data.url(self.image)");
+    assert!(code(&lint(&unknown), "render/content-coverage-unchecked") > 0);
+    let shadowed = source.replace("&mut proa_core::WebContext", "&mut ApplicationContext");
+    assert!(code(&lint(&shadowed), "render/content-coverage-unchecked") > 0);
+}

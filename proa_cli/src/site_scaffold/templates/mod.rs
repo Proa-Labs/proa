@@ -146,7 +146,7 @@ pub fn populate(
     if selection.markdown {
         plan.write(
             "tests/representations.rs",
-            representation_test(has_database),
+            representation_test(has_database, selection.starter),
         )?;
     }
 
@@ -610,7 +610,7 @@ async fn markdown_exposes_the_same_database_value_and_deduplicates_its_children(
 "#
 }
 
-fn representation_test(has_database: bool) -> String {
+fn representation_test(has_database: bool, starter: StarterChoice) -> String {
     let arc_import = if has_database {
         "use std::sync::Arc;\n\n"
     } else {
@@ -625,12 +625,19 @@ fn representation_test(has_database: bool) -> String {
         r#"let database_url = std::env::var("DATABASE_URL").expect("proa test supplies DATABASE_URL");
     let pool = db::connect(&database_url).await.unwrap();
     let loader = Arc::new(loader::AppLoader::new(pool.clone()));
-    let app = routes::router(app::AppState { db: pool.clone(), loader });"#
+    let app = routes::router(app::AppState { db: pool.clone(), loader }, proa_core::BasePath::new("/apps/demo").unwrap());"#
     } else {
-        "let app = routes::router(app::AppState);"
+        "let app = routes::router(app::AppState, proa_core::BasePath::new(\"/apps/demo\").unwrap());"
     };
     let close = if has_database {
         "pool.close().await;"
+    } else {
+        ""
+    };
+    let navigation_assertions = if starter == StarterChoice::Guided {
+        r#"    assert!(document.contains("href=\"/apps/demo/\""));
+    assert!(document.contains("href=\"/apps/demo/index.md\""));
+"#
     } else {
         ""
     };
@@ -659,8 +666,10 @@ async fn canonical_and_explicit_markdown_share_one_page_policy() {
     assert_eq!(html.status(), StatusCode::OK);
     assert!(html.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/html"));
     assert_eq!(html.headers()[header::VARY], "Accept");
-    assert!(html.headers()[header::LINK].to_str().unwrap().contains("/index.md"));
-
+    assert!(html.headers()[header::LINK].to_str().unwrap().contains("/apps/demo/index.md"));
+    let document = String::from_utf8(body(html).await).unwrap();
+    assert!(document.contains("href=\"/apps/demo/static/styles.css\""));
+__NAVIGATION_ASSERTIONS__
     let refused_markdown = app.clone().oneshot(
         Request::builder().uri("/").header(header::ACCEPT, "text/markdown;q=0, text/html").body(Body::empty()).unwrap()
     ).await.unwrap();
@@ -687,6 +696,7 @@ async fn canonical_and_explicit_markdown_share_one_page_policy() {
     .replace("__DATABASE_MODULES__", database_modules)
     .replace("__STATE__", state)
     .replace("__CLOSE__", close)
+    .replace("__NAVIGATION_ASSERTIONS__", navigation_assertions)
 }
 
 fn vscode_extensions() -> &'static str {

@@ -63,10 +63,11 @@ where
     // `proa dev` sets `PROA_DEV_RELOAD_PORT` on the server processes it
     // spawns, which is the only way this layer is ever built. A production
     // start pays one environment read here and nothing after it.
-    let app = match crate::dev_reload::layer_from_env() {
+    let reload = crate::dev_reload::layer_from_env();
+    let app = match &reload {
         Some(layer) => {
             tracing::info!("live reload client injection enabled for this dev server");
-            app.layer(layer)
+            layer.clone().wrap(app)
         }
         None => app,
     };
@@ -105,6 +106,9 @@ where
     // Closing the listener is the admission-control boundary. Everything in
     // `connections` was accepted before the shutdown signal.
     drop(listener);
+    if let Some(reload) = reload {
+        reload.shutdown();
+    }
     tracing::info!(
         accepted_connections = graceful.count(),
         ?drain_timeout,

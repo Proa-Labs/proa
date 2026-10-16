@@ -317,7 +317,7 @@ fn merge_accept_vary(headers: &mut HeaderMap) {
 fn alternate_link(alternate: MarkdownAlternate) -> HeaderValue {
     HeaderValue::from_str(&format!(
         "<{}>; rel=\"alternate\"; type=\"text/markdown\"",
-        alternate.path()
+        super::app_url(alternate.path())
     ))
     .expect("Markdown alternate paths must be valid header values")
 }

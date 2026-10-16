@@ -43,7 +43,10 @@ pub use model::{
 };
 pub use navigation::{DocsNav, DocsNavItem};
 pub use pager::DocsPager;
-pub use response::{render, render_page_to_string, render_static, DocsResponse};
+pub use response::{
+    render, render_page_to_string, render_page_to_string_with_base_path, render_static,
+    render_with_base_path, DocsResponse,
+};
 pub use sections::DocsSectionMenu;
 pub use shell::DocsShell;
 pub use toc::DocsToc;

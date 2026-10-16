@@ -3,7 +3,7 @@ title: Static assets
 description: Serve static files, embedded assets, and external apps safely.
 ---
 
-`FrameworkBuilder` nests your static router at `/static`, and you supply that router, so the service, cache headers, and deployment rules stay yours. This page covers [disk-backed assets](#serving-assets-from-disk), [embedded assets](#embedding-assets-in-the-binary), [the CSS manifest](#linking-the-css-manifest), and [external apps](#mounting-external-apps).
+`FrameworkBuilder` nests your static router at `/static`, and you supply that router, so the service, cache headers, and deployment rules stay yours. This page covers [disk-backed assets](#serving-assets-from-disk), [embedded assets](#embedding-assets-in-the-binary), [linked island assets](#serving-linked-island-assets), [the CSS manifest](#linking-the-css-manifest), and [external apps](#mounting-external-apps).
 
 ## Serving assets from disk
 
@@ -35,7 +35,29 @@ let app = FrameworkBuilder::new(manifest)
     .build();
 ```
 
-The final URL for the nested example is `/static/assets/...`.
+The final URL for the nested example is `/static/assets/...`. When deployed
+under a public prefix, configure `FrameworkBuilder::with_base_path` and use
+`cx.request().url("/static/assets/...")` in templates. The manifest CSS link is
+prefixed automatically. See [URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix).
+
+When `with_base_path(...)` is configured, the managed service also composes
+recognized URLs inside CSS and JS/MJS files. CSS `url(...)`/`image-set(...)`/`@import`, module
+imports, and native browser request/worker URL arguments follow the mount.
+Ordinary strings and external URLs stay unchanged. Dynamic browser code can
+import `app_url` from the linked runtime. See
+[coverage and examples](/docs/framework/deployment#coverage-and-limitations).
+
+For routers built without `FrameworkBuilder`, wrap the static router explicitly:
+
+```rust
+use proa_framework_axum::{base_path_assets, BasePath};
+
+let static_router = base_path_assets(static_router, BasePath::new("/apps/demo")?);
+```
+
+Apply compression outside this wrapper. Its parsed output is cached by content;
+ETags and HEAD responses describe the transformed representation. Integrity
+hashes must be computed from those served bytes.
 
 A single-binary deploy skips the directory entirely and carries the files inside the executable.
 
@@ -61,6 +83,43 @@ let static_router = Router::new().nest_service(
 The embedded service sets a content type from the extension and adds `X-Content-Type-Options: nosniff`.
 
 Either service can host the stylesheet, but the page still needs a link to it.
+
+## Serving linked island assets
+
+RSJS embeds its runtimes and generated module sources in the linked binary.
+Enable their HTTP routes with `with_rsjs_assets()`:
+
+```rust filename="src/app.rs"
+use proa_framework_axum::FrameworkBuilder;
+
+let app = FrameworkBuilder::new(manifest)
+    .with_rsjs_assets()
+    .with_dynamic_routes_and_metadata(routes, metadata)
+    .build();
+```
+
+| Route | Serves |
+| --- | --- |
+| `/rsjs-runtime.js` | Core browser runtime. |
+| `/rsjs-runtime-query.js` | Query and mutation runtime. |
+| `/rsjs/island/:file` | Linked island modules, client helpers/classes, and component fragments. |
+
+The response finalizer selects the script tags and preloads each page needs;
+these routes serve the corresponding sources. `with_static_service(...)`
+continues to serve application files under `/static` independently.
+
+Use these routes in place of custom handlers at the same paths to avoid route
+collisions. For a custom Axum router, merge
+`proa_framework_axum::rsjs_assets_router(&base_path)` and apply
+`RouteContextLayer::with_base_path` with the same setting.
+
+`with_rsjs_assets()` works with the default root or with
+[`with_base_path(...)`](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets).
+With a prefix, it rewrites runtime import URLs once at startup, while incoming
+routes remain unprefixed and HTML responses keep streaming. See
+[URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix)
+for proxy setup and [RSJS runtime wiring](/docs/rsjs/runtime) for asset selection
+and hydration.
 
 ## Linking the CSS manifest
 

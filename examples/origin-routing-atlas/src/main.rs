@@ -14,10 +14,11 @@ async fn main() -> anyhow::Result<()> {
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let address: std::net::SocketAddr = format!("{host}:{port}").parse()?;
     let listener = tokio::net::TcpListener::bind(address).await?;
+    let base_path = proa_core::BasePath::new(&std::env::var("PROA_BASE_PATH").unwrap_or_default())?;
     tracing::info!(address = %listener.local_addr()?, "ORIGIN listening");
     let _ = proa_framework_axum::serve(
         listener,
-        proa_origin_routing_atlas::app(),
+        proa_origin_routing_atlas::app_with_base_path(base_path),
         std::time::Duration::from_secs(30),
     )
     .await?;

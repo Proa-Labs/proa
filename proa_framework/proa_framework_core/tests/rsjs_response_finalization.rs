@@ -6,7 +6,7 @@
 //! The components below deliberately use the low-level recording bridges
 //! emitted by RSJS-analyzed components. The test only invokes normal `RouteResponse`
 //! finalization; it never calls the page planner or appends runtime tags
-//! itself.
+//! itself, except for the explicit custom-adapter API coverage.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -146,13 +146,15 @@ async fn finalize_stream_async(
         .into_framework_response(&manifest, request)
         .await
         .expect("streaming route response should finalize");
-    let FrameworkBody::Stream(proa_framework_core::FrameworkStreamFactory::Local(factory)) =
-        response.body
-    else {
-        panic!("streaming route should produce a stream factory");
+    let mut stream: proa_framework_core::FrameworkLocalStream = match response.body {
+        FrameworkBody::Stream(proa_framework_core::FrameworkStreamFactory::Local(factory)) => {
+            factory()
+        }
+        FrameworkBody::Stream(proa_framework_core::FrameworkStreamFactory::Send(factory)) => {
+            factory()
+        }
+        _ => panic!("streaming route should produce a stream factory"),
     };
-
-    let mut stream = factory();
     let mut chunks = Vec::new();
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.expect("streaming response should complete without transport errors");
@@ -714,4 +716,147 @@ async fn timed_out_out_of_order_boundary_discards_cancelled_branch_artifacts() {
         &html,
         r#"<script type="module" src="/rsjs/island/framework_auto_basic.js"></script>"#,
     );
+}
+
+#[test]
+fn public_prefix_reaches_buffered_and_streamed_runtime_plans() {
+    let request = FrameworkRequestContext {
+        request: proa_core::RequestContext::new()
+            .with_base_path(proa_core::BasePath::new("/user/demo/proxy/3000/").unwrap()),
+        ..Default::default()
+    };
+    for response in [
+        RouteResponse::ssr(BasicIsland),
+        RouteResponse::ssr_async(AsyncIsland),
+    ] {
+        let html = finalize(response, &request);
+        assert_exactly_once(&html, r#"src="/user/demo/proxy/3000/rsjs-runtime.js""#);
+        assert_exactly_once(
+            &html,
+            r#"href="/user/demo/proxy/3000/rsjs/island/framework_auto_basic.js""#,
+        );
+        assert!(!html.contains(r#"src="/rsjs"#));
+    }
+    for mode in [RenderMode::ChunkedInOrder, RenderMode::ChunkedOutOfOrder] {
+        let chunks = finalize_stream(
+            RouteResponse::ssr_stream(SuccessfulStreamingPage).with_render_mode(mode),
+            &request,
+        );
+        assert!(chunks.len() > 1);
+        let html = chunks.concat();
+        assert_exactly_once(&html, r#"src="/user/demo/proxy/3000/rsjs-runtime.js""#);
+        assert_exactly_once(
+            &html,
+            r#"src="/user/demo/proxy/3000/rsjs/island/framework_auto_child.js""#,
+        );
+        assert!(!html.contains(r#"src="/rsjs"#));
+    }
+}
+
+#[test]
+fn custom_adapters_can_emit_prefixed_plans_and_streaming_deltas() {
+    use proa_framework_core::response::{
+        append_rsjs_runtime_plan_delta_with_base_path, append_rsjs_runtime_plan_with_base_path,
+    };
+
+    let base_path = proa_core::BasePath::new("/custom/adapter").unwrap();
+    let mut page = Vec::new();
+    append_rsjs_runtime_plan_with_base_path(
+        &mut page,
+        [BASIC_ISLAND_ID, QUERY_ISLAND_ID],
+        None,
+        &base_path,
+    )
+    .unwrap();
+    let mut streamed = Vec::new();
+    let mut emission = rsjs::PageRuntimeEmissionState::new();
+    for islands in [[BASIC_ISLAND_ID], [QUERY_ISLAND_ID], [QUERY_ISLAND_ID]] {
+        append_rsjs_runtime_plan_delta_with_base_path(
+            &mut streamed,
+            islands,
+            &mut emission,
+            None,
+            &base_path,
+        )
+        .unwrap();
+    }
+    for bytes in [page, streamed] {
+        let html = String::from_utf8(bytes).unwrap();
+        assert_exactly_once(&html, r#"src="/custom/adapter/rsjs-runtime.js""#);
+        assert_exactly_once(&html, r#"src="/custom/adapter/rsjs-runtime-query.js""#);
+        for id in [BASIC_ISLAND_ID, QUERY_ISLAND_ID] {
+            assert_exactly_once(
+                &html,
+                &format!(r#"src="/custom/adapter/rsjs/island/{id}.js""#),
+            );
+        }
+        assert!(!html.contains(r#"src="/rsjs"#));
+        assert!(!html.contains(r#"href="/rsjs"#));
+    }
+}
+
+struct SendPrefixPage;
+struct SendPrefixChild;
+
+impl proa_core::WebRenderSend for SendPrefixChild {
+    fn render_send(
+        self,
+        cx: &mut proa_core::SendWebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move {
+            yield_once().await;
+            cx.rsjs_island_used(QUERY_ISLAND_ID);
+            let url = cx.request().url("/child");
+            proa_macros::html_send! { <a href={url}>"Child"</a> }
+                .render_send(cx)
+                .resolve()
+                .await
+        })
+    }
+}
+
+impl proa_core::WebRenderSend for SendPrefixPage {
+    fn render_send(
+        self,
+        cx: &mut proa_core::SendWebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        cx.rsjs_island_used(BASIC_ISLAND_ID);
+        proa_macros::html_send! {
+            <main>{Suspense::new(SendPrefixChild, proa_macros::html_send! { <p>"Loading"</p> })}</main>
+        }.render_send(cx)
+    }
+}
+
+#[test]
+fn public_prefix_reaches_send_buffered_and_streaming_responses() {
+    let request = FrameworkRequestContext {
+        request: proa_core::RequestContext::new()
+            .with_base_path(proa_core::BasePath::new("/preview/42").unwrap()),
+        ..Default::default()
+    };
+    let html = finalize(
+        RouteResponse::ssr_async_send_with_loader(SendPrefixPage, std::sync::Arc::new(NoLoader)),
+        &request,
+    );
+    assert!(html.contains(r#"href="/preview/42/child""#));
+    assert_exactly_once(&html, r#"src="/preview/42/rsjs-runtime-query.js""#);
+    for mode in [RenderMode::ChunkedInOrder, RenderMode::ChunkedOutOfOrder] {
+        let chunks = finalize_stream(
+            RouteResponse::ssr_stream_send_with_loader(
+                SendPrefixPage,
+                std::sync::Arc::new(NoLoader),
+            )
+            .with_render_mode(mode),
+            &request,
+        );
+        assert!(chunks.len() > 1);
+        let html = chunks.concat();
+        assert_exactly_once(&html, r#"src="/preview/42/rsjs-runtime.js""#);
+        assert_exactly_once(&html, r#"src="/preview/42/rsjs-runtime-query.js""#);
+        assert_exactly_once(
+            &html,
+            r#"src="/preview/42/rsjs/island/framework_auto_query.js""#,
+        );
+        assert!(!html.contains(r#"src="/rsjs"#));
+    }
 }

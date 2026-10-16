@@ -67,6 +67,35 @@ pub struct ProviderSpec {
 }
 
 impl IslandManifest {
+    /// Resolve application-local URLs against the public mount at startup.
+    /// External URLs and import-map keys are preserved. Adapter implementation
+    /// detail: call once on an unprefixed manifest. Do not pass the result to
+    /// `FrameworkBuilder::with_base_path` or `RouteContextLayer::with_base_path`,
+    /// which resolve the manifest themselves. Reapplying this method would
+    /// double-prefix URLs. Incoming routes and filesystem paths are unaffected.
+    #[doc(hidden)]
+    pub fn with_base_path(mut self, base_path: &proa_core::BasePath) -> Self {
+        if base_path.as_str().is_empty() {
+            return self;
+        }
+        for entry in self.islands.values_mut() {
+            entry.module_path = base_path.url(&entry.module_path).to_string();
+            for preload in &mut entry.module_preloads {
+                *preload = base_path.url(preload).to_string();
+            }
+            for provider in &mut entry.providers {
+                provider.module = base_path.url(&provider.module).to_string();
+            }
+        }
+        if let Some(css) = &mut self.assets.css {
+            css.path = base_path.url(&css.path).to_string();
+        }
+        for url in self.import_map.values_mut() {
+            *url = base_path.url(url).to_string();
+        }
+        self
+    }
+
     pub fn load_from_path(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let content = fs::read_to_string(path)
@@ -234,5 +263,60 @@ mod tests {
             }
             other => panic!("expected media strategy, got {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod base_path_tests {
+    use super::*;
+
+    #[test]
+    fn resolves_manifest_urls_without_rewriting_external_urls_or_import_keys() {
+        let manifest = IslandManifest {
+            islands: HashMap::from([(
+                "widget".into(),
+                IslandEntry {
+                    module_path: "/static/widget.js".into(),
+                    export: None,
+                    strategy: HydrationStrategyConfig::Immediate,
+                    module_preloads: vec![
+                        "/static/shared.js".into(),
+                        "https://cdn.test/shared.js".into(),
+                    ],
+                    providers: vec![ProviderSpec {
+                        module: "/static/provider.js".into(),
+                        export: None,
+                        props: serde_json::Value::Null,
+                    }],
+                    hydrate_fn: None,
+                },
+            )]),
+            assets: ManifestAssets {
+                css: Some(CssAsset {
+                    path: "/static/app.css".into(),
+                    size: Some(42),
+                }),
+            },
+            import_map: HashMap::from([
+                ("react".into(), "https://cdn.test/react.js".into()),
+                ("widget".into(), "/static/widget.js".into()),
+            ]),
+            ssr_bundle: Some("ssr-entry.js".into()),
+        }
+        .with_base_path(&proa_core::BasePath::new("/apps/demo").unwrap());
+        let entry = &manifest.islands["widget"];
+        assert_eq!(entry.module_path, "/apps/demo/static/widget.js");
+        assert_eq!(
+            entry.module_preloads,
+            ["/apps/demo/static/shared.js", "https://cdn.test/shared.js"]
+        );
+        assert_eq!(entry.providers[0].module, "/apps/demo/static/provider.js");
+        assert_eq!(
+            manifest.assets.css.unwrap().path,
+            "/apps/demo/static/app.css"
+        );
+        assert_eq!(manifest.import_map["react"], "https://cdn.test/react.js");
+        assert_eq!(manifest.import_map["widget"], "/apps/demo/static/widget.js");
+        assert_eq!(manifest.ssr_bundle.as_deref(), Some("ssr-entry.js"));
     }
 }

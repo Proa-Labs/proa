@@ -3,7 +3,6 @@
 
 mod api;
 mod app;
-mod assets;
 pub mod components;
 mod layouts;
 pub mod loader;
@@ -24,8 +23,8 @@ use axum::{
     Router,
 };
 use proa_framework_axum::{
-    explicit_markdown, negotiate, router_from_spec, IslandManifest, MarkdownAlternate, Route,
-    RouteContextLayer, RouteResponse,
+    explicit_markdown, negotiate, router_from_spec, rsjs_assets_router, BasePath, IslandManifest,
+    MarkdownAlternate, Route, RouteContextLayer, RouteResponse,
 };
 use proa_stream::DataResolver;
 use serde::Deserialize;
@@ -47,9 +46,22 @@ pub async fn render_atlas_page<L>(raw_query: Option<&str>, loader: Arc<L>) -> St
 where
     L: proa_core::DataLoader + Send + Sync + 'static,
 {
+    render_atlas_page_with_base_path(raw_query, loader, BasePath::default()).await
+}
+
+/// Render with the same public mount used by the HTTP application.
+pub async fn render_atlas_page_with_base_path<L>(
+    raw_query: Option<&str>,
+    loader: Arc<L>,
+    base_path: BasePath,
+) -> String
+where
+    L: proa_core::DataLoader + Send + Sync + 'static,
+{
     use proa_core::WebRender;
     let resolver = DataResolver::request_scope(loader);
     let mut cx = proa_core::WebContext::with_loader(resolver);
+    cx.request_mut().set_base_path(base_path);
     RootDocument {
         content: AtlasPage::resolve(raw_query),
     }
@@ -74,6 +86,10 @@ fn request_host(headers: &HeaderMap) -> Option<String> {
 }
 
 pub fn app() -> Router {
+    app_with_base_path(BasePath::default())
+}
+
+pub fn app_with_base_path(base_path: BasePath) -> Router {
     // Measure one full document render from canned data (pure CPU) so the
     // receipt can report this server's own share of a lookup separately from
     // upstream latency. Inside that render the receipt itself reads the
@@ -107,19 +123,23 @@ pub fn app() -> Router {
         .route("/lab/rows", get(lab_rows))
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
-        .route("/rsjs-runtime.js", get(assets::rsjs_runtime))
-        .route("/rsjs-runtime-query.js", get(assets::rsjs_query_runtime))
-        .route("/rsjs/island/:file", get(assets::rsjs_asset))
         .nest_service(
             "/static",
-            ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/public")),
+            proa_framework_axum::base_path_assets(
+                Router::new().fallback_service(ServeDir::new(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/public"
+                ))),
+                base_path.clone(),
+            ),
         )
         .nest_service(
             "/fonts",
             ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/public/fonts")),
         )
         .with_state(state)
-        .layer(RouteContextLayer::new(manifest, metadata))
+        .merge(rsjs_assets_router(&base_path))
+        .layer(RouteContextLayer::new(manifest, metadata).with_base_path(base_path))
         .layer(TraceLayer::new_for_http())
 }
 

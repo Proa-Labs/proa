@@ -3,11 +3,11 @@ title: Runtime wiring
 description: Plan, emit, and activate the exact RSJS assets a response rendered.
 ---
 
-Proa ships RSJS runtime code only for the owners a response actually rendered. This page covers the [shared runtime layers](#loading-the-runtime-layers), [automatic finalization](#finalizing-a-normal-response), the [response-local plan](#planning-one-response), [hydration semantics](#hydrating-and-disposing-owners), and [custom adapters](#writing-a-custom-adapter).
+Proa ships RSJS runtime code only for the owners a response actually rendered. This page covers the [shared runtime layers](#loading-the-runtime-layers), [asset serving](#serving-linked-assets-with-axum), [automatic finalization](#finalizing-a-normal-response), the [response-local plan](#planning-one-response), [hydration semantics](#hydrating-and-disposing-owners), and [custom adapters](#writing-a-custom-adapter).
 
 ## Loading the runtime layers
 
-RSJS has two shared runtime layers:
+RSJS has two shared runtime layers. The paths below are the origin-root defaults:
 
 | Asset | Loaded when | Purpose |
 |-------|-------------|---------|
@@ -25,6 +25,36 @@ actually rendered.
 
 The finalizer that picks those assets runs on every response without any work
 from your page code.
+
+## Serving linked assets with Axum
+
+Install the asset routes when building your application:
+
+```rust filename="src/app.rs"
+use proa_framework_axum::FrameworkBuilder;
+
+let app = FrameworkBuilder::new(manifest)
+    .with_rsjs_assets()
+    .with_dynamic_routes_and_metadata(routes, metadata)
+    .build();
+```
+
+The finalizer emits tags; `with_rsjs_assets()` serves the linked JavaScript those
+tags request. It works at the origin root and follows
+[`with_base_path(...)`](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets)
+when configured. Use it in place of custom handlers at the same asset paths.
+
+See [Static assets](/docs/framework/static-assets#serving-linked-island-assets)
+for the installed routes and custom-router alternative, and
+[URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix)
+for the proxy configuration example.
+
+The linked core and query runtimes export `app_url(path)` for handwritten
+browser code. With a mount configured, query/mutation request descriptors
+compose root-relative endpoints automatically, including runtime-computed
+fetchers. Already-mounted browser URLs and external URLs stay unchanged.
+Custom runtime servers can call `rsjs::runtime_assets::with_base_path(source,
+&base_path)` before serving either runtime; use the same setting for both.
 
 ## Finalizing a normal response
 
@@ -57,7 +87,8 @@ The finalizer turns those artifacts into one plan, described next.
 ## Planning one response
 
 The finalizer passes the committed rendered-island ids to
-`Manifest::page_runtime_plan(...)`. The resulting `PageRuntimePlan` is one
+`Manifest::page_runtime_plan_with_urls(...)` with the request's public URL
+resolver. The resulting `PageRuntimePlan` is one
 deterministic description of:
 
 - rendered owner ids and reachable runtime features;

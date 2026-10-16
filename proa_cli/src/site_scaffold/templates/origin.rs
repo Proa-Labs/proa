@@ -57,7 +57,6 @@ pub const SOURCE_FILES: &[(&str, &str)] = &[
     ),
     ("src/api.rs", include_str!("origin/src/api.rs")),
     ("src/app.rs", include_str!("origin/src/app.rs")),
-    ("src/assets.rs", include_str!("origin/src/assets.rs")),
     (
         "src/components/_proa/anatomy.rs",
         include_str!("origin/src/components/_proa/anatomy.rs"),
@@ -470,9 +469,12 @@ pub fn crate_ident(package: &str) -> String {
 }
 
 fn env_example(ident: &str) -> String {
-    format!("PROA_HOST=127.0.0.1\nPORT=3000\nRUST_LOG={ident}=info,tower_http=info\n")
+    format!(
+        "PROA_HOST=127.0.0.1\nPORT=3000\nPROA_BASE_PATH=\nRUST_LOG={ident}=info,tower_http=info\n"
+    )
 }
 
+// proa-perf-ok(scope): scaffold generation assembles README Markdown, not response HTML.
 fn readme(package: &str, title: &str) -> String {
     format!(
         r#"<div align="center">
@@ -501,6 +503,11 @@ proa dev --open
 `proa build` produces the release binary; `proa test` runs the suite through
 the linked island pipeline (plain `cargo test` rejects island binaries at
 link time by design).
+
+For a proxy that strips a public mount such as `/apps/demo`, start the binary
+with `PROA_BASE_PATH=/apps/demo`. Fonts, document assets, island imports,
+navigation, and the browser's lab request stay under that mount; server routes
+remain unprefixed.
 
 ## How this app fits together
 

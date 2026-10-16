@@ -1457,10 +1457,12 @@ struct SiteNav;
 
 impl<L: DataLoader> WebRenderSync<L> for SiteNav {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        // proa-perf-ok: share the prefix without borrowing cx inside the render loop.
+        let base_path = cx.request().base_path().clone();
         html_sync! {
             {for item in NAV_ITEMS {
                 html_sync! {
-                    <a class="text-sm text-zinc-600 hover:text-zinc-900" href={item.href}>
+                    <a class="text-sm text-zinc-600 hover:text-zinc-900" href={base_path.url(item.href)}>
                         {item.label}
                     </a>
                 }
@@ -1476,6 +1478,8 @@ where
     C: WebRenderSync<L>,
 {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let favicon = cx.request().url("/static/favicon.svg");
+        let stylesheet = cx.request().url("/static/styles.css");
         html_sync! {
             <!DOCTYPE html>
             <html lang="en">
@@ -1485,8 +1489,8 @@ where
                     <title>{raw_text_ok(self.meta.title)}</title>
                     <meta name="description" content={self.meta.description} />
                     <meta name="proa-route" content={self.meta.path} />
-                    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-                    <link rel="stylesheet" href="/static/styles.css" />
+                    <link rel="icon" href={favicon} type="image/svg+xml" />
+                    <link rel="stylesheet" href={stylesheet} />
                 </head>
                 <body>
                     <header class="mx-auto max-w-4xl px-6 pt-8">
@@ -1506,7 +1510,7 @@ where
 // proa-perf-ok(scope): trusted scaffold emitter assembles Rust source, not response HTML
 fn home_page(title: &str, axum: bool) -> String {
     let response = if axum {
-        "use axum::response::Html;\n\npub async fn handler() -> Html<String> {\n    // proa-perf-ok: top-level Axum response finalization owns the HTML String\n    Html(render())\n}\n\n"
+        "use axum::{extract::Extension, response::Html};\n\npub async fn handler(Extension(base_path): Extension<proa_core::BasePath>) -> Html<String> {\n    // proa-perf-ok: top-level Axum response finalization owns the HTML String\n    Html(render_with_base_path(base_path))\n}\n\n"
     } else {
         ""
     };
@@ -1514,22 +1518,28 @@ fn home_page(title: &str, axum: bool) -> String {
     fill(
         format!(
             r#"{}use proa_core::{{
-    render_to_string, DataLoader, WebContext, WebRenderSync, WriteError,
+    BasePath, DataLoader, WebContext, WebRenderSync, WriteError,
 }};
 use proa_macros::html_sync;
 
 use crate::layouts::root::{{PageMeta, RootDocument}};
 
 pub fn render() -> String {{
-    // proa-perf-ok: generated scaffold owns the top-level HTML String at the HTTP boundary
-    render_to_string(RootDocument {{
+    render_with_base_path(BasePath::default())
+}}
+
+pub fn render_with_base_path(base_path: BasePath) -> String {{
+    let mut cx = WebContext::new();
+    cx.request_mut().set_base_path(base_path);
+    RootDocument {{
         meta: PageMeta {{
             title: "__TITLE__",
             description: "A Proa site.",
             path: "/",
         }},
         content: HomePage,
-    }})
+    }}.render(&mut cx).expect("render home page");
+    cx.into_output().into_string()
 }}
 
 struct HomePage;
@@ -1576,22 +1586,25 @@ fn blog_page(axum: bool) -> String {
 
 fn docs_like_page(const_name: &str, dir: &str, base_path: &str, axum: bool) -> String {
     let template = if axum {
-        r#"use axum::{extract::Path, response::Response};
+        r#"use axum::{extract::{Extension, Path}, response::Response};
 use proa_docs::Docs;
 
 static __CONST__: Docs = proa_docs::include_docs!("__DIR__");
 
-pub async fn handler() -> Response {
-    proa_docs::adapter::axum::response(&__CONST__, "__BASE__")
+pub async fn handler(Extension(base_path): Extension<proa_core::BasePath>) -> Response {
+    proa_docs::adapter::axum::response_with_base_path(&__CONST__, "__BASE__", &base_path)
 }
 
-pub async fn path_handler(Path(path): Path<String>) -> Response {
+pub async fn path_handler(
+    Path(path): Path<String>,
+    Extension(base_path): Extension<proa_core::BasePath>,
+) -> Response {
     let path = if path.trim_matches('/').is_empty() {
         "__BASE__".to_string()
     } else {
         format!("__BASE__/{}", path.trim_matches('/'))
     };
-    proa_docs::adapter::axum::response(&__CONST__, &path)
+    proa_docs::adapter::axum::response_with_base_path(&__CONST__, &path, &base_path)
 }
 "#
     } else {
@@ -1600,7 +1613,11 @@ pub async fn path_handler(Path(path): Path<String>) -> Response {
 static __CONST__: Docs = proa_docs::include_docs!("__DIR__");
 
 pub fn render(path: &str) -> DocsResponse {
-    proa_docs::render(&__CONST__, path)
+    render_with_base_path(path, &proa_core::BasePath::default())
+}
+
+pub fn render_with_base_path(path: &str, base_path: &proa_core::BasePath) -> DocsResponse {
+    proa_docs::render_with_base_path(&__CONST__, path, base_path)
 }
 "#
     };
@@ -1669,9 +1686,13 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|port| port.parse::<u16>().ok())
         .unwrap_or(3000);
 
+    let base_path = proa_core::BasePath::new(
+        &std::env::var("PROA_BASE_PATH").unwrap_or_default(),
+    )?;
     let app = Router::new()
 __ROUTES__        .route("/robots.txt", get(robots_txt))
-__FONTS_ROUTE__        .nest_service("/static", static_assets::service())
+__FONTS_ROUTE__        .nest_service("/static", static_assets::service(base_path.clone()))
+        .layer(axum::Extension(base_path))
         .layer(TraceLayer::new_for_http())
         .layer(SetResponseHeaderLayer::if_not_present(
             X_CONTENT_TYPE_OPTIONS,
@@ -1748,7 +1769,7 @@ fn serve_dir(dir: PathBuf, cache_control: &'static str) -> Router {
     )
 }
 
-pub fn service() -> Router {
+pub fn service(base_path: proa_core::BasePath) -> Router {
     // Debug builds revalidate on every load so `proa dev` asset rebuilds show
     // up on refresh; release builds keep the shared one-hour cache.
     let cache_control = if cfg!(debug_assertions) {
@@ -1756,7 +1777,7 @@ pub fn service() -> Router {
     } else {
         "public, max-age=3600"
     };
-    serve_dir(static_root(), cache_control)
+    proa_framework_axum::base_path_assets(serve_dir(static_root(), cache_control), base_path)
 }
 __FONTS_SERVICE__"#
             .to_string(),
@@ -2688,7 +2709,7 @@ mod tests {
         let home = fs::read_to_string(root.join("src/pages/home.rs")).unwrap();
         assert!(home.contains("fn home_page_renders"));
         assert!(home.contains("impl<L: DataLoader> WebRenderSync<L> for HomePage"));
-        assert!(home.contains("render_to_string(RootDocument"));
+        assert!(home.contains("cx.request_mut().set_base_path(base_path)"));
         assert!(!home.contains("WebContext::with_buffer(&mut out)"));
         syn::parse_file(&home).expect("generated home page must be valid Rust syntax");
 

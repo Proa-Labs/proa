@@ -463,3 +463,93 @@ fn the_client_script_has_no_placeholders_left_and_cannot_close_its_own_tag() {
         "{script}"
     );
 }
+
+#[tokio::test]
+async fn mounted_reload_uses_the_public_path_and_relays_authenticated_events() {
+    use axum::{extract::OriginalUri, routing::get, Router};
+    use tower::ServiceExt;
+    let upstream = Router::new().route(
+        DEV_EVENTS_PATH,
+        get(|OriginalUri(uri): OriginalUri| async move {
+            if uri.query() != Some(&format!("token={TOKEN}")) {
+                return Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .body(Body::empty())
+                    .unwrap();
+            }
+            Response::builder()
+                .header(CONTENT_TYPE, "text/event-stream")
+                .body(Body::from("event: reload\ndata: ready\n\n"))
+                .unwrap()
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, upstream).await.unwrap();
+    });
+    for prefix in ["/user/demo/proxy/3000", "/apps/*literal/:name"] {
+        let layer = DevReloadLayer::new(port, TOKEN)
+            .with_base_path(&proa_core::BasePath::new(prefix).unwrap());
+        let response = inject(html("<html><head></head></html>"), &layer);
+        let output = body_string(response).await;
+        assert!(output.contains("var SAME_ORIGIN = true;"));
+        assert!(output.contains(&format!("{prefix}{DEV_EVENTS_PATH}")));
+        let router = layer.wrap(Router::new());
+        for path in [
+            DEV_EVENTS_PATH.to_string(),
+            format!("{prefix}{DEV_EVENTS_PATH}"),
+        ] {
+            for (token, expected) in [(TOKEN, StatusCode::OK), ("invalid", StatusCode::FORBIDDEN)] {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .uri(format!("{path}?token={token}"))
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), expected, "{path}");
+                if expected == StatusCode::OK {
+                    assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
+                    assert_eq!(
+                        body_string(response).await,
+                        "event: reload\ndata: ready\n\n"
+                    );
+                }
+            }
+        }
+        let miss = router
+            .oneshot(
+                Request::builder()
+                    .uri("/apps/other/value/__proa/dev-events")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(miss.status(), StatusCode::NOT_FOUND);
+    }
+    server.abort();
+}
+
+#[tokio::test]
+async fn mounted_reload_escapes_the_inline_script_and_keeps_connections_on_self() {
+    let layer = layer().with_base_path(&proa_core::BasePath::new("/apps/\"demo").unwrap());
+    let mut response = html("<html><head></head></html>");
+    response.headers_mut().insert(
+        CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("default-src 'self'; script-src 'nonce-YWJj'"),
+    );
+    let response = inject(response, &layer);
+    let policy = response.headers()[CONTENT_SECURITY_POLICY]
+        .to_str()
+        .unwrap();
+    assert!(policy.contains("default-src 'self'"));
+    assert!(!policy.contains("http://*:"));
+    let output = body_string(response).await;
+    assert!(output.contains("/apps/\\\"demo/__proa/dev-events"));
+    assert!(output.contains("<script nonce=\"YWJj\">"));
+}
