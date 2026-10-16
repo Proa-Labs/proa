@@ -252,104 +252,65 @@ pub fn dev(options: DevOptions) -> Result<()> {
             continue;
         };
 
-        // A stylesheet edit changes no compiled input, so rebuilding assets
-        // and letting tabs re-fetch their stylesheets is both faster than a
-        // Cargo cycle and less destructive: scroll position, form state, and
-        // open dialogs all survive. This is Vite's CSS update path.
-        let changed = changed_paths(&debouncer.committed, &trigger_snapshot);
-        if !options.no_css_hot_swap && !options.no_assets && is_stylesheet_only_change(&changed) {
-            println!("stylesheet change stabilized; rebuilding assets without restarting");
-            notify(reload.as_ref(), &ReloadEvent::Building);
-            let assets = (|| -> Result<ProjectConfig> {
-                let next_config = load_dev_config(&root, &options)?;
-                task::run_lifecycle_tasks(
-                    &root,
-                    &next_config,
-                    &next_config.dev.before,
-                    &BTreeMap::new(),
-                )?;
-                build_assets(&root, &next_config)?;
-                Ok(next_config)
-            })();
-            match assets {
-                Ok(next_config) => {
-                    watch_paths = next_config.dev.watch.clone();
-                    // Commit the state that triggered this cycle, not one read
-                    // after the asset command finished. A stylesheet saved
-                    // while Tailwind was running would otherwise be folded in
-                    // as already handled and never rebuilt.
-                    debouncer.commit(trigger_snapshot);
-                    notify(reload.as_ref(), &ReloadEvent::Css);
-                }
-                Err(error) => {
-                    eprintln!("asset rebuild failed; keeping the last built assets:\n{error:#}");
-                    notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
-                    debouncer.commit(trigger_snapshot);
-                }
+        notify(reload.as_ref(), &ReloadEvent::Building);
+        let mut failure_snapshot = trigger_snapshot;
+        let inputs = prepare_dev_inputs(
+            &root,
+            &options,
+            &debouncer.committed,
+            hot_state.as_ref(),
+            &mut failure_snapshot,
+            &mut watch_paths,
+        );
+        let inputs = match inputs {
+            Ok(inputs) => inputs,
+            Err(error) => {
+                eprintln!(
+                    "dev preparation failed; keeping the last valid server running:\n{error:#}"
+                );
+                notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
+                debouncer.commit(failure_snapshot);
+                continue;
             }
+        };
+        let PreparedDevInputs {
+            config: next_config,
+            snapshot,
+            css_only,
+            hot_update,
+        } = inputs;
+        if css_only {
+            println!("stylesheet change stabilized; rebuilt assets without restarting");
+            watch_paths = next_config.dev.watch.clone();
+            debouncer.commit(snapshot);
+            notify(reload.as_ref(), &ReloadEvent::Css);
             continue;
         }
-
-        if let Some(state) = &hot_state {
-            match state.try_update(&root, &changed) {
-                Ok(true) => {
+        if let Some(mut update) = hot_update {
+            match update.activate() {
+                Ok(()) => {
                     println!(
                         "static template change stabilized; published without Cargo or restart"
                     );
-                    // Class edits are the common hot case, and source-scanning
-                    // generators (Tailwind) must see them before the reload.
-                    let assets = (|| -> Result<ProjectConfig> {
-                        let next_config = load_dev_config(&root, &options)?;
-                        task::run_lifecycle_tasks(
-                            &root,
-                            &next_config,
-                            &next_config.dev.before,
-                            &BTreeMap::new(),
-                        )?;
-                        if !options.no_assets {
-                            build_assets(&root, &next_config)?;
-                        }
-                        Ok(next_config)
-                    })();
-                    debouncer.commit(trigger_snapshot);
-                    match assets {
-                        Ok(next_config) => {
-                            watch_paths = next_config.dev.watch.clone();
-                            notify(reload.as_ref(), &ReloadEvent::Reload);
-                        }
-                        Err(error) => {
-                            eprintln!(
-                                "asset rebuild failed; keeping the last built assets:\n{error:#}"
-                            );
-                            notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
-                        }
-                    }
+                    hot_state = Some(update);
+                    watch_paths = next_config.dev.watch.clone();
+                    debouncer.commit(snapshot);
+                    notify(reload.as_ref(), &ReloadEvent::Reload);
                     continue;
                 }
-                Ok(false) => {}
                 Err(error) => {
-                    eprintln!("static update rejected; using the linked rebuild: {error:#}")
+                    eprintln!("static publication failed; using the linked rebuild: {error:#}")
                 }
             }
         }
         println!("change stabilized; rebuilding linked RSJS dev server");
-        notify(reload.as_ref(), &ReloadEvent::Building);
         let rebuild = (|| -> Result<LinkedDevRebuild> {
-            let next_config = load_dev_config(&root, &options)?;
-            task::run_lifecycle_tasks(
-                &root,
-                &next_config,
-                &next_config.dev.before,
-                &BTreeMap::new(),
-            )?;
-            if !options.no_assets {
-                build_assets(&root, &next_config)?;
-            }
             let next_watch_paths = next_config.dev.watch.clone();
             // Capture the exact source/config state handed to this cycle after
             // asset generation. A change during Cargo will differ on the next
             // poll and schedule another cycle rather than being swallowed.
             let cycle_snapshot = watch_snapshot(&root, &next_watch_paths)?;
+            failure_snapshot = cycle_snapshot.clone();
             // Stage after tasks/assets may have generated Rust sources,
             // and after the committed snapshot. An edit during staging or
             // Cargo must differ from that snapshot on the next poll.
@@ -415,10 +376,63 @@ pub fn dev(options: DevOptions) -> Result<()> {
                 notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
                 // Do not spin on unchanged broken input. The next source,
                 // feature, cfg, or configuration change schedules a new cycle.
-                debouncer.commit(trigger_snapshot);
+                debouncer.commit(failure_snapshot);
             }
         }
     }
+}
+
+struct PreparedDevInputs {
+    config: ProjectConfig,
+    snapshot: WatchSnapshot,
+    css_only: bool,
+    hot_update: Option<crate::hot_static::HotState>,
+}
+
+fn prepare_dev_inputs(
+    root: &Path,
+    options: &DevOptions,
+    committed: &WatchSnapshot,
+    hot_state: Option<&crate::hot_static::HotState>,
+    failure_snapshot: &mut WatchSnapshot,
+    watch_paths: &mut Vec<PathBuf>,
+) -> Result<PreparedDevInputs> {
+    let config = load_dev_config(root, options)?;
+    // Failure snapshots must use the same watch set as the next poll, even
+    // when a config edit changes watched paths and preparation then fails.
+    *watch_paths = config.dev.watch.clone();
+    let tasks = task::run_lifecycle_tasks(root, &config, &config.dev.before, &BTreeMap::new());
+    // Include dev.before's generated writes, even if a task fails. Capture
+    // before scanning/publishing templates or running asset commands so edits
+    // during those operations still schedule another cycle.
+    let snapshot = watch_snapshot(root, &config.dev.watch)?;
+    *failure_snapshot = snapshot.clone();
+    tasks?;
+    let changed = changed_paths(committed, &snapshot);
+    let css_only =
+        !options.no_css_hot_swap && !options.no_assets && is_stylesheet_only_change(&changed);
+    let hot_update = if css_only {
+        None
+    } else if let Some(state) = hot_state {
+        match state.prepare_update(root, &changed) {
+            Ok(update) => update,
+            Err(error) => {
+                eprintln!("static update rejected; using the linked rebuild: {error:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    if !options.no_assets {
+        build_assets(root, &config)?;
+    }
+    Ok(PreparedDevInputs {
+        config,
+        snapshot,
+        css_only,
+        hot_update,
+    })
 }
 
 fn start_reload_server(config: &ProjectConfig, options: &DevOptions) -> Option<ReloadServer> {

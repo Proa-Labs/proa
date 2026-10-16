@@ -1343,3 +1343,250 @@ fn stop_child_preserves_graceful_exit_and_full_grace_before_forcing_exit() {
         }
     }
 }
+
+#[cfg(unix)]
+mod dev_preparation_tests {
+    use super::*;
+
+    const SOURCE: &str =
+        r#"fn page() { html_hot_sync! { "page"; <p class="old">"hello"{self.value}</p> }; }"#;
+
+    fn fixture(before: Option<&str>, asset: Option<&str>) -> (tempfile::TempDir, ProjectConfig) {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir(root.join("src")).unwrap();
+        fs::create_dir(root.join("styles")).unwrap();
+        fs::write(root.join("src/main.rs"), SOURCE).unwrap();
+        fs::write(root.join("src/generated.rs"), "const GENERATED: u8 = 1;").unwrap();
+        fs::File::open(root.join("src/generated.rs"))
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1)))
+            .unwrap();
+        fs::write(root.join("generator-input"), "const GENERATED: u8 = 1;").unwrap();
+        fs::write(root.join("styles/input.css"), ".old { color: red; }").unwrap();
+        let mut config = ProjectConfig::default();
+        config.dev.watch = vec!["src".into(), "styles".into(), "proa.config.json".into()];
+        if let Some(command) = before {
+            config.dev.before = vec!["generate".into()];
+            config.tasks.insert(
+                "generate".into(),
+                serde_json::json!({
+                    "command": ["sh", "-c", command],
+                }),
+            );
+        }
+        config.build.assets = Some(
+            asset
+                .into_iter()
+                .map(|command| AssetConfig {
+                    kind: "command".into(),
+                    command: vec!["sh".into(), "-c".into(), command.into()],
+                    input: "styles/input.css".into(),
+                    output: "public/styles.css".into(),
+                    config: None,
+                })
+                .collect(),
+        );
+        fs::write(
+            root.join("proa.config.json"),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+        (temp, config)
+    }
+
+    fn manifest(state: &crate::hot_static::HotState) -> PathBuf {
+        PathBuf::from(state.environment().into_values().next().unwrap())
+    }
+
+    #[test]
+    fn generated_identical_rust_is_consumed_without_another_reload() {
+        let (temp, config) = fixture(Some("cp generator-input src/generated.rs"), None);
+        let root = temp.path();
+        let active = crate::hot_static::HotState::prepare(root).unwrap();
+        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        fs::write(root.join("src/main.rs"), SOURCE.replace("old", "new")).unwrap();
+        let trigger = watch_snapshot(root, &config.dev.watch).unwrap();
+        let mut failure = trigger.clone();
+        let mut inputs = prepare_dev_inputs(
+            root,
+            &dev_options(None),
+            &committed,
+            Some(&active),
+            &mut failure,
+            &mut config.dev.watch.clone(),
+        )
+        .unwrap();
+        assert_ne!(
+            trigger[Path::new("src/generated.rs")],
+            inputs.snapshot[Path::new("src/generated.rs")]
+        );
+        inputs.hot_update.as_mut().unwrap().activate().unwrap();
+        let mut watch = DevWatchDebouncer::new(inputs.snapshot, DEV_WATCH_DEBOUNCE);
+        assert_eq!(
+            watch.observe(
+                Duration::ZERO,
+                watch_snapshot(root, &config.dev.watch).unwrap()
+            ),
+            DevWatchDecision::Idle
+        );
+    }
+
+    #[test]
+    fn failed_tasks_or_assets_leave_the_active_template_unchanged() {
+        for (before, asset) in [
+            (Some("cp generator-input src/generated.rs; exit 1"), None),
+            (Some("cp generator-input src/generated.rs"), Some("exit 1")),
+        ] {
+            let (temp, config) = fixture(before, asset);
+            let root = temp.path();
+            let active = crate::hot_static::HotState::prepare(root).unwrap();
+            let published = fs::read(manifest(&active)).unwrap();
+            let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+            fs::write(root.join("src/main.rs"), SOURCE.replace("old", "new")).unwrap();
+            let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+            assert!(prepare_dev_inputs(
+                root,
+                &dev_options(None),
+                &committed,
+                Some(&active),
+                &mut failure,
+                &mut config.dev.watch.clone(),
+            )
+            .is_err());
+            assert_eq!(fs::read(manifest(&active)).unwrap(), published);
+            assert_eq!(
+                fs::read_dir(manifest(&active).parent().unwrap())
+                    .unwrap()
+                    .count(),
+                1
+            );
+            let mut watch = DevWatchDebouncer::new(failure, DEV_WATCH_DEBOUNCE);
+            assert_eq!(
+                watch.observe(
+                    Duration::ZERO,
+                    watch_snapshot(root, &config.dev.watch).unwrap()
+                ),
+                DevWatchDecision::Idle
+            );
+        }
+    }
+
+    #[test]
+    fn edits_during_publication_are_still_pending() {
+        let (temp, config) = fixture(None, None);
+        let root = temp.path();
+        let active = crate::hot_static::HotState::prepare(root).unwrap();
+        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        let published = fs::read(manifest(&active)).unwrap();
+        fs::write(root.join("src/main.rs"), SOURCE.replace("old", "new")).unwrap();
+        let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+        let mut inputs = prepare_dev_inputs(
+            root,
+            &dev_options(None),
+            &committed,
+            Some(&active),
+            &mut failure,
+            &mut config.dev.watch.clone(),
+        )
+        .unwrap();
+        assert_eq!(fs::read(manifest(&active)).unwrap(), published);
+        fs::write(
+            root.join("src/main.rs"),
+            SOURCE.replace("old", "later-save"),
+        )
+        .unwrap();
+        inputs.hot_update.as_mut().unwrap().activate().unwrap();
+        assert_ne!(fs::read(manifest(&active)).unwrap(), published);
+        let mut watch = DevWatchDebouncer::new(inputs.snapshot, DEV_WATCH_DEBOUNCE);
+        assert_eq!(
+            watch.observe(
+                Duration::ZERO,
+                watch_snapshot(root, &config.dev.watch).unwrap()
+            ),
+            DevWatchDecision::Debouncing
+        );
+    }
+
+    #[test]
+    fn css_cycle_with_new_generated_rust_requires_a_linked_rebuild() {
+        let (temp, config) = fixture(Some("cp generator-input src/generated.rs"), None);
+        let root = temp.path();
+        let active = crate::hot_static::HotState::prepare(root).unwrap();
+        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        fs::write(root.join("generator-input"), "const GENERATED: u8 = 2;").unwrap();
+        fs::write(root.join("styles/input.css"), ".new { color: blue; }").unwrap();
+        let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+        let inputs = prepare_dev_inputs(
+            root,
+            &dev_options(None),
+            &committed,
+            Some(&active),
+            &mut failure,
+            &mut config.dev.watch.clone(),
+        )
+        .unwrap();
+        assert!(!inputs.css_only);
+        assert!(inputs.hot_update.is_none());
+    }
+
+    #[test]
+    fn failed_preparation_keeps_the_snapshot_and_watch_paths_in_agreement() {
+        let (temp, mut config) = fixture(None, Some("exit 1"));
+        let root = temp.path();
+        let mut watch_paths = config.dev.watch.clone();
+        let committed = watch_snapshot(root, &watch_paths).unwrap();
+        config.dev.watch.push("generated".into());
+        fs::create_dir(root.join("generated")).unwrap();
+        fs::write(root.join("generated/output.rs"), "const OUTPUT: u8 = 1;").unwrap();
+        fs::write(
+            root.join("proa.config.json"),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+        let mut failure = watch_snapshot(root, &watch_paths).unwrap();
+        assert!(prepare_dev_inputs(
+            root,
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths
+        )
+        .is_err());
+        assert_eq!(watch_paths, config.dev.watch);
+        let mut watch = DevWatchDebouncer::new(failure, DEV_WATCH_DEBOUNCE);
+        assert_eq!(
+            watch.observe(Duration::ZERO, watch_snapshot(root, &watch_paths).unwrap()),
+            DevWatchDecision::Idle
+        );
+    }
+
+    #[test]
+    fn stylesheet_edits_during_asset_build_are_not_swallowed() {
+        let (temp, config) = fixture(None, Some("cp late.css styles/input.css"));
+        let root = temp.path();
+        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        fs::write(root.join("styles/input.css"), ".new { color: blue; }").unwrap();
+        fs::write(root.join("late.css"), ".later { color: green; }").unwrap();
+        let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+        let inputs = prepare_dev_inputs(
+            root,
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut config.dev.watch.clone(),
+        )
+        .unwrap();
+        assert!(inputs.css_only);
+        let mut watch = DevWatchDebouncer::new(inputs.snapshot, DEV_WATCH_DEBOUNCE);
+        assert_eq!(
+            watch.observe(
+                Duration::ZERO,
+                watch_snapshot(root, &config.dev.watch).unwrap()
+            ),
+            DevWatchDecision::Debouncing
+        );
+    }
+}

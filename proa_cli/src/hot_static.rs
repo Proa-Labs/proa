@@ -76,20 +76,19 @@ impl HotState {
         )])
     }
 
-    pub(crate) fn try_update(&self, root: &Path, changed: &[PathBuf]) -> Result<bool> {
+    pub(crate) fn prepare_update(&self, root: &Path, changed: &[PathBuf]) -> Result<Option<Self>> {
         if changed.is_empty()
             || changed
                 .iter()
                 .any(|path| !self.shapes.contains_key(&root.join(path)))
         {
-            return Ok(false);
+            return Ok(None);
         }
-        let (shapes, manifest) = scan(root)?;
-        if shapes != self.shapes {
-            return Ok(false);
+        let candidate = self.candidate(root)?;
+        if candidate.shapes != self.shapes {
+            return Ok(None);
         }
-        publish(&self.path, &manifest)?;
-        Ok(true)
+        Ok(Some(candidate))
     }
 }
 
@@ -224,9 +223,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let state = HotState::prepare(temp.path()).unwrap();
         assert!(state.shapes.is_empty());
-        assert!(!state
-            .try_update(temp.path(), &["member/src/main.rs".into()])
-            .unwrap());
+        assert!(state
+            .prepare_update(temp.path(), &["member/src/main.rs".into()])
+            .unwrap()
+            .is_none());
         assert!(state.candidate(temp.path()).unwrap().shapes.is_empty());
     }
 
@@ -257,9 +257,10 @@ mod tests {
         let published = fs::read(&state.path).unwrap();
         for changed in [moved, erased] {
             fs::write(&path, changed).unwrap();
-            assert!(!state
-                .try_update(temp.path(), &["src/main.rs".into()])
-                .unwrap());
+            assert!(state
+                .prepare_update(temp.path(), &["src/main.rs".into()])
+                .unwrap()
+                .is_none());
             assert_eq!(fs::read(&state.path).unwrap(), published);
         }
     }
@@ -304,12 +305,16 @@ mod tests {
         let source_path = temp.path().join("src/main.rs");
         fs::write(&source_path, source).unwrap();
         let state = HotState::prepare(temp.path()).unwrap();
-        assert!(!state
-            .try_update(temp.path(), &[temp.path().join("Cargo.toml")])
-            .unwrap());
+        assert!(state
+            .prepare_update(temp.path(), &[temp.path().join("Cargo.toml")])
+            .unwrap()
+            .is_none());
         fs::write(&source_path, source.replace("before", "after")).unwrap();
         let published = fs::read(&state.path).unwrap();
-        assert!(!state.try_update(temp.path(), &[source_path]).unwrap());
+        assert!(state
+            .prepare_update(temp.path(), &[source_path])
+            .unwrap()
+            .is_none());
         assert_eq!(fs::read(&state.path).unwrap(), published);
     }
 }
@@ -327,14 +332,18 @@ mod watch_path_tests {
         let state = HotState::prepare(temp.path()).unwrap();
         let original = fs::read(&state.path).unwrap();
         fs::write(&path, source.replace("before", "after")).unwrap();
-        assert!(state
-            .try_update(temp.path(), &["src/main.rs".into()])
-            .unwrap());
+        let mut update = state
+            .prepare_update(temp.path(), &["src/main.rs".into()])
+            .unwrap()
+            .unwrap();
+        assert_eq!(fs::read(&state.path).unwrap(), original);
+        update.activate().unwrap();
         assert_ne!(fs::read(&state.path).unwrap(), original);
         fs::write(&path, source.replace("self.value", "self.other")).unwrap();
-        assert!(!state
-            .try_update(temp.path(), &["src/main.rs".into()])
-            .unwrap());
+        assert!(state
+            .prepare_update(temp.path(), &["src/main.rs".into()])
+            .unwrap()
+            .is_none());
     }
 }
 
