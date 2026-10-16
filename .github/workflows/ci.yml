@@ -68,8 +68,6 @@ jobs:
       - name: Deploy the exact image that passed validation
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_TOKEN }}
-          RAILWAY_REGISTRY_USERNAME: ${{ secrets.RAILWAY_REGISTRY_USERNAME }}
-          RAILWAY_REGISTRY_PASSWORD: ${{ secrets.RAILWAY_REGISTRY_PASSWORD }}
           RELEASE_IMAGE: ${{ needs.release-image.outputs.image }}
           RAILWAY_SERVICE_ID: 8a6d0a70-bfd2-4e6e-bf87-048c563a7044
           RAILWAY_ENVIRONMENT_ID: 9348508f-a2a4-48bb-b18b-803ccb33dd9a

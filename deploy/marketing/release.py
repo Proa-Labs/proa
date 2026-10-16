@@ -95,6 +95,8 @@ def api(query, variables):
 INSTANCE_QUERY = """query($service:String!,$environment:String!) {
     serviceInstance(serviceId:$service,environmentId:$environment) {
         source { image repo } railwayConfigFile
+        healthcheckPath healthcheckTimeout restartPolicyType restartPolicyMaxRetries
+        latestDeployment { id meta }
     }
 }"""
 UPDATE = """mutation($service:String!,$environment:String!,$input:ServiceInstanceUpdateInput!) {
@@ -102,33 +104,74 @@ UPDATE = """mutation($service:String!,$environment:String!,$input:ServiceInstanc
 }"""
 
 
-def stage_and_deploy(image, variables, registry_credentials):
+def require_registry_credentials(variables):
+    # Railway masks stored credentials. Never rotate them during cutover: a
+    # failed staging operation could not restore the previous password.
+    config = api("""query($environment:String!) {
+        environment(id:$environment) { config(decryptVariables:false) }
+    }""", variables)["environment"]["config"]
+    credentials = (config.get("services", {}).get(variables["service"], {})
+                   .get("deploy", {}).get("registryCredentials"))
+    if not credentials or not credentials.get("username") or not credentials.get("password"):
+        raise RuntimeError("Production cutover blocked: configure durable private-registry credentials in Railway first")
+    if credentials["username"] == "oauth2accesstoken":
+        raise RuntimeError("Production cutover blocked: expiring private-registry credentials are not supported")
+
+
+def recover_deployment(image, variables, previous_id):
+    """Reconcile an uncertain submission without repeating it or undoing it."""
+    for attempt in range(12):
+        if attempt:
+            time.sleep(5)
+        try:
+            instance = api(INSTANCE_QUERY, variables)["serviceInstance"]
+        except Exception:
+            continue
+        source = instance.get("source") or {}
+        deployment = instance.get("latestDeployment") or {}
+        if source.get("image") != image or source.get("repo"):
+            break
+        if (deployment.get("id") and deployment["id"] != previous_id
+                and (deployment.get("meta") or {}).get("imageDigest") == image.split("@", 1)[1]):
+            return deployment["id"]
+    raise RuntimeError("Railway deployment request has an uncertain outcome; source was left untouched. "
+                       "Inspect deployments and Git triggers before retrying cutover")
+
+
+def stage_and_deploy(image, variables):
     previous = api(INSTANCE_QUERY, variables)["serviceInstance"]
-    requested = False
+    request_attempted = False
     try:
         api(UPDATE, variables | {"input": {
             "source": {"image": image, "repo": None}, "railwayConfigFile": None,
             "healthcheckPath": "/healthz", "healthcheckTimeout": 60,
             "restartPolicyType": "ON_FAILURE", "restartPolicyMaxRetries": 3,
-            "registryCredentials": registry_credentials,
         }})
         instance = api(INSTANCE_QUERY, variables)["serviceInstance"]
         if instance["source"]["image"] != image or instance["source"].get("repo"):
             raise RuntimeError("Railway did not apply the requested image source")
-        deployment = api("""mutation($service:String!,$environment:String!) {
-            serviceInstanceDeployV2(serviceId:$service,environmentId:$environment)
-        }""", variables)["serviceInstanceDeployV2"]
-        requested = True
-        return deployment
+        previous_id = (instance.get("latestDeployment") or {}).get("id")
+        # Mark uncertainty before the call: a timeout or signal cannot prove
+        # that Railway rejected it. Never restore a source after this point.
+        request_attempted = True
+        try:
+            return api("""mutation($service:String!,$environment:String!) {
+                serviceInstanceDeployV2(serviceId:$service,environmentId:$environment)
+            }""", variables)["serviceInstanceDeployV2"]
+        except Exception:
+            return recover_deployment(image, variables, previous_id)
     finally:
-        if not requested:
+        if not request_attempted:
             # Handle API errors and SIGTERM between staging and requesting the
             # deployment. Never replace a source changed by another operator.
             current = api(INSTANCE_QUERY, variables)["serviceInstance"]
-            if (current.get("source") or {}).get("image") == image:
+            if current.get("source") == {"image": image, "repo": None}:
                 api(UPDATE, variables | {"input": {
                     "source": previous["source"] or {"image": None, "repo": None},
-                    "railwayConfigFile": previous["railwayConfigFile"],
+                    **{key: previous[key] for key in (
+                        "railwayConfigFile", "healthcheckPath", "healthcheckTimeout",
+                        "restartPolicyType", "restartPolicyMaxRetries",
+                    )},
                 }})
 
 
@@ -156,13 +199,8 @@ def deploy(image, service, environment, revision, ready_url):
         raise ValueError("Railway readiness verification requires an HTTPS URL")
     if not re.fullmatch(r"us-west1-docker\.pkg\.dev/airy-cycle-504821-k9/releases/proa-marketing@sha256:[0-9a-f]{64}", image):
         raise ValueError("Deploy requires a complete digest from the marketing release repository")
-    registry_credentials = {
-        "username": os.environ.get("RAILWAY_REGISTRY_USERNAME"),
-        "password": os.environ.get("RAILWAY_REGISTRY_PASSWORD"),
-    }
-    if not all(registry_credentials.values()) or registry_credentials["username"] == "oauth2accesstoken":
-        raise RuntimeError("Production cutover blocked: configure durable private-registry credentials first")
     variables = {"service": service, "environment": environment}
+    require_registry_credentials(variables)
     # Image sources do not need GitHub build triggers. Remove only the
     # selected environment's main trigger, leaving PR environments intact.
     trigger_query = """query($project:String!,$service:String!,$environment:String!) {
@@ -176,9 +214,9 @@ def deploy(image, service, environment, revision, ready_url):
     for trigger in selected_triggers:
         if trigger["environmentId"] != environment or trigger["repository"] != "Proa-Labs/proa" or trigger["branch"] != "main":
             raise RuntimeError("Unexpected Railway trigger; refusing to remove it")
-    deployment = stage_and_deploy(image, variables, registry_credentials)
-    # Remove triggers only after deployment has been requested; cancellation
-    # before that point restores the previous source in stage_and_deploy.
+    deployment = stage_and_deploy(image, variables)
+    # Remove triggers only once the deployment ID is known, including recovery
+    # after a lost response. An uncertain submission never rolls back its source.
     remaining = api(trigger_query, trigger_variables)["deploymentTriggers"]
     remaining_ids = {edge["node"]["id"] for edge in remaining["edges"]}
     if not remaining_ids.issubset({trigger["id"] for trigger in selected_triggers}):

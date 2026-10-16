@@ -156,11 +156,15 @@ registry tokens in its [private registry guide](https://docs.railway.com/guides/
 Do not cut production over until it has durable, private-registry read credentials.
 This GCP organization blocks service-account keys; moving the runtime image to
 private GHCR with a package-read credential is the proposed replacement. The
-deployment script now refuses missing registry credentials and the expiring
-`oauth2accesstoken` scheme before staging a source. Durable credentials must be
-configured in `RAILWAY_REGISTRY_USERNAME` / `RAILWAY_REGISTRY_PASSWORD` GitHub
-Actions secrets after choosing the replacement registry. Compiler caches and
-build reports can remain in private GCS.
+deployment script checks for registry credentials in Railway before staging a
+source. Configure durable credentials directly on the production Railway service
+after choosing the replacement registry. The release workflow never writes or
+rotates them: Railway masks stored passwords, so the script cannot save the old
+password for rollback. This also keeps a failed credential rotation from breaking
+pulls of the previous image. Credential rotation is a separate operator action.
+The presence check cannot establish whether masked credentials are valid or
+durable; do not configure expiring credentials such as `oauth2accesstoken`.
+Compiler caches and build reports can remain in private GCS.
 
 Manual `workflow_dispatch` currently repeats the complete native compilation,
 image packaging, HTTP and Playwright checks, and normal CI gate before deploying.
@@ -175,12 +179,22 @@ checks and the final public `/readyz` probe must return that exact revision in
 
 Main CI runs serialize so a newer push cannot cancel a source cutover between
 staging and deployment. The current-main check rejects superseded queued runs.
-If a staging API call fails or the job receives SIGTERM/SIGINT before requesting
-deployment, the script restores the previous source/config-file selection while
-leaving a source changed by another operator alone. Trigger deletion happens
-after deployment is requested. SIGKILL, runner loss, and an unavailable Railway
-API can prevent cleanup: inspect the service's staged source and restore its
-previous selection before any dashboard deploy; then revert/dispatch through CI.
+If a staging API call fails or the job receives SIGTERM/SIGINT before attempting
+deployment, the script restores the previous source, config-file selection,
+healthcheck and restart settings while leaving a source changed by another
+operator alone. Registry credentials remain unchanged throughout.
+
+If the deployment request loses its response, the script polls the service
+repeatedly for a new deployment with the requested image digest. A match
+continues through Git trigger removal, deployment status and public revision
+verification without submitting another deployment. If the outcome remains
+unknown, or the process receives a signal during submission, the source stays
+untouched and the job fails. Inspect Railway's deployments and production Git
+triggers before retrying: absence from a timed-out query does not prove the
+request was rejected. Never restore the old source while a new deployment might
+still be running. Trigger deletion happens only after a deployment ID is known.
+SIGKILL, runner loss, and an unavailable Railway API can also prevent cleanup;
+inspect the same state before any dashboard deployment or CI retry.
 
 The cache archive includes the content-stable source tree, Cargo registry, CLI,
 descriptor artifacts, and final artifacts. It is restored into the same paths
