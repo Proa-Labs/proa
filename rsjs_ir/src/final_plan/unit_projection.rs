@@ -23,8 +23,8 @@ pub fn unit_projection_bytes(
         .ok_or_else(|| "requested unit projection was not generated".to_owned())
 }
 
-/// Prepare a unit set with one global JSON decode. Non-RSJS compiler units
-/// receive an empty local selection without repeatedly parsing the full plan.
+/// Prepare a unit set with one global JSON decode, graph validation, and asset
+/// identity derivation. Non-RSJS units receive an empty local selection.
 pub fn unit_projection_bytes_for_units(
     units: impl IntoIterator<Item = [u8; 32]>,
     plan_id: [u8; 32],
@@ -35,14 +35,14 @@ pub fn unit_projection_bytes_for_units(
     let components = definition_json_records(root, "components")?;
     let helpers = definition_json_records(root, "helpers")?;
     let helper_codegen = definition_json_records(root, "helper_codegen")?;
+    let validated = ValidatedComponentPlan::from_value(plan_id, &value)?;
     let mut projections = BTreeMap::new();
     for cargo_unit_id in units.into_iter().collect::<BTreeSet<_>>() {
         projections.insert(
             cargo_unit_id,
             project_unit_records(
                 cargo_unit_id,
-                plan_id,
-                bytes,
+                &validated,
                 &components,
                 &helpers,
                 &helper_codegen,
@@ -54,8 +54,7 @@ pub fn unit_projection_bytes_for_units(
 
 fn project_unit_records(
     cargo_unit_id: [u8; 32],
-    plan_id: [u8; 32],
-    bytes: &[u8],
+    validated: &ValidatedComponentPlan,
     components: &BTreeMap<DefinitionId, &Value>,
     helpers: &BTreeMap<DefinitionId, &Value>,
     helper_codegen: &BTreeMap<DefinitionId, &Value>,
@@ -65,8 +64,7 @@ fn project_unit_records(
         .keys()
         .filter(|id| id.cargo_unit_id == cargo_unit_id)
     {
-        let selection =
-            validate_component_plan_bytes(cargo_unit_id, definition.record_id, plan_id, bytes)?;
+        let selection = validated.select(*definition)?;
         component_projections.push(serde_json::json!({
             "record": hex_id(&definition.record_id),
             "selection": component_projection(&selection)?,
@@ -77,7 +75,6 @@ fn project_unit_records(
         .iter()
         .filter(|(id, _)| id.cargo_unit_id == cargo_unit_id)
     {
-        validate_helper_plan_bytes(cargo_unit_id, definition.record_id, plan_id, bytes)?;
         helper_projections.push(serde_json::json!({
             "descriptor": descriptor,
             "codegen": helper_codegen.get(definition).ok_or_else(||

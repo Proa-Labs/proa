@@ -17,6 +17,11 @@ pub use unit_projection::{
     unit_projection_bytes, unit_projection_bytes_for_units, UNIT_PROJECTION_FILE_SUFFIX,
 };
 
+#[cfg(test)]
+thread_local! {
+    static PLAN_VALIDATION_WORK: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
 const OWNER_HASH_PLACEHOLDER: &str = "rsjs_owner_content_placeholder";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1185,6 +1190,11 @@ fn final_owner_strategy(
 }
 
 pub fn validate_plan_header(bytes: &[u8], expected_plan_id: &str) -> Result<Value, String> {
+    #[cfg(test)]
+    PLAN_VALIDATION_WORK.with(|count| {
+        let (parse, assets) = count.get();
+        count.set((parse + 1, assets));
+    });
     let value: Value = serde_json::from_slice(bytes)
         .map_err(|error| format!("final RSJS plan is not valid JSON: {error}"))?;
     let root = object(&value, "final RSJS plan")?;
@@ -1369,189 +1379,73 @@ pub fn validate_component_plan_bytes(
     plan_id: [u8; 32],
     bytes: &[u8],
 ) -> Result<FinalComponentSelection, String> {
-    let expected_plan_id = hex_id(&plan_id);
-    let value = validate_plan_header(bytes, &expected_plan_id)?;
-    let root = object(&value, "final RSJS plan")?;
-    let components = parse_components(root)?;
-    let helpers = parse_helpers(root)?;
-    let helper_codegen = parse_helper_codegen(root, &helpers)?;
-    validate_component_helper_graph(&components, &helpers)?;
-    let component_codegen = parse_component_codegen(root, &components)?;
-    let sites = parse_component_sites(root, &components)?;
-    let child_sites = validate_site_structure(&components, &sites)?;
-    let runtime_sites = runtime_site_identities(&sites)?;
-    let standalone_roots = parse_standalone_roots(root, &components, &sites)?;
-    let (candidate_to_owner, owner_roots, owner_strategies) = validate_owner_mapping(root, &sites)?;
-    validate_lifecycle_owner_groups(&sites, &candidate_to_owner)?;
-    let (live_props_by_child, live_callbacks_by_child) =
-        parse_component_inputs(root, &sites, &child_sites)?;
-    let (shared_state_providers_by_host, shared_state_requirements_by_consumer) =
-        parse_shared_state_provider_topology(root, &sites)?;
-    let node_ref_aliases = parse_node_ref_aliases(
-        root,
-        &sites,
-        &child_sites,
-        &candidate_to_owner,
-        &component_codegen,
-    )?;
-
-    let selected_definition = DefinitionId {
+    let value = validate_plan_header(bytes, &hex_id(&plan_id))?;
+    ValidatedComponentPlan::from_value(plan_id, &value)?.select(DefinitionId {
         cargo_unit_id,
         record_id,
-    };
-    if !components.contains_key(&selected_definition) {
-        return Err(format!(
-            "final RSJS plan `{expected_plan_id}` has no component definition for descriptor unit `{}` and record `{}`; the plan or final-unit mapping is stale",
-            hex_id(&cargo_unit_id),
-            hex_id(&record_id)
-        ));
-    }
-    let helper_linkage = select_component_helper_linkage(
-        selected_definition,
-        &components,
-        &helpers,
-        &helper_codegen,
-    )?;
+    })
+}
 
-    let mut standalone = None;
-    let mut all_sites = Vec::with_capacity(sites.len());
-    let mut selected_sites = Vec::new();
-    for site in &sites {
-        let is_selected = site.definition == selected_definition;
-        if is_selected
-            && site.parent_candidate_id.is_none()
-            && standalone.replace(site.candidate_id).is_some()
-        {
-            return Err(format!(
-                "component definition `{}`/`{}` has more than one standalone component site",
-                hex_id(&cargo_unit_id),
-                hex_id(&record_id)
-            ));
-        }
-        let site_codegen = component_codegen.get(&site.definition).ok_or_else(|| {
-            format!(
-                "component candidate {} has no final codegen record for definition `{}`/`{}`",
-                site.candidate_id,
-                hex_id(&site.definition.cargo_unit_id),
-                hex_id(&site.definition.record_id),
-            )
-        })?;
-        let (owner_role, owner_strategy) = match candidate_to_owner.get(&site.candidate_id).copied()
-        {
-            None => (FinalOwnerRole::ServerOnly, None),
-            Some(owner_id) => {
-                let root_candidate_id = owner_roots[&owner_id];
-                let role = if root_candidate_id == site.candidate_id {
-                    FinalOwnerRole::Root { owner_id }
-                } else {
-                    FinalOwnerRole::Member {
-                        owner_id,
-                        root_candidate_id,
-                    }
-                };
-                (role, Some(owner_strategies[&owner_id].clone()))
-            }
-        };
-        let (owner_asset_id, seed_key) = match owner_role {
-            FinalOwnerRole::ServerOnly => (None, None),
-            FinalOwnerRole::Root { .. } => {
-                let owner_asset = OWNER_HASH_PLACEHOLDER.to_owned();
-                (Some(owner_asset.clone()), Some(owner_asset))
-            }
-            FinalOwnerRole::Member { .. } => (
-                Some(OWNER_HASH_PLACEHOLDER.to_owned()),
-                Some(member_seed_key(runtime_sites[&site.candidate_id].site_id)),
-            ),
-        };
-        let final_site = FinalComponentSite {
-            candidate_id: site.candidate_id,
-            parent_candidate_id: site.parent_candidate_id,
-            incoming_edge_id: site.incoming_edge_id,
-            structural_path: site.structural_path.clone(),
-            incoming_lifecycle: site.incoming_lifecycle.and_then(final_component_lifecycle),
-            reactive_lifecycle_root_candidate_id: site.reactive_lifecycle_root_candidate_id,
-            owner_role,
-            owner_strategy,
-            owner_asset_id,
-            seed_key,
-            fragment_asset_id: site_codegen.fragment_key.clone(),
-        };
-        if is_selected {
-            selected_sites.push(final_site.clone());
-        }
-        all_sites.push(final_site);
-    }
-    let standalone_candidate_id = match standalone_roots[&selected_definition] {
-        StandaloneRootDispositionRecord::Admitted { candidate_id } => {
-            if standalone != Some(candidate_id) {
+/// One validated graph and one set of content identities for a complete plan.
+/// Unit projection selects local records from this state without re-decoding
+/// the JSON, re-validating topology, or re-hashing every fragment and owner.
+struct ValidatedComponentPlan {
+    components: BTreeMap<DefinitionId, ComponentRecord>,
+    helpers: BTreeMap<DefinitionId, HelperRecord>,
+    helper_codegen: BTreeMap<DefinitionId, crate::LinkedHelperDefinition>,
+    candidates_by_definition: BTreeMap<DefinitionId, BTreeSet<u32>>,
+    standalone: BTreeMap<DefinitionId, u32>,
+    fragments: BTreeMap<DefinitionId, String>,
+    global: FinalComponentSelection,
+}
+
+impl ValidatedComponentPlan {
+    fn from_value(plan_id: [u8; 32], value: &Value) -> Result<Self, String> {
+        let root = object(value, "final RSJS plan")?;
+        let components = parse_components(root)?;
+        let helpers = parse_helpers(root)?;
+        let helper_codegen = parse_helper_codegen(root, &helpers)?;
+        validate_component_helper_graph(&components, &helpers)?;
+        let component_codegen = parse_component_codegen(root, &components)?;
+        let sites = parse_component_sites(root, &components)?;
+        let child_sites = validate_site_structure(&components, &sites)?;
+        let runtime_sites = runtime_site_identities(&sites)?;
+        let standalone_roots = parse_standalone_roots(root, &components, &sites)?;
+        let (candidate_to_owner, owner_roots, owner_strategies) =
+            validate_owner_mapping(root, &sites)?;
+        validate_lifecycle_owner_groups(&sites, &candidate_to_owner)?;
+        let (live_props_by_child, live_callbacks_by_child) =
+            parse_component_inputs(root, &sites, &child_sites)?;
+        let (shared_state_providers_by_host, shared_state_requirements_by_consumer) =
+            parse_shared_state_provider_topology(root, &sites)?;
+        let node_ref_aliases = parse_node_ref_aliases(
+            root,
+            &sites,
+            &child_sites,
+            &candidate_to_owner,
+            &component_codegen,
+        )?;
+
+        let mut standalone = BTreeMap::new();
+        let mut candidates_by_definition = BTreeMap::<DefinitionId, BTreeSet<u32>>::new();
+        let mut all_sites = Vec::with_capacity(sites.len());
+        for site in &sites {
+            candidates_by_definition
+                .entry(site.definition)
+                .or_default()
+                .insert(site.candidate_id);
+            if site.parent_candidate_id.is_none()
+                && standalone
+                    .insert(site.definition, site.candidate_id)
+                    .is_some()
+            {
                 return Err(format!(
-                    "standalone-root decision for component definition `{}`/`{}` selects candidate {candidate_id}, but its concrete root site is {standalone:?}",
-                    hex_id(&cargo_unit_id),
-                    hex_id(&record_id)
+                    "component definition `{}`/`{}` has more than one standalone component site",
+                    hex_id(&site.definition.cargo_unit_id),
+                    hex_id(&site.definition.record_id)
                 ));
             }
-            Some(candidate_id)
-        }
-        StandaloneRootDispositionRecord::StructuralIncomingOnly
-        | StandaloneRootDispositionRecord::ContextRequired => {
-            if standalone.is_some() {
-                return Err(format!(
-                    "non-standalone component definition `{}`/`{}` unexpectedly has root candidate {standalone:?}",
-                    hex_id(&cargo_unit_id),
-                    hex_id(&record_id)
-                ));
-            }
-            None
-        }
-    };
-    let selected_candidates = selected_sites
-        .iter()
-        .map(|site| site.candidate_id)
-        .collect::<BTreeSet<_>>();
-    let all_child_sites = child_sites.clone();
-    let all_live_props_by_child = live_props_by_child.clone();
-    let all_live_callbacks_by_child = live_callbacks_by_child.clone();
-    let all_node_ref_aliases = node_ref_aliases.clone();
-    let child_sites = child_sites
-        .into_iter()
-        .filter(|((parent, _), _)| selected_candidates.contains(parent))
-        .collect();
-    let live_props_by_child = live_props_by_child
-        .into_iter()
-        .filter(|(child, _)| selected_candidates.contains(child))
-        .collect();
-    let live_callbacks_by_child = live_callbacks_by_child
-        .into_iter()
-        .filter(|(child, _)| selected_candidates.contains(child))
-        .collect();
-    let shared_state_providers_by_host = shared_state_providers_by_host
-        .into_iter()
-        .filter(|(host, _)| selected_candidates.contains(host))
-        .collect();
-    let shared_state_requirements_by_consumer = shared_state_requirements_by_consumer
-        .into_iter()
-        .filter(|(consumer, _)| selected_candidates.contains(consumer))
-        .collect();
-    let mut node_ref_aliases_by_parent = BTreeMap::<u32, Vec<FinalNodeRefHandleAlias>>::new();
-    let mut node_ref_aliases_by_child = BTreeMap::<u32, Vec<FinalNodeRefHandleAlias>>::new();
-    for alias in node_ref_aliases {
-        if selected_candidates.contains(&alias.parent_candidate_id) {
-            node_ref_aliases_by_parent
-                .entry(alias.parent_candidate_id)
-                .or_default()
-                .push(alias);
-        }
-        if selected_candidates.contains(&alias.child_candidate_id) {
-            node_ref_aliases_by_child
-                .entry(alias.child_candidate_id)
-                .or_default()
-                .push(alias);
-        }
-    }
-    let codegen_by_candidate = sites
-        .iter()
-        .map(|site| {
-            let codegen = component_codegen.get(&site.definition).ok_or_else(|| {
+            let site_codegen = component_codegen.get(&site.definition).ok_or_else(|| {
                 format!(
                     "component candidate {} has no final codegen record for definition `{}`/`{}`",
                     site.candidate_id,
@@ -1559,40 +1453,180 @@ pub fn validate_component_plan_bytes(
                     hex_id(&site.definition.record_id),
                 )
             })?;
-            Ok((site.candidate_id, codegen.clone()))
-        })
-        .collect::<Result<BTreeMap<_, _>, String>>()?;
+            let (owner_role, owner_strategy) =
+                match candidate_to_owner.get(&site.candidate_id).copied() {
+                    None => (FinalOwnerRole::ServerOnly, None),
+                    Some(owner_id) => {
+                        let root_candidate_id = owner_roots[&owner_id];
+                        let role = if root_candidate_id == site.candidate_id {
+                            FinalOwnerRole::Root { owner_id }
+                        } else {
+                            FinalOwnerRole::Member {
+                                owner_id,
+                                root_candidate_id,
+                            }
+                        };
+                        (role, Some(owner_strategies[&owner_id].clone()))
+                    }
+                };
+            let (owner_asset_id, seed_key) = match owner_role {
+                FinalOwnerRole::ServerOnly => (None, None),
+                FinalOwnerRole::Root { .. } => {
+                    let owner_asset = OWNER_HASH_PLACEHOLDER.to_owned();
+                    (Some(owner_asset.clone()), Some(owner_asset))
+                }
+                FinalOwnerRole::Member { .. } => (
+                    Some(OWNER_HASH_PLACEHOLDER.to_owned()),
+                    Some(member_seed_key(runtime_sites[&site.candidate_id].site_id)),
+                ),
+            };
+            let final_site = FinalComponentSite {
+                candidate_id: site.candidate_id,
+                parent_candidate_id: site.parent_candidate_id,
+                incoming_edge_id: site.incoming_edge_id,
+                structural_path: site.structural_path.clone(),
+                incoming_lifecycle: site.incoming_lifecycle.and_then(final_component_lifecycle),
+                reactive_lifecycle_root_candidate_id: site.reactive_lifecycle_root_candidate_id,
+                owner_role,
+                owner_strategy,
+                owner_asset_id,
+                seed_key,
+                fragment_asset_id: site_codegen.fragment_key.clone(),
+            };
+            all_sites.push(final_site);
+        }
 
-    let mut selection = FinalComponentSelection {
-        plan_id,
-        dependency_id: plan_id,
-        fragment_asset_id: String::new(),
-        runtime_sites,
-        standalone_candidate_id,
-        sites: selected_sites,
-        child_sites,
-        live_props_by_child,
-        live_callbacks_by_child,
-        shared_state_providers_by_host,
-        shared_state_requirements_by_consumer,
-        node_ref_aliases_by_parent,
-        node_ref_aliases_by_child,
-        codegen_by_candidate,
-        all_sites,
-        all_child_sites,
-        all_live_props_by_child,
-        all_live_callbacks_by_child,
-        all_node_ref_aliases,
-        helper_linkage,
-    };
-    finalize_asset_identities(
-        &mut selection,
-        selected_definition,
-        &components,
-        &sites,
-        root,
-    )?;
-    Ok(selection)
+        for (&definition, disposition) in &standalone_roots {
+            let actual = standalone.get(&definition).copied();
+            match disposition {
+                StandaloneRootDispositionRecord::Admitted { candidate_id }
+                    if actual != Some(*candidate_id) =>
+                {
+                    return Err(format!(
+                    "standalone-root decision for component definition `{}`/`{}` selects candidate {candidate_id}, but its concrete root site is {actual:?}",
+                    hex_id(&definition.cargo_unit_id), hex_id(&definition.record_id),
+                ));
+                }
+                StandaloneRootDispositionRecord::StructuralIncomingOnly
+                | StandaloneRootDispositionRecord::ContextRequired
+                    if actual.is_some() =>
+                {
+                    return Err(format!(
+                    "non-standalone component definition `{}`/`{}` unexpectedly has root candidate {actual:?}",
+                    hex_id(&definition.cargo_unit_id), hex_id(&definition.record_id),
+                ));
+                }
+                _ => {}
+            }
+        }
+        let mut node_ref_aliases_by_parent = BTreeMap::<u32, Vec<FinalNodeRefHandleAlias>>::new();
+        let mut node_ref_aliases_by_child = BTreeMap::<u32, Vec<FinalNodeRefHandleAlias>>::new();
+        for alias in &node_ref_aliases {
+            node_ref_aliases_by_parent
+                .entry(alias.parent_candidate_id)
+                .or_default()
+                .push(*alias);
+            node_ref_aliases_by_child
+                .entry(alias.child_candidate_id)
+                .or_default()
+                .push(*alias);
+        }
+        let codegen_by_candidate = sites
+            .iter()
+            .map(|site| {
+                let codegen = component_codegen.get(&site.definition).ok_or_else(|| {
+                    format!(
+                    "component candidate {} has no final codegen record for definition `{}`/`{}`",
+                    site.candidate_id,
+                    hex_id(&site.definition.cargo_unit_id),
+                    hex_id(&site.definition.record_id),
+                )
+                })?;
+                Ok((site.candidate_id, codegen.clone()))
+            })
+            .collect::<Result<BTreeMap<_, _>, String>>()?;
+
+        let mut global = FinalComponentSelection {
+            plan_id,
+            dependency_id: plan_id,
+            fragment_asset_id: String::new(),
+            runtime_sites,
+            standalone_candidate_id: None,
+            sites: all_sites.clone(),
+            all_sites,
+            all_child_sites: child_sites.clone(),
+            child_sites,
+            all_live_props_by_child: live_props_by_child.clone(),
+            live_props_by_child,
+            all_live_callbacks_by_child: live_callbacks_by_child.clone(),
+            live_callbacks_by_child,
+            shared_state_providers_by_host,
+            shared_state_requirements_by_consumer,
+            node_ref_aliases_by_parent,
+            node_ref_aliases_by_child,
+            codegen_by_candidate,
+            all_node_ref_aliases: node_ref_aliases,
+            helper_linkage: FinalHelperLinkage::default(),
+        };
+        let fragments = finalize_asset_identities(&mut global, &components, &sites, root)?;
+        Ok(Self {
+            components,
+            helpers,
+            helper_codegen,
+            candidates_by_definition,
+            standalone,
+            fragments,
+            global,
+        })
+    }
+
+    fn select(&self, definition: DefinitionId) -> Result<FinalComponentSelection, String> {
+        if !self.components.contains_key(&definition) {
+            return Err(format!(
+                "final RSJS plan `{}` has no component definition for descriptor unit `{}` and record `{}`; the plan or final-unit mapping is stale",
+                hex_id(&self.global.plan_id), hex_id(&definition.cargo_unit_id), hex_id(&definition.record_id),
+            ));
+        }
+        let candidates = self
+            .candidates_by_definition
+            .get(&definition)
+            .cloned()
+            .unwrap_or_default();
+        let mut selection = self.global.clone();
+        selection.fragment_asset_id = self.fragments[&definition].clone();
+        selection.standalone_candidate_id = self.standalone.get(&definition).copied();
+        selection
+            .sites
+            .retain(|site| candidates.contains(&site.candidate_id));
+        selection
+            .child_sites
+            .retain(|(parent, _), _| candidates.contains(parent));
+        selection
+            .live_props_by_child
+            .retain(|child, _| candidates.contains(child));
+        selection
+            .live_callbacks_by_child
+            .retain(|child, _| candidates.contains(child));
+        selection
+            .shared_state_providers_by_host
+            .retain(|host, _| candidates.contains(host));
+        selection
+            .shared_state_requirements_by_consumer
+            .retain(|consumer, _| candidates.contains(consumer));
+        selection
+            .node_ref_aliases_by_parent
+            .retain(|parent, _| candidates.contains(parent));
+        selection
+            .node_ref_aliases_by_child
+            .retain(|child, _| candidates.contains(child));
+        selection.helper_linkage = select_component_helper_linkage(
+            definition,
+            &self.components,
+            &self.helpers,
+            &self.helper_codegen,
+        )?;
+        Ok(selection)
+    }
 }
 
 fn parse_components(
@@ -3877,11 +3911,16 @@ fn definition_json_records<'a>(
 
 fn finalize_asset_identities(
     selection: &mut FinalComponentSelection,
-    selected_definition: DefinitionId,
     components: &BTreeMap<DefinitionId, ComponentRecord>,
     sites: &[ComponentSiteRecord],
     root: &Map<String, Value>,
-) -> Result<(), String> {
+) -> Result<BTreeMap<DefinitionId, String>, String> {
+    #[cfg(test)]
+    PLAN_VALIDATION_WORK.with(|count| {
+        let (parse, assets) = count.get();
+        count.set((parse, assets + 1));
+    });
+
     let codegen_records = definition_json_records(root, "component_codegen")?;
     let helper_records = definition_json_records(root, "helpers")?;
     let helper_codegen = definition_json_records(root, "helper_codegen")?;
@@ -3957,7 +3996,6 @@ fn finalize_asset_identities(
         let digest: [u8; 32] = hash.finalize().into();
         fragments.insert(definition, format!("rsjs_fragment_{}", hex_id(&digest)));
     }
-    selection.fragment_asset_id = fragments[&selected_definition].clone();
     for site in sites {
         let fragment = &fragments[&site.definition];
         selection
@@ -4000,7 +4038,7 @@ fn finalize_asset_identities(
         .filter(|site| selected_candidates.contains(&site.candidate_id))
         .cloned()
         .collect();
-    Ok(())
+    Ok(fragments)
 }
 
 fn owner_content_asset_id(
@@ -4751,6 +4789,65 @@ mod tests {
             before.all_sites[2].owner_asset_id,
             after.all_sites[2].owner_asset_id
         );
+    }
+
+    #[test]
+    fn batched_unit_projections_preserve_bytes_with_one_global_validation() {
+        // Hashes captured before sharing graph validation: projections are
+        // Cargo dependencies, so this optimization must preserve their bytes.
+        for (mut plan, expected) in [
+            (
+                linked_plan(),
+                [
+                    "e0c3b683e14b1f9de888704ac36ef601aa88f9a75961553376c54f0aa8bcd28f",
+                    "04ddb79aebdd733dde201a9d711ed79d5a25634afeb6a22384fd92c348deaf54",
+                    "67327bb956692e5a7ed887cac9a9960c299a6d5ae27f35b417a5911a724f37a9",
+                    "3e1a9ff0137c31299b80003eead68a0001583a0b0490ef4960ebf411436f1022",
+                    "2d2378939d8780fe592dfa550bad25aba878c9709953633b3c69fc1e53b0869e",
+                ],
+            ),
+            (
+                node_ref_plan(),
+                [
+                    "ccd073e8a41ad88c0ca381d1ef3fcb2bf56c16db74b0a9713b8174a994adf05b",
+                    "0ee6143accde4996b7d58ae3f7192680884383a341e70663605b5482b91b7a27",
+                    "67327bb956692e5a7ed887cac9a9960c299a6d5ae27f35b417a5911a724f37a9",
+                    "3e1a9ff0137c31299b80003eead68a0001583a0b0490ef4960ebf411436f1022",
+                    "2d2378939d8780fe592dfa550bad25aba878c9709953633b3c69fc1e53b0869e",
+                ],
+            ),
+            (
+                conditional_plan("then"),
+                [
+                    "06726150dc9bdd55ef9d8e26866926b688eea9ae1297fca14f37b6d271e9126f",
+                    "1ab801675498a3982045b1c77b0b72024cf6e5094fdb79fbccbdff4f16191574",
+                    "67327bb956692e5a7ed887cac9a9960c299a6d5ae27f35b417a5911a724f37a9",
+                    "3e1a9ff0137c31299b80003eead68a0001583a0b0490ef4960ebf411436f1022",
+                    "2d2378939d8780fe592dfa550bad25aba878c9709953633b3c69fc1e53b0869e",
+                ],
+            ),
+            (
+                linked_helper_plan(),
+                [
+                    "a57b9ac3a95ecf7c5cea51b92138d262026b4545ac00f1aff71a990fdb5cf3f5",
+                    "fc2a00f3bc6adf5dc82f52674317ed789830abfdffbd329c91f7a9aebd508057",
+                    "ff32ade431ccedfa33fd1143afe0356d978169b28282974ac318d7c33ffc80f8",
+                    "3e1a9ff0137c31299b80003eead68a0001583a0b0490ef4960ebf411436f1022",
+                    "2d2378939d8780fe592dfa550bad25aba878c9709953633b3c69fc1e53b0869e",
+                ],
+            ),
+        ] {
+            insert_unrelated_first_root(&mut plan);
+            let units = [PARENT_UNIT, CHILD_UNIT, HELPER_UNIT, [10; 32], [99; 32]];
+            PLAN_VALIDATION_WORK.with(|count| count.set((0, 0)));
+            let projections =
+                unit_projection_bytes_for_units(units, PLAN_ID, &encode(&plan)).unwrap();
+            assert_eq!(PLAN_VALIDATION_WORK.with(|count| count.get()), (1, 1));
+            for (unit, expected) in units.into_iter().zip(expected) {
+                let digest: [u8; 32] = Sha256::digest(&projections[&unit]).into();
+                assert_eq!(hex_id(&digest), expected);
+            }
+        }
     }
 
     #[test]
