@@ -323,6 +323,22 @@ async fn streamed_shell_arrives_before_late_island_with_prefixed_deferred_loader
     );
     assert!(remaining.contains("/apps/demo/rsjs-runtime.js"));
     assert!(!remaining.contains(r#"src="/rsjs"#));
+    // The child resumes after the HTTP handler's task-local context ends.
+    // Its own URL helper must retain the captured request prefix too.
+    use base64::Engine as _;
+    let encoded = remaining
+        .split_once("data-proa-encoding=\"base64-v1\">")
+        .unwrap()
+        .1
+        .split_once("</template>")
+        .unwrap()
+        .0;
+    let child = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .unwrap();
+    assert!(std::str::from_utf8(&child)
+        .unwrap()
+        .contains(r#"href="/apps/demo/late""#));
 }
 
 #[tokio::test]
