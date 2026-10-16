@@ -95,7 +95,7 @@ collisions. For a custom Axum router, merge
 `RouteContextLayer::with_base_path` with the same setting.
 
 `with_rsjs_assets()` works with the default root or with
-[`with_base_path(...)`](/docs/framework/configuration#public-url-prefix-and-island-assets).
+[`with_base_path(...)`](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets).
 With a prefix, it rewrites runtime import URLs once at startup, while incoming
 routes remain unprefixed and HTML responses keep streaming. See
 [URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix)

@@ -41,7 +41,7 @@ let app = FrameworkBuilder::new(manifest)
 
 The finalizer emits tags; `with_rsjs_assets()` serves the linked JavaScript those
 tags request. It works at the origin root and follows
-[`with_base_path(...)`](/docs/framework/configuration#public-url-prefix-and-island-assets)
+[`with_base_path(...)`](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets)
 when configured. Use it in place of custom handlers at the same asset paths.
 
 See [Static assets](/docs/framework/static-assets#serving-linked-island-assets)
