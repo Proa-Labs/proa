@@ -46,7 +46,7 @@ impl BasePath {
                 } else {
                     byte
                 };
-                if byte <= b' ' || byte == 127 || byte == b'/' || byte == b'\\' {
+                if byte < b' ' || byte == 127 || byte == b'/' || byte == b'\\' {
                     return Err(InvalidBasePath);
                 }
                 decoded.push(byte);
@@ -170,7 +170,13 @@ mod tests {
                 assert_eq!(base.url(path).to_string(), path);
             }
         }
-        assert!(BasePath::new("/user/a%40example.test/proxy/3000/").is_ok());
+        for path in [
+            "/user/a%40example.test/proxy/3000/",
+            "/user/a%20b/proxy/3000/",
+            "/apps/%E2%9C%93/",
+        ] {
+            assert!(BasePath::new(path).is_ok(), "rejected {path:?}");
+        }
     }
 
     #[test]
