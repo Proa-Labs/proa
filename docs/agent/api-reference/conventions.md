@@ -205,8 +205,10 @@ access while rendering; explain that shared, allocation-free clone with a
 `proa_framework_axum::app_url("/")`.
 
 The prefix affects outgoing URLs, not routing or arbitrary CSS/JavaScript
-literals. Font CSS, query/mutation endpoints, and some scaffold shells still
-need separate configuration. See the
+literals. `Font::head(cx)` and docs shell navigation share the request prefix;
+pass the same context to fonts and use `response_with_base_path` in custom docs
+handlers. Query/mutation endpoints and authored article URLs still need
+separate configuration. See the
 [deployment coverage limits](../../../proa_marketing/src/docs/framework/deployment.mdx#coverage-and-limitations).
 
 ## Error handling

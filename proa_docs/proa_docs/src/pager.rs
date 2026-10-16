@@ -39,8 +39,9 @@ struct PagerLink {
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PagerLink {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         if let Some(link) = self.link {
+            let path = cx.request().url(link.path);
             html_sync! {
-                <a class={self.class} href={link.path}>
+                <a class={self.class} href={path}>
                     <span>{self.label}</span>
                     <strong>{link.title}</strong>
                 </a>

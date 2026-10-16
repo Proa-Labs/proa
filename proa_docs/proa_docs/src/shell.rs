@@ -19,6 +19,7 @@ pub struct DocsShell<'a> {
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsShell<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
+        let home = cx.request().url(self.docs.config.base_path);
         html_sync! {
             <!DOCTYPE html>
             <html lang="en">
@@ -35,9 +36,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsShell<'_> {
                 <body class="proa-docs-body">
                     <div class="proa-docs-layout" data-proa-docs>
                         <aside class="proa-docs-sidebar" aria-label="Docs navigation">
-                            <a class="proa-docs-brand" href={self.docs.config.base_path}>
-                                {self.docs.config.site_name}
-                            </a>
+                            <a class="proa-docs-brand" href={home}>{self.docs.config.site_name}</a>
                             {DocsSectionMenu {
                                 docs: self.docs,
                                 active_path: self.page.route_path,

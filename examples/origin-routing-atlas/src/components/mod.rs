@@ -14,7 +14,7 @@ pub mod live_wire;
 pub mod receipt;
 pub mod site_header;
 
-pub use atlas_page::{markdown_string, AtlasMd, AtlasPage};
+pub use atlas_page::{markdown_string, markdown_string_with_base_path, AtlasMd, AtlasPage};
 pub use flood_lab::LabRows;
 
 // proa-ui:modules:start

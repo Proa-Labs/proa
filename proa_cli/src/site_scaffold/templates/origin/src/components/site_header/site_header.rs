@@ -28,7 +28,7 @@ impl<L: DataLoader + 'static> proa_core::WebRender<L> for SiteHeader {
                     </a>
                     <div class="flex items-center gap-[8px] pl-[20px] border-l border-line">
                         <img
-                            src="/static/proa-logo.svg"
+                            src={cx.request().url("/static/proa-logo.svg")}
                             width="20"
                             height="20"
                             alt=""
@@ -44,7 +44,7 @@ impl<L: DataLoader + 'static> proa_core::WebRender<L> for SiteHeader {
                             query: self.query.clone(), // proa-perf-ok: one short clone per request for the fallback chrome.
                         },
                         HeaderTools {
-                            md_route: format!("/site/{}.md", self.query), // proa-perf-ok: one short string per request.
+                            md_route: format!("{}/site/{}.md", cx.request().base_path().as_str(), self.query), // proa-perf-ok: one short string per request.
                             document: None,
                         },
                     )}
@@ -78,10 +78,14 @@ impl<L: DataLoader> proa_core::WebRender<L> for HeaderToolsBoundary {
                 .and_then(|d| d.subject.domain.clone())
                 .unwrap_or_else(|| self.query.clone());
             // proa-perf-ok(scope): overlay strings once per request.
-            let md_text = crate::components::markdown_string(&self.query, dossier);
+            let md_text = crate::components::markdown_string_with_base_path(
+                &self.query,
+                dossier,
+                cx.request().base_path(),
+            );
             // proa-perf-ok: guided demo page; small per-request strings.
             let md_bytes = format!("{:.1} KB", md_text.len() as f64 / 1024.0);
-            let md_route = format!("/site/{host}.md"); // proa-perf-ok: guided demo page; small per-request strings.
+            let md_route = format!("{}/site/{host}.md", cx.request().base_path().as_str()); // proa-perf-ok: guided demo page; small per-request strings.
             proa_core::WebRenderSync::render(
                 HeaderTools {
                     md_route,

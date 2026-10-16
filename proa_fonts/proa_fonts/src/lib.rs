@@ -284,7 +284,7 @@ impl Font {
     /// cause the browser to fetch the file twice.
     pub fn preload_links<B: WriteBuf>(
         &self,
-        cx: &mut WebContext<::proa_core::NoLoader, B>,
+        cx: &mut WebContext<impl proa_core::DataLoader, B>,
     ) -> Result<(), WriteError> {
         for face in self.faces {
             if !face.preload {
@@ -293,7 +293,10 @@ impl Font {
             StaticRaw("<link rel=\"preload\" as=\"font\" type=\"").render(cx)?;
             StaticRaw(face.format.mime()).render(cx)?;
             StaticRaw("\" href=\"").render(cx)?;
-            StaticRaw(face.url).render(cx)?;
+            proa_core::shared::attr_value::AttrValue::render_attr_value(
+                &cx.request().url(face.url),
+                cx,
+            )?;
             StaticRaw("\" crossorigin=\"anonymous\">").render(cx)?;
         }
         Ok(())
@@ -304,10 +307,35 @@ impl Font {
     /// classes).
     pub fn style<B: WriteBuf>(
         &self,
-        cx: &mut WebContext<::proa_core::NoLoader, B>,
+        cx: &mut WebContext<impl proa_core::DataLoader, B>,
     ) -> Result<(), WriteError> {
         StaticRaw("<style>").render(cx)?;
-        StaticRaw(self.css).render(cx)?;
+        if cx.request().base_path().as_str().is_empty() {
+            StaticRaw(self.css).render(cx)?;
+        } else {
+            // proa-perf-ok: share the prefix while writing CSS without allocating a stylesheet.
+            let base_path = cx.request().base_path().clone();
+            let mut rest = self.css;
+            // The font compiler emits src:url(<face.url>). Only substitute
+            // known face URLs, preserving fallbacks and unrelated CSS bytes.
+            while let Some(start) = rest.find("src:url(") {
+                let split = start + "src:url(".len();
+                let Some(end) = rest[split..].find(')') else {
+                    break;
+                };
+                let url = &rest[split..split + end];
+                cx.output_mut().extend(rest[..split].as_bytes())?;
+                if url.starts_with('/')
+                    && !url.starts_with("//")
+                    && self.faces.iter().any(|face| face.url == url)
+                {
+                    write_css_url_prefix(cx.output_mut(), base_path.as_str())?;
+                }
+                cx.output_mut().extend(url.as_bytes())?;
+                rest = &rest[split + end..];
+            }
+            cx.output_mut().extend(rest.as_bytes())?;
+        }
         StaticRaw("</style>").render(cx)
     }
 
@@ -317,13 +345,39 @@ impl Font {
     ///
     /// Allocation-free and generic over the output buffer, so it composes inside
     /// any `WebRenderSync` head builder.
+    /// Both preload links and generated CSS face URLs follow the base path on
+    /// `cx.request()`. Render with the page's context so each mount stays local.
     pub fn head<B: WriteBuf>(
         &self,
-        cx: &mut WebContext<::proa_core::NoLoader, B>,
+        cx: &mut WebContext<impl proa_core::DataLoader, B>,
     ) -> Result<(), WriteError> {
         self.preload_links(cx)?;
         self.style(cx)
     }
+}
+
+// Escape an unquoted CSS url() token, including '<' so a mount containing
+// '</style>' cannot terminate the enclosing HTML raw-text element. CSS hex
+// escapes decode to the original URL before the browser resolves it.
+fn write_css_url_prefix<B: WriteBuf>(out: &mut B, prefix: &str) -> Result<(), WriteError> {
+    let mut start = 0;
+    for (index, byte) in prefix.bytes().enumerate() {
+        let escaped = match byte {
+            b' ' => "\\20 ",
+            b'\"' => "\\22 ",
+            b'\'' => "\\27 ",
+            b'(' => "\\28 ",
+            b')' => "\\29 ",
+            b'<' => "\\3c ",
+            b'>' => "\\3e ",
+            b'\\' => "\\5c ",
+            _ => continue,
+        };
+        out.extend(prefix[start..index].as_bytes())?;
+        out.extend(escaped.as_bytes())?;
+        start = index + 1;
+    }
+    out.extend(prefix[start..].as_bytes())
 }
 
 #[cfg(test)]
@@ -388,6 +442,41 @@ mod tests {
         ));
         // Italic face is not preloaded, so no preload hint mentions it.
         assert!(!html.contains("geist-latin-400-italic"));
+    }
+
+    #[test]
+    fn font_preloads_and_css_follow_each_requests_mount() {
+        for prefix in ["/apps/demo", "/user/a%40b/proxy/3000", "/preview/other"] {
+            let mut cx = WebContext::new();
+            cx.request_mut()
+                .set_base_path(proa_core::BasePath::new(prefix).unwrap());
+            FIXTURE.head(&mut cx).unwrap();
+            let html = cx.into_output().into_string();
+            assert!(html.contains(&format!("href=\"{prefix}{}\"", FIXTURE_FACES[0].url)));
+            assert!(html.contains(&format!("src:url({prefix}{})", FIXTURE_FACES[0].url)));
+            assert!(!html.contains("href=\"/fonts/"));
+            assert!(!html.contains("src:url(/fonts/"));
+            // Metric fallbacks and utility rules retain their generated bytes.
+            assert!(html.contains("src:local("));
+            assert!(html.contains(":root{--font-geist:"));
+        }
+    }
+
+    #[test]
+    fn mount_is_escaped_for_html_attributes_and_css_url_tokens() {
+        let mut cx = WebContext::new();
+        cx.request_mut()
+            .set_base_path(proa_core::BasePath::new("/apps/\"'()").unwrap());
+        FIXTURE.head(&mut cx).unwrap();
+        let html = cx.into_output().into_string();
+        assert!(html.contains("href=\"/apps/&quot;&#39;()/fonts/"), "{html}");
+        assert!(
+            html.contains(r"src:url(/apps/\22 \27 \28 \29 /fonts/"),
+            "{html}"
+        );
+        let mut css = Vec::new();
+        write_css_url_prefix(&mut css, "/apps/</style>").unwrap();
+        assert_eq!(css, br"/apps/\3c /style\3e ");
     }
 
     #[test]

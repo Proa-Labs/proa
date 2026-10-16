@@ -57,6 +57,64 @@ static DOCS: Docs = Docs {
     search: None,
 };
 
+#[test]
+fn mounted_shell_prefixes_navigation_sections_and_pager_but_preserves_fragments_and_external_links()
+{
+    use proa_core::WebRenderSync;
+    let page = DocPage {
+        route_path: "/docs/core/render-traits",
+        prev: Some(PageLink {
+            title: "Previous",
+            path: "/docs/guides/quickstart",
+        }),
+        next: Some(PageLink {
+            title: "External",
+            path: "https://example.com/next",
+        }),
+        ..PAGE
+    };
+    let mut cx = proa_core::WebContext::new();
+    cx.request_mut()
+        .set_base_path(proa_core::BasePath::new("/apps/demo").unwrap());
+    DocsShell {
+        docs: &SECTION_DOCS,
+        page: &page,
+    }
+    .render(&mut cx)
+    .unwrap();
+    let html = cx.into_output().into_string();
+    for path in [
+        "/docs",
+        "/docs/guides/quickstart",
+        "/docs/core/render-traits",
+        "/docs/cli",
+    ] {
+        assert!(
+            html.contains(&format!("href=\"/apps/demo{path}\"")),
+            "{path}: {html}"
+        );
+    }
+    assert!(html.contains("href=\"#install\""));
+    assert!(html.contains("href=\"https://example.com/next\""));
+    assert!(html.contains("data-active=\"true\""));
+    assert!(!html.contains("href=\"/docs"));
+}
+
+#[test]
+fn mounted_docs_response_keeps_local_route_lookup_and_markdown_artifacts() {
+    let base_path = proa_core::BasePath::new("/proxy/123").unwrap();
+    let html = render_with_base_path(&DOCS, "/docs", &base_path);
+    assert_eq!(html.status, 200);
+    assert!(html.body.contains("href=\"/proxy/123/docs\""));
+    let markdown = render_with_base_path(&DOCS, "/docs/index.md", &base_path);
+    assert_eq!(markdown.content_type, "text/markdown; charset=utf-8");
+    assert_eq!(markdown.body, PAGE.markdown);
+    assert_eq!(
+        render(&DOCS, "/docs").body,
+        render_with_base_path(&DOCS, "/docs", &proa_core::BasePath::default()).body
+    );
+}
+
 static SECTION_START_CHILDREN: &[NavItem] = &[NavItem {
     kind: NavItemKind::Page,
     title: "Quickstart",

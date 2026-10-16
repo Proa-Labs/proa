@@ -25,9 +25,12 @@ or changing routing.
    framework-owned URLs and buffered/local/Send streaming RSJS finalization.
 3. Opt-in linked RSJS serving rewrites generated runtime imports once at
    startup, keeping sibling dependencies relative and incoming paths local.
-4. The basic Axum site's home-page layout and the application scaffold's layout
-   and example navigation read the startup setting. Other shells retain their
-   existing URL behavior.
+4. The basic Axum site, including its docs/blog shell, the application scaffold,
+   and ORIGIN read the startup setting. ORIGIN uses the shared linked RSJS router.
+5. Font heads compose preload URLs and stream the generated CSS's known face
+   URL slots with CSS-escaped prefixes. The root fast path keeps static CSS.
+   Docs shell navigation uses request URL values; its adapter keeps the mount
+   separate from the collection's build-time route.
 
 Focused tests cover prefix normalization, nested links/forms/redirects, linked
 asset types, deferred hydration, incremental streaming, default-root
@@ -58,10 +61,8 @@ compatibility, custom adapter emission, and render allocation behavior.
 
 ## Coverage limits
 
-- `proa_fonts` preload URLs and constant `@font-face` CSS retain their build-time
-  `/fonts/...` paths. Runtime font URL support requires a separate change.
-- Basic site `--docs`/`--blog` pages use `proa_docs`' build-time shell. The `origin`
-  template, including its custom assets and fonts, is unchanged.
+- Authored URLs inside compiled docs article HTML, arbitrary application CSS/JS,
+  and raw third-party markup still require application-level configuration.
 - Query/mutation endpoint URLs are application data. Prefixing the query runtime
   script does not prefix `/api/...` fetchers or provide a browser base-path API.
 - The development reload EventSource still requests `/__proa/dev-events`.

@@ -83,9 +83,10 @@ struct DocsSectionMenuItem {
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSectionMenuItem {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let active = self.active.then_some("true");
+        let href = cx.request().url(self.href);
         html_sync! {
             <a
-                href={self.href}
+                href={href}
                 role="menuitem"
                 data-active={active}
                 data-nav-root={self.label}

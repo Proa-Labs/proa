@@ -23,8 +23,9 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for A
         // The commands go through `cx.code` so they arrive as copyable code
         // spans (template slots inside backticks stay literal by design).
         let accept = format!(
-            "curl -H 'Accept: text/markdown' {}/?q={}",
+            "curl -H 'Accept: text/markdown' {}{}?q={}",
             super::agent_surface::base_url(&self.host),
+            cx.request().url("/"),
             super::agent_surface::encode_query(&self.query)
         );
         cx.write_md_prepared_static(b"- ")?;

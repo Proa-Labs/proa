@@ -1586,22 +1586,25 @@ fn blog_page(axum: bool) -> String {
 
 fn docs_like_page(const_name: &str, dir: &str, base_path: &str, axum: bool) -> String {
     let template = if axum {
-        r#"use axum::{extract::Path, response::Response};
+        r#"use axum::{extract::{Extension, Path}, response::Response};
 use proa_docs::Docs;
 
 static __CONST__: Docs = proa_docs::include_docs!("__DIR__");
 
-pub async fn handler() -> Response {
-    proa_docs::adapter::axum::response(&__CONST__, "__BASE__")
+pub async fn handler(Extension(base_path): Extension<proa_core::BasePath>) -> Response {
+    proa_docs::adapter::axum::response_with_base_path(&__CONST__, "__BASE__", &base_path)
 }
 
-pub async fn path_handler(Path(path): Path<String>) -> Response {
+pub async fn path_handler(
+    Path(path): Path<String>,
+    Extension(base_path): Extension<proa_core::BasePath>,
+) -> Response {
     let path = if path.trim_matches('/').is_empty() {
         "__BASE__".to_string()
     } else {
         format!("__BASE__/{}", path.trim_matches('/'))
     };
-    proa_docs::adapter::axum::response(&__CONST__, &path)
+    proa_docs::adapter::axum::response_with_base_path(&__CONST__, &path, &base_path)
 }
 "#
     } else {
@@ -1610,7 +1613,11 @@ pub async fn path_handler(Path(path): Path<String>) -> Response {
 static __CONST__: Docs = proa_docs::include_docs!("__DIR__");
 
 pub fn render(path: &str) -> DocsResponse {
-    proa_docs::render(&__CONST__, path)
+    render_with_base_path(path, &proa_core::BasePath::default())
+}
+
+pub fn render_with_base_path(path: &str, base_path: &proa_core::BasePath) -> DocsResponse {
+    proa_docs::render_with_base_path(&__CONST__, path, base_path)
 }
 "#
     };

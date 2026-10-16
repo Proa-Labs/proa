@@ -140,24 +140,33 @@ fragment/query-only references pass through. Treat URL input with the same
 validation policy you would use without this helper.
 
 The framework's CSS manifest URLs, React manifest URLs, and Markdown alternate
-links also follow the configured prefix. The basic Axum site's home-page layout
-and navigation, and the application scaffold's layout and example navigation,
-read `PROA_BASE_PATH`.
+links also follow the configured prefix. The basic Axum site (including its
+docs/blog shell), application scaffold, and ORIGIN template read `PROA_BASE_PATH`.
+
+`proa_fonts::Font::head(cx)` uses the request prefix for both preload links and
+the generated `@font-face` URLs. It writes CSS segments directly without
+allocating a replacement stylesheet; the build-time font files stay unchanged.
+Pass the page's context to `head`, rather than caching a rendered font fragment
+from a context without the deployment setting.
+
+`proa_docs::DocsShell` uses the request context for its brand, navigation,
+section-menu, and pager links. For custom docs handlers, pass the deployment
+mount to the adapter (the generated docs/blog handlers already do this):
+
+```rust
+proa_docs::adapter::axum::response_with_base_path(&DOCS, "/docs/start", &base_path)
+```
+
+The collection's build-time `.base_path("/docs")` remains its internal route.
+Non-Axum callers can use `proa_docs::render_with_base_path`. ORIGIN serves linked
+islands through the shared asset router and resolves its browser-side lab
+request against the URL of its JavaScript module.
 
 ### Coverage and limitations
 
 This setting covers composed application URLs and framework-owned island assets.
 It does not make every generated page or browser request prefix-aware:
 
-- **Fonts:** `proa_fonts::Font::head` emits build-time preload URLs and constant
-  `@font-face` CSS containing `/fonts/...`. Both ignore the runtime prefix and
-  can 404 behind a proxy that serves only the mount. Fonts currently need a
-  separately exposed `/fonts/` route or application-managed font CSS and
-  preloads with matching public URLs. Changing only the preload is insufficient.
-- **Scaffolds:** the basic site's `--docs` and `--blog` pages use a separate
-  `proa_docs` shell with build-time paths. They do not inherit the home-page
-  layout's prefix. The `origin` template is unchanged, including its favicon,
-  fonts, and custom RSJS asset handlers. These need separate adaptation.
 - **Island data requests:** the query runtime script follows the prefix, but
   query/mutation endpoint literals such as `/api/items` do not. Hydration can
   succeed while a later fetch 404s. There is no automatic client-side base-path
@@ -165,6 +174,8 @@ It does not make every generated page or browser request prefix-aware:
   endpoints at the paths the client requests.
 - **Other embedded URLs:** raw HTML, third-party output, CSS `url(...)`, and
   application JavaScript literals require application or asset-pipeline changes.
+  This includes authored URLs inside a compiled docs article's `article_html`;
+  the docs shell's navigation is composed separately.
 - **Development reload:** the EventSource URL remains `/__proa/dev-events`.
   Development behind a prefix-only proxy needs that path exposed separately.
 

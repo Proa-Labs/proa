@@ -5,7 +5,8 @@ use std::future::Future;
 use std::sync::OnceLock;
 
 use proa_core::{
-    ClassList, DataLoader, RenderOutcome, UnsafeRaw, WebContext, WebRender, WriteError,
+    ClassList, DataLoader, RenderOutcome, StaticRaw, WebContext, WebRender, WebRenderSync,
+    WriteError,
 };
 use proa_fonts::Font;
 use proa_fonts_macros::google_font;
@@ -24,17 +25,13 @@ static MONO: Font = google_font!(
     variable = "--font-mono"
 );
 
-/// `Font::head` writes through a `NoLoader` context, while this page renders
-/// under the RIPEstat loader; the head fragment is static per process, so it
-/// is rendered once and embedded as pre-rendered trusted HTML.
-fn fonts_head_html() -> &'static str {
-    static CACHE: OnceLock<String> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        let mut cx = proa_core::WebContext::new();
-        SANS.head(&mut cx).expect("render sans font head");
-        MONO.head(&mut cx).expect("render mono font head");
-        cx.into_output().into_string()
-    })
+struct FontsHead;
+
+impl<L: DataLoader> WebRenderSync<L> for FontsHead {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        SANS.head(cx)?;
+        MONO.head(cx)
+    }
 }
 
 /// Cache-busted asset URLs: ServeDir sends no Cache-Control, so browsers
@@ -73,8 +70,6 @@ pub struct RootDocument<C> {
     pub content: C,
 }
 
-// proa-perf-ok(scope): the fonts head fragment is rendered once per
-// process and cached; UnsafeRaw re-emits that trusted pre-rendered HTML.
 impl<L, C> WebRender<L> for RootDocument<C>
 where
     L: DataLoader,
@@ -92,6 +87,11 @@ where
                 .add(SANS.class_name())
                 .add(MONO.class_name())
                 .add("dark");
+            let favicon = cx.request().url("/static/favicon.svg");
+            let stylesheet = cx.request().url(css_href());
+            let ui_stylesheet = cx.request().url("/static/proa/proa-ui/proa-free.css");
+            let ui_script = cx.request().url("/static/proa/proa-ui/proa-free.js");
+            let script = cx.request().url(js_src());
             html! {
                 <!DOCTYPE html>
                 <html lang="en" class={font_classes}>
@@ -106,16 +106,13 @@ where
                         <title>"ORIGIN — how the internet reaches websites"</title>
                         <link rel="preconnect" href="https://stat.ripe.net" />
                         <link rel="preconnect" href="https://ris-live.ripe.net" />
-                        <link rel="icon" href="/static/favicon.svg" />
-                        // proa-perf-ok: a static trusted literal; it must run
-                        // synchronously during head parsing so the stored theme
-                        // applies before anything paints.
-                        {UnsafeRaw(THEME_BOOTSTRAP)}
-                        {UnsafeRaw(fonts_head_html())}
-                        <link rel="stylesheet" href={css_href()} />
-                        <link rel="stylesheet" href="/static/proa/proa-ui/proa-free.css" />
-                        <script type="module" src="/static/proa/proa-ui/proa-free.js"></script>
-                        <script type="module" src={js_src()}></script>
+                        <link rel="icon" href={favicon} />
+                        {StaticRaw(THEME_BOOTSTRAP)}
+                        {proa_core::to_async(FontsHead)}
+                        <link rel="stylesheet" href={stylesheet} />
+                        <link rel="stylesheet" href={ui_stylesheet} />
+                        <script type="module" src={ui_script}></script>
+                        <script type="module" src={script}></script>
                     </head>
                     <body>{self.content}</body>
                 </html>

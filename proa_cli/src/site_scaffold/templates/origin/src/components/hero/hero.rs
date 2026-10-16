@@ -53,7 +53,7 @@ impl<L: DataLoader> WebRenderSync<L> for Hero {
                     </p>
                     <form
                         method="get"
-                        action="/"
+                        action={cx.request().url("/")}
                         class="flex items-stretch mt-[40px] max-w-[720px] border border-line-strong"
                     >
                         <div class="flex items-center py-0 px-[14px] text-[10px] tracking-[0.14em] text-ink4 border-r border-line">
@@ -112,7 +112,7 @@ impl<L: DataLoader> WebRenderSync<L> for Chips {
             // proa-perf-ok: four short hrefs per request on a demo page.
             let href = format!("/?q={}", site.host);
             html_sync! {
-                <a class={classes} href={href.as_str()}>{site.host}</a>
+                <a class={classes} href={cx.request().url(href.as_str())}>{site.host}</a>
             }
             .render(cx)?;
         }

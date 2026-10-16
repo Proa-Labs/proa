@@ -17,6 +17,9 @@ const RED = "var(--red, #FF3B30)";
 const AMBER = "var(--brand, #DD7627)";
 const BONE = "var(--ink, #E5E1D6)";
 const MID = "var(--ink3, #8C887E)";
+// This module is served at <mount>/static/origin.js. Resolve application
+// requests against that mount, including when the document is nested.
+const APP_ROOT = new URL("../", import.meta.url);
 
 // Replay pool: every range is documentation space, every operator unnamed.
 const REPLAY_EVENTS = [
@@ -39,8 +42,10 @@ const utc = (withMillis) => {
 // Lookup navigation is a full page load; carrying the scroll position
 // across it keeps chip-hopping from yanking the reader back to the top.
 document.addEventListener("click", (event) => {
-  const link = event.target.closest && event.target.closest('a[href^="/?q="]');
-  if (link) sessionStorage.setItem("origin.scroll", String(window.scrollY));
+  const link = event.target.closest && event.target.closest("a[href]");
+  if (link && link.origin === APP_ROOT.origin && link.pathname === APP_ROOT.pathname && link.search.startsWith("?q=")) {
+    sessionStorage.setItem("origin.scroll", String(window.scrollY));
+  }
 });
 (function restoreScroll() {
   const saved = sessionStorage.getItem("origin.scroll");
@@ -408,7 +413,7 @@ async function flood(count) {
   // long the render took.
   labMetric(labServer, "…", MID);
   lastServerMillis = null;
-  fetch("/lab/rows?n=" + count)
+  fetch(new URL("lab/rows?n=" + count, APP_ROOT))
     .then((r) => r.json())
     .then((s) => {
       // A debug dev binary is an order of magnitude slower than release;

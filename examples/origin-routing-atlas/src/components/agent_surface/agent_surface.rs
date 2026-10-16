@@ -82,11 +82,16 @@ pub(crate) fn base_url(host: &Option<String>) -> String {
 impl<L: DataLoader> WebRenderSync<L> for AgentSurface {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         // proa-perf-ok(scope): a few short strings once per request.
-        let md_path = format!("/site/{}.md", self.query); // proa-perf-ok: a few short strings once per request.
-                                                          // proa-perf-ok: a few short strings once per request.
+        let md_path = format!(
+            "{}/site/{}.md",
+            cx.request().base_path().as_str(),
+            self.query
+        ); // proa-perf-ok: a few short strings once per request.
+           // proa-perf-ok: a few short strings once per request.
         let command = format!(
-            "curl -H 'Accept: text/markdown' {}/?q={}",
+            "curl -H 'Accept: text/markdown' {}{}?q={}",
             base_url(&self.host),
+            cx.request().url("/"),
             encode_query(&self.query)
         );
         let curl_accept = format!("$ {command}"); // proa-perf-ok: a few short strings once per request.

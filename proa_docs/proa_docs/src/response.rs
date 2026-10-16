@@ -50,17 +50,44 @@ impl DocsResponse {
 }
 
 pub fn render_page_to_string(docs: &'static Docs, page: &'static DocPage) -> String {
-    proa_core::render_to_string(DocsShell { docs, page })
+    render_page_to_string_with_base_path(docs, page, &proa_core::BasePath::default())
 }
 
 pub fn render(docs: &'static Docs, path: &str) -> DocsResponse {
+    render_with_base_path(docs, path, &proa_core::BasePath::default())
+}
+
+/// Render the docs shell with public URLs under the deployment mount.
+/// Collection paths such as `/docs` remain unprefixed in the generated registry.
+pub fn render_page_to_string_with_base_path(
+    docs: &'static Docs,
+    page: &'static DocPage,
+    base_path: &proa_core::BasePath,
+) -> String {
+    use proa_core::WebRenderSync;
+    let mut cx = proa_core::WebContext::new();
+    // proa-perf-ok: share the immutable prefix when constructing the response context.
+    cx.request_mut().set_base_path(base_path.clone());
+    DocsShell { docs, page }
+        .render(&mut cx)
+        .expect("render docs shell");
+    cx.into_output().into_string()
+}
+
+/// Serve an unprefixed docs request with a deployment-specific public mount.
+/// Markdown and JSON artifact routes retain their original request paths.
+pub fn render_with_base_path(
+    docs: &'static Docs,
+    path: &str,
+    base_path: &proa_core::BasePath,
+) -> DocsResponse {
     if let Some(response) = render_static(docs, path) {
         return response;
     }
     let Some(page) = docs.page_for_path(path).or_else(|| docs.first_page()) else {
         return DocsResponse::not_found();
     };
-    DocsResponse::html(render_page_to_string(docs, page))
+    DocsResponse::html(render_page_to_string_with_base_path(docs, page, base_path))
 }
 
 pub fn render_static(docs: &'static Docs, path: &str) -> Option<DocsResponse> {
