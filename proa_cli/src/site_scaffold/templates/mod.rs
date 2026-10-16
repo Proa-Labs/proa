@@ -146,7 +146,7 @@ pub fn populate(
     if selection.markdown {
         plan.write(
             "tests/representations.rs",
-            representation_test(has_database),
+            representation_test(has_database, selection.starter),
         )?;
     }
 
@@ -610,7 +610,7 @@ async fn markdown_exposes_the_same_database_value_and_deduplicates_its_children(
 "#
 }
 
-fn representation_test(has_database: bool) -> String {
+fn representation_test(has_database: bool, starter: StarterChoice) -> String {
     let arc_import = if has_database {
         "use std::sync::Arc;\n\n"
     } else {
@@ -631,6 +631,13 @@ fn representation_test(has_database: bool) -> String {
     };
     let close = if has_database {
         "pool.close().await;"
+    } else {
+        ""
+    };
+    let navigation_assertions = if starter == StarterChoice::Guided {
+        r#"    assert!(document.contains("href=\"/apps/demo/\""));
+    assert!(document.contains("href=\"/apps/demo/index.md\""));
+"#
     } else {
         ""
     };
@@ -662,9 +669,7 @@ async fn canonical_and_explicit_markdown_share_one_page_policy() {
     assert!(html.headers()[header::LINK].to_str().unwrap().contains("/apps/demo/index.md"));
     let document = String::from_utf8(body(html).await).unwrap();
     assert!(document.contains("href=\"/apps/demo/static/styles.css\""));
-    assert!(document.contains("href=\"/apps/demo/\""));
-    assert!(document.contains("href=\"/apps/demo/index.md\""));
-
+__NAVIGATION_ASSERTIONS__
     let refused_markdown = app.clone().oneshot(
         Request::builder().uri("/").header(header::ACCEPT, "text/markdown;q=0, text/html").body(Body::empty()).unwrap()
     ).await.unwrap();
@@ -691,6 +696,7 @@ async fn canonical_and_explicit_markdown_share_one_page_policy() {
     .replace("__DATABASE_MODULES__", database_modules)
     .replace("__STATE__", state)
     .replace("__CLOSE__", close)
+    .replace("__NAVIGATION_ASSERTIONS__", navigation_assertions)
 }
 
 fn vscode_extensions() -> &'static str {
