@@ -686,7 +686,7 @@ pub fn router(state: AppState, base_path: proa_core::BasePath) -> Router {
         // proa:explicit-routes:start
         __MARKDOWN_ROUTE__
         // proa:explicit-routes:end
-        .nest_service("/static", static_assets::service())
+        .nest_service("/static", static_assets::service(base_path.clone()))
         .with_state(state)
         .merge(proa_framework_axum::rsjs_assets_router(&base_path))
         .layer(RouteContextLayer::new(manifest, metadata).with_base_path(base_path))
@@ -792,8 +792,13 @@ __STATE__    let app = routes::router(state, config.base_path);
 pub fn static_assets_rs() -> &'static str {
     r#"use tower_http::services::ServeDir;
 
-pub fn service() -> ServeDir {
-    ServeDir::new("public").append_index_html_on_directories(false)
+pub fn service(base_path: proa_core::BasePath) -> axum::Router {
+    proa_framework_axum::base_path_assets(
+        axum::Router::new().fallback_service(
+            ServeDir::new("public").append_index_html_on_directories(false),
+        ),
+        base_path,
+    )
 }
 "#
 }

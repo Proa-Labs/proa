@@ -204,12 +204,15 @@ access while rendering; explain that shared, allocation-free clone with a
 `proa-perf-ok` comment. In Axum handlers, compose redirects with
 `proa_framework_axum::app_url("/")`.
 
-The prefix affects outgoing URLs, not routing or arbitrary CSS/JavaScript
-literals. `Font::head(cx)` and docs shell navigation share the request prefix;
-pass the same context to fonts and use `response_with_base_path` in custom docs
-handlers. Query/mutation endpoints and authored article URLs still need
-separate configuration. See the
-[deployment coverage limits](../../../proa_marketing/src/docs/framework/deployment.mdx#coverage-and-limitations).
+The prefix affects outgoing URLs, not incoming routing. `Font::head(cx)`,
+compiled docs article URL attributes, shell navigation, and search artifacts
+share it; pass the same context to fonts and use `response_with_base_path` in
+custom docs handlers. Linked query/mutation runtimes compose endpoint URLs
+automatically. Managed CSS/JS services compose recognized URL syntax, leaving
+ordinary strings unchanged; custom browser clients can import `app_url` from
+`/rsjs-runtime.js`. Use `BasePathHtml` for trusted compiled HTML whose URL
+attributes should follow the mount. See the
+[deployment coverage contract](../../../proa_marketing/src/docs/framework/deployment.mdx#coverage-and-limitations).
 
 ## Error handling
 

@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_core::{DataLoader, StaticRaw, WebContext, WebRenderSync, WriteBuf};
+use proa_core::{BasePathHtml, DataLoader, WebContext, WebRenderSync, WriteBuf};
 use proa_macros::html_sync;
 
 use crate::{
@@ -48,7 +48,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsShell<'_> {
                         </aside>
                         <main class="proa-docs-main">
                             <article class="proa-docs-article">
-                                {StaticRaw(self.page.article_html)}
+                                {BasePathHtml(self.page.article_html)}
                             </article>
                             {DocsPager { page: self.page }}
                         </main>

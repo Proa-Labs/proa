@@ -125,7 +125,13 @@ pub fn app_with_base_path(base_path: BasePath) -> Router {
         .route("/readyz", get(ready))
         .nest_service(
             "/static",
-            ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/public")),
+            proa_framework_axum::base_path_assets(
+                Router::new().fallback_service(ServeDir::new(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/public"
+                ))),
+                base_path.clone(),
+            ),
         )
         .nest_service(
             "/fonts",

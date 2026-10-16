@@ -49,6 +49,13 @@ for the installed routes and custom-router alternative, and
 [URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix)
 for the proxy configuration example.
 
+The linked core and query runtimes export `app_url(path)` for handwritten
+browser code. With a mount configured, query/mutation request descriptors
+compose root-relative endpoints automatically, including runtime-computed
+fetchers. Already-mounted browser URLs and external URLs stay unchanged.
+Custom runtime servers can call `rsjs::runtime_assets::with_base_path(source,
+&base_path)` before serving either runtime; use the same setting for both.
+
 ## Finalizing a normal response
 
 Rendering records `RsjsRenderArtifacts` in the response's `WebContext`.

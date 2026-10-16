@@ -88,7 +88,15 @@ pub fn layer_from_env() -> Option<DevReloadLayer> {
         );
         return None;
     };
-    Some(DevReloadLayer::new(port, token))
+    let base_path = match proa_core::BasePath::new(&env::var("PROA_BASE_PATH").unwrap_or_default())
+    {
+        Ok(base_path) => base_path,
+        Err(_) => {
+            tracing::warn!("invalid PROA_BASE_PATH; live reload stays off");
+            return None;
+        }
+    };
+    Some(DevReloadLayer::new(port, token).with_base_path(&base_path))
 }
 
 fn parse_reload_port(value: &str) -> Option<u16> {
@@ -121,9 +129,12 @@ fn parse_reload_token(value: &str) -> Option<&str> {
 #[derive(Debug, Clone)]
 pub struct DevReloadLayer {
     script: Arc<str>,
-    /// Content-Security-Policy source that permits the event stream. Any host
-    /// is allowed, but only on the live-reload port.
+    /// Content-Security-Policy source: self for mounted apps, the reload port otherwise.
     connect_source: Arc<str>,
+    port: u16,
+    token: Arc<str>,
+    relay: bool,
+    relay_stop: tokio::sync::watch::Sender<bool>,
 }
 
 impl DevReloadLayer {
@@ -133,23 +144,137 @@ impl DevReloadLayer {
     /// lowercase hex are dropped rather than escaped, so the script can splice
     /// it in as a plain literal.
     pub fn new(port: u16, token: &str) -> Self {
-        // The host is resolved in the browser from `location`, not baked in
-        // here: the site may be reached as localhost, as 127.0.0.1, or over
-        // the network when it binds 0.0.0.0, and only the tab knows which.
-        let script = CLIENT_JS
-            .replace("__PROA_DEV_RELOAD_PORT__", &port.to_string())
-            .replace("__PROA_DEV_EVENTS_PATH__", DEV_EVENTS_PATH)
-            .replace(
-                "__PROA_DEV_RELOAD_TOKEN__",
-                parse_reload_token(token).unwrap_or_default(),
-            );
+        let (relay_stop, _) = tokio::sync::watch::channel(false);
         Self {
-            script: Arc::from(script),
-            // The client resolves the host from `location`, so the policy has
-            // to permit whichever name the tab was opened with. Pinning the
-            // port keeps that from widening to anything else.
-            connect_source: Arc::from(format!("http://*:{port}")),
+            script: Arc::from(""),
+            connect_source: Arc::from(""),
+            port,
+            token: Arc::from(parse_reload_token(token).unwrap_or_default()),
+            relay: false,
+            relay_stop,
         }
+        .with_base_path(&proa_core::BasePath::default())
+    }
+
+    /// Route the browser event stream through the public mount on this server.
+    /// Use `wrap` to install its same-origin relay as well as client injection.
+    pub fn with_base_path(mut self, base_path: &proa_core::BasePath) -> Self {
+        self.relay = !base_path.as_str().is_empty();
+        let path = base_path.url(DEV_EVENTS_PATH).to_string();
+        // This JSON literal is embedded in an HTML script raw-text element.
+        let path = serde_json::to_string(&path)
+            .expect("serialize dev event URL")
+            .replace('<', "\\u003c");
+        self.script = Arc::from(
+            CLIENT_JS
+                .replace("__PROA_DEV_RELOAD_PORT__", &self.port.to_string())
+                .replace("__PROA_DEV_EVENTS_PATH__", &path)
+                .replace(
+                    "__PROA_DEV_RELOAD_SAME_ORIGIN__",
+                    if self.relay { "true" } else { "false" },
+                )
+                .replace("__PROA_DEV_RELOAD_TOKEN__", &self.token),
+        );
+        self.connect_source = if self.relay {
+            Arc::from("'self'")
+        } else {
+            Arc::from(format!("http://*:{}", self.port))
+        };
+        self
+    }
+
+    /// End relayed streams before draining the server's ordinary requests.
+    /// `serve_with_shutdown` calls this automatically.
+    pub fn shutdown(&self) {
+        self.relay_stop.send_replace(true);
+    }
+
+    /// Add the development event relay when mounted, then inject the client.
+    pub fn wrap(self, app: axum::Router) -> axum::Router {
+        let app = if self.relay {
+            let host = env::var("PROA_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+            let host = match host.parse::<std::net::IpAddr>() {
+                Ok(std::net::IpAddr::V6(ip)) if ip.is_unspecified() => "[::1]".to_string(),
+                Ok(std::net::IpAddr::V6(ip)) => format!("[{ip}]"),
+                Ok(std::net::IpAddr::V4(ip)) if ip.is_unspecified() => "127.0.0.1".to_string(),
+                Ok(ip) => ip.to_string(),
+                Err(_)
+                    if !host.is_empty()
+                        && host
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-')) =>
+                {
+                    host
+                }
+                Err(_) => "localhost".to_string(),
+            };
+            let target = format!("http://{host}:{}{}", self.port, DEV_EVENTS_PATH);
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(std::time::Duration::from_secs(2))
+                .build()
+                .expect("build local dev event client");
+            let relay_stop = self.relay_stop.clone();
+            app.route(
+                DEV_EVENTS_PATH,
+                axum::routing::get(
+                    move |axum::extract::OriginalUri(uri): axum::extract::OriginalUri| {
+                        let client = client.clone();
+                        let target = target.clone();
+                        let mut stopped = relay_stop.subscribe();
+                        async move {
+                            if *stopped.borrow() { return Response::new(Body::empty()); }
+                            let target = match uri.query() {
+                                Some(query) => format!("{target}?{query}"),
+                                None => target,
+                            };
+                            let upstream = tokio::select! {
+                                biased;
+                                _ = stopped.changed() => return Response::new(Body::empty()),
+                                upstream = client.get(target).send() => upstream,
+                            };
+                            match upstream {
+                                Ok(response) => {
+                                    let status = response.status();
+                                    let content_type =
+                                        response.headers().get(CONTENT_TYPE).cloned();
+                                    let stream = futures::stream::try_unfold(
+                                        (response, stopped),
+                                        |(mut response, mut stopped)| async move {
+                                            if *stopped.borrow() { return Ok::<_, reqwest::Error>(None); }
+                                            tokio::select! {
+                                                biased;
+                                                _ = stopped.changed() => Ok(None),
+                                                chunk = response.chunk() => Ok(chunk?.map(|bytes| (bytes, (response, stopped)))),
+                                            }
+                                        },
+                                    );
+                                    let mut response = Response::new(Body::from_stream(stream));
+                                    *response.status_mut() = status;
+                                    if let Some(content_type) = content_type {
+                                        response.headers_mut().insert(CONTENT_TYPE, content_type);
+                                    }
+                                    response.headers_mut().insert(
+                                        axum::http::header::CACHE_CONTROL,
+                                        axum::http::HeaderValue::from_static("no-cache"),
+                                    );
+                                    response.headers_mut().insert("x-accel-buffering", axum::http::HeaderValue::from_static("no"));
+                                    response
+                                }
+                                Err(_) => Response::builder()
+                                    .status(axum::http::StatusCode::BAD_GATEWAY)
+                                    .body(Body::empty())
+                                    .expect("valid dev relay response"),
+                            }
+                        }
+                    },
+                ),
+            )
+        } else {
+            app
+        };
+        app.layer(self)
     }
 
     fn tag(&self, nonce: Option<&str>) -> Bytes {
@@ -303,6 +428,16 @@ fn accepts_injection(headers: &HeaderMap) -> bool {
 /// restricts connections, since there is then nothing to widen.
 fn allow_connect_source(headers: &HeaderMap, source: &str) -> Option<String> {
     let policy = headers.get(CONTENT_SECURITY_POLICY)?.to_str().ok()?;
+    if directive_value(policy, "connect-src")
+        .or_else(|| directive_value(policy, "default-src"))
+        .is_some_and(|sources| {
+            sources
+                .split_whitespace()
+                .any(|existing| existing == source)
+        })
+    {
+        return None;
+    }
     let mut directives: Vec<String> = Vec::new();
     let mut widened = false;
     let mut default_src = None;

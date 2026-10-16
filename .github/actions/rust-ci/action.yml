@@ -77,6 +77,10 @@ runs:
       with:
         node-version: "22"
 
+    - name: Test mounted RSJS query and mutation requests
+      shell: bash
+      run: node rsjs/runtime/rsjs-runtime.base-path.test.mjs
+
     - name: Test Proa editor adapters and LSP transport
       shell: bash
       run: |

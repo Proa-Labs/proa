@@ -40,6 +40,25 @@ under a public prefix, configure `FrameworkBuilder::with_base_path` and use
 `cx.request().url("/static/assets/...")` in templates. The manifest CSS link is
 prefixed automatically. See [URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix).
 
+When `with_base_path(...)` is configured, the managed service also composes
+recognized URLs inside CSS and JS/MJS files. CSS `url(...)`/`image-set(...)`/`@import`, module
+imports, and native browser request/worker URL arguments follow the mount.
+Ordinary strings and external URLs stay unchanged. Dynamic browser code can
+import `app_url` from the linked runtime. See
+[coverage and examples](/docs/framework/deployment#coverage-and-limitations).
+
+For routers built without `FrameworkBuilder`, wrap the static router explicitly:
+
+```rust
+use proa_framework_axum::{base_path_assets, BasePath};
+
+let static_router = base_path_assets(static_router, BasePath::new("/apps/demo")?);
+```
+
+Apply compression outside this wrapper. Its parsed output is cached by content;
+ETags and HEAD responses describe the transformed representation. Integrity
+hashes must be computed from those served bytes.
+
 A single-binary deploy skips the directory entirely and carries the files inside the executable.
 
 ## Embedding assets in the binary

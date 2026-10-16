@@ -13,6 +13,24 @@ pub const CORE_JS: &str = include_str!("../runtime/rsjs-runtime.js");
 /// Optional query and mutation runtime source.
 pub const QUERY_JS: &str = include_str!("../runtime/rsjs-runtime-query.js");
 
+/// Configure a linked core or query runtime for this deployment at startup.
+/// Query/mutation request URLs and the browser `app_url` helper share the mount.
+/// The source stays borrowed for origin-root deployments.
+pub fn with_base_path<'a>(
+    source: &'a str,
+    base_path: &proa_core::BasePath,
+) -> std::borrow::Cow<'a, str> {
+    if base_path.as_str().is_empty() {
+        return std::borrow::Cow::Borrowed(source);
+    }
+    let value = serde_json::to_string(base_path.as_str()).expect("serialize base path");
+    std::borrow::Cow::Owned(source.replacen(
+        "const PROA_BASE_PATH = \"\";",
+        &format!("const PROA_BASE_PATH = {value};"),
+        1,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

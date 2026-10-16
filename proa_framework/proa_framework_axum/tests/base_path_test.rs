@@ -145,7 +145,27 @@ fn app(prefix: &str) -> Router {
     ]);
     FrameworkBuilder::new(manifest())
         .with_dynamic_routes_and_metadata(router, metadata)
-        .with_static_service(Router::new().route("/styles.css", get(|| async { "body{}" })))
+        .with_static_service(
+            Router::new()
+                .route(
+                    "/styles.css",
+                    get(|| async {
+                        (
+                            [(header::CONTENT_TYPE, "text/css")],
+                            "body{background:url(/image.svg)}",
+                        )
+                    }),
+                )
+                .route(
+                    "/app.js",
+                    get(|| async {
+                        (
+                            [(header::CONTENT_TYPE, "text/javascript")],
+                            "fetch('/api/items'); const label='/ordinary';",
+                        )
+                    }),
+                ),
+        )
         .with_rsjs_assets()
         .with_base_path(BasePath::new(prefix).unwrap())
         .build()
@@ -232,7 +252,9 @@ async fn serves_all_linked_asset_kinds_with_public_runtime_imports() {
         StatusCode::OK
     );
     for path in ["/rsjs-runtime.js", "/rsjs-runtime-query.js"] {
-        assert_eq!(fetch(&mounted_app, path).await.0, StatusCode::OK);
+        let (status, _, source) = fetch(&mounted_app, path).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(source.contains(r#"const PROA_BASE_PATH = "/apps/demo";"#));
     }
     assert_eq!(
         fetch(&mounted_app, "/rsjs/island/missing.js").await.0,
@@ -383,4 +405,21 @@ async fn public_mount_requests_reach_assets_after_proxy_prefix_stripping() {
         fetch(&app, "/rsjs-runtime.js").await.0,
         StatusCode::NOT_FOUND
     );
+}
+
+#[tokio::test]
+async fn builder_composes_managed_css_and_js_and_retains_root_bytes() {
+    let mounted = app("/apps/demo");
+    let (_, _, css) = fetch(&mounted, "/static/styles.css").await;
+    assert!(css.contains("url(\"/apps/demo/image.svg\")"), "{css}");
+    let (_, _, js) = fetch(&mounted, "/static/app.js").await;
+    assert!(js.contains("fetch(\"/apps/demo/api/items\")"), "{js}");
+    assert!(js.contains("const label='/ordinary'"));
+    let (_, _, root_css) = fetch(&app(""), "/static/styles.css").await;
+    assert_eq!(root_css, "body{background:url(/image.svg)}");
+    let (_, _, root_js) = fetch(&app(""), "/static/app.js").await;
+    assert_eq!(root_js, "fetch('/api/items'); const label='/ordinary';");
+    let (_, _, other) = fetch(&app("/preview/123"), "/static/styles.css").await;
+    assert!(other.contains("/preview/123/image.svg"));
+    assert!(!other.contains("/apps/demo"));
 }

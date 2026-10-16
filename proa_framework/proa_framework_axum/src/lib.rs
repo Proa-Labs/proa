@@ -3,6 +3,7 @@
 
 #![forbid(unsafe_code)]
 
+mod asset_urls;
 pub mod bootstrap;
 pub mod config;
 pub mod csp;
@@ -21,6 +22,7 @@ pub mod security_headers;
 pub mod server;
 pub mod shard;
 pub mod static_service;
+pub use asset_urls::base_path_assets;
 
 pub use bootstrap::render_bootstrap_for_islands;
 pub use config::{CodegenConfig, PathsConfig, ProaConfig, ServerConfig};
@@ -326,6 +328,9 @@ impl FrameworkBuilder {
         self
     }
 
+    /// Serve application assets under `/static`. A configured base path also
+    /// composes URL tokens in CSS and native URL operations in JS/MJS assets.
+    /// Install compression outside this service so transformations see source bytes.
     pub fn with_static_service(mut self, service: Router) -> Self {
         self.static_router = Some(service);
         self
@@ -418,7 +423,10 @@ impl FrameworkBuilder {
         }
 
         if let Some(static_router) = static_router {
-            app = app.nest("/static", static_router);
+            app = app.nest(
+                "/static",
+                base_path_assets(static_router, base_path.clone()),
+            );
         }
 
         if let Some(dynamic_router) = dynamic_router {

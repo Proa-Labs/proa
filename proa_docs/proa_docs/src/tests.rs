@@ -63,6 +63,7 @@ fn mounted_shell_prefixes_navigation_sections_and_pager_but_preserves_fragments_
     use proa_core::WebRenderSync;
     let page = DocPage {
         route_path: "/docs/core/render-traits",
+        article_html: r###"<a href="/docs/other">Other</a><img src="/images/test.svg"><a href="#install">Part</a><a href="https://example.com/out">External</a><code>&lt;a href="/example"&gt;</code>"###,
         prev: Some(PageLink {
             title: "Previous",
             path: "/docs/guides/quickstart",
@@ -97,6 +98,10 @@ fn mounted_shell_prefixes_navigation_sections_and_pager_but_preserves_fragments_
     assert!(html.contains("href=\"#install\""));
     assert!(html.contains("href=\"https://example.com/next\""));
     assert!(html.contains("data-active=\"true\""));
+    assert!(html.contains("href=\"/apps/demo/docs/other\""));
+    assert!(html.contains("src=\"/apps/demo/images/test.svg\""));
+    assert!(html.contains("href=\"https://example.com/out\""));
+    assert!(html.contains("&lt;a href=\"/example\"&gt;"));
     assert!(!html.contains("href=\"/docs"));
 }
 
@@ -251,4 +256,37 @@ fn metadata_roots_scope_navigation_without_hiding_default_separators() {
     let default_root = SECTION_DOCS.active_nav_root("/docs/cli/new-site");
     assert_eq!(default_root.title, "Proa Docs");
     assert_eq!(default_root.href, "/docs");
+}
+
+#[test]
+fn mounted_search_urls_follow_the_mount_and_manifest_hash_matches_the_documents() {
+    use sha2::{Digest, Sha256};
+    static SEARCH_DOCS: Docs = Docs {
+        search: Some(SearchArtifacts {
+            manifest_path: "/docs/_search/manifest.json",
+            manifest_json: r#"{"version":1,"basePath":"/docs","documents":"/docs/_search/documents.json","hash":"build-hash"}"#,
+            documents_path: "/docs/_search/documents.json",
+            documents_json: r#"{"version":1,"documents":[{"url":"/docs/start","content":"/docs is ordinary text"},{"url":"https://example.com/out"}]}"#,
+        }),
+        ..DOCS
+    };
+    let base = proa_core::BasePath::new("/apps/demo").unwrap();
+    let manifest = render_with_base_path(&SEARCH_DOCS, "/docs/_search/manifest.json", &base);
+    let documents = render_with_base_path(&SEARCH_DOCS, "/docs/_search/documents.json", &base);
+    let manifest: serde_json::Value = serde_json::from_str(&manifest.body).unwrap();
+    let rows: serde_json::Value = serde_json::from_str(&documents.body).unwrap();
+    assert_eq!(manifest["basePath"], "/apps/demo/docs");
+    assert_eq!(
+        manifest["documents"],
+        "/apps/demo/docs/_search/documents.json"
+    );
+    assert_eq!(
+        manifest["hash"],
+        format!("sha256-{:x}", Sha256::digest(documents.body.as_bytes()))
+    );
+    assert_eq!(rows["documents"][0]["url"], "/apps/demo/docs/start");
+    assert_eq!(rows["documents"][0]["content"], "/docs is ordinary text");
+    assert_eq!(rows["documents"][1]["url"], "https://example.com/out");
+    let root = render(&SEARCH_DOCS, "/docs/_search/documents.json");
+    assert_eq!(root.body, SEARCH_DOCS.search.unwrap().documents_json);
 }

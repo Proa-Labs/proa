@@ -1,6 +1,18 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+// The framework configures this module once when serving linked assets.
+const PROA_BASE_PATH = "";
+
+/** Resolve an application URL, preserving external and already-mounted URLs. */
+export function app_url(path) {
+    if (!PROA_BASE_PATH || typeof path !== 'string' ||
+        !path.startsWith('/') || path.startsWith('//')) return path;
+    if (path === PROA_BASE_PATH || path.startsWith(PROA_BASE_PATH + '/') ||
+        path.startsWith(PROA_BASE_PATH + '?') || path.startsWith(PROA_BASE_PATH + '#')) return path;
+    return PROA_BASE_PATH + path;
+}
+
 // rsjs query + mutation runtime — page-scoped QueryClient + projection
 // helpers + mutation registry + cross-island invalidation.
 //
@@ -633,7 +645,7 @@ function parse_request_config(raw, default_method, label) {
         cfg = { url: '', method: default_method };
     }
     return {
-        url: cfg.url || '',
+        url: app_url(cfg.url || ''),
         method: String(cfg.method || default_method).toUpperCase(),
         credentials: cfg.credentials || 'same-origin',
         headers: cfg.headers || {},

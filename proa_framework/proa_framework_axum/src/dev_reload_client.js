@@ -7,7 +7,8 @@
   window.__proaLiveReload = true;
 
   var PORT = __PROA_DEV_RELOAD_PORT__;
-  var PATH = "__PROA_DEV_EVENTS_PATH__";
+  var PATH = __PROA_DEV_EVENTS_PATH__;
+  var SAME_ORIGIN = __PROA_DEV_RELOAD_SAME_ORIGIN__;
   /* Proves this page came from the running dev server. Without it any site
      open in the same browser could read the stream, and a tab left over from
      an earlier session could be reloaded by a server that never served it. */
@@ -15,12 +16,12 @@
   /* The event stream runs beside this page on the dev machine. Resolving the
      host from `location` keeps it reachable however the page was opened:
      localhost, 127.0.0.1, or a LAN address when the site binds 0.0.0.0. */
-  var endpoint =
+  var endpoint = (SAME_ORIGIN ? window.location.origin :
     window.location.protocol +
     "//" +
     window.location.hostname +
     ":" +
-    PORT +
+    PORT) +
     PATH +
     "?token=" +
     TOKEN;

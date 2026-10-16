@@ -67,7 +67,8 @@ let app = FrameworkBuilder::new(manifest)
 These methods configure separate parts of the application:
 
 - `with_base_path(BasePath)` sets the public mount used by request URL helpers
-  and framework-generated asset URLs. Its default is the origin root.
+  and framework-generated URLs, including island query/mutation requests.
+  Managed static CSS/JS URLs follow it too. Its default is the origin root.
 - `with_rsjs_assets()` installs routes for the RSJS runtimes and linked modules.
   Enable it when this app serves its own island assets, including at the origin
   root. It is opt-in so applications can supply their own asset handlers.

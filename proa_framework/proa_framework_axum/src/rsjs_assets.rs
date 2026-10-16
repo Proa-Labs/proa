@@ -31,11 +31,13 @@ pub fn rsjs_assets_router(base_path: &BasePath) -> Router {
         if base_path.as_str().is_empty() {
             Bytes::from_static(source.as_bytes())
         } else {
-            Bytes::from(rsjs::rewrite_runtime_import_specifiers(
-                source,
-                &runtime_url,
-                &query_url,
-            ))
+            Bytes::from(
+                crate::asset_urls::rewrite_js(
+                    &rsjs::rewrite_runtime_import_specifiers(source, &runtime_url, &query_url),
+                    base_path,
+                )
+                .expect("valid linked RSJS module"),
+            )
         }
     };
     let manifest = rsjs::manifest();
@@ -48,11 +50,13 @@ pub fn rsjs_assets_router(base_path: &BasePath) -> Router {
         let source = if base_path.as_str().is_empty() {
             Bytes::from(source)
         } else {
-            Bytes::from(rsjs::rewrite_runtime_import_specifiers(
-                &source,
-                &runtime_url,
-                &query_url,
-            ))
+            Bytes::from(
+                crate::asset_urls::rewrite_js(
+                    &rsjs::rewrite_runtime_import_specifiers(&source, &runtime_url, &query_url),
+                    base_path,
+                )
+                .expect("valid linked RSJS client module"),
+            )
         };
         assets.insert(rsjs::client_module_filename(entry.module_path), source);
     }
@@ -69,8 +73,15 @@ pub fn rsjs_assets_router(base_path: &BasePath) -> Router {
         );
     }
     let assets = Arc::new(assets);
-    let runtime = rewrite(rsjs::runtime_assets::CORE_JS);
-    let query = rewrite(rsjs::runtime_assets::QUERY_JS);
+    let configure_runtime = |source: &'static str| {
+        if base_path.as_str().is_empty() {
+            Bytes::from_static(source.as_bytes())
+        } else {
+            Bytes::from(rsjs::runtime_assets::with_base_path(source, base_path).into_owned())
+        }
+    };
+    let runtime = configure_runtime(rsjs::runtime_assets::CORE_JS);
+    let query = configure_runtime(rsjs::runtime_assets::QUERY_JS);
     Router::new()
         .route(
             "/rsjs-runtime.js",

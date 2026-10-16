@@ -20,6 +20,13 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
+cssparser = "0.35"
+oxc_allocator = "0.75"
+oxc_ast = "0.75"
+oxc_ast_visit = "0.75"
+oxc_parser = "0.75"
+oxc_semantic = "0.75"
+oxc_span = "0.75"
 chrono = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }

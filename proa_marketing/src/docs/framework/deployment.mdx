@@ -168,20 +168,56 @@ request against the URL of its JavaScript module.
 
 ### Coverage and limitations
 
-This setting covers composed application URLs and framework-owned island assets.
-It does not make every generated page or browser request prefix-aware:
+The same setting covers framework assets, fonts, query/mutation requests, docs
+navigation and article URL attributes, docs search artifacts, and the ORIGIN
+starter. `proa dev` uses a prefixed same-origin event stream when
+`PROA_BASE_PATH` is set, so the proxy only needs to expose the app's mount.
 
-- **Island data requests:** the query runtime script follows the prefix, but
-  query/mutation endpoint literals such as `/api/items` do not. Hydration can
-  succeed while a later fetch 404s. There is no automatic client-side base-path
-  setting in this change; configure fetch URLs separately or expose those
-  endpoints at the paths the client requests.
-- **Other embedded URLs:** raw HTML, third-party output, CSS `url(...)`, and
-  application JavaScript literals require application or asset-pipeline changes.
-  This includes authored URLs inside a compiled docs article's `article_html`;
-  the docs shell's navigation is composed separately.
-- **Development reload:** the EventSource URL remains `/__proa/dev-events`.
-  Development behind a prefix-only proxy needs that path exposed separately.
+`with_static_service(...)` automatically composes recognized URL syntax in
+CSS and JavaScript assets when a prefix is configured. This includes CSS
+`url(...)`, `image-set(...)`, and `@import`, JavaScript module imports, and native browser `fetch`,
+`Request`, `Worker`, `SharedWorker`, `EventSource`, and `WebSocket` URL arguments.
+`new URL` arguments also follow the mount when their base is `import.meta.url`
+or browser `location`/`location.href`/`location.origin`. Explicit external bases
+stay unchanged. Dynamic native URL arguments are composed when evaluated. External URLs,
+protocol-relative URLs, relative references, and already-mounted browser URLs
+stay unchanged. Comments, ordinary strings, and locally shadowed browser API
+names stay unchanged too.
+
+```css
+/* Served CSS: /fonts/icon.woff2 becomes /apps/demo/fonts/icon.woff2. */
+@font-face { font-family: Icon; src: url(/fonts/icon.woff2); }
+```
+
+```javascript
+// Served JS: fetches /apps/demo/api/items, including a dynamic URL argument.
+const endpoint = "/api/items";
+const response = await fetch(endpoint);
+```
+
+For handwritten browser code using a custom client library, compose its URL
+explicitly with the helper exported by either linked runtime:
+
+```javascript
+import { app_url } from "/rsjs-runtime.js";
+
+// The managed asset service prefixes the import above.
+client.load(app_url("/api/items")); // /apps/demo/api/items
+```
+
+Custom static routers can use `base_path_assets(router, base_path)`; install
+compression outside that router. Transformations are cached by content with a
+bounded cache. GET and HEAD share the transformed length and ETag; conditional
+requests validate those transformed bytes. CSS/JS assets are limited to 32 MiB.
+Root deployments retain the original service without parsing or rewriting.
+
+The recognized syntax is the contract. URLs in custom-library arguments,
+inline scripts/styles, data files, or external third-party output need explicit
+composition or their own pipeline. Subresource integrity hashes must match the
+served, transformed bytes. Application templates use `cx.request().url(...)`;
+trusted compiled raw HTML can use `proa_core::BasePathHtml`. Compiled docs
+articles use it automatically for links, images/srcsets, forms, and other URL
+attributes, while text and script/style contents remain unchanged.
 
 For example, at `/apps/demo/docs/start`, `/static/styles.css` requests a file
 outside the app. The helper generates `/apps/demo/static/styles.css`. Replacing

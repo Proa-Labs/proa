@@ -79,3 +79,23 @@ fn request_urls_render_without_intermediate_allocations() {
     drop(cx);
     assert_eq!(cursor.as_slice(), br#"<link rel="stylesheet" href="/user/demo/proxy/3000/static/styles.css?v=1&amp;mode=dark">"#);
 }
+
+#[test]
+fn compiled_article_url_composition_does_not_allocate() {
+    let mut backing = [0u8; 512];
+    let mut cursor = WriteCursor::new(&mut backing);
+    let mut cx = WebContext::with_buffer(&mut cursor);
+    cx.request_mut()
+        .set_base_path(BasePath::new("/apps/demo").unwrap());
+    start_counting();
+    proa_core::BasePathHtml(r#"<a href="/docs">Docs</a><img src='/image.svg'>"#)
+        .render(&mut cx)
+        .unwrap();
+    let allocations = stop_counting();
+    assert_eq!(allocations, 0);
+    drop(cx);
+    assert_eq!(
+        cursor.as_slice(),
+        br#"<a href="/apps/demo/docs">Docs</a><img src='/apps/demo/image.svg'>"#
+    );
+}

@@ -14,8 +14,8 @@ escape the mount and islands fail to hydrate.
 | Response rewriting middleware | Can retrofit existing markup | Must parse arbitrary/chunked HTML correctly; cannot fix JS imports on its own; may buffer streaming responses |
 
 The implementation uses explicit startup configuration. It reuses RSJS's
-existing URL resolver and import rewriter without parsing application output
-or changing routing.
+existing URL resolver and import rewriter without buffering page responses
+or changing routing. Managed CSS/JS is parsed at the asset boundary.
 
 ## Architecture
 
@@ -30,7 +30,17 @@ or changing routing.
 5. Font heads compose preload URLs and stream the generated CSS's known face
    URL slots with CSS-escaped prefixes. The root fast path keeps static CSS.
    Docs shell navigation uses request URL values; its adapter keeps the mount
-   separate from the collection's build-time route.
+   separate from the collection's build-time route. Article URL attributes
+   stream through `BasePathHtml` without allocating a replacement document;
+   search JSON URLs and its content hash are composed at the artifact boundary.
+6. Core/query runtimes share a configured browser base and export `app_url`.
+   Query/mutation descriptors use it for static and computed endpoints.
+7. Managed CSS/JS assets use CSS/Oxc parsers for recognized URL syntax, with
+   semantic binding checks to preserve locally shadowed browser APIs. Results
+   are content-cached within a fixed budget; transformed validators and HEAD
+   lengths describe the actual representation.
+8. Mounted development reload relays the authenticated CLI stream through the
+   application origin, preserving prefix-only proxy access.
 
 Focused tests cover prefix normalization, nested links/forms/redirects, linked
 asset types, deferred hydration, incremental streaming, default-root
@@ -56,16 +66,16 @@ compatibility, custom adapter emission, and render allocation behavior.
   response finalization never depends on a live Axum task-local context.
 - RSJS assets are opt-in so applications with existing routes do not collide.
   Custom asset handlers must apply the import rewriter themselves.
-- Static CSS/JS content and third-party/raw HTML remain application-owned. A
-  base path does not rewrite arbitrary literals or turn a URL into trusted input.
+- Managed assets compose CSS URL tokens and native JS URL arguments/imports.
+  They preserve ordinary strings, external URLs, and local API bindings.
+  Browser composition accepts already-mounted URLs without double-prefixing.
+  The server URL helper continues to require unprefixed application paths.
+- Inline CSS/JS and custom-library URL contracts use explicit helpers or an
+  application pipeline. Integrity hashes must describe transformed asset bytes.
+- Trusted compiled docs HTML composes URL attributes only, preserving raw text
+  and scripts/styles. Other trusted raw templates can opt into `BasePathHtml`.
 
-## Coverage limits
-
-- Authored URLs inside compiled docs article HTML, arbitrary application CSS/JS,
-  and raw third-party markup still require application-level configuration.
-- Query/mutation endpoint URLs are application data. Prefixing the query runtime
-  script does not prefix `/api/...` fetchers or provide a browser base-path API.
-- The development reload EventSource still requests `/__proa/dev-events`.
+## Coverage contract
 
 See [deployment guidance](../proa_marketing/src/docs/framework/deployment.mdx#coverage-and-limitations)
-for the resulting proxy and application requirements.
+for supported asset syntax, browser helpers, and proxy requirements.

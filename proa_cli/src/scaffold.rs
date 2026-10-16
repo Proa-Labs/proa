@@ -1691,7 +1691,7 @@ async fn main() -> anyhow::Result<()> {
     )?;
     let app = Router::new()
 __ROUTES__        .route("/robots.txt", get(robots_txt))
-__FONTS_ROUTE__        .nest_service("/static", static_assets::service())
+__FONTS_ROUTE__        .nest_service("/static", static_assets::service(base_path.clone()))
         .layer(axum::Extension(base_path))
         .layer(TraceLayer::new_for_http())
         .layer(SetResponseHeaderLayer::if_not_present(
@@ -1769,7 +1769,7 @@ fn serve_dir(dir: PathBuf, cache_control: &'static str) -> Router {
     )
 }
 
-pub fn service() -> Router {
+pub fn service(base_path: proa_core::BasePath) -> Router {
     // Debug builds revalidate on every load so `proa dev` asset rebuilds show
     // up on refresh; release builds keep the shared one-hour cache.
     let cache_control = if cfg!(debug_assertions) {
@@ -1777,7 +1777,7 @@ pub fn service() -> Router {
     } else {
         "public, max-age=3600"
     };
-    serve_dir(static_root(), cache_control)
+    proa_framework_axum::base_path_assets(serve_dir(static_root(), cache_control), base_path)
 }
 __FONTS_SERVICE__"#
             .to_string(),
