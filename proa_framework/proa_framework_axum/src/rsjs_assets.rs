@@ -27,9 +27,9 @@ use proa_core::BasePath;
 pub fn rsjs_assets_router(base_path: &BasePath) -> Router {
     let runtime_url = base_path.url("/rsjs-runtime.js").to_string();
     let query_url = base_path.url("/rsjs-runtime-query.js").to_string();
-    let rewrite = |source: &str| {
+    let rewrite = |source: &'static str| {
         if base_path.as_str().is_empty() {
-            Bytes::copy_from_slice(source.as_bytes())
+            Bytes::from_static(source.as_bytes())
         } else {
             Bytes::from(rsjs::rewrite_runtime_import_specifiers(
                 source,
@@ -44,10 +44,17 @@ pub fn rsjs_assets_router(base_path: &BasePath) -> Router {
         assets.insert(format!("{}.js", entry.asset_id), rewrite(entry.js_source));
     }
     for entry in &manifest.client_modules {
-        assets.insert(
-            rsjs::client_module_filename(entry.module_path),
-            rewrite(&rsjs::client_module_js_source(entry)),
-        );
+        let source = rsjs::client_module_js_source(entry);
+        let source = if base_path.as_str().is_empty() {
+            Bytes::from(source)
+        } else {
+            Bytes::from(rsjs::rewrite_runtime_import_specifiers(
+                &source,
+                &runtime_url,
+                &query_url,
+            ))
+        };
+        assets.insert(rsjs::client_module_filename(entry.module_path), source);
     }
     for entry in &manifest.client_classes {
         assets.insert(

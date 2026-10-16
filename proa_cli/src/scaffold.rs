@@ -1457,7 +1457,7 @@ struct SiteNav;
 
 impl<L: DataLoader> WebRenderSync<L> for SiteNav {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        // proa-perf-ok: Arc shares the immutable prefix without allocating.
+        // proa-perf-ok: share the prefix without borrowing cx inside the render loop.
         let base_path = cx.request().base_path().clone();
         html_sync! {
             {for item in NAV_ITEMS {
@@ -1478,8 +1478,8 @@ where
     C: WebRenderSync<L>,
 {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        // proa-perf-ok: Arc shares the immutable prefix without allocating.
-        let base_path = cx.request().base_path().clone();
+        let favicon = cx.request().url("/static/favicon.svg");
+        let stylesheet = cx.request().url("/static/styles.css");
         html_sync! {
             <!DOCTYPE html>
             <html lang="en">
@@ -1489,8 +1489,8 @@ where
                     <title>{raw_text_ok(self.meta.title)}</title>
                     <meta name="description" content={self.meta.description} />
                     <meta name="proa-route" content={self.meta.path} />
-                    <link rel="icon" href={base_path.url("/static/favicon.svg")} type="image/svg+xml" />
-                    <link rel="stylesheet" href={base_path.url("/static/styles.css")} />
+                    <link rel="icon" href={favicon} type="image/svg+xml" />
+                    <link rel="stylesheet" href={stylesheet} />
                 </head>
                 <body>
                     <header class="mx-auto max-w-4xl px-6 pt-8">

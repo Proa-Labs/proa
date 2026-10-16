@@ -186,6 +186,29 @@ Proa does not require a particular CSS framework or token module. Follow the
 owning application's styling conventions and keep class computation
 allocation-free.
 
+## Application URLs
+
+Compose unprefixed application paths with `cx.request().url("/path")` so links,
+forms, and asset attributes follow the deployment's runtime base path. Compute
+the URL before calling `.render(cx)` to avoid overlapping context borrows:
+
+```rust
+let home = cx.request().url("/");
+html_sync! { <a href={home}>"Home"</a> }.render(cx)
+```
+
+The returned attribute value allocates no intermediate string. Use the same
+helper in HTML and Markdown renderers so content coverage can match their URLs.
+Only clone `cx.request().base_path()` when a loop or closure needs independent
+access while rendering; explain that shared, allocation-free clone with a
+`proa-perf-ok` comment. In Axum handlers, compose redirects with
+`proa_framework_axum::app_url("/")`.
+
+The prefix affects outgoing URLs, not routing or arbitrary CSS/JavaScript
+literals. Font CSS, query/mutation endpoints, and some scaffold shells still
+need separate configuration. See the
+[deployment coverage limits](../../../proa_marketing/src/docs/framework/deployment.mdx#coverage-and-limitations).
+
 ## Error handling
 
 - `thiserror::Error` for error enums (no `anyhow` in component code).

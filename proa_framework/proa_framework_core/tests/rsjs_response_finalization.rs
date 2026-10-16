@@ -6,7 +6,7 @@
 //! The components below deliberately use the low-level recording bridges
 //! emitted by RSJS-analyzed components. The test only invokes normal `RouteResponse`
 //! finalization; it never calls the page planner or appends runtime tags
-//! itself.
+//! itself, except for the explicit custom-adapter API coverage.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -750,6 +750,48 @@ fn public_prefix_reaches_buffered_and_streamed_runtime_plans() {
             r#"src="/user/demo/proxy/3000/rsjs/island/framework_auto_child.js""#,
         );
         assert!(!html.contains(r#"src="/rsjs"#));
+    }
+}
+
+#[test]
+fn custom_adapters_can_emit_prefixed_plans_and_streaming_deltas() {
+    use proa_framework_core::response::{
+        append_rsjs_runtime_plan_delta_with_base_path, append_rsjs_runtime_plan_with_base_path,
+    };
+
+    let base_path = proa_core::BasePath::new("/custom/adapter").unwrap();
+    let mut page = Vec::new();
+    append_rsjs_runtime_plan_with_base_path(
+        &mut page,
+        [BASIC_ISLAND_ID, QUERY_ISLAND_ID],
+        None,
+        &base_path,
+    )
+    .unwrap();
+    let mut streamed = Vec::new();
+    let mut emission = rsjs::PageRuntimeEmissionState::new();
+    for islands in [[BASIC_ISLAND_ID], [QUERY_ISLAND_ID], [QUERY_ISLAND_ID]] {
+        append_rsjs_runtime_plan_delta_with_base_path(
+            &mut streamed,
+            islands,
+            &mut emission,
+            None,
+            &base_path,
+        )
+        .unwrap();
+    }
+    for bytes in [page, streamed] {
+        let html = String::from_utf8(bytes).unwrap();
+        assert_exactly_once(&html, r#"src="/custom/adapter/rsjs-runtime.js""#);
+        assert_exactly_once(&html, r#"src="/custom/adapter/rsjs-runtime-query.js""#);
+        for id in [BASIC_ISLAND_ID, QUERY_ISLAND_ID] {
+            assert_exactly_once(
+                &html,
+                &format!(r#"src="/custom/adapter/rsjs/island/{id}.js""#),
+            );
+        }
+        assert!(!html.contains(r#"src="/rsjs"#));
+        assert!(!html.contains(r#"href="/rsjs"#));
     }
 }
 

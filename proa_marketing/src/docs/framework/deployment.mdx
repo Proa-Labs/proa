@@ -82,8 +82,8 @@ let base_path = BasePath::new(
     &std::env::var("PROA_BASE_PATH").unwrap_or_default(),
 )?;
 let app = FrameworkBuilder::new(manifest)
-    .with_base_path(base_path)
-    .with_rsjs_assets()
+    .with_base_path(base_path) // <-- new: set the public URL prefix
+    .with_rsjs_assets() // <-- new: serve assets with matching runtime imports
     .with_static_service(static_router)
     .with_dynamic_routes(router)
     .build();
@@ -105,16 +105,21 @@ For a custom Axum router, merge `rsjs_assets_router(&base_path)` and apply
 `RouteContextLayer::new(manifest, metadata).with_base_path(base_path)`. Custom
 asset pipelines can retain their handlers and call
 `rsjs::rewrite_runtime_import_specifiers` with the two public runtime URLs.
+Non-Axum adapters can use
+`proa_framework_core::response::append_rsjs_runtime_plan_with_base_path` and
+`append_rsjs_runtime_plan_delta_with_base_path` to emit prefixed asset tags.
+Pass an unprefixed `IslandManifest` to the builder or layer; they resolve its
+URLs at startup.
 
 Application-authored links, forms, images, and redirects opt into URL composition:
 
 ```rust filename="src/components/nav.rs"
-// proa-perf-ok: Arc shares the immutable prefix without allocating.
-let base_path = cx.request().base_path().clone();
+let start = cx.request().url("/docs/start");
+let logo = cx.request().url("/static/logo.svg");
 html_sync! {
     <nav>
-        <a href={base_path.url("/docs/start")}>"Start"</a>
-        <img src={base_path.url("/static/logo.svg")} />
+        <a href={start}>"Start"</a>
+        <img src={logo} />
     </nav>
 }
 .render(cx)
@@ -135,11 +140,33 @@ fragment/query-only references pass through. Treat URL input with the same
 validation policy you would use without this helper.
 
 The framework's CSS manifest URLs, React manifest URLs, and Markdown alternate
-links also follow the configured prefix. Existing raw HTML, third-party output,
-CSS `url(...)` references, and URLs inside application JavaScript are owned by
-the application; configure those asset pipelines or compose their URLs explicitly.
-The basic site and application scaffolds read `PROA_BASE_PATH` for their layout assets
-and navigation.
+links also follow the configured prefix. The basic Axum site's home-page layout
+and navigation, and the application scaffold's layout and example navigation,
+read `PROA_BASE_PATH`.
+
+### Coverage and limitations
+
+This setting covers composed application URLs and framework-owned island assets.
+It does not make every generated page or browser request prefix-aware:
+
+- **Fonts:** `proa_fonts::Font::head` emits build-time preload URLs and constant
+  `@font-face` CSS containing `/fonts/...`. Both ignore the runtime prefix and
+  can 404 behind a proxy that serves only the mount. Fonts currently need a
+  separately exposed `/fonts/` route or application-managed font CSS and
+  preloads with matching public URLs. Changing only the preload is insufficient.
+- **Scaffolds:** the basic site's `--docs` and `--blog` pages use a separate
+  `proa_docs` shell with build-time paths. They do not inherit the home-page
+  layout's prefix. The `origin` template is unchanged, including its favicon,
+  fonts, and custom RSJS asset handlers. These need separate adaptation.
+- **Island data requests:** the query runtime script follows the prefix, but
+  query/mutation endpoint literals such as `/api/items` do not. Hydration can
+  succeed while a later fetch 404s. There is no automatic client-side base-path
+  setting in this change; configure fetch URLs separately or expose those
+  endpoints at the paths the client requests.
+- **Other embedded URLs:** raw HTML, third-party output, CSS `url(...)`, and
+  application JavaScript literals require application or asset-pipeline changes.
+- **Development reload:** the EventSource URL remains `/__proa/dev-events`.
+  Development behind a prefix-only proxy needs that path exposed separately.
 
 For example, at `/apps/demo/docs/start`, `/static/styles.css` requests a file
 outside the app. The helper generates `/apps/demo/static/styles.css`. Replacing

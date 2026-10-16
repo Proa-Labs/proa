@@ -68,8 +68,12 @@ pub struct ProviderSpec {
 
 impl IslandManifest {
     /// Resolve application-local URLs against the public mount at startup.
-    /// External URLs and import-map keys are preserved. Call once on an
-    /// unprefixed manifest; incoming route and filesystem paths are unaffected.
+    /// External URLs and import-map keys are preserved. Adapter implementation
+    /// detail: call once on an unprefixed manifest. Do not pass the result to
+    /// `FrameworkBuilder::with_base_path` or `RouteContextLayer::with_base_path`,
+    /// which resolve the manifest themselves. Reapplying this method would
+    /// double-prefix URLs. Incoming routes and filesystem paths are unaffected.
+    #[doc(hidden)]
     pub fn with_base_path(mut self, base_path: &proa_core::BasePath) -> Self {
         if base_path.as_str().is_empty() {
             return self;

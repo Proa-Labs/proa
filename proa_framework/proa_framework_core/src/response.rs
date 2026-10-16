@@ -2174,7 +2174,12 @@ where
     )
 }
 
-fn append_rsjs_runtime_plan_with_base_path<I, S, B>(
+/// Append a page's linked RSJS scripts and preloads using its public URL prefix.
+///
+/// Custom adapters can use this after rendering. Serve the linked assets with
+/// matching runtime import URLs; this helper only emits HTML. Standard response
+/// finalizers read the prefix from `FrameworkRequestContext` automatically.
+pub fn append_rsjs_runtime_plan_with_base_path<I, S, B>(
     buffer: &mut B,
     rendered_islands: I,
     nonce: Option<&CspNonce>,
@@ -2195,7 +2200,11 @@ where
     )
 }
 
-fn append_rsjs_runtime_plan_delta_with_base_path<I, S, B>(
+/// Append newly discovered RSJS assets during streaming with a public URL prefix.
+///
+/// Keep the same `emission` state and `base_path` for every chunk of a response
+/// so previously emitted runtime scripts and preloads are not emitted again.
+pub fn append_rsjs_runtime_plan_delta_with_base_path<I, S, B>(
     buffer: &mut B,
     rendered_islands: I,
     emission: &mut rsjs::PageRuntimeEmissionState,

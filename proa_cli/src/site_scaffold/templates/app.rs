@@ -185,8 +185,8 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let RootDocument { title, content } = self;
-            // proa-perf-ok: Arc shares the immutable prefix without allocating.
-            let base_path = cx.request().base_path().clone();
+            let favicon = cx.request().url("/static/favicon.svg");
+            let stylesheet = cx.request().url("/static/styles.css");
             html! {
                 <!DOCTYPE html>
                 <html lang="en">
@@ -195,8 +195,8 @@ where
                         <meta name="viewport" content="width=device-width, initial-scale=1">
                         <meta name="color-scheme" content="dark">
                         <title>{raw_text_ok(title)}</title>
-                        <link rel="icon" href={base_path.url("/static/favicon.svg")}>
-                        <link rel="stylesheet" href={base_path.url("/static/styles.css")}>
+                        <link rel="icon" href={favicon}>
+                        <link rel="stylesheet" href={stylesheet}>
                     </head>
                     <body>{content}</body>
                 </html>

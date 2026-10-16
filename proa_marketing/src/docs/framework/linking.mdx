@@ -19,15 +19,15 @@ There is no `<Link>` component or client router to configure. Proa pages are ser
 ## Deployments under a path prefix
 
 When serving behind a prefix-stripping proxy, configure a runtime base path and
-use `base_path.url("/blog")` in your anchors, forms, and asset attributes:
+use `cx.request().url("/blog")` for your anchors, forms, and asset attributes:
 
 ```rust filename="src/components/nav.rs"
-// proa-perf-ok: Arc shares the immutable prefix without allocating.
-let base_path = cx.request().base_path().clone();
+let blog = cx.request().url("/blog");
+let about = cx.request().url("/about");
 html_sync! {
     <nav>
-        <a href={base_path.url("/blog")}>"Blog"</a>
-        <a href={base_path.url("/about")}>"About"</a>
+        <a href={blog}>"Blog"</a>
+        <a href={about}>"About"</a>
     </nav>
 }
 .render(cx)
