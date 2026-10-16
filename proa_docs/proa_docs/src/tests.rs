@@ -260,6 +260,7 @@ fn metadata_roots_scope_navigation_without_hiding_default_separators() {
 
 #[test]
 fn mounted_search_urls_follow_the_mount_and_manifest_hash_matches_the_documents() {
+    use base16ct::HexDisplay;
     use sha2::{Digest, Sha256};
     static SEARCH_DOCS: Docs = Docs {
         search: Some(SearchArtifacts {
@@ -282,7 +283,10 @@ fn mounted_search_urls_follow_the_mount_and_manifest_hash_matches_the_documents(
     );
     assert_eq!(
         manifest["hash"],
-        format!("sha256-{:x}", Sha256::digest(documents.body.as_bytes()))
+        format!(
+            "sha256-{:x}",
+            HexDisplay(&Sha256::digest(documents.body.as_bytes()))
+        )
     );
     assert_eq!(rows["documents"][0]["url"], "/apps/demo/docs/start");
     assert_eq!(rows["documents"][0]["content"], "/docs is ordinary text");

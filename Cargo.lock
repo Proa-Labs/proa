@@ -3217,6 +3217,7 @@ name = "proa_docs"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "base16ct",
  "http",
  "proa_core",
  "proa_macros",

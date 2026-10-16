@@ -10,6 +10,7 @@ use axum::{
     middleware::{self, Next},
     Router,
 };
+use base16ct::HexDisplay;
 use bytes::Bytes;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::*;
@@ -166,7 +167,7 @@ pub fn base_path_assets(router: Router, base_path: BasePath) -> Router {
                         bytes
                     }
                 };
-                let etag = format!("\"{:x}\"", Sha256::digest(&bytes));
+                let etag = format!("\"{:x}\"", HexDisplay(&Sha256::digest(&bytes)));
                 parts.headers.remove(header::CONTENT_RANGE);
                 parts.headers.remove(header::ACCEPT_RANGES);
                 parts.headers.remove("content-md5");
@@ -343,7 +344,10 @@ pub(crate) fn rewrite_js(source: &str, base: &BasePath) -> Result<String, String
     if !semantic.errors.is_empty() {
         return Err("invalid JavaScript bindings".to_string());
     }
-    let mut helper = format!("__proa_url_{:x}", Sha256::digest(source.as_bytes()));
+    let mut helper = format!(
+        "__proa_url_{:x}",
+        HexDisplay(&Sha256::digest(source.as_bytes()))
+    );
     while source.contains(&helper) {
         helper.push('_');
     }

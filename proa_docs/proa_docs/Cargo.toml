@@ -18,6 +18,7 @@ default = []
 axum = ["dep:axum", "dep:http"]
 
 [dependencies]
+base16ct = { workspace = true }
 axum = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 proa_core = { workspace = true }
