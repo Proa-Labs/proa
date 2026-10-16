@@ -45,6 +45,8 @@ let app = FrameworkBuilder::new(manifest)
 |--------|------------|
 | `FrameworkBuilder::new(manifest)` | Create the builder with an island manifest and secure defaults. |
 | `.with_config(config)` | Override project paths, codegen flags, and server defaults. |
+| [`.with_base_path(base_path)`](#public-url-prefix-and-island-assets) | Set the public URL prefix for a mounted application. |
+| [`.with_rsjs_assets()`](#public-url-prefix-and-island-assets) | Serve the linked RSJS runtimes and generated modules. |
 | `.with_static_service(router)` | Mount a router under `/static`. |
 | `.with_dynamic_routes(router)` | Merge an Axum router without a metadata map. |
 | `.with_dynamic_routes_and_metadata(router, metadata)` | Merge Proa route specs plus computed route metadata. |
@@ -59,6 +61,37 @@ let app = FrameworkBuilder::new(manifest)
 | `.with_catch_panic(bool)` | Convert panics into plain 500 responses instead of resetting the connection. |
 | `.config()` | Inspect the current `ProaConfig`. |
 | `.build()` | Produce the final Axum `Router`. |
+
+## Public URL prefix and island assets
+
+These methods configure separate parts of the application:
+
+- `with_base_path(BasePath)` sets the public mount used by request URL helpers
+  and framework-generated asset URLs. Its default is the origin root.
+- `with_rsjs_assets()` installs routes for the RSJS runtimes and linked modules.
+  Enable it when this app serves its own island assets, including at the origin
+  root. It is opt-in so applications can supply their own asset handlers.
+
+For an app exposed at `/apps/demo/` by a prefix-stripping proxy:
+
+```rust filename="src/app.rs"
+use proa_framework_axum::{BasePath, FrameworkBuilder};
+
+let app = FrameworkBuilder::new(manifest)
+    .with_base_path(BasePath::new("/apps/demo")?)
+    .with_rsjs_assets()
+    .with_dynamic_routes_and_metadata(routes, metadata)
+    .build();
+```
+
+Keep routes such as `/docs/start` and `/static/...` unprefixed. Compose
+application links with `cx.request().url("/docs/start")` and handler redirects
+with `app_url("/")`. Pass the original, unprefixed manifest to the builder.
+
+See [linked island asset serving](/docs/framework/static-assets#serving-linked-island-assets)
+for the installed routes and custom-router alternative. The
+[URL prefix deployment guide](/docs/framework/deployment#serving-behind-a-url-path-prefix)
+covers startup environment configuration, proxy behavior, and coverage limits.
 
 ## Production Defaults
 

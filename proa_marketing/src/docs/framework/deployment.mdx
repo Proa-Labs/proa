@@ -94,6 +94,10 @@ your startup code, so the same build can run at different prefixes. Empty or `/`
 keeps origin-root URLs; a trailing slash is normalized away. The framework does
 not infer the prefix from forwarded headers.
 
+The APIs are also covered in
+[FrameworkBuilder configuration](/docs/framework/configuration#public-url-prefix-and-island-assets)
+and [linked island asset serving](/docs/framework/static-assets#serving-linked-island-assets).
+
 `with_rsjs_assets()` installs the linked runtime and generated module routes.
 It rewrites runtime imports once at startup. Use it instead of registering your
 own `/rsjs-runtime.js`, `/rsjs-runtime-query.js`, and `/rsjs/island/:file` handlers.
