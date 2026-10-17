@@ -15,9 +15,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  # Main cutovers must finish or clean up their staged source. Serialize main;
-  # the deploy guard below rejects queued revisions superseded in the meantime.
+  # PR validation supersedes stale runs. Main runs have independent CI gates;
+  # only release builds cancel one another, and production cutovers serialize.
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -26,6 +26,9 @@ env:
 jobs:
   release-image:
     name: Build release image
+    concurrency:
+      group: release-image-main
+      cancel-in-progress: true
     # This workflow reference is the one permitted on the trusted runner
     # group. PR code never gets its Cloud Build identity or production cache.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -47,6 +50,9 @@ jobs:
 
   deploy-release:
     name: Deploy verified image to Railway
+    concurrency:
+      group: railway-production
+      cancel-in-progress: false
     needs: [ci, release-image]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ${{ vars.CI_RUNNER }}
@@ -55,10 +61,6 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
-      - name: Install Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@01af06c41d9aa0790d6fdc8f0b982b768ca4d102
-        with:
-          project_id: airy-cycle-504821-k9
       - name: Reject a superseded revision
         env:
           GH_TOKEN: ${{ github.token }}

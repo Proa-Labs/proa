@@ -114,7 +114,7 @@ FROM ${BUILD_ARTIFACTS} AS artifacts
 # and those files import bare `react`. Node resolution walks upward from each
 # file, so a shared parent `node_modules` satisfies both. Installing inside
 # `hono-ssr/` would leave the sibling unable to resolve React.
-FROM node:22-bookworm-slim AS companions
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS companions
 
 WORKDIR /companions
 
@@ -165,10 +165,6 @@ RUN set -eu; \
 
 FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS runtime
 
-# Package the source commit without recompiling the cached application binary.
-ARG PROA_BUILD_REVISION=""
-ENV PROA_BUILD_REVISION=${PROA_BUILD_REVISION}
-
 # libstdc++6 is for the node and bun binaries copied in below, neither of
 # which ships its own C++ runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -179,26 +175,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY --from=artifacts /out/proa_marketing /usr/local/bin/proa_marketing
-COPY --from=artifacts /out/static /app/static
-COPY --from=artifacts /out/showcase /app/showcase
-
 # The two runtimes the Hono companion runs under. Same server, same install;
 # only the interpreter differs, which is the whole point of the Node vs Bun
 # comparison in the playground.
-COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
-COPY --from=oven/bun:1-slim /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=companions /usr/local/bin/node /usr/local/bin/node
+COPY --from=oven/bun:1-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288 /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=companions /companions /app/companions
 
-COPY proa_marketing/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY --chmod=755 proa_marketing/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh && chown -R proa:proa /app
+# Application artifacts change on every release. Keep them after the stable
+# runtimes and companions; root-owned assets are readable by the service user.
+COPY --from=artifacts /out/proa_marketing /usr/local/bin/proa_marketing
+COPY --from=artifacts /out/static /app/static
+COPY --from=artifacts /out/showcase /app/showcase
 
 ENV HOST=0.0.0.0 \
     RUST_LOG=info \
     STATIC_DIR=/app/static \
     SHOWCASE_PUBLIC_DIR=/app/showcase \
     PROA_CONSOLE_LOAD_TESTS=0
+
+# Changing the revision must not invalidate dependency installation or copies.
+ARG PROA_BUILD_REVISION=""
+ENV PROA_BUILD_REVISION=${PROA_BUILD_REVISION}
 
 USER proa
 

@@ -177,8 +177,10 @@ The image packages the full Git commit in `PROA_BUILD_REVISION`; image smoke
 checks and the final public `/readyz` probe must return that exact revision in
 `x-proa-revision`, in addition to Railway's digest check.
 
-Main CI runs serialize so a newer push cannot cancel a source cutover between
-staging and deployment. The current-main check rejects superseded queued runs.
+Main CI runs independently. A newer release-image job cancels the older build;
+the SIGTERM/SIGINT handler cancels its Cloud Build. Only the Railway cutover job
+serializes, without automatic cancellation. Its current-main check rejects a
+superseded revision after it acquires the production concurrency group.
 If a staging API call fails or the job receives SIGTERM/SIGINT before attempting
 deployment, the script restores the previous source, config-file selection,
 healthcheck and restart settings while leaving a source changed by another
@@ -199,11 +201,24 @@ inspect the same state before any dashboard deployment or CI retry.
 The cache archive includes the content-stable source tree, Cargo registry, CLI,
 descriptor artifacts, and final artifacts. It is restored into the same paths
 on fresh workers; this preserves Cargo's timestamp and Proa's identity checks.
+Restore streams from GCS through zstd and tar. Save streams to a per-build object
+and promotes it only after tar, compression and upload all succeed. Promotion
+uses the generation observed at restore; a competing publisher leaves its
+completed cache intact. The staging object is removed on normal exit or failure.
+No multi-GB archive is staged on worker disk. Save runs alongside image packaging
+and smoke tests; compilation stages the runtime artifacts before either starts.
+The digest-pinned Node and Playwright smoke images prefetch concurrently with
+cache restore and compilation. Only smoke testing waits for that prefetch.
 A missing archive starts a cold build. Never share this bucket or identity with
 PR runners. To invalidate incompatible caches, change `_CACHE` in the build
 configuration. The cloud build is cancelled when its CI job receives SIGTERM or
 polling exits without a terminal result; transient polling errors get three
 attempts before cancellation.
+
+Runtime image layers put Node, Bun and companions before the application files.
+Assets remain root-owned and readable by the non-root service user; there is no
+recursive ownership layer. The commit revision is applied last so it cannot
+invalidate dependency installation. The Railway job does not install gcloud.
 
 To reproduce compilation and runtime measurements:
 

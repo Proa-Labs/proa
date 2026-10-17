@@ -4,24 +4,41 @@
 # The cache is an explicit archive, including source mtimes and both RSJS
 # targets. Docker layer cache exporters alone do not persist RUN cache mounts.
 steps:
+  - id: prefetch-smoke
+    waitFor: ['-']
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        docker pull '${_NODE_IMAGE}'
+        docker pull '${_PLAYWRIGHT_IMAGE}'
+
   - id: restore
+    waitFor: ['-']
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
     entrypoint: bash
     args:
       - -ceu
       - |
+        set -euo pipefail
         apt-get update -qq && apt-get install -y -qq zstd
-        if metadata=$$(gcloud storage objects describe '${_CACHE}/cache.tar.zst' 2>&1); then
-          gcloud storage cp '${_CACHE}/cache.tar.zst' /cache/cache.tar.zst
-          tar --zstd -xf /cache/cache.tar.zst -C /cache
-          rm /cache/cache.tar.zst
-        elif [[ "$$metadata" != *'404'* && "$$metadata" != *'not found'* && "$$metadata" != *'matched no objects'* ]]; then
-          printf '%s\n' "$$metadata" >&2
-          exit 1
+        if generation=$$(gcloud storage objects describe '${_CACHE}/cache.tar.zst' \
+            --format='value(generation)' 2>/tmp/cache-error); then
+          printf '%s\n' "$$generation" > /cache/cache-generation
+          gcloud storage cat '${_CACHE}/cache.tar.zst#'"$$generation" | zstd -dc | tar -xf - -C /cache
+        else
+          error=$$(cat /tmp/cache-error)
+          if [[ "$$error" != *'404'* && "$$error" != *'not found'* && "$$error" != *'matched no objects'* ]]; then
+            printf '%s\n' "$$error" >&2
+            exit 1
+          fi
+          printf '0\n' > /cache/cache-generation
         fi
     volumes: [{name: cache, path: /cache}]
 
   - id: compile
+    waitFor: [restore]
     name: rust:1.95.0-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00db7aeb69f4b3d170c3e4082
     entrypoint: bash
     args:
@@ -49,28 +66,45 @@ steps:
         cp -a proa_showcase/src/espn/data/images/. /release/artifacts/static/images/
         find /cache/target -name cargo-timing.html -exec cp --parents {} /release/report/ \;
         sha256sum /release/artifacts/proa_marketing > /release/report/binary.sha256
+        cp -a /release/artifacts /workspace/release-artifacts
     volumes: [{name: cache, path: /cache}, {name: release, path: /release}]
 
   - id: save
+    waitFor: [compile]
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
     entrypoint: bash
     args:
       - -ceu
       - |
+        set -euo pipefail
         apt-get update -qq && apt-get install -y -qq zstd
-        tar --format=posix --pax-option=delete=atime,delete=ctime -I 'zstd -T0 -1' \
-          -cf /release/cache.tar.zst -C /cache source target cargo
-        gcloud storage cp /release/cache.tar.zst '${_CACHE}/cache.tar.zst'
+        # A failed producer can still close stdin successfully at the uploader.
+        # Publish the immutable upload only after the entire pipeline succeeds.
+        staging='${_CACHE}/staging/$BUILD_ID.tar.zst'
+        trap 'gcloud storage rm "$$staging" --quiet >/dev/null 2>&1 || true' EXIT
+        tar --format=posix --pax-option=delete=atime,delete=ctime -cf - -C /cache source target cargo \
+          | zstd -T0 -1 | gcloud storage cp - "$$staging" --if-generation-match=0
+        generation=$$(cat /cache/cache-generation)
+        if ! gcloud storage cp "$$staging" '${_CACHE}/cache.tar.zst' \
+            --if-generation-match="$$generation" 2>/tmp/cache-publish-error; then
+          error=$$(cat /tmp/cache-publish-error)
+          if [[ "$$error" != *'412'* && "$$error" != *'conditionNotMet'* ]]; then
+            printf '%s\n' "$$error" >&2
+            exit 1
+          fi
+          printf 'Cache changed since restore; keeping the completed cache.\n'
+        fi
         gcloud storage cp --recursive /release/report '${_CACHE}/reports/$BUILD_ID/'
-        cp -a /release/artifacts /workspace/release-artifacts
     volumes: [{name: cache, path: /cache}, {name: release, path: /release}]
 
   - id: package
+    waitFor: [compile]
     name: gcr.io/cloud-builders/docker
     env: [DOCKER_BUILDKIT=1]
     args: [build, --build-arg, BUILD_ARTIFACTS=prebuilt, --build-arg, 'PROA_BUILD_REVISION=${_COMMIT}', -f, proa_marketing/Dockerfile, -t, '${_IMAGE}:${_REVISION}', .]
 
   - id: smoke
+    waitFor: [package, prefetch-smoke]
     name: gcr.io/cloud-builders/docker
     entrypoint: bash
     args:
@@ -79,9 +113,9 @@ steps:
         docker run -d --name proa-release --network cloudbuild -e PORT=5000 '${_IMAGE}:${_REVISION}'
         trap 'docker logs proa-release; docker rm -f proa-release' EXIT
         docker run --rm --network cloudbuild -v /workspace:/work -w /work \
-          node:22-bookworm-slim node deploy/marketing/smoke.mjs http://proa-release:5000 '${_COMMIT}'
+          '${_NODE_IMAGE}' node deploy/marketing/smoke.mjs http://proa-release:5000 '${_COMMIT}'
         docker run --rm --network cloudbuild -v /workspace:/work -w /work \
-          mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48 \
+          '${_PLAYWRIGHT_IMAGE}' \
           bash -ceu 'npm install --ignore-scripts --no-audit --no-fund --prefix /tmp/pw playwright@1.61.1; \
             PLAYWRIGHT_MODULE=file:///tmp/pw/node_modules/playwright/index.mjs \
             node deploy/marketing/browser-smoke.mjs http://proa-release:5000'
@@ -93,6 +127,8 @@ options:
   diskSizeGb: 200
   logging: CLOUD_LOGGING_ONLY
 substitutions:
+  _NODE_IMAGE: node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
+  _PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
   _IMAGE: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/proa-marketing
   _REVISION: manual
   _COMMIT: ''
