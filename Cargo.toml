@@ -127,7 +127,7 @@ proa_third_party = { path = "proa_third_party", version = "0.1.0", default-featu
 proc-macro2 = { version = "1" }
 pulldown-cmark = { version = "0.13", default-features = false }
 quote = { version = "1.0.37" }
-rand = { version = "0.9.2" }
+rand = { version = "0.9.3" }
 rayon = { version = "1.10" }
 similar = { version = "2" }
 unicode-width = "0.2"
