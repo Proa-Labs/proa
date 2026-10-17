@@ -431,7 +431,10 @@ test("Actions sessions require a canonical full expected commit", async () => {
   }
 });
 
-test("Actions sessions require an explicit purpose with a purpose-bounded lifetime", async () => {
+test("Actions sessions require an explicit purpose with a purpose-bounded lifetime", async (t) => {
+  // Freeze the verifier's clock: crossing a real second while signing would
+  // bring the +31s rejection fixture inside the allowed +30s clock skew.
+  t.mock.method(Date, "now", () => Date.UTC(2026, 0, 1));
   const deploy = claimsFor();
   const teardown = teardownClaimsFor();
   const archive = archiveClaimsFor();
@@ -443,6 +446,8 @@ test("Actions sessions require an explicit purpose with a purpose-bounded lifeti
     await verifySessionToken(await sessionFor(presentation), env),
     presentation,
   );
+  const allowedSkew = { ...deploy, iat: deploy.iat + 30, exp: deploy.exp + 30 };
+  assert.deepEqual(await verifySessionToken(await sessionFor(allowedSkew), env), allowedSkew);
 
   for (const invalid of [
     { ...deploy, purpose: undefined },
