@@ -15,15 +15,88 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  # Only the latest revision can merge or deploy. Cancel stale main validation
-  # as well as stale PR validation instead of queueing every superseded SHA.
-  cancel-in-progress: true
+  # PR validation supersedes stale runs. Main runs have independent CI gates;
+  # only release builds cancel one another, and production cutovers serialize.
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  release-image:
+    name: Build release image
+    concurrency:
+      group: release-image-main
+      cancel-in-progress: true
+    # This workflow reference is the one permitted on the trusted runner
+    # group. PR code never gets its Cloud Build identity or production cache.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ${{ vars.CI_RUNNER }}
+    timeout-minutes: 65
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Install Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@01af06c41d9aa0790d6fdc8f0b982b768ca4d102
+        with:
+          project_id: airy-cycle-504821-k9
+      - name: Compile and verify the release image
+        id: build
+        run: python3 deploy/marketing/release.py build
+
+  deploy-release:
+    name: Deploy verified image to Railway
+    concurrency:
+      group: railway-production
+      cancel-in-progress: false
+    needs: [ci, release-image]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ${{ vars.CI_RUNNER }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Reject a superseded revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$current" = "$GITHUB_SHA"
+      - name: Deploy the exact image that passed validation
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_PRODUCTION_TOKEN }}
+          RELEASE_IMAGE: ${{ needs.release-image.outputs.image }}
+          RAILWAY_SERVICE_ID: 8a6d0a70-bfd2-4e6e-bf87-048c563a7044
+          RAILWAY_ENVIRONMENT_ID: 9348508f-a2a4-48bb-b18b-803ccb33dd9a
+          RAILWAY_READY_URL: https://proa.so/readyz
+        run: python3 deploy/marketing/release.py deploy
+
+  marketing-tests:
+    name: Marketing linked tests
+    runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      # Analytics policy tests execute their browser code in Node.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Test marketing with its linked island manifest
+        run: |
+          cargo run --locked -p proa-cli --bin proa -- \
+            test --root . --locked -p proa_marketing --bin proa_marketing
+
   workflow-lint:
     name: GitHub Actions syntax and shell safety
     # Hosted Actions are unavailable when the organization spending limit is
@@ -156,6 +229,7 @@ jobs:
       - rust
       - linked-acceptance
       - deployment-tests
+      - marketing-tests
     # Use the existing pools for the aggregate gate as well: GitHub-hosted
     # runners may be unavailable independently of repository correctness.
     runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
@@ -169,6 +243,7 @@ jobs:
           LINKED_ACCEPTANCE_RESULT: ${{ needs.linked-acceptance.result }}
           LINKED_ACCEPTANCE_SKIPPABLE: ${{ needs.changes.outputs.linked == 'false' }}
           DEPLOYMENT_RESULT: ${{ needs.deployment-tests.result }}
+          MARKETING_RESULT: ${{ needs.marketing-tests.result }}
         run: |
           # A skipped linked suite passes only when the changed-paths job
           # decided the pull request did not need it; any other skip or
@@ -182,7 +257,8 @@ jobs:
             "$CHANGES_RESULT" \
             "$RUST_RESULT" \
             "$LINKED_ACCEPTANCE_RESULT" \
-            "$DEPLOYMENT_RESULT"
+            "$DEPLOYMENT_RESULT" \
+            "$MARKETING_RESULT"
           do
             case "$result" in
               success) ;;

@@ -1,0 +1,164 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# The cache is an explicit archive, including source mtimes and both RSJS
+# targets. Docker layer cache exporters alone do not persist RUN cache mounts.
+steps:
+  - id: prepare-package
+    waitFor: ['-']
+    name: '${_CACHE_TOOLS}'
+    # Keep buildx state and its refreshing registry helper separate from the
+    # Cloud Build publisher's platform-managed Docker credentials.
+    env: [DOCKER_CONFIG=/builder/home/.docker-release]
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
+        docker pull '${_COMPILE_TOOLS}' &
+        compile_pull=$$!
+        docker pull '${_PLAYWRIGHT_IMAGE}' &
+        browser_pull=$$!
+        # buildx's container driver does not negotiate the worker's Docker API.
+        DOCKER_API_VERSION=$$(docker version --format '{{.Server.APIVersion}}')
+        export DOCKER_API_VERSION
+        docker buildx create --name release --driver docker-container \
+          --driver-opt 'image=${_BUILDKIT_IMAGE}' --use
+        docker buildx inspect --bootstrap
+        docker pull '${_NODE_IMAGE}'
+        wait "$$compile_pull"
+        wait "$$browser_pull"
+
+  - id: restore
+    waitFor: ['-']
+    name: '${_CACHE_TOOLS}'
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        set -euo pipefail
+        if generation=$$(gcloud storage objects describe '${_CACHE}/cache.tar.zst' \
+            --format='value(generation)' 2>/tmp/cache-error); then
+          printf '%s\n' "$$generation" > /cache/cache-generation
+          gcloud storage cat '${_CACHE}/cache.tar.zst#'"$$generation" | zstd -dc | tar -xf - -C /cache
+        else
+          error=$$(cat /tmp/cache-error)
+          if [[ "$$error" != *'404'* && "$$error" != *'not found'* && "$$error" != *'matched no objects'* ]]; then
+            printf '%s\n' "$$error" >&2
+            exit 1
+          fi
+          printf '0\n' > /cache/cache-generation
+        fi
+    volumes: [{name: cache, path: /cache}]
+
+  - id: compile
+    waitFor: [restore]
+    name: '${_COMPILE_TOOLS}'
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        set -euo pipefail
+        unset RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
+        export CARGO_TARGET_DIR=/cache/target CARGO_HOME=/cache/cargo CARGO_TERM_COLOR=never
+        export TAILWIND_BIN=/usr/local/bin/tailwindcss PROA_MARKETING_BUILD_CSS_ONLY=1
+        bash scripts/watch-marketing.sh
+        python3 scripts/sync_build_context.py /workspace /cache/source
+        mkdir -p /release/artifacts /release/report /cache/target
+        cd /cache/source
+        cargo build --profile release-fast --locked -p proa-cli --bin proa
+        export CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+        export CARGO_PROFILE_RELEASE_LTO=thin CARGO_LOG=cargo::core::compiler::fingerprint=info
+        /cache/target/release-fast/proa build --root /cache/source \
+          --package proa_marketing --bin proa_marketing --locked --no-check --no-assets \
+          --artifact-out /release/artifacts/proa_marketing -- cargo build --profile release --timings \
+          2>&1 | tee /release/report/build.log
+        cp -a proa_marketing/public /release/artifacts/static
+        cp -a proa_showcase_web/public /release/artifacts/showcase
+        mkdir -p /release/artifacts/static/images
+        cp -a proa_showcase/src/espn/data/images/. /release/artifacts/static/images/
+        find /cache/target -name cargo-timing.html -exec cp --parents {} /release/report/ \;
+        sha256sum /release/artifacts/proa_marketing > /release/report/binary.sha256
+        cp -a /release/artifacts /workspace/release-artifacts
+    volumes: [{name: cache, path: /cache}, {name: release, path: /release}]
+
+  - id: save
+    waitFor: [compile]
+    name: '${_CACHE_TOOLS}'
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        set -euo pipefail
+        # A failed producer can still close stdin successfully at the uploader.
+        # Publish the immutable upload only after the entire pipeline succeeds.
+        staging='${_CACHE}/staging/$BUILD_ID.tar.zst'
+        trap 'gcloud storage rm "$$staging" --quiet >/dev/null 2>&1 || true' EXIT
+        tar --format=posix --pax-option=delete=atime,delete=ctime -cf - -C /cache source target cargo \
+          | zstd -T0 -1 | gcloud storage cp - "$$staging" --if-generation-match=0
+        generation=$$(cat /cache/cache-generation)
+        if ! gcloud storage cp "$$staging" '${_CACHE}/cache.tar.zst' \
+            --if-generation-match="$$generation" 2>/tmp/cache-publish-error; then
+          error=$$(cat /tmp/cache-publish-error)
+          if [[ "$$error" != *'412'* && "$$error" != *'conditionNotMet'* ]]; then
+            printf '%s\n' "$$error" >&2
+            exit 1
+          fi
+          printf 'Cache changed since restore; keeping the completed cache.\n'
+        fi
+        gcloud storage cp --recursive /release/report '${_CACHE}/reports/$BUILD_ID/'
+    volumes: [{name: cache, path: /cache}, {name: release, path: /release}]
+
+  - id: package
+    waitFor: [compile, prepare-package]
+    name: '${_CACHE_TOOLS}'
+    env: [DOCKER_CONFIG=/builder/home/.docker-release]
+    # Load into the worker daemon for smoke tests. Only images: below publishes
+    # the runtime image; the separate private cache may contain intermediate layers.
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        DOCKER_API_VERSION=$$(docker version --format '{{.Server.APIVersion}}')
+        export DOCKER_API_VERSION
+        docker buildx build --builder release --load --progress=plain \
+          --cache-from 'type=registry,ref=${_LAYER_CACHE}' \
+          --cache-to 'type=registry,ref=${_LAYER_CACHE},mode=max' \
+          --build-arg BUILD_ARTIFACTS=prebuilt --build-arg 'PROA_BUILD_REVISION=${_COMMIT}' \
+          -f proa_marketing/Dockerfile -t '${_IMAGE}:${_REVISION}' .
+
+  - id: smoke
+    waitFor: [package]
+    name: '${_CACHE_TOOLS}'
+    env: [DOCKER_CONFIG=/builder/home/.docker-release]
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        docker run -d --name proa-release --network cloudbuild -e PORT=5000 '${_IMAGE}:${_REVISION}'
+        trap 'docker logs proa-release; docker rm -f proa-release' EXIT
+        docker run --rm --network cloudbuild -v /workspace:/work -w /work \
+          '${_NODE_IMAGE}' node deploy/marketing/smoke.mjs http://proa-release:5000 '${_COMMIT}'
+        docker run --rm --network cloudbuild -v /workspace:/work -w /work \
+          '${_PLAYWRIGHT_IMAGE}' \
+          bash -ceu 'npm install --ignore-scripts --no-audit --no-fund --prefix /tmp/pw playwright@1.61.1; \
+            PLAYWRIGHT_MODULE=file:///tmp/pw/node_modules/playwright/index.mjs \
+            node deploy/marketing/browser-smoke.mjs http://proa-release:5000'
+
+images: ['${_IMAGE}:${_REVISION}']
+timeout: 3600s
+options:
+  machineType: E2_HIGHCPU_8
+  diskSizeGb: 200
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _COMPILE_TOOLS: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/marketing-compile-tools@sha256:ca5aa1255a157d8316f3ccc6f86259125d835e2de524fa224262e433734fe072
+  _CACHE_TOOLS: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/marketing-cache-tools@sha256:ef3174123e31012f360270e50da5586dc2bb9eb22307c2d9e864c001f456d1fd
+  _BUILDKIT_IMAGE: moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+  _LAYER_CACHE: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/marketing-package-cache:main
+  _NODE_IMAGE: node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
+  _PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+  _IMAGE: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/proa-marketing
+  _REVISION: manual
+  _COMMIT: ''
+  _CACHE: gs://airy-cycle-504821-k9-marketing-cache/release-v4-descriptor4-cgu16-thin

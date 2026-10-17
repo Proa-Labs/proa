@@ -1,0 +1,25 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Explicit maintenance build, never an extra step on the release critical path.
+steps:
+  - id: compile-tools
+    waitFor: ['-']
+    name: gcr.io/cloud-builders/docker@sha256:f772ab459889c67835bd959c2b9e9351f2c0752c4f989710ecda20c229f0733e
+    env: [DOCKER_BUILDKIT=1]
+    args: [build, --target, compile, -f, deploy/marketing/tools.Dockerfile, -t, '${_REPOSITORY}/marketing-compile-tools:${_TAG}', .]
+  - id: cache-tools
+    waitFor: ['-']
+    name: gcr.io/cloud-builders/docker@sha256:f772ab459889c67835bd959c2b9e9351f2c0752c4f989710ecda20c229f0733e
+    env: [DOCKER_BUILDKIT=1]
+    args: [build, --target, cache, -f, deploy/marketing/tools.Dockerfile, -t, '${_REPOSITORY}/marketing-cache-tools:${_TAG}', .]
+images:
+  - '${_REPOSITORY}/marketing-compile-tools:${_TAG}'
+  - '${_REPOSITORY}/marketing-cache-tools:${_TAG}'
+timeout: 1200s
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _REPOSITORY: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases
+  _TAG: manual

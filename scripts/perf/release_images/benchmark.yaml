@@ -1,0 +1,36 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+steps:
+  - name: '${_COMPILE_TOOLS}'
+    timeout: 6900s
+    allowFailure: true
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        python3 scripts/perf/release_images/benchmark.py --variants ${_VARIANTS} ${_EXTRA_ARGS}
+        touch /release/benchmark-success
+    volumes: [{name: release, path: /release}]
+  - name: '${_CACHE_TOOLS}'
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        gcloud storage cp --recursive /release/report '${_REPORTS}/$BUILD_ID/'
+        if test -f /release/benchmark-success; then
+          gcloud storage cp --recursive /release/artifacts '${_REPORTS}/$BUILD_ID/'
+        fi
+        test -f /release/benchmark-success
+    volumes: [{name: release, path: /release}]
+timeout: 7200s
+options:
+  machineType: E2_HIGHCPU_8
+  diskSizeGb: 200
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _COMPILE_TOOLS: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/marketing-compile-tools@sha256:ca5aa1255a157d8316f3ccc6f86259125d835e2de524fa224262e433734fe072
+  _CACHE_TOOLS: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/marketing-cache-tools@sha256:ef3174123e31012f360270e50da5586dc2bb9eb22307c2d9e864c001f456d1fd
+  _VARIANTS: '1:thin 16:thin 8:thin 16:false 16:off'
+  _EXTRA_ARGS: ''
+  _REPORTS: gs://airy-cycle-504821-k9-marketing-cache/benchmarks
