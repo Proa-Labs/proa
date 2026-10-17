@@ -1,0 +1,245 @@
+{
+  "date": "2026-10-17",
+  "provenance": {
+    "branch_commit": "a9cf94b5a1077cd85b291aa238e804e50b8fca6b",
+    "main_commit": "0d1f5cfc1041bb1388f08c6e553f75bde8b95a6e",
+    "branch_cli_sha256": "f1e33dd04681325a6cfc41d9518cee7e41263429f41b4701f72ea2335da9facf",
+    "main_cli_sha256": "89b8bed05166500ce0b30044aefe56d369f7c1bc6d944d57f3cc70eda57e4f5a"
+  },
+  "environment": {
+    "machine": "Apple M4 Max",
+    "os": "26.5.2",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "background_activity": "Shared workstation; unrelated compilation and indexing observed. Only these probes were serialized."
+  },
+  "method": {
+    "fixture": "standalone copy of examples/webmcp-pizza from each checkout; initial template-marker source byte-identical",
+    "endpoint": "save to changed HTTP response at /",
+    "edits": {
+      "template": "replace literal EDIT_MARKER_A/B inside the title template",
+      "function": "same title reads benchmark_title(); replace only the helper return string EDIT_MARKER_A/B"
+    },
+    "cli_profile": "release; cargo build --locked --release -p proa-cli --bin cargo-proa",
+    "app_profile": "dev",
+    "assets": false,
+    "hot_static": false,
+    "build_timings": false,
+    "debounce_ms": {
+      "main": 300,
+      "branch": 200
+    },
+    "block_order_per_edit": [
+      "main",
+      "branch",
+      "branch",
+      "main"
+    ],
+    "samples_per_block": 6,
+    "discarded_warmups_per_block": 1,
+    "aggregate": "median of 12 measured edits per variant and edit type; not mean of block medians",
+    "excluded": [
+      "initial startup",
+      "assets",
+      "browser hydration and paint"
+    ],
+    "source_restored_after_each_block": true,
+    "probe": "scripts/dev_latency_probe.py --source src/lib.rs --url-path / --profile dev --samples 7 --port 39247"
+  },
+  "summary": {
+    "template": {
+      "main": {
+        "median_seconds": 6.705142666527536,
+        "samples": 12,
+        "block_medians_seconds": [
+          6.891383270500228,
+          6.6199174164794385
+        ],
+        "min_seconds": 6.563500207965262,
+        "max_seconds": 7.112036375096068
+      },
+      "branch": {
+        "median_seconds": 2.529561624978669,
+        "samples": 12,
+        "block_medians_seconds": [
+          2.5147043124889024,
+          2.535308062506374
+        ],
+        "min_seconds": 2.489896166953258,
+        "max_seconds": 2.6015518329804763
+      },
+      "saved_percent": 62.27430569663508
+    },
+    "function": {
+      "main": {
+        "median_seconds": 6.838936312007718,
+        "samples": 12,
+        "block_medians_seconds": [
+          6.763349437562283,
+          6.860711916466244
+        ],
+        "min_seconds": 6.618698292062618,
+        "max_seconds": 6.969660041038878
+      },
+      "branch": {
+        "median_seconds": 2.560155416489579,
+        "samples": 12,
+        "block_medians_seconds": [
+          2.5429160830099136,
+          2.569263457960915
+        ],
+        "min_seconds": 2.50642745802179,
+        "max_seconds": 2.6373569580027834
+      },
+      "saved_percent": 62.565005730576985
+    }
+  },
+  "trials": [
+    {
+      "label": "template-1-main",
+      "variant": "main",
+      "edit": "template",
+      "measured_samples_seconds": [
+        6.8580245829652995,
+        6.924741958035156,
+        7.015955375041813,
+        6.704995625070296,
+        7.112036375096068,
+        6.717977000051178
+      ],
+      "median_seconds": 6.891383270500228,
+      "discarded_warmup_seconds": 6.829689792008139,
+      "raw_record_sha256": "e667a9da7fe09fc167853da205f6cb09327308c5d105a846f7a0c00c617bcdec"
+    },
+    {
+      "label": "template-2-branch",
+      "variant": "branch",
+      "edit": "template",
+      "measured_samples_seconds": [
+        2.5016037500463426,
+        2.6015518329804763,
+        2.527804874931462,
+        2.500486832926981,
+        2.489896166953258,
+        2.560839541023597
+      ],
+      "median_seconds": 2.5147043124889024,
+      "discarded_warmup_seconds": 2.460438209003769,
+      "raw_record_sha256": "453dbe39a8776da9d4c2c8390718942241ed5a432f4c6c626cbdfd58042ae00b"
+    },
+    {
+      "label": "template-3-branch",
+      "variant": "branch",
+      "edit": "template",
+      "measured_samples_seconds": [
+        2.5265296660363674,
+        2.531318375025876,
+        2.557852583937347,
+        2.539297749986872,
+        2.541180541040376,
+        2.5172068750252947
+      ],
+      "median_seconds": 2.535308062506374,
+      "discarded_warmup_seconds": 2.601598541950807,
+      "raw_record_sha256": "f9638799c3e85bdc81472e34a243f732b624a63db796b3fd78f2fc5d72412ae6"
+    },
+    {
+      "label": "template-4-main",
+      "variant": "main",
+      "edit": "template",
+      "measured_samples_seconds": [
+        6.615208250004798,
+        6.705289707984775,
+        6.624626582954079,
+        6.671475791954435,
+        6.563500207965262,
+        6.601287749945186
+      ],
+      "median_seconds": 6.6199174164794385,
+      "discarded_warmup_seconds": 6.701152125024237,
+      "raw_record_sha256": "652964fb91c9f735c3c032f3364c3f65056087ad591a869e18379a00991a40b3"
+    },
+    {
+      "label": "function-1-main",
+      "variant": "main",
+      "edit": "function",
+      "measured_samples_seconds": [
+        6.8148845420219,
+        6.711814333102666,
+        6.92848654196132,
+        6.618698292062618,
+        6.825569708016701,
+        6.69004654197488
+      ],
+      "median_seconds": 6.763349437562283,
+      "discarded_warmup_seconds": 6.9524477910017595,
+      "raw_record_sha256": "15dc002fff7491269261eb54d2ee8a6d1217bf1412a6160958ad82f3bcc73bb8"
+    },
+    {
+      "label": "function-2-branch",
+      "variant": "branch",
+      "edit": "function",
+      "measured_samples_seconds": [
+        2.50642745802179,
+        2.6373569580027834,
+        2.5408616249915212,
+        2.544970541028306,
+        2.6284871249226853,
+        2.5156335829524323
+      ],
+      "median_seconds": 2.5429160830099136,
+      "discarded_warmup_seconds": 2.5667667080415413,
+      "raw_record_sha256": "857d83570e3d9e5588cf9c4d599c8b13f34e3f0221bf91da1037aebc7ffdb817"
+    },
+    {
+      "label": "function-3-branch",
+      "variant": "branch",
+      "edit": "function",
+      "measured_samples_seconds": [
+        2.5485768750077114,
+        2.5555681249825284,
+        2.6188292920123786,
+        2.5737842079252005,
+        2.564742707996629,
+        2.63207891699858
+      ],
+      "median_seconds": 2.569263457960915,
+      "discarded_warmup_seconds": 2.5139197919052094,
+      "raw_record_sha256": "71ec31b58ecaa8f16a3937799b327035142117060d2016ed29f8728f090d46a8"
+    },
+    {
+      "label": "function-4-main",
+      "variant": "main",
+      "edit": "function",
+      "measured_samples_seconds": [
+        6.870117582962848,
+        6.857225958025083,
+        6.864197874907404,
+        6.969660041038878,
+        6.815830332925543,
+        6.8523029159987345
+      ],
+      "median_seconds": 6.860711916466244,
+      "discarded_warmup_seconds": 6.766232916968875,
+      "raw_record_sha256": "e2e0b880b13a429b3a9b24bbc268db420196da4df45bdc0dac230f2ecd90786b"
+    }
+  ],
+  "historical_claim_audit": {
+    "source": "docs/compile-time/evidence/pizza-measurements.json",
+    "pipeline": {
+      "baseline_median_seconds": 6.973761041881517,
+      "branch_median_seconds": 2.987104417057708,
+      "saved_percent": 57.16652177901713
+    },
+    "descriptor_debug_saved_ms": 195.58597914874554,
+    "partition_saved_ms": [
+      215.99460393190384,
+      211.90977084916085
+    ],
+    "template_median_seconds": [
+      2.5518299795221537,
+      2.5559148126048967
+    ],
+    "rust_function_median_seconds": 2.583451582933776,
+    "interpretation": "Historical independent experiments; savings are not additive and do not establish latency on the rebased head."
+  }
+}

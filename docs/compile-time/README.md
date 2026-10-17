@@ -1,6 +1,48 @@
 # Development rebuild performance
 
-This branch reduces ordinary warm Pizza template rebuilds from about 7s to roughly 2.6s.
+This branch reduces ordinary warm Pizza rebuilds from about 7s to roughly 2.6s.
+
+## Rebase verification (2026-10-17)
+
+Fresh paired trials compare main `0d1f5cf` with rebased PR code `a9cf94b`:
+
+| Save to changed HTTP response | Main median | PR median | Less wait |
+| --- | ---: | ---: | ---: |
+| Template text edit | 6.705s | 2.530s | 62.3% |
+| Rust helper return-value edit | 6.839s | 2.560s | 62.6% |
+
+Each variant has 12 measured edits per edit type: two six-edit blocks, each
+preceded by one discarded warmup. Blocks run serially in main/PR/PR/main order.
+Both release CLIs use Rust 1.95 on the same Apple M4 Max/macOS 26.5.2 workstation.
+Standalone Pizza copies use the normal dev profile, assets disabled, no hot-static
+opt-in or timing instrumentation, and each CLI's default debounce (main 300ms,
+PR 200ms). Startup, assets, browser hydration and paint remain excluded. The
+template edit changes a literal title; the function edit changes only the string
+returned by a Rust helper used in that title. Each sample waits for the changed
+HTTP response, and the source is restored after each block.
+
+Main's template block medians were 6.891s/6.620s, versus PR's 2.515s/2.535s;
+function blocks were 6.763s/6.861s versus 2.543s/2.569s. Aggregate medians above
+use all 12 edits, rather than averaging block medians. These are observations on
+a shared workstation; unrelated compilation and indexing were present, so this
+is not an isolated-host experiment or a portable latency guarantee.
+
+[Samples, CLI hashes and historical-claim audit](evidence/rebase-verification-2026-10-17.json)
+retain the exact revisions and every measured response time. Reproduce with
+the probe below, using `--samples 7`, discarding the first sample of each block,
+and repeating the main/PR/PR/main order separately for both edit types. All 773
+CLI library tests and formatting passed on `a9cf94b`, as did
+[CI](https://github.com/Proa-Labs/proa/actions/runs/39058307442).
+
+The original ~7s to ~2.6s headline remains supported. Recomputing the older raw
+medians also confirms the original 57% pipeline reduction, 195.586ms descriptor
+debug-info reduction (rounded to 196ms), and 211.910–215.995ms partition savings
+(rounded to 212–216ms). Those were separate historical experiments; their savings
+must not be added together, and their individual contributions were not
+remeasured during this rebase check.
+
+## Original trials (2026-10-03/04)
+
 Measurements were made on 2026-10-03/04 on an Apple M4 Max running macOS 26.5.2
 and Rust 1.95, with a release-built CLI and skipped assets.
 
@@ -9,8 +51,8 @@ and Rust 1.95, with a release-built CLI and skipped assets.
 | Main: template, 300ms debounce | 6.974s | 7.027, 6.974, 6.844 |
 | Branch: template, default 200ms debounce | 2.987s | 2.987, 3.079, 2.932 |
 | Branch: Rust function, default 200ms debounce | 2.964s | 2.925, 2.964, 2.965 |
-| Latest production CLI: template, 200ms debounce | 2.552s | Six warm edits; boundaries in the compact measurements |
-| Latest production CLI: Rust function, 200ms debounce | 2.583s | Six warm edits; helper result changes in HTTP output |
+| Oct 4 production CLI: template, 200ms debounce | 2.552s | Six warm edits; boundaries in the compact measurements |
+| Oct 4 production CLI: Rust function, 200ms debounce | 2.583s | Six warm edits; helper result changes in HTTP output |
 
 Each case uses three serialized edits with warm caches, ordinary compiled
 templates and the normal dev profile; the latest production rows use six edits.
@@ -67,7 +109,8 @@ platform cost; no security settings changed. Apple documents scanning changed
 executables in its
 [XProtect overview](https://support.apple.com/en-ca/guide/security/sec469d47bd8/web).
 
-The figure uses representative edits from separate trials; its lower panel
+The historical figure uses representative edits from the original separate trials;
+it was not regenerated for the rebase check. Its lower panel
 isolates incremental-session preparation and cached-object copying inside rustc.
 Compiler profiling adds overhead, and parallel worker durations are not added
 as elapsed time. The main remaining
