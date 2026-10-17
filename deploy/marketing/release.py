@@ -44,7 +44,9 @@ def publish_runtime_image(source, tag):
     with tempfile.TemporaryDirectory(prefix="proa-release-auth-") as directory:
         environment = os.environ | {"DOCKER_CONFIG": directory}
         google_token = subprocess.check_output(
-            ["gcloud", "auth", "print-access-token"], text=True, timeout=60,
+            ["gcloud", "auth", "print-access-token", "--quiet",
+             "--impersonate-service-account=proa-railway-pull@airy-cycle-504821-k9.iam.gserviceaccount.com"],
+            text=True, timeout=60,
         ).strip()
         for registry, username, password in (
             ("us-west1-docker.pkg.dev", "oauth2accesstoken", google_token),
