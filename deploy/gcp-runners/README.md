@@ -118,7 +118,10 @@ Three stacked faults, in causal order:
 ## Marketing release images
 
 `ci.yml` builds the marketing release image in parallel with validation, then
-passes the immutable image digest to Railway only after the CI gate succeeds.
+copies the checked runtime image to private GHCR and passes its immutable digest
+to Railway only after the CI gate succeeds. The copy must preserve the exact
+digest checked by Cloud Build. Package visibility is checked before and after
+publishing; a public package or a changed digest stops the release.
 The `release-image` and `deploy-release` jobs run only on trusted `main` events.
 PR jobs cannot access the release builder, its cache, or the Railway credential.
 
@@ -133,7 +136,11 @@ to native x86-64 Cloud Build workers. The build retains the existing linked Proa
 pipeline and produces the same binary, static assets, and Node/Bun companions.
 `BUILD_ARTIFACTS=prebuilt` skips the Rust Docker stage during packaging. Image
 checks exercise HTTP routes, asset delivery, companions, and browser hydration
-before the image is published.
+before the image is published. Compiler caches and tool images stay in private
+GCP storage; only the checked runtime image is copied to
+`ghcr.io/proa-labs/proa-marketing`. The trusted release job uses its short-lived
+`GITHUB_TOKEN` with `packages: write` for that copy. PR jobs have no package-write
+permission. The registry copy tool is pinned by version and archive SHA-256.
 
 Run `bash deploy/marketing/setup-gcp.sh` once with project administrator access.
 It creates a private release repository and separates compiler-cache writes,
@@ -142,29 +149,29 @@ runner identity may submit builds as the release builder and mint short-lived
 registry read tokens as the scoped pull identity for validation. Those expiring
 tokens must not be persisted as Railway production pull credentials. Configure a
 **production-scoped** Railway project token in the repository secret
-`RAILWAY_PRODUCTION_TOKEN`.
+`RAILWAY_PRODUCTION_TOKEN`. The runner also needs bucket-scoped
+`storage.buckets.get` (Legacy Bucket Reader) and project Service Usage Consumer
+access for `gcloud builds submit`; the setup script grants both.
 Private registry credentials require Railway Pro; the workspace was upgraded
 with the owner's consent during validation.
 The first CI cutover changes production to the image source and removes only
 its GitHub build trigger. The deployment must then pass Railway's health check
 before the job succeeds. Preview environments retain their source configuration.
 
-**Merge/cutover blocker:** the former Artifact Registry pull credential expires
-after one hour. A later restart, host migration, dashboard rollback, or redeploy
-can require a fresh pull and fail. Railway documents this limitation for expiring
-registry tokens in its [private registry guide](https://docs.railway.com/guides/private-container-registry).
-Do not cut production over until it has durable, private-registry read credentials.
-This GCP organization blocks service-account keys; moving the runtime image to
-private GHCR with a package-read credential is the proposed replacement. The
-deployment script checks for registry credentials in Railway before staging a
-source. Configure durable credentials directly on the production Railway service
-after choosing the replacement registry. The release workflow never writes or
-rotates them: Railway masks stored passwords, so the script cannot save the old
-password for rollback. This also keeps a failed credential rotation from breaking
-pulls of the previous image. Credential rotation is a separate operator action.
-The presence check cannot establish whether masked credentials are valid or
-durable; do not configure expiring credentials such as `oauth2accesstoken`.
-Compiler caches and build reports can remain in private GCS.
+**Initial cutover prerequisite:** configure durable GHCR pull credentials on the
+production Railway service. Use a classic GitHub personal access token with
+`read:packages` and access to the private `proa-marketing` package. Keep it out of
+source files and build logs. Railway's [private registry guide](https://docs.railway.com/builds/private-registries)
+describes its GHCR token field. This GCP organization blocks service-account keys;
+expiring Artifact Registry access tokens cannot support later restarts or
+redeployments. The GHCR mirror removes that dependency.
+
+The deployment script checks for registry credentials before staging a source.
+The release workflow never writes or rotates them: Railway masks stored
+passwords, so the script cannot save the old password for rollback. This keeps a
+failed credential rotation from breaking pulls of the previous image. Credential
+rotation is a separate operator action. The presence check cannot establish
+whether masked credentials are valid or durable.
 
 Manual `workflow_dispatch` currently repeats the complete native compilation,
 image packaging, HTTP and Playwright checks, and normal CI gate before deploying.

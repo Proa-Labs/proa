@@ -45,6 +45,66 @@ class BuildPollingTests(unittest.TestCase):
         self.cancel.assert_not_called()
 
 
+class RuntimePublishingTests(unittest.TestCase):
+    def setUp(self):
+        self.digest = "sha256:" + "a" * 64
+        self.source = "us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/proa-marketing@" + self.digest
+        self.destination = release.RUNTIME_REPOSITORY + ":commit-run-attempt"
+        patch.dict(release.os.environ, {"GHCR_PUSH_TOKEN": "github-push-token", "GHCR_USERNAME": "builder"}).start()
+        self.addCleanup(patch.stopall)
+
+    def test_missing_package_is_distinct_from_a_permission_failure(self):
+        with patch.object(release.urllib.request, "urlopen", side_effect=release.urllib.error.HTTPError(
+                "https://api.github.com/package", 404, "Not Found", {}, None)):
+            self.assertIsNone(release.package_visibility("token"))
+        with patch.object(release.urllib.request, "urlopen", side_effect=release.urllib.error.HTTPError(
+                "https://api.github.com/package", 403, "Forbidden", {}, None)):
+            with self.assertRaises(release.urllib.error.HTTPError):
+                release.package_visibility("token")
+
+    def test_copy_preserves_verified_digest_and_removes_temporary_credentials(self):
+        with patch.object(release, "package_visibility", side_effect=[None, "private"]), \
+                patch.object(release.subprocess, "check_output", side_effect=["google-token", self.digest]), \
+                patch.object(release.subprocess, "run") as run:
+            self.assertEqual(release.publish_runtime_image(self.source, "commit-run-attempt"),
+                             release.RUNTIME_REPOSITORY + "@" + self.digest)
+        self.assertEqual(run.call_args_list[-1].args[0], ["crane", "copy", self.source, self.destination])
+        for call in run.call_args_list:
+            self.assertNotIn("github-push-token", call.args[0])
+            self.assertNotIn("google-token", call.args[0])
+        self.assertEqual(run.call_args_list[0].kwargs["input"], "google-token")
+        self.assertEqual(run.call_args_list[1].kwargs["input"], "github-push-token")
+        self.assertFalse(release.Path(run.call_args.kwargs["env"]["DOCKER_CONFIG"]).exists())
+
+    def test_existing_public_package_is_rejected_before_copy(self):
+        with patch.object(release, "package_visibility", return_value="public"), \
+                patch.object(release.subprocess, "run") as run:
+            with self.assertRaisesRegex(RuntimeError, "non-private"):
+                release.publish_runtime_image(self.source, "tag")
+        run.assert_not_called()
+
+    def test_changed_digest_is_never_returned_for_deployment(self):
+        with patch.object(release, "package_visibility", return_value="private"), \
+                patch.object(release.subprocess, "check_output", side_effect=["google-token", "sha256:" + "b" * 64]), \
+                patch.object(release.subprocess, "run"):
+            with self.assertRaisesRegex(RuntimeError, "differs"):
+                release.publish_runtime_image(self.source, "tag")
+
+    def test_post_copy_visibility_must_remain_private(self):
+        with patch.object(release, "package_visibility", side_effect=["private", "public"]), \
+                patch.object(release.subprocess, "check_output", side_effect=["google-token", self.digest]), \
+                patch.object(release.subprocess, "run"):
+            with self.assertRaisesRegex(RuntimeError, "remain private"):
+                release.publish_runtime_image(self.source, "tag")
+
+    def test_copy_failure_cannot_produce_a_deployable_output(self):
+        with patch.object(release, "package_visibility", return_value="private"), \
+                patch.object(release.subprocess, "check_output", return_value="google-token"), \
+                patch.object(release.subprocess, "run", side_effect=[None, None, subprocess.CalledProcessError(1, "crane")]):
+            with self.assertRaises(subprocess.CalledProcessError):
+                release.publish_runtime_image(self.source, "tag")
+
+
 class RailwayCutoverTests(unittest.TestCase):
     def setUp(self):
         self.image = "registry/image@sha256:" + "a" * 64
@@ -66,8 +126,19 @@ class RailwayCutoverTests(unittest.TestCase):
             "service": {"deploy": {"registryCredentials": credentials}},
         }}}}
 
+    def test_other_registries_and_mutable_tags_are_rejected_before_any_api_call(self):
+        for image in (
+            "us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/proa-marketing@sha256:" + "a" * 64,
+            release.RUNTIME_REPOSITORY + ":latest",
+            "ghcr.io/another-org/proa-marketing@sha256:" + "a" * 64,
+        ):
+            with self.subTest(image=image), patch.object(release, "api") as api:
+                with self.assertRaisesRegex(ValueError, "complete digest"):
+                    release.deploy(image, "service", "production", "a" * 40, "https://example.com/readyz")
+                api.assert_not_called()
+
     def test_missing_registry_credentials_block_cutover_before_any_mutation(self):
-        image = "us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/proa-marketing@sha256:" + "a" * 64
+        image = "ghcr.io/proa-labs/proa-marketing@sha256:" + "a" * 64
         for credentials in (None, {}, {"username": "reader"}):
             with self.subTest(credentials=credentials), patch.object(release, "api", return_value=self.config(credentials)) as api:
                 with self.assertRaisesRegex(RuntimeError, "durable private-registry"):
@@ -189,7 +260,7 @@ class RailwayCutoverTests(unittest.TestCase):
         self.assertNotIn("registryCredentials", api.call_args_list[1].args[1]["input"])
 
     def test_lost_deploy_response_still_removes_triggers_and_verifies_the_release(self):
-        image = "us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/proa-marketing@sha256:" + "a" * 64
+        image = "ghcr.io/proa-labs/proa-marketing@sha256:" + "a" * 64
         revision = "b" * 40
         current = self.current | {"source": {"image": image, "repo": None}}
         accepted = self.accepted | {"source": current["source"]}
