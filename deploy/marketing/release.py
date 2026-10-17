@@ -234,7 +234,10 @@ def verify_revision(url, revision):
     last = None
     for _ in range(12):
         try:
-            request = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
+            # Cloudflare blocks urllib's default user agent on the public site.
+            request = urllib.request.Request(url, headers={
+                "Cache-Control": "no-cache", "User-Agent": "proa-release-ci/1",
+            })
             with urllib.request.urlopen(request, timeout=10) as response:
                 if response.status == 200 and response.headers.get("x-proa-revision") == revision:
                     return
