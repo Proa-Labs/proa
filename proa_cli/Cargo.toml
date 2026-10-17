@@ -57,4 +57,5 @@ libc = { workspace = true }
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
+object = { workspace = true }
 tempfile = { workspace = true }

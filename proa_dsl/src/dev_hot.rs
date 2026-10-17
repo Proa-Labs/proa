@@ -10,7 +10,7 @@ use crate::{
     },
     HtmlRoot,
 };
-pub use proa_core::dev_hot::{StaticManifest, StaticTemplate};
+pub use proa_ir::dev_hot::{StaticManifest, StaticTemplate};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use syn::{
     parse::{Parse, ParseStream},

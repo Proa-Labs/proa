@@ -109,6 +109,16 @@ Cargo freshness, source/environment/dependency checks, and exact descriptor
 object validation still run on every invocation.
 
 Final RSJS macro expansion caches validated component and helper topology.
+The shared validator in `rsjs_ir::final_plan` owns this cache, retaining #13's
+complete unit-projection validation and stable runtime identities. Descriptor
+compilation also retains #13's complete carriers and incremental reuse: explicit
+Cargo codegen counts remain authoritative, and the default incremental
+descriptor count is 64. The earlier, nonincremental 16-unit descriptor patch in
+this PR is superseded by #13 and is not replayed after the rebase.
+The hot-static manifest wire types live in `proa_ir::dev_hot`, with the existing
+`proa_core::dev_hot` and `proa_dsl::dev_hot` paths re-exporting them. This keeps
+the template compiler independent of rendering internals while preserving the
+development update protocol and its public type paths.
 Each cache retains only its last exact plan per expansion thread. Every expansion still reads the current plan file and verifies its
 expected SHA-256 commitment. Parsed topology is reused only for identical bytes
 and plan identity; changed plans are validated again, and validation errors are

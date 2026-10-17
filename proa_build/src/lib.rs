@@ -16,4 +16,5 @@ pub mod pipeline;
 pub mod semantic_link;
 
 mod descriptor_objects;
-pub(crate) mod timing;
+#[doc(hidden)]
+pub mod timing;

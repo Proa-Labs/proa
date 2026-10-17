@@ -113,7 +113,7 @@ def benchmark(args: argparse.Namespace) -> None:
         "environment": {
             key: os.environ.get(key) for key in (
                 "CARGO_TARGET_DIR", "CARGO_INCREMENTAL", "CARGO_BUILD_JOBS",
-                "RUSTC_WRAPPER", "RUSTFLAGS",
+                "RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "RUSTFLAGS",
                 "CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG",
             )
         },

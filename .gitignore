@@ -86,8 +86,8 @@ DerivedData/
 .gradle/
 build/
 # The Gradle pattern above is unanchored and would swallow Rust module
-# directories named build/; keep proa_cli's rsjs::build tests tracked.
-!proa_cli/src/rsjs/build/
+# directories named build/; keep the linked build engine's tests tracked.
+!proa_build/src/build/
 *.iml
 *.ipr
 *.iws

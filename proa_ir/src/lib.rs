@@ -38,6 +38,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod dev_hot;
 pub mod dialect;
 pub mod eval;
 pub mod expr;

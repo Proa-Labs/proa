@@ -15,3 +15,6 @@
 pub use proa_source_tools::rsjs::*;
 
 pub use proa_build::{abi_adapter, build, cache, final_compile, link, pipeline, semantic_link};
+
+#[doc(hidden)]
+pub use proa_build::timing;
