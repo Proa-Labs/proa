@@ -14,7 +14,7 @@
 //   - Next.js SSR              (default :5402, override NEXT_PORT)
 //
 // Run:
-//   cd proa_demo/bench && npm install && node run.mjs
+//   cd proa_demo/bench && pnpm install && node run.mjs
 //
 // Tunables via env:
 //   BENCH_RUNS=5         runs per (engine, cpu, network, cache)
@@ -89,7 +89,7 @@ const pageConfigs = {
                 name: "next 16",
                 url: `http://localhost:${NEXT_PORT}/showcase/ebay/next`,
                 healthCheck: `http://localhost:${NEXT_PORT}/health`,
-                startHint: `cd ../next-ssr && npm install && npm run build && PORT=${NEXT_PORT} npm run start`,
+                startHint: `cd ../next-ssr && pnpm install && pnpm run build && PORT=${NEXT_PORT} pnpm run start`,
             },
         ],
     },
@@ -112,7 +112,7 @@ const pageConfigs = {
                 name: "next 16",
                 url: `http://localhost:${NEXT_PORT}/showcase/nike/next`,
                 healthCheck: `http://localhost:${NEXT_PORT}/health`,
-                startHint: `cd ../next-ssr && npm install && npm run build && PORT=${NEXT_PORT} npm run start`,
+                startHint: `cd ../next-ssr && pnpm install && pnpm run build && PORT=${NEXT_PORT} pnpm run start`,
             },
         ],
     },
@@ -135,7 +135,7 @@ const pageConfigs = {
                 name: "next 16",
                 url: `http://localhost:${NEXT_PORT}/showcase/nike/next/product`,
                 healthCheck: `http://localhost:${NEXT_PORT}/health`,
-                startHint: `cd ../next-ssr && npm install && npm run build && PORT=${NEXT_PORT} npm run start`,
+                startHint: `cd ../next-ssr && pnpm install && pnpm run build && PORT=${NEXT_PORT} pnpm run start`,
             },
         ],
     },

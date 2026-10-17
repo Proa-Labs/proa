@@ -38,8 +38,8 @@ or newer installed, run these commands from the repository root:
 
 ```bash
 cd editors/vscode
-npm test
-npx @vscode/vsce package --no-dependencies
+pnpm test
+pnpm dlx @vscode/vsce package --no-dependencies
 code --install-extension ./proa-0.2.0.vsix
 ```
 
@@ -64,7 +64,7 @@ root:
 
 ```bash
 rustup component add rust-analyzer rustfmt
-npm install --global ./editors/lsp
+pnpm add --global ./editors/lsp
 proa-lsp --version
 ```
 

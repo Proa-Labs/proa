@@ -32,9 +32,8 @@
     }
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node scripts/sync-core.mjs && node --test test/*.test.mjs",
     "prepare": "node scripts/sync-core.mjs",
-    "pretest": "node scripts/sync-core.mjs",
     "vscode:prepublish": "node scripts/sync-core.mjs"
   },
   "files": [
@@ -42,5 +41,6 @@
     "src",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "packageManager": "pnpm@9.15.2"
 }

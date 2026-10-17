@@ -213,9 +213,12 @@ For end-to-end accessibility and rendering verification, use [Playwright](https:
 ### Setup
 
 ```bash filename="Terminal"
-npm install -D @playwright/test @axe-core/playwright
-npx playwright install
+pnpm add -D @playwright/test @axe-core/playwright
+pnpm exec playwright install
 ```
+
+Commit `package.json` and `pnpm-lock.yaml` so CI can install the same dependencies
+with `pnpm install --frozen-lockfile`.
 
 ### Accessibility checks
 
@@ -266,7 +269,7 @@ test("listing card matches screenshot", async ({ page }) => {
 proa run &
 
 # Run Playwright tests
-npx playwright test
+pnpm exec playwright test
 ```
 
 Correct output is one half of the contract. Render cost is the other half.
@@ -374,6 +377,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable pinned pnpm
+        run: corepack enable && corepack prepare pnpm@9.15.2 --activate
+
+      - name: Install locked browser test dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers and system dependencies
+        run: pnpm exec playwright install --with-deps
+
       - name: Tests
         run: proa test
 
@@ -387,7 +403,7 @@ jobs:
         run: proa run &
 
       - name: Playwright a11y + visual
-        run: npx playwright test
+        run: pnpm exec playwright test
 ```
 
 ## Next steps

@@ -44,6 +44,8 @@ impl Harness {
         }
         let app_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let issuer_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        app_listener.set_nonblocking(true).unwrap();
+        issuer_listener.set_nonblocking(true).unwrap();
         let app_port = app_listener.local_addr().unwrap().port();
         let issuer_port = issuer_listener.local_addr().unwrap().port();
         let app = format!("https://localhost:{app_port}");
@@ -74,12 +76,12 @@ impl Harness {
         let t = tls.clone();
         let handles = vec![
             tokio::spawn(async move {
-                axum_server::from_tcp_rustls(app_listener, t)
+                axum_server::from_tcp_rustls(app_listener, t)?
                     .serve(app_service.into_make_service())
                     .await
             }),
             tokio::spawn(async move {
-                axum_server::from_tcp_rustls(issuer_listener, tls)
+                axum_server::from_tcp_rustls(issuer_listener, tls)?
                     .serve(issuer_service.into_make_service())
                     .await
             }),

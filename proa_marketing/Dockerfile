@@ -118,8 +118,9 @@ FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472
 
 WORKDIR /companions
 
-COPY proa_demo/hono-ssr/package.json ./package.json
-RUN npm install --no-audit --no-fund
+COPY proa_demo/hono-ssr/package.json proa_demo/hono-ssr/pnpm-lock.yaml ./
+RUN corepack enable && corepack prepare pnpm@9.15.2 --activate \
+    && pnpm install --frozen-lockfile
 
 COPY proa_demo/hono-ssr/ ./hono-ssr/
 COPY proa_demo/react-ssr-shared/ ./react-ssr-shared/

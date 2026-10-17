@@ -12,7 +12,7 @@ From a Proa checkout:
 
 ```sh
 rustup component add rust-analyzer rustfmt
-npm install --global ./editors/lsp
+pnpm add --global ./editors/lsp
 proa-lsp --version
 ```
 

@@ -4,9 +4,8 @@
 // Lean Marko 6 SSR server (port 5502).
 //
 // Mirrors the proa-lean-server shape: serves a lean HTML page with N
-// `<button>` toggles plus a Marko hydrate bundle. Uses the marko-server
-// package's compiler/esbuild deps via a relative require, so we don't
-// duplicate node_modules.
+// `<button>` toggles plus a Marko hydrate bundle. Install this package's
+// compiler/esbuild dependencies with pnpm before starting the server.
 //
 // Routes:
 //   GET /            → lean page with N toggles

@@ -10,7 +10,7 @@
 #
 #   proa:   PORT=5002 target/release/proa-playground
 #   react:  cd proa_demo/react-ssr  && NODE_ENV=production PORT=5401 node --import tsx server.tsx
-#   next:   cd proa_demo/next-ssr   && npm run build && NODE_ENV=production ./node_modules/.bin/next start -p 5402
+#   next:   cd proa_demo/next-ssr   && pnpm run build && NODE_ENV=production ./node_modules/.bin/next start -p 5402
 #
 # Usage: ./ssr-loadtest.sh [n]   (items per page: 60, 120, 240)
 set -euo pipefail

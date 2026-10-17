@@ -26,12 +26,4 @@ ignore = [
     # progress bars in the proa-cli developer tool. Dev-tooling
     # dependency path, not shipped library code. Accepted.
     "RUSTSEC-2025-0119",
-    # rand 0.8.5 and 0.9.2, unsound only when a custom logger re-enters
-    # rand::rng(); no fixed release exists. rand 0.8.5 remains in the lock via
-    # SQLx's optional MySQL/Postgres drivers. rand 0.9.2 enters via proptest (a
-    # dev-dependency of proa_core, test builds only) and via
-    # reqwest -> quinn -> quinn-proto in proa_framework_axum, where the
-    # narrow custom-logger unsoundness condition does not apply to a
-    # server render path. Accepted.
-    "RUSTSEC-2026-0097",
 ]

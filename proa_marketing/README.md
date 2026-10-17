@@ -32,7 +32,7 @@ bundle. Ranking lives in `public/search-index.mjs`, which the Node battery
 imports too, so the score you measure is the score that ships:
 
 ```bash
-npm run search:battery                  # local server on :5555
+pnpm run search:battery                  # local server on :5555
 node scripts/search_battery.mjs --source prod
 node scripts/search_battery.mjs --source path/to/documents.json --verbose
 node scripts/search_battery.mjs --config tweak.json   # override DEFAULT_CONFIG keys
@@ -43,7 +43,7 @@ query, or a short list when two pages tie); its thresholds fail the run when
 top-1 or top-3 drops. Give a page identifiers it canonically documents with a
 `keywords: [html_sync, html!]` frontmatter list; that field is boosted above
 body text. Regenerate the Orama bundle after bumping the `@orama/*`
-devDependencies with `npm run search:vendor`.
+devDependencies with `pnpm run search:vendor`.
 
 The rsjs `SearchModal` island only owns the dialog (open, close, focus); see
 the ownership note at the top of `public/search.mjs`.

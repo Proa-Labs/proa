@@ -48,9 +48,9 @@ Reproduce from the repository root:
 
 ```bash
 cd proa_demo/react-ssr-shared
-npm ci --ignore-scripts
-npx playwright install chromium
-npm run parity:sentry-otel
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm exec playwright install chromium
+pnpm run parity:sentry-otel
 
 cd ../..
 BENCH_ROWS=400 BENCH_WARMUP=100 BENCH_ITERATIONS=300 \
@@ -60,5 +60,5 @@ BENCH_ROWS=400 BENCH_WARMUP=100 BENCH_ITERATIONS=300 \
 
 cd proa_demo/react-ssr-shared
 NODE_ENV=production BENCH_ROWS=400 BENCH_WARMUP=100 BENCH_ITERATIONS=300 \
-  npx --no-install tsx bench-sentry-otel.tsx
+  pnpm exec tsx bench-sentry-otel.tsx
 ```

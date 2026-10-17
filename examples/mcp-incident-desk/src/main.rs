@@ -53,10 +53,16 @@ async fn main() -> anyhow::Result<()> {
         }
     });
     tracing::info!(app=%config.app_origin,issuer=%config.issuer,"Incident Desk listening");
-    let app = axum_server::bind_rustls(([127, 0, 0, 1], config.app_port).into(), tls.clone())
-        .serve(routes::router(state.clone()).into_make_service());
-    let issuer = axum_server::bind_rustls(([127, 0, 0, 1], config.issuer_port).into(), tls)
-        .serve(routes::issuer(state).into_make_service());
+    let app = axum_server::bind_rustls(
+        std::net::SocketAddr::from(([127, 0, 0, 1], config.app_port)),
+        tls.clone(),
+    )
+    .serve(routes::router(state.clone()).into_make_service());
+    let issuer = axum_server::bind_rustls(
+        std::net::SocketAddr::from(([127, 0, 0, 1], config.issuer_port)),
+        tls,
+    )
+    .serve(routes::issuer(state).into_make_service());
     tokio::try_join!(app, issuer)?;
     Ok(())
 }

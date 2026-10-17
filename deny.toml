@@ -18,7 +18,6 @@ yanked = "deny"
 ignore = [
     { id = "RUSTSEC-2025-0141", reason = "bincode 1.x unmaintained with no fixed release; used by syntect to deserialize its trusted embedded syntax pack at docs build time, never untrusted input" },
     { id = "RUSTSEC-2025-0119", reason = "number_prefix unmaintained; enters only via indicatif in the proa-cli developer tool, not shipped library code" },
-    { id = "RUSTSEC-2026-0097", reason = "rand unsound only with a custom logger re-entering rand::rng(); no fixed release; paths are SQLx optional drivers, proptest dev-dependency, and reqwest/quinn transitive" },
 ]
 
 [bans]

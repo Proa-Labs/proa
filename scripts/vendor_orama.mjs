@@ -6,7 +6,7 @@
 // extension keeps Node treating it as an ES module without a package.json
 // `type` field, which would change how every other .js file in the repo parses.
 //
-// Run with `npm run search:vendor` after bumping the @orama/* devDependencies
+// Run with `pnpm run search:vendor` after bumping the @orama/* devDependencies
 // in package.json, then commit the regenerated bundle. The same file is what
 // scripts/search_battery.mjs imports, so the battery exercises the exact
 // bytes the browser loads.
@@ -42,7 +42,7 @@ const result = await build({
   legalComments: 'none',
   write: false,
 });
-const banner = `// @orama/orama ${oramaVersion} + @orama/stemmers/english ${stemmersVersion}, bundled by scripts/vendor_orama.mjs. Do not edit; regenerate with \`npm run search:vendor\`.\n`;
+const banner = `// @orama/orama ${oramaVersion} + @orama/stemmers/english ${stemmersVersion}, bundled by scripts/vendor_orama.mjs. Do not edit; regenerate with \`pnpm run search:vendor\`.\n`;
 const code = banner + result.outputFiles[0].text;
 await writeFile(outfile, code);
 const bytes = Buffer.byteLength(code);

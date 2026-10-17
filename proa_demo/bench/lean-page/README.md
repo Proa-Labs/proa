@@ -33,16 +33,18 @@ target/release/proa-lean-server
 
 # Marko, port 5502
 cd proa_demo/bench/lean-page/marko-server
-PORT=5502 node server.mjs
+pnpm install --frozen-lockfile
+PORT=5502 pnpm start
 
 # React, port 5503
 cd proa_demo/bench/lean-page/react-server
-PORT=5503 node --import tsx server.tsx
+pnpm install --frozen-lockfile
+PORT=5503 pnpm start
 ```
 
-The Marko and React packages reuse dependencies installed in
-`proa_demo/marko-server` and `proa_demo/react-ssr`. Run `npm install` in those
-parent directories first when necessary.
+Each JavaScript server has its own manifest and pnpm lockfile. The wire-size
+measurement tool also imports esbuild from `proa_demo/marko-server`; install
+that project's dependencies with `pnpm install --frozen-lockfile` before using it.
 
 ## Measure wire size
 

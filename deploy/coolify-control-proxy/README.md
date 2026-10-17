@@ -234,13 +234,13 @@ Validate and deploy:
 ```bash
 node --test worker.test.js
 ./test-latency-render-haproxy
-npx wrangler secret put COOLIFY_MANUAL_WEBHOOK_SECRET
-npx wrangler secret put ARCHIVE_CONTROL_SECRET
-npx wrangler secret put PROA_PREVIEW_APP_ID
-npx wrangler secret put PROA_PREVIEW_APP_SLUG
-npx wrangler secret put PROA_PREVIEW_APP_PRIVATE_KEY
-npx wrangler deploy
-npx wrangler secret list
+pnpm dlx wrangler secret put COOLIFY_MANUAL_WEBHOOK_SECRET
+pnpm dlx wrangler secret put ARCHIVE_CONTROL_SECRET
+pnpm dlx wrangler secret put PROA_PREVIEW_APP_ID
+pnpm dlx wrangler secret put PROA_PREVIEW_APP_SLUG
+pnpm dlx wrangler secret put PROA_PREVIEW_APP_PRIVATE_KEY
+pnpm dlx wrangler deploy
+pnpm dlx wrangler secret list
 ```
 
 `COOLIFY_API_URL` must be exactly `https://coolify.proa.so`.

@@ -138,12 +138,14 @@ steps:
         docker run -d --name proa-release --network cloudbuild -e PORT=5000 '${_IMAGE}:${_REVISION}'
         trap 'docker logs proa-release; docker rm -f proa-release' EXIT
         docker run --rm --network cloudbuild -v /workspace:/work -w /work \
-          '${_NODE_IMAGE}' node deploy/marketing/smoke.mjs http://proa-release:5000 '${_COMMIT}'
+          '${_NODE_IMAGE}' bash -ceu '
+            node deploy/marketing/smoke.mjs http://proa-release:5000 "${_COMMIT}";
+            corepack enable && corepack prepare pnpm@9.15.2 --activate;
+            mkdir -p /work/.local/release-browser;
+            pnpm --dir /work/.local/release-browser add --ignore-scripts playwright@1.61.1'
         docker run --rm --network cloudbuild -v /workspace:/work -w /work \
-          '${_PLAYWRIGHT_IMAGE}' \
-          bash -ceu 'npm install --ignore-scripts --no-audit --no-fund --prefix /tmp/pw playwright@1.61.1; \
-            PLAYWRIGHT_MODULE=file:///tmp/pw/node_modules/playwright/index.mjs \
-            node deploy/marketing/browser-smoke.mjs http://proa-release:5000'
+          -e PLAYWRIGHT_MODULE=file:///work/.local/release-browser/node_modules/playwright/index.mjs \
+          '${_PLAYWRIGHT_IMAGE}' node deploy/marketing/browser-smoke.mjs http://proa-release:5000
 
 images: ['${_IMAGE}:${_REVISION}']
 timeout: 3600s

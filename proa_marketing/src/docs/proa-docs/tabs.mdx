@@ -3,33 +3,33 @@ title: Tabs
 description: Switch between alternative versions of the same content.
 ---
 
-Use tabs when the same instruction differs by platform, language, or package manager. Declare the labels once on the container, then one `<Tab>` per label in the same order.
+Use tabs to group related instructions or alternatives. Declare the labels once on the container, then one `<Tab>` per label in the same order.
 
 ```mdx filename="content/install.mdx"
-<Tabs data-items="npm|pnpm|bun">
-<Tab value="npm">
-`npm install`
-</Tab>
-<Tab value="pnpm">
+<Tabs data-items="Install|Build|Test">
+<Tab value="Install">
 `pnpm install`
 </Tab>
-<Tab value="bun">
-`bun install`
+<Tab value="Build">
+`pnpm run build`
+</Tab>
+<Tab value="Test">
+`pnpm test`
 </Tab>
 </Tabs>
 ```
 
 Rendered:
 
-<Tabs data-items="npm|pnpm|bun">
-<Tab value="npm">
-Runs the slowest of the three, and the one every reader already has.
+<Tabs data-items="Install|Build|Test">
+<Tab value="Install">
+Install the project's locked dependencies with pnpm.
 </Tab>
-<Tab value="pnpm">
-Content-addressed store, so repeat installs are near-instant.
+<Tab value="Build">
+Run the project's build script.
 </Tab>
-<Tab value="bun">
-Fastest, and the runtime the Proa playground benchmarks against.
+<Tab value="Test">
+Run the project's test script.
 </Tab>
 </Tabs>
 

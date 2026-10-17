@@ -27,7 +27,7 @@ import { wrapInDocumentShell } from "./src/shared";
 
 if (process.env.NODE_ENV !== "production") {
 	throw new Error(
-		"React SSR benchmark requires NODE_ENV=production; run it through `npm run bench`.",
+		"React SSR benchmark requires NODE_ENV=production; run it through `pnpm run bench`.",
 	);
 }
 

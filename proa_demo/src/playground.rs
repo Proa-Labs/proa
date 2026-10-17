@@ -2534,7 +2534,7 @@ async fn main() {
             eprintln!("  {d}│{r}  {g}●{r}  React SSR    {d}already on :5401{r}      {d}│{r}");
             None
         } else if !react_ssr_dir.join("node_modules").exists() {
-            eprintln!("  {d}│{r}  {y}▲{r}  React SSR    {d}skipped (run npm install){r}{d}│{r}");
+            eprintln!("  {d}│{r}  {y}▲{r}  React SSR    {d}skipped (run pnpm install){r}{d}│{r}");
             None
         } else {
             match Command::new("node")
@@ -2569,7 +2569,7 @@ async fn main() {
     let marko_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("marko-server");
     let marko_node_child = if marko_dir.exists() && node_ok {
         if !marko_dir.join("node_modules").exists() {
-            eprintln!("  {d}│{r}  {y}▲{r}  Marko (Node)  {d}skipped (run npm install){r} {d}│{r}");
+            eprintln!("  {d}│{r}  {y}▲{r}  Marko (Node)  {d}skipped (run pnpm install){r} {d}│{r}");
             None
         } else if localhost_port_open(5300) {
             eprintln!("  {d}│{r}  {g}●{r}  Marko (Node)  {d}already on :5300{r}      {d}│{r}");
@@ -2693,10 +2693,10 @@ async fn main() {
             eprintln!("  {d}│{r}  {g}●{r}  Next.js      {d}already on :5402{r}           {d}│{r}");
             None
         } else if !next_dir.join("node_modules").exists() {
-            eprintln!("  {d}│{r}  {y}▲{r}  Next.js      {d}skipped (run npm install){r} {d}│{r}");
+            eprintln!("  {d}│{r}  {y}▲{r}  Next.js      {d}skipped (run pnpm install){r} {d}│{r}");
             None
         } else if !next_dir.join(".next").join("BUILD_ID").exists() {
-            eprintln!("  {d}│{r}  {y}▲{r}  Next.js      {d}skipped (run npm run build){r}{d}│{r}");
+            eprintln!("  {d}│{r}  {y}▲{r}  Next.js      {d}skipped (run pnpm run build){r}{d}│{r}");
             None
         } else {
             let next_bin = next_dir.join("node_modules/.bin/next");
@@ -3296,7 +3296,7 @@ fn rsjs_asset_index() -> &'static RsjsAssetIndex {
             None => eprintln!(
                 "  ⚠  rsjs assets: esbuild not found (looked on PATH, marko-server/node_modules, \
                  react-ssr/node_modules); serving UNMINIFIED JS. Install esbuild (e.g. \
-                 `npm i -D esbuild` in proa_demo/marko-server) for production byte sizes."
+                 `pnpm add -D esbuild` in proa_demo/marko-server) for production byte sizes."
             ),
         }
         let runtime = RsjsAsset::build(RSJS_RUNTIME_JS.as_bytes(), esbuild.as_deref());
