@@ -10,6 +10,24 @@ remain available. For full type and variable information in a debugger, set
 `CARGO_PROFILE_DEV_DEBUG=2`; use `CARGO_PROFILE_TEST_DEBUG=2` for test binaries.
 These settings do not change application optimization levels or release profiles.
 
+## Linked build comparison after PR #13
+
+![Waterfalls comparing main build time, time saved, and PR #33 build time for four edit cases](compile-time/diagrams/linked-build-waterfall-post-pr13.png)
+
+Baseline `51e544e` includes PR #13; PR #33 code measured here is `30d55f4`.
+Each waterfall bridges the measured main median to the PR median using the
+time saved. These are linked development build totals, not individual compiler
+stages or Railway release timings. Each panel uses its own seconds scale.
+
+The initial batch ran serially on an M4 Max with Rust 1.95, with three measured
+warm builds after one discarded warmup per case. It uses each revision's default
+dev profile (main `debug=2`, PR `debug=1`) and skips assets and source linting.
+A reverse-order repeat overlapped unrelated compilation and is excluded.
+These are shared-workstation observations, not guaranteed timings.
+
+[Exact samples and provenance](compile-time/diagrams/linked-build-waterfall-post-pr13.json)
+· [Vector diagram](compile-time/diagrams/linked-build-waterfall-post-pr13.svg)
+
 ## Repeated edit probes
 
 Run the benchmark driver from the repository root in a dedicated worktree:
