@@ -4,25 +4,39 @@
 # The cache is an explicit archive, including source mtimes and both RSJS
 # targets. Docker layer cache exporters alone do not persist RUN cache mounts.
 steps:
-  - id: prefetch-smoke
+  - id: prepare-package
     waitFor: ['-']
-    name: gcr.io/cloud-builders/docker
+    name: '${_CACHE_TOOLS}'
+    # Keep buildx state and its refreshing registry helper separate from the
+    # Cloud Build publisher's platform-managed Docker credentials.
+    env: [DOCKER_CONFIG=/builder/home/.docker-release]
     entrypoint: bash
     args:
       - -ceu
       - |
+        gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
+        docker pull '${_COMPILE_TOOLS}' &
+        compile_pull=$$!
+        docker pull '${_PLAYWRIGHT_IMAGE}' &
+        browser_pull=$$!
+        # buildx's container driver does not negotiate the worker's Docker API.
+        DOCKER_API_VERSION=$$(docker version --format '{{.Server.APIVersion}}')
+        export DOCKER_API_VERSION
+        docker buildx create --name release --driver docker-container \
+          --driver-opt 'image=${_BUILDKIT_IMAGE}' --use
+        docker buildx inspect --bootstrap
         docker pull '${_NODE_IMAGE}'
-        docker pull '${_PLAYWRIGHT_IMAGE}'
+        wait "$$compile_pull"
+        wait "$$browser_pull"
 
   - id: restore
     waitFor: ['-']
-    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    name: '${_CACHE_TOOLS}'
     entrypoint: bash
     args:
       - -ceu
       - |
         set -euo pipefail
-        apt-get update -qq && apt-get install -y -qq zstd
         if generation=$$(gcloud storage objects describe '${_CACHE}/cache.tar.zst' \
             --format='value(generation)' 2>/tmp/cache-error); then
           printf '%s\n' "$$generation" > /cache/cache-generation
@@ -39,13 +53,12 @@ steps:
 
   - id: compile
     waitFor: [restore]
-    name: rust:1.95.0-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00db7aeb69f4b3d170c3e4082
+    name: '${_COMPILE_TOOLS}'
     entrypoint: bash
     args:
       - -ceu
       - |
         set -euo pipefail
-        bash deploy/marketing/install-tools.sh
         unset RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
         export CARGO_TARGET_DIR=/cache/target CARGO_HOME=/cache/cargo CARGO_TERM_COLOR=never
         export TAILWIND_BIN=/usr/local/bin/tailwindcss PROA_MARKETING_BUILD_CSS_ONLY=1
@@ -71,13 +84,12 @@ steps:
 
   - id: save
     waitFor: [compile]
-    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    name: '${_CACHE_TOOLS}'
     entrypoint: bash
     args:
       - -ceu
       - |
         set -euo pipefail
-        apt-get update -qq && apt-get install -y -qq zstd
         # A failed producer can still close stdin successfully at the uploader.
         # Publish the immutable upload only after the entire pipeline succeeds.
         staging='${_CACHE}/staging/$BUILD_ID.tar.zst'
@@ -98,14 +110,27 @@ steps:
     volumes: [{name: cache, path: /cache}, {name: release, path: /release}]
 
   - id: package
-    waitFor: [compile]
-    name: gcr.io/cloud-builders/docker
-    env: [DOCKER_BUILDKIT=1]
-    args: [build, --build-arg, BUILD_ARTIFACTS=prebuilt, --build-arg, 'PROA_BUILD_REVISION=${_COMMIT}', -f, proa_marketing/Dockerfile, -t, '${_IMAGE}:${_REVISION}', .]
+    waitFor: [compile, prepare-package]
+    name: '${_CACHE_TOOLS}'
+    env: [DOCKER_CONFIG=/builder/home/.docker-release]
+    # Load into the worker daemon for smoke tests. Only images: below publishes
+    # the runtime image; the separate private cache may contain intermediate layers.
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        DOCKER_API_VERSION=$$(docker version --format '{{.Server.APIVersion}}')
+        export DOCKER_API_VERSION
+        docker buildx build --builder release --load --progress=plain \
+          --cache-from 'type=registry,ref=${_LAYER_CACHE}' \
+          --cache-to 'type=registry,ref=${_LAYER_CACHE},mode=max' \
+          --build-arg BUILD_ARTIFACTS=prebuilt --build-arg 'PROA_BUILD_REVISION=${_COMMIT}' \
+          -f proa_marketing/Dockerfile -t '${_IMAGE}:${_REVISION}' .
 
   - id: smoke
-    waitFor: [package, prefetch-smoke]
-    name: gcr.io/cloud-builders/docker
+    waitFor: [package]
+    name: '${_CACHE_TOOLS}'
+    env: [DOCKER_CONFIG=/builder/home/.docker-release]
     entrypoint: bash
     args:
       - -ceu
@@ -127,9 +152,13 @@ options:
   diskSizeGb: 200
   logging: CLOUD_LOGGING_ONLY
 substitutions:
+  _COMPILE_TOOLS: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/marketing-compile-tools@sha256:ca5aa1255a157d8316f3ccc6f86259125d835e2de524fa224262e433734fe072
+  _CACHE_TOOLS: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/marketing-cache-tools@sha256:ef3174123e31012f360270e50da5586dc2bb9eb22307c2d9e864c001f456d1fd
+  _BUILDKIT_IMAGE: moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+  _LAYER_CACHE: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/marketing-package-cache:main
   _NODE_IMAGE: node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
   _PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
   _IMAGE: us-west1-docker.pkg.dev/airy-cycle-504821-k9/releases/proa-marketing
   _REVISION: manual
   _COMMIT: ''
-  _CACHE: gs://airy-cycle-504821-k9-marketing-cache/release-v3-descriptor0-cgu16-thin
+  _CACHE: gs://airy-cycle-504821-k9-marketing-cache/release-v4-descriptor4-cgu16-thin

@@ -40,12 +40,22 @@ if __name__ == "__main__":
                for page in rounds[0]}
         for name, rounds in samples.items()
     }
+    p95s = {
+        name: {page: statistics.median(sample[page]["p95_ssr_us"] for sample in rounds)
+               for page in rounds[0]}
+        for name, rounds in samples.items()
+    }
     result = {
         "binary_sha256": hashes, "rounds": args.rounds,
         "samples_per_page_per_round": 1000, "median_ssr_us": medians,
+        "p95_ssr_us": p95s,
         "candidate_change_percent": {
             page: round((value / medians["baseline"][page] - 1) * 100, 2)
             for page, value in medians["candidate"].items()
+        },
+        "candidate_p95_change_percent": {
+            page: round((value / p95s["baseline"][page] - 1) * 100, 2)
+            for page, value in p95s["candidate"].items()
         },
     }
     (args.report / "comparison.json").write_text(json.dumps(result, indent=2) + "\n")

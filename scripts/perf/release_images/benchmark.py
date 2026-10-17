@@ -15,6 +15,7 @@ from pathlib import Path
 import shutil
 import statistics
 import subprocess
+import sys
 import time
 import urllib.request
 
@@ -141,7 +142,11 @@ def runtime(binary, artifacts, report):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--variants", nargs="+", default=["1:thin", "16:thin", "8:thin", "16:false", "16:off"])
+    parser.add_argument("--compare-runtime", action="store_true",
+                        help="alternate SSR measurements of exactly two retained variants on this worker")
     args = parser.parse_args()
+    if args.compare_runtime and len(args.variants) != 2:
+        parser.error("--compare-runtime requires exactly two variants")
     incoming = Path("/workspace")
     original = incoming / "proa_marketing/src/pages/home.rs"
     contents = original.read_bytes()
@@ -170,3 +175,11 @@ if __name__ == "__main__":
         # Retain measurements and binaries for later A/B browser/runtime checks.
         # Drop target caches between variants to fit the worker disk.
         shutil.rmtree(root)
+    if args.compare_runtime:
+        baseline, candidate = [Path("/release/artifacts") / f"cgu{variant.replace(':', '-')}"
+                               for variant in args.variants]
+        subprocess.run([
+            sys.executable, str(Path(__file__).with_name("runtime_compare.py")),
+            str(baseline / "proa_marketing"), str(candidate / "proa_marketing"),
+            str(candidate), "/release/report/control",
+        ], check=True)

@@ -207,8 +207,9 @@ uses the generation observed at restore; a competing publisher leaves its
 completed cache intact. The staging object is removed on normal exit or failure.
 No multi-GB archive is staged on worker disk. Save runs alongside image packaging
 and smoke tests; compilation stages the runtime artifacts before either starts.
-The digest-pinned Node and Playwright smoke images prefetch concurrently with
-cache restore and compilation. Only smoke testing waits for that prefetch.
+The pinned compile-tools, Node and Playwright images prefetch while cache
+restore starts. A pinned BuildKit container also starts then. Packaging waits
+for compilation and this preparation; compilation only waits for cache restore.
 A missing archive starts a cold build. Never share this bucket or identity with
 PR runners. To invalidate incompatible caches, change `_CACHE` in the build
 configuration. The cloud build is cancelled when its CI job receives SIGTERM or
@@ -218,28 +219,72 @@ attempts before cancellation.
 Runtime image layers put Node, Bun and companions before the application files.
 Assets remain root-owned and readable by the non-root service user; there is no
 recursive ownership layer. The commit revision is applied last so it cannot
-invalidate dependency installation. The Railway job does not install gcloud.
+invalidate dependency installation. Packaging uses BuildKit's docker-container
+builder and a separate private registry cache, with `mode=max` so intermediate
+companions and runtime dependency layers survive between workers. `--load`
+keeps the runtime image on the worker for HTTP and browser tests; Cloud Build's
+final `images:` publication still happens only after every step succeeds.
+The registry cache can be exported before smoke tests complete and is never a
+deployable release reference. Only trusted builds may write either cache.
+Pulling runtime bases into the Docker daemon would not warm BuildKit's separate
+content store; the registry cache supplies those layers instead.
+The Railway job does not install gcloud.
+
+Two private, digest-pinned tools images replace per-release package installation.
+The compile image includes Rust 1.95, Clippy/rustfmt requested by the workspace,
+build-essential, OpenSSL headers, Python, time, zstd, and checksum-verified
+Tailwind 3.4.18. The cache/package image extends the minimal Cloud SDK `stable`
+image with OS CA certificates, zstd, Docker CLI, and buildx 0.29.1, which supports the worker's
+Docker API 1.41. Each buildx invocation selects the daemon's reported API
+version; its credentials and state use a separate Docker config directory.
+Cloud SDK `slim` contains more packages
+than `stable` and would increase the download. Neither tools image ships in the
+application runtime.
+
+When changing the toolchain or these tools, rebuild them explicitly:
+
+```sh
+gcloud builds submit . --async --config=deploy/marketing/tools.yaml \
+  --project=airy-cycle-504821-k9 \
+  --service-account=projects/airy-cycle-504821-k9/serviceAccounts/proa-marketing-builder@airy-cycle-504821-k9.iam.gserviceaccount.com \
+  --gcs-source-staging-dir=gs://airy-cycle-504821-k9-marketing-cache/sources \
+  --substitutions=_TAG=YOUR_UNIQUE_TOOLS_VERSION
+```
+
+Read the completed build's `results.images` digests, then update `_COMPILE_TOOLS`
+and `_CACHE_TOOLS` in both release and benchmark configurations. Tags are only
+maintenance build outputs; releases always consume immutable digests. The tools
+build is not part of a normal release.
 
 To reproduce compilation and runtime measurements:
 
 ```sh
-gcloud builds submit --config scripts/perf/release_images/benchmark.yaml --async .
+gcloud builds submit . --async --config=scripts/perf/release_images/benchmark.yaml \
+  --project=airy-cycle-504821-k9 \
+  --service-account=projects/airy-cycle-504821-k9/serviceAccounts/proa-marketing-builder@airy-cycle-504821-k9.iam.gserviceaccount.com \
+  --gcs-source-staging-dir=gs://airy-cycle-504821-k9-marketing-cache/sources \
+  --substitutions='_VARIANTS=16:thin 16:off,_EXTRA_ARGS=--compare-runtime'
 ```
 
-This runs cold, unchanged, and one-link-change builds for each codegen/LTO
+This runs cold, unchanged, and one-link-change builds for each selected codegen/LTO
 configuration, with the application always at optimization level 3. Reports
 include elapsed time, peak RSS and CPU, Cargo timing HTML, fingerprint logs,
-binary sizes/checksums, and 1,000 SSR samples per showcase page. The descriptor
-pass emits compiler transport at optimization level 0 while preserving the
-original profile's assertion configuration; final compilation keeps
-the selected application profile. The CLI itself uses `release-fast` because
+binary sizes/checksums, and 1,000 SSR samples per showcase page. This PR keeps
+main's descriptor policy 4, including its inherited profile
+optimization level. The optimization-level-0 descriptor change is deferred
+until after #13's descriptor policy 7; it is not active on this branch. Final
+compilation retains optimization level 3, CGU16 and full ThinLTO. The CLI itself
+uses `release-fast` because
 its own executable is a build tool rather than a published render benchmark.
 Reports are stored under the build ID in the private marketing cache bucket.
 CPU time and peak RSS describe each timed build stage; descriptor and final
 elapsed times come from Cargo's completion lines.
 Successful benchmark builds also retain their binaries and packaged assets for
 controlled runtime comparisons. Record worker CPU models alongside timings:
-native Cloud Build workers of the same machine class can still vary.
+native Cloud Build workers of the same machine class can still vary. The example
+also alternates the two retained binaries over three SSR rounds on that worker,
+reporting median and p95 render times. Omit `--substitutions` for the full default profile sweep. Add `--machine-type=e2-highcpu-32` to compare the same source and
+profiles on a larger worker; keep those results separate from the 8-CPU run.
 
 Download reports and compare complete results with:
 
@@ -322,3 +367,80 @@ The five-minute warm compilation target remains unmet: the measured fresh-worker
 edit took 5m22s, and overall commit-to-production latency also includes the
 existing CI validation gate. Narrowing global RSJS invalidation is separate
 work; this change deliberately preserves the existing unit-map/plan witnesses.
+
+### Native overhead validation, 2026-10-17
+
+The measurements in this section used source based on `9aa8c63`, before
+`0c1034d` deferred descriptor policy 6. They are infrastructure and exploratory
+profile evidence, not current-policy latency promises. The active branch
+retains main's descriptor policy 4 and uses a separate compiler cache namespace.
+
+A fresh `E2_HIGHCPU_8` worker restored the complete archive and rebuilt one
+intro-video href using the baked tools and registry layer cache. The complete
+release passed revision-header, HTTP, Node/Bun companion and Playwright checks,
+then published its validation image. Build:
+`7ae6bf56-ccf0-40a4-8d4a-3f75212fa153`.
+
+| Step | Elapsed |
+|---|---:|
+| Restore | 1m03s |
+| Compile, including CSS, CLI and linked application | 4m50s |
+| Save archive | 1m23s |
+| Package | 21s |
+| Smoke checks | 9s |
+| Publish image | 7s |
+
+Save overlaps packaging and smoke testing, so these rows must not be summed.
+Worker start to published image was **7m32s**, or **8m13s** from submission
+including its queue. This excludes GitHub job setup, the parallel CI gate and
+Railway rollout. The CLI reused its artifacts in 1.1s, the descriptor phase in
+6.8s, and final optimized compilation took 4m29s. This is one observation,
+not a guarantee that compilation always stays below five minutes. The earlier
+native build `894a57a2-52b0-4490-aaf7-3b76dbe17206` rebuilt the CLI and more
+application artifacts and is not a matched warm baseline.
+
+Separate fresh-worker packaging checks reused a previously verified binary and
+assets while changing only revision metadata. Cold packaging took 36s; warm
+runs took 48s and 10.7s, with all dependency layers cached. The slower warm run
+spent 26s exporting the registry cache. All three passed non-root permission,
+HTTP, companion and browser checks. This confirms intermediate-layer reuse;
+registry and worker variance still affect total packaging time. Builds:
+`e41b723d-56f2-4a9b-a09a-39958a4f90f9`,
+`12c0e3e5-4fbd-474c-918b-3c6da72d8262`, and
+`9bfe9ebb-178c-4419-81b8-d966d01c92b7`.
+
+The same pre-deferral source archive was benchmarked with baked compile tools.
+Compilation totals below include CSS, source reconciliation, CLI and linked
+application builds, excluding cache transfer, packaging and rollout.
+
+| Worker / profile | Cold | No-op | One href edit |
+|---|---:|---:|---:|
+| 8 CPUs, CGU16 ThinLTO | 8m56s | 12.7s | 5m19s |
+| 8 CPUs, CGU16 LTO off | 7m16s | 8.5s | 3m21s |
+| 32 CPUs, CGU16 ThinLTO | 10m00s | 14.2s | 6m45s |
+
+The 8-CPU worker was an AMD EPYC 7B12; the 32-CPU worker was an Intel Xeon
+2.20GHz. This is not an isolated core-scaling experiment. The larger machine
+showed no benefit in this trial and has four times the
+[per-minute compute price](https://cloud.google.com/build/pricing), so the
+release configuration retains 8 CPUs. Builds:
+`39233176-dcdf-47d6-a1ba-311542b64fa4` (8 CPUs) and
+`8733862b-71b3-4976-88f5-3e54f8ad60d1` (32 CPUs).
+
+The 8-CPU worker then compared its exact ThinLTO and LTO-off binaries in three
+alternating rounds, with 100 warmups and 1,000 measurements per page per round.
+Values below are medians across rounds, including median-of-round-p95 values.
+
+| Workload | ThinLTO median, us | Off median, us | Median change | p95 change |
+|---|---:|---:|---:|---:|
+| eBay SRP | 203.091 | 210.740 | +3.77% | +1.29% |
+| Nike catalog | 37.420 | 62.040 | +65.80% | +51.13% |
+| Nike PDP | 7.980 | 11.040 | +38.35% | +38.83% |
+| ESPN gamecast | 15.890 | 21.860 | +37.57% | +38.64% |
+| GitHub PR diff | 43.350 | 51.621 | +19.08% | +13.24% |
+
+LTO off saved about two minutes per edited build but materially slowed rendering;
+retain full ThinLTO. Raw rounds, build metadata, binary hashes and the comparison
+are retained under the 8-CPU build's `report/control` directory in the private
+bucket. The speculative LTO-off image build was cancelled after this result;
+no LTO-off release profile or production deployment was applied.
