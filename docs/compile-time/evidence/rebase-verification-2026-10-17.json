@@ -43,7 +43,41 @@
       "browser hydration and paint"
     ],
     "source_restored_after_each_block": true,
-    "probe": "scripts/dev_latency_probe.py --source src/lib.rs --url-path / --profile dev --samples 7 --port 39247"
+    "probe": "scripts/dev_latency_probe.py --source src/lib.rs --url-path / --profile dev --samples 7 --port 39247",
+    "waterfall": "Each boundary is the median timestamp of all 12 measured edits for that variant/edit type. Segment widths are differences between consecutive median timestamps, not medians of individual stage durations. Endpoint equals the reported median save-to-HTTP response.",
+    "waterfall_stages": [
+      {
+        "start": "save",
+        "end": "prepared",
+        "label": "Detect / prepare"
+      },
+      {
+        "start": "prepared",
+        "end": "descriptor_finished",
+        "label": "Descriptor build"
+      },
+      {
+        "start": "descriptor_finished",
+        "end": "final_compiling",
+        "label": "Cache / link setup"
+      },
+      {
+        "start": "final_compiling",
+        "end": "final_finished",
+        "label": "Final compilation"
+      },
+      {
+        "start": "final_finished",
+        "end": "validated",
+        "label": "Validate / publish"
+      },
+      {
+        "start": "validated",
+        "end": "response",
+        "label": "Restart / HTTP"
+      }
+    ],
+    "waterfall_renderer": "Matplotlib 3.11.2; PNG and SVG exports"
   },
   "summary": {
     "template": {
@@ -108,7 +142,75 @@
       ],
       "median_seconds": 6.891383270500228,
       "discarded_warmup_seconds": 6.829689792008139,
-      "raw_record_sha256": "e667a9da7fe09fc167853da205f6cb09327308c5d105a846f7a0c00c617bcdec"
+      "raw_record_sha256": "e667a9da7fe09fc167853da205f6cb09327308c5d105a846f7a0c00c617bcdec",
+      "boundaries_seconds": [
+        {
+          "save": 0.0,
+          "detected": 0.36383858299814165,
+          "prepared": 0.36388933297712356,
+          "descriptor_finished": 2.4534086659550667,
+          "final_compiling": 5.279795540962368,
+          "final_finished": 6.336471249931492,
+          "validated": 6.421044874936342,
+          "launched": 6.526093915919773,
+          "response": 6.8580245829652995
+        },
+        {
+          "save": 0.0,
+          "detected": 0.36530458298511803,
+          "prepared": 0.3653552080504596,
+          "descriptor_finished": 2.4193822500528768,
+          "final_compiling": 5.322064958047122,
+          "final_finished": 6.3996591250179335,
+          "validated": 6.47157850000076,
+          "launched": 6.577324875048362,
+          "response": 6.924741958035156
+        },
+        {
+          "save": 0.0,
+          "detected": 0.3483106669737026,
+          "prepared": 0.348351625027135,
+          "descriptor_finished": 2.5041026250692084,
+          "final_compiling": 5.446233249967918,
+          "final_finished": 6.485052459058352,
+          "validated": 6.553631209069863,
+          "launched": 6.655305500025861,
+          "response": 7.015955375041813
+        },
+        {
+          "save": 0.0,
+          "detected": 0.32943749998230487,
+          "prepared": 0.32947195798624307,
+          "descriptor_finished": 2.465437875012867,
+          "final_compiling": 5.166050957981497,
+          "final_finished": 6.198290958069265,
+          "validated": 6.254886124981567,
+          "launched": 6.360019833082333,
+          "response": 6.704995625070296
+        },
+        {
+          "save": 0.0,
+          "detected": 0.36059466609731317,
+          "prepared": 0.36065395805053413,
+          "descriptor_finished": 2.4593965830281377,
+          "final_compiling": 5.478651790996082,
+          "final_finished": 6.558327958104201,
+          "validated": 6.661226666066796,
+          "launched": 6.766270374995656,
+          "response": 7.112036375096068
+        },
+        {
+          "save": 0.0,
+          "detected": 0.34973845805507153,
+          "prepared": 0.34978979104198515,
+          "descriptor_finished": 2.4441489999881014,
+          "final_compiling": 5.164452625089325,
+          "final_finished": 6.204355625086464,
+          "validated": 6.273954458069056,
+          "launched": 6.378953666076995,
+          "response": 6.717977000051178
+        }
+      ]
     },
     {
       "label": "template-2-branch",
@@ -124,7 +226,75 @@
       ],
       "median_seconds": 2.5147043124889024,
       "discarded_warmup_seconds": 2.460438209003769,
-      "raw_record_sha256": "453dbe39a8776da9d4c2c8390718942241ed5a432f4c6c626cbdfd58042ae00b"
+      "raw_record_sha256": "453dbe39a8776da9d4c2c8390718942241ed5a432f4c6c626cbdfd58042ae00b",
+      "boundaries_seconds": [
+        {
+          "save": 0.0,
+          "detected": 0.20861004095058888,
+          "prepared": 0.20872841600794345,
+          "descriptor_finished": 0.9765218329848722,
+          "final_compiling": 1.3323719160398468,
+          "final_finished": 2.057168541010469,
+          "validated": 2.103192124981433,
+          "launched": 2.1095211659558117,
+          "response": 2.5016037500463426
+        },
+        {
+          "save": 0.0,
+          "detected": 0.2998599580023438,
+          "prepared": 0.2999416249804199,
+          "descriptor_finished": 1.1017585420049727,
+          "final_compiling": 1.4718194579472765,
+          "final_finished": 2.2117152919527143,
+          "validated": 2.2416733329882845,
+          "launched": 2.247952542034909,
+          "response": 2.6015518329804763
+        },
+        {
+          "save": 0.0,
+          "detected": 0.24167895899154246,
+          "prepared": 0.2417381249833852,
+          "descriptor_finished": 0.992217083927244,
+          "final_compiling": 1.3684548339806497,
+          "final_finished": 2.114160708966665,
+          "validated": 2.158225083956495,
+          "launched": 2.1645422920119017,
+          "response": 2.527804874931462
+        },
+        {
+          "save": 0.0,
+          "detected": 0.2231536250328645,
+          "prepared": 0.2232287919614464,
+          "descriptor_finished": 0.9983257499989122,
+          "final_compiling": 1.3615895829861984,
+          "final_finished": 2.1001781249651685,
+          "validated": 2.1463018329814076,
+          "launched": 2.1515144580043852,
+          "response": 2.500486832926981
+        },
+        {
+          "save": 0.0,
+          "detected": 0.23997691692784429,
+          "prepared": 0.24023641692474484,
+          "descriptor_finished": 1.0123855419224128,
+          "final_compiling": 1.3713551668915898,
+          "final_finished": 2.09409283392597,
+          "validated": 2.1326567919459194,
+          "launched": 2.139090291922912,
+          "response": 2.489896166953258
+        },
+        {
+          "save": 0.0,
+          "detected": 0.24370420805644244,
+          "prepared": 0.2438029160257429,
+          "descriptor_finished": 1.0117340830620378,
+          "final_compiling": 1.3894794160733,
+          "final_finished": 2.1287442080210894,
+          "validated": 2.179586875019595,
+          "launched": 2.1858993750065565,
+          "response": 2.560839541023597
+        }
+      ]
     },
     {
       "label": "template-3-branch",
@@ -140,7 +310,75 @@
       ],
       "median_seconds": 2.535308062506374,
       "discarded_warmup_seconds": 2.601598541950807,
-      "raw_record_sha256": "f9638799c3e85bdc81472e34a243f732b624a63db796b3fd78f2fc5d72412ae6"
+      "raw_record_sha256": "f9638799c3e85bdc81472e34a243f732b624a63db796b3fd78f2fc5d72412ae6",
+      "boundaries_seconds": [
+        {
+          "save": 0.0,
+          "detected": 0.2256002080393955,
+          "prepared": 0.22571308305487037,
+          "descriptor_finished": 1.008292332990095,
+          "final_compiling": 1.3724570829654112,
+          "final_finished": 2.121604165993631,
+          "validated": 2.1648684160318226,
+          "launched": 2.171146458014846,
+          "response": 2.5265296660363674
+        },
+        {
+          "save": 0.0,
+          "detected": 0.2356399999698624,
+          "prepared": 0.23568054102361202,
+          "descriptor_finished": 1.0070338330697268,
+          "final_compiling": 1.3795080410782248,
+          "final_finished": 2.1259922080207616,
+          "validated": 2.177491500042379,
+          "launched": 2.1837997500551865,
+          "response": 2.531318375025876
+        },
+        {
+          "save": 0.0,
+          "detected": 0.25230279192328453,
+          "prepared": 0.252383166924119,
+          "descriptor_finished": 1.0433955839835107,
+          "final_compiling": 1.4142302089603618,
+          "final_finished": 2.161282416898757,
+          "validated": 2.2093429589876905,
+          "launched": 2.215661708964035,
+          "response": 2.557852583937347
+        },
+        {
+          "save": 0.0,
+          "detected": 0.2516774999676272,
+          "prepared": 0.2517395409522578,
+          "descriptor_finished": 1.032934374990873,
+          "final_compiling": 1.3912442500004545,
+          "final_finished": 2.128918749978766,
+          "validated": 2.181413915939629,
+          "launched": 2.187692540930584,
+          "response": 2.539297749986872
+        },
+        {
+          "save": 0.0,
+          "detected": 0.24736791604664177,
+          "prepared": 0.24747420800849795,
+          "descriptor_finished": 1.0386174579616636,
+          "final_compiling": 1.3920116249937564,
+          "final_finished": 2.140830415999517,
+          "validated": 2.1847869999473915,
+          "launched": 2.1910664580063894,
+          "response": 2.541180541040376
+        },
+        {
+          "save": 0.0,
+          "detected": 0.24028412497136742,
+          "prepared": 0.24040862498804927,
+          "descriptor_finished": 1.0134258340112865,
+          "final_compiling": 1.378970708930865,
+          "final_finished": 2.1113566670101136,
+          "validated": 2.158374459017068,
+          "launched": 2.164658874971792,
+          "response": 2.5172068750252947
+        }
+      ]
     },
     {
       "label": "template-4-main",
@@ -156,7 +394,75 @@
       ],
       "median_seconds": 6.6199174164794385,
       "discarded_warmup_seconds": 6.701152125024237,
-      "raw_record_sha256": "652964fb91c9f735c3c032f3364c3f65056087ad591a869e18379a00991a40b3"
+      "raw_record_sha256": "652964fb91c9f735c3c032f3364c3f65056087ad591a869e18379a00991a40b3",
+      "boundaries_seconds": [
+        {
+          "save": 0.0,
+          "detected": 0.3386069580446929,
+          "prepared": 0.3387070409953594,
+          "descriptor_finished": 2.276302415993996,
+          "final_compiling": 5.096307500032708,
+          "final_finished": 6.088744000066072,
+          "validated": 6.1628500000806525,
+          "launched": 6.26309766608756,
+          "response": 6.615208250004798
+        },
+        {
+          "save": 0.0,
+          "detected": 0.3489960830193013,
+          "prepared": 0.3490915830479935,
+          "descriptor_finished": 2.3227516249753535,
+          "final_compiling": 5.196032042033039,
+          "final_finished": 6.180289792013355,
+          "validated": 6.253051875042729,
+          "launched": 6.358088416978717,
+          "response": 6.705289707984775
+        },
+        {
+          "save": 0.0,
+          "detected": 0.34938445792067796,
+          "prepared": 0.3494497499195859,
+          "descriptor_finished": 2.294802957912907,
+          "final_compiling": 5.083836291916668,
+          "final_finished": 6.0886306669563055,
+          "validated": 6.162055457942188,
+          "launched": 6.267128541949205,
+          "response": 6.624626582954079
+        },
+        {
+          "save": 0.0,
+          "detected": 0.3439347919775173,
+          "prepared": 0.34415416698902845,
+          "descriptor_finished": 2.3299042499857023,
+          "final_compiling": 5.141080249915831,
+          "final_finished": 6.155353124951944,
+          "validated": 6.217969666933641,
+          "launched": 6.323010957916267,
+          "response": 6.671475791954435
+        },
+        {
+          "save": 0.0,
+          "detected": 0.3486864579608664,
+          "prepared": 0.3488763750065118,
+          "descriptor_finished": 2.3799846249166876,
+          "final_compiling": 5.075224249972962,
+          "final_finished": 6.050367792020552,
+          "validated": 6.121493624988943,
+          "launched": 6.2266187919303775,
+          "response": 6.563500207965262
+        },
+        {
+          "save": 0.0,
+          "detected": 0.3696067079436034,
+          "prepared": 0.3698825410101563,
+          "descriptor_finished": 2.3221577500225976,
+          "final_compiling": 5.085342166014016,
+          "final_finished": 6.073070124955848,
+          "validated": 6.139046791009605,
+          "launched": 6.2441353329923,
+          "response": 6.601287749945186
+        }
+      ]
     },
     {
       "label": "function-1-main",
@@ -172,7 +478,75 @@
       ],
       "median_seconds": 6.763349437562283,
       "discarded_warmup_seconds": 6.9524477910017595,
-      "raw_record_sha256": "15dc002fff7491269261eb54d2ee8a6d1217bf1412a6160958ad82f3bcc73bb8"
+      "raw_record_sha256": "15dc002fff7491269261eb54d2ee8a6d1217bf1412a6160958ad82f3bcc73bb8",
+      "boundaries_seconds": [
+        {
+          "save": 0.0,
+          "detected": 0.3454755829880014,
+          "prepared": 0.3456065420759842,
+          "descriptor_finished": 2.412868458079174,
+          "final_compiling": 5.255178000079468,
+          "final_finished": 6.279100666986778,
+          "validated": 6.355627542012371,
+          "launched": 6.460709125036374,
+          "response": 6.8148845420219
+        },
+        {
+          "save": 0.0,
+          "detected": 0.33581812505144626,
+          "prepared": 0.3361203330568969,
+          "descriptor_finished": 2.373603667016141,
+          "final_compiling": 5.198945292038843,
+          "final_finished": 6.210150625091046,
+          "validated": 6.27240416710265,
+          "launched": 6.3729946670355275,
+          "response": 6.711814333102666
+        },
+        {
+          "save": 0.0,
+          "detected": 0.3545982919167727,
+          "prepared": 0.3547148749930784,
+          "descriptor_finished": 2.3839460839517415,
+          "final_compiling": 5.3355099589098245,
+          "final_finished": 6.384850124944933,
+          "validated": 6.458805208909325,
+          "launched": 6.562333417008631,
+          "response": 6.92848654196132
+        },
+        {
+          "save": 0.0,
+          "detected": 0.32976112503092736,
+          "prepared": 0.3299393750494346,
+          "descriptor_finished": 2.3136778339976445,
+          "final_compiling": 5.069954167003743,
+          "final_finished": 6.095585459028371,
+          "validated": 6.154405917041004,
+          "launched": 6.259444250026718,
+          "response": 6.618698292062618
+        },
+        {
+          "save": 0.0,
+          "detected": 0.33943445794284344,
+          "prepared": 0.33977650001179427,
+          "descriptor_finished": 2.4061919579980895,
+          "final_compiling": 5.289784458000213,
+          "final_finished": 6.319938416942023,
+          "validated": 6.388349208049476,
+          "launched": 6.489679542020895,
+          "response": 6.825569708016701
+        },
+        {
+          "save": 0.0,
+          "detected": 0.36181337502785027,
+          "prepared": 0.36204591707792133,
+          "descriptor_finished": 2.352180292014964,
+          "final_compiling": 5.1294317920692265,
+          "final_finished": 6.171539209084585,
+          "validated": 6.24199154204689,
+          "launched": 6.346147084026597,
+          "response": 6.69004654197488
+        }
+      ]
     },
     {
       "label": "function-2-branch",
@@ -188,7 +562,75 @@
       ],
       "median_seconds": 2.5429160830099136,
       "discarded_warmup_seconds": 2.5667667080415413,
-      "raw_record_sha256": "857d83570e3d9e5588cf9c4d599c8b13f34e3f0221bf91da1037aebc7ffdb817"
+      "raw_record_sha256": "857d83570e3d9e5588cf9c4d599c8b13f34e3f0221bf91da1037aebc7ffdb817",
+      "boundaries_seconds": [
+        {
+          "save": 0.0,
+          "detected": 0.2209103750064969,
+          "prepared": 0.22092908306512982,
+          "descriptor_finished": 0.9875430420506746,
+          "final_compiling": 1.3572142081102356,
+          "final_finished": 2.10651041707024,
+          "validated": 2.1570302080363035,
+          "launched": 2.163316792109981,
+          "response": 2.50642745802179
+        },
+        {
+          "save": 0.0,
+          "detected": 0.29258162493351847,
+          "prepared": 0.29269774991553277,
+          "descriptor_finished": 1.0855629579164088,
+          "final_compiling": 1.4541943749645725,
+          "final_finished": 2.243623707909137,
+          "validated": 2.2728652500081807,
+          "launched": 2.27930924994871,
+          "response": 2.6373569580027834
+        },
+        {
+          "save": 0.0,
+          "detected": 0.23794658307451755,
+          "prepared": 0.23808566702064127,
+          "descriptor_finished": 1.020929167047143,
+          "final_compiling": 1.3911234170664102,
+          "final_finished": 2.1335014579817653,
+          "validated": 2.1785050419857726,
+          "launched": 2.184796957997605,
+          "response": 2.5408616249915212
+        },
+        {
+          "save": 0.0,
+          "detected": 0.22476958308834583,
+          "prepared": 0.22484783304389566,
+          "descriptor_finished": 1.0239907080540434,
+          "final_compiling": 1.3941608329769224,
+          "final_finished": 2.1576875830069184,
+          "validated": 2.204842249979265,
+          "launched": 2.21036083297804,
+          "response": 2.544970541028306
+        },
+        {
+          "save": 0.0,
+          "detected": 0.2534970829728991,
+          "prepared": 0.2537217909703031,
+          "descriptor_finished": 1.0888096250128,
+          "final_compiling": 1.4619447080185637,
+          "final_finished": 2.225501957931556,
+          "validated": 2.2650312909390777,
+          "launched": 2.271330500021577,
+          "response": 2.6284871249226853
+        },
+        {
+          "save": 0.0,
+          "detected": 0.23330225003883243,
+          "prepared": 0.23332600004505366,
+          "descriptor_finished": 0.993139166967012,
+          "final_compiling": 1.3564904580125585,
+          "final_finished": 2.1043534169439226,
+          "validated": 2.142528707976453,
+          "launched": 2.148837291984819,
+          "response": 2.5156335829524323
+        }
+      ]
     },
     {
       "label": "function-3-branch",
@@ -204,7 +646,75 @@
       ],
       "median_seconds": 2.569263457960915,
       "discarded_warmup_seconds": 2.5139197919052094,
-      "raw_record_sha256": "71ec31b58ecaa8f16a3937799b327035142117060d2016ed29f8728f090d46a8"
+      "raw_record_sha256": "71ec31b58ecaa8f16a3937799b327035142117060d2016ed29f8728f090d46a8",
+      "boundaries_seconds": [
+        {
+          "save": 0.0,
+          "detected": 0.22874620801303536,
+          "prepared": 0.22889170807320625,
+          "descriptor_finished": 1.0084928330034018,
+          "final_compiling": 1.3786129580112174,
+          "final_finished": 2.135919125052169,
+          "validated": 2.1762928750831634,
+          "launched": 2.1825956660322845,
+          "response": 2.5485768750077114
+        },
+        {
+          "save": 0.0,
+          "detected": 0.22576366702560335,
+          "prepared": 0.22580779204145074,
+          "descriptor_finished": 1.0051962500438094,
+          "final_compiling": 1.367269332986325,
+          "final_finished": 2.1555200420552865,
+          "validated": 2.1966951669892296,
+          "launched": 2.2029945419635624,
+          "response": 2.5555681249825284
+        },
+        {
+          "save": 0.0,
+          "detected": 0.230805083992891,
+          "prepared": 0.23096604202874005,
+          "descriptor_finished": 1.0557903749868274,
+          "final_compiling": 1.4198590000160038,
+          "final_finished": 2.2050145840039477,
+          "validated": 2.2466158750467002,
+          "launched": 2.252895334037021,
+          "response": 2.6188292920123786
+        },
+        {
+          "save": 0.0,
+          "detected": 0.22497649991419166,
+          "prepared": 0.22508541599381715,
+          "descriptor_finished": 1.0157472909195349,
+          "final_compiling": 1.3892994578927755,
+          "final_finished": 2.1672582499450073,
+          "validated": 2.217852082918398,
+          "launched": 2.2241393328877166,
+          "response": 2.5737842079252005
+        },
+        {
+          "save": 0.0,
+          "detected": 0.2330297080334276,
+          "prepared": 0.23308487504255027,
+          "descriptor_finished": 1.0109197909478098,
+          "final_compiling": 1.3801885830471292,
+          "final_finished": 2.1417207500198856,
+          "validated": 2.1988947079516947,
+          "launched": 2.2051835410529748,
+          "response": 2.564742707996629
+        },
+        {
+          "save": 0.0,
+          "detected": 0.23085837496910244,
+          "prepared": 0.231085833045654,
+          "descriptor_finished": 1.028332291985862,
+          "final_compiling": 1.420754999970086,
+          "final_finished": 2.232848457992077,
+          "validated": 2.2805005830014125,
+          "launched": 2.2867979999864474,
+          "response": 2.63207891699858
+        }
+      ]
     },
     {
       "label": "function-4-main",
@@ -220,7 +730,75 @@
       ],
       "median_seconds": 6.860711916466244,
       "discarded_warmup_seconds": 6.766232916968875,
-      "raw_record_sha256": "e2e0b880b13a429b3a9b24bbc268db420196da4df45bdc0dac230f2ecd90786b"
+      "raw_record_sha256": "e2e0b880b13a429b3a9b24bbc268db420196da4df45bdc0dac230f2ecd90786b",
+      "boundaries_seconds": [
+        {
+          "save": 0.0,
+          "detected": 0.32886241702362895,
+          "prepared": 0.3292324170470238,
+          "descriptor_finished": 2.424030208028853,
+          "final_compiling": 5.29696754203178,
+          "final_finished": 6.334039582987316,
+          "validated": 6.414204166969284,
+          "launched": 6.519249917007983,
+          "response": 6.870117582962848
+        },
+        {
+          "save": 0.0,
+          "detected": 0.3447184170363471,
+          "prepared": 0.34483883308712393,
+          "descriptor_finished": 2.4378750830655918,
+          "final_compiling": 5.276484375004657,
+          "final_finished": 6.312827749992721,
+          "validated": 6.396848417003639,
+          "launched": 6.501926125027239,
+          "response": 6.857225958025083
+        },
+        {
+          "save": 0.0,
+          "detected": 0.3352511249249801,
+          "prepared": 0.33534195797983557,
+          "descriptor_finished": 2.3939057079842314,
+          "final_compiling": 5.233310666983016,
+          "final_finished": 6.316152416984551,
+          "validated": 6.378009291947819,
+          "launched": 6.4829174999613315,
+          "response": 6.864197874907404
+        },
+        {
+          "save": 0.0,
+          "detected": 0.41616237501148134,
+          "prepared": 0.4161709579639137,
+          "descriptor_finished": 2.434141083038412,
+          "final_compiling": 5.317424874985591,
+          "final_finished": 6.353909916011617,
+          "validated": 6.43032966600731,
+          "launched": 6.533297082991339,
+          "response": 6.969660041038878
+        },
+        {
+          "save": 0.0,
+          "detected": 0.40976608300115913,
+          "prepared": 0.40988216595724225,
+          "descriptor_finished": 2.457368665956892,
+          "final_compiling": 5.2573640829650685,
+          "final_finished": 6.289024124969728,
+          "validated": 6.3587327499408275,
+          "launched": 6.461287125013769,
+          "response": 6.815830332925543
+        },
+        {
+          "save": 0.0,
+          "detected": 0.3384384160162881,
+          "prepared": 0.3385230830172077,
+          "descriptor_finished": 2.4679514160379767,
+          "final_compiling": 5.295997041044757,
+          "final_finished": 6.328023208072409,
+          "validated": 6.401429750025272,
+          "launched": 6.504743250086904,
+          "response": 6.8523029159987345
+        }
+      ]
     }
   ],
   "historical_claim_audit": {

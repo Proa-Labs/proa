@@ -11,6 +11,16 @@ Fresh paired trials compare main `0d1f5cf` with rebased PR code `a9cf94b`:
 | Template text edit | 6.705s | 2.530s | 62.3% |
 | Rust helper return-value edit | 6.839s | 2.560s | 62.6% |
 
+![Current Pizza template and Rust-function rebuild waterfalls](diagrams/pizza-rebase-waterfalls-2026-10-17.png)
+
+[Vector version](diagrams/pizza-rebase-waterfalls-2026-10-17.svg). Each boundary
+is the median timestamp of all 12 measured edits for that variant and edit type.
+Segment widths are differences between those median boundaries, so each bar
+ends at the reported median response time. They are not independently computed
+median stage durations. Cache/link setup includes the interval from descriptor
+completion through final Cargo preparation; these log boundaries are not CPU
+profiles. The evidence below retains every sample's boundaries.
+
 Each variant has 12 measured edits per edit type: two six-edit blocks, each
 preceded by one discarded warmup. Blocks run serially in main/PR/PR/main order.
 Both release CLIs use Rust 1.95 on the same Apple M4 Max/macOS 26.5.2 workstation.
