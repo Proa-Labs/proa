@@ -11,8 +11,60 @@ from pathlib import Path
 import re
 import signal
 import subprocess
+import tempfile
 import time
+import urllib.error
 import urllib.request
+
+
+RUNTIME_REPOSITORY = "ghcr.io/proa-labs/proa-marketing"
+
+
+def package_visibility(token):
+    request = urllib.request.Request(
+        "https://api.github.com/orgs/Proa-Labs/packages/container/proa-marketing",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                 "User-Agent": "proa-release-ci/1"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)["visibility"]
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None  # First push creates a private package by default.
+        raise
+
+
+def publish_runtime_image(source, tag):
+    """Copy only the checked runtime image; keep compiler caches in GCP."""
+    token = os.environ["GHCR_PUSH_TOKEN"]
+    if package_visibility(token) not in (None, "private"):
+        raise RuntimeError("Refusing to publish the runtime image to a non-private GHCR package")
+    destination = f"{RUNTIME_REPOSITORY}:{tag}"
+    with tempfile.TemporaryDirectory(prefix="proa-release-auth-") as directory:
+        environment = os.environ | {"DOCKER_CONFIG": directory}
+        google_token = subprocess.check_output(
+            ["gcloud", "auth", "print-access-token", "--quiet",
+             "--impersonate-service-account=proa-railway-pull@airy-cycle-504821-k9.iam.gserviceaccount.com"],
+            text=True, timeout=60,
+        ).strip()
+        for registry, username, password in (
+            ("us-west1-docker.pkg.dev", "oauth2accesstoken", google_token),
+            ("ghcr.io", os.environ["GHCR_USERNAME"], token),
+        ):
+            subprocess.run(
+                ["crane", "auth", "login", registry, "--username", username, "--password-stdin"],
+                input=password, text=True, check=True, env=environment, timeout=60,
+            )
+        subprocess.run(["crane", "copy", source, destination], check=True,
+                       env=environment, timeout=600)
+        digest = subprocess.check_output(["crane", "digest", destination], text=True,
+                                         env=environment, timeout=60).strip()
+    if digest != source.split("@", 1)[1]:
+        raise RuntimeError("GHCR image digest differs from the image checked by Cloud Build")
+    if package_visibility(token) != "private":
+        raise RuntimeError("GHCR runtime package must remain private")
+    return f"{RUNTIME_REPOSITORY}@{digest}"
 
 
 def gcloud(*args):
@@ -67,9 +119,10 @@ def build_image():
     matches = [image for image in result["results"]["images"] if image["name"] == expected]
     if len(matches) != 1 or not re.fullmatch(r"sha256:[0-9a-f]{64}", matches[0]["digest"]):
         raise RuntimeError("Cloud Build did not return the exact requested image and digest")
-    image = f"{expected.rsplit(':', 1)[0]}@{matches[0]['digest']}"
+    source_image = f"{expected.rsplit(':', 1)[0]}@{matches[0]['digest']}"
+    image = publish_runtime_image(source_image, tag)
     Path("release-image.json").write_text(json.dumps({
-        "revision": revision, "image": image, "build_id": build_id,
+        "revision": revision, "image": image, "source_image": source_image, "build_id": build_id,
         "seconds": result.get("timing", {}),
     }, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
@@ -197,7 +250,7 @@ def deploy(image, service, environment, revision, ready_url):
         raise ValueError("Deploy requires a complete source commit ID")
     if not ready_url.startswith("https://"):
         raise ValueError("Railway readiness verification requires an HTTPS URL")
-    if not re.fullmatch(r"us-west1-docker\.pkg\.dev/airy-cycle-504821-k9/releases/proa-marketing@sha256:[0-9a-f]{64}", image):
+    if not re.fullmatch(re.escape(RUNTIME_REPOSITORY) + r"@sha256:[0-9a-f]{64}", image):
         raise ValueError("Deploy requires a complete digest from the marketing release repository")
     variables = {"service": service, "environment": environment}
     require_registry_credentials(variables)

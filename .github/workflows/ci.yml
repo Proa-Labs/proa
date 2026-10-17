@@ -26,6 +26,9 @@ env:
 jobs:
   release-image:
     name: Build release image
+    permissions:
+      contents: read
+      packages: write
     concurrency:
       group: release-image-main
       cancel-in-progress: true
@@ -44,8 +47,23 @@ jobs:
         uses: google-github-actions/setup-gcloud@01af06c41d9aa0790d6fdc8f0b982b768ca4d102
         with:
           project_id: airy-cycle-504821-k9
+      - name: Install pinned registry copy tool
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          directory="$RUNNER_TEMP/proa-crane"
+          mkdir -p "$directory"
+          archive="$directory/crane.tar.gz"
+          gh release download v0.22.1 --repo google/go-containerregistry \
+            --pattern go-containerregistry_Linux_x86_64.tar.gz --output "$archive"
+          echo "0ab7a1d6932a213aed964ce97666c3077fe691c8606413674a8b3e0b9ec4cda0  $archive" | sha256sum --check --status
+          tar -xzf "$archive" -C "$directory" crane
+          echo "$directory" >> "$GITHUB_PATH"
       - name: Compile and verify the release image
         id: build
+        env:
+          GHCR_PUSH_TOKEN: ${{ github.token }}
+          GHCR_USERNAME: ${{ github.actor }}
         run: python3 deploy/marketing/release.py build
 
   deploy-release:

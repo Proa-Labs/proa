@@ -35,6 +35,12 @@ for account in "$builder" "$runner"; do
   gcloud storage buckets add-iam-policy-binding "$bucket" \
     --member="serviceAccount:$account" --role=roles/storage.objectAdmin >/dev/null
 done
+# `gcloud builds submit` reads staging bucket metadata before uploading.
+# Object Admin permits object access but does not include storage.buckets.get.
+gcloud storage buckets add-iam-policy-binding "$bucket" \
+  --member="serviceAccount:$runner" --role=roles/storage.legacyBucketReader >/dev/null
+gcloud projects add-iam-policy-binding "$project" \
+  --member="serviceAccount:$runner" --role=roles/serviceusage.serviceUsageConsumer --condition=None >/dev/null
 gcloud projects add-iam-policy-binding "$project" \
   --member="serviceAccount:$builder" --role=roles/logging.logWriter --condition=None >/dev/null
 gcloud projects add-iam-policy-binding "$project" \
