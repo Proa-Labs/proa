@@ -42,7 +42,7 @@ pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 6;
 /// This is deliberately independent of sidecar schema: bump it whenever a
 /// previous target may contain wrapper/proc-macro artifacts that must never
 /// participate in current build identity.
-pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 6;
+pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 4;
 /// Explicit host-local staging directory for descriptor objects and sidecars.
 pub const DESCRIPTOR_STAGING_DIR_ENV: &str = "PROA_RSJS_DESCRIPTOR_STAGING_DIR";
 /// Exact runner-owned Cargo target directory for descriptor compilation.
@@ -76,7 +76,7 @@ pub const FINAL_CARGO_UNIT_STATUS_UNMAPPED: &str = "unmapped-v1";
 /// Marks rustc as running the descriptor phase rather than final compilation.
 pub const DESCRIPTOR_PHASE_ENV: &str = "RSJS_DESCRIPTOR_PHASE";
 /// Schema version of [`DescriptorUnitSidecar`].
-pub const DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION: u16 = 11;
+pub const DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION: u16 = 10;
 /// Schema version of [`FinalUnitMap`].
 pub const FINAL_UNIT_MAP_SCHEMA_VERSION: u16 = 7;
 const FINAL_UNIT_MAP_FORMAT: &str = "proa.rsjs.final_unit_map";
@@ -100,9 +100,7 @@ const LOGICAL_ENVIRONMENT_HASH_DOMAIN: &[u8] = b"proa.rsjs.logical-environment.v
 const REALIZED_ENVIRONMENT_HASH_DOMAIN: &[u8] = b"proa.rsjs.realized-rustc-environment.v1";
 pub(crate) const DESCRIPTOR_OBJECT_HASH_DOMAIN: &[u8] = b"proa.rsjs.descriptor-object.v1";
 const LINK_ARTIFACT_HASH_DOMAIN: &[u8] = b"proa.rsjs.link-artifact.v1";
-const DESCRIPTOR_CODEGEN_POLICY: [&str; 6] = [
-    "opt-level=0",
-    "debug-assertions=original-profile",
+const DESCRIPTOR_CODEGEN_POLICY: [&str; 4] = [
     "codegen-units=1",
     "incremental=disabled",
     "link-dead-code=yes",
@@ -359,7 +357,6 @@ where
         environment_dependencies: observed.environment_dependencies,
         realized_environment_hash: hex_digest(&realized_environment_hash(&environment)),
         descriptor_codegen: DescriptorCodegenSidecar {
-            opt_level: 0,
             codegen_units: 1,
             incremental: false,
             link_dead_code: true,
@@ -1147,9 +1144,8 @@ fn normalize_rustc_invocation_with_package_root(
             }
         } else if let Some(value) = short_option_value(&args, &mut index, "-C")? {
             let (key, value) = split_key_value(&value);
-            let key = key.replace('_', "-");
-            if !descriptor_codegen_option(&key) && !linker_only_codegen_option(&key) {
-                codegen_options.insert(key, value.to_string());
+            if !descriptor_codegen_option(key) && !linker_only_codegen_option(key) {
+                codegen_options.insert(key.to_string(), value.to_string());
             }
         } else if let Some(value) = short_option_value(&args, &mut index, "-Z")? {
             let (key, value) = split_key_value(&value);
@@ -1444,41 +1440,23 @@ fn descriptor_rustc_args(
     descriptor_object: &Path,
 ) -> Result<Vec<OsString>, WrapperError> {
     let mut result = Vec::with_capacity(rustc_args.len() + 6);
-    let mut original_opt_level = "0";
-    let mut explicit_debug_assertions = false;
     let mut index = 0;
     while index < rustc_args.len() {
         let argument = rustc_args[index]
             .to_str()
             .ok_or_else(|| WrapperError::NonUtf8RustcArgument(rustc_args[index].clone()))?;
 
-        if argument == "-O" {
-            original_opt_level = "2";
-            index += 1;
-            continue;
-        } else if argument == "-C" {
+        if argument == "-C" {
             let value = rustc_args
                 .get(index + 1)
                 .and_then(|value| value.to_str())
                 .ok_or(WrapperError::MissingRustcOptionValue("-C"))?;
-            let (key, value) = split_key_value(value);
-            let key = key.replace('_', "-");
-            if key == "opt-level" {
-                original_opt_level = value;
-            }
-            explicit_debug_assertions |= key == "debug-assertions";
-            if key == "opt-level" || descriptor_codegen_option(&key) {
+            if descriptor_codegen_option(split_key_value(value).0) {
                 index += 2;
                 continue;
             }
         } else if let Some(value) = argument.strip_prefix("-C") {
-            let (key, value) = split_key_value(value);
-            let key = key.replace('_', "-");
-            if key == "opt-level" {
-                original_opt_level = value;
-            }
-            explicit_debug_assertions |= key == "debug-assertions";
-            if key == "opt-level" || descriptor_codegen_option(&key) {
+            if !value.is_empty() && descriptor_codegen_option(split_key_value(value).0) {
                 index += 1;
                 continue;
             }
@@ -1507,23 +1485,7 @@ fn descriptor_rustc_args(
         index += 1;
     }
 
-    if !explicit_debug_assertions {
-        // rustc derives this cfg (and default overflow checks) from opt-level.
-        // Lowering codegen must not change cfg branches or descriptor inputs.
-        result.push(OsString::from(format!(
-            "-Cdebug-assertions={}",
-            if original_opt_level == "0" {
-                "yes"
-            } else {
-                "no"
-            }
-        )));
-    }
     result.extend([
-        // This artifact is inspected for descriptors, never served. Preserve
-        // the original profile in the unit coordinate so the final pass still
-        // matches it and honors the application's chosen optimization level.
-        OsString::from("-Copt-level=0"),
         OsString::from("-Ccodegen-units=1"),
         OsString::from("-Clink-dead-code=yes"),
         OsString::from("-Clto=off"),
@@ -3345,8 +3307,6 @@ pub struct DescriptorEnvironmentDependency {
 /// Descriptor-only rustc policy recorded beside each exact unit object.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DescriptorCodegenSidecar {
-    /// Descriptor objects are compiler transport, not runtime artifacts.
-    pub opt_level: u8,
     /// Descriptor pass always emits one object from one codegen unit.
     pub codegen_units: u32,
     /// Incremental object production is disabled.
@@ -4159,7 +4119,6 @@ fn load_descriptor_unit_sidecars_with_object_validation(
     }
 
     let expected_codegen = DescriptorCodegenSidecar {
-        opt_level: 0,
         codegen_units: 1,
         incremental: false,
         link_dead_code: true,

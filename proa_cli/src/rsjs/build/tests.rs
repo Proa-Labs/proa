@@ -568,7 +568,7 @@ fn normalized_flag_spelling_and_order_hash_identically() {
         format!("dep={}", dependency.display()).into(),
         "--cfg=feature=\"alpha\"".into(),
         "--crate-type=rlib,lib".into(),
-        "-Copt_level=2".into(),
+        "-Copt-level=2".into(),
         "--emit".into(),
         "metadata,link".into(),
         "--edition".into(),
@@ -1413,9 +1413,8 @@ fn descriptor_codegen_replaces_incremental_lto_and_object_outputs() {
         "-Cincremental=/host/incremental".into(),
         "-C".into(),
         "lto=fat".into(),
-        "-Clinker_plugin_lto".into(),
-        "-Ccodegen_units=16".into(),
-        "-Copt-level=3".into(),
+        "-Clinker-plugin-lto".into(),
+        "-Ccodegen-units=16".into(),
         "/host/source.rs".into(),
     ];
     let rewritten = descriptor_rustc_args(&args, Path::new("/staging/objects/unit.o")).unwrap();
@@ -1427,9 +1426,6 @@ fn descriptor_codegen_replaces_incremental_lto_and_object_outputs() {
     assert!(rewritten.contains(&"--emit=metadata,link"));
     assert!(rewritten.contains(&"--emit=obj=/staging/objects/unit.o"));
     assert!(rewritten.contains(&"-Ccodegen-units=1"));
-    assert!(rewritten.contains(&"-Copt-level=0"));
-    assert!(rewritten.contains(&"-Cdebug-assertions=no"));
-    assert!(!rewritten.contains(&"-Copt-level=3"));
     assert!(rewritten.contains(&"-Clto=off"));
     assert!(rewritten.contains(&"-Clink-dead-code=yes"));
     assert!(rewritten.contains(&"-Cstrip=none"));
@@ -1446,36 +1442,6 @@ fn descriptor_codegen_replaces_incremental_lto_and_object_outputs() {
             .count(),
         1
     );
-}
-
-#[test]
-fn descriptor_codegen_preserves_rustc_profile_cfg() {
-    for options in [
-        vec!["-Copt-level=0"],
-        vec!["-C", "opt-level=1"],
-        vec!["-Copt-level=3"],
-        vec!["-Copt-level=s"],
-        vec!["-Copt-level=z"],
-        vec!["-O"],
-        vec!["-Copt-level=3", "-Cdebug-assertions=yes"],
-        vec!["-Copt-level=0", "-C", "debug-assertions=no"],
-        vec!["-Copt_level=3"],
-        vec!["-C", "opt_level=3", "-Cdebug_assertions=yes"],
-        vec!["-Copt_level=0", "-C", "debug_assertions=no"],
-    ] {
-        let original = options.iter().map(OsString::from).collect::<Vec<_>>();
-        let rewritten = descriptor_rustc_args(&original, Path::new("/unused.o")).unwrap();
-        let cfg = |args: &[OsString]| {
-            let output = std::process::Command::new("rustc")
-                .args(["--print", "cfg"])
-                .args(args)
-                .output()
-                .unwrap();
-            assert!(output.status.success(), "{:?}", output.stderr);
-            output.stdout
-        };
-        assert_eq!(cfg(&original), cfg(&rewritten), "profile: {options:?}");
-    }
 }
 
 fn cargo_artifact(path: &str, features: &[&str]) -> CargoCompilerArtifact {
@@ -1608,7 +1574,6 @@ fn manifest_unit_fixture(
             environment_dependencies: vec![],
             realized_environment_hash: "55".repeat(32),
             descriptor_codegen: DescriptorCodegenSidecar {
-                opt_level: 0,
                 codegen_units: 1,
                 incremental: false,
                 link_dead_code: true,
@@ -1877,7 +1842,6 @@ fn suffix_join_unit(
             environment_dependencies: vec![],
             realized_environment_hash: "55".repeat(32),
             descriptor_codegen: DescriptorCodegenSidecar {
-                opt_level: 0,
                 codegen_units: 1,
                 incremental: false,
                 link_dead_code: true,
