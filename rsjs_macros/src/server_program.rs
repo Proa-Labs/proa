@@ -324,6 +324,19 @@ fn linked_site_lookup_method(selection: &FinalComponentSelection) -> syn::Result
         }
     }
 
+    if sites.is_empty() {
+        return syn::parse2(quote! {
+            fn linked_site(
+                candidate_id: u64,
+                _expected_scope_id: [u8; 32],
+            ) -> &'static ::rsjs::__private::LinkedRenderSitePlan {
+                panic!(
+                    "RSJS linked render plan has no occurrence {candidate_id} for this component",
+                )
+            }
+        });
+    }
+
     let mut declarations = Vec::with_capacity(sites.len() * 4);
     let mut match_arms = Vec::with_capacity(sites.len());
     for site in sites {
@@ -1393,6 +1406,57 @@ mod tests {
         assert!(emitted.contains("ComponentSiteRenderSync < L , B > for Page"));
         assert!(emitted.contains("linked_site (103u64"));
         assert!(emitted.contains("render_at (self , cx"));
+    }
+
+    #[test]
+    fn unused_component_linked_site_lookup_compiles_without_match_arms() {
+        let mut selection = linked_test_selection();
+        selection.sites.clear();
+        selection.live_props_by_child.clear();
+        selection.live_callbacks_by_child.clear();
+        let lookup = linked_site_lookup_method(&selection).unwrap();
+        let source = quote! {
+            extern crate self as rsjs;
+            pub mod __private {
+                pub struct LinkedRenderSitePlan { pub scope_id: [u8; 32] }
+            }
+            struct UnusedComponent;
+            impl UnusedComponent { #lookup }
+        };
+        // Parse-only assertions miss E0282: with no selected occurrences the
+        // wildcard panic gives the match no type for the scope field lookup.
+        let artifact = std::env::temp_dir().join(format!(
+            "rsjs-empty-linked-site-{}.rmeta",
+            std::process::id(),
+        ));
+        let mut child =
+            std::process::Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+                .args([
+                    "--crate-name",
+                    "empty_linked_site",
+                    "--edition=2021",
+                    "--crate-type",
+                    "lib",
+                    "--emit=metadata",
+                    "-Dunreachable-code",
+                ])
+                .arg("-o")
+                .arg(&artifact)
+                .arg("-")
+                .stdin(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        std::io::Write::write_all(&mut stdin, source.to_string().as_bytes()).unwrap();
+        drop(stdin);
+        let output = child.wait_with_output().unwrap();
+        let _ = std::fs::remove_file(artifact);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]
