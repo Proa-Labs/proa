@@ -293,6 +293,9 @@ class RailwayCutoverTests(unittest.TestCase):
             with patch.object(release.time, "sleep"):
                 release.verify_revision("https://example.com/readyz", revision)
         self.assertEqual(request.call_count, 2)
+        readiness_request = request.call_args.args[0]
+        self.assertEqual(readiness_request.get_header("User-agent"), "proa-release-ci/1")
+        self.assertEqual(readiness_request.get_header("Cache-control"), "no-cache")
 
     def test_readiness_fails_if_commit_header_is_absent(self):
         response = MagicMock(status=200, headers={})
