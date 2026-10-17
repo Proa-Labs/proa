@@ -285,7 +285,7 @@ fn attach_callback_field_witness(
     }]);
     linked
         .field_witnesses
-        .push(crate::rsjs::link::LinkedComponentFieldWitness {
+        .push(crate::link::LinkedComponentFieldWitness {
             field_record,
             target: linked.definition,
         });
@@ -421,12 +421,10 @@ fn attach_value_field_witnesses(
     );
     linked.field_witnesses = field_records
         .iter()
-        .map(
-            |field_record| crate::rsjs::link::LinkedComponentFieldWitness {
-                field_record: *field_record,
-                target: linked.definition,
-            },
-        )
+        .map(|field_record| crate::link::LinkedComponentFieldWitness {
+            field_record: *field_record,
+            target: linked.definition,
+        })
         .collect();
 }
 
@@ -458,7 +456,7 @@ fn attach_shared_state_acquisitions(
         .enumerate()
         .map(|(store_id, target)| {
             let store_id = u32::try_from(store_id).expect("fixture store ID");
-            crate::rsjs::link::LinkedComponentSharedStateAcquisition {
+            crate::link::LinkedComponentSharedStateAcquisition {
                 store_id,
                 source_edge: shared_state_acquisition_source_edge_id(&fingerprint, store_id),
                 target: *target,
@@ -533,7 +531,7 @@ fn attach_shared_state_provider(
         "topology": "static_single_wrapperless"
     }]);
     linked.shared_state_provider_sites =
-        vec![crate::rsjs::link::LinkedComponentSharedStateProviderSite {
+        vec![crate::link::LinkedComponentSharedStateProviderSite {
             provider_site_id: 0,
             source_edge,
             target: state_target,
@@ -1911,7 +1909,7 @@ fn inbound_node_ref_handle_keeps_exact_field_identity_and_terminal_binding() {
     }]);
     linked
         .field_witnesses
-        .push(crate::rsjs::link::LinkedComponentFieldWitness {
+        .push(crate::link::LinkedComponentFieldWitness {
             field_record,
             target: definition,
         });
@@ -6305,7 +6303,7 @@ fn client_visible_component_fields_require_exact_rustc_witnesses_and_live_target
     }]);
     linked
         .field_witnesses
-        .push(crate::rsjs::link::LinkedComponentFieldWitness {
+        .push(crate::link::LinkedComponentFieldWitness {
             field_record,
             target: definition,
         });
@@ -6604,7 +6602,7 @@ fn callback_field_shape_survives_canonical_adaptation() {
     }]);
     linked
         .field_witnesses
-        .push(crate::rsjs::link::LinkedComponentFieldWitness {
+        .push(crate::link::LinkedComponentFieldWitness {
             field_record,
             target: definition,
         });
@@ -6973,7 +6971,7 @@ fn component_helper_witnesses_have_complete_semantic_link_coverage() {
         ],
     };
 
-    let plan = crate::rsjs::semantic_link::link_semantic_plan(
+    let plan = crate::semantic_link::link_semantic_plan(
         LinkUnitId::derive("component-helper-witness-coverage"),
         &adapted,
     )

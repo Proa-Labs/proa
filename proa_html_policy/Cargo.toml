@@ -1,0 +1,16 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_html_policy"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Shared allocation-free HTML URL security policy for Proa compilers and renderers."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true

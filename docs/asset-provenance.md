@@ -24,6 +24,7 @@ new binary assets and captured-fixture-shaped files to match a row here.
 | `deploy/proa-preview-app-icon.png` | Generated from Proa-authored brand artwork | Preview deployment icon |
 | `proa_marketing/public/favicon.svg` | Proa-authored | Proa site identity |
 | `proa_marketing/public/favicon.ico` | Generated from the Proa-authored favicon | Browser icon |
+| `proa_marketing/public/apple-touch-icon.png` | Rendered from the Proa-authored favicon with an opaque background in commit `ab6e5cd` | iOS home-screen icon |
 | `proa_marketing/public/og.jpg` | Compressed from the supplied Proa site artwork | Social preview |
 | `proa_marketing/public/images/blog/*.svg` | Proa-authored | Explanatory diagrams |
 | `proa_marketing/public/images/synthetic/*.svg` | Proa-authored geometric illustrations | Demo, benchmark, and marketing fixture imagery |

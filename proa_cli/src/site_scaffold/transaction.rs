@@ -1,6 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use base16ct::HexDisplay;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -177,7 +178,7 @@ fn refresh_component_hashes(staging: &Path) -> Result<()> {
         for (relative, hash) in files.iter_mut() {
             let bytes = fs::read(staging.join(relative))
                 .with_context(|| format!("hash installed component file {relative}"))?;
-            let value = format!("sha256:{:x}", Sha256::digest(bytes));
+            let value = format!("sha256:{:x}", HexDisplay(&Sha256::digest(bytes)));
             *hash = serde_json::Value::String(value.clone());
             aggregate.push((relative.clone(), value));
         }
@@ -187,8 +188,10 @@ fn refresh_component_hashes(staging: &Path) -> Result<()> {
             .map(|(relative, hash)| format!("{relative}:{hash}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let value =
-            serde_json::Value::String(format!("sha256:{:x}", Sha256::digest(joined.as_bytes())));
+        let value = serde_json::Value::String(format!(
+            "sha256:{:x}",
+            HexDisplay(&Sha256::digest(joined.as_bytes()))
+        ));
         component["sourceHash"] = value.clone();
         component["localHashAtInstall"] = value;
     }

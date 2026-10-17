@@ -1,0 +1,96 @@
+{
+  "baseline": "51e544ee5fc417b8120ff24a6f8a155efd893d7f",
+  "tested_pr_code": "30d55f4fd533289fa78a9521dc36f5514165fb07",
+  "machine": "M4 Max",
+  "rust": "1.95",
+  "statistic": "median of three warm builds; one warmup excluded",
+  "command": "proa build --root . -p proa_marketing --bin proa_marketing --profile dev --locked --offline --no-check --no-assets",
+  "profiles": {
+    "main": "dev debug=2",
+    "pr": "dev debug=1"
+  },
+  "scope": "Linked development build totals, not save-to-HTTP or production release/deployment timings. No per-stage timings recorded.",
+  "excluded": "Reverse-order repeat overlapped unrelated compilation; no repeat samples included.",
+  "cases": [
+    {
+      "case": "noop",
+      "title": "Unchanged build",
+      "samples_seconds": {
+        "main": [
+          1.586550374981016,
+          1.4928977499948815,
+          1.5154881669441238
+        ],
+        "pr": [
+          1.2802927079610527,
+          1.3175604999996722,
+          1.323969249962829
+        ]
+      },
+      "main_median_seconds": 1.5154881669441238,
+      "pr_median_seconds": 1.3175604999996722,
+      "saved_seconds": 0.19792766694445163,
+      "saved_percent": 13.060324142520951
+    },
+    {
+      "case": "docs-prose",
+      "title": "Docs prose edit",
+      "samples_seconds": {
+        "main": [
+          13.454776500002481,
+          13.49340591696091,
+          13.465103750000708
+        ],
+        "pr": [
+          4.152093583950773,
+          4.073352333041839,
+          4.0591146249789745
+        ]
+      },
+      "main_median_seconds": 13.465103750000708,
+      "pr_median_seconds": 4.073352333041839,
+      "saved_seconds": 9.391751416958869,
+      "saved_percent": 69.74882326442064
+    },
+    {
+      "case": "docs-code",
+      "title": "Docs code-fence edit",
+      "samples_seconds": {
+        "main": [
+          13.871275374898687,
+          14.06422358402051,
+          16.25682345801033
+        ],
+        "pr": [
+          4.328175083966926,
+          4.176203791052103,
+          4.170241542044096
+        ]
+      },
+      "main_median_seconds": 14.06422358402051,
+      "pr_median_seconds": 4.176203791052103,
+      "saved_seconds": 9.888019792968407,
+      "saved_percent": 70.3061902699199
+    },
+    {
+      "case": "core",
+      "title": "Rendering-core function edit",
+      "samples_seconds": {
+        "main": [
+          17.233478875015862,
+          17.503552917041816,
+          17.25649112497922
+        ],
+        "pr": [
+          11.819017417030409,
+          11.410270874970593,
+          13.660278207971714
+        ]
+      },
+      "main_median_seconds": 17.25649112497922,
+      "pr_median_seconds": 11.819017417030409,
+      "saved_seconds": 5.437473707948811,
+      "saved_percent": 31.509729692833826
+    }
+  ]
+}

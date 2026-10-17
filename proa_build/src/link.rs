@@ -33,12 +33,12 @@ use rsjs_transport::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use sha2_accelerated::{Digest, Sha256};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 #[cfg(test)]
-use crate::rsjs::build::DESCRIPTOR_OBJECT_HASH_DOMAIN;
-use crate::rsjs::build::{DescriptorObjectSnapshot, ValidatedDescriptorUnit};
+use crate::build::DESCRIPTOR_OBJECT_HASH_DOMAIN;
+use crate::build::{DescriptorObjectSnapshot, ValidatedDescriptorUnit};
 
 const TRANSPORT_LINK_SCHEMA_VERSION: u16 = 5;
 #[cfg(test)]

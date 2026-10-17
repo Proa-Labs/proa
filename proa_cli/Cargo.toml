@@ -21,40 +21,33 @@ name = "cargo-proa"
 path = "src/bin/cargo-proa.rs"
 
 [dependencies]
+base16ct = { workspace = true }
 anyhow = { workspace = true }
 clap = { version = "4.5", features = ["derive", "cargo"] }
 clap_complete = { version = "4.5" }
 # Live-reload session secret for `proa dev`.
 getrandom = { version = "0.3" }
 glob = { version = "0.3" }
-object = { workspace = true }
-# Path handling.
-pathdiff = { version = "0.2" }
 proa_dsl = { workspace = true }
+proa_build = { workspace = true }
+proa_source_tools = { workspace = true }
 proa_fonts_build = { workspace = true }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 quote = { workspace = true }
-pulldown-cmark = { workspace = true }
-rayon = { version = "1.10" }
 reqwest = { workspace = true, features = ["blocking"] }
 rsjs_ir = { workspace = true }
-rsjs_transport = { workspace = true }
+rsjs_transport = { workspace = true, features = ["extract"] }
 serde = { workspace = true }
 serde_ignored = { version = "0.1" }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-# Runtime-dispatched SHA extensions on AArch64 without global target features.
-# Keep the workspace hash/protocol implementation on its existing version.
-sha2_accelerated = { package = "sha2", version = "0.11" }
-similar = { version = "2" }
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate"] }
 syn = { workspace = true, features = ["full", "visit"] }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 toml = { workspace = true }
 toml_edit = { version = "0.22" }
 walkdir = { workspace = true }
-unicode-width = "0.2"
 
 # Dev-loop process-group teardown
 [target.'cfg(unix)'.dependencies]
@@ -64,4 +57,5 @@ libc = { workspace = true }
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
+object = { workspace = true }
 tempfile = { workspace = true }

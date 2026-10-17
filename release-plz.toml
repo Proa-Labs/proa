@@ -154,3 +154,15 @@ version_group = "tailwind-merge-0-1"
 [[package]]
 name = "proa-cli"
 release = true
+
+[[package]]
+name = "proa_html_policy"
+release = true
+
+[[package]]
+name = "proa_build"
+release = true
+
+[[package]]
+name = "proa_source_tools"
+release = true

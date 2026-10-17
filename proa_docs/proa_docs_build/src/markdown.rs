@@ -6,7 +6,9 @@ use std::path::Path;
 
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
-use crate::{config::MarkdownPipeline, typescript::TypeTableRequest};
+use crate::{
+    config::MarkdownPipeline, highlight_cache::HighlightCache, typescript::TypeTableRequest,
+};
 
 use latex2mathml::{latex_to_mathml, DisplayStyle};
 
@@ -37,6 +39,16 @@ pub fn render_markdown(
     markdown: &str,
     source_path: &Path,
     pipeline: &MarkdownPipeline,
+) -> RenderedMarkdown {
+    render_markdown_with_cache(markdown, source_path, pipeline, None)
+}
+
+// proa-perf-ok(scope): docs markdown is compiled into trusted static HTML at build time; dynamic text is escaped before insertion
+pub(crate) fn render_markdown_with_cache(
+    markdown: &str,
+    source_path: &Path,
+    pipeline: &MarkdownPipeline,
+    highlight_cache: Option<&HighlightCache>,
 ) -> RenderedMarkdown {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
@@ -71,6 +83,7 @@ pub fn render_markdown(
                 Event::Text(text) => code_buf.push_str(&text),
                 Event::End(TagEnd::CodeBlock) => {
                     crate::components::CodeBlock::new(&code_buf, &code_lang, source_path, pipeline)
+                        .with_highlight_cache(highlight_cache)
                         .emit_html(&mut html);
                     append_search_text(&mut search_text, &code_buf);
                     code_buf.clear();

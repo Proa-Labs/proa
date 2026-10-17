@@ -44,13 +44,13 @@ use rsjs_transport::TransportRecordId;
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::rsjs::abi_adapter::{
+use crate::abi_adapter::{
     validate_component_codegen_bridge, validate_helper_codegen_bridge, AbiBridgeResult,
     AdaptedTransportAbi, CanonicalDescriptorBridge, ComponentCodegenBridge, ComponentFragmentRoot,
     ComponentNodeRefBindTarget, HelperCodegenBody, HelperCodegenBridge, ResolvedTransportWitness,
     UnsupportedDescriptor,
 };
-use crate::rsjs::link::TransportDefinitionId;
+use crate::link::TransportDefinitionId;
 
 /// External semantic-plan schema generation.
 pub const SEMANTIC_LINK_SCHEMA_VERSION: u16 = 15;

@@ -16,11 +16,13 @@
 //! or demangled symbols, or build a root-specific link plan.
 
 mod canonical_json;
+#[cfg(feature = "extract")]
 mod extract;
 mod wire;
 
 pub use canonical_json::canonical_json_bytes;
 
+#[cfg(feature = "extract")]
 pub use extract::{
     extract_exact_artifact, extract_exact_artifacts, ArtifactLocation, ArtifactRecords,
     ComponentDefinition, ComponentDescriptorPayload, ComponentEdge, ComponentField,

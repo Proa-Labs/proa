@@ -12,11 +12,16 @@ license-file.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
+[features]
+default = ["extract"]
+# Macros and runtime code only need the wire ABI; object readers belong to tools.
+extract = ["dep:object", "dep:thiserror"]
+
 [dependencies]
-object = { workspace = true }
+object = { workspace = true, optional = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-thiserror = { workspace = true }
+thiserror = { workspace = true, optional = true }
 
 [dev-dependencies]
 object = { workspace = true, features = ["write"] }

@@ -198,6 +198,7 @@ impl SemanticHighlighter {
 
 static HIGHLIGHTER: OnceLock<SemanticHighlighter> = OnceLock::new();
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct HighlightedLine {
     pub(crate) html: String,
     pub(crate) ending: String,
@@ -272,6 +273,7 @@ pub(crate) fn highlight_lines(
     Ok(Some(lines))
 }
 
+// proa-perf-ok(scope): build-time syntax framing uses trusted spans and escapes source fragments
 fn emit_highlighted_line(
     body: &str,
     styled_regions: &[StyledRegion],

@@ -126,6 +126,7 @@ fn mounted_search_response(
     path: &str,
     base_path: &proa_core::BasePath,
 ) -> DocsResponse {
+    use base16ct::HexDisplay;
     use sha2::{Digest, Sha256};
     fn compose(value: &mut serde_json::Value, key: &str, base: &proa_core::BasePath) {
         if let Some(path) = value.get(key).and_then(serde_json::Value::as_str) {
@@ -150,8 +151,10 @@ fn mounted_search_response(
             serde_json::from_str(search.manifest_json).expect("generated docs search manifest");
         compose(&mut manifest, "basePath", base_path);
         compose(&mut manifest, "documents", base_path);
-        manifest["hash"] =
-            serde_json::Value::String(format!("sha256-{:x}", Sha256::digest(documents.as_bytes())));
+        manifest["hash"] = serde_json::Value::String(format!(
+            "sha256-{:x}",
+            HexDisplay(&Sha256::digest(documents.as_bytes()))
+        ));
         serde_json::to_string(&manifest).expect("serialize mounted search manifest")
     };
     DocsResponse {

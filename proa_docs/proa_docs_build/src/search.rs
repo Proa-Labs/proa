@@ -1,6 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use base16ct::HexDisplay;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -127,5 +128,5 @@ fn nav_sections(nav: &[CompiledNavItem]) -> HashMap<&str, &str> {
 fn content_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
-    format!("sha256-{:x}", hasher.finalize())
+    format!("sha256-{:x}", HexDisplay(&hasher.finalize()))
 }

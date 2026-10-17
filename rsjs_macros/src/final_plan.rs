@@ -132,7 +132,6 @@ fn load_current_plan(
         )
     })?;
     let file_hash = validate_file_hash(&bytes)?;
-    validate_plan_header(&bytes, &plan_id_text)?;
     let dependency_id =
         validate_current_unit_projection(cargo_unit_id, plan_id, file_hash, &bytes)?
             .unwrap_or(plan_id);

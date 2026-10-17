@@ -17,7 +17,8 @@ homepage.workspace = true
 html-to-markdown = ["dep:htmd", "dep:markup5ever_rcdom"]
 
 [dependencies]
-arrayvec = { workspace = true }
+proa_ir = { workspace = true }
+proa_html_policy = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 heapless = { workspace = true }
@@ -33,6 +34,7 @@ tracing = { workspace = true }
 zmij = { version = "1.0" }
 
 [dev-dependencies]
+arrayvec = { workspace = true }
 # Forward development dependencies stay local during the first crates.io release.
 # Cargo omits path-only dev dependencies from archives; workspace tests retain them.
 bytes = { workspace = true }

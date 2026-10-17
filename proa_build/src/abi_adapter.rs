@@ -68,7 +68,7 @@ use rsjs_transport::{
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-use crate::rsjs::legacy_graph::{
+use crate::legacy_graph::{
     collect_handler_browser_operations, parse_legacy_client_graph_with_inbound_signals,
     LegacyAttributeBinding, LegacyBrowserConsumer, LegacyBrowserOperation,
     LegacyBrowserOperationKind, LegacyClientGraph, LegacyClientOperation,
@@ -76,7 +76,7 @@ use crate::rsjs::legacy_graph::{
     LegacyInputBinding, LegacyKeyedCollection, LegacyKeyedCollectionSource, LegacyMutation,
     LegacyQuery, LegacySignal, LegacyTextBinding,
 };
-use crate::rsjs::link::{
+use crate::link::{
     shared_state_acquisition_source_edge_id, LinkedComponentEdge, LinkedHelperEdge,
     LinkedSemanticIdentity, LinkedSharedStateDefinition, LinkedTransportComponent,
     LinkedTransportHelper, TransportDefinitionId, TransportLinkPlan,
@@ -5727,7 +5727,7 @@ fn populate_shared_state_operations(
 fn populate_query_operations(
     definition: TransportDefinitionId,
     descriptor: &mut ComponentDescriptor,
-    operations: &[crate::rsjs::legacy_graph::LegacyClientOperation],
+    operations: &[crate::legacy_graph::LegacyClientOperation],
     enclosing: DependencyEndpoint,
     query_origins: &BTreeMap<u32, OriginId>,
     queries: &BTreeMap<u32, &LegacyQuery>,
@@ -5912,7 +5912,7 @@ fn populate_mutation_operations(
 fn populate_node_ref_operations(
     definition: TransportDefinitionId,
     descriptor: &mut ComponentDescriptor,
-    operations: &[crate::rsjs::legacy_graph::LegacyClientOperation],
+    operations: &[crate::legacy_graph::LegacyClientOperation],
     enclosing: DependencyEndpoint,
     node_ref_effects: &BTreeMap<u32, LocalEffectId>,
     origin: OriginId,

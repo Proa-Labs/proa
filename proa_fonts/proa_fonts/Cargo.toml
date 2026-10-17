@@ -12,8 +12,17 @@ license-file.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
+[features]
+default = ["render"]
+# Build collectors and proc macros only need font descriptors and request IDs.
+render = ["dep:proa_core"]
+
 [dependencies]
-proa_core = { workspace = true }
+proa_core = { workspace = true, optional = true }
+
+[[test]]
+name = "base_path_alloc"
+required-features = ["render"]
 
 [lints]
 workspace = true

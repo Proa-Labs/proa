@@ -76,7 +76,7 @@ fn exact_byte_hash_matches_the_manifest_hash_contract() {
 
     assert_eq!(
         link_artifact_content_hash_bytes(bytes),
-        crate::rsjs::build::link_artifact_content_hash(&path).unwrap()
+        crate::build::link_artifact_content_hash(&path).unwrap()
     );
 }
 

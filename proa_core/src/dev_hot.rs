@@ -5,26 +5,7 @@
 //! Ordinary and release macro expansions continue to write compiled literals.
 
 use crate::{WriteBuf, WriteError};
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-
-/// One generation of pre-escaped, compiler-validated static template runs.
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct StaticManifest {
-    /// Exact development protocol version.
-    pub schema: u16,
-    /// Templates keyed by an explicitly authored, project-unique ID.
-    pub templates: BTreeMap<String, StaticTemplate>,
-}
-
-/// A template's fixed Rust/markup shape and replaceable static runs.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct StaticTemplate {
-    /// Shape excludes only eligible static string literal contents.
-    pub shape: String,
-    /// Already escaped bytes, in consolidation order.
-    pub slots: Vec<Vec<u8>>,
-}
+pub use proa_ir::dev_hot::{StaticManifest, StaticTemplate};
 
 /// Load a single coherent template generation, falling back to compiled bytes
 /// if publication is absent or incompatible. This filesystem/JSON cost is
@@ -58,6 +39,7 @@ pub fn write_slot<B: WriteBuf>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     #[test]
     fn a_template_snapshot_remains_coherent_after_a_later_publication() {
         let path = std::env::temp_dir().join(format!(

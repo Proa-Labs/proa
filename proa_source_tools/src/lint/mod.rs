@@ -3905,7 +3905,7 @@ fn direct_helper_call_name(call: &ExprCall) -> Option<String> {
     Some(name)
 }
 
-pub(crate) fn parse_invocation(source: &str, inv: &MacroInvocation) -> syn::Result<HtmlRoot> {
+pub fn parse_invocation(source: &str, inv: &MacroInvocation) -> syn::Result<HtmlRoot> {
     let body = inv.body(source);
     let tokens = TokenStream::from_str(body)
         .map_err(|err| syn::Error::new(proc_macro2::Span::call_site(), err.to_string()))?;

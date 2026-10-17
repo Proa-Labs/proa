@@ -21,8 +21,5 @@ name = "proa-codegen"
 path = "src/main.rs"
 
 [dependencies]
-proc-macro2 = { workspace = true }
-quote = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-syn = { workspace = true, features = ["full", "parsing", "extra-traits"] }

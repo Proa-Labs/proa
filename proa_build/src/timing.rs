@@ -5,14 +5,14 @@
 
 use std::time::Instant;
 
-pub(crate) struct StageTimer(Option<Instant>);
+pub struct StageTimer(Option<Instant>);
 
 impl StageTimer {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self(std::env::var_os("PROA_BUILD_TIMINGS").map(|_| Instant::now()))
     }
 
-    pub(crate) fn mark(&mut self, stage: &str) {
+    pub fn mark(&mut self, stage: &str) {
         if let Some(previous) = self.0.as_mut() {
             let now = Instant::now();
             eprintln!(

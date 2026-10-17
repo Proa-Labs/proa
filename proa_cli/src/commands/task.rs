@@ -3,6 +3,7 @@
 
 //! Structured project tasks executed without a shell.
 
+use base16ct::HexDisplay;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsString,
@@ -234,7 +235,7 @@ fn task_cache_key(root: &Path, task: &TaskDefinition) -> Result<String> {
             }
         }
     }
-    Ok(format!("{:x}", digest.finalize()))
+    Ok(format!("{:x}", HexDisplay(&digest.finalize())))
 }
 
 #[cfg(test)]

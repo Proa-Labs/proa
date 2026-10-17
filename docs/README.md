@@ -14,6 +14,8 @@ build does not publish this directory.
   browser interactivity.
 - [`../editors/`](../editors/README.md): VS Code and LSP editor support,
   including Neovim setup.
+- [`compile-times.md`](compile-times.md): Cargo timings and a reproducible
+  experiment for CLI crate boundaries.
 - [`../proa_stream/`](../proa_stream/README.md): streaming rendering and
   framework integration.
 - [`migrations/0.3-standalone.md`](migrations/0.3-standalone.md): API changes

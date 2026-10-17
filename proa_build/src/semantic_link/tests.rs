@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use crate::rsjs::abi_adapter::{
+use crate::abi_adapter::{
     CompatibilityGap, HelperCodegenBody, HelperCodegenParam, HelperCodegenSignature,
 };
 use rsjs_ir::abi::{
@@ -77,7 +77,7 @@ fn fixture_component_codegen(item: &str, body: &ComponentDescriptor) -> Componen
                 callback_slot += 1;
                 slot
             });
-            Some(crate::rsjs::abi_adapter::ComponentCodegenInboundField {
+            Some(crate::abi_adapter::ComponentCodegenInboundField {
                 field_id,
                 producer_value_id: field_id.index(),
                 canonical_value,
@@ -115,7 +115,7 @@ fn fixture_component_codegen(item: &str, body: &ComponentDescriptor) -> Componen
                     .flatten()
                 })
                 .expect("SeedOnce fixture has a canonical target-signal dependency");
-            Some(crate::rsjs::abi_adapter::ComponentCodegenInboundTarget {
+            Some(crate::abi_adapter::ComponentCodegenInboundTarget {
                 prop_site_id: site,
                 field_id: prop_use.field,
                 producer_signal_id: target.index(),
@@ -129,7 +129,7 @@ fn fixture_component_codegen(item: &str, body: &ComponentDescriptor) -> Componen
         .copied()
         .filter(|value| !inbound_values.contains(value))
         .map(
-            |canonical_value| crate::rsjs::abi_adapter::ComponentCodegenSignal {
+            |canonical_value| crate::abi_adapter::ComponentCodegenSignal {
                 producer_signal_id: canonical_value.index(),
                 canonical_value,
             },
@@ -139,7 +139,7 @@ fn fixture_component_codegen(item: &str, body: &ComponentDescriptor) -> Componen
         .iter()
         .filter_map(|field| {
             field.callback_slot_id.map(|producer_callback_slot_id| {
-                crate::rsjs::abi_adapter::ComponentCodegenCallbackSlot {
+                crate::abi_adapter::ComponentCodegenCallbackSlot {
                     producer_callback_slot_id,
                     canonical_value: field.canonical_value,
                 }
@@ -548,12 +548,11 @@ fn node_ref_handle_alias_bridges(
         },
     );
     let mut child_codegen = fixture_component_codegen("NodeRefChild", &child);
-    child_codegen.inbound_node_refs =
-        vec![crate::rsjs::abi_adapter::ComponentCodegenInboundNodeRef {
-            field_id: child_field,
-            producer_node_ref_id: 11,
-            bind_target: Some(ComponentNodeRefBindTarget::Input),
-        }];
+    child_codegen.inbound_node_refs = vec![crate::abi_adapter::ComponentCodegenInboundNodeRef {
+        field_id: child_field,
+        producer_node_ref_id: 11,
+        bind_target: Some(ComponentNodeRefBindTarget::Input),
+    }];
     let child = AbiBridgeResult::Canonical(canonical_component_bridge(
         DescriptorEnvelope::new(
             header(DescriptorKind::Component),
@@ -623,14 +622,13 @@ fn node_ref_handle_alias_bridges(
     );
     let mut parent_codegen = fixture_component_codegen("NodeRefParent", &parent);
     parent_codegen.signals.clear();
-    parent_codegen.direct_node_ref_aliases = vec![
-        crate::rsjs::abi_adapter::ComponentCodegenDirectNodeRefAlias {
+    parent_codegen.direct_node_ref_aliases =
+        vec![crate::abi_adapter::ComponentCodegenDirectNodeRefAlias {
             edge_id: edge,
             field_name: "target".to_owned(),
             producer_node_ref_id: 7,
             canonical_value: parent_value,
-        },
-    ];
+        }];
     let parent = AbiBridgeResult::Canonical(canonical_component_bridge(
         DescriptorEnvelope::new(
             header(DescriptorKind::Component),
@@ -2096,7 +2094,7 @@ fn mark_first_edge_conditional(result: &mut AbiBridgeResult, branch: ComponentLi
         .component_codegen_mut()
         .expect("component fixture has codegen")
         .signals
-        .push(crate::rsjs::abi_adapter::ComponentCodegenSignal {
+        .push(crate::abi_adapter::ComponentCodegenSignal {
             producer_signal_id: value.index(),
             canonical_value: value,
         });

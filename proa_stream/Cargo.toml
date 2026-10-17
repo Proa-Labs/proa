@@ -24,7 +24,7 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 proa_core = { workspace = true }
-tokio = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["macros", "rt", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]

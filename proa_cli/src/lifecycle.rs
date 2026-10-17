@@ -22,7 +22,7 @@ use rsjs_ir::{
 };
 use rsjs_transport::TRANSPORT_FORMAT_VERSION;
 use serde::Deserialize;
-use sha2_accelerated::{Digest, Sha256};
+use sha2::{Digest, Sha256};
 
 mod reload;
 

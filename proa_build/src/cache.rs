@@ -28,11 +28,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2_accelerated::{Digest, Sha256};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::rsjs::build::wrapper_control_environment;
-use crate::rsjs::build::{
+use crate::build::wrapper_control_environment;
+use crate::build::{
     acquire_descriptor_target_lease, classify_dependency_artifact, descriptor_input_link_hashes,
     descriptor_package_source_closure_hash, descriptor_staging_marker_is_valid,
     descriptor_target_dirty_journal_path, descriptor_target_marker_is_valid,
@@ -47,14 +47,14 @@ use crate::rsjs::build::{
     DESCRIPTOR_OBJECT_HASH_DOMAIN,
 };
 #[cfg(test)]
-use crate::rsjs::build::{
+use crate::build::{
     descriptor_environment_dependency_value_hash, descriptor_input_content_hash,
     descriptor_object_content_hash, descriptor_out_dir_dependency_content_hash,
     descriptor_source_dependency_content_hash, DescriptorEnvironmentDependency,
     DescriptorOutDirDependency, DescriptorSourceDependency,
 };
 
-pub(crate) const DESCRIPTOR_CACHE_SCHEMA_VERSION: u16 = 5;
+pub const DESCRIPTOR_CACHE_SCHEMA_VERSION: u16 = 5;
 const ARTIFACT_COORDINATE_DOMAIN: &[u8] = b"proa.rsjs.descriptor-cache-coordinate.v2";
 const ARTIFACT_SET_COORDINATE_DOMAIN: &[u8] = b"proa.rsjs.descriptor-cache-coordinate-set.v2";
 const CACHED_SIDECAR_HASH_DOMAIN: &[u8] = b"proa.rsjs.descriptor-cache-sidecar.v1";
@@ -97,7 +97,7 @@ impl fmt::Debug for CachedDescriptorCargoLease {
     }
 }
 
-impl crate::rsjs::build::descriptor_run_sealed::Sealed for CachedDescriptorCargoLease {
+impl crate::build::descriptor_run_sealed::Sealed for CachedDescriptorCargoLease {
     fn output(&self) -> &DescriptorCargoOutput {
         &self.output
     }
@@ -1217,11 +1217,11 @@ fn load_cached_units_with_objects(
                     source,
                 }
             })?;
-        if sidecar.schema_version != crate::rsjs::build::DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION {
+        if sidecar.schema_version != crate::build::DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION {
             return Err(DescriptorCacheError::CachedSidecarSchemaMismatch {
                 path: sidecar_source,
                 actual: sidecar.schema_version,
-                expected: crate::rsjs::build::DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION,
+                expected: crate::build::DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION,
             });
         }
         if sidecar.cargo_unit_id != unit.to_string() {
@@ -2628,7 +2628,7 @@ pub enum DescriptorCacheError {
         path: PathBuf,
         /// ID parser.
         #[source]
-        source: crate::rsjs::build::WrapperError,
+        source: crate::build::WrapperError,
     },
     /// Generation pointers contain only exact lowercase content hashes.
     #[error("descriptor cache file `{path}` has invalid {field} `{value}`: {reason}")]
@@ -2741,7 +2741,7 @@ pub enum DescriptorCacheError {
         unit: DescriptorCargoUnitId,
         /// Exact generated-input validation failure.
         #[source]
-        source: crate::rsjs::build::WrapperError,
+        source: crate::build::WrapperError,
     },
     /// Cached unit points at a dependency absent from current Cargo artifacts.
     #[error(

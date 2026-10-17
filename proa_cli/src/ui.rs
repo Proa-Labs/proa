@@ -1,6 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use base16ct::HexDisplay;
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
@@ -1178,7 +1179,7 @@ fn normalize_sha256(input: &str) -> Result<String> {
 
 fn sha256_bytes(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
-    format!("sha256:{digest:x}")
+    format!("sha256:{:x}", HexDisplay(&digest))
 }
 
 fn hash_component_source(
@@ -1239,7 +1240,7 @@ fn hash_component_source(
         }
         hasher.update([u8::from(dependency.default_features.unwrap_or(true))]);
     }
-    format!("sha256:{:x}", hasher.finalize())
+    format!("sha256:{:x}", HexDisplay(&hasher.finalize()))
 }
 
 fn hash_path(hasher: &mut Sha256, path: &Path) {

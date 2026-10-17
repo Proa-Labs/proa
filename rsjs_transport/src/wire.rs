@@ -161,6 +161,7 @@ pub enum SemanticIdentityKind {
 }
 
 impl SemanticIdentityKind {
+    #[cfg(any(feature = "extract", test))]
     pub(crate) fn from_wire(value: u16) -> Option<Self> {
         match value {
             1 => Some(Self::Component),
@@ -338,6 +339,7 @@ pub enum PayloadKind {
 }
 
 impl PayloadKind {
+    #[cfg(any(feature = "extract", test))]
     pub(crate) fn from_wire(value: u16) -> Option<Self> {
         match value {
             1 => Some(Self::ComponentDescriptor),
@@ -1522,6 +1524,7 @@ pub enum RecordKind {
 }
 
 impl RecordKind {
+    #[cfg(any(feature = "extract", test))]
     pub(crate) fn from_wire(value: u16) -> Option<Self> {
         match value {
             1 => Some(Self::ComponentDefinition),

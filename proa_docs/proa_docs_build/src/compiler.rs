@@ -13,10 +13,11 @@ use thiserror::Error;
 use crate::{
     config::{Config, DocsSource, LinkValidationMode, SearchConfig},
     frontmatter::{self, ParsedFrontmatter},
+    highlight_cache::HighlightCache,
     link_validation::{
         validate_references, LinkDiagnostic, LinkGraph, LinkGraphPage, LinkValidationReport,
     },
-    markdown::{render_markdown, TocEntry},
+    markdown::{render_markdown, render_markdown_with_cache, TocEntry},
     rust_emit, search,
 };
 
@@ -65,9 +66,16 @@ pub fn try_compile_to(config: Config, out_dir: &Path) -> Result<(), CompileError
             crate::config::PluginKind::JsonSchema | crate::config::PluginKind::LastModified => {}
         }
     }
+    let highlight_cache = config
+        .sources()
+        .iter()
+        .any(|source| source.markdown.code_highlight.enabled)
+        .then(|| HighlightCache::new(&out_dir.join(".proa-docs-highlight-cache")))
+        .flatten();
     for source in config.sources() {
         compile_source(
             source,
+            highlight_cache.as_ref(),
             &out_dir.join("proa_docs").join(&source.out_dir_name),
         )?;
     }
@@ -167,8 +175,12 @@ pub(crate) struct ResolvedFrontmatter {
     pub keywords: Vec<String>,
 }
 
-fn compile_source(source: &DocsSource, out_dir: &Path) -> Result<(), CompileError> {
-    let compiled = compile_source_model(source)?;
+fn compile_source(
+    source: &DocsSource,
+    highlight_cache: Option<&HighlightCache>,
+    out_dir: &Path,
+) -> Result<(), CompileError> {
+    let compiled = compile_source_model_with_cache(source, highlight_cache)?;
 
     if matches!(source.link_validation.mode, LinkValidationMode::Error) {
         let report = validate_references(
@@ -221,6 +233,13 @@ fn compile_source(source: &DocsSource, out_dir: &Path) -> Result<(), CompileErro
 }
 
 fn compile_source_model(source: &DocsSource) -> Result<CompiledSource, CompileError> {
+    compile_source_model_with_cache(source, None)
+}
+
+fn compile_source_model_with_cache(
+    source: &DocsSource,
+    highlight_cache: Option<&HighlightCache>,
+) -> Result<CompiledSource, CompileError> {
     let root = &source.root;
     let mut pages = Vec::new();
     let mut link_references = Vec::new();
@@ -233,6 +252,7 @@ fn compile_source_model(source: &DocsSource) -> Result<CompiledSource, CompileEr
     if root.join("meta.json").is_file() {
         let compiled_nav = compile_folder_nav(
             source,
+            highlight_cache,
             Path::new(""),
             &mut pages,
             &mut link_references,
@@ -244,6 +264,7 @@ fn compile_source_model(source: &DocsSource) -> Result<CompiledSource, CompileEr
         nav = compiled_nav.items;
         append_unlisted_pages(
             source,
+            highlight_cache,
             &mut pages,
             &mut link_references,
             &mut type_table_request_count,
@@ -257,7 +278,9 @@ fn compile_source_model(source: &DocsSource) -> Result<CompiledSource, CompileEr
         files.sort();
         for rel_path in files {
             if seen.insert(rel_path.clone()) {
-                if let Some((page, refs, type_count)) = compile_page_rel(source, &rel_path)? {
+                if let Some((page, refs, type_count)) =
+                    compile_page_rel(source, highlight_cache, &rel_path)?
+                {
                     type_table_request_count += type_count;
                     link_references.push(refs);
                     pages.push(page);
@@ -351,6 +374,7 @@ enum MetaEntry {
 
 fn compile_folder_nav(
     source: &DocsSource,
+    highlight_cache: Option<&HighlightCache>,
     rel_dir: &Path,
     pages: &mut Vec<CompiledPage>,
     link_references: &mut Vec<PageLinkReferences>,
@@ -364,6 +388,7 @@ fn compile_folder_nav(
         .unwrap_or_else(|| source.site_name.clone());
     let items = compile_meta_entries(
         source,
+        highlight_cache,
         rel_dir,
         &meta.pages,
         pages,
@@ -380,6 +405,7 @@ fn compile_folder_nav(
 
 fn compile_meta_entries(
     source: &DocsSource,
+    highlight_cache: Option<&HighlightCache>,
     rel_dir: &Path,
     entries: &[MetaEntry],
     pages: &mut Vec<CompiledPage>,
@@ -411,6 +437,7 @@ fn compile_meta_entries(
                     let icon = meta.icon.clone();
                     let children = compile_meta_entries(
                         source,
+                        highlight_cache,
                         &candidate_dir,
                         &meta.pages,
                         pages,
@@ -436,7 +463,9 @@ fn compile_meta_entries(
                     });
                 };
                 if seen.insert(rel_path.clone()) {
-                    if let Some((page, refs, type_count)) = compile_page_rel(source, &rel_path)? {
+                    if let Some((page, refs, type_count)) =
+                        compile_page_rel(source, highlight_cache, &rel_path)?
+                    {
                         *type_table_request_count += type_count;
                         if !page.frontmatter.hidden {
                             nav.push(CompiledNavItem::Page {
@@ -456,6 +485,7 @@ fn compile_meta_entries(
             } => {
                 let children = compile_meta_entries(
                     source,
+                    highlight_cache,
                     rel_dir,
                     group_pages,
                     pages,
@@ -477,6 +507,7 @@ fn compile_meta_entries(
 
 fn append_unlisted_pages(
     source: &DocsSource,
+    highlight_cache: Option<&HighlightCache>,
     pages: &mut Vec<CompiledPage>,
     link_references: &mut Vec<PageLinkReferences>,
     type_table_request_count: &mut usize,
@@ -487,7 +518,9 @@ fn append_unlisted_pages(
     files.sort();
     for rel_path in files {
         if seen.insert(rel_path.clone()) {
-            if let Some((page, refs, type_count)) = compile_page_rel(source, &rel_path)? {
+            if let Some((page, refs, type_count)) =
+                compile_page_rel(source, highlight_cache, &rel_path)?
+            {
                 *type_table_request_count += type_count;
                 link_references.push(refs);
                 pages.push(page);
@@ -499,6 +532,7 @@ fn append_unlisted_pages(
 
 fn compile_page_rel(
     source: &DocsSource,
+    highlight_cache: Option<&HighlightCache>,
     rel_path: &Path,
 ) -> Result<Option<(CompiledPage, PageLinkReferences, usize)>, CompileError> {
     let source_path = source.root.join(rel_path);
@@ -545,7 +579,12 @@ fn compile_page_rel(
         .unwrap_or_else(|| slug_from_rel_path(rel_path));
     let route_path = route_path(&source.base_path, &slug);
     let markdown_path = markdown_route_path(&source.base_path, &slug);
-    let rendered = render_markdown(markdown, &source_path, &source.markdown);
+    let rendered = match highlight_cache {
+        Some(cache) => {
+            render_markdown_with_cache(markdown, &source_path, &source.markdown, Some(cache))
+        }
+        None => render_markdown(markdown, &source_path, &source.markdown),
+    };
     let type_count = rendered.type_table_requests.len();
 
     let title = resolved_frontmatter
@@ -1174,5 +1213,116 @@ mod nav_icon_tests {
         // The old silent-fallback case: a plausible typo.
         assert!(validate_nav_icon(Some("DataBase")).is_err());
         assert!(validate_nav_icon(Some("NotAnIcon")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod highlight_cache_tests {
+    use super::*;
+
+    fn generated_files(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        fn walk(root: &Path, dir: &Path, files: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(root, &path, files);
+                } else {
+                    files.insert(
+                        path.strip_prefix(root).unwrap().to_path_buf(),
+                        fs::read(path).unwrap(),
+                    );
+                }
+            }
+        }
+        let mut files = std::collections::BTreeMap::new();
+        walk(root, root, &mut files);
+        files
+    }
+
+    fn assert_cached_output_matches_uncached(
+        source: &DocsSource,
+        cache: &HighlightCache,
+        output: &Path,
+    ) {
+        compile_source(source, Some(cache), output).unwrap();
+        let uncached = tempfile::tempdir().unwrap();
+        compile_source(source, None, uncached.path()).unwrap();
+        assert_eq!(generated_files(output), generated_files(uncached.path()));
+    }
+
+    #[test]
+    fn cached_highlighting_keeps_page_metadata_navigation_and_search_fresh() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let output = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let cache = HighlightCache::new(cache_dir.path()).unwrap();
+        let index = source_dir.path().join("index.md");
+        let markdown = "---\ntitle: Original\nslug: old\n---\n\n# Intro\n\n```rust filename=\"before.rs\" {1}\nlet sample = \"<script> & text\";\nlet next = 2;\n```\n\n```unknown\n<unsafe>&text\n```\n";
+        fs::write(&index, markdown).unwrap();
+        fs::write(source_dir.path().join("guide.md"), "# Guide\n").unwrap();
+        fs::write(
+            source_dir.path().join("meta.json"),
+            r#"{"title":"Original","pages":["index","guide"]}"#,
+        )
+        .unwrap();
+        let source = DocsSource::new(source_dir.path()).markdown(
+            crate::config::MarkdownPipeline::default()
+                .code_highlighting(crate::config::CodeHighlight::new()),
+        );
+        assert_cached_output_matches_uncached(&source, &cache, output.path());
+        assert_cached_output_matches_uncached(&source, &cache, output.path());
+
+        // Code bytes stay identical while all surrounding page/fence metadata changes.
+        fs::write(
+            &index,
+            markdown
+                .replace("Original", "Changed")
+                .replace("slug: old", "slug: renamed")
+                .replace("before.rs", "after.rs")
+                .replace("{1}", "{2}"),
+        )
+        .unwrap();
+        fs::write(
+            source_dir.path().join("meta.json"),
+            r#"{"title":"Changed","pages":["guide","index"]}"#,
+        )
+        .unwrap();
+        let source = source.base_path("/manual");
+        assert_cached_output_matches_uncached(&source, &cache, output.path());
+        assert!(!output.path().join("pages/old.html").exists());
+
+        fs::remove_file(source_dir.path().join("guide.md")).unwrap();
+        fs::write(
+            source_dir.path().join("meta.json"),
+            r#"{"pages":["index"]}"#,
+        )
+        .unwrap();
+        assert_cached_output_matches_uncached(&source, &cache, output.path());
+        assert!(!output.path().join("pages/guide.html").exists());
+    }
+
+    #[test]
+    fn cached_fences_do_not_hide_new_broken_links() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let output = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        let cache = HighlightCache::new(cache_dir.path()).unwrap();
+        let index = source_dir.path().join("index.md");
+        let markdown = "# Intro\n\n```rust\nlet sample = 3;\n```\n";
+        fs::write(&index, markdown).unwrap();
+        let source = DocsSource::new(source_dir.path())
+            .markdown(
+                crate::config::MarkdownPipeline::default()
+                    .code_highlighting(crate::config::CodeHighlight::new()),
+            )
+            .link_validation(crate::config::LinkValidation::strict());
+        compile_source(&source, Some(&cache), output.path()).unwrap();
+        fs::write(&index, format!("{markdown}\n[Missing](/docs/missing)\n")).unwrap();
+        for cache in [Some(&cache), None] {
+            assert!(matches!(
+                compile_source(&source, cache, output.path()),
+                Err(CompileError::LinkValidation(1))
+            ));
+        }
     }
 }

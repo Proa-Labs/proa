@@ -43,12 +43,9 @@
 //! ingestion, alternative authoring path) could build the same IR
 //! without going through the macro.
 //!
-//! Depends on `proa_core` for the rendering-trait contracts the
-//! rewritten Rust references (`WebRenderSync`, `WebRender`,
-//! `WebContext`, `WriteBuf`, `WriteError`). This dependency is
-//! foundational; rsjs and proa are not framework-agnostic siblings.
-//! RSJS layers client analysis and artifact generation on Proa's server
-//! rendering contracts.
+//! Generated Rust targets Proa rendering contracts. The IR itself stays
+//! independent of the rendering implementation to avoid unnecessary compiler
+//! rebuilds when the renderer changes.
 //!
 //! # Why a separate crate
 //!

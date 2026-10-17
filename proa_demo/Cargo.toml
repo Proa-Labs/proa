@@ -22,7 +22,7 @@ required-features = ["server"]
 
 [features]
 default = []
-server = ["dep:axum", "dep:tokio", "dep:tower-http", "dep:open", "dep:reqwest", "dep:flate2", "dep:sha2", "dep:brotli"]
+server = ["dep:axum", "dep:tokio", "dep:open", "dep:reqwest", "dep:flate2", "dep:sha2", "dep:brotli"]
 
 [dependencies]
 axum = { workspace = true, optional = true }
@@ -42,8 +42,7 @@ seq-macro = { version = "0.3" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
-tower-http = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["fs", "macros", "net", "rt-multi-thread", "time"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
