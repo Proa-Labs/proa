@@ -217,6 +217,9 @@ pnpm add -D @playwright/test @axe-core/playwright
 pnpm exec playwright install
 ```
 
+Commit `package.json` and `pnpm-lock.yaml` so CI can install the same dependencies
+with `pnpm install --frozen-lockfile`.
+
 ### Accessibility checks
 
 ```typescript filename="tests/a11y.spec.ts"
@@ -373,6 +376,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable pinned pnpm
+        run: corepack enable && corepack prepare pnpm@9.15.2 --activate
+
+      - name: Install locked browser test dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers and system dependencies
+        run: pnpm exec playwright install --with-deps
 
       - name: Tests
         run: proa test
