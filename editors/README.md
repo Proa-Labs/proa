@@ -22,11 +22,11 @@ From this repository's root:
 
 ```sh
 rustup component add rust-analyzer rustfmt
-npm install --global ./editors/lsp
+pnpm add --global ./editors/lsp
 proa-lsp --version
 ```
 
-The npm package has no runtime dependencies and can be installed from this
+The language-server package has no runtime dependencies and can be installed from this
 checkout; these instructions do not depend on an npm registry release. To avoid
 a global installation, use `node /absolute/path/to/proa/editors/lsp/bin/proa-lsp.mjs`
 as the editor's command and arguments.
@@ -161,9 +161,9 @@ string styling; this release does not add a Markdown Tree-sitter grammar.
 Run from the repository root:
 
 ```sh
-npm run editor:test
+pnpm run editor:test
 CARGO_TARGET_DIR=target cargo test --manifest-path editors/vscode/test/fixture/Cargo.toml
-npm run editor:test:neovim
+pnpm run editor:test:neovim
 ```
 
 The Neovim test uses an isolated configuration and the real analyzer. It tests
@@ -176,15 +176,15 @@ printed temporary directory. Use `PROA_TEST_LOG_LEVEL=debug` for LSP message log
 ## Shared source and packaging
 
 The maintained projection, protocol, and formatting modules live in
-[`lsp/src/`](lsp/src/). VS Code's `prepare`, `pretest`, and `vscode:prepublish`
+[`lsp/src/`](lsp/src/). VS Code's `prepare`, `test`, and `vscode:prepublish`
 scripts copy them into an ignored `src/core/` directory inside the extension.
 The VSIX is self-contained; it does not import files from elsewhere in the
-checkout. Edit the shared sources, then run `npm run editor:test`.
+checkout. Edit the shared sources, then run `pnpm run editor:test`.
 
 ```sh
 # From editors/lsp: creates an installable npm tarball.
-npm pack
+pnpm pack
 
 # From editors/vscode: includes the refreshed shared core.
-npx @vscode/vsce package --no-dependencies
+pnpm dlx @vscode/vsce package --no-dependencies
 ```

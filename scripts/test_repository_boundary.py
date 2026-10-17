@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import subprocess
 import sys
 import tempfile
@@ -20,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts import check_repository_boundary as boundary  # noqa: E402
 
 
-class LocalKnowledgeBaseBoundary(unittest.TestCase):
+class RepositoryBoundary(unittest.TestCase):
     def setUp(self) -> None:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -101,6 +102,58 @@ class LocalKnowledgeBaseBoundary(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("dependency 'private' targets local-only content", output)
         self.assertIn("workspace member targets local-only content", output)
+
+    def node_project(self, **overrides: object) -> None:
+        manifest = {"private": True, "packageManager": "pnpm@9.15.2"} | overrides
+        self.write("apps/demo/package.json", json.dumps(manifest))
+        self.write("apps/demo/pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
+
+    def test_nested_pnpm_project_is_allowed(self) -> None:
+        self.node_project(scripts={"test": "pnpm exec node --test"})
+        status, output = self.check()
+        self.assertEqual(status, 0, output)
+
+    def test_nested_projects_require_pinned_pnpm_and_a_lockfile(self) -> None:
+        self.node_project(packageManager="pnpm@latest")
+        (self.root / "apps/demo/pnpm-lock.yaml").unlink()
+        status, output = self.check()
+        self.assertEqual(status, 1)
+        self.assertIn("packageManager must pin an exact pnpm version", output)
+        self.assertIn("require a checked-in pnpm-lock.yaml", output)
+
+    def test_nested_projects_cannot_use_another_package_manager(self) -> None:
+        for manager in ("npm@10.9.9", "yarn@4.0.0", "bun@1.3.10"):
+            with self.subTest(manager=manager):
+                self.node_project(packageManager=manager)
+                status, output = self.check()
+                self.assertEqual(status, 1)
+                self.assertIn("packageManager must pin an exact pnpm version", output)
+
+    def test_competing_lockfiles_are_rejected_in_nested_projects(self) -> None:
+        self.node_project()
+        for name in ("package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "bun.lockb", "bun.lock"):
+            with self.subTest(name=name):
+                self.write(f"apps/demo/{name}", "fixture")
+                status, output = self.check()
+                self.assertEqual(status, 1)
+                self.assertIn(f"apps/demo/{name}: JavaScript projects use pnpm", output)
+                (self.root / f"apps/demo/{name}").unlink()
+
+    def test_package_scripts_cannot_bypass_pnpm(self) -> None:
+        for command in ("npm ci", "npx playwright test", "yarn test"):
+            with self.subTest(command=command):
+                self.node_project(scripts={"test": command})
+                status, output = self.check()
+                self.assertEqual(status, 1)
+                self.assertIn("script 'test' must use pnpm", output)
+
+    def test_nested_package_can_share_a_pnpm_workspace_lock(self) -> None:
+        self.node_project()
+        (self.root / "apps/demo/pnpm-lock.yaml").unlink()
+        self.write("pnpm-workspace.yaml", "packages: ['apps/*']\n")
+        self.write("pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
+        status, output = self.check()
+        self.assertEqual(status, 0, output)
 
 
 if __name__ == "__main__":

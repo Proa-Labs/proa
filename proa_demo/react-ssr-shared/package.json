@@ -4,12 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prebench": "npm run parity",
-    "bench": "NODE_ENV=production tsx bench.ts",
+    "bench": "pnpm run parity && NODE_ENV=production tsx bench.ts",
     "bench:espn": "NODE_ENV=production tsx bench-espn.tsx",
-    "prebench:sentry-otel": "npm run parity:sentry-otel",
-    "bench:sentry-otel": "NODE_ENV=production tsx bench-sentry-otel.tsx",
-    "parity": "npm run parity:home && npm run parity:nike && npm run parity:sentry-otel",
+    "bench:sentry-otel": "pnpm run parity:sentry-otel && NODE_ENV=production tsx bench-sentry-otel.tsx",
+    "parity": "pnpm run parity:home && pnpm run parity:nike && pnpm run parity:sentry-otel",
     "parity:home": "node showcase-parity.mjs airbnb-home",
     "parity:nike": "node showcase-parity.mjs nike-pdp",
     "parity:sentry-otel": "node showcase-parity.mjs sentry-otel",
@@ -28,5 +26,6 @@
     "playwright": "1.61.1",
     "tsx": "^4.23.15",
     "typescript": "^5.7.0"
-  }
+  },
+  "packageManager": "pnpm@9.15.2"
 }

@@ -34,17 +34,17 @@ unreachable.
 
     ```sh
     cd ../next-ssr
-    npm install
-    npm run build
-    PORT=5402 npm run start
+    pnpm install
+    pnpm run build
+    PORT=5402 pnpm run start
     ```
 
 ## Install + run
 
 ```sh
 cd proa_demo/bench
-npm install                       # pulls playwright + chromium
-npx playwright install chromium   # only needed once per machine
+pnpm install                       # pulls playwright + chromium
+pnpm exec playwright install chromium   # only needed once per machine
 node run.mjs
 ```
 

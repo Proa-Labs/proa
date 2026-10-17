@@ -44,11 +44,11 @@ it through that recommendation.
 To package from this directory:
 
 ```sh
-npx @vscode/vsce package --no-dependencies
+pnpm dlx @vscode/vsce package --no-dependencies
 ```
 
 Packaging refreshes the shared modules from `../lsp/src` into the VSIX. For
-extension development, run `npm test` first to refresh those modules locally.
+extension development, run `pnpm test` first to refresh those modules locally.
 
 ## How it works
 
@@ -100,7 +100,7 @@ Rust expressions receive rust-analyzer's semantic colors.
 ## Validation
 
 ```sh
-npm test
+pnpm test
 CARGO_TARGET_DIR=../../target cargo test --manifest-path test/fixture/Cargo.toml
 ```
 

@@ -66,14 +66,19 @@ class lists, static strings, and existing `WriteBuf` APIs. Use
 `// proa-perf-ok: reason` only when the allocation is outside the hot path or is
 otherwise intentional.
 
+All JavaScript projects use pnpm 9.15.2 and commit a `pnpm-lock.yaml`.
+Run `corepack enable && corepack prepare pnpm@9.15.2 --activate` to enable the
+pinned package manager. CI rejects competing lockfiles and package scripts that
+use another manager, including in nested projects.
+
 Changes to streamed boundary framing, CSP propagation, or React integration
 also require the locked real-browser checks:
 
 ```bash
-npm ci --ignore-scripts
-npx playwright install chromium
-npm run stream:boundary-smoke
-npm run react:csp-smoke
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm exec playwright install chromium
+pnpm run stream:boundary-smoke
+pnpm run react:csp-smoke
 ```
 
 ## AI-Assisted And Generated Changes

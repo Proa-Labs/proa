@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -261,21 +262,34 @@ def check_markdown_links(
     return problems
 
 
+def check_node_project(path: Path) -> list[str]:
+    relative = path.relative_to(REPO_ROOT)
+    try:
+        manifest = json.loads(path.read_text())
+    except (ValueError, OSError) as error:
+        return [f"{relative}: cannot read package manifest: {error}"]
+    problems: list[str] = []
+    manager = manifest.get("packageManager", "")
+    if not isinstance(manager, str) or not re.fullmatch(r"pnpm@\d+\.\d+\.\d+", manager):
+        problems.append(f"{relative}: packageManager must pin an exact pnpm version")
+    locked = (path.parent / "pnpm-lock.yaml").is_file()
+    parent = path.parent
+    while not locked and is_inside_repo(parent):
+        locked = (parent / "pnpm-workspace.yaml").is_file() and (
+            parent / "pnpm-lock.yaml"
+        ).is_file()
+        parent = parent.parent
+    if not locked:
+        problems.append(f"{relative}: JavaScript projects require a checked-in pnpm-lock.yaml")
+    for name, command in manifest.get("scripts", {}).items():
+        if re.search(r"\b(?:npm|npx|yarn)\s", command):
+            problems.append(f"{relative}: script {name!r} must use pnpm")
+    return problems
+
+
 def main() -> int:
     problems: list[str] = []
     files = candidate_files()
-    if (REPO_ROOT / "package.json").is_file():
-        if not (REPO_ROOT / "pnpm-lock.yaml").is_file():
-            problems.append(
-                "package.json: browser acceptance dependencies require a "
-                "checked-in pnpm-lock.yaml"
-            )
-        for stray in ("package-lock.json", "yarn.lock", "bun.lockb"):
-            if (REPO_ROOT / stray).is_file():
-                problems.append(
-                    f"{stray}: this repository resolves Node dependencies with "
-                    "pnpm; remove the competing lockfile"
-                )
     repository_paths: set[Path] = {REPO_ROOT}
     for candidate in files:
         if not candidate.exists():
@@ -311,6 +325,12 @@ def main() -> int:
             continue
         if path.name == "Cargo.toml":
             problems.extend(check_manifest(path))
+        if path.name == "package.json":
+            problems.extend(check_node_project(path))
+        if path.name in {"package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "bun.lockb", "bun.lock"}:
+            problems.append(
+                f"{relative}: JavaScript projects use pnpm; remove the competing lockfile"
+            )
         if resolved == SELF:
             continue
         text = read_text(path)

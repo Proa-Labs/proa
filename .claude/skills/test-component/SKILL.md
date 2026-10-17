@@ -185,8 +185,8 @@ screen reader announcements need runtime testing. Use axe-core via
 Playwright:
 
 ```bash
-npm install -D @playwright/test @axe-core/playwright
-npx playwright install
+pnpm add -D @playwright/test @axe-core/playwright
+pnpm exec playwright install
 ```
 
 ```typescript
@@ -264,5 +264,5 @@ show up in code review.
 cargo test -p <owning-package> --lib
 cargo test -p <owning-package> --lib card
 cargo insta review                   # if snapshots changed
-npx playwright test                  # integration
+pnpm exec playwright test                  # integration
 ```

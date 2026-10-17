@@ -23,18 +23,16 @@ fi
 # Proa rendering works without them, but the A/B comparison won't.
 HAS_NODE=false
 HAS_PNPM=false
-HAS_NPM=false
 if command -v node &>/dev/null; then HAS_NODE=true; fi
 if command -v pnpm &>/dev/null; then HAS_PNPM=true; fi
-if command -v npm &>/dev/null; then HAS_NPM=true; fi
 
 if ! $HAS_NODE; then
   echo "  Warning: node not found — React (Node), React SSR, and Next.js comparisons will be unavailable"
   echo "           Install Node: https://nodejs.org"
 fi
 if ! $HAS_PNPM; then
-  echo "  Warning: pnpm not found — React dependency install will be skipped"
-  echo "           Install pnpm: npm install -g pnpm"
+  echo "  Warning: pnpm not found — JavaScript dependency installs will be skipped"
+  echo "           Enable pnpm: corepack enable && corepack prepare pnpm@9.15.2 --activate"
 fi
 
 HAS_BUN=false
@@ -46,43 +44,35 @@ fi
 echo ""
 
 # 1. Install shared React components if needed
-if $HAS_PNPM; then
+if $HAS_NODE && $HAS_PNPM; then
   SHARED_DIR="$SCRIPT_DIR/react-ssr-shared"
   if [ -d "$SHARED_DIR" ] && [ ! -d "$SHARED_DIR/node_modules" ]; then
     echo "  Installing shared React SSR dependencies..."
-    cd "$SHARED_DIR" && pnpm install --silent 2>/dev/null && cd "$ROOT_DIR"
+    pnpm --dir "$SHARED_DIR" install --frozen-lockfile
   fi
 
   # 2. Install Hono SSR server if needed
   HONO_DIR="$SCRIPT_DIR/hono-ssr"
   if [ -d "$HONO_DIR" ] && [ ! -d "$HONO_DIR/node_modules" ]; then
     echo "  Installing Hono SSR dependencies..."
-    cd "$HONO_DIR" && pnpm install --silent 2>/dev/null && cd "$ROOT_DIR"
+    pnpm --dir "$HONO_DIR" install --frozen-lockfile
   fi
 fi
 
-if $HAS_NODE; then
+if $HAS_NODE && $HAS_PNPM; then
   MARKO_DIR="$SCRIPT_DIR/marko-server"
   if [ -d "$MARKO_DIR" ]; then
     if [ ! -d "$MARKO_DIR/node_modules" ]; then
-      if $HAS_NPM; then
-        echo "  Installing Marko SSR dependencies..."
-        cd "$MARKO_DIR" && npm install --silent && cd "$ROOT_DIR"
-      else
-        echo "  Warning: npm not found — Marko dependency install will be skipped"
-      fi
+      echo "  Installing Marko SSR dependencies..."
+      pnpm --dir "$MARKO_DIR" install --frozen-lockfile
     fi
   fi
 
   REACT_SSR_DIR="$SCRIPT_DIR/react-ssr"
   if [ -d "$REACT_SSR_DIR" ]; then
     if [ ! -d "$REACT_SSR_DIR/node_modules" ]; then
-      if $HAS_NPM; then
-        echo "  Installing React SSR dependencies..."
-        cd "$REACT_SSR_DIR" && npm install --silent && cd "$ROOT_DIR"
-      else
-        echo "  Warning: npm not found — React SSR dependency install will be skipped"
-      fi
+      echo "  Installing React SSR dependencies..."
+      pnpm --dir "$REACT_SSR_DIR" install --frozen-lockfile
     fi
   fi
 
@@ -90,7 +80,7 @@ if $HAS_NODE; then
   if [ -d "$NEXT_DIR" ]; then
     if [ ! -d "$NEXT_DIR/node_modules" ]; then
       echo "  Installing Next.js SSR dependencies..."
-      cd "$NEXT_DIR" && npm install --silent 2>/dev/null && cd "$ROOT_DIR"
+      pnpm --dir "$NEXT_DIR" install --frozen-lockfile
     fi
     NEXT_BUILD_ID="$NEXT_DIR/.next/BUILD_ID"
     NEXT_BUILD_STALE=false
@@ -107,7 +97,7 @@ if $HAS_NODE; then
     fi
     if [ ! -f "$NEXT_BUILD_ID" ] || [ "$NEXT_BUILD_STALE" = true ]; then
       echo "  Building Next.js SSR demo..."
-      cd "$NEXT_DIR" && npm run build --silent && cd "$ROOT_DIR"
+      pnpm --dir "$NEXT_DIR" run build
     fi
   fi
 fi

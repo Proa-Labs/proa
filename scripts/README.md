@@ -77,8 +77,10 @@ python3 scripts/check_crate_archives.py
 
 The root Node dependencies exist only for real-browser acceptance tests. They
 are exact-pinned in [`pnpm-lock.yaml`](../pnpm-lock.yaml) and require Node.js 22
-or newer. The repository resolves Node dependencies with pnpm; `npm` and `yarn`
-are refused by a `preinstall` guard so a second lockfile cannot appear:
+or newer. Every JavaScript project pins pnpm and checks in a pnpm lockfile.
+The root install has a `preinstall` guard; CI also rejects competing lockfiles,
+unpinned package managers, and package scripts using another manager in nested
+projects. Enable pnpm with `corepack enable` before installing:
 
 ```bash
 corepack enable
