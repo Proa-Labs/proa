@@ -148,19 +148,19 @@ pub trait ComponentAbi {
 pub struct LinkedChildSite {
     /// Parent-local component edge ID.
     pub edge_id: u32,
-    /// Exact semantic-plan identity.
-    pub plan_id: [u8; 32],
-    /// Dense linked component-site candidate.
-    pub candidate_id: u32,
+    /// Stable logical render-root scope identity.
+    pub scope_id: [u8; 32],
+    /// Stable linked component-site coordinate.
+    pub candidate_id: u64,
 }
 
 impl LinkedChildSite {
     /// Construct one plan-specific child-site token.
     #[doc(hidden)]
-    pub const fn new(edge_id: u32, plan_id: [u8; 32], candidate_id: u32) -> Self {
+    pub const fn new(edge_id: u32, scope_id: [u8; 32], candidate_id: u64) -> Self {
         Self {
             edge_id,
-            plan_id,
+            scope_id,
             candidate_id,
         }
     }
@@ -205,11 +205,11 @@ pub enum LinkedCallbackDispatch {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct LinkedLiveProp {
     /// Concrete parent occurrence.
-    pub parent_candidate_id: u32,
+    pub parent_candidate_id: u64,
     /// Parent-local component edge.
     pub edge_id: u32,
     /// Concrete child occurrence carrying this record.
-    pub child_candidate_id: u32,
+    pub child_candidate_id: u64,
     /// Stable child field ID.
     pub field_id: u32,
     /// Rust-validated client crossing hook.
@@ -229,9 +229,9 @@ impl LinkedLiveProp {
     #[doc(hidden)]
     #[allow(clippy::too_many_arguments)]
     pub const fn new(
-        parent_candidate_id: u32,
+        parent_candidate_id: u64,
         edge_id: u32,
-        child_candidate_id: u32,
+        child_candidate_id: u64,
         field_id: u32,
         crossing_hook_id: u32,
         parent_value_id: u32,
@@ -259,11 +259,11 @@ impl LinkedLiveProp {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct LinkedLiveCallback {
     /// Concrete parent occurrence.
-    pub parent_candidate_id: u32,
+    pub parent_candidate_id: u64,
     /// Parent-local component edge.
     pub edge_id: u32,
     /// Concrete child occurrence carrying this record.
-    pub child_candidate_id: u32,
+    pub child_candidate_id: u64,
     /// Stable child callback field ID.
     pub field_id: u32,
     /// Rust-validated callback crossing hook.
@@ -280,9 +280,9 @@ impl LinkedLiveCallback {
     /// Construct one plan-specific live callback record.
     #[doc(hidden)]
     pub const fn new(
-        parent_candidate_id: u32,
+        parent_candidate_id: u64,
         edge_id: u32,
-        child_candidate_id: u32,
+        child_candidate_id: u64,
         field_id: u32,
         crossing_hook_id: u32,
         parent_value_id: u32,
@@ -320,14 +320,14 @@ impl LinkedSharedStateRequirement {
     #[doc(hidden)]
     pub const fn new(
         reference_id: u32,
-        plan_id: [u8; 32],
-        provider_host_candidate_id: u32,
+        scope_id: [u8; 32],
+        provider_host_candidate_id: u64,
         provider_site_id: u32,
     ) -> Self {
         Self {
             reference_id,
             provider: proa_core::RsjsLinkedProviderOccurrenceKey::new(
-                plan_id,
+                scope_id,
                 provider_host_candidate_id,
                 provider_site_id,
             ),
@@ -363,14 +363,14 @@ pub enum LinkedOwnerActivationStrategy {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinkedRenderSitePlan {
-    /// Exact semantic-plan identity.
-    pub plan_id: [u8; 32],
-    /// Dense linked component-site candidate.
-    pub candidate_id: u32,
+    /// Stable logical render-root scope identity.
+    pub scope_id: [u8; 32],
+    /// Stable linked component-site coordinate.
+    pub candidate_id: u64,
     /// Final owner partition, if this occurrence participates in browser work.
-    pub owner_id: Option<u32>,
+    pub owner_id: Option<u64>,
     /// Candidate at which that owner is rooted.
-    pub owner_root_candidate_id: Option<u32>,
+    pub owner_root_candidate_id: Option<u64>,
     /// Effective activation strategy of the selected owner.
     pub owner_strategy: Option<LinkedOwnerActivationStrategy>,
     /// Plan-specific owner module asset. Fused members name the enclosing
@@ -394,10 +394,10 @@ impl LinkedRenderSitePlan {
     /// Construct one plan-specific component occurrence.
     #[doc(hidden)]
     pub const fn new(
-        plan_id: [u8; 32],
-        candidate_id: u32,
-        owner_id: Option<u32>,
-        owner_root_candidate_id: Option<u32>,
+        scope_id: [u8; 32],
+        candidate_id: u64,
+        owner_id: Option<u64>,
+        owner_root_candidate_id: Option<u64>,
         owner_strategy: Option<LinkedOwnerActivationStrategy>,
         owner_asset_id: Option<&'static str>,
         seed_key: Option<&'static str>,
@@ -407,7 +407,7 @@ impl LinkedRenderSitePlan {
         live_callbacks: &'static [LinkedLiveCallback],
     ) -> Self {
         Self {
-            plan_id,
+            scope_id,
             candidate_id,
             owner_id,
             owner_root_candidate_id,
@@ -427,10 +427,10 @@ impl LinkedRenderSitePlan {
     #[doc(hidden)]
     #[allow(clippy::too_many_arguments)]
     pub const fn new_with_shared_state(
-        plan_id: [u8; 32],
-        candidate_id: u32,
-        owner_id: Option<u32>,
-        owner_root_candidate_id: Option<u32>,
+        scope_id: [u8; 32],
+        candidate_id: u64,
+        owner_id: Option<u64>,
+        owner_root_candidate_id: Option<u64>,
         owner_strategy: Option<LinkedOwnerActivationStrategy>,
         owner_asset_id: Option<&'static str>,
         seed_key: Option<&'static str>,
@@ -441,7 +441,7 @@ impl LinkedRenderSitePlan {
         shared_state_requirements: &'static [LinkedSharedStateRequirement],
     ) -> Self {
         Self {
-            plan_id,
+            scope_id,
             candidate_id,
             owner_id,
             owner_root_candidate_id,
@@ -517,9 +517,9 @@ impl LinkedRenderSitePlan {
         })
     }
 
-    fn assert_identity(&self, plan_id: [u8; 32], candidate_id: u32) {
+    fn assert_identity(&self, scope_id: [u8; 32], candidate_id: u64) {
         assert!(
-            self.plan_id == plan_id && self.candidate_id == candidate_id,
+            self.scope_id == scope_id && self.candidate_id == candidate_id,
             "RSJS linked render-site lookup returned the wrong plan or candidate"
         );
     }
@@ -538,7 +538,8 @@ pub trait ComponentSiteRenderSync<
 {
     /// Resolve a plan-specific candidate to a static render-site plan.
     #[doc(hidden)]
-    fn linked_site(candidate_id: u32, expected_plan_id: [u8; 32]) -> &'static LinkedRenderSitePlan;
+    fn linked_site(candidate_id: u64, expected_scope_id: [u8; 32])
+        -> &'static LinkedRenderSitePlan;
 
     /// Render the authored component body under an explicit site plan.
     #[doc(hidden)]
@@ -562,7 +563,8 @@ pub trait ComponentSiteRender<
 {
     /// Resolve a plan-specific candidate to a static render-site plan.
     #[doc(hidden)]
-    fn linked_site(candidate_id: u32, expected_plan_id: [u8; 32]) -> &'static LinkedRenderSitePlan;
+    fn linked_site(candidate_id: u64, expected_scope_id: [u8; 32])
+        -> &'static LinkedRenderSitePlan;
 
     /// Render the authored component body under an explicit site plan.
     #[doc(hidden)]
@@ -600,8 +602,8 @@ where
 {
     #[inline]
     fn render(self, cx: &mut proa_core::WebContext<L, B>) -> Result<(), proa_core::WriteError> {
-        let plan = T::linked_site(self.site.candidate_id, self.site.plan_id);
-        plan.assert_identity(self.site.plan_id, self.site.candidate_id);
+        let plan = T::linked_site(self.site.candidate_id, self.site.scope_id);
+        plan.assert_identity(self.site.scope_id, self.site.candidate_id);
         T::render_at(self.component, cx, plan)
     }
 }
@@ -619,8 +621,8 @@ where
     ) -> proa_core::RenderOutcome<
         impl core::future::Future<Output = Result<(), proa_core::WriteError>>,
     > {
-        let plan = T::linked_site(self.site.candidate_id, self.site.plan_id);
-        plan.assert_identity(self.site.plan_id, self.site.candidate_id);
+        let plan = T::linked_site(self.site.candidate_id, self.site.scope_id);
+        plan.assert_identity(self.site.scope_id, self.site.candidate_id);
         T::render_at(self.component, cx, plan)
     }
 }
@@ -816,8 +818,8 @@ mod tests {
         );
     }
 
-    const PLAN_ID: [u8; 32] = [7; 32];
-    static CHILDREN: [LinkedChildSite; 1] = [LinkedChildSite::new(9, PLAN_ID, 4)];
+    const SCOPE_ID: [u8; 32] = [7; 32];
+    static CHILDREN: [LinkedChildSite; 1] = [LinkedChildSite::new(9, SCOPE_ID, 4)];
     static LIVE_PROPS: [LinkedLiveProp; 4] = [
         LinkedLiveProp::new(
             2,
@@ -875,7 +877,7 @@ mod tests {
         LinkedCallbackDispatch::ResolveCurrent,
     )];
     static SITE: LinkedRenderSitePlan = LinkedRenderSitePlan::new(
-        PLAN_ID,
+        SCOPE_ID,
         4,
         Some(2),
         Some(4),
@@ -891,8 +893,8 @@ mod tests {
     struct SyncProbe(&'static str);
 
     impl<L: DataLoader, B: WriteBuf> ComponentSiteRenderSync<L, B> for SyncProbe {
-        fn linked_site(candidate_id: u32, plan_id: [u8; 32]) -> &'static LinkedRenderSitePlan {
-            assert_eq!((plan_id, candidate_id), (PLAN_ID, 4));
+        fn linked_site(candidate_id: u64, scope_id: [u8; 32]) -> &'static LinkedRenderSitePlan {
+            assert_eq!((scope_id, candidate_id), (SCOPE_ID, 4));
             &SITE
         }
 
@@ -938,8 +940,8 @@ mod tests {
     struct AsyncProbe;
 
     impl<L: DataLoader, B: WriteBuf> ComponentSiteRender<L, B> for AsyncProbe {
-        fn linked_site(candidate_id: u32, plan_id: [u8; 32]) -> &'static LinkedRenderSitePlan {
-            assert_eq!((plan_id, candidate_id), (PLAN_ID, 4));
+        fn linked_site(candidate_id: u64, scope_id: [u8; 32]) -> &'static LinkedRenderSitePlan {
+            assert_eq!((scope_id, candidate_id), (SCOPE_ID, 4));
             &SITE
         }
 
@@ -965,7 +967,7 @@ mod tests {
     struct WrongLookup;
 
     impl<L: DataLoader, B: WriteBuf> ComponentSiteRenderSync<L, B> for WrongLookup {
-        fn linked_site(_candidate_id: u32, _plan_id: [u8; 32]) -> &'static LinkedRenderSitePlan {
+        fn linked_site(_candidate_id: u64, _scope_id: [u8; 32]) -> &'static LinkedRenderSitePlan {
             static WRONG: LinkedRenderSitePlan = LinkedRenderSitePlan::new(
                 [8; 32],
                 5,

@@ -10,11 +10,164 @@ use proa_cli::rsjs::build::{
     DescriptorCargoRequest, FINAL_CARGO_UNIT_STATUS_MAPPED, FINAL_WRAPPER_POLICY_VERSION,
 };
 use proa_cli::rsjs::final_compile::{run_final_cargo, FinalCargoRequest, FINAL_PLAN_FILE_HASH_ENV};
-use proa_cli::rsjs::pipeline::{run_linked_cargo, DescriptorRootSelector, LinkedCargoRequest};
+use proa_cli::rsjs::pipeline::{
+    run_linked_cargo, run_linked_cargo_cached, DescriptorRootSelector, LinkedCargoRequest,
+};
 use proa_cli::rsjs::semantic_link::{link_semantic_plan, write_content_addressed_semantic_plan};
 use rsjs_ir::abi::{AbiVersion, InvocationId, LinkUnitId, ProducerVersion, SemanticHash};
 use rsjs_ir::build::ArtifactRole;
 use tempfile::TempDir;
+
+#[test]
+fn another_units_mapping_change_keeps_a_tracked_dependency_fresh() {
+    let temp = TempDir::new().unwrap();
+    let files = [
+        (
+            "Cargo.toml",
+            r#"[package]
+name = "mapping_probe"
+version = "0.0.0"
+edition = "2021"
+[dependencies]
+stable_dependency = { path = "stable_dependency" }
+[workspace]
+members = ["stable_dependency", "fixture_macro"]
+"#,
+        ),
+        (
+            "fixture_macro/Cargo.toml",
+            r#"[package]
+name = "fixture_macro"
+version = "0.0.0"
+edition = "2021"
+[lib]
+proc-macro = true
+"#,
+        ),
+        (
+            "fixture_macro/src/lib.rs",
+            r#"extern crate proc_macro;
+#[proc_macro]
+pub fn stamp(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let unit = std::env::var("RSJS_CARGO_UNIT_ID").unwrap();
+    let name = format!("PROA_RSJS_FINAL_UNIT_INPUT_{unit}");
+    let value = std::env::var(&name).unwrap();
+    format!("{{ const _: &str = env!({name:?}); {value:?} }}").parse().unwrap()
+}
+"#,
+        ),
+        (
+            "stable_dependency/Cargo.toml",
+            r#"[package]
+name = "stable_dependency"
+version = "0.0.0"
+edition = "2021"
+[dependencies]
+fixture_macro = { path = "../fixture_macro" }
+"#,
+        ),
+        (
+            "stable_dependency/src/lib.rs",
+            r#"#![allow(unexpected_cfgs)]
+#[cfg(rsjs_final)]
+pub fn stamp() -> &'static str { fixture_macro::stamp!() }
+#[cfg(not(rsjs_final))]
+pub fn stamp() -> &'static str { "descriptor" }
+"#,
+        ),
+        (
+            "src/main.rs",
+            "fn main() { print!(\"{}|1\", stable_dependency::stamp()); }\n",
+        ),
+    ];
+    for (name, source) in files {
+        let path = temp.path().join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, source).unwrap();
+    }
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let metadata = Command::new(&cargo)
+        .current_dir(temp.path())
+        .args(["metadata", "--format-version=1", "--no-deps", "--offline"])
+        .output()
+        .unwrap();
+    assert!(metadata.status.success());
+    let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout).unwrap();
+    let package_id = metadata["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|package| package["name"] == "mapping_probe")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // Match the lifecycle's canonical project root, including macOS /var's
+    // /private alias, so exact Cargo artifact coordinates remain identical.
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let generated = root.join("target/probe");
+    let request = LinkedCargoRequest {
+        descriptor: DescriptorCargoRequest {
+            cargo,
+            wrapper: env!("CARGO_BIN_EXE_cargo-proa").into(),
+            working_directory: root,
+            staging_directory: generated.join("staging"),
+            target_directory: generated.join("descriptor"),
+            source_exclusion_directory: generated.clone(),
+            cargo_args: vec!["build".into(), "--offline".into()],
+            environment: Default::default(),
+        },
+        root: DescriptorRootSelector {
+            package_id,
+            target_name: "mapping_probe".into(),
+            target_kinds: BTreeSet::from(["bin".into()]),
+            role: ArtifactRole::RootExecutable,
+            artifact_path: None,
+        },
+        invocation: InvocationId::derive("independent-mapping-probe"),
+        producer: ProducerVersion::new(0, 1, 0),
+        runtime_protocol: AbiVersion::new(1, 0),
+        plan_directory: generated.join("plans"),
+        final_target_root: generated.join("final"),
+        final_cargo_args: vec!["build".into(), "--offline".into()],
+        final_environment: Default::default(),
+    };
+    let cache = generated.join("cache");
+    let first = run_linked_cargo_cached(&request, &cache).unwrap();
+    let first_output = Command::new(first.final_root_artifact.executable.as_ref().unwrap())
+        .output()
+        .unwrap();
+    fs::write(
+        temp.path().join("src/main.rs"),
+        "fn main() { print!(\"{}|2\", stable_dependency::stamp()); }\n",
+    )
+    .unwrap();
+    let second = run_linked_cargo_cached(&request, &cache).unwrap();
+    assert_ne!(
+        first.final_cargo.unit_map_hash,
+        second.final_cargo.unit_map_hash
+    );
+    let dependency = second
+        .final_cargo
+        .cargo_artifacts
+        .iter()
+        .find(|artifact| artifact.target.name == "stable_dependency")
+        .unwrap();
+    assert!(
+        dependency.fresh,
+        "another mapping must not invalidate this unit's env! witness"
+    );
+    let second_output = Command::new(second.final_root_artifact.executable.as_ref().unwrap())
+        .output()
+        .unwrap();
+    let first_text = String::from_utf8(first_output.stdout).unwrap();
+    let second_text = String::from_utf8(second_output.stdout).unwrap();
+    assert_eq!(
+        first_text.strip_suffix("|1"),
+        second_text.strip_suffix("|2")
+    );
+    assert!(second_text.ends_with("|2"));
+}
 
 #[test]
 fn linked_cargo_restores_exact_descriptor_identity_across_renamed_targets() {

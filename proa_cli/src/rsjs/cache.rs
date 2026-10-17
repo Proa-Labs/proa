@@ -28,12 +28,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
+use sha2_accelerated::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::rsjs::build::wrapper_control_environment;
 use crate::rsjs::build::{
-    acquire_descriptor_target_lease, classify_dependency_artifact, descriptor_input_content_hash,
+    acquire_descriptor_target_lease, classify_dependency_artifact, descriptor_input_link_hashes,
     descriptor_package_source_closure_hash, descriptor_staging_marker_is_valid,
     descriptor_target_dirty_journal_path, descriptor_target_marker_is_valid,
     join_cargo_enumerated_descriptor_units, join_descriptor_units_to_cargo_artifacts,
@@ -42,14 +42,16 @@ use crate::rsjs::build::{
     uplifted_root_lib_hashed_rlib, validate_descriptor_managed_paths,
     validate_descriptor_observed_inputs, CargoCompilerArtifact, DescriptorCargoOutput,
     DescriptorCargoRequest, DescriptorCargoRun, DescriptorCargoRunError, DescriptorCargoUnitId,
-    DescriptorSidecarError, DescriptorTargetLease, DescriptorUnitSidecar, UnitArtifactJoinError,
-    ValidatedDescriptorUnit, DESCRIPTOR_OBJECT_HASH_DOMAIN,
+    DescriptorInputHashes, DescriptorObjectSnapshot, DescriptorSidecarError, DescriptorTargetLease,
+    DescriptorUnitSidecar, UnitArtifactJoinError, ValidatedDescriptorUnit,
+    DESCRIPTOR_OBJECT_HASH_DOMAIN,
 };
 #[cfg(test)]
 use crate::rsjs::build::{
-    descriptor_environment_dependency_value_hash, descriptor_object_content_hash,
-    descriptor_out_dir_dependency_content_hash, descriptor_source_dependency_content_hash,
-    DescriptorEnvironmentDependency, DescriptorOutDirDependency, DescriptorSourceDependency,
+    descriptor_environment_dependency_value_hash, descriptor_input_content_hash,
+    descriptor_object_content_hash, descriptor_out_dir_dependency_content_hash,
+    descriptor_source_dependency_content_hash, DescriptorEnvironmentDependency,
+    DescriptorOutDirDependency, DescriptorSourceDependency,
 };
 
 pub(crate) const DESCRIPTOR_CACHE_SCHEMA_VERSION: u16 = 5;
@@ -287,6 +289,7 @@ fn run_descriptor_cargo_cached_once(
     require_complete_rebuild: bool,
     resume_interrupted_staging: bool,
 ) -> Result<DescriptorCargoOutput, DescriptorCacheError> {
+    let mut timing = super::timing::StageTimer::new();
     let mut fresh = if resume_interrupted_staging {
         run_descriptor_cargo_allow_empty_resuming(request)
     } else {
@@ -299,6 +302,7 @@ fn run_descriptor_cargo_cached_once(
     if resume_interrupted_staging {
         retain_current_interrupted_units(&mut fresh, request)?;
     }
+    timing.mark("descriptor Cargo and sidecars");
     let evidence = collect_artifact_evidence(&fresh.cargo_artifacts)?;
     let artifact_set_coordinate = artifact_set_coordinate(&evidence);
     if fresh.units.is_empty() {
@@ -377,6 +381,7 @@ fn run_descriptor_cargo_cached_once(
         }
     }
 
+    timing.mark("cache artifact indexes");
     cached_generations.retain(|unit, _| !fresh_ids.contains(unit));
     let cached_ids = cached_generations.keys().copied().collect::<BTreeSet<_>>();
     let fresh_generations = persist_fresh_units(cache_directory, &fresh.units)?;
@@ -387,7 +392,9 @@ fn run_descriptor_cargo_cached_once(
     // Both rebuilt and reused units are now immutable cache generations. This
     // makes every path in the returned output independent of nonce staging and
     // lets successful invocations remove staging before releasing the lease.
-    let units = load_cached_units_direct(cache_directory, &generations)?;
+    timing.mark("cache persist rebuilt objects");
+    let (units, objects) = load_cached_units_with_objects(cache_directory, &generations)?;
+    timing.mark("cache load and hash objects");
     let units_by_id = units
         .iter()
         .map(|unit| (unit.unit, unit))
@@ -403,12 +410,13 @@ fn run_descriptor_cargo_cached_once(
     } else {
         cached_ids.clone()
     };
-    validate_cached_unit_inputs(
+    let input_hashes = validate_cached_unit_inputs(
         &units_by_id,
         &validation_ids,
         &request.target_directory,
         &fresh.cargo_artifacts,
     )?;
+    timing.mark("cache validate observed inputs and externs");
     validate_cached_artifact_joins(
         &units_by_id,
         &cached_ids,
@@ -424,6 +432,7 @@ fn run_descriptor_cargo_cached_once(
     {
         return Err(DescriptorCacheError::MissingCachedGeneration(*unit));
     }
+    timing.mark("cache validate artifact joins");
     persist_artifact_indexes(
         cache_directory,
         &units,
@@ -439,9 +448,12 @@ fn run_descriptor_cargo_cached_once(
     )?;
     remove_completed_staging(&request.staging_directory)?;
 
+    timing.mark("cache publish indexes and cleanup");
     Ok(DescriptorCargoOutput {
         cargo_artifacts: fresh.cargo_artifacts,
         units,
+        objects,
+        input_hashes,
     })
 }
 
@@ -503,7 +515,7 @@ fn interrupted_unit_matches_current_inputs(
     let units_by_id = BTreeMap::from([(unit.unit, unit)]);
     let unit_ids = BTreeSet::from([unit.unit]);
     match validate_cached_dependency_artifacts(&units_by_id, &unit_ids, cargo_artifacts) {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(
             DescriptorCacheError::CachedDependencyNotEnumerated { .. }
             | DescriptorCacheError::StaleCachedDependency { .. },
@@ -1153,10 +1165,24 @@ fn validate_cache_hash(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 fn load_cached_units_direct(
     cache_directory: &Path,
     units: &BTreeMap<DescriptorCargoUnitId, CachedUnitGeneration>,
 ) -> Result<Vec<ValidatedDescriptorUnit>, DescriptorCacheError> {
+    load_cached_units_with_objects(cache_directory, units).map(|(units, _)| units)
+}
+
+fn load_cached_units_with_objects(
+    cache_directory: &Path,
+    units: &BTreeMap<DescriptorCargoUnitId, CachedUnitGeneration>,
+) -> Result<
+    (
+        Vec<ValidatedDescriptorUnit>,
+        BTreeMap<PathBuf, DescriptorObjectSnapshot>,
+    ),
+    DescriptorCacheError,
+> {
     let mut cached = Vec::with_capacity(units.len());
     for (unit, generation) in units {
         let sidecar_source = cached_sidecar_path(cache_directory, generation);
@@ -1234,14 +1260,16 @@ fn load_cached_units_direct(
     // mismatches are still reported deterministically by Cargo-unit ID below.
     let actual_hashes = cached
         .par_iter()
-        .map(|unit| hash_cached_descriptor_object(&unit.descriptor_object))
+        .map(|unit| DescriptorObjectSnapshot::read(&unit.descriptor_object))
         .collect::<Vec<_>>();
     let mut validated = Vec::with_capacity(cached.len());
-    for (unit, actual_hash) in cached.into_iter().zip(actual_hashes) {
-        let actual_hash = actual_hash.map_err(|source| DescriptorCacheError::ReadCacheSource {
+    let mut objects = BTreeMap::new();
+    for (unit, snapshot) in cached.into_iter().zip(actual_hashes) {
+        let snapshot = snapshot.map_err(|source| DescriptorCacheError::ReadCacheSource {
             path: unit.descriptor_object.clone(),
             source,
         })?;
+        let actual_hash = encode_digest(&snapshot.descriptor_hash);
         if actual_hash != unit.expected_object_hash {
             return Err(DescriptorCacheError::DescriptorObjectHashMismatch {
                 unit: unit.unit,
@@ -1257,6 +1285,7 @@ fn load_cached_units_direct(
             unit.unit,
             CacheUnitFileKind::Object,
         )?;
+        objects.insert(unit.descriptor_object.clone(), snapshot);
         validated.push(ValidatedDescriptorUnit {
             unit: unit.unit,
             sidecar: unit.sidecar,
@@ -1264,7 +1293,7 @@ fn load_cached_units_direct(
             descriptor_object: unit.descriptor_object,
         });
     }
-    Ok(validated)
+    Ok((validated, objects))
 }
 
 struct CachedUnitCandidate {
@@ -1273,21 +1302,6 @@ struct CachedUnitCandidate {
     sidecar_path: PathBuf,
     descriptor_object: PathBuf,
     expected_object_hash: String,
-}
-
-fn hash_cached_descriptor_object(path: &Path) -> io::Result<String> {
-    let mut input = File::open(path)?;
-    let mut hash = Sha256::new();
-    hash.update(DESCRIPTOR_OBJECT_HASH_DOMAIN);
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let read = input.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hash.update(&buffer[..read]);
-    }
-    Ok(encode_digest(&hash.finalize().into()))
 }
 
 fn validate_cached_sidecar_semantics(
@@ -1451,12 +1465,7 @@ fn validate_cached_sidecar_semantics(
         })?;
     }
     let codegen = &sidecar.descriptor_codegen;
-    if codegen.codegen_units != 1
-        || codegen.incremental
-        || !codegen.link_dead_code
-        || codegen.lto != "off"
-        || codegen.strip != "none"
-    {
+    if !codegen.is_supported() {
         return Err(invalid(
             "descriptor retention/codegen policy is incompatible".to_string(),
         ));
@@ -1551,9 +1560,13 @@ fn validate_cached_unit_inputs(
     cached_ids: &BTreeSet<DescriptorCargoUnitId>,
     descriptor_target: &Path,
     cargo_artifacts: &[CargoCompilerArtifact],
-) -> Result<(), DescriptorCacheError> {
+) -> Result<DescriptorInputHashes, DescriptorCacheError> {
+    let mut timing = super::timing::StageTimer::new();
     validate_cached_observed_inputs(units_by_id, cached_ids, descriptor_target)?;
-    validate_cached_dependency_artifacts(units_by_id, cached_ids, cargo_artifacts)
+    timing.mark("cache validate observed source generated and environment inputs");
+    let hashes = validate_cached_dependency_artifacts(units_by_id, cached_ids, cargo_artifacts)?;
+    timing.mark("cache validate dependency artifact bytes");
+    Ok(hashes)
 }
 
 fn validate_cached_observed_inputs(
@@ -1561,16 +1574,31 @@ fn validate_cached_observed_inputs(
     cached_ids: &BTreeSet<DescriptorCargoUnitId>,
     descriptor_target: &Path,
 ) -> Result<(), DescriptorCacheError> {
-    for unit_id in cached_ids {
-        let unit = units_by_id
-            .get(unit_id)
-            .ok_or(DescriptorCacheError::MissingMergedUnit(*unit_id))?;
-        validate_descriptor_observed_inputs(descriptor_target, &unit.sidecar).map_err(
-            |source| DescriptorCacheError::CachedOutDirDependencyMismatch {
-                unit: *unit_id,
-                source,
-            },
-        )?;
+    let units = cached_ids
+        .iter()
+        .map(|unit_id| {
+            units_by_id
+                .get(unit_id)
+                .copied()
+                .ok_or(DescriptorCacheError::MissingMergedUnit(*unit_id))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    // Each unit validates its full source/generated/environment input set.
+    // Collect before propagating errors so diagnostics keep canonical unit-ID
+    // order regardless of worker scheduling, as object/extern hashing does.
+    let validations = units
+        .par_iter()
+        .map(|unit| {
+            validate_descriptor_observed_inputs(descriptor_target, &unit.sidecar).map_err(
+                |source| DescriptorCacheError::CachedOutDirDependencyMismatch {
+                    unit: unit.unit,
+                    source,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    for validation in validations {
+        validation?;
     }
     Ok(())
 }
@@ -1579,7 +1607,7 @@ fn validate_cached_dependency_artifacts(
     units_by_id: &BTreeMap<DescriptorCargoUnitId, &ValidatedDescriptorUnit>,
     cached_ids: &BTreeSet<DescriptorCargoUnitId>,
     cargo_artifacts: &[CargoCompilerArtifact],
-) -> Result<(), DescriptorCacheError> {
+) -> Result<DescriptorInputHashes, DescriptorCacheError> {
     let mut enumerated = BTreeMap::<PathBuf, BTreeSet<usize>>::new();
     for (artifact_index, artifact) in cargo_artifacts.iter().enumerate() {
         for path in &artifact.filenames {
@@ -1649,24 +1677,27 @@ fn validate_cached_dependency_artifacts(
     }
     let actuals = expectations
         .par_iter()
-        .map(|(path, _)| descriptor_input_content_hash(path))
+        .map(|(path, _)| descriptor_input_link_hashes(path))
         .collect::<Vec<_>>();
+    let mut hashes = BTreeMap::new();
     for ((path, (expected, unit, extern_name)), actual) in expectations.into_iter().zip(actuals) {
         let actual = actual.map_err(|source| DescriptorCacheError::HashCurrentInput {
             path: path.clone(),
             source,
         })?;
-        if actual != expected {
+        let actual_hash = encode_digest(&actual.0);
+        if actual_hash != expected {
             return Err(DescriptorCacheError::StaleCachedDependency {
                 unit,
                 extern_name,
                 path,
                 expected,
-                actual,
+                actual: actual_hash,
             });
         }
+        hashes.insert(path, actual);
     }
-    Ok(())
+    Ok(hashes)
 }
 
 fn validate_cached_artifact_joins(
@@ -1713,33 +1744,44 @@ fn persist_fresh_units(
     cache_directory: &Path,
     units: &[ValidatedDescriptorUnit],
 ) -> Result<BTreeMap<DescriptorCargoUnitId, CachedUnitGeneration>, DescriptorCacheError> {
+    // The caller holds the cache lease. Each generation has its own paths,
+    // unique temporary names, and atomic verified publication, so independent
+    // compiler units can publish concurrently. Await every result before any
+    // indexes become visible and report errors in the original unit order.
+    let publications = units
+        .par_iter()
+        .map(|unit| -> Result<_, DescriptorCacheError> {
+            let sidecar_bytes = fs::read(&unit.sidecar_path).map_err(|source| {
+                DescriptorCacheError::ReadCacheSource {
+                    path: unit.sidecar_path.clone(),
+                    source,
+                }
+            })?;
+            let generation = CachedUnitGeneration {
+                cargo_unit_id: unit.unit.to_string(),
+                descriptor_object_hash: unit.sidecar.descriptor_object_hash.clone(),
+                sidecar_hash: cached_sidecar_hash(&sidecar_bytes),
+            };
+            generation.validate_hashes(&unit.sidecar_path)?;
+            atomic_copy_descriptor_object_verified(
+                &unit.descriptor_object,
+                &cached_object_path(cache_directory, &generation),
+                unit.unit,
+                &generation.descriptor_object_hash,
+            )?;
+            atomic_write_immutable_bytes(
+                &cached_sidecar_path(cache_directory, &generation),
+                &sidecar_bytes,
+            )?;
+            Ok((unit.unit, generation))
+        })
+        .collect::<Vec<_>>();
     let mut generations = BTreeMap::new();
-    for unit in units {
-        let sidecar_bytes = fs::read(&unit.sidecar_path).map_err(|source| {
-            DescriptorCacheError::ReadCacheSource {
-                path: unit.sidecar_path.clone(),
-                source,
-            }
-        })?;
-        let generation = CachedUnitGeneration {
-            cargo_unit_id: unit.unit.to_string(),
-            descriptor_object_hash: unit.sidecar.descriptor_object_hash.clone(),
-            sidecar_hash: cached_sidecar_hash(&sidecar_bytes),
-        };
-        generation.validate_hashes(&unit.sidecar_path)?;
-        atomic_copy_descriptor_object_verified(
-            &unit.descriptor_object,
-            &cached_object_path(cache_directory, &generation),
-            unit.unit,
-            &generation.descriptor_object_hash,
-        )?;
-        atomic_write_immutable_bytes(
-            &cached_sidecar_path(cache_directory, &generation),
-            &sidecar_bytes,
-        )?;
-        if let Some(previous) = generations.insert(unit.unit, generation.clone()) {
+    for publication in publications {
+        let (unit, generation) = publication?;
+        if let Some(previous) = generations.insert(unit, generation.clone()) {
             return Err(DescriptorCacheError::ConflictingCachedGeneration {
-                unit: unit.unit,
+                unit,
                 first: cached_generation_label(&previous),
                 second: cached_generation_label(&generation),
             });
@@ -1845,6 +1887,7 @@ fn persist_artifact_indexes(
             .or_default()
             .push(generation);
     }
+    let mut indexes = Vec::with_capacity(evidence.len());
     for artifact in evidence {
         let mut units = units_by_artifact
             .remove(&artifact.coordinate)
@@ -1857,12 +1900,21 @@ fn persist_artifact_indexes(
         };
         let bytes = serde_json::to_vec_pretty(&index)
             .map_err(DescriptorCacheError::SerializeCacheRecord)?;
-        atomic_write_replaceable(
-            &cache_directory
+        indexes.push((
+            cache_directory
                 .join("artifacts")
                 .join(format!("{}.json", artifact.coordinate)),
-            &bytes,
-        )?;
+            bytes,
+        ));
+    }
+    // Artifact index paths are independent. Publish them under the same lease,
+    // then commit the invocation snapshot only after all results succeed.
+    let publications = indexes
+        .par_iter()
+        .map(|(path, bytes)| atomic_write_replaceable(path, bytes))
+        .collect::<Vec<_>>();
+    for publication in publications {
+        publication?;
     }
     Ok(())
 }
@@ -1930,6 +1982,33 @@ fn atomic_write_replaceable(path: &Path, bytes: &[u8]) -> Result<(), DescriptorC
         .parent()
         .ok_or_else(|| DescriptorCacheError::CachePathWithoutParent(path.to_path_buf()))?;
     ensure_plain_directory(parent)?;
+    // The caller retains the generation lease. These pointers were already
+    // atomically published and flushed when their contents last changed; an
+    // identical pointer needs neither replacement nor another durability flush.
+    // Compare the complete on-disk representation, including its final newline.
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err(DescriptorCacheError::UnsafeCacheEntry(path.to_path_buf()));
+        }
+        Ok(metadata) if metadata.len() == bytes.len() as u64 + 1 => {
+            let existing =
+                fs::read(path).map_err(|source| DescriptorCacheError::ReadCacheFile {
+                    path: path.to_path_buf(),
+                    source,
+                })?;
+            if existing.strip_suffix(b"\n") == Some(bytes) {
+                return Ok(());
+            }
+        }
+        Ok(_) => {}
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(DescriptorCacheError::ReadCacheFile {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    }
     let nonce = CACHE_WRITE_NONCE.fetch_add(1, Ordering::Relaxed);
     let file_name = path
         .file_name()

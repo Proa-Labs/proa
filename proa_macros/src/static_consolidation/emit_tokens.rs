@@ -71,6 +71,8 @@ struct RawTextFrame {
 struct TokenStreamSink {
     mode: EmitMode,
     dialect: MarkupDialect,
+    hot: bool,
+    hot_slot: usize,
     /// Static bytes are held until a genuinely dynamic operation is emitted.
     /// This lets an inline literal `text!(...)` join the surrounding HTML run
     /// instead of forcing an extra `extend_static` boundary.
@@ -84,6 +86,8 @@ impl TokenStreamSink {
         Self {
             mode,
             dialect,
+            hot: false,
+            hot_slot: 0,
             pending_static: String::new(),
             statements: Vec::new(),
             raw_text_stack: Vec::new(),
@@ -96,9 +100,14 @@ impl TokenStreamSink {
         }
 
         let html_bytes = proc_macro2::Literal::byte_string(self.pending_static.as_bytes());
-        self.statements.push(quote! {
-            ::proa_core::WriteBuf::extend_static(&mut cx.out, #html_bytes)?;
-        });
+        let statement = if self.hot {
+            let slot = syn::Index::from(self.hot_slot);
+            self.hot_slot += 1;
+            quote! { ::proa_core::dev_hot::write_slot(&mut cx.out, __proa_dev_static.as_ref(), #slot, #html_bytes)?; }
+        } else {
+            quote! { ::proa_core::WriteBuf::extend_static(&mut cx.out, #html_bytes)?; }
+        };
+        self.statements.push(statement);
         self.pending_static.clear();
     }
 
@@ -113,7 +122,7 @@ impl TokenStreamSink {
             "unbalanced begin_raw_text/end_raw_text"
         );
 
-        if self.statements.is_empty() {
+        if self.statements.is_empty() && !self.hot {
             return SinkOutput::Static(self.pending_static);
         }
 
@@ -395,7 +404,10 @@ impl ConsolidationSink for TokenStreamSink {
                     }
                 }
 
-                if parsed.args.is_empty() {
+                // Hot manifests preserve the walk's dynamic-attribute boundary,
+                // even when text! has no placeholders. Emit that attribute
+                // separately so subsequent static slots keep their indices.
+                if parsed.args.is_empty() && !self.hot {
                     self.pending_static.push_str(attr.name_prefix);
                     append_inline_static_text(
                         &mut self.pending_static,
@@ -514,6 +526,28 @@ impl ConsolidationSink for TokenStreamSink {
 /// For mixed content, generates a sequence of static byte writes and dynamic renders.
 pub fn generate_optimized(root: &HtmlRoot) -> TokenStream {
     generate_optimized_with_dialect(root, MarkupDialect::Html)
+}
+
+pub fn generate_optimized_hot(
+    root: &HtmlRoot,
+    path: &str,
+    id: &str,
+    shape: &str,
+    slots: usize,
+) -> TokenStream {
+    let mut sink = TokenStreamSink::new(EmitMode::Sync, MarkupDialect::Html);
+    sink.hot = true;
+    consolidate_root(root, MarkupDialect::Html, &mut sink);
+    let SinkOutput::Dynamic(statements) = sink.finish() else {
+        unreachable!()
+    };
+    quote! {
+        ::proa_core::shared::html_node::optimized_html_from_fn(|cx| -> Result<(), ::proa_core::WriteError> {
+            let __proa_dev_static = ::proa_core::dev_hot::load(#path, #id, #shape, #slots);
+            #(#statements)*
+            Ok(())
+        })
+    }
 }
 
 pub fn generate_optimized_xml(root: &HtmlRoot) -> TokenStream {
@@ -1086,5 +1120,58 @@ fn generate_expr_as_render_send_async(expr: &Expr) -> TokenStream {
         }
         Expr::Path(path) if path.path.is_ident("None") => quote! {},
         _ => quote! { ::proa_core::render_send_child(cx, #expr).await?; },
+    }
+}
+
+#[cfg(test)]
+mod hot_tests {
+    use super::*;
+
+    #[test]
+    fn hot_inline_attributes_preserve_manifest_slot_boundaries() {
+        for source in [
+            r#""page"; <p title={text!("fixed")}>"prefix"{self.value}"suffix"</p>"#,
+            r#""page"; <p title={text!("fixed")} data-label={text!("second")}>"all static"</p>"#,
+            r#""page"; <p title={text!("")} data-value={self.value}>"suffix"</p>"#,
+            r#""page"; <a href={text!("/safe?x=1&y=2")}>"link"</a>"#,
+            r#""page"; <p title={text!("value: {}", self.value)}>"suffix"</p>"#,
+        ] {
+            let input: proa_dsl::dev_hot::HotInput = syn::parse_str(source).unwrap();
+            let template = proa_dsl::dev_hot::compile(&input).unwrap();
+            let hot = generate_optimized_hot(
+                &input.root,
+                "/tmp/manifest.json",
+                "page",
+                &template.shape,
+                template.slots.len(),
+            )
+            .to_string();
+            assert_eq!(
+                hot.matches("write_slot").count(),
+                template.slots.len(),
+                "{source}",
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_emission_keeps_literal_writes_and_hot_emission_keeps_dynamic_children() {
+        let root: HtmlRoot =
+            syn::parse_str(r#"<p class="example">"prefix"{self.value}"suffix"</p>"#).unwrap();
+        let normal = generate_optimized(&root).to_string();
+        assert!(!normal.contains("dev_hot"));
+        let hot =
+            generate_optimized_hot(&root, "/tmp/manifest.json", "page", "shape", 2).to_string();
+        assert!(hot.contains("self . value"));
+        assert_eq!(hot.matches("write_slot").count(), 2);
+        assert_eq!(hot.matches("dev_hot :: load").count(), 1);
+        let all_static: HtmlRoot = syn::parse_str(r#"<p>"static"</p>"#).unwrap();
+        assert_eq!(
+            generate_optimized_hot(&all_static, "/tmp/m.json", "id", "shape", 1)
+                .to_string()
+                .matches("write_slot")
+                .count(),
+            1
+        );
     }
 }

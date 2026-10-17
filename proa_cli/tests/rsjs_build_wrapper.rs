@@ -704,3 +704,115 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Counter {
          {error}"
     );
 }
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn incremental_archive_carriers_retain_unused_witnesses_across_partial_edits() {
+    use object::read::archive::ArchiveFile;
+    use object::{Object, ObjectSection, ObjectSymbol};
+
+    for (kind, codegen_units) in [
+        ("lib", Some(4)),
+        ("bin", Some(4)),
+        ("lib", None),
+        ("bin", None),
+    ] {
+        let temp = TempDir::new().unwrap();
+        let target = temp.path().join("target");
+        let output = target.join("debug/deps");
+        fs::create_dir_all(&output).unwrap();
+        fs::write(temp.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+        let source = temp.path().join("fixture.rs");
+        for generation in 0..3 {
+            let staging = target.join(format!("staging-{generation}"));
+            let mut code = String::new();
+            for index in 0..4 {
+                // An unused retained witness must survive even when another
+                // module is edited or removed from the incremental program.
+                if generation == 2 && index == 2 {
+                    continue;
+                }
+                code.push_str(&format!("mod m{index} {{ #[used] #[unsafe(no_mangle)] static WITNESS_{index}: [u8; 32] = [{}; 32]; }}\n", if index == 1 { generation + 10 } else { index + 10 }));
+            }
+            if kind == "bin" {
+                code.push_str("fn main() {}\n");
+            }
+            fs::write(&source, code).unwrap();
+            let status = Command::new(env!("CARGO_BIN_EXE_cargo-proa"))
+                .env(WRAPPER_MODE_ENV, WRAPPER_MODE_DESCRIPTOR_V1)
+                .env(DESCRIPTOR_STAGING_DIR_ENV, &staging)
+                .env(DESCRIPTOR_TARGET_DIR_ENV, &target)
+                .env(SOURCE_EXCLUSION_DIR_ENV, &target)
+                .env("CARGO_MANIFEST_DIR", temp.path())
+                .args([
+                    rustc_program(),
+                    "--crate-name=partition_fixture".into(),
+                    format!("--crate-type={kind}").into(),
+                    "--edition=2021".into(),
+                    "--emit=dep-info,metadata,link".into(),
+                    "--out-dir".into(),
+                    output.as_os_str().to_owned(),
+                    "-Cdebuginfo=2".into(),
+                    format!("-Cincremental={}", target.join("incremental").display()).into(),
+                    source.as_os_str().to_owned(),
+                ])
+                .args(codegen_units.map(|units| format!("-Ccodegen-units={units}")))
+                .status()
+                .unwrap();
+            assert!(status.success(), "{kind} generation {generation}");
+            let units = load_descriptor_unit_sidecars(&staging).unwrap();
+            assert_eq!(units.len(), 1);
+            assert_eq!(
+                units[0].sidecar.descriptor_codegen.codegen_units,
+                codegen_units.unwrap_or(64)
+            );
+            assert!(units[0].sidecar.descriptor_codegen.incremental);
+            let bytes = fs::read(&units[0].descriptor_object).unwrap();
+            let archive = ArchiveFile::parse(bytes.as_slice()).unwrap();
+            let mut found = std::collections::BTreeMap::new();
+            let mut object_count = 0;
+            for member in archive.members() {
+                let member = member.unwrap();
+                let data = member.data(bytes.as_slice()).unwrap();
+                let Ok(object) = object::File::parse(data) else {
+                    continue;
+                };
+                object_count += 1;
+                assert!(
+                    object
+                        .sections()
+                        .all(|section| !section.name().unwrap_or_default().contains("debug")),
+                    "descriptor carrier must omit debug information while retaining witnesses"
+                );
+                for symbol in object.symbols().filter(|symbol| symbol.is_definition()) {
+                    let name = symbol.name().unwrap_or("").trim_start_matches('_');
+                    if name.starts_with("WITNESS_") {
+                        let section = object
+                            .section_by_index(symbol.section_index().unwrap())
+                            .unwrap();
+                        let value = section.data_range(symbol.address(), 32).unwrap().unwrap()[0];
+                        assert!(found.insert(name.to_owned(), value).is_none());
+                    }
+                }
+            }
+            assert!(
+                object_count > 1,
+                "fixture must exercise multiple codegen objects"
+            );
+            let expected = (0..4)
+                .filter(|index| generation != 2 || *index != 2)
+                .map(|index| {
+                    (
+                        format!("WITNESS_{index}"),
+                        (if index == 1 {
+                            generation + 10
+                        } else {
+                            index + 10
+                        }) as u8,
+                    )
+                })
+                .collect::<std::collections::BTreeMap<_, _>>();
+            assert_eq!(found, expected, "{kind} generation {generation}");
+        }
+    }
+}

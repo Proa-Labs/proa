@@ -31,6 +31,9 @@ pub(crate) struct DevArgs {
     /// Skip configured asset builds before starting or restarting.
     #[arg(long)]
     no_assets: bool,
+    /// Enable experimental html_hot_sync! static text/attribute updates.
+    #[arg(long)]
+    hot_static: bool,
     /// Run once without watching for file changes.
     #[arg(long)]
     no_restart: bool,
@@ -46,7 +49,7 @@ pub(crate) struct DevArgs {
     /// system assigns.
     #[arg(long, value_name = "PORT")]
     reload_port: Option<u16>,
-    /// Quiet window a change must survive before a rebuild starts. Defaults to 300.
+    /// Quiet window a change must survive before a rebuild starts. Defaults to 200.
     #[arg(long, value_name = "MILLISECONDS")]
     debounce_ms: Option<u64>,
     /// Override the exact Cargo run root. Server arguments may follow Cargo's `--`.
@@ -63,6 +66,7 @@ pub(crate) fn run(args: DevArgs) -> Result<()> {
         open: args.open,
         offline: args.offline,
         no_assets: args.no_assets,
+        hot_static: args.hot_static,
         no_restart: args.no_restart,
         no_reload: args.no_reload,
         no_css_hot_swap: args.no_css_hot_swap,

@@ -22,7 +22,7 @@ use rsjs_ir::{
 };
 use rsjs_transport::TRANSPORT_FORMAT_VERSION;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
+use sha2_accelerated::{Digest, Sha256};
 
 mod reload;
 
@@ -57,7 +57,7 @@ const DEV_WATCH_POLL: Duration = Duration::from_millis(100);
 /// Editors write in bursts (temp file, rename, mtime touch) and formatters
 /// rewrite whole trees, so the loop waits for one quiet window before paying
 /// for a Cargo cycle. Vite and webpack sit in the same 100-300ms range.
-pub const DEV_WATCH_DEBOUNCE: Duration = Duration::from_millis(300);
+pub const DEV_WATCH_DEBOUNCE: Duration = Duration::from_millis(200);
 /// Refuse debounce windows shorter than one poll interval: they would claim a
 /// precision the poller cannot deliver.
 const DEV_WATCH_MIN_DEBOUNCE: Duration = DEV_WATCH_POLL;
@@ -72,6 +72,7 @@ pub struct DevOptions {
     pub open: bool,
     pub offline: bool,
     pub no_assets: bool,
+    pub hot_static: bool,
     pub no_restart: bool,
     pub no_reload: bool,
     pub no_css_hot_swap: bool,
@@ -153,6 +154,14 @@ struct LinkedDevLaunch {
     reused_final_artifacts: usize,
 }
 
+struct LinkedDevRebuild {
+    config: ProjectConfig,
+    watch_paths: Vec<PathBuf>,
+    snapshot: WatchSnapshot,
+    launch: LinkedDevLaunch,
+    hot_state: Option<crate::hot_static::HotState>,
+}
+
 pub fn dev(options: DevOptions) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let config = load_dev_config(&root, &options)?;
@@ -176,7 +185,16 @@ pub fn dev(options: DevOptions) -> Result<()> {
         if !options.no_assets {
             build_assets(&root, &config)?;
         }
-        let launch = run_linked_dev_cycle(&root, &config.dev.command)?;
+        let hot_state = hot_scan_or_rustc_diagnostics(
+            &root,
+            &config.dev.command,
+            None,
+            options
+                .hot_static
+                .then(|| crate::hot_static::HotState::prepare(&root))
+                .transpose(),
+        )?;
+        let launch = run_linked_dev_cycle(&root, &config.dev.command, hot_state.as_ref())?;
         return run_linked_dev_foreground(
             &root,
             &launch,
@@ -198,7 +216,16 @@ pub fn dev(options: DevOptions) -> Result<()> {
     }
     let mut watch_paths = config.dev.watch.clone();
     let baseline = watch_snapshot(&root, &watch_paths)?;
-    let launch = run_linked_dev_cycle(&root, &config.dev.command)?;
+    let mut hot_state = hot_scan_or_rustc_diagnostics(
+        &root,
+        &config.dev.command,
+        None,
+        options
+            .hot_static
+            .then(|| crate::hot_static::HotState::prepare(&root))
+            .transpose(),
+    )?;
+    let launch = run_linked_dev_cycle(&root, &config.dev.command, hot_state.as_ref())?;
     let mut child = spawn_linked_dev(
         &root,
         &launch,
@@ -218,82 +245,112 @@ pub fn dev(options: DevOptions) -> Result<()> {
             return exit_status_to_result(status, "linked dev server");
         }
 
-        thread::sleep(DEV_WATCH_POLL);
+        thread::sleep(debouncer.next_poll_delay(clock.elapsed()));
         let current = watch_snapshot(&root, &watch_paths)?;
         let DevWatchDecision::Ready(trigger_snapshot) = debouncer.observe(clock.elapsed(), current)
         else {
             continue;
         };
 
-        // A stylesheet edit changes no compiled input, so rebuilding assets
-        // and letting tabs re-fetch their stylesheets is both faster than a
-        // Cargo cycle and less destructive: scroll position, form state, and
-        // open dialogs all survive. This is Vite's CSS update path.
-        let changed = changed_paths(&debouncer.committed, &trigger_snapshot);
-        if !options.no_css_hot_swap && !options.no_assets && is_stylesheet_only_change(&changed) {
-            println!("stylesheet change stabilized; rebuilding assets without restarting");
-            notify(reload.as_ref(), &ReloadEvent::Building);
-            let assets = (|| -> Result<ProjectConfig> {
-                let next_config = load_dev_config(&root, &options)?;
-                task::run_lifecycle_tasks(
-                    &root,
-                    &next_config,
-                    &next_config.dev.before,
-                    &BTreeMap::new(),
-                )?;
-                build_assets(&root, &next_config)?;
-                Ok(next_config)
-            })();
-            match assets {
-                Ok(next_config) => {
-                    watch_paths = next_config.dev.watch.clone();
-                    // Commit the state that triggered this cycle, not one read
-                    // after the asset command finished. A stylesheet saved
-                    // while Tailwind was running would otherwise be folded in
-                    // as already handled and never rebuilt.
-                    debouncer.commit(trigger_snapshot);
-                    notify(reload.as_ref(), &ReloadEvent::Css);
-                }
-                Err(error) => {
-                    eprintln!("asset rebuild failed; keeping the last built assets:\n{error:#}");
-                    notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
-                    debouncer.commit(trigger_snapshot);
-                }
+        notify(reload.as_ref(), &ReloadEvent::Building);
+        let mut failure_snapshot = trigger_snapshot;
+        let inputs = prepare_dev_inputs(
+            &root,
+            &options,
+            &debouncer.committed,
+            hot_state.as_ref(),
+            &mut failure_snapshot,
+            &mut watch_paths,
+        );
+        let inputs = match inputs {
+            Ok(inputs) => inputs,
+            Err(error) => {
+                eprintln!(
+                    "dev preparation failed; keeping the last valid server running:\n{error:#}"
+                );
+                notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
+                debouncer.commit(failure_snapshot);
+                continue;
             }
+        };
+        let PreparedDevInputs {
+            config: next_config,
+            snapshot,
+            css_only,
+            hot_update,
+        } = inputs;
+        if css_only {
+            println!("stylesheet change stabilized; rebuilt assets without restarting");
+            watch_paths = next_config.dev.watch.clone();
+            debouncer.commit(snapshot);
+            notify(reload.as_ref(), &ReloadEvent::Css);
             continue;
         }
-
-        println!("change stabilized; rebuilding linked RSJS dev server");
-        notify(reload.as_ref(), &ReloadEvent::Building);
-        let rebuild =
-            (|| -> Result<(ProjectConfig, Vec<PathBuf>, WatchSnapshot, LinkedDevLaunch)> {
-                let next_config = load_dev_config(&root, &options)?;
-                task::run_lifecycle_tasks(
-                    &root,
-                    &next_config,
-                    &next_config.dev.before,
-                    &BTreeMap::new(),
-                )?;
-                if !options.no_assets {
-                    build_assets(&root, &next_config)?;
+        if let Some(mut update) = hot_update {
+            match update.activate() {
+                Ok(()) => {
+                    println!(
+                        "static template change stabilized; published without Cargo or restart"
+                    );
+                    hot_state = Some(update);
+                    watch_paths = next_config.dev.watch.clone();
+                    debouncer.commit(snapshot);
+                    notify(reload.as_ref(), &ReloadEvent::Reload);
+                    continue;
                 }
-                let next_watch_paths = next_config.dev.watch.clone();
-                // Capture the exact source/config state handed to this cycle after
-                // asset generation. A change during Cargo will differ on the next
-                // poll and schedule another cycle rather than being swallowed.
-                let cycle_snapshot = watch_snapshot(&root, &next_watch_paths)?;
-                let launch = run_linked_dev_cycle(&root, &next_config.dev.command)?;
-                Ok((next_config, next_watch_paths, cycle_snapshot, launch))
-            })();
+                Err(error) => {
+                    eprintln!("static publication failed; using the linked rebuild: {error:#}")
+                }
+            }
+        }
+        println!("change stabilized; rebuilding linked RSJS dev server");
+        let rebuild = (|| -> Result<LinkedDevRebuild> {
+            let next_watch_paths = next_config.dev.watch.clone();
+            // Capture the exact source/config state handed to this cycle after
+            // asset generation. A change during Cargo will differ on the next
+            // poll and schedule another cycle rather than being swallowed.
+            let cycle_snapshot = watch_snapshot(&root, &next_watch_paths)?;
+            failure_snapshot = cycle_snapshot.clone();
+            // Stage after tasks/assets may have generated Rust sources,
+            // and after the committed snapshot. An edit during staging or
+            // Cargo must differ from that snapshot on the next poll.
+            let next_hot_state = hot_scan_or_rustc_diagnostics(
+                &root,
+                &next_config.dev.command,
+                hot_state.as_ref(),
+                hot_state
+                    .as_ref()
+                    .map(|state| state.candidate(&root))
+                    .transpose(),
+            )?;
+            let launch =
+                run_linked_dev_cycle(&root, &next_config.dev.command, next_hot_state.as_ref())?;
+            Ok(LinkedDevRebuild {
+                config: next_config,
+                watch_paths: next_watch_paths,
+                snapshot: cycle_snapshot,
+                launch,
+                hot_state: next_hot_state,
+            })
+        })();
 
         match rebuild {
-            Ok((next_config, next_watch_paths, cycle_snapshot, next_launch)) => {
+            Ok(LinkedDevRebuild {
+                config: next_config,
+                watch_paths: next_watch_paths,
+                snapshot: cycle_snapshot,
+                launch: next_launch,
+                hot_state: mut next_hot_state,
+            }) => {
                 println!(
                     "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan {}",
                     next_launch.plan_id
                 );
                 stop_child(&mut child)?;
                 clear_active_child_group();
+                if let Some(state) = &mut next_hot_state {
+                    state.activate()?;
+                }
                 child = spawn_linked_dev(
                     &root,
                     &next_launch,
@@ -302,6 +359,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
                     session.as_ref(),
                 )?;
                 set_active_child_group(&child);
+                hot_state = next_hot_state;
                 watch_paths = next_watch_paths;
                 debouncer = DevWatchDebouncer::new(cycle_snapshot, debounce);
                 announce_reload(
@@ -318,10 +376,63 @@ pub fn dev(options: DevOptions) -> Result<()> {
                 notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
                 // Do not spin on unchanged broken input. The next source,
                 // feature, cfg, or configuration change schedules a new cycle.
-                debouncer.commit(trigger_snapshot);
+                debouncer.commit(failure_snapshot);
             }
         }
     }
+}
+
+struct PreparedDevInputs {
+    config: ProjectConfig,
+    snapshot: WatchSnapshot,
+    css_only: bool,
+    hot_update: Option<crate::hot_static::HotState>,
+}
+
+fn prepare_dev_inputs(
+    root: &Path,
+    options: &DevOptions,
+    committed: &WatchSnapshot,
+    hot_state: Option<&crate::hot_static::HotState>,
+    failure_snapshot: &mut WatchSnapshot,
+    watch_paths: &mut Vec<PathBuf>,
+) -> Result<PreparedDevInputs> {
+    let config = load_dev_config(root, options)?;
+    // Failure snapshots must use the same watch set as the next poll, even
+    // when a config edit changes watched paths and preparation then fails.
+    *watch_paths = config.dev.watch.clone();
+    let tasks = task::run_lifecycle_tasks(root, &config, &config.dev.before, &BTreeMap::new());
+    // Include dev.before's generated writes, even if a task fails. Capture
+    // before scanning/publishing templates or running asset commands so edits
+    // during those operations still schedule another cycle.
+    let snapshot = watch_snapshot(root, &config.dev.watch)?;
+    *failure_snapshot = snapshot.clone();
+    tasks?;
+    let changed = changed_paths(committed, &snapshot);
+    let css_only =
+        !options.no_css_hot_swap && !options.no_assets && is_stylesheet_only_change(&changed);
+    let hot_update = if css_only {
+        None
+    } else if let Some(state) = hot_state {
+        match state.prepare_update(root, &changed) {
+            Ok(update) => update,
+            Err(error) => {
+                eprintln!("static update rejected; using the linked rebuild: {error:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    if !options.no_assets {
+        build_assets(root, &config)?;
+    }
+    Ok(PreparedDevInputs {
+        config,
+        snapshot,
+        css_only,
+        hot_update,
+    })
 }
 
 fn start_reload_server(config: &ProjectConfig, options: &DevOptions) -> Option<ReloadServer> {
@@ -1023,11 +1134,33 @@ fn print_linked_cache_reuse(action: LinkedCargoAction, output: &LinkedCargoOutpu
     );
 }
 
-fn run_linked_dev_cycle(root: &Path, command: &[String]) -> Result<LinkedDevLaunch> {
+/// Hot-template scanning parses every source file with syn, whose syntax
+/// errors are far less useful than rustc's. When the scan fails, run Cargo
+/// with the active manifest anyway so a half-written file reports rustc's
+/// diagnostics; the scan error surfaces only if Cargo accepted the source.
+fn hot_scan_or_rustc_diagnostics<T>(
+    root: &Path,
+    command: &[String],
+    active: Option<&crate::hot_static::HotState>,
+    scan: Result<T>,
+) -> Result<T> {
+    scan.or_else(|scan_error| {
+        run_linked_dev_cycle(root, command, active)?;
+        Err(scan_error)
+    })
+}
+
+fn run_linked_dev_cycle(
+    root: &Path,
+    command: &[String],
+    hot: Option<&crate::hot_static::HotState>,
+) -> Result<LinkedDevLaunch> {
     let _progress = DevBuildProgress::start();
     println!("running linked RSJS Cargo dev build: {}", shellish(command));
     println!("Preparing the Cargo project and build cache...");
-    let prepared = prepare_linked_cargo(root, command, LinkedCargoAction::Dev)?;
+    let environment = hot.map(|state| state.environment()).unwrap_or_default();
+    let prepared =
+        prepare_linked_cargo_with_environment(root, command, LinkedCargoAction::Dev, &environment)?;
     let output = run_linked_cargo_cached_with_progress(
         &prepared.request,
         &prepared.descriptor_cache_directory,
@@ -1706,7 +1839,26 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
         );
     }
     let parsed = parse_cargo_command(command, action)?;
-    let metadata = load_cargo_metadata(root, &parsed)?;
+    let mut timer = crate::rsjs::timing::StageTimer::new();
+    // Query every current tool and Cargo's authoritative metadata on each
+    // cycle. They are independent subprocesses; overlapping them avoids
+    // adding their startup costs together without caching mutable tool state.
+    let (metadata, cargo_version, rustc_version) = thread::scope(|scope| {
+        let cargo = scope.spawn(|| tool_version(&parsed.cargo, &["-Vv"], "Cargo", root));
+        let rustc = scope.spawn(|| selected_rustc_version(root));
+        let metadata = load_cargo_metadata(root, &parsed);
+        let cargo = cargo
+            .join()
+            .map_err(|_| anyhow::anyhow!("Cargo version query thread panicked"))
+            .and_then(|result| result);
+        let rustc = rustc
+            .join()
+            .map_err(|_| anyhow::anyhow!("rustc version query thread panicked"))
+            .and_then(|result| result);
+        (metadata, cargo, rustc)
+    });
+    let metadata = metadata?;
+    timer.mark("prepare Cargo metadata and tool versions");
     let selected_root = select_exact_cargo_root(&metadata, &parsed, action)?;
     if !metadata.target_directory.is_absolute() {
         bail!(
@@ -1721,6 +1873,7 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
     let (wrapper, wrapper_lock) =
         prepare_wrapper_executable(&metadata.target_directory, &wrapper_snapshot_root, &wrapper)?;
     let wrapper_fingerprint = wrapper_executable_fingerprint(&wrapper)?;
+    timer.mark("prepare wrapper snapshot and fingerprint");
     let package_source_root = selected_root.package_source_root.clone();
     let cli_producer = cli_tool_producer_version()?;
     let mut selection_args = parsed.selection_args.clone();
@@ -1754,8 +1907,8 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
         // invalidate units that actually consume one of these values.
         environment: declared_build_environment(),
         toolchain: BuildToolchain {
-            cargo: tool_version(&parsed.cargo, &["-Vv"], "Cargo", root)?,
-            rustc: selected_rustc_version(root)?,
+            cargo: cargo_version?,
+            rustc: rustc_version?,
             proa: cli_producer,
             compiler_abi: RSJS_COMPILER_ABI,
             transport_version: TRANSPORT_FORMAT_VERSION,
@@ -2858,11 +3011,17 @@ fn stop_child(child: &mut Child) -> Result<()> {
         // down gracefully and release its port, then KILL if it lingers.
         let group = -(child.id() as i32);
         unsafe { libc::kill(group, libc::SIGTERM) };
-        for _ in 0..20 {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
             if child.try_wait()?.is_some() {
                 return Ok(());
             }
-            thread::sleep(Duration::from_millis(100));
+            if Instant::now() >= deadline {
+                break;
+            }
+            // Most servers exit promptly on TERM. Observe that exit without
+            // imposing a whole watch-poll interval before activating the build.
+            thread::sleep(Duration::from_millis(5));
         }
         unsafe { libc::kill(group, libc::SIGKILL) };
         let _ = child.wait();
@@ -2900,6 +3059,18 @@ impl DevWatchDebouncer {
             pending: None,
             delay,
         }
+    }
+
+    fn next_poll_delay(&self, now: Duration) -> Duration {
+        let Some((_, first_seen)) = self.pending.as_ref() else {
+            return DEV_WATCH_POLL;
+        };
+        // Wake at the end of the quiet window instead of rounding it up to
+        // another whole poll interval. A fresh snapshot still authorizes the
+        // rebuild; changed bytes reset the full window in observe().
+        self.delay
+            .saturating_sub(now.saturating_sub(*first_seen))
+            .clamp(Duration::from_millis(1), DEV_WATCH_POLL)
     }
 
     fn observe(&mut self, now: Duration, snapshot: WatchSnapshot) -> DevWatchDecision {

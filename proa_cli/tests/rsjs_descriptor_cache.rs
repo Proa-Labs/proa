@@ -718,7 +718,15 @@ fn missing_generation_object_forces_one_owned_rebuild() {
         .iter()
         .all(|artifact| !artifact.fresh));
     assert_eq!(recovered.units[0].unit, unit);
-    assert!(object.is_file());
+    // Incremental and fresh codegen may package equivalent objects into
+    // different archive generations. Recovery must publish and validate the
+    // current generation, rather than resurrect the missing prior bytes.
+    let recovered_object = cached_generation_file(&cache, "objects", unit, "o");
+    assert!(recovered_object.is_file());
+    assert_eq!(
+        recovered_object.file_stem().unwrap().to_string_lossy(),
+        recovered.units[0].descriptor_object_hash
+    );
 }
 
 #[test]

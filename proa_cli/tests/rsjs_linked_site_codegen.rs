@@ -676,6 +676,24 @@ mod live_page {
 
 struct NoopWake;
 
+fn assert_owner_markers_match_html(html: &str, owner_js: &str) {
+    let mut candidates = std::collections::BTreeSet::new();
+    for chunk in html.split("data-rsjs-linked-candidate=\"").skip(1) {
+        let candidate = chunk.split('"').next().unwrap();
+        candidate.parse::<u64>().expect("lossless 64-bit candidate marker");
+        assert!(candidates.insert(candidate), "distinct occurrences need distinct markers");
+        assert!(
+            owner_js.contains(&format!(
+                "getAttribute(\"data-rsjs-linked-candidate\") !== \"{candidate}\""
+            )) || owner_js.contains(&format!(
+                "data-rsjs-linked-candidate=\\\"{candidate}\\\""
+            )),
+            "rendered occurrence {candidate} must match an exact owner JavaScript lookup",
+        );
+    }
+    assert!(!candidates.is_empty());
+}
+
 impl Wake for NoopWake {
     fn wake(self: Arc<Self>) {}
 }
@@ -783,6 +801,10 @@ fn main() {
         "the conditional parent, child, and static descendant must produce exactly one owner"
     );
     let conditional_owner = *conditional_owners[0];
+    assert_owner_markers_match_html(&live, owner.js_source);
+    assert_owner_markers_match_html(&query, query_owner.js_source);
+    assert_owner_markers_match_html(&mutation, mutation_owner.js_source);
+    assert_owner_markers_match_html(&conditional, conditional_owner.js_source);
     assert_eq!(
         manifest.component_fragments.len(),
         12,
