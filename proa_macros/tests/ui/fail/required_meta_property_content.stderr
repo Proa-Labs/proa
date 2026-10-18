@@ -3,15 +3,3 @@ error: <meta> is missing the `content` attribute. add content="..." with the app
   |
 6 |         <meta property="og:title" />
   |          ^^^^
-
-error: <meta> is missing the `content` attribute. add content="..." with the appropriate value (HTML §4.2.5)
- --> tests/ui/fail/required_meta_property_content.rs:9:10
-  |
-9 |         <meta property="og:title" />
-  |          ^^^^
-
-error: <meta> is missing the `content` attribute. add content="..." with the appropriate value (HTML §4.2.5)
-  --> tests/ui/fail/required_meta_property_content.rs:12:10
-   |
-12 |         <meta property="og:title" />
-   |          ^^^^
