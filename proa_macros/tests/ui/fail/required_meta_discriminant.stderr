@@ -1,4 +1,4 @@
-error: <meta> is missing a required attribute. example: <meta name="description" content="..." /> (HTML §4.2.5)
+error: <meta> is missing a required attribute. example: <meta name="description" content="..." /> or <meta property="og:title" content="..." /> (HTML §4.2.5)
  --> tests/ui/fail/required_meta_discriminant.rs:5:19
   |
 5 |     html_sync! { <meta content="foo" /> };

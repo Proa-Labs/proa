@@ -81,6 +81,25 @@ fn pure_literal_inline_text_folds_into_one_static_html_write() {
 }
 
 #[test]
+fn static_property_meta_folds_into_one_escaped_static_write() {
+    let mut out = CountingBuf::default();
+    let mut cx = WebContext::with_buffer(&mut out);
+
+    html_sync! {
+        <meta property="og:title" content="Szkolenia & <examples> \"quoted\"" />
+    }
+    .render(&mut cx)
+    .unwrap();
+
+    assert_eq!(
+        out.bytes,
+        b"<meta property=\"og:title\" content=\"Szkolenia &amp; &lt;examples&gt; &quot;quoted&quot;\">"
+    );
+    assert_eq!(out.static_writes, 1);
+    assert_eq!(out.dynamic_writes, 0);
+}
+
+#[test]
 fn placeholder_free_literal_url_is_validated_and_folds_static() {
     let mut out = CountingBuf::default();
     let mut cx = WebContext::with_buffer(&mut out);
