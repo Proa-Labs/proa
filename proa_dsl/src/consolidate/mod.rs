@@ -1559,24 +1559,30 @@ fn validate_required_attrs(
         }
 
         // -----------------------------------------------------------------
-        // <meta> — requires one of (name, http-equiv, charset, itemprop)
-        //          AND content when name/http-equiv/itemprop is used
+        // <meta> — requires one of (name, http-equiv, charset, itemprop, property)
+        //          AND content when name/http-equiv/itemprop/property is used
         // HTML §4.2.5: https://html.spec.whatwg.org/multipage/semantics.html#the-meta-element
+        // HTML+RDFa §4: https://www.w3.org/TR/html-rdfa/#extensions-to-the-html5-syntax
+        // With property, name/http-equiv/charset are not required; content is required.
+        // Open Graph uses this HTML+RDFa extension: https://ogp.me/
         // -----------------------------------------------------------------
         "meta" => {
-            let has_discriminant = attrs.has_any(&["name", "http-equiv", "charset", "itemprop"]);
+            let has_discriminant =
+                attrs.has_any(&["name", "http-equiv", "charset", "itemprop", "property"]);
             if !has_discriminant {
                 errors.push(syn::Error::new(
                     span,
                     diagnostic(
                         "<meta> is missing a required attribute",
-                        "must have one of: name, http-equiv, charset, or itemprop — without one the element has no effect",
-                        "example: <meta name=\"description\" content=\"...\" />",
+                        "must have one of: name, http-equiv, charset, itemprop, or property — without one the element has no effect",
+                        "example: <meta name=\"description\" content=\"...\" /> or <meta property=\"og:title\" content=\"...\" />",
                         "HTML §4.2.5",
                     ),
                 ));
             }
-            if attrs.has_any(&["name", "http-equiv", "itemprop"]) && !attrs.has("content") {
+            if attrs.has_any(&["name", "http-equiv", "itemprop", "property"])
+                && !attrs.has("content")
+            {
                 errors.push(syn::Error::new(
                     span,
                     diagnostic(

@@ -1,0 +1,5 @@
+error: <meta> is missing the `content` attribute. add content="..." with the appropriate value (HTML §4.2.5)
+ --> tests/ui/fail/required_meta_property_content.rs:6:10
+  |
+6 |         <meta property="og:title" />
+  |          ^^^^
