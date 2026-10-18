@@ -1562,7 +1562,9 @@ fn validate_required_attrs(
         // <meta> — requires one of (name, http-equiv, charset, itemprop, property)
         //          AND content when name/http-equiv/itemprop/property is used
         // HTML §4.2.5: https://html.spec.whatwg.org/multipage/semantics.html#the-meta-element
-        // Open Graph uses the RDFa property/content form: https://ogp.me/
+        // HTML+RDFa §4: https://www.w3.org/TR/html-rdfa/#extensions-to-the-html5-syntax
+        // With property, name/http-equiv/charset are not required; content is required.
+        // Open Graph uses this HTML+RDFa extension: https://ogp.me/
         // -----------------------------------------------------------------
         "meta" => {
             let has_discriminant =
