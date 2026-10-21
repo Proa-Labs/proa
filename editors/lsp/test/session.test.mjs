@@ -20,6 +20,29 @@ function change(session, text) {
   session.fromClient({ jsonrpc: '2.0', method: 'textDocument/didChange', params: { textDocument: { uri, version: 2 }, contentChanges: [{ text }] } });
 }
 
+test('live lints see original Markdown and merge with analyzer diagnostics without replacing either', async () => {
+  const lintDiagnostic = { code: 'render/content-coverage', severity: 'error', message: 'Missing child', labels: [{
+    primary: true, range: { path: '/project/src/lib.rs', line: 1, column: 1, end_line: 1, end_column: 3 },
+    source: [{ number: 1, text: source }],
+  }] };
+  let result = [lintDiagnostic];
+  const { session, client } = setup({ lint: { watchFiles: false, delay: 60000, worker: {
+    analyze: async overlays => { assert.equal(overlays[0].source, source); return result; }, dispose() {},
+  } } });
+  const rustDiagnostic = { source: 'rust-analyzer', message: 'Rust error' };
+  const native = diagnostics => session.fromServer({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics', params: { uri, diagnostics } });
+  native([rustDiagnostic]);
+  await session.liveLint.flush();
+  assert.deepEqual(client.at(-1).params.diagnostics.map(d => d.source), ['rust-analyzer', 'proa']);
+  native([]);
+  assert.equal(client.at(-1).params.diagnostics[0].code, 'render/content-coverage');
+  native([rustDiagnostic]);
+  result = [];
+  await session.liveLint.flush();
+  assert.deepEqual(client.at(-1).params.diagnostics, [rustDiagnostic]);
+  session.dispose();
+});
+
 test('negotiates UTF-16 on both sides while retaining analyzer capabilities and settings', () => {
   const { session, client, server } = setup();
   const settings = { cargo: { features: ['some-feature'] } };

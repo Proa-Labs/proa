@@ -23,6 +23,7 @@
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
+    "test:lint": "node --test test/lint.integration.mjs",
     "test:neovim": "node ../neovim/test/run.mjs"
   },
   "packageManager": "pnpm@9.15.2"

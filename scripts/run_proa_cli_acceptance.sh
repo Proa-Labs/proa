@@ -18,6 +18,7 @@ readonly -a MAIN_SHARD_2=(
   rsjs_build_wrapper
   cli
   content_coverage
+  live_lint
   rsjs_final
 )
 readonly -a MAIN_SHARD_3=(
@@ -191,6 +192,7 @@ case "$shard" in
       rsjs_unit_projection
       rsjs_pipeline
       lifecycle_dev
+      live_lint
     )
     ;;
   pr-2)

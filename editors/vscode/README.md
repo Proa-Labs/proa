@@ -7,6 +7,14 @@ For Neovim, Vim, Helix, and Zed, use the standalone bridge described in the
 [editor setup guide](../README.md). Both integrations share the same template
 projection and edit checks.
 
+Live Proa lints also show squiggles and Problems entries for unsaved changes,
+including HTML content missing from a closed Markdown counterpart. Install an
+updated Proa CLI with `cargo install --path proa_cli --bin proa --locked --force`
+from the repository root. The extension runs `proa` from PATH; configure
+`proa.lint.path` for another executable, or `proa.lint.enable` to disable it.
+See [live lint setup and scope](../README.md#live-lint-diagnostics). Rust editor
+features remain available if the CLI is unavailable.
+
 Rust highlighting, hover, completion, and go-to-definition inside inline
 `md!` and `md_sync!` raw templates:
 
@@ -112,6 +120,15 @@ VS Code's actual definition, hover, rename, formatting, and semantic-token
 providers. Set `PROA_EDITOR_TEST_MUTATION=1` for the disposable fixture to also
 test unsaved edits, incomplete-expression completion, and server restart. It
 restores the editor text and verifies that the file on disk did not change.
+
+To test live linting in a real VS Code extension host, first build the CLI from
+the repository root, then run `pnpm -C editors/vscode test:live`. This needs
+`code` on PATH and an installed official rust-analyzer extension. It creates a
+disposable Cargo project and isolated VS Code profile, and verifies unsaved HTML
+additions, diagnostics in unopened Markdown, unsaved repairs, intentional
+omissions, and unchanged files on disk. `CODE`, `PROA_TEST_LINT`, and
+`PROA_RUST_ANALYZER_EXTENSION` override the executables/extension location.
+Failures retain the fixture and editor logs.
 
 Use an isolated `--user-data-dir` for the integration test. The fixture uses
 Rust 2024 and covers nested control flow and code fences. The actual MCP example

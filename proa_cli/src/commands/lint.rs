@@ -18,6 +18,10 @@ use crate::util::resolve_config_root;
 pub(crate) struct LintArgs {
     #[command(flatten)]
     files: FileSelectionArgs,
+    /// Serve newline-delimited JSON editor snapshots on stdin/stdout.
+    /// Each request is {"id": ..., "overlays": [{"path": ..., "source": ...}]}.
+    #[arg(long, conflicts_with_all = ["json", "github", "root", "changed", "staged", "base", "paths", "include_tests", "content_summary", "use_rsjs_strategy_cache", "deny_warnings", "deny", "min_severity"])]
+    stdio: bool,
     /// Project root for content counterpart discovery and RSJS strategy sidecars.
     /// Defaults to the nearest Cargo workspace/package or proa.config.json.
     #[arg(long)]
@@ -53,6 +57,9 @@ pub(crate) struct LintArgs {
 }
 
 pub(crate) fn run(args: LintArgs) -> Result<()> {
+    if args.stdio {
+        return serve_snapshots();
+    }
     let paths = selected_paths(&args.files)?;
     let rsjs_strategy_cache = if args.use_rsjs_strategy_cache {
         Some(lint::RsjsStrategyCacheOptions {
@@ -101,6 +108,45 @@ pub(crate) fn run(args: LintArgs) -> Result<()> {
         bail!("Proa lint failed");
     }
 
+    Ok(())
+}
+
+fn serve_snapshots() -> Result<()> {
+    use std::io::{BufRead, Write};
+    #[derive(serde::Deserialize)]
+    struct Request {
+        id: serde_json::Value,
+        overlays: Vec<lint::live::SourceOverlay>,
+    }
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout().lock();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        let input: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(input) => input,
+            Err(error) => {
+                serde_json::to_writer(
+                    &mut stdout,
+                    &serde_json::json!({"id": null, "error": error.to_string()}),
+                )?;
+                writeln!(stdout)?;
+                stdout.flush()?;
+                continue;
+            }
+        };
+        let id = input.get("id").cloned().unwrap_or_default();
+        let result = serde_json::from_value::<Request>(input)
+            .map_err(anyhow::Error::from)
+            .and_then(|request| {
+                let diagnostics = lint::live::lint_snapshot(&request.overlays)?;
+                Ok(serde_json::json!({"id": request.id, "diagnostics": diagnostics}))
+            });
+        let response = result
+            .unwrap_or_else(|error| serde_json::json!({"id": id, "error": error.to_string()}));
+        serde_json::to_writer(&mut stdout, &response)?;
+        writeln!(stdout)?;
+        stdout.flush()?;
+    }
     Ok(())
 }
 
@@ -171,6 +217,7 @@ mod tests {
     #[test]
     fn lint_deny_accepts_specific_diagnostic_codes() {
         let args = LintArgs {
+            stdio: false,
             files: FileSelectionArgs {
                 paths: Vec::new(),
                 changed: false,
@@ -217,6 +264,7 @@ mod tests {
     #[test]
     fn lint_deny_warnings_keeps_existing_severity_behavior() {
         let args = LintArgs {
+            stdio: false,
             files: FileSelectionArgs {
                 paths: Vec::new(),
                 changed: false,
