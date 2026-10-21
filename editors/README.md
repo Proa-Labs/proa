@@ -48,6 +48,10 @@ external edits, additions, or deletions. Closing an unsaved buffer restores disk
 contents for subsequent checks. Diagnostics from rust-analyzer remain visible
 alongside Proa's own diagnostics.
 
+Build trees such as `target`, `node_modules`, and `dist` are excluded before
+file watches are installed. If a lint check times out, its worker is stopped
+and the next edit starts a fresh worker; no editor restart is required.
+
 This uses the same bounded HTML → Markdown policy as `proa lint`; it does not
 invent a rendering for new children or require single-target components to gain
 another view. Incomplete Rust syntax produces a syntax diagnostic and pauses

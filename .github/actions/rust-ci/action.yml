@@ -96,6 +96,7 @@ runs:
       run: |
         corepack enable
         pnpm run editor:test
+        PROA_TEST_LINT="$(realpath "${CARGO_TARGET_DIR:-target}/debug/proa")" pnpm -C editors/lsp test:lint
 
     # Clippy type-checks the same workspace/all-targets graph. The test steps
     # below then perform real codegen, so another cargo check adds no coverage.

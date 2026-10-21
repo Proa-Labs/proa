@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { spawn } from 'node:child_process';
-import { existsSync, realpathSync, watch } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, watch } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -61,14 +61,16 @@ export function diagnosticGroups(diagnostics, uris = new Map()) {
 }
 
 export class LintWorker {
-  constructor(command = process.env.PROA_LINT || 'proa') {
+  constructor(command = process.env.PROA_LINT || 'proa', { timeout = 30000, spawnProcess = spawn } = {}) {
     this.command = command;
+    this.timeout = timeout;
+    this.spawnProcess = spawnProcess;
     this.sequence = 0;
     this.pending = new Map();
   }
 
   start() {
-    const child = spawn(this.command, ['lint', '--stdio'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const child = this.spawnProcess(this.command, ['lint', '--stdio'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.child = child;
     let stderr = '';
     child.stderr.setEncoding('utf8');
@@ -106,9 +108,9 @@ export class LintWorker {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error('Proa live lint timed out.'));
+        reject(Object.assign(new Error('Proa live lint timed out; the next edit will restart the worker.'), { fatal: false }));
         this.dispose();
-      }, 30000);
+      }, this.timeout);
       this.pending.set(id, { resolve, reject, timer });
       this.child.stdin.write(JSON.stringify({ id, overlays }) + '\n');
     });
@@ -126,6 +128,59 @@ export class LintWorker {
       timer.unref();
       child.once('close', () => clearTimeout(timer));
     }
+  }
+}
+
+// Install shallow watches only in source-discovery directories. A recursive
+// root watch still allocates OS watches for target/node_modules even if their
+// events are ignored, so exclusions must happen before traversal/registration.
+export class SourceWatcher {
+  constructor(root, { changed, onError }) {
+    this.root = root;
+    this.changed = changed;
+    this.onError = onError;
+    this.watchers = new Map();
+    this.sync();
+  }
+
+  sync() {
+    if (this.disposed) return;
+    const directories = new Set();
+    const visit = directory => {
+      let entries;
+      try { entries = readdirSync(directory, { withFileTypes: true }); }
+      catch (error) { if (error.code !== 'ENOENT') this.onError(error); return; }
+      directories.add(directory);
+      if (!this.watchers.has(directory)) {
+        try {
+          const watcher = watch(directory, (event, name) => {
+            const path = name?.toString();
+            if (path && ignored(path)) return;
+            if (event === 'rename' || !path) {
+              clearTimeout(this.timer);
+              this.timer = setTimeout(() => this.sync(), 50);
+            }
+            if (event === 'rename' || !path || /\.rs$/.test(path) || path === 'Cargo.toml') this.changed();
+          });
+          watcher.on('error', this.onError);
+          this.watchers.set(directory, watcher);
+        } catch (error) { if (error.code !== 'ENOENT') this.onError(error); }
+      }
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith('.') && !ignored(entry.name)) visit(join(directory, entry.name));
+      }
+    };
+    visit(this.root);
+    for (const [directory, watcher] of this.watchers) {
+      if (!directories.has(directory)) { watcher.close(); this.watchers.delete(directory); }
+    }
+  }
+
+  dispose() {
+    this.disposed = true;
+    clearTimeout(this.timer);
+    for (const watcher of this.watchers.values()) watcher.close();
+    this.watchers.clear();
   }
 }
 
@@ -169,18 +224,14 @@ export class LiveLint {
     if (!this.watchFiles) return;
     const roots = new Set([...this.documents.keys()].map(uri => packageRoot(fileURLToPath(uri))));
     for (const [root, watcher] of this.watchers) {
-      if (!roots.has(root)) { watcher.close(); this.watchers.delete(root); }
+      if (!roots.has(root)) { watcher.dispose(); this.watchers.delete(root); }
     }
     for (const root of roots) {
       if (this.watchers.has(root)) continue;
-      try {
-        const watcher = watch(root, { recursive: true }, (_, name) => {
-          const path = name?.toString();
-          if (!path || (!ignored(path) && (/\.rs$/.test(path) || /(^|[\\/])Cargo.toml$/.test(path) || !path.includes('.')))) this.changed();
-        });
-        watcher.on('error', error => this.onError(new Error(`Proa file watcher: ${error.message}`)));
-        this.watchers.set(root, watcher);
-      } catch (error) { this.onError(new Error(`Proa file watcher: ${error.message}`)); }
+      this.watchers.set(root, new SourceWatcher(root, {
+        changed: () => this.changed(),
+        onError: error => this.onError(new Error(`Proa file watcher: ${error.message}`)),
+      }));
     }
   }
 
@@ -246,7 +297,7 @@ export class LiveLint {
   dispose() {
     this.disposed = true;
     clearTimeout(this.timer);
-    for (const watcher of this.watchers.values()) watcher.close();
+    for (const watcher of this.watchers.values()) watcher.dispose();
     this.watchers.clear();
     this.worker.dispose();
     for (const uri of this.published) this.publish({ uri, diagnostics: [] });

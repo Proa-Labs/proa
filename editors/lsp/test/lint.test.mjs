@@ -7,7 +7,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { LiveLint, diagnosticGroups } from '../src/lint.mjs';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { LiveLint, LintWorker, SourceWatcher, diagnosticGroups } from '../src/lint.mjs';
 
 const uri = 'file:///project/src/html.rs';
 const markdown = 'file:///project/src/md.rs';
@@ -136,6 +138,66 @@ test('a transient snapshot read failure can recover on the next edit', async t =
   live.fromClient(change(uri, 'repaired'));
   await live.flush();
   assert.equal(published[0].diagnostics[0].code, 'render/content-coverage');
+});
+
+test('a timed-out worker is stopped and the next edit starts a fresh worker', { timeout: 5000 }, async t => {
+  const children = [], errors = [];
+  const worker = new LintWorker('proa', { timeout: 30, spawnProcess: () => {
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null,
+      kill() {
+        this.exitCode = 0;
+        this.stdout.end();
+        queueMicrotask(() => this.emit('close', 0));
+      },
+    });
+    children.push(child);
+    if (children.length > 1) child.stdin.on('data', line => {
+      child.stdout.write(JSON.stringify({ id: JSON.parse(line).id, diagnostics: [] }) + '\n');
+    });
+    return child;
+  } });
+  const live = new LiveLint({ publish() {}, onError: error => errors.push(error), worker, watchFiles: false, delay: 60000 });
+  t.after(() => live.dispose());
+  live.fromClient(open(uri));
+  await live.flush();
+  assert.match(errors[0].message, /timed out/);
+  assert.equal(errors[0].fatal, false);
+  assert.equal(children[0].exitCode, 0);
+  assert.equal(live.failed, false);
+  live.fromClient(change(uri, 'next edit'));
+  await live.flush();
+  assert.equal(children.length, 2);
+  assert.equal(errors.length, 1);
+  assert.equal(worker.pending.size, 0);
+});
+
+test('source watchers exclude build trees before traversal and track new or removed directories', { timeout: 5000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), 'proa-source-watches-'));
+  for (const directory of ['src/components', 'target/debug/deps', 'node_modules/dependency', 'src/node_modules/nested', '.git/objects', 'dist/assets']) {
+    mkdirSync(join(root, directory), { recursive: true });
+  }
+  let changes = 0;
+  const errors = [];
+  const watcher = new SourceWatcher(root, { changed: () => changes++, onError: error => errors.push(error) });
+  t.after(() => { watcher.dispose(); rmSync(root, { recursive: true, force: true }); });
+  assert.deepEqual([...watcher.watchers.keys()].sort(), [root, join(root, 'src'), join(root, 'src/components')].sort());
+  async function waitFor(predicate) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (predicate()) return;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.fail('Source watchers did not refresh');
+  }
+  const added = join(root, 'src/new-components/nested');
+  mkdirSync(added, { recursive: true });
+  await waitFor(() => watcher.watchers.has(added));
+  const before = changes;
+  writeFileSync(join(added, 'view.rs'), 'fn new_view() {}');
+  await waitFor(() => changes > before);
+  rmSync(join(root, 'src/new-components'), { recursive: true });
+  await waitFor(() => !watcher.watchers.has(added));
+  assert.deepEqual(errors, []);
 });
 
 test('filesystem watcher refreshes a disk counterpart while its view stays closed', { timeout: 5000 }, async t => {
