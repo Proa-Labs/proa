@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync, realpathSync, watch } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, statSync, watch } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -147,10 +147,21 @@ export class SourceWatcher {
     if (this.disposed) return;
     const directories = new Set();
     const visit = directory => {
-      let entries;
-      try { entries = readdirSync(directory, { withFileTypes: true }); }
+      let entries, identity;
+      try {
+        const stat = statSync(directory, { bigint: true });
+        identity = `${stat.dev}:${stat.ino}`;
+        entries = readdirSync(directory, { withFileTypes: true });
+      }
       catch (error) { if (error.code !== 'ENOENT') this.onError(error); return; }
       directories.add(directory);
+      // Inotify follows an inode, not a path. An atomic directory replacement
+      // can leave the same path present when this delayed scan runs.
+      const previous = this.watchers.get(directory);
+      if (previous && previous.identity !== identity) {
+        previous.watcher.close();
+        this.watchers.delete(directory);
+      }
       if (!this.watchers.has(directory)) {
         try {
           const watcher = watch(directory, (event, name) => {
@@ -160,10 +171,10 @@ export class SourceWatcher {
               clearTimeout(this.timer);
               this.timer = setTimeout(() => this.sync(), 50);
             }
-            if (event === 'rename' || !path || /\.rs$/.test(path) || path === 'Cargo.toml') this.changed();
+            if (event === 'rename' || !path || /\.rs$/.test(path) || path === 'Cargo.toml') this.changed(path ? join(directory, path) : directory);
           });
           watcher.on('error', this.onError);
-          this.watchers.set(directory, watcher);
+          this.watchers.set(directory, { watcher, identity });
         } catch (error) { if (error.code !== 'ENOENT') this.onError(error); }
       }
       for (const entry of entries) {
@@ -171,7 +182,7 @@ export class SourceWatcher {
       }
     };
     visit(this.root);
-    for (const [directory, watcher] of this.watchers) {
+    for (const [directory, { watcher }] of this.watchers) {
       if (!directories.has(directory)) { watcher.close(); this.watchers.delete(directory); }
     }
   }
@@ -179,7 +190,7 @@ export class SourceWatcher {
   dispose() {
     this.disposed = true;
     clearTimeout(this.timer);
-    for (const watcher of this.watchers.values()) watcher.close();
+    for (const { watcher } of this.watchers.values()) watcher.close();
     this.watchers.clear();
   }
 }

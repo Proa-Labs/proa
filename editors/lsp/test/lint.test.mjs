@@ -3,7 +3,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, renameSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -197,6 +197,31 @@ test('source watchers exclude build trees before traversal and track new or remo
   await waitFor(() => changes > before);
   rmSync(join(root, 'src/new-components'), { recursive: true });
   await waitFor(() => !watcher.watchers.has(added));
+  assert.deepEqual(errors, []);
+});
+
+test('replacing a directory at the same path reinstalls its watch and observes later edits', { timeout: 5000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), 'proa-replaced-watch-'));
+  const directory = join(root, 'src/components');
+  mkdirSync(directory, { recursive: true });
+  const changes = [], errors = [];
+  const watcher = new SourceWatcher(root, { changed: path => changes.push(path), onError: error => errors.push(error) });
+  t.after(() => { watcher.dispose(); rmSync(root, { recursive: true, force: true }); });
+  const original = watcher.watchers.get(directory);
+  // Replace within the scan debounce while retaining the original inode.
+  renameSync(directory, join(root, 'src/retired'));
+  mkdirSync(directory);
+  async function waitFor(predicate) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (predicate()) return;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.fail('Replacement source watcher did not refresh');
+  }
+  await waitFor(() => watcher.watchers.get(directory)?.identity !== original.identity);
+  const file = join(directory, 'later.rs');
+  writeFileSync(file, 'fn replacement() {}');
+  await waitFor(() => changes.includes(file));
   assert.deepEqual(errors, []);
 });
 
