@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
-import { LiveLint, LintWorker } from '../src/lint.mjs';
+import { LintWorker } from '../src/lint.mjs';
 import { Decoder, encode } from '../src/transport.mjs';
 
 const command = process.env.PROA_TEST_LINT || fileURLToPath(new URL(`../../../target/debug/proa${process.platform === 'win32' ? '.exe' : ''}`, import.meta.url));
@@ -26,28 +26,7 @@ function fixture(t) {
 }
 const open = (uri, text, version = 1) => ({ method: 'textDocument/didOpen', params: { textDocument: { uri, text, version, languageId: 'rust' } } });
 
-test('real persistent CLI checks unsaved HTML against closed Markdown and clears after repair', { timeout: 10000 }, async t => {
-  const root = fixture(t);
-  const published = [], errors = [];
-  const live = new LiveLint({ command, publish: params => published.push(params), onError: error => errors.push(error), delay: 60000, watchFiles: false });
-  t.after(() => live.dispose());
-  live.fromClient(open(pathToFileURL(join(root, 'src/html.rs')).href, html.replace('{self.title}', '{self.title} {Notice::new()}')));
-  await live.flush();
-  assert.deepEqual(errors, []);
-  const missing = published.flatMap(p => p.diagnostics).filter(d => d.code === 'render/content-coverage');
-  assert.equal(missing.length, 1);
-  assert(missing[0].message.includes('Notice'));
-  assert(published.some(params => params.uri === pathToFileURL(join(root, 'src/md.rs')).href));
-  const pid = live.worker.child.pid;
-  live.fromClient(open(pathToFileURL(join(root, 'src/md.rs')).href, md.replace('{self.title}', '{self.title} {crate::product::Notice::new()}')));
-  await live.flush();
-  assert.equal(live.worker.child.pid, pid);
-  assert(!published.at(-1).diagnostics.some(d => d.code === 'render/content-coverage'));
-  assert.equal(readFileSync(join(root, 'src/html.rs'), 'utf8'), html);
-  assert.equal(readFileSync(join(root, 'src/md.rs'), 'utf8'), md);
-});
-
-test('standalone LSP publishes actual Proa diagnostics and shuts down both processes', { timeout: 10000 }, async t => {
+test('standalone LSP diagnoses unsaved changes, clears repairs, and watches closed counterparts', { timeout: 10000 }, async t => {
   const root = fixture(t);
   const bridge = fileURLToPath(new URL('../bin/proa-lsp.mjs', import.meta.url));
   const analyzer = fileURLToPath(new URL('./fake-analyzer.mjs', import.meta.url));
@@ -57,20 +36,46 @@ test('standalone LSP publishes actual Proa diagnostics and shuts down both proce
   let stderr = '';
   child.stderr.on('data', data => { stderr += data; });
   const replies = new Map();
-  let resolveDiagnostic;
-  const diagnostic = new Promise(resolve => { resolveDiagnostic = resolve; });
+  const waiting = new Set();
+  const diagnostics = predicate => new Promise(resolve => { waiting.add({ predicate, resolve }); });
   const decoder = new Decoder(message => {
     if (replies.has(message.id)) { replies.get(message.id)(message); replies.delete(message.id); }
-    if (message.method === 'textDocument/publishDiagnostics' && message.params.diagnostics.some(d => d.code === 'render/content-coverage')) resolveDiagnostic(message.params);
+    if (message.method === 'textDocument/publishDiagnostics') {
+      for (const pending of waiting) if (pending.predicate(message.params)) {
+        waiting.delete(pending);
+        pending.resolve(message.params);
+      }
+    }
   });
   child.stdout.on('data', data => decoder.push(data));
   const send = message => child.stdin.write(encode({ jsonrpc: '2.0', ...message }));
   const request = (id, method) => new Promise(resolve => { replies.set(id, resolve); send({ id, method, params: { capabilities: {} } }); });
+  const htmlUri = pathToFileURL(join(root, 'src/html.rs')).href;
+  const mdUri = pathToFileURL(join(root, 'src/md.rs')).href;
+  const hasCoverage = params => params.diagnostics.some(d => d.code === 'render/content-coverage');
   await request(1, 'initialize');
-  send(open(pathToFileURL(join(root, 'src/html.rs')).href, html.replace('{self.title}', '{self.title} {Notice::new()}')));
-  const result = await diagnostic;
-  assert(result.uri.endsWith('/src/md.rs'), stderr);
-  assert.equal(result.diagnostics.find(d => d.source === 'proa').severity, 1);
+  const missing = diagnostics(params => params.uri === mdUri && hasCoverage(params));
+  send(open(htmlUri, html.replace('{self.title}', '{self.title} {Notice::new()}')));
+  const result = await missing;
+  const omission = result.diagnostics.find(d => d.code === 'render/content-coverage');
+  assert.equal(omission.severity, 1);
+  assert(omission.relatedInformation.some(info => info.location.uri === htmlUri));
+
+  const repaired = md.replace('{self.title}', '{self.title} {crate::product::Notice::new()}');
+  const cleared = diagnostics(params => params.uri === mdUri && params.version === 2 && !hasCoverage(params));
+  send(open(mdUri, md));
+  send({ method: 'textDocument/didChange', params: { textDocument: { uri: mdUri, version: 2 }, contentChanges: [{ text: repaired }] } });
+  await cleared;
+  assert.equal(readFileSync(join(root, 'src/md.rs'), 'utf8'), md);
+
+  const discarded = diagnostics(params => params.uri === mdUri && hasCoverage(params));
+  send({ method: 'textDocument/didClose', params: { textDocument: { uri: mdUri } } });
+  await discarded;
+  const diskRepair = diagnostics(params => params.uri === mdUri && !hasCoverage(params));
+  writeFileSync(join(root, 'src/md.rs'), repaired);
+  await diskRepair;
+  assert.equal(readFileSync(join(root, 'src/html.rs'), 'utf8'), html);
+  assert.equal(readFileSync(join(root, 'src/md.rs'), 'utf8'), repaired);
   await request(2, 'shutdown');
   send({ method: 'exit' });
   assert.equal((await closed)[0], 0, stderr);

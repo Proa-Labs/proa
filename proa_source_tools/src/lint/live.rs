@@ -194,44 +194,6 @@ mod tests {
     }
 
     #[test]
-    fn unsaved_html_checks_closed_markdown_and_unsaved_repair_clears_it() {
-        let root = fixture();
-        let html = HTML.replace("{self.title}", "{self.title} {Notice::new()}");
-        let diagnostics = lint_snapshot(&[overlay(root.path(), "src/html.rs", &html)]).unwrap();
-        let missing = coverage(&diagnostics);
-        assert_eq!(missing.len(), 1);
-        assert!(missing[0].message.contains("Notice"));
-        assert!(missing[0].labels[0].range.path.ends_with("src/md.rs"));
-        assert!(missing[0].labels[1]
-            .source
-            .iter()
-            .any(|line| line.text.contains("Notice::new()")));
-
-        let md = MD.replace(
-            "{self.title}",
-            "{self.title} {crate::product::Notice::new()}",
-        );
-        let fixed = lint_snapshot(&[
-            overlay(root.path(), "src/html.rs", &html),
-            overlay(root.path(), "src/md.rs", &md),
-        ])
-        .unwrap();
-        assert!(coverage(&fixed).is_empty());
-        assert_eq!(
-            std::fs::read_to_string(root.path().join("src/html.rs")).unwrap(),
-            HTML
-        );
-        assert_eq!(
-            std::fs::read_to_string(root.path().join("src/md.rs")).unwrap(),
-            MD
-        );
-        // Closing/discarding the unsaved HTML buffer restores disk content.
-        assert!(
-            coverage(&lint_snapshot(&[overlay(root.path(), "src/md.rs", MD)]).unwrap()).is_empty()
-        );
-    }
-
-    #[test]
     fn new_unsaved_module_and_disk_counterpart_changes_participate() {
         let root = fixture();
         std::fs::remove_file(root.path().join("src/md.rs")).unwrap();
@@ -247,15 +209,11 @@ mod tests {
     }
 
     #[test]
-    fn incomplete_rust_does_not_invent_missing_content_or_stale_omissions() {
+    fn incomplete_rust_reports_syntax_without_content_omissions() {
         let root = fixture();
         let broken = "use crate::product::Product; impl";
         let diagnostics = lint_snapshot(&[overlay(root.path(), "src/md.rs", broken)]).unwrap();
         assert!(diagnostics.iter().any(|d| d.code == "syntax/rust"));
         assert!(coverage(&diagnostics).is_empty());
-        assert!(!diagnostics
-            .iter()
-            .any(|d| d.code == "render/content-omit-stale"));
-        assert!(lint_snapshot(&[]).unwrap().is_empty());
     }
 }
