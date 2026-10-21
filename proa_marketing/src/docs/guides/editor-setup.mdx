@@ -25,6 +25,38 @@ Use the **Proa extension** in VS Code. In other editors, configure
 **`proa-lsp`** as the Rust language-server command. For Tailwind class
 completion in HTML templates, see [Tailwind](/docs/guides/tailwind-intellisense).
 
+## Live lint diagnostics
+
+The editor tools also run Proa's source linter after a short typing pause,
+using your unsaved changes. Adding a field or child to HTML can immediately
+flag its absence in a paired Markdown view, including when that view is not
+open. The diagnostic includes repair guidance and the HTML contribution's
+location. Including the content or acknowledging an intentional omission clears
+it. The editor also runs Proa's usual template formatting, accessibility, and
+performance lints on open Rust files.
+
+Install an updated Proa CLI from the same checkout:
+
+```bash
+cargo install --path proa_cli --bin proa --locked --force
+```
+
+VS Code runs `proa` from PATH. Set `proa.lint.path` to another executable path,
+or `proa.lint.enable` to `false` to disable these diagnostics. The standalone
+bridge accepts `--proa /absolute/path/to/proa` or `PROA_LINT`, and `--no-lint`
+disables live lints. If the CLI is missing or outdated, the tools report it
+while keeping Rust navigation available. Restart the bridge or reload VS Code
+after updating the CLI.
+
+A persistent worker checks original source buffers without writing files or
+compiling the application. File changes refresh affected views, and results
+from older buffer versions are discarded. Rust syntax errors pause content
+comparisons for that package until the source is parseable. The content check
+uses the same bounded HTML → Markdown policy as
+[`proa lint`](/docs/cli/format-lint-check); it does not automatically choose a
+child's representation in another format. Rust type checking and compiler
+diagnostics continue through rust-analyzer and Cargo.
+
 ## VS Code
 
 Install the official

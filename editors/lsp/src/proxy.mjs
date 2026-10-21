@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { Decoder, encode } from './transport.mjs';
 import { Session } from './session.mjs';
 
-export function runProxy({ command, args = [], input = process.stdin, output = process.stdout, log = process.stderr }) {
+export function runProxy({ command, args = [], lintCommand, lintEnabled = true, input = process.stdin, output = process.stdout, log = process.stderr }) {
   return new Promise(resolve => {
     const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let finished = false, stopping = false, failure = false, timer;
@@ -15,6 +15,7 @@ export function runProxy({ command, args = [], input = process.stdin, output = p
     const session = new Session({
       toClient: message => write(output, message),
       toServer: message => write(child.stdin, message),
+      lint: lintEnabled ? { command: lintCommand, onError: error => log.write(`proa-lsp: ${error.message}\n`) } : undefined,
     });
     const stop = () => {
       if (stopping || finished) return;

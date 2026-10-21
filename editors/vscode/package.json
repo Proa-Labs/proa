@@ -26,6 +26,24 @@
   "extensionKind": [
     "workspace"
   ],
+  "contributes": {
+    "configuration": {
+      "title": "Proa",
+      "properties": {
+        "proa.lint.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show live Proa lint diagnostics for unsaved Rust buffers and their counterpart views. Requires an updated Proa CLI."
+        },
+        "proa.lint.path": {
+          "type": "string",
+          "default": "proa",
+          "scope": "machine-overridable",
+          "description": "Path to the Proa executable used for live linting."
+        }
+      }
+    }
+  },
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false
@@ -33,6 +51,7 @@
   },
   "scripts": {
     "test": "node scripts/sync-core.mjs && node --test test/*.test.mjs",
+    "test:live": "node scripts/sync-core.mjs && node test/run-live-lint.mjs",
     "prepare": "node scripts/sync-core.mjs",
     "vscode:prepublish": "node scripts/sync-core.mjs"
   },

@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Bridge } from './protocol.mjs';
 import { formatDocument } from './format.mjs';
+import { LiveLint } from './lint.mjs';
 
 function readDocument(uri) {
   try { return uri?.startsWith('file:') ? readFileSync(fileURLToPath(uri), 'utf8') : undefined; }
@@ -36,17 +37,27 @@ export class Session {
   pending = new Map();
   formatting = new Map();
   disposed = false;
+  analyzerDiagnostics = new Map();
+  lintDiagnostics = new Map();
 
-  constructor({ toClient, toServer, format = formatDocument, read = readDocument }) {
+  constructor({ toClient, toServer, format = formatDocument, read = readDocument, lint }) {
     this.toClient = toClient;
     this.toServer = toServer;
     this.format = format;
     this.bridge = new Bridge(read);
+    if (lint) this.liveLint = new LiveLint({ ...lint, publish: params => {
+      this.lintDiagnostics.set(params.uri, params.diagnostics);
+      this.publishDiagnostics(params);
+    } });
   }
 
   fromClient(message) {
     if (this.disposed) return;
     const { method, params, id } = message;
+    // Observe original buffers before Bridge replaces their Markdown with an
+    // analysis projection. Linting the projection would invent missing content.
+    this.liveLint?.fromClient(message);
+    if (method === 'shutdown' || method === 'exit') this.liveLint?.dispose();
     if (!method) {
       const pending = this.pending.get(id);
       if (pending) {
@@ -95,6 +106,11 @@ export class Session {
 
   fromServer(message) {
     if (this.disposed) return;
+    if (this.liveLint && message.method === 'textDocument/publishDiagnostics') {
+      this.analyzerDiagnostics.set(message.params.uri, message.params.diagnostics);
+      this.publishDiagnostics(message.params);
+      return;
+    }
     if (message.method === '$/cancelRequest') {
       const entry = [...this.pending].find(([, pending]) => !pending.resolve && pending.serverId === message.params.id);
       if (entry) this.toClient({ ...message, params: { ...message.params, id: entry[0] } });
@@ -124,6 +140,13 @@ export class Session {
       result.forward.id = id;
     }
     this.toClient(result.forward);
+  }
+
+  publishDiagnostics(params) {
+    if (this.disposed) return;
+    const diagnostics = [...(this.analyzerDiagnostics.get(params.uri) ?? []),
+      ...(this.lintDiagnostics.get(params.uri) ?? [])];
+    this.toClient({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics', params: { ...params, diagnostics } });
   }
 
   configuration(uri, token) {
@@ -167,6 +190,9 @@ export class Session {
 
   dispose() {
     this.disposed = true;
+    this.liveLint?.dispose();
+    this.analyzerDiagnostics.clear();
+    this.lintDiagnostics.clear();
     for (const token of this.formatting.values()) token.cancel();
     this.formatting.clear();
     this.pending.clear();

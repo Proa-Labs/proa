@@ -630,6 +630,13 @@ pub(super) fn lint_paths(
         options,
     ))
 }
+
+pub(super) fn snapshot_sources(
+    files: &[PathBuf],
+    options: &ContentOptions,
+) -> anyhow::Result<Vec<(PathBuf, String)>> {
+    discover::load_sources(files, options)
+}
 fn span_range(path: &Path, span: Span) -> SourceRange {
     SourceRange::from_span(path, span)
 }

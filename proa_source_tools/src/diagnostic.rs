@@ -128,7 +128,7 @@ impl Serialize for Severity {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Diagnostic {
     pub path: PathBuf,
     pub line: usize,

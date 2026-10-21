@@ -11,6 +11,51 @@ Use the [Proa extension](vscode/README.md) with the official rust-analyzer
 extension. It attaches to that extension's existing client and server. It does
 not use the standalone bridge or change `rust-analyzer.server.path`.
 
+## Live lint diagnostics
+
+Both integrations run the existing Proa source linter after a 250 ms typing
+pause. Unsaved Rust buffers override disk contents, and content checks discover
+their package's other views even when those files are not open. Adding a child
+to HTML can therefore flag its absence in Markdown immediately. Squiggles and
+the Problems/diagnostics list include the lint code, repair guidance, and a link
+to the contribution in the other view. Fixing or deliberately omitting the
+contribution clears the diagnostic. No application compilation or source writes
+are involved. The usual formatting, accessibility, and performance lints also
+run on open files.
+
+Install a Proa CLI built from this checkout; older binaries do not have the
+worker protocol:
+
+```sh
+cargo install --path proa_cli --bin proa --locked --force
+```
+
+VS Code starts `proa` from PATH. Set `proa.lint.path` to an absolute executable
+path if needed, or `proa.lint.enable` to `false` to disable live lints. For
+example, when developing Proa, build with `cargo build -p proa-cli --bin proa`
+and point the setting at `/absolute/path/to/proa/target/debug/proa`.
+
+The standalone bridge accepts `--proa /absolute/path/to/proa`, or the `PROA_LINT`
+environment variable, and `--no-lint` disables live lints. A missing or outdated
+CLI is reported in VS Code's Proa output channel (and a warning) or the bridge's
+stderr; Rust navigation continues. Restart the bridge, reload VS Code, or change
+its lint settings after repairing the executable.
+
+The editor keeps one lint worker alive using `proa lint --stdio` and coalesces
+edits while a check is running. A result is discarded if any buffer or watched
+source changes during analysis. File watchers refresh closed counterparts after
+external edits, additions, or deletions. Closing an unsaved buffer restores disk
+contents for subsequent checks. Diagnostics from rust-analyzer remain visible
+alongside Proa's own diagnostics.
+
+This uses the same bounded HTML → Markdown policy as `proa lint`; it does not
+invent a rendering for new children or require single-target components to gain
+another view. Incomplete Rust syntax produces a syntax diagnostic and pauses
+content comparisons for that package until it is parseable again. Ordinary Rust
+type checking and compiler diagnostics remain rust-analyzer/Cargo's job. See
+the [content coverage guide](../docs/agent/content-coverage.md) for supported
+analysis, intentional omissions, and registering other render targets.
+
 ## Install the standalone bridge
 
 For other LSP editors, `proa-lsp` launches one rust-analyzer process and adapts
@@ -166,6 +211,15 @@ CARGO_TARGET_DIR=target cargo test --manifest-path editors/vscode/test/fixture/C
 pnpm run editor:test:neovim
 ```
 
+For live lint integration tests, build the CLI with
+`cargo build -p proa-cli --bin proa`, then run
+`pnpm -C editors/lsp test:lint` and `pnpm -C editors/vscode test:live`.
+The first exercises the real persistent CLI and standalone LSP transport. The
+second uses a disposable project and isolated VS Code profile; it requires
+`code` and an installed official rust-analyzer extension. Both verify unsaved
+changes and closed counterpart diagnostics without changing project source on
+disk. `PROA_TEST_LINT` can select another built Proa executable.
+
 The Neovim test uses an isolated configuration and the real analyzer. It tests
 definitions, hover, references, semantic tokens, rename, incomplete-expression
 completion, Unicode, unsaved edits, restart, and formatting. It restores buffer
@@ -175,7 +229,7 @@ printed temporary directory. Use `PROA_TEST_LOG_LEVEL=debug` for LSP message log
 
 ## Shared source and packaging
 
-The maintained projection, protocol, and formatting modules live in
+The maintained projection, protocol, formatting, and live lint modules live in
 [`lsp/src/`](lsp/src/). VS Code's `prepare`, `test`, and `vscode:prepublish`
 scripts copy them into an ignored `src/core/` directory inside the extension.
 The VSIX is self-contained; it does not import files from elsewhere in the

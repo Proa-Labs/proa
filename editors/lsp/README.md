@@ -8,6 +8,15 @@ the Proa VS Code extension.
 Requires Node.js 22+, a working rust-analyzer executable, and the project's
 Rust toolchain with Cargo and rustfmt. There are no npm runtime dependencies.
 
+Live Proa lint diagnostics additionally require an updated Proa CLI on PATH.
+Build/install it from this checkout with
+`cargo install --path proa_cli --bin proa --locked --force`. The bridge keeps
+`proa lint --stdio` running and sends original unsaved buffers after a typing
+pause. It checks closed counterpart views and retains rust-analyzer diagnostics.
+Use `--proa /absolute/path/to/proa` (or `PROA_LINT`) to select the executable,
+or `--no-lint` to disable Proa lints. See the
+[live lint guide](../README.md#live-lint-diagnostics) for scope and recovery.
+
 From a Proa checkout:
 
 ```sh
