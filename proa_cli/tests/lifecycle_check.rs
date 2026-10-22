@@ -145,6 +145,17 @@ fn main() {
 "#;
     fs::write(&source, initial_source).unwrap();
 
+    // This standalone fixture resolves its own dependency graph. Prepare it
+    // before the offline checks instead of relying on the CLI test runner's
+    // registry cache to already contain the framework's dependencies.
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let fetched = Command::new(cargo)
+        .current_dir(temp.path())
+        .arg("fetch")
+        .output()
+        .unwrap();
+    assert_success(&fetched);
+
     let cargo_proa = env!("CARGO_BIN_EXE_cargo-proa");
     let formatted = Command::new(cargo_proa)
         .current_dir(temp.path())
