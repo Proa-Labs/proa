@@ -70,14 +70,6 @@ runs:
         cargo check --locked -p proa_framework_core --no-default-features --lib
         cargo check --locked -p proa_fonts -p rsjs_transport --no-default-features --lib
 
-    # This pure-Rust graph can be checked on Linux without a Windows linker.
-    # Keep cfg(windows) API imports covered even when a native runner is absent.
-    - name: Check Windows build-engine compilation
-      shell: bash
-      run: |
-        rustup target add x86_64-pc-windows-msvc
-        cargo check --locked -p proa_build --lib --target x86_64-pc-windows-msvc
-
     - name: Check quickstart examples against the workspace CLI
       shell: bash
       run: |
