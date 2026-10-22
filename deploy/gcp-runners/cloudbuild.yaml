@@ -16,4 +16,4 @@ steps:
 images:
   - us-west1-docker.pkg.dev/airy-cycle-504821-k9/ci-images/proa-runner:${_TAG}
 substitutions:
-  _TAG: 1.95.0-v5
+  _TAG: 1.95.0-v6

@@ -26,7 +26,7 @@ template:
         effect: NoSchedule
     containers:
       - name: runner
-        image: us-west1-docker.pkg.dev/airy-cycle-504821-k9/ci-images/proa-runner:1.95.0-v5
+        image: us-west1-docker.pkg.dev/airy-cycle-504821-k9/ci-images/proa-runner:1.95.0-v6
         command: ["/home/runner/run.sh"]
         resources:
           requests:

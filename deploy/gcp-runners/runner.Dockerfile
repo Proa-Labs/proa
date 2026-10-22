@@ -3,7 +3,11 @@
 
 # CI runner for Proa: ARC base + pinned Rust toolchain + link/build tools
 # + sccache. Rebuild on toolchain bumps (rust-toolchain 1.95.0).
-FROM ghcr.io/actions/actions-runner:2.336.0
+# 2.338.1 bundles Node 24.22.1, including the October 21 security fixes.
+# setup-node does not update this runtime used to execute JavaScript actions.
+FROM ghcr.io/actions/actions-runner:2.338.1@sha256:e275409999c37162649aa050ca573f03eab2eabcb3a1e7fcc47548de6b4f9690
+
+RUN /home/runner/externals/node24/bin/node --version
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
