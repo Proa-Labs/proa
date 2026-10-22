@@ -36,7 +36,7 @@ use crate::{
     diagnostic::Severity,
     rsjs::build::{
         DescriptorCargoRequest, DESCRIPTOR_TARGET_POLICY_VERSION,
-        DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION,
+        DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION, TOOL_NAMESPACE_DIR,
     },
     rsjs::cache::DESCRIPTOR_CACHE_SCHEMA_VERSION,
     rsjs::pipeline::{
@@ -1921,9 +1921,7 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
     // Windows linkers and native build tools can still impose MAX_PATH even
     // when Rust accepts long paths. Keep full cache identities, but spend fewer
     // characters on descriptive directory labels before Cargo adds its tree.
-    let namespace = metadata
-        .target_directory
-        .join(if cfg!(windows) { "p" } else { "proa-rsjs" });
+    let namespace = metadata.target_directory.join(TOOL_NAMESPACE_DIR);
     let build_root = namespace.join(invocation.to_string());
     let source_exclusion_directory = metadata.target_directory.clone();
     let nonce = fresh_build_nonce();

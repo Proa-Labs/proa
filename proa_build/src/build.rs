@@ -53,6 +53,10 @@ pub const SOURCE_EXCLUSION_DIR_ENV: &str = "PROA_RSJS_SOURCE_EXCLUSION_DIR";
 /// Exact invocation- and wrapper-policy-scoped final target owned by the
 /// final Cargo runner.
 pub const FINAL_TARGET_DIR_ENV: &str = "PROA_RSJS_FINAL_TARGET_DIR";
+/// Directory under Cargo's target directory that holds every tool-owned
+/// descriptor and final target tree. Windows linkers and native build tools
+/// can still impose MAX_PATH, so the label is shortened there.
+pub const TOOL_NAMESPACE_DIR: &str = if cfg!(windows) { "p" } else { "proa-rsjs" };
 /// Legacy proc-macro filesystem descriptor fallback; not identity-safe.
 pub const COMPONENT_DESCRIPTOR_DIRS_ENV: &str = "RSJS_COMPONENT_DESCRIPTOR_DIRS";
 pub(crate) const DESCRIPTOR_TARGET_MARKER_FILE: &str = ".proa-rsjs-descriptor-target-v1";
@@ -550,6 +554,7 @@ where
             }
             if actual.source_dependencies != mapped.source_dependencies
                 && !source_dependency_sets_equivalent(
+                    &tool_namespace_from_env()?,
                     &mapped.source_dependencies,
                     &actual.source_dependencies,
                 )
@@ -2656,12 +2661,27 @@ fn validate_current_out_dir_dependencies(
     Ok(())
 }
 
+/// The canonical tool namespace for the current linked build.
+///
+/// Observed source paths are canonical, so the namespace is canonicalized the
+/// same way (on Windows that includes the verbatim `\\?\` prefix). It derives
+/// from the actual Cargo target directory rather than a literal `target`
+/// component, so a relocated `CARGO_TARGET_DIR` still gets the relaxation.
+fn tool_namespace_from_env() -> Result<PathBuf, WrapperError> {
+    let exclusion = env::var_os(SOURCE_EXCLUSION_DIR_ENV)
+        .map(PathBuf::from)
+        .ok_or(WrapperError::MissingEnvironment(SOURCE_EXCLUSION_DIR_ENV))?;
+    let namespace = exclusion.join(TOOL_NAMESPACE_DIR);
+    Ok(fs::canonicalize(&namespace).unwrap_or(namespace))
+}
+
 /// Whether two rustc source-dependency sets describe the same consumed bytes.
 ///
 /// The descriptor and final compilations run in separate tool-owned target
 /// trees, so build-script outputs (sailfish's per-target template cache, for
 /// example) keep identical bytes but get different generated file names in
-/// each pass. Entries under the tool-owned `target/proa-rsjs` tree therefore
+/// each pass. Entries under the tool-owned namespace (`tool_namespace`, the
+/// canonical [`TOOL_NAMESPACE_DIR`] beneath Cargo's target directory) therefore
 /// compare as a sorted multiset of content hashes; every path outside that
 /// tree must still match exactly. `content_hash` is a domain-separated digest
 /// of the exact bytes rustc read, so byte-for-byte identity of everything the
@@ -2672,22 +2692,18 @@ fn validate_current_out_dir_dependencies(
 /// multiset is accepted; both layouts were produced by the same trusted
 /// build-script execution).
 fn source_dependency_sets_equivalent(
+    tool_namespace: &Path,
     expected: &[DescriptorSourceDependency],
     actual: &[DescriptorSourceDependency],
 ) -> bool {
-    fn under_tool_target(dependency: &DescriptorSourceDependency) -> bool {
-        let components: Vec<_> = dependency.absolute_path.components().collect();
-        components
-            .windows(2)
-            .any(|pair| pair[0].as_os_str() == "target" && pair[1].as_os_str() == "proa-rsjs")
-    }
-    fn split(
-        dependencies: &[DescriptorSourceDependency],
-    ) -> (Vec<&str>, Vec<&DescriptorSourceDependency>) {
+    fn split<'a>(
+        tool_namespace: &Path,
+        dependencies: &'a [DescriptorSourceDependency],
+    ) -> (Vec<&'a str>, Vec<&'a DescriptorSourceDependency>) {
         let mut generated_hashes = Vec::new();
         let mut exact = Vec::new();
         for dependency in dependencies {
-            if under_tool_target(dependency) {
+            if dependency.absolute_path.starts_with(tool_namespace) {
                 generated_hashes.push(dependency.content_hash.as_str());
             } else {
                 exact.push(dependency);
@@ -2697,8 +2713,8 @@ fn source_dependency_sets_equivalent(
         exact.sort_unstable();
         (generated_hashes, exact)
     }
-    let (expected_generated, expected_exact) = split(expected);
-    let (actual_generated, actual_exact) = split(actual);
+    let (expected_generated, expected_exact) = split(tool_namespace, expected);
+    let (actual_generated, actual_exact) = split(tool_namespace, actual);
     expected_exact == actual_exact && expected_generated == actual_generated
 }
 

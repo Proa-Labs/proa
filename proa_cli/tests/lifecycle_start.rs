@@ -29,11 +29,6 @@ fn start_launches_the_host_release_executable_and_preserves_explicit_paths() {
         .prefix("proa start with spaces ")
         .tempdir()
         .unwrap();
-    fs::write(
-        temp.path().join("proa.config.json"),
-        r#"{"application":{"binary":"server.prod"}}"#,
-    )
-    .unwrap();
     let release = temp.path().join("target/release");
     fs::create_dir_all(&release).unwrap();
     let executable = release.join(format!("server.prod{}", env::consts::EXE_SUFFIX));
@@ -60,7 +55,20 @@ fn start_launches_the_host_release_executable_and_preserves_explicit_paths() {
     let explicit = temp
         .path()
         .join(format!("custom.server{}", env::consts::EXE_SUFFIX));
-    for custom in [false, true] {
+    let mut cases = vec![("server.prod", false)];
+    if cfg!(windows) {
+        cases.extend([("server.prod.exe", false), ("server.prod.EXE", false)]);
+    }
+    cases.push(("server.prod", true));
+    for (configured_binary, custom) in cases {
+        fs::write(
+            temp.path().join("proa.config.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "application": { "binary": configured_binary }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         if custom {
             fs::rename(&executable, &explicit).unwrap();
         }

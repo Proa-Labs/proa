@@ -2335,15 +2335,18 @@ mod tests {
 
     #[test]
     fn interpreter_inside_mutable_target_is_rejected() {
-        let executable = Path::new("/fixture/target/app");
-        let target = Path::new("/fixture/target");
+        let temp = tempfile::TempDir::new().unwrap();
+        let target = temp.path().join("target");
+        let executable = target.join("app");
+        let interpreter = target.join("ld.so");
+        let interpreter = interpreter.to_str().unwrap();
         assert!(matches!(
-            validate_snapshot_interpreter(executable, target, "/fixture/target/ld.so"),
+            validate_snapshot_interpreter(&executable, &target, interpreter),
             Err(FinalCargoError::UnsupportedSnapshotDependency {
                 dependency,
                 reason,
                 ..
-            }) if dependency == "/fixture/target/ld.so" && reason.contains("mutable final Cargo target")
+            }) if dependency == interpreter && reason.contains("mutable final Cargo target")
         ));
     }
 

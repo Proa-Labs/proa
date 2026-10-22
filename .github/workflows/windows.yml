@@ -43,8 +43,10 @@ jobs:
           'TMP=C:\p-temp' >> $env:GITHUB_ENV
       - name: Install the repository Rust toolchain
         run: rustup show
-      - name: Test PE snapshots, debug companions, and COFF short imports
-        run: cargo test --locked -p proa_build -p rsjs_transport --lib windows_
+      - name: Test build-engine invariants and PE snapshots
+        run: cargo test --locked -p proa_build --lib
+      - name: Test Windows COFF transport
+        run: cargo test --locked -p rsjs_transport --lib windows_
       - name: Check CLI including Windows code and test targets
         run: cargo check --locked -p proa-cli --all-targets
       - name: Test Cargo subcommand argument handling
@@ -55,6 +57,8 @@ jobs:
         run: cargo test --locked -p proa-cli --lib missing_tailwind_cli_message_offers_platform_installation
       - name: Test installed Cargo dispatch and release startup
         run: cargo test --locked -p proa-cli --test lifecycle_start
+      - name: Test final target layout and linked plan reuse
+        run: cargo test --locked -p proa-cli --test rsjs_final --test lifecycle_check
       - name: Test linked build export and cache reuse
         run: cargo test --locked -p proa-cli --test lifecycle_build
       - name: Test linked execution and argument forwarding

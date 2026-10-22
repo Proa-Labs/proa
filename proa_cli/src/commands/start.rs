@@ -41,7 +41,10 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
         .unwrap_or("app");
     let selected = args.bin.unwrap_or_else(|| {
         let mut filename = std::ffi::OsString::from(configured_binary);
-        filename.push(std::env::consts::EXE_SUFFIX);
+        let suffix = std::env::consts::EXE_SUFFIX;
+        if !suffix.is_empty() && !configured_binary.to_ascii_lowercase().ends_with(suffix) {
+            filename.push(suffix);
+        }
         PathBuf::from("target").join("release").join(filename)
     });
     let executable = if selected.is_absolute() {

@@ -189,7 +189,9 @@ fn main() {
     );
     assert_eq!(linked_plan(&unchanged), first_plan);
 
-    let plans = target.join("proa-rsjs").join("plans");
+    let plans = target
+        .join(proa_cli::rsjs::build::TOOL_NAMESPACE_DIR)
+        .join(if cfg!(windows) { "p" } else { "plans" });
     let plan_paths = fs::read_dir(&plans)
         .unwrap()
         .map(|entry| entry.unwrap().path())

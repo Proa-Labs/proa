@@ -292,13 +292,19 @@ fn main() {
     assert_eq!(first.final_cargo.plan_id, first.semantic.plan_id);
     assert_ne!(first.final_cargo.target_directory, descriptor_target);
     let invocation_directory = request.invocation.to_string();
-    assert_eq!(
-        first.final_cargo.target_directory,
+    let expected_final_target = if cfg!(windows) {
+        request
+            .final_target_root
+            .join(format!("w{FINAL_WRAPPER_POLICY_VERSION}"))
+    } else {
         request
             .final_target_root
             .join("rsjs-final")
             .join(format!("wrapper-v{FINAL_WRAPPER_POLICY_VERSION}"))
-            .join(&invocation_directory)
+    };
+    assert_eq!(
+        first.final_cargo.target_directory,
+        expected_final_target.join(&invocation_directory)
     );
     assert_eq!(
         first.final_cargo.target_directory.file_name(),
