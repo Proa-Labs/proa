@@ -245,6 +245,7 @@ fn main() {
     .unwrap();
 
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    fetch_fixture_dependencies(&cargo, temp.path());
     let environment = std::collections::BTreeMap::new();
     let metadata = Command::new(&cargo)
         .current_dir(temp.path())
@@ -457,6 +458,7 @@ fn main() {{
     fs::write(&source, source_text("same-source")).unwrap();
 
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    fetch_fixture_dependencies(&cargo, temp.path());
     let environment = std::collections::BTreeMap::new();
     let metadata = Command::new(&cargo)
         .current_dir(temp.path())
@@ -549,5 +551,21 @@ fn main() {{
     assert_eq!(
         String::from_utf8(runtime.stdout).unwrap(),
         "same-source|from-build-script-v2|stable"
+    );
+}
+
+fn fetch_fixture_dependencies(cargo: &std::ffi::OsStr, root: &std::path::Path) {
+    // These standalone fixtures resolve their own dependency graph. Fetch it
+    // before the intentionally offline descriptor and final compilation passes;
+    // fetching the workspace lockfile does not populate every fixture version.
+    let output = Command::new(cargo)
+        .current_dir(root)
+        .arg("fetch")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "fixture dependency preparation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }

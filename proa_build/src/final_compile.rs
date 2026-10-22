@@ -943,7 +943,9 @@ fn snapshot_final_file(
     }
 
     if let Some(target_directory) = launch_target_directory {
-        if let Err(error) = validate_executable_snapshot_contract(&temporary, target_directory) {
+        if let Err(error) =
+            validate_executable_snapshot_contract(&temporary, source, target_directory)
+        {
             let _ = fs::remove_file(&temporary);
             return Err(error);
         }
@@ -1013,7 +1015,7 @@ pub fn snapshot_wrapper_executable(
             if existing_digest != digest || existing_permissions != permissions {
                 return Err(FinalCargoError::ConflictingSnapshotArtifact(destination));
             }
-            validate_executable_snapshot_contract(&destination, source_exclusion)?;
+            validate_executable_snapshot_contract(&destination, source, source_exclusion)?;
             return Ok(destination);
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -1042,11 +1044,14 @@ struct ExecutableSnapshotDependencies {
 }
 
 fn validate_executable_snapshot_contract(
+    snapshot: &Path,
     executable: &Path,
     target_directory: &Path,
 ) -> Result<(), FinalCargoError> {
-    let bytes = fs::read(executable).map_err(|source| FinalCargoError::SnapshotArtifactIo {
-        path: executable.to_path_buf(),
+    // Inspect the immutable copy's bytes, but resolve app-local dependencies
+    // beside the original executable before relocation changes their lookup.
+    let bytes = fs::read(snapshot).map_err(|source| FinalCargoError::SnapshotArtifactIo {
+        path: snapshot.to_path_buf(),
         source,
     })?;
     let file = object::File::parse(bytes.as_slice()).map_err(|source| {
@@ -1989,6 +1994,65 @@ mod tests {
                 0o751
             );
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_pe_snapshot_rejects_dll_beside_original_executable() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let source_exclusion = temp.path().join("generated");
+        let target_directory = source_exclusion.join("target");
+        let snapshot_root = source_exclusion.join("snapshots");
+        fs::create_dir_all(&target_directory).unwrap();
+        let executable = target_directory.join("fixture.exe");
+        fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+        // Both Rust's MSVC and GNU Windows executables import this DLL.
+        fs::write(
+            target_directory.join("bcryptprimitives.dll"),
+            b"app-local runtime",
+        )
+        .unwrap();
+        let artifact = snapshot_fixture_artifact(temp.path(), executable.clone());
+        assert!(matches!(
+            snapshot_final_artifact(
+                &source_exclusion,
+                &snapshot_root,
+                &target_directory,
+                &artifact,
+            ),
+            Err(FinalCargoError::UnsupportedSnapshotDependency { path, dependency, reason })
+                if path == executable
+                    && dependency.eq_ignore_ascii_case("bcryptprimitives.dll")
+                    && reason.contains("app-local DLL")
+        ));
+        assert_eq!(fs::read_dir(&snapshot_root).unwrap().count(), 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_pe_cached_wrapper_rechecks_original_dll_directory() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let source_exclusion = temp.path().join("generated");
+        let target_directory = source_exclusion.join("target");
+        let snapshot_root = source_exclusion.join("snapshots");
+        fs::create_dir_all(&target_directory).unwrap();
+        let executable = target_directory.join("wrapper.exe");
+        fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+        let published =
+            snapshot_wrapper_executable(&source_exclusion, &snapshot_root, &executable).unwrap();
+        fs::write(
+            target_directory.join("bcryptprimitives.dll"),
+            b"app-local runtime",
+        )
+        .unwrap();
+        assert!(matches!(
+            snapshot_wrapper_executable(&source_exclusion, &snapshot_root, &executable),
+            Err(FinalCargoError::UnsupportedSnapshotDependency { path, dependency, reason })
+                if path == executable
+                    && dependency.eq_ignore_ascii_case("bcryptprimitives.dll")
+                    && reason.contains("app-local DLL")
+        ));
+        assert_eq!(fs::read(published).unwrap(), fs::read(executable).unwrap());
     }
 
     #[cfg(windows)]
