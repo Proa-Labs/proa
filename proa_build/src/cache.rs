@@ -2058,7 +2058,7 @@ fn replace_file_atomic(temporary: &Path, destination: &Path) -> io::Result<()> {
     use std::iter;
     use std::os::windows::ffi::OsStrExt as _;
     use windows_sys::Win32::Storage::FileSystem::{
-        MoveFileExW, MOVE_FILE_REPLACE_EXISTING, MOVE_FILE_WRITE_THROUGH,
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
     };
 
     let temporary = temporary
@@ -2075,7 +2075,7 @@ fn replace_file_atomic(temporary: &Path, destination: &Path) -> io::Result<()> {
         MoveFileExW(
             temporary.as_ptr(),
             destination.as_ptr(),
-            MOVE_FILE_REPLACE_EXISTING | MOVE_FILE_WRITE_THROUGH,
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
         )
     };
     if result == 0 {
@@ -2092,7 +2092,7 @@ fn sync_directory(path: &Path) -> io::Result<()> {
 
 #[cfg(not(unix))]
 fn sync_directory(_path: &Path) -> io::Result<()> {
-    // MoveFileExW uses MOVE_FILE_WRITE_THROUGH above. Other non-Unix targets
+    // MoveFileExW uses MOVEFILE_WRITE_THROUGH above. Other non-Unix targets
     // have no portable directory-sync primitive in std.
     Ok(())
 }

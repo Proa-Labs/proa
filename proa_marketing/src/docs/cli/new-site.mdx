@@ -83,7 +83,17 @@ Install it with the Tailwind-only installer mode:
 curl -fsSL https://proa.so/install.sh | sh -s -- --tailwind-only
 ```
 
-Or with Homebrew: `brew install tailwindcss`. A dry run never installs tools.
+Or with Homebrew: `brew install tailwindcss`.
+
+On Windows, download the Windows standalone executable from the
+[Tailwind CLI installation guide](https://tailwindcss.com/docs/installation/tailwind-cli),
+name it `tailwindcss.exe`, and add its directory to your user `PATH`.
+Open a new terminal and confirm `tailwindcss --help` works before running
+`proa dev`. The PowerShell Proa installer installs the Proa CLI; it does not
+install Tailwind. The `install.sh --tailwind-only` command above is for macOS
+and Linux.
+
+A dry run never installs tools.
 
 ## Dry runs
 

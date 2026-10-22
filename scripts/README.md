@@ -73,6 +73,34 @@ that every archive carries the canonical Apache-2.0 license text, with:
 python3 scripts/check_crate_archives.py
 ```
 
+## Windows portability from macOS or Linux
+
+Run the Windows GNU/Wine checks with Docker Desktop or a Linux Docker engine:
+
+```bash
+bash scripts/check_windows_wine.sh
+```
+
+This builds an amd64 Linux image with Rust, MinGW, and Wine 10, cross-compiles
+Windows test binaries, and executes them under Wine. On Apple Silicon, Docker
+translates the amd64 container. The checkout is mounted read-only; named Docker
+volumes retain build artifacts and registry downloads. The first run downloads
+and compiles dependencies, and requires several GB of Docker disk space.
+
+The checks cover PE32/PE32+ normal and delay-load imports, COFF short-import
+archive members, executable/PDB root selection, a real PE launch snapshot,
+Windows file replacement, CLI argument handling, and `proa start` from a path
+containing spaces. The PE/COFF fixtures also run directly on macOS:
+
+```bash
+cargo test --locked -p proa_build -p rsjs_transport --lib windows_
+```
+
+Wine is a Windows API compatibility layer, so this is supplementary coverage.
+It does not reproduce Defender, Smart App Control, NTFS behavior, the MSVC
+linker, or native Windows path-limit policy. The `Windows` GitHub Actions
+workflow exercises real Windows/MSVC without requiring a local Windows PC.
+
 ## Browser security smoke tests
 
 The root Node dependencies exist only for real-browser acceptance tests. They

@@ -1712,6 +1712,12 @@ fn direct_live_value_roots_fail_closed_on_node_payload_derived_signals() {
             features: vec!["unsupported_shapes".to_owned()],
         }]
     );
+    let message = report.to_string();
+    assert!(message.contains("acme_web::"), "{message}");
+    assert!(
+        message.contains("proa lint <component-source.rs>"),
+        "{message}"
+    );
 }
 
 #[test]

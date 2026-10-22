@@ -2543,6 +2543,7 @@ fn unsupported_adapter_result_stops_the_semantic_link() {
         components: vec![AbiBridgeResult::Unsupported(UnsupportedDescriptor {
             kind: DescriptorKind::Component,
             definition,
+            semantic_path: None,
             gaps: vec![CompatibilityGap::MissingResolvedSemanticIdentity],
         })],
         helpers: vec![],

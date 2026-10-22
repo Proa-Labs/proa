@@ -24,6 +24,7 @@ syn = { workspace = true, features = ["full"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+object = { workspace = true, features = ["write"] }
 tempfile = { workspace = true }
 
 [lints]
