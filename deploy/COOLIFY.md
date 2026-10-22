@@ -1,8 +1,16 @@
-# Coolify on the shared Proa VPS
+# Archived: Coolify on the former Proa VPS
 
-Coolify is the deployment control plane for GitHub-connected applications and
-pull-request previews. It runs on the same VPS as the existing Proa services,
-but it does not own the public ports.
+> **Retired as of 22 October 2026:** all Proa applications, including
+> `proa-ui`, use Railway. Coolify is no longer an active deployment dependency.
+> The configuration and commands below describe the former VPS installation;
+> they are historical reference, not current operating instructions. See
+> [the marketing deployment guide](../proa_marketing/README.md#deployment) for
+> the current platform and [the cleanup runbook](COOLIFY_DECOMMISSION.md) for
+> any remaining legacy resources.
+
+Coolify previously provided the deployment control plane for GitHub-connected
+applications and pull-request previews on a shared VPS. The former topology
+was:
 
 ```text
 Cloudflare

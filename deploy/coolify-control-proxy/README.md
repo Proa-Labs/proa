@@ -1,21 +1,19 @@
-# Coolify control-plane gateway
+# Retired Coolify control-plane gateway
 
-> **Migration status:** Proa's marketing production and PR environments now
-> run on Railway. The pass-through proxy remains live because the separately
-> owned `proa-ui` repository still uses the same Coolify GitHub App and origin.
-> The Proa-specific OIDC, presentation, reconciliation, and archive paths below
-> are retained only for rollback during decommissioning; do not reconnect the
-> retired marketing preview workflow. Follow
-> [`../COOLIFY_DECOMMISSION.md`](../COOLIFY_DECOMMISSION.md) before removing or
-> redeploying this shared gateway.
+> **Retired as of 22 October 2026:** all Proa applications, including
+> `proa-ui`, use Railway. This gateway is no longer an active deployment
+> dependency. The implementation and design below are retained as historical
+> reference; do not redeploy the gateway or reconnect the retired preview
+> workflow. Follow [the cleanup runbook](../COOLIFY_DECOMMISSION.md) to verify
+> removal of any remaining Worker, routes, credentials, and origin resources.
 
-This Cloudflare Worker gives Coolify a browser origin outside the untrusted
-`*.proa.cool` cookie boundary. It forwards `https://coolify.proa.so` to the
-legacy Cloudflare origin and adds a credential required by HAProxy. No path is
-public on `coolify.proa.cool`; HAProxy redirects unauthenticated requests and
-strips the origin credential before forwarding to Coolify.
+This Cloudflare Worker gave Coolify a browser origin outside the untrusted
+`*.proa.cool` cookie boundary. It forwarded `https://coolify.proa.so` to the
+legacy Cloudflare origin and added a credential required by HAProxy. HAProxy
+redirected unauthenticated requests on `coolify.proa.cool` and stripped the
+origin credential before forwarding to Coolify.
 
-The Worker also:
+The following sections describe the retired Worker's behavior:
 
 - redirects plaintext requests to HTTPS and adds HSTS;
 - verifies GitHub App webhook signatures and the configured installation-target
