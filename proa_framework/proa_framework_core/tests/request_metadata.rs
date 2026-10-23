@@ -20,8 +20,8 @@ use proa_core::{
 use proa_framework_core::{
     metadata_from_context, render_metadata_head, render_metadata_head_send, CascadeValue::Set,
     ComputedRouteMeta, FrameworkBody, FrameworkRequestContext, IslandManifest, Metadata,
-    MetadataBase, MetadataContext, MetadataOutcome, MetadataPatch, OpenGraphPatch,
-    ResolvedMetadata, ResolvedOpenGraphImage, RouteResponse,
+    MetadataBase, MetadataContext, MetadataError, MetadataPatch, OpenGraphPatch, ResolvedMetadata,
+    ResolvedOpenGraphImage, RouteResponse,
 };
 use proa_stream::DataResolver;
 
@@ -56,36 +56,34 @@ impl DataLoader for PostLoader {
 
 struct PostMetadata;
 impl Metadata for PostMetadata {
-    fn generate_metadata<'a>(
-        &'a self,
-        cx: MetadataContext<'a>,
-        parent: &'a ResolvedMetadata,
-    ) -> MetadataOutcome<'a> {
-        MetadataOutcome::pending(async move {
-            let slug = cx.param("slug").unwrap();
-            let post = cx.load_typed::<Post>(LoadKey::named("post", slug)).await?;
-            let lang = cx.request.headers()["accept-language"].to_str().unwrap();
-            let query: Vec<_> = cx
-                .search_params()
-                .map(|(key, value)| (key.into_owned(), value.into_owned()))
-                .collect();
-            assert_eq!(
-                query,
-                [("tag".into(), "a b".into()), ("tag".into(), "c&d".into())]
-            );
-            assert_eq!(parent.description.as_deref(), Some("inherited"));
-            let mut images = parent.open_graph.images.to_vec();
-            images.push(ResolvedOpenGraphImage::new("/post.png"));
-            Ok(MetadataPatch {
-                title: Set(format!("{} {lang}", post.title).into()),
-                description: Set(format!("{slug}\"<>&").into()),
-                canonical: Set(format!("/blog/{slug}").into()),
-                open_graph: OpenGraphPatch {
-                    images: Set(Cow::Owned(images)),
-                    ..Default::default()
-                },
+    async fn generate_metadata(
+        &self,
+        cx: &dyn MetadataContext,
+        parent: &ResolvedMetadata,
+    ) -> Result<MetadataPatch, MetadataError> {
+        let slug = cx.param("slug").unwrap();
+        let post = cx.load_typed::<Post>(LoadKey::named("post", slug)).await?;
+        let lang = cx.request().headers()["accept-language"].to_str().unwrap();
+        let query: Vec<_> = cx
+            .search_params()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect();
+        assert_eq!(
+            query,
+            [("tag".into(), "a b".into()), ("tag".into(), "c&d".into())]
+        );
+        assert_eq!(parent.description.as_deref(), Some("inherited"));
+        let mut images = parent.open_graph.images.to_vec();
+        images.push(ResolvedOpenGraphImage::new("/post.png"));
+        Ok(MetadataPatch {
+            title: Set(format!("{} {lang}", post.title).into()),
+            description: Set(format!("{slug}\"<>&").into()),
+            canonical: Set(format!("/blog/{slug}").into()),
+            open_graph: OpenGraphPatch {
+                images: Set(Cow::Owned(images)),
                 ..Default::default()
-            })
+            },
+            ..Default::default()
         })
     }
 }
@@ -244,15 +242,13 @@ async fn client_payload_uses_generated_title_and_shares_loader() {
 
 struct FailingMetadata;
 impl Metadata for FailingMetadata {
-    fn generate_metadata<'a>(
-        &'a self,
-        _cx: MetadataContext<'a>,
-        _parent: &'a ResolvedMetadata,
-    ) -> MetadataOutcome<'a> {
-        MetadataOutcome::pending(async {
-            tokio::task::yield_now().await;
-            Err(proa_framework_core::MetadataError::InvalidBase)
-        })
+    async fn generate_metadata(
+        &self,
+        _cx: &dyn MetadataContext,
+        _parent: &ResolvedMetadata,
+    ) -> Result<MetadataPatch, MetadataError> {
+        tokio::task::yield_now().await;
+        Err(proa_framework_core::MetadataError::InvalidBase)
     }
 }
 

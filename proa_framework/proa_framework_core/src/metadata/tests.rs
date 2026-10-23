@@ -10,12 +10,8 @@ fn resolve(
     providers: &[MetadataRef],
     request: &RequestContext,
 ) -> Result<ResolvedMetadata, MetadataError> {
-    ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), providers).resolve_sync(
-        MetadataContext {
-            request,
-            loader: &NoLoader,
-        },
-    )
+    ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), providers)
+        .resolve_sync(request, &NoLoader)
 }
 
 struct Template;
@@ -36,11 +32,11 @@ impl Metadata for Template {
 
 struct RequestTitle;
 impl Metadata for RequestTitle {
-    fn metadata(&self, cx: &MetadataContext<'_>, parent: &ResolvedMetadata) -> MetadataPatch {
+    fn metadata(&self, cx: &dyn MetadataContext, parent: &ResolvedMetadata) -> MetadataPatch {
         assert_eq!(parent.description.as_deref(), Some("site description"));
         MetadataPatch {
             title: Set(cx.param("slug").unwrap().to_owned().into()),
-            description: Set(cx.request.user_agent().unwrap().to_owned().into()),
+            description: Set(cx.request().user_agent().unwrap().to_owned().into()),
             ..Default::default()
         }
     }
@@ -60,12 +56,7 @@ fn request_providers_are_not_called_at_startup_and_receive_fresh_inputs() {
         request
             .headers_mut()
             .insert("user-agent", http::HeaderValue::from_static("crawler"));
-        let resolved = plan
-            .resolve_sync(MetadataContext {
-                request: &request,
-                loader: &NoLoader,
-            })
-            .unwrap();
+        let resolved = plan.resolve_sync(&request, &NoLoader).unwrap();
         assert_eq!(
             resolved.title.as_deref(),
             Some(format!("{slug} | Site").as_str())
@@ -100,10 +91,7 @@ fn static_prefix_runs_once_and_borrows_literal_values() {
     assert!(plan.is_static());
     for _ in 0..2 {
         let result = plan
-            .resolve_sync(MetadataContext {
-                request: &RequestContext::new(),
-                loader: &NoLoader,
-            })
+            .resolve_sync(&RequestContext::new(), &NoLoader)
             .unwrap();
         assert!(matches!(result.title, Some(Cow::Borrowed("static"))));
     }
@@ -139,7 +127,7 @@ fn tombstones_remove_templates_and_prevent_fallback_resurrection() {
 
 struct Absolute;
 impl Metadata for Absolute {
-    fn metadata(&self, _: &MetadataContext<'_>, _: &ResolvedMetadata) -> MetadataPatch {
+    fn metadata(&self, _: &dyn MetadataContext, _: &ResolvedMetadata) -> MetadataPatch {
         MetadataPatch {
             title: Set("100% specific %s".into()),
             absolute_title: true,
@@ -172,7 +160,7 @@ impl Metadata for Lists {
 }
 struct ReplaceLists;
 impl Metadata for ReplaceLists {
-    fn metadata(&self, _: &MetadataContext<'_>, _: &ResolvedMetadata) -> MetadataPatch {
+    fn metadata(&self, _: &dyn MetadataContext, _: &ResolvedMetadata) -> MetadataPatch {
         MetadataPatch {
             open_graph: OpenGraphPatch {
                 images: Set(Cow::Borrowed(&MEDIA_2)),
@@ -221,12 +209,7 @@ fn url_resolution_uses_deployment_base_or_request_origin_and_mount_path() {
                 format!("https://{host}/blog/post").parse().unwrap(),
             ))
             .with_base_path(proa_core::BasePath::new("/app").unwrap());
-        let value = plan
-            .resolve_sync(MetadataContext {
-                request: &request,
-                loader: &NoLoader,
-            })
-            .unwrap();
+        let value = plan.resolve_sync(&request, &NoLoader).unwrap();
         assert_eq!(
             value.canonical.as_deref(),
             Some(format!("https://{host}/app/blog/post?q=one&lang=en").as_str())
@@ -248,21 +231,13 @@ fn url_resolution_uses_deployment_base_or_request_origin_and_mount_path() {
     request
         .extensions_mut()
         .insert(MetadataBase::new("https://preview.example/prefix").unwrap());
-    let value = plan
-        .resolve_sync(MetadataContext {
-            request: &request,
-            loader: &NoLoader,
-        })
-        .unwrap();
+    let value = plan.resolve_sync(&request, &NoLoader).unwrap();
     assert_eq!(
         value.open_graph.url.as_deref(),
         Some("https://preview.example/prefix/blog/post")
     );
     assert!(matches!(
-        plan.resolve_sync(MetadataContext {
-            request: &RequestContext::new(),
-            loader: &NoLoader
-        }),
+        plan.resolve_sync(&RequestContext::new(), &NoLoader),
         Err(MetadataError::MissingBase)
     ));
 }
@@ -349,12 +324,7 @@ fn precomputation_stops_at_the_first_request_provider() {
     request
         .headers_mut()
         .insert("user-agent", http::HeaderValue::from_static("crawler"));
-    let result = plan
-        .resolve_sync(MetadataContext {
-            request: &request,
-            loader: &NoLoader,
-        })
-        .unwrap();
+    let result = plan.resolve_sync(&request, &NoLoader).unwrap();
     assert_eq!(TAIL_CALLS.load(Ordering::SeqCst), 1);
     assert_eq!(result.title.as_deref(), Some("post | Site"));
     assert_eq!(result.description.as_deref(), Some("tail"));
@@ -366,42 +336,83 @@ fn legacy_stack_resolution_never_invokes_request_providers_with_missing_inputs()
     assert!(metadata.title.is_none());
 }
 
-struct LocalMetadata;
-impl Metadata for LocalMetadata {
-    fn generate_metadata<'a>(
-        &'a self,
-        _: MetadataContext<'a>,
-        _: &'a ResolvedMetadata,
-    ) -> MetadataOutcome<'a> {
+struct LocalGenerator;
+impl LocalMetadata for LocalGenerator {
+    async fn generate_metadata(
+        &self,
+        _: &dyn MetadataContext,
+        _: &ResolvedMetadata,
+    ) -> Result<MetadataPatch, MetadataError> {
         let title = std::rc::Rc::new("local title".to_owned());
-        MetadataOutcome::pending_local(async move {
-            tokio::task::yield_now().await;
-            Ok(MetadataPatch {
-                title: Set(title.as_str().to_owned().into()),
-                ..Default::default()
-            })
+        tokio::task::yield_now().await;
+        Ok(MetadataPatch {
+            title: Set(title.as_str().to_owned().into()),
+            ..Default::default()
         })
     }
 }
 
 #[tokio::test]
 async fn local_metadata_futures_preserve_render_capability_requirements() {
-    let plan = ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), &[&LocalMetadata]);
+    let plan = ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), &[&LOCAL_GENERATOR]);
     let request = RequestContext::new();
-    let cx = MetadataContext {
-        request: &request,
-        loader: &NoLoader,
-    };
     assert_eq!(
-        plan.resolve(cx).await.unwrap().title.as_deref(),
+        plan.resolve(&request, &NoLoader)
+            .await
+            .unwrap()
+            .title
+            .as_deref(),
         Some("local title")
     );
     assert!(matches!(
-        plan.resolve_sync(cx),
+        plan.resolve_sync(&request, &NoLoader),
         Err(MetadataError::AsyncInSyncResponse)
     ));
     assert!(matches!(
-        plan.resolve_send(cx).await,
+        plan.resolve_send(&request, &NoLoader).await,
         Err(MetadataError::LocalInSendResponse)
     ));
+}
+
+static LOCAL_GENERATOR: LocalMetadataProvider<LocalGenerator> = local_metadata(LocalGenerator);
+
+struct ImmediateGenerator;
+impl Metadata for ImmediateGenerator {
+    async fn generate_metadata(
+        &self,
+        cx: &dyn MetadataContext,
+        parent: &ResolvedMetadata,
+    ) -> Result<MetadataPatch, MetadataError> {
+        let title = cx
+            .request()
+            .user_agent()
+            .ok_or(MetadataError::InvalidBase)?;
+        assert_eq!(parent.description.as_deref(), Some("site description"));
+        Ok(MetadataPatch {
+            title: Set(title.to_owned().into()),
+            ..Default::default()
+        })
+    }
+}
+
+#[tokio::test]
+async fn native_async_generators_can_complete_immediately_and_propagate_errors() {
+    let plan = ComputedRouteMeta::cascade(
+        &ComputedRouteMeta::default(),
+        &[&Template, &ImmediateGenerator],
+    );
+    let mut request = RequestContext::new();
+    assert!(matches!(
+        plan.resolve_sync(&request, &NoLoader),
+        Err(MetadataError::InvalidBase)
+    ));
+    request
+        .headers_mut()
+        .insert("user-agent", http::HeaderValue::from_static("crawler"));
+    let synchronous = plan.resolve_sync(&request, &NoLoader).unwrap();
+    let local = plan.resolve(&request, &NoLoader).await.unwrap();
+    let send = plan.resolve_send(&request, &NoLoader).await.unwrap();
+    assert_eq!(synchronous.title.as_deref(), Some("crawler | Site"));
+    assert_eq!(local.title, synchronous.title);
+    assert_eq!(send.title, synchronous.title);
 }

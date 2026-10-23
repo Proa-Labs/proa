@@ -160,11 +160,11 @@ struct RequestDrivenMetadata;
 impl Metadata for RequestDrivenMetadata {
     fn metadata(
         &self,
-        cx: &super::MetadataContext<'_>,
+        cx: &dyn super::MetadataContext,
         _parent: &super::ResolvedMetadata,
     ) -> super::MetadataPatch {
         let slug = cx.param("slug").unwrap();
-        let variant = cx.request.headers()["x-preview"].to_str().unwrap();
+        let variant = cx.request().headers()["x-preview"].to_str().unwrap();
         let query = cx
             .search_params()
             .find(|(key, _)| key == "q")
@@ -182,15 +182,13 @@ impl Metadata for RequestDrivenMetadata {
 
 struct AsyncRequestDrivenMetadata;
 impl Metadata for AsyncRequestDrivenMetadata {
-    fn generate_metadata<'a>(
-        &'a self,
-        cx: super::MetadataContext<'a>,
-        parent: &'a super::ResolvedMetadata,
-    ) -> super::MetadataOutcome<'a> {
-        super::MetadataOutcome::pending(async move {
-            tokio::task::yield_now().await;
-            Ok(RequestDrivenMetadata.metadata(&cx, parent))
-        })
+    async fn generate_metadata(
+        &self,
+        cx: &dyn super::MetadataContext,
+        parent: &super::ResolvedMetadata,
+    ) -> Result<super::MetadataPatch, super::MetadataError> {
+        tokio::task::yield_now().await;
+        Ok(RequestDrivenMetadata.metadata(cx, parent))
     }
 }
 
@@ -299,6 +297,77 @@ async fn streamed_metadata_survives_endpoint_context_teardown_and_concurrent_req
         }
     };
     tokio::join!(fetch("first"), fetch("second"));
+}
+
+struct LocalRequestDrivenMetadata;
+impl super::LocalMetadata for LocalRequestDrivenMetadata {
+    async fn generate_metadata(
+        &self,
+        cx: &dyn super::MetadataContext,
+        parent: &super::ResolvedMetadata,
+    ) -> Result<super::MetadataPatch, super::MetadataError> {
+        let metadata = std::rc::Rc::new(RequestDrivenMetadata.metadata(cx, parent));
+        tokio::task::yield_now().await;
+        Ok(std::rc::Rc::try_unwrap(metadata).ok().unwrap())
+    }
+}
+
+static LOCAL_METADATA_LAYOUT: super::LocalMetadataProvider<LocalRequestDrivenMetadata> =
+    super::local_metadata(LocalRequestDrivenMetadata);
+
+#[tokio::test]
+async fn native_local_generators_work_as_layouts_and_fail_before_send_response_bytes() {
+    let (router, plans) = router_from_spec(vec![Route::layout(
+        "/blog",
+        &LOCAL_METADATA_LAYOUT,
+        vec![
+            Route::endpoint(
+                ":slug",
+                get(|| async { RouteResponse::ssr_stream(proa_core::to_async(MetadataPage)) }),
+            ),
+            Route::endpoint("send", get(|| async { RouteResponse::ssr_stream_send(()) })),
+        ],
+    )]);
+    let app = crate::FrameworkBuilder::new(IslandManifest {
+        islands: Default::default(),
+        assets: Default::default(),
+        import_map: Default::default(),
+        ssr_bundle: None,
+    })
+    .with_dynamic_routes_and_metadata(router, plans)
+    .with_metadata_base(super::MetadataBase::new("https://staging.example").unwrap())
+    .build();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/blog/local?q=local")
+                .header("x-preview", "draft")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert!(std::str::from_utf8(&bytes)
+        .unwrap()
+        .contains("<title>local draft</title>"));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/blog/send?q=local")
+                .header("x-preview", "draft")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(bytes.as_ref(), b"render error");
 }
 
 #[tokio::test]

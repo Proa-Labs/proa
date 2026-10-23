@@ -9,10 +9,11 @@ use proa_framework_core::{
     render_metadata_head as render_resolved_metadata_head,
 };
 pub use proa_framework_core::{
-    metadata_from_context, CascadeOpenGraph, CascadeValue, ComputedRouteMeta, Metadata,
-    MetadataBase, MetadataContext, MetadataError, MetadataOutcome, MetadataPatch, MetadataRef,
-    MetadataText, OpenGraph, OpenGraphImage, OpenGraphMedia, OpenGraphPatch, ResolvedMetadata,
-    ResolvedOpenGraphImage, ResolvedOpenGraphMedia, TitleOnly,
+    local_metadata, metadata_from_context, CascadeOpenGraph, CascadeValue, ComputedRouteMeta,
+    DynMetadata, LocalMetadata, LocalMetadataProvider, Metadata, MetadataBase, MetadataContext,
+    MetadataError, MetadataPatch, MetadataRef, MetadataText, OpenGraph, OpenGraphImage,
+    OpenGraphMedia, OpenGraphPatch, ResolvedMetadata, ResolvedOpenGraphImage,
+    ResolvedOpenGraphMedia, TitleOnly,
 };
 
 /// Resolves and returns the current metadata from the route context.
@@ -29,10 +30,7 @@ pub fn resolved_metadata() -> Option<ResolvedMetadata> {
                 .request
                 .extensions()
                 .get::<ComputedRouteMeta>()?
-                .resolve_sync(MetadataContext {
-                    request: &request.request,
-                    loader: &proa_core::NoLoader,
-                })
+                .resolve_sync(&request.request, &proa_core::NoLoader)
                 .ok()
         })
         .ok()

@@ -37,15 +37,16 @@ pub use proa_core::{AppUrl, BasePath, CspNonce, InvalidBasePath};
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
     app_url, css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
-    explicit_markdown_async_with_loader, metadata_from_context, negotiate,
+    explicit_markdown_async_with_loader, local_metadata, metadata_from_context, negotiate,
     negotiate_async_with_loader, render_css_link, render_metadata_head, render_metadata_head_send,
     resolved_metadata, router_from_spec, CascadeOpenGraph, CascadeValue, ComputedRouteMeta,
-    DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend, Layout, LayoutRef,
-    LocalStreamExecutorConfig, MarkdownAlternate, Metadata, MetadataBase, MetadataContext,
-    MetadataError, MetadataOutcome, MetadataPatch, MetadataRef, MetadataText, OpenGraph,
-    OpenGraphImage, OpenGraphMedia, OpenGraphPatch, PageCacheLayer, PageCacheService,
-    RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage, ResolvedOpenGraphMedia,
-    Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec, StaticPathsFn,
+    DynMetadata, DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend, Layout,
+    LayoutRef, LocalMetadata, LocalMetadataProvider, LocalStreamExecutorConfig, MarkdownAlternate,
+    Metadata, MetadataBase, MetadataContext, MetadataError, MetadataPatch, MetadataRef,
+    MetadataText, OpenGraph, OpenGraphImage, OpenGraphMedia, OpenGraphPatch, PageCacheLayer,
+    PageCacheService, RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage,
+    ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec,
+    StaticPathsFn,
 };
 pub use rsjs_assets::rsjs_assets_router;
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};

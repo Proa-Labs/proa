@@ -50,7 +50,7 @@ use proa_framework_axum::{
 struct SearchMetadata;
 
 impl Metadata for SearchMetadata {
-    fn metadata(&self, cx: &MetadataContext<'_>, _parent: &ResolvedMetadata) -> MetadataPatch {
+    fn metadata(&self, cx: &dyn MetadataContext, _parent: &ResolvedMetadata) -> MetadataPatch {
         let query = cx.search_params()
             .find(|(key, _)| key == "q")
             .map(|(_, value)| value.into_owned())
@@ -65,7 +65,7 @@ impl Metadata for SearchMetadata {
 ```
 
 `cx.param("slug")` reads a route param. `cx.search_params()` yields decoded
-query pairs, preserving duplicate keys. `cx.request` exposes headers, cookies,
+query pairs, preserving duplicate keys. `cx.request()` exposes headers, cookies,
 location and the configured base path.
 
 ## Generated metadata and shared data
@@ -75,7 +75,7 @@ Use `generate_metadata` when metadata needs to await data:
 ```rust
 use proa_core::LoadKey;
 use proa_framework_axum::{
-    CascadeValue, Metadata, MetadataContext, MetadataOutcome, MetadataPatch,
+    CascadeValue, Metadata, MetadataContext, MetadataError, MetadataPatch,
     ResolvedMetadata,
 };
 
@@ -88,20 +88,18 @@ struct Post {
 struct PostMetadata;
 
 impl Metadata for PostMetadata {
-    fn generate_metadata<'a>(
-        &'a self,
-        cx: MetadataContext<'a>,
-        _parent: &'a ResolvedMetadata,
-    ) -> MetadataOutcome<'a> {
-        MetadataOutcome::pending(async move {
-            let slug = cx.param("slug").unwrap_or_default();
-            let post: Post = cx.load_json(LoadKey::named("post", slug)).await?;
-            Ok(MetadataPatch {
-                title: CascadeValue::Set(post.title.into()),
-                description: CascadeValue::Set(post.description.into()),
-                canonical: CascadeValue::Set(format!("/blog/{slug}").into()),
-                ..Default::default()
-            })
+    async fn generate_metadata(
+        &self,
+        cx: &dyn MetadataContext,
+        _parent: &ResolvedMetadata,
+    ) -> Result<MetadataPatch, MetadataError> {
+        let slug = cx.param("slug").unwrap_or_default();
+        let post: Post = cx.load_json(LoadKey::named("post", slug)).await?;
+        Ok(MetadataPatch {
+            title: CascadeValue::Set(post.title.into()),
+            description: CascadeValue::Set(post.description.into()),
+            canonical: CascadeValue::Set(format!("/blog/{slug}").into()),
+            ..Default::default()
         })
     }
 }
@@ -115,10 +113,35 @@ loader instance. A fresh `proa_stream::DataResolver::new_typed` per response
 deduplicates metadata and page loads with the same key. `load_typed` shares an
 already-materialized `Arc<T>`; JSON and bytes are supported too.
 
-If the page is synchronous but metadata is asynchronous, lift the page with
-`proa_core::to_async(page)` and use an async response constructor. Synchronous
-responses reject pending metadata. `MetadataOutcome::pending_local` supports
-local futures on ordinary `WebRender` routes; Send responses require `pending`.
+If the page is synchronous but metadata needs to await data, lift the page
+with `proa_core::to_async(page)` and use an async response constructor. A
+synchronous response can resolve a generator that completes immediately; if
+it suspends, it returns `AsyncInSyncResponse`.
+
+Authors use a normal `async fn` and return `Result<MetadataPatch,
+MetadataError>`. There are no future wrappers, named lifetime parameters or
+async-trait macros in the provider implementation. The framework handles
+future erasure when storing heterogeneous route providers.
+
+## Local metadata futures
+
+Ordinary `Metadata` generators can serve both local and Send responses. If a
+generator retains non-Send state across an await, implement `LocalMetadata`
+and register it with `local_metadata`:
+
+```rust
+use proa_framework_axum::{local_metadata, LocalMetadataProvider};
+
+static LOCAL_POST_METADATA: LocalMetadataProvider<LocalPostMetadata> =
+    local_metadata(LocalPostMetadata);
+
+let route = Route::page_with_metadata("/blog/:slug", get(post), &LOCAL_POST_METADATA);
+```
+
+`LocalMetadata::generate_metadata` uses the same `async fn` signature. These
+providers work with local async responses; Send responses reject them before
+rendering with `LocalInSendResponse`. The registration adapter also works as
+a metadata layout for a group of routes.
 
 ## Deployment URLs
 
@@ -218,7 +241,8 @@ variation or a private/no-store response, just like request-dependent content.
    parent entries, explicitly extend the parent's list as shown above.
 4. `ComputedRouteMeta` is a resolution plan rather than a public struct
    literal. Construct it with `cascade`; call `resolve_sync`, `resolve` or
-   `resolve_send` with the real request. Dereferencing the plan and calling
+   `resolve_send` with the request and loader. Custom provider storage uses
+   `MetadataRef` or `DynMetadata`; application providers implement `Metadata`. Dereferencing the plan and calling
    `resolved_metadata_from_computed` expose only its precomputed static prefix.
 5. Inside components, use `metadata_from_context(cx)` to read the resolved
    result. The legacy no-argument `resolved_metadata()` accessor can only run

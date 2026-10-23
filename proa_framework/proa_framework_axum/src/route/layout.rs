@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use super::metadata::Metadata;
+use super::metadata::{DynMetadata, LocalMetadata, LocalMetadataProvider};
 
 pub type LayoutRef = &'static dyn Layout;
 
@@ -11,4 +11,6 @@ pub type LayoutRef = &'static dyn Layout;
 /// `RootDocument` component), where it works uniformly for sync, buffered
 /// async, and streaming routes. A route layout contributes only cascading
 /// metadata such as title templates and descriptions.
-pub trait Layout: Metadata + Send + Sync + 'static {}
+pub trait Layout: DynMetadata + Send + Sync + 'static {}
+
+impl<T: LocalMetadata> Layout for LocalMetadataProvider<T> {}
