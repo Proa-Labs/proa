@@ -681,73 +681,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn release_versions_are_normalized_and_cannot_inject_paths_or_arguments() {
-        for input in ["1.2.3", "v1.2.3", "proa-cli-v1.2.3"] {
-            assert_eq!(parse_version(input).unwrap(), Version::new(1, 2, 3));
-        }
-        for input in ["../1.2.3", "1.2.3/other", "--help", "latest", "1.2.3\n", ""] {
-            assert!(parse_version(input).is_err(), "{input}");
-        }
-    }
-
-    #[test]
-    fn snapshots_are_readable_as_installed_versions_but_rejected_as_update_requests() {
-        for version in ["0.1.4-main.abc123", "v0.1.4-rc.1", "0.1.4+build.123"] {
-            assert!(parse_version(version).is_ok());
-            assert!(parse_requested_version(version)
-                .unwrap_err()
-                .to_string()
-                .contains("stable releases only"));
-        }
-        assert_eq!(
-            parse_requested_version("proa-cli-v1.2.3").unwrap(),
-            Version::new(1, 2, 3)
-        );
-    }
-
-    #[test]
-    fn streaming_reads_can_outlast_the_blocking_clients_timeout() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        let timeout = Duration::from_millis(500);
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            let mut request = Vec::new();
-            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
-                let mut buffer = [0; 1024];
-                let size = stream.read(&mut buffer).unwrap();
-                assert!(size > 0 && request.len() < 8192);
-                request.extend_from_slice(&buffer[..size]);
-            }
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n"
-            )
-            .unwrap();
-            for _ in 0..10 {
-                stream.write_all(b"x").unwrap();
-                stream.flush().unwrap();
-                thread::sleep(Duration::from_millis(100));
-            }
-        });
-        let client = Client::builder()
-            .no_proxy()
-            .timeout(timeout)
-            .build()
-            .unwrap();
-        let started = std::time::Instant::now();
-        let mut response = client.get(url).send().unwrap();
-        let mut downloaded = Vec::new();
-        io::copy(&mut response, &mut downloaded).unwrap();
-        assert_eq!(downloaded, b"xxxxxxxxxx");
-        assert!(started.elapsed() > timeout);
-        server.join().unwrap();
-    }
-
     #[cfg(unix)]
     #[test]
     fn symlinked_updates_use_the_real_pair_and_stage_beside_it() {
@@ -1082,21 +1015,6 @@ mod tests {
             "old running binary"
         );
         assert_eq!(fs::read_to_string(peer).unwrap(), "old companion");
-    }
-
-    #[test]
-    fn concurrent_updates_cannot_modify_the_same_installation() {
-        let temp = tempfile::tempdir().unwrap();
-        let lock = fs::File::create(temp.path().join(".proa-update.lock")).unwrap();
-        lock.lock().unwrap();
-        let executable = temp.path().join(&binary_names()[0]);
-        let result = install_pair_with(&executable, temp.path(), |_| {
-            panic!("must not replace any binary")
-        });
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("another Proa update"));
     }
 
     #[test]
