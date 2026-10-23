@@ -77,7 +77,10 @@ pub trait Metadata: Send + Sync + 'static {
     /// description, image, and image alt still fall back to Open Graph and then
     /// to the page title and description when those Twitter fields stay empty.
     /// Tombstoning a field clears that field without dropping the rest of the
-    /// card, including Open Graph fallbacks. [`TwitterCard::SummaryLargeImage`]
+    /// card, including Open Graph fallbacks. Setting or tombstoning `image`
+    /// without restating `image_alt` drops the inherited alt, because alt text
+    /// describes one image. An Open Graph alt is used only alongside the Open
+    /// Graph image. [`TwitterCard::SummaryLargeImage`]
     /// is written as [`TwitterCard::Summary`] when the resolved page has no
     /// Twitter or Open Graph image.
     fn twitter(&self) -> CascadeTwitter {
@@ -342,8 +345,15 @@ fn apply_twitter_cascade(dst: &mut ResolvedTwitter, spec: CascadeTwitter) {
     dst.creator = spec.creator.resolve(dst.creator);
     dst.title = spec.title.resolve(dst.title);
     dst.description = spec.description.resolve(dst.description);
+    // Alt text describes one image. A provider that replaces or clears the
+    // image without restating the alt drops the inherited alt instead of
+    // attaching it to a different image.
+    let image_changed = !matches!(spec.image, CascadeValue::Unset);
     dst.image = spec.image.resolve(dst.image);
-    dst.image_alt = spec.image_alt.resolve(dst.image_alt);
+    dst.image_alt = match spec.image_alt {
+        CascadeValue::Unset if image_changed => None,
+        image_alt => image_alt.resolve(dst.image_alt),
+    };
 }
 
 /// Cascade specification for Open Graph metadata.
@@ -775,9 +785,16 @@ fn render_twitter_tags(cx: &mut Ctx, metadata: &ResolvedMetadata) {
     }
 
     let og = &metadata.open_graph;
-    let image = twitter
-        .image
-        .or_else(|| og.images.first().map(|image| image.url.as_str()));
+    // An Open Graph alt only describes the Open Graph image, so it is used
+    // only when that image is the one written to `twitter:image`.
+    let (image, image_alt) = match (twitter.image, og.images.first()) {
+        (Some(image), _) => (Some(image), twitter.image_alt),
+        (None, Some(og_image)) => (
+            Some(og_image.url.as_str()),
+            twitter.image_alt.or(og_image.alt),
+        ),
+        (None, None) => (None, None),
+    };
     let card = if image.is_some() {
         twitter.card.unwrap_or(TwitterCard::SummaryLargeImage)
     } else {
@@ -810,10 +827,7 @@ fn render_twitter_tags(cx: &mut Ctx, metadata: &ResolvedMetadata) {
 
     if let Some(image) = image {
         render_named_meta(cx, "twitter:image", image);
-        if let Some(alt) = twitter
-            .image_alt
-            .or_else(|| og.images.first().and_then(|image| image.alt))
-        {
+        if let Some(alt) = image_alt {
             render_named_meta(cx, "twitter:image:alt", alt);
         }
     }
@@ -965,7 +979,10 @@ mod tests {
         assert!(html.contains("name=\"twitter:title\" content=\"Pricing | Site\""));
         assert!(html.contains("name=\"twitter:description\" content=\"site-desc\""));
         assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/twitter.png\""));
-        assert!(html.contains("name=\"twitter:image:alt\" content=\"OG preview\""));
+        assert!(
+            !html.contains("name=\"twitter:image:alt\""),
+            "the Open Graph alt describes a different image: {html}"
+        );
     }
 
     #[test]
@@ -1169,5 +1186,70 @@ mod tests {
         assert!(html.contains("name=\"twitter:description\" content=\"page-desc\""));
         assert!(!html.contains("twitter:image"));
         assert!(!html.contains("https://example.com/twitter.png"));
+    }
+
+    fn render_providers(providers: &[MetadataRef]) -> String {
+        let computed = ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), providers);
+        let resolved = resolved_metadata_from_computed(&computed);
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &resolved);
+        cx.into_output().into_string()
+    }
+
+    struct PageTwitterImage;
+
+    impl Metadata for PageTwitterImage {
+        fn twitter(&self) -> CascadeTwitter {
+            CascadeTwitter {
+                image: CascadeValue::Set("https://example.com/page.png"),
+                ..Default::default()
+            }
+        }
+    }
+
+    #[test]
+    fn replacing_twitter_image_drops_inherited_alt() {
+        let html = render_providers(&[&LayoutTwitterWithoutOpenGraph, &PageTwitterImage]);
+        assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/page.png\""));
+        assert!(
+            !html.contains("Twitter preview"),
+            "the layout alt describes the layout image: {html}"
+        );
+    }
+
+    #[test]
+    fn replacing_twitter_image_keeps_alt_set_by_the_same_provider() {
+        struct PageImageWithAlt;
+
+        impl Metadata for PageImageWithAlt {
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    image: CascadeValue::Set("https://example.com/page.png"),
+                    image_alt: CascadeValue::Set("Page preview"),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let html = render_providers(&[&LayoutTwitterWithoutOpenGraph, &PageImageWithAlt]);
+        assert!(html.contains("name=\"twitter:image:alt\" content=\"Page preview\""));
+    }
+
+    #[test]
+    fn twitter_alt_without_twitter_image_describes_open_graph_image() {
+        struct AltOnly;
+
+        impl Metadata for AltOnly {
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    image_alt: CascadeValue::Set("Twitter copy of the OG alt"),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let html = render_providers(&[&LayoutTwitterImageOnly, &TombstoneTwitterImage, &AltOnly]);
+        assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/og.png\""));
+        assert!(html.contains("name=\"twitter:image:alt\" content=\"Twitter copy of the OG alt\""));
     }
 }
