@@ -1,72 +1,35 @@
 ---
 title: Metadata and OG images
-description: Declare metadata, then render its head tags immediately with WebContext.
+description: Set page metadata from WebContext and render it in your document head.
 ---
 
-Declare titles, descriptions, canonical URLs, and social preview images with `cx.metadata(...)?`. Render their tags inside `<head>` with `{cx.metadata.head()}`.
+Use `Metadata` from `proa_core` to declare page metadata. Render its tags once with `{cx.metadata.head()}`.
 
-**Declare first, emit once.** Rendering `cx.metadata.head()` writes the current metadata immediately and closes further declarations. The same rule applies to synchronous, buffered async, and streaming responses.
+## Static metadata
 
-## Set page metadata
-
-Call `cx.metadata(...)?` in the page or component's render method before the managed head is rendered:
+In a render method:
 
 ```rust
 cx.metadata(
     Metadata::new()
         .title("Pricing")
-        .description("Plans and deployment options for Proa."),
+        .description("Plans and deployment options."),
 )?;
 ```
 
-`Metadata::new()` starts an empty contribution. Setting one field does not reset the others.
-
-There is no separate metadata provider to implement and no `generate_metadata` function to register. In an async component, await the data, declare metadata, and then render the document head. A component first rendered afterward in the body cannot update the head, even in a buffered response.
-
-Use the same request APIs as the rest of your render: `cx.param("slug")`, `cx.request().headers()`, and `cx.request().location().and_then(|location| location.query())`. No separate context or lifetime parameters are needed to declare metadata. Resolve application data through the normal `cx.load_*` methods before emitting the head.
-
-## End-to-end: prepare a product page, then render its document
-
-The page owns preparation. The reusable document wrapper owns HTML structure and assets. A body component receives the already loaded product:
-
-```text
-Registered site layout → registered catalog layout
-  → ProductPage loads product
-    → PreparedProductPage declares metadata
-      → RootDocument emits the head
-        → ProductBody renders the same product
+```html
+<title>Pricing</title>
+<meta name="description" content="Plans and deployment options."/>
 ```
 
-The three blocks below belong to `src/product.rs`. They compile together in the framework's documentation integration test, including both registered layouts and the shared document wrapper.
+## Dynamic metadata
 
-### 1. Prepare the page and invoke its wrapper
+Await data before rendering the document. Pass the loaded value to the body:
 
 ```rust
-use std::{future::Future, sync::Arc};
-use proa_core::{DataLoader, Metadata, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+let product = cx.load_typed::<Product>(product_key(&self.id)).await?;
 
-pub struct ProductPage { pub id: String }
-
-impl<L: DataLoader> WebRender<L> for ProductPage {
-    fn render(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
-        RenderOutcome::pending(async move {
-            let product = cx.load_typed::<Product>(product_key(&self.id)).await?;
-            PreparedProductPage { product }.render(cx)
-        })
-    }
-}
-
-// This is the page's preparation step. The document wrapper applies no defaults.
-struct PreparedProductPage { product: Arc<Product> }
-impl<L: DataLoader> WebRenderSync<L> for PreparedProductPage {
-    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        cx.metadata(product_metadata(&self.product))?;
-        RootDocument { content: ProductBody { product: self.product } }.render(cx)
-    }
-}
-
-fn product_metadata(product: &Product) -> Metadata {
+cx.metadata(
     Metadata::new()
         .title(product.name.clone())
         .description(product.summary.clone())
@@ -74,229 +37,25 @@ fn product_metadata(product: &Product) -> Metadata {
         .open_graph(|og| {
             og.ty("website");
             og.images([product.social_image.clone()]);
-        })
-}
-
-struct RootDocument<C> { content: C }
-impl<L: DataLoader, C: WebRenderSync<L>> WebRenderSync<L> for RootDocument<C> {
-    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        WebRenderSync::render(html_sync! {
-            <!DOCTYPE html>
-            <html lang="en">
-                <head>
-                    <meta charset="utf-8" />
-                    <meta name="viewport" content="width=device-width, initial-scale=1" />
-                    {cx.metadata.head()}
-                </head>
-                <body>{self.content}</body>
-            </html>
-        }, cx)
-    }
-}
-
-struct ProductBody { product: Arc<Product> }
-impl<L: DataLoader> WebRenderSync<L> for ProductBody {
-    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        WebRenderSync::render(html_sync! {
-            <main data-product>
-                <h1>{self.product.name.as_str()}</h1>
-                <p>{self.product.summary.as_str()}</p>
-            </main>
-        }, cx)
-    }
-}
-```
-
-`RootDocument` contains no metadata defaults. That prevents it from overwriting page values in the same scope. Keep fonts, stylesheet links, module scripts, and other document assets alongside the managed emitter in this wrapper. The wrapper itself is an ordinary application component; it is optional when a page writes its document inline.
-
-### 2. Supply materialized Rust data
-
-```rust
-use proa_core::{LoadError, LoadKey, LoadRequest, LoadValue};
-
-struct Product {
-    name: String,
-    summary: String,
-    canonical_url: String,
-    social_image: String,
-}
-fn product_key(id: &str) -> LoadKey { LoadKey::named("product", id) }
-
-pub struct CatalogLoader;
-impl DataLoader for CatalogLoader {
-    fn load(&self, request: &LoadRequest) -> impl Future<Output = Result<LoadValue, LoadError>> + Send {
-        let key = request.key().to_string();
-        async move {
-            if key != "product:atlas-jacket" {
-                return Err(LoadError::custom(format!("No fixture for load key: {key}")));
-            }
-            Ok(LoadValue::typed(Product {
-                name: "Atlas Jacket".into(),
-                summary: "A lightweight, waterproof jacket.".into(),
-                canonical_url: "https://example.com/products/atlas-jacket".into(),
-                social_image: "https://example.com/og/atlas-jacket.png".into(),
-            }))
-        }
-    }
-}
-```
-
-The fixture returns a typed Rust product, as a database-backed loader can. `cx.load_typed` returns its shared value without a JSON round trip. For an API returning JSON bytes, use `LoadValue::bytes(...)` and `cx.load_json::<Product>(...)` with a deserializable product instead. Both approaches use the normal request-scoped loader.
-
-### 3. Register layout defaults and the request-scoped loader
-
-```rust
-use axum::{extract::{Path, State}, response::IntoResponse, routing::get, Router};
-use proa_core::DynLoaderHandle;
-use proa_framework_axum::{router_from_spec, FrameworkBuilder, IslandManifest, Layout, Route, RouteResponse};
-use proa_stream::DataResolver;
-
-struct SiteLayout;
-impl Layout for SiteLayout {
-    fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
-        cx.metadata(Metadata::new().title("Acme").title_template("%s · Acme").open_graph(|og| { og.site_name("Acme"); }))?;
-        Ok(())
-    }
-}
-struct CatalogLayout;
-impl Layout for CatalogLayout {
-    fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
-        cx.metadata(Metadata::new().title("Catalog").title_template("%s · Acme Store").description("Acme catalog."))?;
-        Ok(())
-    }
-}
-async fn product_handler(Path(id): Path<String>, State(origin): State<Arc<CatalogLoader>>) -> impl IntoResponse {
-    let loader = DataResolver::request_scope(origin);
-    RouteResponse::ssr_async_with_loader(ProductPage { id }, loader)
-}
-
-pub fn app(manifest: IslandManifest, origin: Arc<CatalogLoader>) -> Router {
-    let (router, setups) = router_from_spec(vec![Route::layout("/", &SiteLayout, vec![
-        Route::layout("products", &CatalogLayout, vec![
-            Route::endpoint(":id", get(product_handler)),
-        ]),
-    ])]);
-    FrameworkBuilder::new(manifest)
-        .with_dynamic_routes_and_setups(router.with_state(origin), setups)
-        .build()
-}
-```
-
-In your application's startup, use `product::app(manifest, Arc::new(product::CatalogLoader))`, retaining your normal server startup and manifest construction. This example uses `axum`, `proa_core`, `proa_framework_axum`, `proa_macros`, and `proa_stream`.
-
-Each registered layout's synchronous `setup` runs in outer-to-inner order on the live context before the page. Its loader is the same request-scoped loader, erased at this heterogeneous layout boundary. Await I/O in normal page preparation. Returning a render error from layout setup stops rendering; setup does not provide an HTTP redirect result. Choose redirects, authorization, status, and cache policy in the handler before returning a streaming response.
-
-A plain Axum route returning `RouteResponse` can declare page metadata and use this wrapper too. Without route-spec registration, it has no registered layout defaults. Send responses additionally require each layout's `setup_send` callback with `SendWebContext<DynLoaderHandle>`.
-
-The product is loaded once. Metadata and `ProductBody` share that record. The inner template wins once, and the outer OG site name survives:
-
-```html
-<title>Atlas Jacket · Acme Store</title>
-<meta name="description" content="A lightweight, waterproof jacket.">
-<link rel="canonical" href="https://example.com/products/atlas-jacket">
-<meta property="og:title" content="Atlas Jacket · Acme Store">
-<meta property="og:description" content="A lightweight, waterproof jacket.">
-<meta property="og:url" content="https://example.com/products/atlas-jacket">
-<meta property="og:site_name" content="Acme">
-<meta property="og:type" content="website">
-<meta property="og:image" content="https://example.com/og/atlas-jacket.png">
-```
-
-Values are shown without guaranteeing tag order. [Data loading](/docs/framework/data-loading), [route responses](/docs/framework/responses), and [configuration](/docs/framework/configuration) describe the surrounding APIs.
-
-### Streaming status decisions happen earlier
-
-The buffered example can load inside `ProductPage`. For streaming, any lookup that decides whether the response is authorized, found, redirected, or cacheable belongs in the handler before it returns a response. Metadata's declaration deadline and HTTP status/header commitment are separate.
-
-This alternative handler uses the same prepared page and request resolver. Its missing-product check is deliberately fixture-specific; a real loader should expose a typed not-found result and authorization policy.
-
-```rust
-pub async fn product_stream_handler(
-    Path(id): Path<String>,
-    State(origin): State<Arc<CatalogLoader>>,
-) -> Result<impl IntoResponse, axum::http::StatusCode> {
-    use axum::http::StatusCode;
-    if id != "atlas-jacket" { return Err(StatusCode::NOT_FOUND); }
-    let loader = DataResolver::request_scope(origin);
-    let product = loader.load_key(&product_key(&id)).await
-        .and_then(LoadValue::downcast::<Product>)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(RouteResponse::ssr_stream_with_loader(
-        proa_core::to_async(PreparedProductPage { product }), loader,
-    ))
-}
-```
-
-Slow reviews or recommendations can stay in body Suspense boundaries. They should not delay the head or decide the response's authorization/status after streaming has started. Do not copy private query parameters, signed tokens, or tracking URLs into canonical metadata; construct a public URL from trusted application configuration.
-
-## Set layout defaults
-
-In a registered route layout's request-time setup, declare defaults with the same API:
-
-```rust
-cx.metadata(
-    Metadata::new()
-        .title("Acme")
-        .title_template("%s · Acme")
-        .description("Thoughtfully designed everyday essentials.")
-        .open_graph(|og| {
-            og.site_name("Acme");
-            og.image("https://example.com/og/default.png");
         }),
 )?;
+
+RootDocument { content: ProductBody { product } }.render(cx)
 ```
 
-Matched layouts run from outermost to innermost before the page renders. More specific scopes override fields supplied by outer scopes:
+Read params, headers, and query strings through the usual `cx.param(...)` and `cx.request()` APIs. Use `load_json` for JSON-backed data or `load_typed` for Rust values; see [Data loading](/docs/framework/data-loading).
 
-```text
-Outer layout -> nested layout -> page
-```
+## Render the head
 
-For a page that declares the product metadata above, the product title, description, type, and image replace those defaults. `og.site_name` remains `Acme` because the page did not change it.
-
-A normal wrapper component does not create a new metadata scope. Registered route layouts establish inheritance; ordinary components contribute to their current scope. Calling a struct `RootDocument` or `AppLayout` does not change that rule.
-
-A registered layout implements `Layout::setup`. Setup is synchronous and runs once per matched layout before the page. It receives the live `WebContext` with a type-erased loader; the page keeps its own concrete loader type.
+Put the emitter inside your document's `<head>`, before rendering the body:
 
 ```rust
-use proa_core::{DynLoaderHandle, WebContext, WriteError};
-use proa_framework_axum::{Layout, Metadata};
-
-pub struct SiteLayout;
-
-impl Layout for SiteLayout {
-    fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
-        cx.metadata(
-            Metadata::new()
-                .title("Acme")
-                .title_template("%s · Acme")
-                .description("Thoughtfully designed everyday essentials."),
-        )?;
-        Ok(())
-    }
-}
-```
-
-Register it with `Route::layout(path, &SiteLayout, children)`. For compiler-proved Send responses, also implement `setup_send` with `&mut SendWebContext<DynLoaderHandle>`; the same declaration body works there. An unimplemented Send setup returns a render error. Await database/API work in the page's normal async preparation before emitting the head.
-
-## Render the head tags
-
-Declare metadata, then place `{cx.metadata.head()}` once inside your document's `<head>`:
-
-```rust
-cx.metadata(
-    Metadata::new()
-        .title("Pricing")
-        .description("Plans and deployment options for Proa."),
-)?;
-
 html_sync! {
     <!DOCTYPE html>
     <html lang="en">
         <head>
             <meta charset="utf-8" />
-            <meta name="viewport"
-                  content="width=device-width, initial-scale=1" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
             {cx.metadata.head()}
         </head>
         <body>{self.content}</body>
@@ -305,198 +64,140 @@ html_sync! {
 .render(cx)
 ```
 
-`head()` returns a renderable value, not an HTML string. Rendering it writes the currently declared tags into the active output writer at that exact position. Merely obtaining the value does not take a snapshot or close metadata.
+`RootDocument` is an optional application wrapper for this shell, fonts, and assets. Declare page metadata **before** calling it; a body component is too late. The wrapper should emit metadata without applying competing defaults.
 
-Keep charset, viewport, stylesheets, and other manually authored head elements alongside it. The emitter adds only the managed tags, not the `<head>` wrapper. Proa does not insert it automatically or scan the HTML to find a head.
+## Reference
 
-**Buffered and streaming responses behave identically here.** A buffer may delay network delivery, but it does not delay metadata emission or allow later updates. There is no deferred placeholder, later insertion, or second render pass.
+### `cx.metadata(value)`
 
-`cx.metadata(...)` returns `Result<(), MetadataError>`; propagate it with `?`. Late or ineligible declarations fail without changing the current values. Head rendering returns a normal render error for duplicate or ineligible emission; even an empty first emission closes metadata. The public `metadata` field is a stateless façade: replacing it cannot reset private context state.
+Returns `Result<(), MetadataError>`. Pass a `Metadata::new()` builder; omitted fields inherit. Static literals stay borrowed; dynamic strings must be owned.
 
-Validation is atomic: invalid URL policy or an invalid title template rejects the entire declaration. Errors and diagnostics name the rejected operation/field without logging metadata values. Propagating an error after bytes have streamed may terminate the body; it cannot repair an already sent status or head. Catching an error explicitly leaves prior declarations intact. Strict tests can inspect `cx.metadata_rejections()` and `cx.metadata_is_closed()`.
+| Method | Sets |
+| --- | --- |
+| `.title(text)` | Document title |
+| `.absolute_title(text)` | Title that bypasses inherited templates |
+| `.title_template("%s · Acme")` | Template for more specific route scopes |
+| `.description(text)` | Description meta tag |
+| `.canonical(url)` | Canonical link |
+| `.open_graph(\|og\| { ... })` | Open Graph fields and images |
+| `.clear_title()`, `.clear_description()`, `.clear_canonical()`, `.clear_title_template()` | Remove the corresponding inherited value |
 
-## Inheritance and repeated calls
+### `cx.metadata.head()`
 
-Only fields present in a declaration are changed. Nested fields merge individually: changing an Open Graph title does not remove an inherited site name or image.
+Returns a render command. Rendering it writes the current tags immediately and closes declarations, even when empty. Obtaining the command alone takes no snapshot. It works in sync, async, and Send render trees.
 
-Before head emission, later sequential assignments in the same scope win:
+Manual head tags remain ordinary HTML. Use one mechanism per field to avoid duplicates.
+
+### Layout defaults
+
+Registered layouts declare defaults in `Layout::setup`:
 
 ```rust
-cx.metadata(
-    Metadata::new()
-        .title("Search")
-        .description("Search the Acme catalog."),
-)?;
-
-if self.results.is_empty() {
-    cx.metadata(Metadata::new().title("No results"))?;
+impl Layout for SiteLayout {
+    fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
+        cx.metadata(
+            Metadata::new()
+                .title("Acme")
+                .title_template("%s · Acme")
+                .open_graph(|og| { og.site_name("Acme"); }),
+        )?;
+        Ok(())
+    }
 }
 ```
 
-The second call changes the title and preserves the description.
+Register with `Route::layout(path, &SiteLayout, children)`. Setup runs synchronously, outermost to innermost, before the page. Send responses also require `setup_send(&mut SendWebContext<DynLoaderHandle>)`. See [Routes and layouts](/docs/framework/routing).
 
-Ordinary page components share the page scope. If two eligible components set the title before head emission, the later sequential declaration wins. Component nesting does not grant extra priority. Put site and section defaults in registered layouts; prepare page-specific metadata before rendering the document head. No declaration overrides an already emitted head.
+### Title templates
 
-## Title templates
-
-A layout can provide a default title and a template for more specific scopes:
-
-```rust
-cx.metadata(
-    Metadata::new()
-        .title("Acme")
-        .title_template("%s · Acme"),
-)?;
-```
-
-A page declares its own title:
+With the layout above:
 
 ```rust
 cx.metadata(Metadata::new().title("Pricing"))?;
+// <title>Pricing · Acme</title>
+
+cx.metadata(Metadata::new().absolute_title("System status"))?;
+// <title>System status</title>
 ```
 
-The result is:
+Only the nearest ancestor template applies, once. A template does not format its own scope's default title. It must contain exactly one `%s`; `clear_title_template()` stops inheritance for more specific scopes.
 
-```html
-<title>Pricing · Acme</title>
-```
-
-Templates must contain exactly one `%s`; missing or multiple placeholders return `MetadataError::InvalidTitleTemplate` at declaration. All other text is literal. The template does not format the declaring layout's own default title. Nested layouts can replace the template; only the nearest ancestor template is applied, once.
-
-Use an absolute title to bypass inherited templates:
+### Canonical URLs
 
 ```rust
-cx.metadata(Metadata::new().absolute_title("Acme Status"))?;
+cx.metadata(Metadata::new().canonical("https://example.com/pricing"))?;
 ```
 
-Use `clear_title_template()` in a layout to stop inheriting an outer layout's template for more specific titles.
+Supply absolute HTTP(S) URLs from trusted deployment configuration. Relative URLs, credentials, whitespace, controls, backslashes, missing hosts, and invalid ports are rejected. Proa does not infer a public origin from request headers.
 
-## Canonical URLs and Open Graph
-
-Provide absolute HTTP(S) URLs with a nonempty ASCII host (or bracketed IPv6 address). Metadata rejects credentials, whitespace, control characters, backslashes, and malformed ports. It performs no URL fetching or implicit origin resolution.
-
-Calling `.open_graph(...)` enables the social family, including an empty declaration. At emission, unspecified social fields fall back to the **final** document values: `og:title` uses the formatted document title, `og:description` the document description, and `og:url` the canonical URL. Explicit OG values win; explicit clears suppress fallback and remain absent in later scopes until explicitly set again. No OG tags are generated when the family was never enabled.
-
-```rust
-cx.metadata(
-    Metadata::new()
-        .title("Pricing")
-        .description("Plans and deployment options for Proa.")
-        .canonical("https://proa.so/pricing")
-        .open_graph(|og| {
-            og.ty("website");
-            og.title("Proa pricing");
-            og.images([
-                OpenGraphImage::new(
-                    "https://proa.so/static/og/pricing.png",
-                )
-                .with_dimensions(1200, 630)
-                .with_alt("Proa pricing"),
-            ]);
-        }),
-)?;
-```
-
-Here only the social title is overridden; description and URL use the final document values. This references an image; it does not generate the image itself.
-
-Use `.images([...])` to explicitly replace the ordered image list:
+### Open Graph
 
 ```rust
 cx.metadata(Metadata::new().open_graph(|og| {
-    og.images(["https://example.com/og/atlas-front.png", "https://example.com/og/atlas-back.png"]);
+    og.site_name("Acme");
+    og.ty("website");
+    og.images([
+        OpenGraphImage::new("https://example.com/og/pricing.png")
+            .with_dimensions(1200, 630)
+            .with_alt("Acme pricing"),
+    ]);
 }))?;
 ```
 
-`.image(...)` is a convenience that appends within one declaration. Splitting those calls across declarations replaces the earlier list; it does not append. Prefer `.images([...])` when composing helpers. A supplied image list replaces the inherited list. It also replaces any list supplied by an earlier call in the same scope. Images are not automatically appended across declarations. Omitting the image field leaves the existing list unchanged.
+Calling `.open_graph(...)` enables social tags. Omitted fields use the final document values at emission:
 
-## Clear inherited metadata
+| Open Graph field | Default |
+| --- | --- |
+| `og:title` | Formatted document title |
+| `og:description` | Document description |
+| `og:url` | Canonical URL |
 
-Use an explicit clear operation to remove a managed field:
+Set an override with `og.title(...)`, `og.description(...)`, or `og.url(...)`. Their `clear_*()` counterparts suppress fallback. Other setters are `site_name`, `determiner`, `ty`, and `locale`; `clear_type()` clears `ty`.
 
-```rust
-cx.metadata(
-    Metadata::new()
-        .clear_description()
-        .open_graph(|og| {
-            og.clear_images();
-        }),
-)?;
-```
+`.images([...])` replaces the complete previous list. `.image(...)` appends **within one declaration**; separate declarations still replace. Images support `with_dimensions`, `with_alt`, `with_secure_url`, and `with_mime_type`. Use `og.clear_images()` to remove inherited images. Image URLs follow the same policy as canonical URLs; they are emitted, not fetched or generated.
 
-Omitting a field means inherit. Clearing means do not emit that managed field. Before head emission, a later declaration in the same scope, or one in a more specific scope, can set it again.
+## Behavior
 
-Clearing affects only metadata managed by this API. It cannot remove a tag written directly in `html! {}`.
+### Inheritance
 
-## Write manual head tags
-
-You can keep writing `<title>`, `<meta>`, and `<link>` directly in `html! {}` or `html_sync! {}`. They remain ordinary HTML.
-
-Proa does not reconcile them with `cx.metadata(...)?`. For example, writing a manual description and declaring another description through `cx.metadata(...)?` emits both. Neither mechanism has framework-defined priority over the other.
-
-**Use one mechanism per metadata field.** Mixing manual charset and viewport tags with a managed title and description is fine. For a field not covered by the builder, write its tag manually.
-
-There is no metadata-specific compiler rewrite, whole-document scan, or duplicate check across these two authoring styles.
-
-## Async and streaming pages
-
-The declaration deadline is the same in every mode: finish metadata-dependent preparation and call `cx.metadata(...)?` before rendering `cx.metadata.head()`.
-
-```text
-Await page data -> declare metadata -> render head -> render body
-```
-
-Ordinary awaits before the head are allowed. Parallel data fetching is also fine: await the results in the owning page's render context, then declare metadata there. Waiting for data needed in the head necessarily delays those head bytes.
-
-Use the prepared streaming handler above when data can affect response decisions. Await only the data the document needs before its head; keep unrelated slow sections in the body. An ordinary await does not defer metadata emission or make later declarations valid.
-
-Suspense children and transient fallbacks cannot declare or emit document metadata in any HTML response mode, including buffered rendering. Other independently deferred render contexts have the same restriction. A later reviews or recommendations section must not supply the product's page metadata, even if it happens to finish quickly. Completion timing does not change that restriction.
-
-### Metadata discovered in a body component is too late
-
-Move the data lookup or metadata-building call into the owning page's preparation before the head. Share a normal Rust helper when a component and page use the same metadata values. Passing loaded data into the body component avoids loading it again just for display.
-
-Switching to buffered rendering does **not** fix a late declaration. Once the head has rendered, later calls return an error without changing its tags. Proa does not rewrite the buffer, wait for the remaining shell, or send a browser-side head patch.
-
-HTML metadata and HTTP response headers have different deadlines. Continue setting streaming HTTP status and headers in the handler before returning the response. An early `cx.metadata(...)?` call or head emission does not reopen those headers.
-
-## Reuse metadata
-
-Return a `Metadata` value from an ordinary Rust helper:
+Registered route scopes resolve in order: **outer layout → nested layout → page**. Ordinary wrappers share their caller's scope. Later declarations replace only the supplied fields:
 
 ```rust
-fn product_metadata(product: &Product) -> Metadata {
-    Metadata::new()
-        .title(product.name.clone())
-        .description(product.summary.clone())
-        .open_graph(|og| {
-            og.image(product.social_image.clone());
-        })
-}
+cx.metadata(Metadata::new().title("Search").description("Search the catalog."))?;
+cx.metadata(Metadata::new().title("No results"))?;
+// Title: No results. Description: Search the catalog.
 
-// In the page, before rendering cx.metadata.head():
-cx.metadata(product_metadata(&self.product))?;
+cx.metadata(Metadata::new().clear_description())?;
+// Description is now absent.
 ```
 
-The helper does not create a new scope or change precedence. It just constructs the value passed to `cx.metadata(...)?`.
+Open Graph fields merge individually; image lists replace as a unit. Clears affect managed fields only. Client-navigation payloads use the resolved title; a cleared title stays absent.
 
-## Practical boundaries
+### Timing and errors
 
-Metadata is part of the rendered document. Cache it with the response and use cache keys appropriate for any tenant, locale, or user-specific values. A cached HTML fragment does not rerun its metadata calls; declare those values outside a byte-only fragment cache.
+**Load → declare → emit head → render body.** This order is the same for buffered and streaming responses. Suspense children, fallbacks, and detached fragments cannot contribute document metadata.
 
-A failed buffered full-document render discards its output and metadata. Catching an inline component error and continuing in the same context does not undo earlier metadata calls or reopen an emitted head. Complete fallible preparation before declaring metadata, or render a replacement error document with fresh state when the response can still be replaced. Already streamed bytes cannot be retracted.
+| `MetadataError` | Cause |
+| --- | --- |
+| `Closed` | Declaration after head emission |
+| `DuplicateHead` | Rendering the managed head again |
+| `Ineligible` | Declaration or emission from a deferred/fragment context |
+| `InvalidTitleTemplate` | Missing or multiple `%s` placeholders |
+| `InvalidUrl { field }` | A URL violates the HTTP(S) policy |
 
-This API generates HTML head tags. It does not automatically add metadata to Markdown responses, update a document from a standalone fragment, or implement browser-side navigation patches.
+Propagate declarations with `?`; head errors propagate through `WriteError::Metadata`. Invalid patches apply no fields. Failed emissions stay closed, and catching a later error does not roll back earlier declarations.
 
-Client navigation payloads run the same layout setup and page declarations. The head handle writes nothing there; the payload's `title` field carries the resolved title, with the inherited title template applied.
+For streaming routes, decide status, authorization, redirects, and cache policy in the handler **before returning the response**. Metadata cannot reopen committed HTTP headers. Keep unrelated slow data in the body. See [Route responses](/docs/framework/responses).
 
-## Migrate existing metadata
+Cached byte fragments do not replay metadata calls. Cache the complete response with keys that cover any personalized metadata. This API emits HTML metadata; it does not manage Markdown titles or browser-side head patches.
 
-Replace `impl Metadata` providers with ordinary `Metadata::new()` declarations. Move registered layout defaults into `Layout::setup`; move page lookups into the page's normal async render before the document head. The provider trait, `CascadeValue`, `CascadeOpenGraph`, `ComputedRouteMeta`, `resolved_metadata()`, `Route::page_with_metadata`, and `Route::with_metadata` are removed.
+## Migration
 
-`Route::page(path, title, handler)` remains a title-only compatibility default in the page scope. A page's explicit declaration overrides it. Use `Route::endpoint` when the page supplies all of its own metadata. Pass the setup plans from `router_from_spec` to `FrameworkBuilder::with_dynamic_routes_and_setups`; they contain ordered callbacks, not precomputed metadata.
+| Previous API | Replacement |
+| --- | --- |
+| `impl Metadata`, `Cascade*`, computed/resolved metadata | `Metadata::new()` in page rendering or layout setup |
+| `render_metadata_head(cx)` | `{cx.metadata.head()}` |
+| `Route::page_with_metadata`, `Route::with_metadata` | `Route::endpoint` plus page declarations |
+| `with_dynamic_routes_and_metadata` | `with_dynamic_routes_and_setups` using plans from `router_from_spec` |
 
-Replace `render_metadata_head(cx)` with `{cx.metadata.head()}`, or propagate the helper's `Result` with `?`. Both perform the same immediate operation; do not call both in one document.
-
-Use absolute canonical and image URLs built from your application's trusted deployment configuration. This API validates their HTTP(S) policy and emits them with HTML escaping; it does not resolve relative URLs, infer public origins from request headers, or insert an HTML `<base>` element.
-
-Static export must render each document with its real path, required data, and appropriate deployment configuration. Registration-only tooling cannot know metadata declared at runtime. A declaration without an emitter does not insert any tags automatically.
+`Route::page(path, title, handler)` still supplies a title-only default. Explicit page declarations override or clear it.

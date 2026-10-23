@@ -1,20 +1,41 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Exact complete product example from docs/framework/metadata.mdx.
+// Compiled backing for the compact examples in docs/framework/metadata.mdx.
 #[rustfmt::skip]
 mod product {
 use std::{future::Future, sync::Arc};
-use proa_core::{DataLoader, Metadata, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError};
+use proa_core::{DataLoader, Metadata, RenderOutcome, WebContext, WebRenderSync, WriteError};
 use proa_macros::html_sync;
+
+pub fn static_metadata(cx: &mut WebContext) -> Result<(), WriteError> {
+    cx.metadata(
+        Metadata::new()
+            .title("Pricing")
+            .description("Plans and deployment options."),
+    )?;
+    Ok(())
+}
 
 pub struct ProductPage { pub id: String }
 
-impl<L: DataLoader> WebRender<L> for ProductPage {
+impl<L: DataLoader> proa_core::WebRender<L> for ProductPage {
     fn render(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let product = cx.load_typed::<Product>(product_key(&self.id)).await?;
-            PreparedProductPage { product }.render(cx)
+
+            cx.metadata(
+                Metadata::new()
+                    .title(product.name.clone())
+                    .description(product.summary.clone())
+                    .canonical(product.canonical_url.clone())
+                    .open_graph(|og| {
+                        og.ty("website");
+                        og.images([product.social_image.clone()]);
+                    }),
+            )?;
+
+            RootDocument { content: ProductBody { product } }.render(cx)
         })
     }
 }
@@ -42,7 +63,7 @@ fn product_metadata(product: &Product) -> Metadata {
 struct RootDocument<C> { content: C }
 impl<L: DataLoader, C: WebRenderSync<L>> WebRenderSync<L> for RootDocument<C> {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        WebRenderSync::render(html_sync! {
+        html_sync! {
             <!DOCTYPE html>
             <html lang="en">
                 <head>
@@ -52,7 +73,8 @@ impl<L: DataLoader, C: WebRenderSync<L>> WebRenderSync<L> for RootDocument<C> {
                 </head>
                 <body>{self.content}</body>
             </html>
-        }, cx)
+        }
+        .render(cx)
     }
 }
 
@@ -104,7 +126,12 @@ use proa_stream::DataResolver;
 struct SiteLayout;
 impl Layout for SiteLayout {
     fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
-        cx.metadata(Metadata::new().title("Acme").title_template("%s · Acme").open_graph(|og| { og.site_name("Acme"); }))?;
+        cx.metadata(
+            Metadata::new()
+                .title("Acme")
+                .title_template("%s · Acme")
+                .open_graph(|og| { og.site_name("Acme"); }),
+        )?;
         Ok(())
     }
 }
@@ -182,22 +209,47 @@ async fn documented_product_route_reuses_loaded_data_for_head_and_body() {
 }
 
 #[test]
-fn fixture_matches_documented_product_blocks() {
+fn reference_examples_match_the_compiled_fixture() {
+    fn without_indentation(source: &str) -> String {
+        source
+            .lines()
+            .map(str::trim_start)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
     let docs = include_str!("../../../proa_marketing/src/docs/framework/metadata.mdx");
-    let section = docs
-        .split("## End-to-end:")
-        .nth(1)
-        .unwrap()
-        .split("## Set layout defaults")
-        .next()
-        .unwrap();
-    let fixture = include_str!("metadata_docs.rs");
-    for block in section.split("```rust\n").skip(1) {
+    let fixture = without_indentation(include_str!("metadata_docs.rs"));
+    for heading in [
+        "## Static metadata",
+        "## Dynamic metadata",
+        "## Render the head",
+        "### Layout defaults",
+    ] {
+        let section = docs.split_once(heading).unwrap().1;
+        let block = section
+            .split_once("```rust\n")
+            .unwrap()
+            .1
+            .split_once("\n```")
+            .unwrap()
+            .0;
         assert!(
-            fixture.contains(block.split("\n```").next().unwrap()),
-            "update compiled fixture when examples change"
+            fixture.contains(&without_indentation(block)),
+            "compile the displayed example in {heading}"
         );
     }
+    let mut cx = proa_core::WebContext::new();
+    static_metadata(&mut cx).unwrap();
+    proa_core::WebRenderSync::render(cx.metadata.head(), &mut cx).unwrap();
+    let output = cx.into_output().into_string();
+    let documented_html = docs
+        .split_once("```html\n")
+        .unwrap()
+        .1
+        .split_once("\n```")
+        .unwrap()
+        .0;
+    assert_eq!(output, documented_html.replace('\n', ""));
 }
 
 #[tokio::test(flavor = "multi_thread")]
