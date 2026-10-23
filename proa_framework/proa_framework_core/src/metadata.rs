@@ -73,6 +73,14 @@ pub trait Metadata: Send + Sync + 'static {
 
     /// Returns Twitter Card cascade values.
     ///
+    /// See the [X Cards markup reference] for the `twitter:*` tags and the
+    /// [Open Graph protocol] for the `og:*` values used as fallbacks. X
+    /// removed the Cards pages from its current docs, so the links point to
+    /// archived copies.
+    ///
+    /// [X Cards markup reference]: https://web.archive.org/web/20260201012312/https://developer.x.com/en/docs/x-for-websites/cards/overview/markup
+    /// [Open Graph protocol]: https://ogp.me/
+    ///
     /// Unset fields inherit from the parent provider. `title` and
     /// `description` accept `%s` templates, formatted with the page title and
     /// description the same way as Open Graph. At render time, title,
@@ -312,14 +320,30 @@ impl TwitterCard {
 }
 
 /// Cascade specification for Twitter Card metadata.
+///
+/// Each field maps to one tag in the [X Cards markup reference], which also
+/// lists the Open Graph tag X reads when a `twitter:*` tag is absent. See the
+/// [Open Graph protocol] for those tags. X removed the Cards pages from its
+/// current docs, so the X link points to an archived copy.
+///
+/// [X Cards markup reference]: https://web.archive.org/web/20260201012312/https://developer.x.com/en/docs/x-for-websites/cards/overview/markup
+/// [Open Graph protocol]: https://ogp.me/
 #[derive(Clone, Default)]
 pub struct CascadeTwitter {
+    /// `twitter:card`: the card type.
     pub card: CascadeValue<TwitterCard>,
+    /// `twitter:site`: `@username` of the website.
     pub site: CascadeValue<&'static str>,
+    /// `twitter:creator`: `@username` of the content creator.
     pub creator: CascadeValue<&'static str>,
+    /// `twitter:title`: falls back to `og:title`. Accepts `%s` templates.
     pub title: CascadeValue<&'static str>,
+    /// `twitter:description`: falls back to `og:description`. Accepts `%s`
+    /// templates.
     pub description: CascadeValue<&'static str>,
+    /// `twitter:image`: absolute image URL. Falls back to the first `og:image`.
     pub image: CascadeValue<&'static str>,
+    /// `twitter:image:alt`: alt text for `image`.
     pub image_alt: CascadeValue<&'static str>,
 }
 
