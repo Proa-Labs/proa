@@ -14,6 +14,12 @@ All notable public changes are tracked here.
   public `twitter` field, so code that builds it with a struct literal must add
   the field or use `..Default::default()`.
 
+- Nested routes fill Open Graph `%s` title and description templates with
+  their own page title and description. A child route previously kept the
+  value filled for its layout, so a page titled `Pricing` under a layout
+  titled `Home` rendered `og:title` as the layout's text. A child with an
+  absolute or tombstoned title no longer inherits the layout's filled value.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while

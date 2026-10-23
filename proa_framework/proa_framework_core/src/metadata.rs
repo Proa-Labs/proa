@@ -113,10 +113,17 @@ pub struct ComputedRouteMeta {
     pub(crate) title_template: Option<String>,
     pub(crate) og_title_template: Option<String>,
     pub(crate) og_description_template: Option<String>,
+    /// `open_graph.title` was filled from `og_title_template` rather than set
+    /// explicitly, so each route refills it from its own page title.
+    pub(crate) og_title_filled: bool,
+    /// `open_graph.description` was filled from `og_description_template`
+    /// rather than set explicitly, so each route refills it.
+    pub(crate) og_description_filled: bool,
     pub(crate) twitter_templates: TwitterTemplates,
     /// Plain (non-template) page title in effect for this route, kept across
-    /// the cascade so a descendant's Twitter template is filled with the
-    /// descendant's title rather than reusing a value filled for an ancestor.
+    /// the cascade so a descendant's Open Graph and Twitter templates are
+    /// filled with the descendant's title rather than reusing a value filled
+    /// for an ancestor.
     pub(crate) page_title: Option<&'static str>,
 }
 
@@ -124,7 +131,6 @@ impl ComputedRouteMeta {
     /// Creates computed metadata by cascading parent metadata with local metadata providers.
     pub fn cascade(parent: &ComputedRouteMeta, local_providers: &[MetadataRef]) -> Self {
         let mut computed = parent.clone();
-        let mut raw_page_title: Option<&'static str> = None;
 
         for provider in local_providers {
             match provider.title() {
@@ -132,12 +138,10 @@ impl ComputedRouteMeta {
                     if provider.absolute_title() {
                         computed.title = Some(title.to_string());
                         computed.title_template = None;
-                        raw_page_title = None;
                         computed.page_title = None;
                     } else if title.contains("%s") {
                         computed.title_template = Some(title.to_string());
                     } else {
-                        raw_page_title = Some(title);
                         computed.page_title = Some(title);
                         if let Some(template) = &computed.title_template {
                             computed.title = Some(template.replace("%s", title));
@@ -149,7 +153,6 @@ impl ComputedRouteMeta {
                 CascadeValue::Tombstone => {
                     computed.title = None;
                     computed.title_template = None;
-                    raw_page_title = None;
                     computed.page_title = None;
                 }
                 CascadeValue::Unset => {}
@@ -159,39 +162,18 @@ impl ComputedRouteMeta {
 
             let og = provider.open_graph();
 
-            match og.title {
-                CascadeValue::Set(og_title) => {
-                    if og_title.contains("%s") {
-                        computed.og_title_template = Some(og_title.to_string());
-                    } else if let Some(template) = &computed.og_title_template {
-                        computed.open_graph.title = Some(template.replace("%s", og_title));
-                    } else {
-                        computed.open_graph.title = Some(og_title.to_string());
-                    }
-                }
-                CascadeValue::Tombstone => {
-                    computed.open_graph.title = None;
-                    computed.og_title_template = None;
-                }
-                CascadeValue::Unset => {}
-            }
-
-            match og.description {
-                CascadeValue::Set(og_desc) => {
-                    if og_desc.contains("%s") {
-                        computed.og_description_template = Some(og_desc.to_string());
-                    } else if let Some(template) = &computed.og_description_template {
-                        computed.open_graph.description = Some(template.replace("%s", og_desc));
-                    } else {
-                        computed.open_graph.description = Some(og_desc.to_string());
-                    }
-                }
-                CascadeValue::Tombstone => {
-                    computed.open_graph.description = None;
-                    computed.og_description_template = None;
-                }
-                CascadeValue::Unset => {}
-            }
+            apply_templated(
+                og.title,
+                &mut computed.open_graph.title,
+                &mut computed.og_title_template,
+                &mut computed.og_title_filled,
+            );
+            apply_templated(
+                og.description,
+                &mut computed.open_graph.description,
+                &mut computed.og_description_template,
+                &mut computed.og_description_filled,
+            );
 
             match og.site_name {
                 CascadeValue::Set(v) => computed.open_graph.site_name = Some(v.to_string()),
@@ -262,21 +244,20 @@ impl ComputedRouteMeta {
             );
         }
 
-        if computed.open_graph.title.is_none() {
-            if let (Some(template), Some(page_title)) =
-                (&computed.og_title_template, raw_page_title)
-            {
-                computed.open_graph.title = Some(template.replace("%s", page_title));
-            }
-        }
-
-        if computed.open_graph.description.is_none() {
-            if let (Some(template), Some(page_desc)) =
-                (&computed.og_description_template, computed.description)
-            {
-                computed.open_graph.description = Some(template.replace("%s", page_desc));
-            }
-        }
+        // Template-filled values are refilled on every route, so a child page
+        // uses its own title and description instead of its ancestor's.
+        refill_from_template(
+            &mut computed.open_graph.title,
+            &mut computed.og_title_filled,
+            computed.og_title_template.as_deref(),
+            computed.page_title,
+        );
+        refill_from_template(
+            &mut computed.open_graph.description,
+            &mut computed.og_description_filled,
+            computed.og_description_template.as_deref(),
+            computed.description,
+        );
 
         finish_twitter_templates(
             &mut computed.twitter,
@@ -474,7 +455,7 @@ fn apply_templated(
 }
 
 /// Fills the Twitter title and description from their templates and the
-/// page title and description, matching the Open Graph template fallback.
+/// page title and description, the same way as Open Graph.
 ///
 /// A value filled for an ancestor route is refilled for each descendant, so a
 /// child page's card uses the child's title. Explicitly set values are kept.
@@ -1677,5 +1658,105 @@ mod tests {
             html.contains("name=\"twitter:title\" content=\"Standalone\""),
             "{html}"
         );
+    }
+
+    struct OgHomeLayout;
+
+    impl Metadata for OgHomeLayout {
+        fn title(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("Home")
+        }
+
+        fn description(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("home-desc")
+        }
+
+        fn open_graph(&self) -> CascadeOpenGraph {
+            CascadeOpenGraph {
+                title: CascadeValue::Set("%s on OG"),
+                description: CascadeValue::Set("About %s"),
+                ..Default::default()
+            }
+        }
+    }
+
+    fn nested_og(child: &[MetadataRef]) -> ComputedOpenGraph {
+        let parent = ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), &[&OgHomeLayout]);
+        assert_eq!(parent.open_graph.title.as_deref(), Some("Home on OG"));
+        assert_eq!(
+            parent.open_graph.description.as_deref(),
+            Some("About home-desc")
+        );
+        ComputedRouteMeta::cascade(&parent, child).open_graph
+    }
+
+    #[test]
+    fn nested_route_refills_open_graph_templates_with_its_own_copy() {
+        let og = nested_og(&[&PricingPage]);
+        assert_eq!(og.title.as_deref(), Some("Pricing on OG"));
+        assert_eq!(og.description.as_deref(), Some("About plans"));
+    }
+
+    #[test]
+    fn nested_route_without_its_own_title_keeps_the_inherited_open_graph_fill() {
+        struct Untitled;
+        impl Metadata for Untitled {}
+
+        let og = nested_og(&[&Untitled]);
+        assert_eq!(og.title.as_deref(), Some("Home on OG"));
+        assert_eq!(og.description.as_deref(), Some("About home-desc"));
+    }
+
+    #[test]
+    fn nested_route_refills_open_graph_with_a_new_template() {
+        struct NewTemplate;
+
+        impl Metadata for NewTemplate {
+            fn open_graph(&self) -> CascadeOpenGraph {
+                CascadeOpenGraph {
+                    title: CascadeValue::Set("%s, now on OG"),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let og = nested_og(&[&NewTemplate]);
+        assert_eq!(og.title.as_deref(), Some("Home, now on OG"));
+    }
+
+    #[test]
+    fn explicit_open_graph_title_is_not_refilled_by_descendants() {
+        struct ExplicitTitle;
+
+        impl Metadata for ExplicitTitle {
+            fn open_graph(&self) -> CascadeOpenGraph {
+                CascadeOpenGraph {
+                    title: CascadeValue::Set("Plans"),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let parent = ComputedRouteMeta::cascade(
+            &ComputedRouteMeta::default(),
+            &[&OgHomeLayout, &ExplicitTitle],
+        );
+        assert_eq!(parent.open_graph.title.as_deref(), Some("Plans on OG"));
+        let child = ComputedRouteMeta::cascade(&parent, &[&PricingPage]);
+        assert_eq!(child.open_graph.title.as_deref(), Some("Plans on OG"));
+    }
+
+    #[test]
+    fn nested_route_without_description_drops_the_inherited_open_graph_fill() {
+        struct NoDescription;
+
+        impl Metadata for NoDescription {
+            fn description(&self) -> CascadeValue<&'static str> {
+                CascadeValue::Tombstone
+            }
+        }
+
+        let og = nested_og(&[&NoDescription]);
+        assert!(og.description.is_none(), "{:?}", og.description);
     }
 }
