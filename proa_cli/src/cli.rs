@@ -83,6 +83,18 @@ mod tests {
     }
 
     #[test]
+    fn self_update_is_available_directly_and_through_cargo() {
+        for args in [
+            vec!["proa", "update", "--check"],
+            vec!["cargo-proa", "proa", "update", "--version", "1.2.3"],
+        ] {
+            let args = normalize_cargo_subcommand_args(args.into_iter().map(Into::into));
+            let cli = Cli::try_parse_from(args).unwrap();
+            assert!(matches!(cli.command, commands::Command::Update(_)));
+        }
+    }
+
+    #[test]
     fn windows_cargo_subcommand_reaches_the_requested_command() {
         let args = normalize_cargo_subcommand_args([
             "cargo-proa.exe".into(),

@@ -296,6 +296,19 @@ fn lint_changed_errors_outside_a_git_repository() {
 }
 
 #[test]
+fn update_preview_does_not_install_and_invalid_versions_fail_before_network_access() {
+    let temp = tempfile::tempdir().unwrap();
+    let preview = proa(&["update", "--check", "--version", "9.8.7"], temp.path());
+    assert!(preview.status.success(), "{}", stderr(&preview));
+    assert!(stdout(&preview).contains("Requested: 9.8.7"));
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+    let invalid = proa(&["update", "--version", "../../other"], temp.path());
+    assert!(!invalid.status.success());
+    assert!(stderr(&invalid).contains("invalid release version"));
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn dev_exposes_live_reload_controls_and_rejects_an_unhonourable_debounce() {
     let temp = tempfile::tempdir().unwrap();
     let help = proa(&["dev", "--help"], temp.path());

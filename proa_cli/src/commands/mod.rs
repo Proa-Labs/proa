@@ -31,12 +31,15 @@ mod start;
 pub(crate) mod task;
 mod test;
 mod ui;
+mod update;
 
 use anyhow::Result;
 use clap::Subcommand;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    /// Update the installed Proa CLI and Cargo subcommand together.
+    Update(update::UpdateArgs),
     /// Initialize proa.config.json and proa.lock.json in an existing project.
     Init(init::InitArgs),
     /// Inspect and validate proa.config.json.
@@ -88,6 +91,7 @@ pub(crate) enum Command {
 
 pub(crate) fn dispatch(command: Command) -> Result<()> {
     match command {
+        Command::Update(args) => update::run(args),
         Command::Init(args) => init::run(args),
         Command::Config(args) => config::run(args),
         Command::Add(args) => add::run(args),

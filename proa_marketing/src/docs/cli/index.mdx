@@ -42,6 +42,37 @@ Generated project builds resolve Proa crates from crates.io and use `Cargo.lock`
 cargo run -p proa-cli --bin proa -- <command>
 ```
 
+## Update
+
+Update the CLI you are running, including its companion `cargo-proa` binary:
+
+```bash
+proa update
+```
+
+Preview the latest stable version without changing files, or select an exact
+published release:
+
+```bash
+proa update --check
+proa update --version 0.1.3
+```
+
+`cargo proa update` works too. Updates stay in the current executable's
+directory and do not change your shell profiles or application dependencies.
+An explicit `--version` can reinstall the same release or downgrade; the
+default command never downgrades to an older stable release.
+
+The updater uses Proa's CLI release metadata and verifies SHA256 checksums
+before installing prebuilt binaries. If no archive exists for your platform,
+it builds the selected version from crates.io in a temporary directory, which
+requires Cargo and can take several minutes. Both binaries must report the
+requested version before installation. Close other running Proa commands if
+Windows reports a locked executable.
+
+Older CLIs without `update` need one upgrade through the installer or
+`cargo install proa-cli --locked` before this command is available.
+
 ## Invocation
 
 The installed binary is `proa`:
@@ -60,6 +91,7 @@ cargo proa fmt --check --verify src
 
 | Command | Purpose |
 |---------|---------|
+| `proa update` | Update both CLI binaries; use `--check` to preview or `--version` to select a release. |
 | `proa init` | Add `proa.config.json` and `proa.lock.json` to an existing project. |
 | `proa config validate` | Check `proa.config.json` for unknown keys, empty commands, and invalid asset definitions. |
 | `proa config show` | Print the effective configuration with defaults filled in. |

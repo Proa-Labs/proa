@@ -28,6 +28,7 @@ clap_complete = { version = "4.5" }
 # Live-reload session secret for `proa dev`.
 getrandom = { version = "0.3" }
 glob = { version = "0.3" }
+flate2 = { version = "1" }
 proa_dsl = { workspace = true }
 proa_build = { workspace = true }
 proa_source_tools = { workspace = true }
@@ -40,14 +41,19 @@ rsjs_transport = { workspace = true, features = ["extract"] }
 serde = { workspace = true }
 serde_ignored = { version = "0.1" }
 serde_json = { workspace = true }
+self-replace = { version = "1.5" }
+semver = { version = "1" }
 sha2 = { workspace = true }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate"] }
 syn = { workspace = true, features = ["full", "visit"] }
 thiserror = { workspace = true }
+tar = { version = "0.4" }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 toml = { workspace = true }
 toml_edit = { version = "0.22" }
 walkdir = { workspace = true }
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
 # Dev-loop process-group teardown
 [target.'cfg(unix)'.dependencies]
@@ -58,4 +64,3 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 object = { workspace = true }
-tempfile = { workspace = true }
