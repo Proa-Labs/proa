@@ -99,17 +99,14 @@ mod tests {
         let app = Router::new().route(
             "/robots.txt",
             get(|| async {
+                let base_path = BasePath::new("/apps/demo").unwrap();
                 robots_txt(
                     &RobotsTxt::new()
                         .group("*")
                         .unwrap()
-                        .allow("/")
+                        .allow_path(&base_path, "/")
                         .unwrap()
-                        .sitemap_path(
-                            "https://example.com",
-                            &BasePath::new("/apps/demo").unwrap(),
-                            "/sitemap.xml",
-                        )
+                        .sitemap_path("https://example.com", &base_path, "/sitemap.xml")
                         .unwrap(),
                 )
             }),
@@ -138,7 +135,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             body,
-            "User-agent: *\nAllow: /\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
+            "User-agent: *\nAllow: /apps/demo/\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
         );
     }
 }

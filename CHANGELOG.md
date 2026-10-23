@@ -7,7 +7,11 @@ All notable public changes are tracked here.
 - `Sitemap` and `RobotsTxt` build sitemap.xml and robots.txt from a public
   origin, the runtime base path, and application paths. `sitemap_xml` and
   `robots_txt` return Axum responses with the matching content types.
-  Query strings are XML-escaped, and robots fields reject CR/LF injection.
+  Query strings are XML-escaped, `lastmod` must be a real calendar date, and
+  sitemap paths, absolute URLs, and origins reject XML-forbidden control
+  characters. Robots fields reject CR/LF injection. `allow_path` and
+  `disallow_path` join Allow/Disallow rules with the public mount prefix;
+  crawlers still fetch `/robots.txt` at the origin root.
 
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.

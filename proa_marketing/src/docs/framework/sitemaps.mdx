@@ -43,11 +43,15 @@ let (router, metadata) = router_from_spec(vec![
 
 `with_base_path` uses the same `BasePath` the rest of the app uses for links and assets. A mount of `/apps/demo` turns `/pricing` into `https://example.com/apps/demo/pricing`. Absolute `http` and `https` entries pass through unchanged.
 
-Query strings are XML-escaped. `lastmod` is a `YYYY-MM-DD` date. Priority is stored in tenths from `0.0` to `1.0`.
+Query strings are XML-escaped. Paths, absolute URLs, and origins reject XML-forbidden control characters. `lastmod` is a real `YYYY-MM-DD` calendar date (the day must exist, including leap years). Priority is stored in tenths from `0.0` to `1.0`.
 
 ## robots.txt
 
-Point crawlers at that sitemap and keep ordinary allow/disallow rules:
+Crawlers fetch `/robots.txt` at the origin root (`https://example.com/robots.txt`). They do not fetch a prefixed path such as `/apps/demo/robots.txt`.
+
+Incoming Proa routes stay unprefixed, so the handler is still `/robots.txt`. For a [prefix-stripping proxy](/docs/framework/deployment#serving-behind-a-url-path-prefix), forward origin-root `/robots.txt` to that handler in addition to stripping `/apps/demo` for the rest of the app. Prefix stripping alone publishes the file at `/apps/demo/robots.txt`, which crawlers never request.
+
+Write Allow/Disallow using public paths, and point that origin-root file at the prefixed sitemap. `Disallow: /admin` does not block `/apps/demo/admin`.
 
 ```rust filename="src/endpoints/robots.rs"
 use axum::routing::get;
@@ -61,9 +65,9 @@ async fn robots() -> impl axum::response::IntoResponse {
         &RobotsTxt::new()
             .group("*")
             .expect("user-agent")
-            .allow("/")
+            .allow_path(&base_path, "/")
             .expect("allow")
-            .disallow("/admin")
+            .disallow_path(&base_path, "/admin")
             .expect("disallow")
             .sitemap_path("https://example.com", &base_path, "/sitemap.xml")
             .expect("sitemap"),
@@ -73,13 +77,13 @@ async fn robots() -> impl axum::response::IntoResponse {
 Route::endpoint("/robots.txt", get(robots))
 ```
 
-`sitemap_path` joins origin, base path, and `/sitemap.xml` the same way the sitemap loc values are joined. `robots_txt` sets `text/plain; charset=utf-8`. Newlines in user-agent or path fields are rejected so a value cannot inject another robots directive.
+`allow_path`, `disallow_path`, and `sitemap_path` join the runtime base path the same way sitemap loc values are joined. With `PROA_BASE_PATH=/apps/demo`, that emits `Allow: /apps/demo/`, `Disallow: /apps/demo/admin`, and `Sitemap: https://example.com/apps/demo/sitemap.xml`. `robots_txt` sets `text/plain; charset=utf-8`. Newlines in user-agent or path fields are rejected so a value cannot inject another robots directive.
 
 ## Next steps
 
 - [Deployment](/docs/framework/deployment)
-  - Configure `PROA_BASE_PATH` for prefix-mounted hosts.
+  - Configure `PROA_BASE_PATH` for prefix-mounted hosts, and map origin-root `/robots.txt` when the proxy strips a prefix.
 - [Route handlers](/docs/framework/route-handlers)
-  - Register `/sitemap.xml` and `/robots.txt` as endpoints.
+  - Register `/sitemap.xml` under the app mount and `/robots.txt` as the origin-root endpoint.
 - [Environment](/docs/framework/environment)
   - Choose the public origin for absolute URLs.

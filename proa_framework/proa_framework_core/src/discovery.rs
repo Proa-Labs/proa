@@ -233,6 +233,12 @@ pub enum RobotsRule {
 }
 
 /// A robots.txt document.
+///
+/// Crawlers fetch `/robots.txt` at the origin root. Incoming Proa routes stay
+/// unprefixed, so the handler path is still `/robots.txt`; a prefix-stripping
+/// proxy must forward that origin-root URL to the handler. Use `allow_path`,
+/// `disallow_path`, and `sitemap_path` so rules and sitemap locs use the
+/// public mount prefix (`Disallow: /admin` does not block `/apps/demo/admin`).
 #[derive(Debug, Clone, Default)]
 pub struct RobotsTxt {
     groups: Vec<RobotsGroup>,
@@ -259,6 +265,18 @@ impl RobotsTxt {
 
     pub fn disallow(self, path: &str) -> Result<Self, DiscoveryError> {
         self.push_rule(RobotsRule::Disallow(checked_robots_field(path)?))
+    }
+
+    /// Allow a public path, joining `base_path` the same way sitemap locs are.
+    pub fn allow_path(self, base_path: &BasePath, path: &str) -> Result<Self, DiscoveryError> {
+        // proa-perf-ok: robots.txt is built once per request outside Proa HTML rendering
+        self.allow(&base_path.url(path).to_string())
+    }
+
+    /// Disallow a public path, joining `base_path` the same way sitemap locs are.
+    pub fn disallow_path(self, base_path: &BasePath, path: &str) -> Result<Self, DiscoveryError> {
+        // proa-perf-ok: robots.txt is built once per request outside Proa HTML rendering
+        self.disallow(&base_path.url(path).to_string())
     }
 
     pub fn sitemap(mut self, loc: &str) -> Result<Self, DiscoveryError> {
@@ -395,7 +413,7 @@ fn normalize_origin(origin: &str) -> Result<&str, DiscoveryError> {
             return Err(DiscoveryError::InvalidOrigin);
         }
     }
-    if rest.contains(['/', '?', '#', '\\', ' ']) {
+    if contains_invalid_url_char(rest) || rest.contains(['/', '?', '#']) {
         return Err(DiscoveryError::InvalidOrigin);
     }
     Ok(origin)
@@ -406,7 +424,7 @@ fn is_absolute_http_url(path: &str) -> bool {
 }
 
 fn validate_absolute_http_url(url: &str) -> Result<(), DiscoveryError> {
-    if url.contains([' ', '\t', '\n', '\r', '\\']) {
+    if contains_invalid_url_char(url) {
         return Err(DiscoveryError::InvalidPath);
     }
     let rest = url
@@ -427,10 +445,26 @@ fn validate_entry_path(path: &str) -> Result<(), DiscoveryError> {
     if !path.starts_with('/') || path.starts_with("//") {
         return Err(DiscoveryError::InvalidPath);
     }
-    if path.contains([' ', '\t', '\n', '\r', '\\']) {
+    if contains_invalid_url_char(path) {
         return Err(DiscoveryError::InvalidPath);
     }
     Ok(())
+}
+
+/// Space, ASCII controls, backslash, and XML 1.0 non-Char values (including
+/// U+FFFE and U+FFFF). XmlPolicy only rejects NUL, so these must be caught
+/// before a `<loc>` is written.
+fn contains_invalid_url_char(value: &str) -> bool {
+    value
+        .chars()
+        .any(|ch| ch <= ' ' || ch == '\\' || !is_xml10_char(ch))
+}
+
+fn is_xml10_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x09 | 0x0A | 0x0D | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF
+    )
 }
 
 fn is_calendar_date(value: &str) -> bool {
@@ -445,9 +479,31 @@ fn is_calendar_date(value: &str) -> bool {
     {
         return false;
     }
+    let year = parse_four_digits(&bytes[0..4]);
     let month = parse_two_digits(&bytes[5..7]);
     let day = parse_two_digits(&bytes[8..10]);
-    (1..=12).contains(&month) && (1..=31).contains(&day)
+    day >= 1 && day <= days_in_month(year, month)
+}
+
+fn days_in_month(year: u16, month: u8) -> u8 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
+fn is_leap_year(year: u16) -> bool {
+    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
+}
+
+fn parse_four_digits(bytes: &[u8]) -> u16 {
+    u16::from(bytes[0] - b'0') * 1000
+        + u16::from(bytes[1] - b'0') * 100
+        + u16::from(bytes[2] - b'0') * 10
+        + u16::from(bytes[3] - b'0')
 }
 
 fn parse_two_digits(bytes: &[u8]) -> u8 {
@@ -546,6 +602,60 @@ mod tests {
     }
 
     #[test]
+    fn lastmod_rejects_nonexistent_calendar_dates() {
+        let url = || SitemapUrl::new("/ok").unwrap();
+        assert_eq!(
+            url().lastmod("2026-02-30").unwrap_err(),
+            DiscoveryError::InvalidLastmod
+        );
+        assert_eq!(
+            url().lastmod("2026-04-31").unwrap_err(),
+            DiscoveryError::InvalidLastmod
+        );
+        assert_eq!(
+            url().lastmod("2026-02-29").unwrap_err(),
+            DiscoveryError::InvalidLastmod
+        );
+        assert_eq!(
+            url().lastmod("1900-02-29").unwrap_err(),
+            DiscoveryError::InvalidLastmod
+        );
+        assert!(url().lastmod("2026-01-31").is_ok());
+        assert!(url().lastmod("2026-04-30").is_ok());
+        assert!(url().lastmod("2024-02-29").is_ok());
+        assert!(url().lastmod("2000-02-29").is_ok());
+    }
+
+    #[test]
+    fn sitemap_rejects_xml_forbidden_control_characters() {
+        assert_eq!(
+            SitemapUrl::new("/posts/a\u{0001}b").unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
+        assert_eq!(
+            SitemapUrl::new("https://example.com/a\u{0001}b").unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
+        assert_eq!(
+            Sitemap::new("https://exam\u{0001}ple.com").unwrap_err(),
+            DiscoveryError::InvalidOrigin
+        );
+        assert_eq!(
+            SitemapUrl::new("/ok\u{000B}").unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
+        assert_eq!(
+            SitemapUrl::new("/ok\u{FFFE}").unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
+        assert_eq!(
+            absolute_http_url("https://example.com", &BasePath::default(), "/x\u{001F}")
+                .unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
+    }
+
+    #[test]
     fn robots_txt_emits_groups_and_prefixed_sitemap() {
         let body = RobotsTxt::new()
             .group("*")
@@ -569,6 +679,26 @@ mod tests {
         assert_eq!(
             body,
             "User-agent: *\nAllow: /\nDisallow: /admin\n\nUser-agent: BadBot\nDisallow: /\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
+        );
+    }
+
+    #[test]
+    fn robots_txt_prefixes_public_rule_paths() {
+        let base = BasePath::new("/apps/demo").unwrap();
+        let body = RobotsTxt::new()
+            .group("*")
+            .unwrap()
+            .allow_path(&base, "/")
+            .unwrap()
+            .disallow_path(&base, "/admin")
+            .unwrap()
+            .sitemap_path("https://example.com", &base, "/sitemap.xml")
+            .unwrap()
+            .render_txt();
+
+        assert_eq!(
+            body,
+            "User-agent: *\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
         );
     }
 
