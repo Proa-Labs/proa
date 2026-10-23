@@ -159,7 +159,10 @@ async fn metadata_is_composed() {
     assert!(html.contains("<title>Page Title</title>"));
     assert!(html.contains("name=\"description\" content=\"Base Description\""));
     assert!(html.contains("property=\"og:title\" content=\"Page OG Title\""));
-    assert!(html.contains("property=\"og:image\" content=\"https://example.com/base.png\""));
+    assert!(
+        !html.contains("https://example.com/base.png"),
+        "the page's images replace the layout's: {html}"
+    );
     assert!(html.contains("property=\"og:image\" content=\"https://example.com/page.png\""));
     assert!(html.contains("property=\"og:image:width\" content=\"1200\""));
     assert!(html.contains("property=\"og:image:alt\" content=\"Preview\""));
@@ -167,7 +170,8 @@ async fn metadata_is_composed() {
     assert!(html.contains("name=\"twitter:site\" content=\"@proa\""));
     assert!(html.contains("name=\"twitter:title\" content=\"Page OG Title\""));
     assert!(html.contains("name=\"twitter:description\" content=\"Base OG Description\""));
-    assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/base.png\""));
+    assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/page.png\""));
+    assert!(html.contains("name=\"twitter:image:alt\" content=\"Preview\""));
 }
 
 /// A dynamic route's request path (`/posts/hello`) is not a key in the
@@ -210,11 +214,15 @@ async fn dynamic_route_metadata_keeps_open_graph_image_and_twitter_card() {
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let html = String::from_utf8(body.to_vec()).unwrap();
     assert!(html.contains("<title>Page Title</title>"), "{html}");
-    assert!(html.contains("property=\"og:image\" content=\"https://example.com/base.png\""));
+    assert!(
+        !html.contains("https://example.com/base.png"),
+        "the page's images replace the layout's: {html}"
+    );
     assert!(html.contains("property=\"og:image\" content=\"https://example.com/page.png\""));
     assert!(html.contains("property=\"og:image:alt\" content=\"Preview\""));
     assert!(html.contains("name=\"twitter:card\" content=\"summary_large_image\""));
-    assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/base.png\""));
+    assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/page.png\""));
+    assert!(html.contains("name=\"twitter:image:alt\" content=\"Preview\""));
 }
 
 #[tokio::test]

@@ -197,6 +197,9 @@ impl ComputedRouteMeta {
 
             match og.images {
                 CascadeValue::Set(images) => {
+                    // A list replaces the inherited list, like every other
+                    // field. Use `Tombstone` to clear it.
+                    computed.open_graph.images.clear();
                     for image in images.iter() {
                         if let Some(resolved_image) = ResolvedOpenGraphImage::from_image(image) {
                             computed.open_graph.images.push(resolved_image);
@@ -211,6 +214,9 @@ impl ComputedRouteMeta {
 
             match og.audio {
                 CascadeValue::Set(audio) => {
+                    // A list replaces the inherited list, like every other
+                    // field. Use `Tombstone` to clear it.
+                    computed.open_graph.audio.clear();
                     for media in audio.iter() {
                         if let Some(resolved_media) = ResolvedOpenGraphMedia::from_media(media) {
                             computed.open_graph.audio.push(resolved_media);
@@ -225,6 +231,9 @@ impl ComputedRouteMeta {
 
             match og.video {
                 CascadeValue::Set(video) => {
+                    // A list replaces the inherited list, like every other
+                    // field. Use `Tombstone` to clear it.
+                    computed.open_graph.video.clear();
                     for media in video.iter() {
                         if let Some(resolved_media) = ResolvedOpenGraphMedia::from_media(media) {
                             computed.open_graph.video.push(resolved_media);
@@ -1683,6 +1692,57 @@ mod tests {
         assert!(html.contains("property=\"og:image\" content=\"https://example.com/og.png\""));
         assert!(html.contains("name=\"twitter:card\" content=\"summary_large_image\""));
         assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/og.png\""));
+    }
+
+    #[test]
+    fn open_graph_lists_replace_the_inherited_list() {
+        struct PageMedia;
+
+        impl Metadata for PageMedia {
+            fn open_graph(&self) -> CascadeOpenGraph {
+                static IMAGES: [OpenGraphImage; 1] =
+                    [OpenGraphImage::new("https://example.com/page.png")];
+                static AUDIO: [OpenGraphMedia; 1] =
+                    [OpenGraphMedia::new("https://example.com/page.mp3")];
+                CascadeOpenGraph {
+                    images: CascadeValue::Set(&IMAGES),
+                    audio: CascadeValue::Set(&AUDIO),
+                    ..Default::default()
+                }
+            }
+        }
+
+        struct LayoutMedia;
+
+        impl Metadata for LayoutMedia {
+            fn open_graph(&self) -> CascadeOpenGraph {
+                static IMAGES: [OpenGraphImage; 2] = [
+                    OpenGraphImage::new("https://example.com/a.png"),
+                    OpenGraphImage::new("https://example.com/b.png"),
+                ];
+                static AUDIO: [OpenGraphMedia; 1] =
+                    [OpenGraphMedia::new("https://example.com/a.mp3")];
+                CascadeOpenGraph {
+                    images: CascadeValue::Set(&IMAGES),
+                    audio: CascadeValue::Set(&AUDIO),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let html = render_providers(&[&LayoutMedia, &PageMedia]);
+        assert!(html.contains("content=\"https://example.com/page.png\""));
+        assert!(html.contains("content=\"https://example.com/page.mp3\""));
+        assert!(
+            !html.contains("a.png") && !html.contains("b.png") && !html.contains("a.mp3"),
+            "{html}"
+        );
+
+        let inherited = render_providers(&[&LayoutMedia, &PricingPage]);
+        assert!(
+            inherited.contains("a.png") && inherited.contains("b.png"),
+            "{inherited}"
+        );
     }
 
     mod split_invariance {

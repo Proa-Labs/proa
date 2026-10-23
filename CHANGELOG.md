@@ -27,6 +27,11 @@ All notable public changes are tracked here.
   `og:url`, `og:locale`, audio, and video were dropped. `resolve_metadata_stack`
   now runs the same cascade as the precomputed map.
 
+- Breaking: setting Open Graph `images`, `audio`, or `video` replaces the
+  inherited list instead of appending to it, matching every other field. A
+  page that sets its own image no longer renders its layout's image first.
+  To keep the layout's images, list them again in the page's slice.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while

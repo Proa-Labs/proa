@@ -67,15 +67,7 @@ impl Metadata for PricingMeta {
         static IMAGES: [OpenGraphImage; 1] =
             [OpenGraphImage::new("https://acme.example/og/pricing.png").with_alt("Acme pricing")];
         CascadeOpenGraph {
-            images: CascadeValue::Set(&IMAGES), // appended after the layout's image
-            ..Default::default()
-        }
-    }
-
-    fn twitter(&self) -> CascadeTwitter {
-        CascadeTwitter {
-            image: CascadeValue::Set("https://acme.example/og/pricing.png"),
-            image_alt: CascadeValue::Set("Acme pricing"),
+            images: CascadeValue::Set(&IMAGES), // replaces the layout's image
             ..Default::default()
         }
     }
@@ -175,10 +167,6 @@ async fn pricing_head_matches_the_docs() {
         r#"<meta name="description" content="Plans for every launch."/>"#,
         r#"<meta property="og:site_name" content="Acme"/>"#,
         r#"<meta property="og:type" content="website"/>"#,
-        r#"<meta property="og:image" content="https://acme.example/og/default.png"/>"#,
-        r#"<meta property="og:image:width" content="1200"/>"#,
-        r#"<meta property="og:image:height" content="630"/>"#,
-        r#"<meta property="og:image:alt" content="The Acme logo"/>"#,
         r#"<meta property="og:image" content="https://acme.example/og/pricing.png"/>"#,
         r#"<meta property="og:image:alt" content="Acme pricing"/>"#,
         r#"<meta name="twitter:card" content="summary_large_image"/>"#,
