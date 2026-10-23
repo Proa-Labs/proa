@@ -1,45 +1,42 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_core::ctx::Ctx;
+use proa_core::{DataLoader, WebContext, WriteBuf};
+use std::sync::Arc;
 
 use proa_framework_core::{
     css_asset_path as css_asset_path_from_manifest, render_css_link as render_css_link_with_path,
-    render_metadata_head as render_resolved_metadata_head, resolved_metadata_from_computed,
+    render_metadata_head as render_resolved_metadata_head,
 };
 pub use proa_framework_core::{
-    CascadeOpenGraph, CascadeValue, ComputedRouteMeta, Metadata, MetadataRef, OpenGraph,
-    OpenGraphImage, OpenGraphMedia, ResolvedMetadata, ResolvedOpenGraphImage,
-    ResolvedOpenGraphMedia, TitleOnly,
+    metadata_from_context, CascadeOpenGraph, CascadeValue, ComputedRouteMeta, Metadata,
+    MetadataBase, MetadataContext, MetadataError, MetadataOutcome, MetadataPatch, MetadataRef,
+    MetadataText, OpenGraph, OpenGraphImage, OpenGraphMedia, OpenGraphPatch, ResolvedMetadata,
+    ResolvedOpenGraphImage, ResolvedOpenGraphMedia, TitleOnly,
 };
 
 /// Resolves and returns the current metadata from the route context.
-/// This is an O(1) lookup into the precomputed metadata table when possible,
-/// with a fallback to resolving the current metadata stack on demand.
+/// Compatibility accessor for immediate providers without data loading.
+/// Inside components prefer `metadata_from_context(cx)`, which also supports
+/// async providers and deferred streaming without regenerating metadata.
 pub fn resolved_metadata() -> Option<ResolvedMetadata> {
     use super::context::ROUTE_CONTEXT;
-
     ROUTE_CONTEXT
         .try_with(|ctx| {
             let ctx = ctx.borrow();
-            if let Some(path) = ctx.current_path() {
-                if let Some(computed) = ctx.get_computed_metadata(path) {
-                    return Some(resolved_metadata_from_computed(&computed));
-                }
-            }
-            None
+            let request = super::response::framework_request_context(&ctx);
+            request
+                .request
+                .extensions()
+                .get::<ComputedRouteMeta>()?
+                .resolve_sync(MetadataContext {
+                    request: &request.request,
+                    loader: &proa_core::NoLoader,
+                })
+                .ok()
         })
         .ok()
         .flatten()
-        .or_else(|| {
-            ROUTE_CONTEXT
-                .try_with(|ctx| {
-                    let mut ctx = ctx.borrow_mut();
-                    ctx.resolve_metadata()
-                })
-                .ok()
-                .flatten()
-        })
 }
 
 /// Returns the CSS asset path from the manifest, if available.
@@ -57,15 +54,36 @@ pub fn css_asset_path() -> Option<String> {
 }
 
 /// Renders a CSS link tag if a CSS asset is available in the manifest.
-pub fn render_css_link(cx: &mut Ctx) {
+pub fn render_css_link<L: DataLoader, B: WriteBuf>(cx: &mut WebContext<L, B>) {
     if let Some(css_path) = css_asset_path() {
         render_css_link_with_path(cx, &css_path);
     }
 }
 
 /// Renders metadata tags into the HTML head using the current route snapshot.
-pub fn render_metadata_head(cx: &mut Ctx) {
-    if let Some(metadata) = resolved_metadata() {
+pub fn render_metadata_head<L: DataLoader, B: WriteBuf>(cx: &mut WebContext<L, B>) {
+    if let Some(metadata) = cx
+        .request()
+        .extensions()
+        .get::<Arc<ResolvedMetadata>>()
+        .cloned()
+    {
         render_resolved_metadata_head(cx, &metadata);
+    } else if let Some(metadata) = resolved_metadata() {
+        render_resolved_metadata_head(cx, &metadata);
+    }
+}
+
+/// Render metadata for compiler-proved Send trees without task-local state.
+pub fn render_metadata_head_send<L: DataLoader, B: WriteBuf + Send>(
+    cx: &mut proa_core::SendWebContext<L, B>,
+) {
+    if let Some(metadata) = cx
+        .request()
+        .extensions()
+        .get::<Arc<ResolvedMetadata>>()
+        .cloned()
+    {
+        proa_framework_core::render_metadata_head_send(cx, &metadata);
     }
 }

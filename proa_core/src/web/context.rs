@@ -55,6 +55,7 @@ pub struct RequestContext {
     client_ip: Option<String>,
     original_pathname: Option<String>,
     base_path: super::BasePath,
+    extensions: http::Extensions,
 }
 
 fn empty_headers() -> &'static HeaderMap {
@@ -63,6 +64,14 @@ fn empty_headers() -> &'static HeaderMap {
 }
 
 impl RequestContext {
+    /// Portable request-scoped state shared by rendering and deferred work.
+    pub fn extensions(&self) -> &http::Extensions {
+        &self.extensions
+    }
+    pub fn extensions_mut(&mut self) -> &mut http::Extensions {
+        &mut self.extensions
+    }
+
     pub fn new() -> Self {
         Self::default()
     }

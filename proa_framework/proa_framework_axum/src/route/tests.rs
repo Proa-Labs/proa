@@ -150,10 +150,155 @@ async fn metadata_is_composed() {
     assert!(html.contains("<title>Page Title</title>"));
     assert!(html.contains("name=\"description\" content=\"Base Description\""));
     assert!(html.contains("property=\"og:title\" content=\"Page OG Title\""));
-    assert!(html.contains("property=\"og:image\" content=\"https://example.com/base.png\""));
+    assert!(!html.contains("https://example.com/base.png"));
     assert!(html.contains("property=\"og:image\" content=\"https://example.com/page.png\""));
     assert!(html.contains("property=\"og:image:width\" content=\"1200\""));
     assert!(html.contains("property=\"og:image:alt\" content=\"Preview\""));
+}
+
+struct RequestDrivenMetadata;
+impl Metadata for RequestDrivenMetadata {
+    fn metadata(
+        &self,
+        cx: &super::MetadataContext<'_>,
+        _parent: &super::ResolvedMetadata,
+    ) -> super::MetadataPatch {
+        let slug = cx.param("slug").unwrap();
+        let variant = cx.request.headers()["x-preview"].to_str().unwrap();
+        let query = cx
+            .search_params()
+            .find(|(key, _)| key == "q")
+            .unwrap()
+            .1
+            .into_owned();
+        super::MetadataPatch {
+            title: CascadeValue::Set(format!("{slug} {variant}").into()),
+            description: CascadeValue::Set(query.into()),
+            canonical: CascadeValue::Set(format!("/blog/{slug}").into()),
+            ..Default::default()
+        }
+    }
+}
+
+struct AsyncRequestDrivenMetadata;
+impl Metadata for AsyncRequestDrivenMetadata {
+    fn generate_metadata<'a>(
+        &'a self,
+        cx: super::MetadataContext<'a>,
+        parent: &'a super::ResolvedMetadata,
+    ) -> super::MetadataOutcome<'a> {
+        super::MetadataOutcome::pending(async move {
+            tokio::task::yield_now().await;
+            Ok(RequestDrivenMetadata.metadata(&cx, parent))
+        })
+    }
+}
+
+fn request_metadata_app(stream: bool) -> axum::Router {
+    let route = if stream {
+        Route::page_with_metadata(
+            "/blog/:slug",
+            get(|| async { RouteResponse::ssr_stream(proa_core::to_async(MetadataPage)) }),
+            &AsyncRequestDrivenMetadata,
+        )
+    } else {
+        Route::page_with_metadata(
+            "/blog/:slug",
+            get(|| async { RouteResponse::ssr(MetadataPage) }),
+            &RequestDrivenMetadata,
+        )
+    };
+    let (router, plans) = router_from_spec(vec![route]);
+    crate::FrameworkBuilder::new(IslandManifest {
+        islands: Default::default(),
+        assets: Default::default(),
+        import_map: Default::default(),
+        ssr_bundle: None,
+    })
+    .with_dynamic_routes_and_metadata(router, plans)
+    .with_metadata_base(super::MetadataBase::new("https://staging.example/app").unwrap())
+    .build()
+}
+
+#[tokio::test]
+async fn dynamic_route_metadata_reads_request_and_uses_deployment_or_middleware_base() {
+    let app = request_metadata_app(false);
+    for (slug, middleware_base) in [
+        ("first", None),
+        ("second", Some("https://preview.example/mount")),
+    ] {
+        let mut request = Request::builder()
+            .uri(format!("/blog/{slug}?q=A%26B"))
+            .header("x-preview", "draft")
+            .body(Body::empty())
+            .unwrap();
+        if let Some(base) = middleware_base {
+            request
+                .extensions_mut()
+                .insert(super::MetadataBase::new(base).unwrap());
+        }
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let html = std::str::from_utf8(&bytes).unwrap();
+        assert!(
+            html.contains(&format!("<title>{slug} draft</title>")),
+            "{html}"
+        );
+        assert!(html.contains("content=\"A&amp;B\""));
+        let base = middleware_base.unwrap_or("https://staging.example/app");
+        assert!(
+            html.contains(&format!("href=\"{base}/blog/{slug}\"")),
+            "{html}"
+        );
+    }
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/blog/client?q=x")
+                .header("x-preview", "published")
+                .header("x-proa-client", "1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(payload["title"], "client published");
+}
+
+#[tokio::test]
+async fn streamed_metadata_survives_endpoint_context_teardown_and_concurrent_requests() {
+    let app = request_metadata_app(true);
+    let fetch = |slug: &'static str| {
+        let app = app.clone();
+        async move {
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/blog/{slug}?q={slug}"))
+                        .header("x-preview", slug)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let html = std::str::from_utf8(&bytes).unwrap();
+            assert!(
+                html.contains(&format!("<title>{slug} {slug}</title>")),
+                "{html}"
+            );
+            assert!(
+                html.contains(&format!("href=\"https://staging.example/app/blog/{slug}\"")),
+                "{html}"
+            );
+        }
+    };
+    tokio::join!(fetch("first"), fetch("second"));
 }
 
 #[tokio::test]

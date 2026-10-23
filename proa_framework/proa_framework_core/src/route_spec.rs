@@ -241,6 +241,12 @@ mod tests {
 
     struct BaseMeta;
     impl Metadata for BaseMeta {
+        fn static_metadata(&self) -> Option<crate::metadata::MetadataPatch> {
+            Some(crate::metadata::MetadataPatch {
+                title: CascadeValue::Set("%s | Base".into()),
+                ..Default::default()
+            })
+        }
         fn title(&self) -> CascadeValue<&'static str> {
             CascadeValue::Set("%s | Base")
         }
@@ -248,6 +254,12 @@ mod tests {
 
     struct PageMeta;
     impl Metadata for PageMeta {
+        fn static_metadata(&self) -> Option<crate::metadata::MetadataPatch> {
+            Some(crate::metadata::MetadataPatch {
+                title: CascadeValue::Set("Dashboard".into()),
+                ..Default::default()
+            })
+        }
         fn title(&self) -> CascadeValue<&'static str> {
             CascadeValue::Set("Dashboard")
         }

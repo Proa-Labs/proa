@@ -23,6 +23,7 @@ pub struct FrameworkRouteSnapshot {
     resolved_metadata: Option<ResolvedMetadata>,
     computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>,
     current_uri: Option<Uri>,
+    current_route_pattern: Option<Arc<str>>,
     current_route_params: RouteParams,
     is_client_request: bool,
 }
@@ -38,6 +39,7 @@ impl FrameworkRouteSnapshot {
             resolved_metadata: None,
             computed_metadata,
             current_uri: None,
+            current_route_pattern: None,
             current_route_params: RouteParams::default(),
             is_client_request: false,
         }
@@ -53,6 +55,21 @@ impl FrameworkRouteSnapshot {
 
     pub fn set_current_uri(&mut self, uri: Uri) {
         self.current_uri = Some(uri);
+    }
+
+    pub fn set_current_route_pattern(&mut self, pattern: Arc<str>) {
+        self.current_route_pattern = Some(pattern);
+    }
+
+    pub fn metadata_plan(&self) -> ComputedRouteMeta {
+        self.current_route_pattern
+            .as_deref()
+            .or_else(|| self.current_path())
+            .and_then(|path| self.computed_metadata.get(path))
+            .cloned()
+            .unwrap_or_else(|| {
+                ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), &self.metadata)
+            })
     }
 
     pub fn current_path(&self) -> Option<&str> {

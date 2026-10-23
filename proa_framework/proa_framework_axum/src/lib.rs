@@ -37,11 +37,13 @@ pub use proa_core::{AppUrl, BasePath, CspNonce, InvalidBasePath};
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
     app_url, css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
-    explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader, render_css_link,
-    render_metadata_head, resolved_metadata, router_from_spec, CascadeOpenGraph, CascadeValue,
-    ComputedRouteMeta, DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend,
-    Layout, LayoutRef, LocalStreamExecutorConfig, MarkdownAlternate, Metadata, MetadataRef,
-    OpenGraph, OpenGraphImage, OpenGraphMedia, PageCacheLayer, PageCacheService,
+    explicit_markdown_async_with_loader, metadata_from_context, negotiate,
+    negotiate_async_with_loader, render_css_link, render_metadata_head, render_metadata_head_send,
+    resolved_metadata, router_from_spec, CascadeOpenGraph, CascadeValue, ComputedRouteMeta,
+    DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend, Layout, LayoutRef,
+    LocalStreamExecutorConfig, MarkdownAlternate, Metadata, MetadataBase, MetadataContext,
+    MetadataError, MetadataOutcome, MetadataPatch, MetadataRef, MetadataText, OpenGraph,
+    OpenGraphImage, OpenGraphMedia, OpenGraphPatch, PageCacheLayer, PageCacheService,
     RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage, ResolvedOpenGraphMedia,
     Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec, StaticPathsFn,
 };
@@ -108,6 +110,7 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct FrameworkBuilder {
     manifest: Arc<IslandManifest>,
     base_path: BasePath,
+    metadata_base: Option<MetadataBase>,
     rsjs_assets: bool,
     config: ProaConfig,
     static_router: Option<Router>,
@@ -146,6 +149,7 @@ impl FrameworkBuilder {
         Self {
             manifest: Arc::new(manifest),
             base_path: BasePath::default(),
+            metadata_base: None,
             rsjs_assets: false,
             config: ProaConfig::default(),
             static_router: None,
@@ -378,6 +382,13 @@ impl FrameworkBuilder {
         self
     }
 
+    /// Public base for canonical and social URLs. Configure per deployment;
+    /// include the public mount prefix when the app is mounted below `/`.
+    pub fn with_metadata_base(mut self, base: MetadataBase) -> Self {
+        self.metadata_base = Some(base);
+        self
+    }
+
     pub fn config(&self) -> &ProaConfig {
         &self.config
     }
@@ -386,6 +397,7 @@ impl FrameworkBuilder {
         let FrameworkBuilder {
             manifest,
             base_path,
+            metadata_base,
             rsjs_assets,
             config,
             static_router,
@@ -434,9 +446,12 @@ impl FrameworkBuilder {
         }
 
         let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
-        let layer = RouteContextLayer::new(manifest.clone(), computed_metadata)
+        let mut layer = RouteContextLayer::new(manifest.clone(), computed_metadata)
             .with_base_path(base_path)
             .with_local_stream_executor_config(local_stream_executor);
+        if let Some(base) = metadata_base {
+            layer = layer.with_metadata_base(base);
+        }
         app = app.layer(layer);
         // Apply a global body-size limit so a single oversized POST cannot
         // tie up the worker indefinitely. Per-route overrides via

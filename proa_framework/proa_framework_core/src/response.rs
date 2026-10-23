@@ -42,6 +42,9 @@ use crate::bootstrap::{
     render_bootstrap_for_islands, render_bootstrap_for_islands_with_import_map,
 };
 use crate::manifest::IslandManifest;
+use crate::metadata::{
+    prepare_metadata, prepare_metadata_send, prepare_metadata_sync, ResolvedMetadata,
+};
 
 /// A response stream that may retain request-local, non-`Send` render state.
 ///
@@ -637,7 +640,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         request: &FrameworkRequestContext,
     ) -> FrameworkResponse {
         let Self { plan, .. } = self;
-        let html = match plan {
+        let (html, metadata) = match plan {
             RoutePlan::Sync(component) => match render_sync_component_to_html(component, request) {
                 Ok(html) => html,
                 Err(err) => {
@@ -674,7 +677,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 }
             }
         };
-        encode_client_payload(html, page_title)
+        encode_client_payload(html, page_title.as_deref(), metadata.as_deref())
     }
 
     fn into_sync_framework_response(
@@ -699,7 +702,11 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             }
             RouteFinalizeMode::ClientPayload { page_title } => {
                 match render_sync_component_to_html(component, request) {
-                    Ok(html) => Ok(encode_client_payload(html, page_title)),
+                    Ok((html, metadata)) => Ok(encode_client_payload(
+                        html,
+                        page_title.as_deref(),
+                        metadata.as_deref(),
+                    )),
                     Err(err) => Ok(framework_error_response(err)),
                 }
             }
@@ -707,15 +714,22 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     }
 }
 
-fn encode_client_payload(html: String, page_title: Option<String>) -> FrameworkResponse {
-    let mut payload = serde_json::json!({
-        "html": html,
-    });
-
-    if let Some(title) = page_title {
-        payload["title"] = serde_json::json!(title);
+fn encode_client_payload(
+    html: String,
+    fallback_title: Option<&str>,
+    metadata: Option<&ResolvedMetadata>,
+) -> FrameworkResponse {
+    #[derive(serde::Serialize)]
+    struct ClientPayload<'a> {
+        html: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<&'a str>,
     }
-
+    // A resolved request with no title must not resurrect a stale fallback.
+    let title = metadata
+        .map(|value| value.title.as_deref())
+        .unwrap_or(fallback_title);
+    let payload = ClientPayload { html: &html, title };
     match serde_json::to_vec(&payload) {
         Ok(bytes) => FrameworkResponse::json(Bytes::from(bytes)),
         Err(_) => {
@@ -925,6 +939,8 @@ pub(crate) fn merge_response_context(response: &mut FrameworkResponse, context: 
 
 #[derive(Debug, Error)]
 pub enum FrameworkError {
+    #[error("metadata resolution failed: {0}")]
+    Metadata(#[from] crate::metadata::MetadataError),
     #[error("render failed: {0}")]
     Render(#[from] WriteError),
     #[error("rsjs runtime planning failed: {0}")]
@@ -982,6 +998,7 @@ pub fn render_sync_html_response(
     let (render_artifacts, shared_seed_table_json, response_context, buffer) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
+        prepare_metadata_sync(ctx.request_mut(), &NoLoader)?;
         component.render_sync_dyn(&mut ctx)?;
         let state = (
             ctx.render_artifacts_snapshot(),
@@ -1039,6 +1056,8 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
             WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(request.render_mode);
         install_request_context(&mut ctx, request);
+        let metadata_loader = Arc::clone(ctx.loader());
+        prepare_metadata(ctx.request_mut(), metadata_loader.as_ref()).await?;
         drive_dyn_render(component.render_dyn(&mut ctx)).await?;
         let state = (
             ctx.render_artifacts_snapshot(),
@@ -1096,6 +1115,8 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
             SendWebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(request.render_mode);
         install_send_request_context(&mut ctx, request);
+        let metadata_loader = Arc::clone(ctx.loader());
+        prepare_metadata_send(ctx.request_mut(), metadata_loader.as_ref()).await?;
         drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
         let (buffer, artifacts, response) = ctx.into_output_render_artifacts_and_response();
         (artifacts, response, buffer)
@@ -1238,16 +1259,22 @@ where
 fn render_sync_component_to_html(
     component: Box<dyn DynWebRenderSync<NoLoader, RenderBuffer> + Send>,
     request: &FrameworkRequestContext,
-) -> Result<String, FrameworkError> {
-    let (rsjs_artifacts, shared_seed_table_json, buffer) = {
+) -> Result<(String, Option<Arc<ResolvedMetadata>>), FrameworkError> {
+    let (rsjs_artifacts, shared_seed_table_json, buffer, metadata) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
+        prepare_metadata_sync(ctx.request_mut(), &NoLoader)?;
         component.render_sync_dyn(&mut ctx)?;
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
         );
-        (state.0, state.1, ctx.into_output())
+        let metadata = ctx
+            .request()
+            .extensions()
+            .get::<Arc<ResolvedMetadata>>()
+            .cloned();
+        (state.0, state.1, ctx.into_output(), metadata)
     };
     let mut buffer = buffer.into_vec();
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
@@ -1267,7 +1294,9 @@ fn render_sync_component_to_html(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok(std::str::from_utf8(&buffer)?.to_owned())
+    let html =
+        String::from_utf8(buffer).map_err(|error| FrameworkError::Encoding(error.utf8_error()))?;
+    Ok((html, metadata))
 }
 
 async fn render_async_component_to_html<L: DataLoader + 'static>(
@@ -1275,18 +1304,25 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     render_mode: RenderMode,
-) -> Result<String, FrameworkError> {
-    let (rsjs_artifacts, shared_seed_table_json, buffer) = {
+) -> Result<(String, Option<Arc<ResolvedMetadata>>), FrameworkError> {
+    let (rsjs_artifacts, shared_seed_table_json, buffer, metadata) = {
         let mut ctx =
             WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(render_mode);
         install_request_context(&mut ctx, request);
+        let metadata_loader = Arc::clone(ctx.loader());
+        prepare_metadata(ctx.request_mut(), metadata_loader.as_ref()).await?;
         drive_dyn_render(component.render_dyn(&mut ctx)).await?;
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
         );
-        (state.0, state.1, ctx.into_output())
+        let metadata = ctx
+            .request()
+            .extensions()
+            .get::<Arc<ResolvedMetadata>>()
+            .cloned();
+        (state.0, state.1, ctx.into_output(), metadata)
     };
     let mut buffer = buffer.into_vec();
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
@@ -1306,7 +1342,9 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok(std::str::from_utf8(&buffer)?.to_owned())
+    let html =
+        String::from_utf8(buffer).map_err(|error| FrameworkError::Encoding(error.utf8_error()))?;
+    Ok((html, metadata))
 }
 
 async fn render_send_component_to_html<L: DataLoader + 'static>(
@@ -1314,15 +1352,22 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     render_mode: RenderMode,
-) -> Result<String, FrameworkError> {
-    let (rsjs_artifacts, buffer) = {
+) -> Result<(String, Option<Arc<ResolvedMetadata>>), FrameworkError> {
+    let (rsjs_artifacts, buffer, metadata) = {
         let mut ctx =
             SendWebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(render_mode);
         install_send_request_context(&mut ctx, request);
+        let metadata_loader = Arc::clone(ctx.loader());
+        prepare_metadata_send(ctx.request_mut(), metadata_loader.as_ref()).await?;
         drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
+        let metadata = ctx
+            .request()
+            .extensions()
+            .get::<Arc<ResolvedMetadata>>()
+            .cloned();
         let (buffer, artifacts) = ctx.into_output_and_render_artifacts();
-        (artifacts.rsjs, buffer)
+        (artifacts.rsjs, buffer, metadata)
     };
     let mut buffer = buffer.into_vec();
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
@@ -1343,12 +1388,15 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok(std::str::from_utf8(&buffer)?.to_owned())
+    let html =
+        String::from_utf8(buffer).map_err(|error| FrameworkError::Encoding(error.utf8_error()))?;
+    Ok((html, metadata))
 }
 
 fn framework_error_response(err: FrameworkError) -> FrameworkResponse {
     match err {
         FrameworkError::Render(_)
+        | FrameworkError::Metadata(_)
         | FrameworkError::RsjsPlan(_)
         | FrameworkError::Bootstrap(_)
         | FrameworkError::Invariant(_) => {
@@ -1397,6 +1445,8 @@ where
                     WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
                 ctx.set_render_mode(request.render_mode);
                 install_request_context(&mut ctx, &request);
+                let metadata_loader = Arc::clone(ctx.loader());
+                prepare_metadata(ctx.request_mut(), metadata_loader.as_ref()).await?;
                 ctx.response_mut().mark_streaming_started();
                 ctx.set_stream_recorder(Rc::clone(&recorder));
                 drive_dyn_render(component.render_dyn(&mut ctx)).await?;
@@ -1572,6 +1622,8 @@ where
                 );
                 ctx.set_render_mode(request.render_mode);
                 install_send_request_context(&mut ctx, &request);
+                let metadata_loader = Arc::clone(ctx.loader());
+                prepare_metadata_send(ctx.request_mut(), metadata_loader.as_ref()).await?;
                 ctx.response_mut().mark_streaming_started();
                 ctx.set_stream_recorder(Arc::clone(&recorder));
                 drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
@@ -1763,6 +1815,8 @@ where
                         WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
                     ctx.set_render_mode(request.render_mode);
                     install_request_context(&mut ctx, &request);
+                    let metadata_loader = Arc::clone(ctx.loader());
+                    prepare_metadata(ctx.request_mut(), metadata_loader.as_ref()).await?;
                     ctx.response_mut().mark_streaming_started();
                     ctx.set_stream_chunk_flusher(flusher);
                     drive_dyn_render(component.render_dyn(&mut ctx)).await?;
@@ -1882,6 +1936,8 @@ where
                     );
                     ctx.set_render_mode(request.render_mode);
                     install_send_request_context(&mut ctx, &request);
+                    let metadata_loader = Arc::clone(ctx.loader());
+                    prepare_metadata_send(ctx.request_mut(), metadata_loader.as_ref()).await?;
                     ctx.response_mut().mark_streaming_started();
                     ctx.set_stream_chunk_flusher(flusher);
                     drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;

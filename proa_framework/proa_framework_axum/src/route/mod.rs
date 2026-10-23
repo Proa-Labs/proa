@@ -26,9 +26,11 @@ pub use context::{app_url, RouteContextLayer, RouteContextService};
 pub use layout::{Layout, LayoutRef};
 pub use local_executor::LocalStreamExecutorConfig;
 pub use metadata::{
-    css_asset_path, render_css_link, render_metadata_head, resolved_metadata, CascadeOpenGraph,
-    CascadeValue, ComputedRouteMeta, Metadata, MetadataRef, OpenGraph, OpenGraphImage,
-    OpenGraphMedia, ResolvedMetadata, ResolvedOpenGraphImage, ResolvedOpenGraphMedia, TitleOnly,
+    css_asset_path, metadata_from_context, render_css_link, render_metadata_head,
+    render_metadata_head_send, resolved_metadata, CascadeOpenGraph, CascadeValue,
+    ComputedRouteMeta, Metadata, MetadataBase, MetadataContext, MetadataError, MetadataOutcome,
+    MetadataPatch, MetadataRef, MetadataText, OpenGraph, OpenGraphImage, OpenGraphMedia,
+    OpenGraphPatch, ResolvedMetadata, ResolvedOpenGraphImage, ResolvedOpenGraphMedia, TitleOnly,
 };
 pub use page_cache::{PageCacheLayer, PageCacheService};
 pub use proa_framework_core::{ComputedOpenGraph, ResolvedOpenGraph};

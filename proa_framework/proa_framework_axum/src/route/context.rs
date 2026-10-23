@@ -13,7 +13,8 @@ use axum::response::Response;
 use pin_project::{pin_project, pinned_drop};
 use proa_core::{CspNonce, RouteParams};
 use proa_framework_core::{
-    extract_route_params, ComputedRouteMeta, FrameworkRouteSnapshot, MetadataRef, ResolvedMetadata,
+    extract_route_params, ComputedRouteMeta, FrameworkRouteSnapshot, MetadataBase, MetadataRef,
+    ResolvedMetadata,
 };
 use tower::layer::Layer;
 use tower::Service;
@@ -36,6 +37,7 @@ pub struct RouteContext {
     request_headers: http::HeaderMap,
     csp_nonce: Option<CspNonce>,
     base_path: proa_core::BasePath,
+    metadata_base: Option<MetadataBase>,
 }
 
 impl RouteContext {
@@ -49,7 +51,12 @@ impl RouteContext {
             request_headers: http::HeaderMap::new(),
             csp_nonce: None,
             base_path: proa_core::BasePath::default(),
+            metadata_base: None,
         }
+    }
+
+    pub(super) fn metadata_base(&self) -> Option<&MetadataBase> {
+        self.metadata_base.as_ref()
     }
 
     pub(super) fn base_path(&self) -> &proa_core::BasePath {
@@ -68,12 +75,8 @@ impl RouteContext {
         self.snapshot.set_current_uri(uri);
     }
 
-    pub(super) fn get_computed_metadata(&self, path: &str) -> Option<ComputedRouteMeta> {
-        self.snapshot.get_computed_metadata(path)
-    }
-
-    pub(super) fn current_path(&self) -> Option<&str> {
-        self.snapshot.current_path()
+    pub(super) fn metadata_plan(&self) -> ComputedRouteMeta {
+        self.snapshot.metadata_plan()
     }
 
     pub(super) fn current_uri(&self) -> Option<&http::Uri> {
@@ -136,10 +139,6 @@ impl RouteContext {
         resolved: Option<ResolvedMetadata>,
     ) {
         self.snapshot.restore_metadata(metadata, resolved);
-    }
-
-    pub(super) fn resolve_metadata(&mut self) -> Option<ResolvedMetadata> {
-        self.snapshot.resolve_metadata()
     }
 }
 
@@ -219,6 +218,8 @@ where
             ROUTE_CONTEXT.with(|ctx| {
                 let mut ctx = ctx.borrow_mut();
                 ctx.set_current_uri(uri);
+                ctx.snapshot
+                    .set_current_route_pattern(self.route_pattern.clone());
                 let (previous_metadata, previous_resolved) = ctx.swap_metadata(self.metadata.arc());
                 let previous_route_params = ctx.swap_route_params(route_params);
                 (previous_metadata, previous_resolved, previous_route_params)
@@ -311,6 +312,7 @@ pub struct RouteContextLayer {
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
+    metadata_base: Option<MetadataBase>,
 }
 
 impl RouteContextLayer {
@@ -324,7 +326,14 @@ impl RouteContextLayer {
             computed_metadata,
             local_stream_executor: LocalStreamExecutor::new(LocalStreamExecutorConfig::default()),
             base_path: proa_core::BasePath::default(),
+            metadata_base: None,
         }
+    }
+
+    /// Set a deployment's public base URL, including its mount prefix.
+    pub fn with_metadata_base(mut self, base: MetadataBase) -> Self {
+        self.metadata_base = Some(base);
+        self
     }
 
     /// Set the public mount prefix without changing incoming routes.
@@ -360,6 +369,7 @@ impl<S> Layer<S> for RouteContextLayer {
             computed_metadata: self.computed_metadata.clone(),
             local_stream_executor: self.local_stream_executor.clone(),
             base_path: self.base_path.clone(),
+            metadata_base: self.metadata_base.clone(),
         }
     }
 }
@@ -371,6 +381,7 @@ pub struct RouteContextService<S> {
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
+    metadata_base: Option<MetadataBase>,
 }
 
 impl<S> Service<axum::http::Request<Body>> for RouteContextService<S>
@@ -405,6 +416,11 @@ where
         context.set_current_request_parts(current_method, current_headers, current_uri);
         context.set_csp_nonce(csp_nonce);
         context.base_path = self.base_path.clone();
+        context.metadata_base = req
+            .extensions()
+            .get::<MetadataBase>()
+            .cloned()
+            .or_else(|| self.metadata_base.clone());
 
         let future = self.inner.call(req);
         let scoped = ROUTE_CONTEXT.scope(RefCell::new(context), future);

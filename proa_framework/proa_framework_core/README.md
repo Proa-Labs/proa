@@ -71,12 +71,16 @@ actually uphold it.
 |---|---|
 | `route_spec` | `RouteSpec` / `ResolvedRouteSpec` route tables, `RouteMode` (static vs dynamic), static-path enumeration, metadata map computation |
 | `route_snapshot` | `FrameworkRouteSnapshot` and route-pattern parameter extraction |
-| `metadata` | The `Metadata` trait and `CascadeValue` cascade (titles, meta tags) resolved per route |
+| `metadata` | Request-aware `Metadata` providers, owned-or-borrowed patches, static-prefix plans, URL resolution and head rendering |
 | `response` | The opaque `RouteResponse` render plan, `FrameworkStreamFactory`, and portable finalizers for buffered and streamed responses |
 | `manifest` | `IslandManifest`, asset entries, and hydration strategy config produced at build time |
 | `bootstrap` | Renders the island bootstrap script for the islands a page actually used |
 
 ## Writing an adapter
+
+The [metadata design and migration guide](../../docs/design/request-aware-metadata.md)
+describes request inputs, shared loader access, static precomputation and
+metadata resolution before the first document bytes.
 
 An adapter owns everything IO-shaped. The contract surface it implements:
 

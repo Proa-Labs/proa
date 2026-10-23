@@ -1,101 +1,189 @@
 ---
 title: Metadata and OG images
-description: Compose titles, descriptions, and social preview images.
+description: Generate request-aware titles, descriptions, and social preview images.
 ---
 
-Proa metadata is resolved from the current route context. Layouts and pages can both provide metadata; the framework precomputes a metadata map from the route specification and exposes helpers for rendering the current route's head tags.
+Layouts and pages provide metadata for each request. Providers can read route
+params, search params and headers, load data through the page's loader, and
+extend their parent's metadata. Proa resolves the result before rendering the
+document head, including for streamed responses.
 
-## Title-Only Pages
+## Title-only pages
 
-`Route::page` creates title-only metadata:
+`Route::page` creates metadata that can be precomputed:
 
 ```rust
 Route::page("/pricing", "Pricing", get(pricing))
 ```
 
-Use this for simple pages where layout defaults provide the rest.
+## Static metadata
 
-## Custom Metadata
+Implement `static_metadata` for values that never depend on the request or
+parent. Layouts implement `Metadata` as well as `Layout`:
 
-Implement `Metadata` for full control:
+```rust
+use proa_framework_axum::{CascadeValue, Metadata, MetadataPatch};
+
+impl Metadata for AppLayout {
+    fn static_metadata(&self) -> Option<MetadataPatch> {
+        Some(MetadataPatch {
+            title: CascadeValue::Set("%s - My Site".into()),
+            description: CascadeValue::Set("A Proa application.".into()),
+            ..Default::default()
+        })
+    }
+}
+```
+
+Literal strings stay borrowed. Proa precomputes the static prefix of each
+route's provider stack and resolves the rest per request.
+
+## Request-aware metadata
+
+For immediate metadata, implement `metadata`:
 
 ```rust
 use proa_framework_axum::{
-    CascadeOpenGraph, CascadeValue, Metadata, OpenGraphImage,
+    CascadeValue, Metadata, MetadataContext, MetadataPatch, ResolvedMetadata,
 };
 
-pub struct PricingMeta;
+struct SearchMetadata;
 
-impl Metadata for PricingMeta {
-    fn title(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("Pricing")
-    }
+impl Metadata for SearchMetadata {
+    fn metadata(&self, cx: &MetadataContext<'_>, _parent: &ResolvedMetadata) -> MetadataPatch {
+        let query = cx.search_params()
+            .find(|(key, _)| key == "q")
+            .map(|(_, value)| value.into_owned())
+            .unwrap_or_default();
 
-    fn description(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("Plans and deployment options for Proa.")
-    }
-
-    fn open_graph(&self) -> CascadeOpenGraph {
-        static IMAGES: [OpenGraphImage; 1] = [
-            OpenGraphImage::new("https://proa.so/static/og/pricing.png")
-                .with_dimensions(1200, 630)
-                .with_alt("Proa pricing"),
-        ];
-
-        CascadeOpenGraph {
-            images: CascadeValue::Set(&IMAGES),
+        MetadataPatch {
+            title: CascadeValue::Set(format!("Search: {query}").into()),
             ..Default::default()
         }
     }
 }
-
-static PRICING_META: PricingMeta = PricingMeta;
-
-let route = Route::page_with_metadata("/pricing", get(pricing), &PRICING_META);
 ```
 
-## Layout Metadata
+`cx.param("slug")` reads a route param. `cx.search_params()` yields decoded
+query pairs, preserving duplicate keys. `cx.request` exposes headers, cookies,
+location and the configured base path.
 
-Layouts implement `Metadata` as well as `Layout`, so they can provide defaults:
+## Generated metadata and shared data
+
+Use `generate_metadata` when metadata needs to await data:
 
 ```rust
-impl Metadata for AppLayout {
-    fn title(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("%s - Proa")
-    }
+use proa_core::LoadKey;
+use proa_framework_axum::{
+    CascadeValue, Metadata, MetadataContext, MetadataOutcome, MetadataPatch,
+    ResolvedMetadata,
+};
 
-    fn description(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("A Proa application.")
+#[derive(serde::Deserialize)]
+struct Post {
+    title: String,
+    description: String,
+}
+
+struct PostMetadata;
+
+impl Metadata for PostMetadata {
+    fn generate_metadata<'a>(
+        &'a self,
+        cx: MetadataContext<'a>,
+        _parent: &'a ResolvedMetadata,
+    ) -> MetadataOutcome<'a> {
+        MetadataOutcome::pending(async move {
+            let slug = cx.param("slug").unwrap_or_default();
+            let post: Post = cx.load_json(LoadKey::named("post", slug)).await?;
+            Ok(MetadataPatch {
+                title: CascadeValue::Set(post.title.into()),
+                description: CascadeValue::Set(post.description.into()),
+                canonical: CascadeValue::Set(format!("/blog/{slug}").into()),
+                ..Default::default()
+            })
+        })
     }
 }
+
+let route = Route::page_with_metadata("/blog/:slug", get(post), &PostMetadata);
 ```
 
-Use layout metadata for site-wide title templates, default descriptions, and default Open Graph fields.
+Return an async `RouteResponse` from `post` and install the page's loader with
+`ssr_async_with_loader` or `ssr_stream_with_loader`. Metadata uses that same
+loader instance. A fresh `proa_stream::DataResolver::new_typed` per response
+deduplicates metadata and page loads with the same key. `load_typed` shares an
+already-materialized `Arc<T>`; JSON and bytes are supported too.
 
-## Rendering Head Tags
+If the page is synchronous but metadata is asynchronous, lift the page with
+`proa_core::to_async(page)` and use an async response constructor. Synchronous
+responses reject pending metadata. `MetadataOutcome::pending_local` supports
+local futures on ordinary `WebRender` routes; Send responses require `pending`.
 
-Inside a document layout, call the helpers while route context is installed:
+## Deployment URLs
+
+Configure a base from deployment settings so relative URLs work on staging
+and production:
 
 ```rust
-use proa_framework_axum::{render_css_link, render_metadata_head};
+use proa_framework_axum::MetadataBase;
 
-fn render_head(cx: &mut proa_core::WebContext) {
-    render_metadata_head(cx);
-    render_css_link(cx);
-}
+let metadata_base = MetadataBase::new(&std::env::var("PUBLIC_URL")?)?;
+let app = builder.with_metadata_base(metadata_base).build();
 ```
 
-`render_metadata_head` reads the resolved metadata for the current route. `render_css_link` reads the CSS asset path from the current `IslandManifest`.
+For `PUBLIC_URL=https://staging.example/app/`, `/blog/post` resolves to
+`https://staging.example/app/blog/post`. Include the public mount prefix in an
+explicit base. Absolute HTTP(S) URLs remain unchanged. Canonical and all Open
+Graph media URLs use the same resolution rules.
 
-## Clearing Inherited Values
+A provider may set `MetadataPatch::metadata_base`. Request middleware may
+instead supply a validated `MetadataBase` in request extensions. Without an
+explicit base, an absolute request URI supplies its origin plus `BasePath`.
+Origin-form requests have no scheme, so relative URLs require a configured
+base; Proa does not infer HTTPS from `Host` or forwarding headers.
 
-Use `CascadeValue::Tombstone` to explicitly clear an inherited field. This is useful for pages that should not inherit layout-level Open Graph images.
+## Parent values and lists
+
+`Unset` inherits and `Tombstone` clears. `Set` replaces, including lists. To
+append an image, explicitly extend the parent's images:
 
 ```rust
-CascadeOpenGraph {
-    images: CascadeValue::Tombstone,
+use proa_framework_axum::{OpenGraphPatch, ResolvedOpenGraphImage};
+
+let mut images = parent.open_graph.images.to_vec();
+images.push(ResolvedOpenGraphImage::new("/post-preview.png"));
+
+MetadataPatch {
+    open_graph: OpenGraphPatch {
+        images: CascadeValue::Set(images.into()),
+        ..Default::default()
+    },
     ..Default::default()
 }
 ```
 
-Use tombstones deliberately. Most routes should inherit sensible layout defaults.
+Parent values reflect earlier providers in the cascade. URL references are
+normalized after the final patch so the final metadata base applies to the
+whole document.
+
+## Rendering the head
+
+Axum's head helper supports any loader and writer:
+
+```rust
+fn render_head<L: proa_core::DataLoader, B: proa_core::WriteBuf>(
+    cx: &mut proa_core::WebContext<L, B>,
+) {
+    proa_framework_axum::render_metadata_head(cx);
+}
+```
+
+Use `render_metadata_head_send` for `SendWebContext`. To inspect the result in
+a local component, use `metadata_from_context(cx)`. Resolved metadata travels
+with the request into deferred streams and boundaries. Client-navigation
+responses use the generated title from that same resolution.
+
+Existing `title`, `description` and `open_graph` getter implementations remain
+supported. New providers should return a `MetadataPatch`; only explicitly
+static providers run at startup.
