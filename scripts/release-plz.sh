@@ -31,6 +31,9 @@ Environment:
   CARGO_REGISTRY_TOKEN        token used by Cargo for crates.io publication
   PROA_RELEASE_EXPECTED_SHA   optional expected HEAD (set by CI)
 
+Publication also accepts CARGO_REGISTRIES_CRATES_IO_TOKEN. Credentials saved
+by cargo login are not used; load the token into the environment explicitly.
+
 Pinned tools: release-plz ${RELEASE_PLZ_VERSION}, cargo-semver-checks ${SEMVER_CHECKS_VERSION}.
 Installation uses Rust ${RELEASE_TOOLS_TOOLCHAIN}; application builds keep rust-toolchain.toml.
 Local and CI releases use this wrapper and release-plz.toml. Live release-pr
@@ -133,7 +136,7 @@ run_release_plz() {
     fi
   fi
   if [[ "$command" == "release" && "$dry_run" == false && -z "$release_registry_token" ]]; then
-    echo "release requires CARGO_REGISTRY_TOKEN" >&2
+    echo "release requires CARGO_REGISTRY_TOKEN or CARGO_REGISTRIES_CRATES_IO_TOKEN; cargo login credentials are not used" >&2
     exit 1
   fi
 

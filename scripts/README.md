@@ -211,6 +211,12 @@ CLI trigger is:
 gh workflow run release-plz.yml --ref main -f command=check
 ```
 
+Every manual operation requires `main`; selecting another branch fails with
+an error before checkout or tool installation. Each operation has its own
+concurrency group, so a queued `release` is not replaced by a later `check`,
+`release-pr`, or `release-dry-run`. GitHub keeps only the newest pending run
+of the same operation; running manual operations are not cancelled.
+
 Configure these repository secrets once:
 
 | Actions secret | Local environment | Purpose |
@@ -228,6 +234,10 @@ Private-repository metadata access also needs the GitHub token during dry runs.
 The wrapper removes release-token environment variables during policy/archive
 checks and tool installation. Locally, `CARGO_REGISTRIES_CRATES_IO_TOKEN` is
 also accepted and normalized to `CARGO_REGISTRY_TOKEN` for publication.
+Local publication requires one of these environment variables. The wrapper
+does not use the token saved by `cargo login` in Cargo's credentials file;
+load the publishing token from your secret manager into the environment.
+This keeps credential selection explicit and consistent with Actions.
 
 For a normal release:
 

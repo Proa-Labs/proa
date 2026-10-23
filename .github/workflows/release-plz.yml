@@ -31,7 +31,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-plz-${{ github.event_name == 'workflow_dispatch' && 'manual' || github.event.pull_request.number }}
+  # A check must not replace a queued publication: GitHub retains only one
+  # pending run per group, even with cancel-in-progress disabled.
+  group: release-plz-${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', inputs.command) || github.event.pull_request.number }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -58,10 +60,19 @@ jobs:
     name: Run shared release flow
     # Run the audited workflow on main. The wrapper also checks the exact
     # current main commit immediately before a live PR or publication.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: gcp-pr-ci
     timeout-minutes: 120
     steps:
+      - name: Require main for manual dispatches
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          if [[ "$RELEASE_REF" != 'refs/heads/main' ]]; then
+            echo '::error::Release crates must run from main. Select main in Actions or pass --ref main to gh workflow run.'
+            exit 1
+          fi
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0

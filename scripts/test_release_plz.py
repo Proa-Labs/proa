@@ -249,13 +249,36 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("default: check", workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertIn("persist-credentials: false", workflow)
-        self.assertIn("if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("if: github.event_name == 'workflow_dispatch'", workflow)
         self.assertIn("run: scripts/release-plz.sh install", workflow)
         self.assertIn('run: scripts/release-plz.sh "$RELEASE_COMMAND"', workflow)
         for command in ("check", "release-pr", "release-dry-run", "release"):
             self.assertIn("          - " + command + "\n", workflow)
         self.assertIn("secrets.RELEASE_GITHUB_TOKEN", workflow)
         self.assertNotIn("cargo install release-plz", workflow)
+
+    def test_manual_commands_have_separate_pending_queues(self):
+        workflow = (ROOT / ".github/workflows/release-plz.yml").read_text()
+        concurrency = workflow.split("\nconcurrency:\n", 1)[1].split("\njobs:\n", 1)[0]
+        self.assertIn("format('manual-{0}', inputs.command)", concurrency)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", concurrency)
+
+    def test_manual_branch_guard_fails_before_checkout_or_installation(self):
+        workflow = (ROOT / ".github/workflows/release-plz.yml").read_text()
+        release = workflow.split("\n  release:\n", 1)[1]
+        first_step = release.split("    steps:\n", 1)[1].split("\n      - uses:", 1)[0]
+        self.assertIn("RELEASE_REF: ${{ github.ref }}", first_step)
+        script = first_step.split("        run: |\n", 1)[1]
+        script = "\n".join(line.removeprefix("          ") for line in script.splitlines())
+        for ref, expected in (("refs/heads/main", 0), ("refs/heads/my-branch", 1), ("refs/tags/v1.0.0", 1)):
+            with self.subTest(ref=ref):
+                result = subprocess.run(["bash", "-eu", "-c", script],
+                                        env={**os.environ, "RELEASE_REF": ref},
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                if expected:
+                    self.assertIn("::error::", result.stdout)
+                    self.assertIn("--ref main", result.stdout)
 
     def test_pr_checks_use_the_real_installer_without_release_secrets(self):
         workflow = (ROOT / ".github/workflows/release-plz.yml").read_text()
