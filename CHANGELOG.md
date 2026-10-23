@@ -4,6 +4,11 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- `Sitemap` and `RobotsTxt` build sitemap.xml and robots.txt from a public
+  origin, the runtime base path, and application paths. `sitemap_xml` and
+  `robots_txt` return Axum responses with the matching content types.
+  Query strings are XML-escaped, and robots fields reject CR/LF injection.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while

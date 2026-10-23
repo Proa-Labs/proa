@@ -8,6 +8,7 @@
     "routing",
     "linking",
     "route-handlers",
+    "sitemaps",
     "responses",
     "content-negotiation",
     "page-caching",

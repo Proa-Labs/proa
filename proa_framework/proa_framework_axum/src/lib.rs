@@ -9,6 +9,7 @@ pub mod config;
 pub mod csp;
 pub mod csrf;
 pub mod dev_reload;
+pub mod discovery;
 pub mod external;
 pub mod manifest;
 pub mod process_manager;
@@ -29,11 +30,16 @@ pub use config::{CodegenConfig, PathsConfig, ProaConfig, ServerConfig};
 pub use csp::{CspNonceLayer, CspPolicy};
 pub use csrf::CrossOriginProtectionLayer;
 pub use dev_reload::{DevReloadLayer, RELOAD_PORT_ENV, RELOAD_TOKEN_ENV};
+pub use discovery::{robots_txt, sitemap_xml};
 pub use external::{ExternalApp, ExternalAppStrategy};
 pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
 };
 pub use proa_core::{AppUrl, BasePath, CspNonce, InvalidBasePath};
+pub use proa_framework_core::{
+    absolute_http_url, ChangeFreq, DiscoveryError, RobotsGroup, RobotsRule, RobotsTxt, Sitemap,
+    SitemapPriority, SitemapUrl,
+};
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
     app_url, css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,

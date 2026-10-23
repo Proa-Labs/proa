@@ -1,0 +1,85 @@
+---
+title: Sitemaps and robots.txt
+description: Emit sitemap.xml and robots.txt with the public origin and runtime base path.
+---
+
+Search engines and crawlers need absolute URLs. When the app is mounted under a prefix, those URLs must include the prefix. `Sitemap` and `RobotsTxt` join the public origin, the runtime [base path](/docs/framework/deployment), and each application path, then write protocol-shaped documents.
+
+## Sitemap
+
+Build the document once at startup or per request, then return it from a route handler:
+
+```rust filename="src/endpoints/sitemap.rs"
+use axum::routing::get;
+use proa_core::BasePath;
+use proa_framework_axum::{
+    router_from_spec, sitemap_xml, ChangeFreq, Route, Sitemap, SitemapPriority, SitemapUrl,
+};
+
+async fn sitemap() -> impl axum::response::IntoResponse {
+    let base_path = BasePath::new(&std::env::var("PROA_BASE_PATH").unwrap_or_default())
+        .expect("PROA_BASE_PATH");
+    sitemap_xml(
+        &Sitemap::new("https://example.com")
+            .expect("public origin")
+            .with_base_path(base_path)
+            .with_url("/")
+            .expect("home")
+            .with_entry(
+                SitemapUrl::new("/pricing")
+                    .expect("pricing path")
+                    .lastmod("2026-10-23")
+                    .expect("lastmod")
+                    .changefreq(ChangeFreq::Weekly)
+                    .priority(SitemapPriority::tenths(8).expect("priority")),
+            ),
+    )
+}
+
+let (router, metadata) = router_from_spec(vec![
+    Route::endpoint("/sitemap.xml", get(sitemap)),
+]);
+```
+
+`with_base_path` uses the same `BasePath` the rest of the app uses for links and assets. A mount of `/apps/demo` turns `/pricing` into `https://example.com/apps/demo/pricing`. Absolute `http` and `https` entries pass through unchanged.
+
+Query strings are XML-escaped. `lastmod` is a `YYYY-MM-DD` date. Priority is stored in tenths from `0.0` to `1.0`.
+
+## robots.txt
+
+Point crawlers at that sitemap and keep ordinary allow/disallow rules:
+
+```rust filename="src/endpoints/robots.rs"
+use axum::routing::get;
+use proa_core::BasePath;
+use proa_framework_axum::{robots_txt, RobotsTxt, Route};
+
+async fn robots() -> impl axum::response::IntoResponse {
+    let base_path = BasePath::new(&std::env::var("PROA_BASE_PATH").unwrap_or_default())
+        .expect("PROA_BASE_PATH");
+    robots_txt(
+        &RobotsTxt::new()
+            .group("*")
+            .expect("user-agent")
+            .allow("/")
+            .expect("allow")
+            .disallow("/admin")
+            .expect("disallow")
+            .sitemap_path("https://example.com", &base_path, "/sitemap.xml")
+            .expect("sitemap"),
+    )
+}
+
+Route::endpoint("/robots.txt", get(robots))
+```
+
+`sitemap_path` joins origin, base path, and `/sitemap.xml` the same way the sitemap loc values are joined. `robots_txt` sets `text/plain; charset=utf-8`. Newlines in user-agent or path fields are rejected so a value cannot inject another robots directive.
+
+## Next steps
+
+- [Deployment](/docs/framework/deployment)
+  - Configure `PROA_BASE_PATH` for prefix-mounted hosts.
+- [Route handlers](/docs/framework/route-handlers)
+  - Register `/sitemap.xml` and `/robots.txt` as endpoints.
+- [Environment](/docs/framework/environment)
+  - Choose the public origin for absolute URLs.
