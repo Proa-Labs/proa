@@ -6,12 +6,12 @@ use std::sync::Arc;
 
 use axum::routing::MethodRouter;
 use axum::Router;
-use proa_framework_core::{compute_metadata_map, resolve_route_specs, ResolvedRouteSpec};
+use proa_framework_core::{collect_route_setups, resolve_route_specs, ResolvedRouteSpec};
 pub use proa_framework_core::{RouteMode, RouteSpec, StaticPathsFn};
 
-use super::context::{EndpointContextLayer, Stack};
+use super::context::EndpointContextLayer;
 use super::layout::LayoutRef;
-use super::metadata::{ComputedRouteMeta, MetadataRef};
+use super::metadata::RouteSetupPlan;
 
 /// Declarative route specification
 #[derive(Clone)]
@@ -19,7 +19,8 @@ pub struct Route<State: Clone + Send + Sync + 'static> {
     pub path: &'static str,
     pub endpoint: Option<MethodRouter<State>>,
     pub layout: Option<LayoutRef>,
-    pub metadata: Option<MetadataRef>, // For endpoints without layouts
+    /// Compatibility default; page declarations override this title.
+    pub title: Option<&'static str>,
     pub children: Vec<Route<State>>,
     pub route_mode: RouteMode,
     /// Optional function to generate static paths for dynamic routes at build time
@@ -36,8 +37,8 @@ where
         RouteSpec {
             path: self.path,
             has_endpoint: self.endpoint.is_some(),
-            layout_metadata: self.layout.map(|layout| layout as MetadataRef),
-            metadata: self.metadata,
+            layout: self.layout,
+            title: self.title,
             children: self.children.iter().map(Self::spec).collect(),
             route_mode: self.route_mode,
             static_paths: self.static_paths,
@@ -50,7 +51,7 @@ where
             path,
             endpoint: Some(router),
             layout: None,
-            metadata: None,
+            title: None,
             children: Vec::new(),
             route_mode: RouteMode::default(),
             static_paths: None,
@@ -64,25 +65,7 @@ where
             path,
             endpoint: Some(router),
             layout: None,
-            metadata: Some(Box::leak(Box::new(super::metadata::TitleOnly::new(title)))),
-            children: Vec::new(),
-            route_mode: RouteMode::default(),
-            static_paths: None,
-            page_cache: None,
-        }
-    }
-
-    /// Creates a route with an endpoint and full metadata
-    pub fn page_with_metadata(
-        path: &'static str,
-        router: MethodRouter<State>,
-        metadata: MetadataRef,
-    ) -> Self {
-        Self {
-            path,
-            endpoint: Some(router),
-            layout: None,
-            metadata: Some(metadata),
+            title: Some(title),
             children: Vec::new(),
             route_mode: RouteMode::default(),
             static_paths: None,
@@ -99,7 +82,7 @@ where
             path,
             endpoint: None,
             layout: Some(layout),
-            metadata: None,
+            title: None,
             children,
             route_mode: RouteMode::default(),
             static_paths: None,
@@ -138,10 +121,10 @@ where
 
     /// Convert this route and its children into a router for `Router::merge`.
     ///
-    /// Endpoint layers retain resolved metadata stacks and route parameters.
+    /// Endpoint layers retain ordered layout setup plans and route parameters.
     /// Mount through `FrameworkBuilder` or install `RouteContextLayer` to
     /// establish the framework request context. Use `router_from_spec` when
-    /// the caller also needs the precomputed metadata map.
+    /// the caller also needs the ordered route setup plans.
     pub fn into_router(self) -> Router<State> {
         router_from_spec(vec![self]).0
     }
@@ -149,12 +132,6 @@ where
     /// Builder method to add a layout
     pub fn with_layout(mut self, layout: LayoutRef) -> Self {
         self.layout = Some(layout);
-        self
-    }
-
-    /// Builder method to add metadata
-    pub fn with_metadata(mut self, metadata: MetadataRef) -> Self {
-        self.metadata = Some(metadata);
         self
     }
 
@@ -195,15 +172,15 @@ where
 }
 
 /// Builds an Axum Router from a declarative route specification
-/// Returns the router and the precomputed metadata map
+/// Returns the router and the ordered route setup plans
 pub fn router_from_spec<State>(
     routes: Vec<Route<State>>,
-) -> (Router<State>, Arc<HashMap<String, ComputedRouteMeta>>)
+) -> (Router<State>, Arc<HashMap<String, RouteSetupPlan>>)
 where
     State: Clone + Send + Sync + 'static,
 {
     let route_specs: Vec<RouteSpec> = routes.iter().map(Route::spec).collect();
-    let computed_metadata = Arc::new(compute_metadata_map(&route_specs));
+    let route_setups = Arc::new(collect_route_setups(&route_specs));
     let resolved_specs = resolve_route_specs(&route_specs);
 
     // Second pass: build the router
@@ -214,7 +191,7 @@ where
             router.merge(into_router(route, resolved))
         });
 
-    (router, computed_metadata)
+    (router, route_setups)
 }
 
 fn into_router<State>(route: Route<State>, resolved: ResolvedRouteSpec) -> Router<State>
@@ -225,14 +202,14 @@ where
         path: _,
         endpoint,
         layout: _,
-        metadata: _,
+        title: _,
         children,
         route_mode: _,
         static_paths: _,
         page_cache,
     } = route;
 
-    let metadata_stack_arc = Stack::from_slice(&resolved.metadata_stack);
+    let setup_plan = resolved.setup_plan;
 
     let mut router = Router::new();
 
@@ -242,7 +219,7 @@ where
             None => method_router,
         };
         let method_router = method_router.layer(EndpointContextLayer::new(
-            metadata_stack_arc.clone(),
+            setup_plan.clone(),
             Arc::from(resolved.full_path.as_str()),
         ));
         router = router.route(resolved.full_path.as_str(), method_router);

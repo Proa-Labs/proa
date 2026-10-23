@@ -66,6 +66,8 @@ pub enum WriteError {
     RawTextUnsupportedForDialect,
     /// Render-time data loading failed.
     Load(LoadError),
+    /// A rejected metadata declaration or emission. Never boundary-catchable.
+    Metadata(crate::MetadataError),
     /// The streaming response sink closed before the render finished.
     StreamClosed,
     /// A runtime renderer failed outside the write path itself.
@@ -140,6 +142,7 @@ impl core::fmt::Display for WriteError {
                 write!(f, "raw-text escaping is unsupported for output dialect")
             }
             WriteError::Load(err) => write!(f, "load failed: {err}"),
+            WriteError::Metadata(error) => write!(f, "metadata failed: {error}"),
             WriteError::StreamClosed => write!(f, "stream closed"),
             WriteError::Render(msg) => write!(f, "render failed: {msg}"),
         }
@@ -151,6 +154,12 @@ impl std::error::Error for WriteError {}
 impl From<LoadError> for WriteError {
     fn from(value: LoadError) -> Self {
         Self::Load(value)
+    }
+}
+
+impl From<crate::MetadataError> for WriteError {
+    fn from(value: crate::MetadataError) -> Self {
+        Self::Metadata(value)
     }
 }
 

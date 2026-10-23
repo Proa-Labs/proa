@@ -381,7 +381,7 @@ use axum::routing::{get, post};
 
 // ... inside router(), between the markers the generator maintains:
 
-let (router, metadata) = router_from_spec(vec![
+let (router, setups) = router_from_spec(vec![
     // proa:route-specs:start
     Route::endpoint("/", get(pages::home::handler)),
     Route::endpoint("/products", get(pages::products::handler)),

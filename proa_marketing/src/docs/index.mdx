@@ -229,7 +229,7 @@ pub mod home;
 Register it in `src/routes.rs`, between the markers the generator maintains:
 
 ```rust
-let (router, metadata) = router_from_spec(vec![
+let (router, setups) = router_from_spec(vec![
     // proa:route-specs:start
     Route::endpoint("/", get(pages::home::handler)),
     Route::endpoint("/about", get(pages::about::handler)),

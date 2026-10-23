@@ -347,7 +347,10 @@ where
             3 => "Pre-allocated buffers",
             _ => "Minimal heap allocations",
         });
-        html_sync! { <li class="feature-item">{text}</li> }.render(cx)
+        html_sync! {
+            <li class="feature-item">{text}</li>
+        }
+        .render(cx)
     }
 }
 
@@ -568,7 +571,123 @@ fn bench_context_parts_page(c: &mut Criterion) {
     streaming_group.finish();
 }
 
-criterion_group!(benches, bench_context_parts_page);
+fn bench_document_metadata(c: &mut Criterion) {
+    use proa_core::{DocumentMetadata, Metadata, OpenGraphImage, SendWebContext};
+    eprintln!(
+        "metadata context sizes: local={} send={} facade={} parts={}",
+        std::mem::size_of::<WebContext>(),
+        std::mem::size_of::<SendWebContext>(),
+        std::mem::size_of::<DocumentMetadata>(),
+        std::mem::size_of::<proa_core::WebContextParts>()
+    );
+    let mut bytes = Vec::with_capacity(4096);
+    let mut cx = WebContext::with_buffer(&mut bytes);
+    let unused = count_allocations(|| {
+        cx.metadata(Metadata::new()).unwrap();
+    });
+    assert_eq!(unused, 0);
+    let static_declaration = count_allocations(|| {
+        cx.metadata(
+            Metadata::new()
+                .title("Store")
+                .title_template("%s | Store")
+                .open_graph(|og| {
+                    og.site_name("Store");
+                }),
+        )
+        .unwrap();
+        cx.__next_metadata_route_scope().unwrap();
+        cx.metadata(
+            Metadata::new()
+                .title("Pricing")
+                .canonical("https://example.com/pricing"),
+        )
+        .unwrap();
+    });
+    let static_emission = count_allocations(|| {
+        cx.metadata.head().render(&mut cx).unwrap();
+    });
+    assert_eq!(static_declaration, 1);
+    assert_eq!(static_emission, 0);
+    drop(cx);
+    let mut cx = WebContext::with_buffer(&mut bytes);
+    let dynamic = count_allocations(|| {
+        cx.metadata(
+            Metadata::new()
+                .title(String::from("A dynamic title"))
+                .open_graph(|og| {
+                    og.image(
+                        OpenGraphImage::new(String::from("https://example.com/front.png"))
+                            .with_alt(String::from("Front")),
+                    );
+                    og.image(String::from("https://example.com/back.png"));
+                }),
+        )
+        .unwrap();
+    });
+    let dynamic_emission = count_allocations(|| {
+        cx.metadata.head().render(&mut cx).unwrap();
+    });
+    assert_eq!(dynamic_emission, 0);
+    eprintln!("metadata allocations (preallocated writer): empty={unused}; static layout+page declarations={static_declaration}, emission={static_emission}; dynamic title+2 images declarations={dynamic}, emission={dynamic_emission}; bytes={}", cx.out.len());
+    let mut group = c.benchmark_group("document_metadata");
+    group.sample_size(100);
+    group.warm_up_time(Duration::from_secs(1));
+    group.measurement_time(Duration::from_secs(3));
+    group.bench_function("static_layout_and_page", |b| {
+        b.iter_batched(
+            || WebContext::with_buffer(Vec::with_capacity(4096)),
+            |mut cx| {
+                cx.metadata(
+                    Metadata::new()
+                        .title("Store")
+                        .title_template("%s | Store")
+                        .open_graph(|og| {
+                            og.site_name("Store");
+                        }),
+                )
+                .unwrap();
+                cx.__next_metadata_route_scope().unwrap();
+                cx.metadata(
+                    Metadata::new()
+                        .title("Pricing")
+                        .canonical("https://example.com/pricing"),
+                )
+                .unwrap();
+                cx.metadata.head().render(&mut cx).unwrap();
+                black_box(cx.out.len());
+                cx
+            },
+            criterion::BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("owned_title_and_two_images", |b| {
+        b.iter_batched(
+            || WebContext::with_buffer(Vec::with_capacity(4096)),
+            |mut cx| {
+                cx.metadata(
+                    Metadata::new()
+                        .title(String::from("A dynamic title"))
+                        .open_graph(|og| {
+                            og.image(
+                                OpenGraphImage::new(String::from("https://example.com/front.png"))
+                                    .with_alt(String::from("Front")),
+                            );
+                            og.image(String::from("https://example.com/back.png"));
+                        }),
+                )
+                .unwrap();
+                cx.metadata.head().render(&mut cx).unwrap();
+                black_box(cx.out.len());
+                cx
+            },
+            criterion::BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
+criterion_group!(benches, bench_context_parts_page, bench_document_metadata);
 
 fn main() {
     verify_contract();

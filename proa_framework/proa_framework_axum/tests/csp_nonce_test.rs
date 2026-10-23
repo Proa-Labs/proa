@@ -42,7 +42,7 @@ fn empty_manifest() -> IslandManifest {
 fn builder_with_routes(routes: Vec<Route<()>>) -> FrameworkBuilder {
     let (router, computed_metadata) = router_from_spec(routes);
     FrameworkBuilder::new(empty_manifest())
-        .with_dynamic_routes_and_metadata(router, computed_metadata)
+        .with_dynamic_routes_and_setups(router, computed_metadata)
 }
 
 struct ReadySection;

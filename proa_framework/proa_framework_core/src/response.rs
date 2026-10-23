@@ -42,6 +42,7 @@ use crate::bootstrap::{
     render_bootstrap_for_islands, render_bootstrap_for_islands_with_import_map,
 };
 use crate::manifest::IslandManifest;
+use crate::metadata::{prepare_layouts, prepare_layouts_send};
 
 /// A response stream that may retain request-local, non-`Send` render state.
 ///
@@ -637,13 +638,15 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         request: &FrameworkRequestContext,
     ) -> FrameworkResponse {
         let Self { plan, .. } = self;
-        let html = match plan {
-            RoutePlan::Sync(component) => match render_sync_component_to_html(component, request) {
-                Ok(html) => html,
-                Err(err) => {
-                    return framework_error_response(err);
+        let rendered = match plan {
+            RoutePlan::Sync(component) => {
+                match render_sync_component_to_html(component, request, page_title) {
+                    Ok(rendered) => rendered,
+                    Err(err) => {
+                        return framework_error_response(err);
+                    }
                 }
-            },
+            }
             RoutePlan::Async {
                 component, loader, ..
             } => {
@@ -654,10 +657,11 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                     &request,
                     loader,
                     RenderMode::Static,
+                    page_title,
                 )
                 .await
                 {
-                    Ok(html) => html,
+                    Ok(rendered) => rendered,
                     Err(err) => return framework_error_response(err),
                 }
             }
@@ -666,15 +670,21 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             } => {
                 let mut request = request.clone();
                 request.render_mode = RenderMode::Static;
-                match render_send_component_to_html(component, &request, loader, RenderMode::Static)
-                    .await
+                match render_send_component_to_html(
+                    component,
+                    &request,
+                    loader,
+                    RenderMode::Static,
+                    page_title,
+                )
+                .await
                 {
-                    Ok(html) => html,
+                    Ok(rendered) => rendered,
                     Err(err) => return framework_error_response(err),
                 }
             }
         };
-        encode_client_payload(html, page_title)
+        encode_client_payload(rendered)
     }
 
     fn into_sync_framework_response(
@@ -698,8 +708,8 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 render_sync_html_response(component, islands, bootstrap, manifest, request)
             }
             RouteFinalizeMode::ClientPayload { page_title } => {
-                match render_sync_component_to_html(component, request) {
-                    Ok(html) => Ok(encode_client_payload(html, page_title)),
+                match render_sync_component_to_html(component, request, page_title) {
+                    Ok(rendered) => Ok(encode_client_payload(rendered)),
                     Err(err) => Ok(framework_error_response(err)),
                 }
             }
@@ -707,15 +717,18 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     }
 }
 
-fn encode_client_payload(html: String, page_title: Option<String>) -> FrameworkResponse {
-    let mut payload = serde_json::json!({
-        "html": html,
-    });
-
-    if let Some(title) = page_title {
-        payload["title"] = serde_json::json!(title);
+/// Defaults have already participated in rendering; never restore a cleared title.
+fn encode_client_payload(rendered: ClientPayloadHtml) -> FrameworkResponse {
+    #[derive(serde::Serialize)]
+    struct ClientPayload<'a> {
+        html: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<&'a str>,
     }
-
+    let payload = ClientPayload {
+        html: &rendered.html,
+        title: rendered.title.as_deref(),
+    };
     match serde_json::to_vec(&payload) {
         Ok(bytes) => FrameworkResponse::json(Bytes::from(bytes)),
         Err(_) => {
@@ -982,6 +995,7 @@ pub fn render_sync_html_response(
     let (render_artifacts, shared_seed_table_json, response_context, buffer) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
+        prepare_layouts(&mut ctx)?;
         component.render_sync_dyn(&mut ctx)?;
         let state = (
             ctx.render_artifacts_snapshot(),
@@ -1039,6 +1053,7 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
             WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(request.render_mode);
         install_request_context(&mut ctx, request);
+        prepare_layouts(&mut ctx)?;
         drive_dyn_render(component.render_dyn(&mut ctx)).await?;
         let state = (
             ctx.render_artifacts_snapshot(),
@@ -1096,6 +1111,7 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
             SendWebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(request.render_mode);
         install_send_request_context(&mut ctx, request);
+        prepare_layouts_send(&mut ctx)?;
         drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
         let (buffer, artifacts, response) = ctx.into_output_render_artifacts_and_response();
         (artifacts, response, buffer)
@@ -1235,14 +1251,30 @@ where
     })
 }
 
+/// A rendered client navigation payload and the title its metadata resolved.
+struct ClientPayloadHtml {
+    html: String,
+    title: Option<String>,
+}
+
 fn render_sync_component_to_html(
     component: Box<dyn DynWebRenderSync<NoLoader, RenderBuffer> + Send>,
     request: &FrameworkRequestContext,
-) -> Result<String, FrameworkError> {
+    fallback_title: Option<String>,
+) -> Result<ClientPayloadHtml, FrameworkError> {
+    let title;
     let (rsjs_artifacts, shared_seed_table_json, buffer) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
+        ctx.__metadata_title_only()?;
+        // A fallback is a default, not a second resolution pass after the page.
+        if let Some(title) = fallback_title {
+            ctx.metadata(proa_core::Metadata::new().title(title))
+                .map_err(WriteError::from)?;
+        }
+        prepare_layouts(&mut ctx)?;
         component.render_sync_dyn(&mut ctx)?;
+        title = ctx.metadata_title();
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
@@ -1267,7 +1299,9 @@ fn render_sync_component_to_html(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok(std::str::from_utf8(&buffer)?.to_owned())
+    let html =
+        String::from_utf8(buffer).map_err(|error| FrameworkError::Encoding(error.utf8_error()))?;
+    Ok(ClientPayloadHtml { html, title })
 }
 
 async fn render_async_component_to_html<L: DataLoader + 'static>(
@@ -1275,13 +1309,23 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     render_mode: RenderMode,
-) -> Result<String, FrameworkError> {
+    fallback_title: Option<String>,
+) -> Result<ClientPayloadHtml, FrameworkError> {
+    let title;
     let (rsjs_artifacts, shared_seed_table_json, buffer) = {
         let mut ctx =
             WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(render_mode);
         install_request_context(&mut ctx, request);
+        ctx.__metadata_title_only()?;
+        // A fallback is a default, not a second resolution pass after the page.
+        if let Some(title) = fallback_title {
+            ctx.metadata(proa_core::Metadata::new().title(title))
+                .map_err(WriteError::from)?;
+        }
+        prepare_layouts(&mut ctx)?;
         drive_dyn_render(component.render_dyn(&mut ctx)).await?;
+        title = ctx.metadata_title();
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
@@ -1306,7 +1350,9 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok(std::str::from_utf8(&buffer)?.to_owned())
+    let html =
+        String::from_utf8(buffer).map_err(|error| FrameworkError::Encoding(error.utf8_error()))?;
+    Ok(ClientPayloadHtml { html, title })
 }
 
 async fn render_send_component_to_html<L: DataLoader + 'static>(
@@ -1314,13 +1360,23 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     render_mode: RenderMode,
-) -> Result<String, FrameworkError> {
+    fallback_title: Option<String>,
+) -> Result<ClientPayloadHtml, FrameworkError> {
+    let title;
     let (rsjs_artifacts, buffer) = {
         let mut ctx =
             SendWebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(render_mode);
         install_send_request_context(&mut ctx, request);
+        ctx.__metadata_title_only()?;
+        // A fallback is a default, not a second resolution pass after the page.
+        if let Some(title) = fallback_title {
+            ctx.metadata(proa_core::Metadata::new().title(title))
+                .map_err(WriteError::from)?;
+        }
+        prepare_layouts_send(&mut ctx)?;
         drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
+        title = ctx.metadata_title();
         let (buffer, artifacts) = ctx.into_output_and_render_artifacts();
         (artifacts.rsjs, buffer)
     };
@@ -1343,7 +1399,9 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok(std::str::from_utf8(&buffer)?.to_owned())
+    let html =
+        String::from_utf8(buffer).map_err(|error| FrameworkError::Encoding(error.utf8_error()))?;
+    Ok(ClientPayloadHtml { html, title })
 }
 
 fn framework_error_response(err: FrameworkError) -> FrameworkResponse {
@@ -1398,6 +1456,7 @@ where
                 ctx.set_render_mode(request.render_mode);
                 install_request_context(&mut ctx, &request);
                 ctx.response_mut().mark_streaming_started();
+                prepare_layouts(&mut ctx)?;
                 ctx.set_stream_recorder(Rc::clone(&recorder));
                 drive_dyn_render(component.render_dyn(&mut ctx)).await?;
                 let state = (
@@ -1573,6 +1632,7 @@ where
                 ctx.set_render_mode(request.render_mode);
                 install_send_request_context(&mut ctx, &request);
                 ctx.response_mut().mark_streaming_started();
+                prepare_layouts_send(&mut ctx)?;
                 ctx.set_stream_recorder(Arc::clone(&recorder));
                 drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
                 let (output, artifacts) = ctx.into_output_and_render_artifacts();
@@ -1764,6 +1824,7 @@ where
                     ctx.set_render_mode(request.render_mode);
                     install_request_context(&mut ctx, &request);
                     ctx.response_mut().mark_streaming_started();
+                    prepare_layouts(&mut ctx)?;
                     ctx.set_stream_chunk_flusher(flusher);
                     drive_dyn_render(component.render_dyn(&mut ctx)).await?;
                     let state = (
@@ -1883,6 +1944,7 @@ where
                     ctx.set_render_mode(request.render_mode);
                     install_send_request_context(&mut ctx, &request);
                     ctx.response_mut().mark_streaming_started();
+                    prepare_layouts_send(&mut ctx)?;
                     ctx.set_stream_chunk_flusher(flusher);
                     drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
                     let (output, artifacts) = ctx.into_output_and_render_artifacts();

@@ -38,12 +38,11 @@ pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
     app_url, css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
     explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader, render_css_link,
-    render_metadata_head, resolved_metadata, router_from_spec, CascadeOpenGraph, CascadeValue,
-    ComputedRouteMeta, DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend,
-    Layout, LayoutRef, LocalStreamExecutorConfig, MarkdownAlternate, Metadata, MetadataRef,
-    OpenGraph, OpenGraphImage, OpenGraphMedia, PageCacheLayer, PageCacheService,
-    RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage, ResolvedOpenGraphMedia,
-    Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec, StaticPathsFn,
+    render_metadata_head, render_metadata_head_send, router_from_spec, DynRenderOutcome,
+    DynSendRenderOutcome, DynWebRender, DynWebRenderSend, Layout, LayoutRef,
+    LocalStreamExecutorConfig, MarkdownAlternate, Metadata, MetadataError, OpenGraph,
+    OpenGraphImage, PageCacheLayer, PageCacheService, RepresentationResponse, Route,
+    RouteContextLayer, RouteMode, RouteResponse, RouteSetupPlan, RouteSpec, StaticPathsFn,
 };
 pub use rsjs_assets::rsjs_assets_router;
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};
@@ -112,7 +111,7 @@ pub struct FrameworkBuilder {
     config: ProaConfig,
     static_router: Option<Router>,
     dynamic_router: Option<Router>,
-    computed_metadata: Option<Arc<HashMap<String, ComputedRouteMeta>>>,
+    route_setups: Option<Arc<HashMap<String, RouteSetupPlan>>>,
     external_apps: Vec<ExternalApp>,
     process_manager: process_manager::ProcessManager,
     /// Global request-body size limit applied via `DefaultBodyLimit`
@@ -150,7 +149,7 @@ impl FrameworkBuilder {
             config: ProaConfig::default(),
             static_router: None,
             dynamic_router: None,
-            computed_metadata: None,
+            route_setups: None,
             external_apps: Vec::new(),
             process_manager: process_manager::ProcessManager::new(),
             body_limit: None,
@@ -341,13 +340,13 @@ impl FrameworkBuilder {
         self
     }
 
-    pub fn with_dynamic_routes_and_metadata(
+    pub fn with_dynamic_routes_and_setups(
         mut self,
         router: Router,
-        metadata: Arc<HashMap<String, ComputedRouteMeta>>,
+        setups: Arc<HashMap<String, RouteSetupPlan>>,
     ) -> Self {
         self.dynamic_router = Some(router);
-        self.computed_metadata = Some(metadata);
+        self.route_setups = Some(setups);
         self
     }
 
@@ -390,7 +389,7 @@ impl FrameworkBuilder {
             config,
             static_router,
             dynamic_router,
-            computed_metadata,
+            route_setups,
             external_apps,
             process_manager,
             body_limit,
@@ -433,8 +432,8 @@ impl FrameworkBuilder {
             app = app.merge(dynamic_router);
         }
 
-        let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
-        let layer = RouteContextLayer::new(manifest.clone(), computed_metadata)
+        let route_setups = route_setups.unwrap_or_else(|| Arc::new(HashMap::new()));
+        let layer = RouteContextLayer::new(manifest.clone(), route_setups)
             .with_base_path(base_path)
             .with_local_stream_executor_config(local_stream_executor);
         app = app.layer(layer);

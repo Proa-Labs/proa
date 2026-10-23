@@ -94,7 +94,7 @@ use proa_framework_axum::FrameworkBuilder;
 
 let app = FrameworkBuilder::new(manifest)
     .with_rsjs_assets()
-    .with_dynamic_routes_and_metadata(routes, metadata)
+    .with_dynamic_routes_and_setups(routes, setups)
     .build();
 ```
 

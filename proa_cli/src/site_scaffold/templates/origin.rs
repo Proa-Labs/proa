@@ -582,7 +582,6 @@ heapless = {{ version = "0.8" }}
 proa_actions = {{ version = "0.3.0" }}
 proa_core = {{ version = "0.3.0" }}
 proa_fonts = {{ version = "0.1.0" }}
-proa_fonts_macros = {{ version = "0.1.0" }}
 proa_framework_axum = {{ version = "0.3.0" }}
 proa_ir = {{ version = "0.1.2" }}
 proa_macros = {{ version = "0.3.0" }}
@@ -630,8 +629,7 @@ const_format = {{ version = "0.2" }}
 heapless = {{ workspace = true }}
 proa_actions = {{ workspace = true }}
 proa_core = {{ workspace = true }}
-proa_fonts = {{ workspace = true, features = ["render"] }}
-proa_fonts_macros = {{ workspace = true }}
+proa_fonts = {{ workspace = true, features = ["render", "macros"] }}
 proa_framework_axum = {{ workspace = true }}
 proa_ir = {{ workspace = true }}
 proa_macros = {{ workspace = true }}

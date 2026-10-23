@@ -3115,6 +3115,7 @@ dependencies = [
  "http-body-util",
  "proa_core",
  "proa_framework_axum",
+ "proa_framework_core",
  "proa_macros",
  "proa_showcase",
  "proa_stream",
@@ -3261,6 +3262,8 @@ name = "proa_fonts"
 version = "0.1.0"
 dependencies = [
  "proa_core",
+ "proa_fonts_macros",
+ "proa_fonts_types",
 ]
 
 [[package]]
@@ -3285,7 +3288,6 @@ dependencies = [
 name = "proa_fonts_macros"
 version = "0.1.0"
 dependencies = [
- "proa_fonts",
  "proa_fonts_parse",
  "proc-macro2",
  "quote",
@@ -3296,11 +3298,15 @@ dependencies = [
 name = "proa_fonts_parse"
 version = "0.1.0"
 dependencies = [
- "proa_fonts",
+ "proa_fonts_types",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "proa_fonts_types"
+version = "0.1.0"
 
 [[package]]
 name = "proa_framework_axum"
@@ -3454,7 +3460,6 @@ dependencies = [
  "proa_core",
  "proa_fonts",
  "proa_fonts_build",
- "proa_fonts_macros",
  "proa_framework_axum",
  "proa_ir",
  "proa_macros",

@@ -6,21 +6,23 @@ use super::*;
 #[test]
 fn scans_both_macros_from_source() {
     let src = r#"
-        use proa_fonts::Font;
+        use proa_fonts::{Font, google_font, local_font};
         static SANS: Font = google_font!("Geist", weights = [400, 700], variable = "--font-sans");
         fn layout() {
             let _ = local_font!("Brand", files = ["fonts/Brand.woff2"]);
         }
         // a fully-qualified path still matches on the last segment:
         static MONO: Font = proa_fonts_macros::google_font!("Geist Mono", variable_font = true, generic = mono);
+        static DISPLAY: Font = proa_fonts::local_font!("Display", files = ["fonts/Display.woff2"]);
     "#;
     let mut c = Collector::default();
     c.visit_file(&syn::parse_file(src).unwrap());
-    assert_eq!(c.requests.len(), 3);
+    assert_eq!(c.requests.len(), 4);
     let families: Vec<_> = c.requests.iter().map(|r| r.family.as_str()).collect();
     assert!(families.contains(&"Geist"));
     assert!(families.contains(&"Brand"));
     assert!(families.contains(&"Geist Mono"));
+    assert!(families.contains(&"Display"));
 }
 
 #[test]

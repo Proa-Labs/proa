@@ -5,11 +5,10 @@ use std::future::Future;
 use std::sync::OnceLock;
 
 use proa_core::{
-    ClassList, DataLoader, RenderOutcome, StaticRaw, WebContext, WebRender, WebRenderSync,
-    WriteError,
+    ClassList, DataLoader, Metadata, RenderOutcome, StaticRaw, WebContext, WebRender,
+    WebRenderSync, WriteError,
 };
-use proa_fonts::Font;
-use proa_fonts_macros::google_font;
+use proa_fonts::{google_font, Font};
 use proa_macros::html;
 
 static SANS: Font = google_font!(
@@ -87,6 +86,9 @@ where
                 .add(SANS.class_name())
                 .add(MONO.class_name())
                 .add("dark");
+            cx.metadata(Metadata::new()
+                .title("ORIGIN — how the internet reaches websites")
+                .description("ORIGIN shows how the internet reaches any website: the addresses, the networks, and the routes between them."))?;
             let favicon = cx.request().url("/static/favicon.svg");
             let stylesheet = cx.request().url(css_href());
             let ui_stylesheet = cx.request().url("/static/proa/proa-ui/proa-free.css");
@@ -98,12 +100,8 @@ where
                     <head>
                         <meta charset="utf-8" />
                         <meta name="viewport" content="width=device-width, initial-scale=1" />
-                        <meta
-                            name="description"
-                            content="ORIGIN shows how the internet reaches any website: the addresses, the networks, and the routes between them."
-                        />
+                        {cx.metadata.head()}
                         <meta name="theme-color" content="#0b0b0c" />
-                        <title>"ORIGIN — how the internet reaches websites"</title>
                         <link rel="preconnect" href="https://stat.ripe.net" />
                         <link rel="preconnect" href="https://ris-live.ripe.net" />
                         <link rel="icon" href={favicon} />

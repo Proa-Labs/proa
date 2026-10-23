@@ -70,12 +70,12 @@ use crate::{data::loader::AppLoader, db::connect_database};
 let db = connect_database().await?;
 let loader = Arc::new(AppLoader { db });
 
-let (router, metadata) = router_from_spec(vec![
+let (router, setups) = router_from_spec(vec![
     Route::page("/products/:id", "Product", get(product)),
 ]);
 
 let app = FrameworkBuilder::new(manifest)
-    .with_dynamic_routes_and_metadata(router, metadata)
+    .with_dynamic_routes_and_setups(router, setups)
     .build()
     .layer(Extension(loader));
 ```

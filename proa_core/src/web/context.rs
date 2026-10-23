@@ -55,6 +55,7 @@ pub struct RequestContext {
     client_ip: Option<String>,
     original_pathname: Option<String>,
     base_path: super::BasePath,
+    extensions: http::Extensions,
 }
 
 fn empty_headers() -> &'static HeaderMap {
@@ -63,6 +64,14 @@ fn empty_headers() -> &'static HeaderMap {
 }
 
 impl RequestContext {
+    /// Portable request-scoped state shared by rendering and deferred work.
+    pub fn extensions(&self) -> &http::Extensions {
+        &self.extensions
+    }
+    pub fn extensions_mut(&mut self) -> &mut http::Extensions {
+        &mut self.extensions
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -1268,6 +1277,7 @@ impl fmt::Debug for RsjsArtifactContext {
 /// [`WebContext::context_parts`] to create that explicit fork.
 #[derive(Debug, Default)]
 pub struct WebContextParts {
+    metadata_denied: bool,
     request: RequestContext,
     response: ResponseContext,
     head: HeadContext,
@@ -1956,6 +1966,9 @@ impl WebContextParts {
 /// separate context for graphics resources.
 ///
 pub struct WebContext<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
+    /// Managed metadata, emitted only when its head handle is rendered.
+    pub metadata: super::DocumentMetadata,
+    pub(super) metadata_state: super::metadata::MetadataState,
     /// The owned output buffer for the selected representation.
     pub out: B,
 
@@ -2076,6 +2089,7 @@ pub struct WebContext<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 /// The parent output itself is never moved; only the child context points at
 /// the temporary output type.
 struct ScopedWebState<'scope, L: DataLoader> {
+    metadata_state: &'scope mut super::metadata::MetadataState,
     mode: &'scope mut ContentMode,
     escape_dialect: &'scope mut EscapeDialect,
     render_mode: &'scope mut RenderMode,
@@ -2109,6 +2123,8 @@ where
 {
     fn new(parent: ScopedWebState<'scope, L>, out: C) -> Self {
         let child = WebContext {
+            metadata: super::DocumentMetadata,
+            metadata_state: std::mem::take(parent.metadata_state),
             out,
             mode: *parent.mode,
             escape_dialect: *parent.escape_dialect,
@@ -2136,6 +2152,7 @@ where
 
     fn restore(&mut self) -> Option<C> {
         let mut child = self.child.take()?;
+        *self.parent.metadata_state = std::mem::take(&mut child.metadata_state);
         *self.parent.mode = child.mode;
         *self.parent.escape_dialect = child.escape_dialect;
         *self.parent.render_mode = child.render_mode;
@@ -2307,6 +2324,8 @@ impl<B: WriteBuf> WebContext<NoLoader, B> {
 
     fn with_optional_context_parts(out: B, context_parts: Option<Box<WebContextParts>>) -> Self {
         Self {
+            metadata: super::DocumentMetadata,
+            metadata_state: super::metadata::MetadataState::default(),
             out,
             mode: ContentMode::Html,
             escape_dialect: EscapeDialect::Html,
@@ -2343,7 +2362,159 @@ impl<B: WriteBuf> WebContext<DynLoaderHandle, B> {
     }
 }
 
+// Loader erasure is confined to registered route setup; the page retains its
+// concrete loader. Live context state is transferred and restored even on panic.
+struct ErasedLoaderScope<'a, L: DataLoader> {
+    parent: &'a mut WebContext<L>,
+    child: WebContext<DynLoaderHandle>,
+}
+impl<L: DataLoader> Drop for ErasedLoaderScope<'_, L> {
+    fn drop(&mut self) {
+        std::mem::swap(
+            &mut self.parent.metadata_state,
+            &mut self.child.metadata_state,
+        );
+        std::mem::swap(&mut self.parent.out, &mut self.child.out);
+        std::mem::swap(&mut self.parent.mode, &mut self.child.mode);
+        std::mem::swap(
+            &mut self.parent.escape_dialect,
+            &mut self.child.escape_dialect,
+        );
+        std::mem::swap(&mut self.parent.render_mode, &mut self.child.render_mode);
+        std::mem::swap(&mut self.parent.md_state, &mut self.child.md_state);
+        std::mem::swap(
+            &mut self.parent.context_parts,
+            &mut self.child.context_parts,
+        );
+        std::mem::swap(
+            &mut self.parent.rsjs_artifact_transaction,
+            &mut self.child.rsjs_artifact_transaction,
+        );
+        std::mem::swap(
+            &mut self.parent.rsjs_shared_state_transaction,
+            &mut self.child.rsjs_shared_state_transaction,
+        );
+        std::mem::swap(
+            &mut self.parent.stream_recorder,
+            &mut self.child.stream_recorder,
+        );
+        std::mem::swap(
+            &mut self.parent.stream_chunk_flusher,
+            &mut self.child.stream_chunk_flusher,
+        );
+    }
+}
+impl<L: DataLoader + 'static> WebContext<L> {
+    /// Framework-only synchronous setup on this context with a heterogeneous loader.
+    #[doc(hidden)]
+    pub fn __with_erased_loader<R>(
+        &mut self,
+        setup: impl FnOnce(&mut WebContext<DynLoaderHandle>) -> R,
+    ) -> R {
+        // Every field is either swapped into the setup context below or
+        // deliberately kept on the parent. A new field fails to compile here
+        // until it is classified, so setup cannot silently lose live state.
+        let WebContext {
+            metadata: _,
+            metadata_state: _,
+            out: _,
+            mode: _,
+            escape_dialect: _,
+            render_mode: _,
+            md_state: _,
+            context_parts: _,
+            rsjs_artifact_transaction: _,
+            rsjs_shared_state_transaction: _,
+            stream_recorder: _,
+            stream_chunk_flusher: _,
+            // Kept on the parent: setup has its own loader and no boundaries.
+            loader: _,
+            boundary_error_fallbacks: _,
+        } = &*self;
+        let loader: Arc<dyn DynDataLoader> = self.loader.clone();
+        let mut child = WebContext {
+            metadata: super::DocumentMetadata,
+            metadata_state: super::metadata::MetadataState::default(),
+            out: RenderBuffer::new(),
+            mode: ContentMode::Html,
+            escape_dialect: EscapeDialect::Html,
+            render_mode: RenderMode::Static,
+            md_state: crate::md::MdState::default(),
+            context_parts: None,
+            rsjs_artifact_transaction: OnceCell::new(),
+            rsjs_shared_state_transaction: None,
+            loader: Arc::new(DynLoaderHandle::new(loader)),
+            stream_recorder: None,
+            stream_chunk_flusher: None,
+            boundary_error_fallbacks: None,
+        };
+        std::mem::swap(&mut self.metadata_state, &mut child.metadata_state);
+        std::mem::swap(&mut self.out, &mut child.out);
+        std::mem::swap(&mut self.mode, &mut child.mode);
+        std::mem::swap(&mut self.escape_dialect, &mut child.escape_dialect);
+        std::mem::swap(&mut self.render_mode, &mut child.render_mode);
+        std::mem::swap(&mut self.md_state, &mut child.md_state);
+        std::mem::swap(&mut self.context_parts, &mut child.context_parts);
+        std::mem::swap(
+            &mut self.rsjs_artifact_transaction,
+            &mut child.rsjs_artifact_transaction,
+        );
+        std::mem::swap(
+            &mut self.rsjs_shared_state_transaction,
+            &mut child.rsjs_shared_state_transaction,
+        );
+        std::mem::swap(&mut self.stream_recorder, &mut child.stream_recorder);
+        std::mem::swap(
+            &mut self.stream_chunk_flusher,
+            &mut child.stream_chunk_flusher,
+        );
+        let mut scope = ErasedLoaderScope {
+            parent: self,
+            child,
+        };
+        setup(&mut scope.child)
+    }
+}
+
 impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
+    /// Declare managed metadata before rendering `cx.metadata.head()`.
+    #[track_caller]
+    pub fn metadata(&mut self, value: super::Metadata) -> Result<(), super::MetadataError> {
+        self.metadata_state.declare(value)
+    }
+    /// Rejected metadata operations in this render context.
+    pub fn metadata_rejections(&self) -> usize {
+        self.metadata_state.rejections()
+    }
+    /// Whether the managed head was already emitted.
+    pub fn metadata_is_closed(&self) -> bool {
+        self.metadata_state.is_closed()
+    }
+    /// The final document title, primarily for the existing navigation adapter.
+    pub fn metadata_title(&self) -> Option<String> {
+        self.metadata_state.resolved_title()
+    }
+    #[doc(hidden)]
+    pub fn __next_metadata_route_scope(&mut self) -> Result<(), super::MetadataError> {
+        self.metadata_state.next_route_scope()
+    }
+    #[doc(hidden)]
+    pub fn __metadata_title_only(&mut self) -> Result<(), crate::WriteError> {
+        self.metadata_state.enable_title_only().map_err(Into::into)
+    }
+
+    #[doc(hidden)]
+    pub async fn __without_document_metadata_async<R>(
+        &mut self,
+        render: impl AsyncFnOnce(&mut Self) -> R,
+    ) -> R {
+        super::metadata::without_metadata_async(self, render).await
+    }
+    #[doc(hidden)]
+    pub fn __without_document_metadata<R>(&mut self, render: impl FnOnce(&mut Self) -> R) -> R {
+        super::metadata::without_metadata(self, render)
+    }
+
     /// Create a context with a custom loader.
     pub fn with_loader_buffer(out: B, loader: Arc<L>) -> Self {
         Self::with_loader_buffer_and_context_parts(out, loader, WebContextParts::new())
@@ -2368,6 +2539,12 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         }
 
         Self {
+            metadata: super::DocumentMetadata,
+            metadata_state: if context_parts.metadata_denied {
+                super::metadata::MetadataState::denied()
+            } else {
+                super::metadata::MetadataState::default()
+            },
             out,
             mode: ContentMode::Html,
             escape_dialect: EscapeDialect::Html,
@@ -2403,6 +2580,8 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 
     fn state_slots(&mut self) -> ScopedWebState<'_, L> {
         let WebContext {
+            metadata: _,
+            metadata_state,
             out: _,
             mode,
             escape_dialect,
@@ -2417,6 +2596,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             boundary_error_fallbacks,
         } = self;
         ScopedWebState {
+            metadata_state,
             mode,
             escape_dialect,
             render_mode,
@@ -2433,6 +2613,8 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 
     fn output_and_state(&mut self) -> (&mut B, ScopedWebState<'_, L>) {
         let WebContext {
+            metadata: _,
+            metadata_state,
             out,
             mode,
             escape_dialect,
@@ -2449,6 +2631,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         (
             out,
             ScopedWebState {
+                metadata_state,
                 mode,
                 escape_dialect,
                 render_mode,
@@ -2509,7 +2692,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             output,
         };
         let child = scope.output.child_mut();
-        node.render(child)?;
+        child.__without_document_metadata(|child| node.render(child))?;
         Ok(std::mem::take(&mut child.out))
     }
 
@@ -2556,7 +2739,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         let child = scope.output.child_mut();
         child.mode = ContentMode::Html;
         child.escape_dialect = EscapeDialect::Html;
-        node.render(child)
+        child.__without_document_metadata(|child| node.render(child))
     }
 
     /// Async counterpart to [`Self::with_metered_output`].
@@ -2782,6 +2965,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         let shared_state_transaction = self.rsjs_shared_state_transaction;
         let parts = self.ensure_context_parts_mut();
         let snapshot = WebContextParts {
+            metadata_denied: true,
             request: parts.request.clone(),
             response: parts.response.fork_for_detached(),
             head: parts.head.clone(),
@@ -2802,6 +2986,9 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 
     /// Replace all forkable request-scoped state.
     pub fn set_context_parts(&mut self, parts: WebContextParts) {
+        if parts.metadata_denied {
+            self.metadata_state = super::metadata::MetadataState::denied();
+        }
         let artifact_transaction = parts.rsjs_artifact_transaction.clone();
         self.rsjs_artifact_transaction = OnceCell::new();
         if artifact_transaction.is_some() {

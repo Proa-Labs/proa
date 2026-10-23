@@ -4,10 +4,31 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- `proa_fonts` re-exports `google_font!` and `local_font!` through its default
+  `macros` feature. Applications no longer need a direct `proa_fonts_macros`
+  dependency; descriptor-only builds can still disable default features.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while
   retaining their Rust crate names.
+
+- **Breaking:** document metadata is declared on the render context with
+  `cx.metadata(Metadata::new()...)?` and emitted once with
+  `{cx.metadata.head()}`. Pages can use request params, headers, query, and
+  loaded data. Registered layouts declare defaults in `Layout::setup` (and
+  `Layout::setup_send` for Send responses). Removed the `Metadata` provider
+  trait, `CascadeValue`, `CascadeOpenGraph`, `ComputedRouteMeta`, the
+  `Resolved*` metadata types, `resolved_metadata()`,
+  `Route::page_with_metadata`, and `Route::with_metadata`.
+  `router_from_spec` now returns setup plans, mounted with
+  `FrameworkBuilder::with_dynamic_routes_and_setups`. Client navigation
+  payloads report the resolved title, including the layout's title template.
+  Rejected declarations and duplicate head emissions return typed errors;
+  invalid patches apply no fields. The public head facade is stateless, so
+  replacing it cannot reset private document state. Once Open Graph is enabled,
+  omitted social title, description, and URL fall back to the final document
+  values at emission; explicit social values and clears take precedence.
 
 - Content coverage now reports supported missing contributions across render
   targets as errors, failing `proa lint` by default. Unchecked coverage is a

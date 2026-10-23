@@ -3,7 +3,7 @@ title: Route handlers
 description: Build JSON, form, and webhook endpoints with Route::endpoint.
 ---
 
-Proa does not invent a second request-handler model: a route handler is an Axum handler, and `Route::endpoint` registers routes that need no page metadata. This page covers [registering an endpoint](#registering-an-endpoint), [returning JSON](#returning-json), [handling forms](#handling-forms), [sharing application state](#sharing-application-state), and [the security defaults](#what-do-endpoints-inherit-from-the-framework) every endpoint inherits.
+Proa does not invent a second request-handler model: a route handler is an Axum handler, and `Route::endpoint` registers an Axum route without a static title default. This page covers [registering an endpoint](#registering-an-endpoint), [returning JSON](#returning-json), [handling forms](#handling-forms), [sharing application state](#sharing-application-state), and [the security defaults](#what-do-endpoints-inherit-from-the-framework) every endpoint inherits.
 
 ## Registering an endpoint
 
@@ -15,7 +15,7 @@ Use route handlers for:
 - health checks, robots.txt, sitemaps, and downloads
 - redirects and canonical URL handlers
 
-Use `Route::page` when the route belongs in page metadata and layout resolution. Use `Route::endpoint` when the route is an API or transport endpoint.
+Use `Route::page` for a title-only compatibility default. Use `Route::endpoint` for API/transport endpoints or pages that declare their own metadata through `cx.metadata(...)?`. Both can participate in registered layout setup.
 
 `Route::endpoint` accepts an Axum `MethodRouter`, so compose methods exactly as you would in Axum:
 
@@ -23,7 +23,7 @@ Use `Route::page` when the route belongs in page metadata and layout resolution.
 use axum::routing::{get, post};
 use proa_framework_axum::{router_from_spec, Route};
 
-let (router, metadata) = router_from_spec(vec![
+let (router, setups) = router_from_spec(vec![
     Route::page("/", "Home", get(home_page)),
     Route::endpoint("/api/search", get(search).post(search_post)),
     Route::endpoint("/contact", post(submit_contact)),
@@ -31,7 +31,7 @@ let (router, metadata) = router_from_spec(vec![
 ]);
 ```
 
-Pass `router` and `metadata` to `FrameworkBuilder::with_dynamic_routes_and_metadata(...)`.
+Pass `router` and `setups` to `FrameworkBuilder::with_dynamic_routes_and_setups(...)`.
 
 What each of those handlers returns is plain Axum, starting with JSON.
 
@@ -179,7 +179,7 @@ pub async fn product(
 }
 
 let app = FrameworkBuilder::new(manifest)
-    .with_dynamic_routes_and_metadata(router, metadata)
+    .with_dynamic_routes_and_setups(router, setups)
     .build()
     .layer(ServiceBuilder::new().layer(Extension(Arc::new(AppState { db }))));
 ```
@@ -253,12 +253,12 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn health_check_returns_ok() {
-    let (router, metadata) = router_from_spec(vec![
+    let (router, setups) = router_from_spec(vec![
         Route::endpoint("/healthz", get(healthz)),
     ]);
 
     let app = FrameworkBuilder::new(empty_manifest())
-        .with_dynamic_routes_and_metadata(router, metadata)
+        .with_dynamic_routes_and_setups(router, setups)
         .build();
 
     let response = app
@@ -278,7 +278,7 @@ async fn health_check_returns_ok() {
 Before shipping:
 
 - Use `Route::endpoint` for API, form, webhook, health, and static text handlers.
-- Use `Route::page` when the response belongs in page metadata.
+- Use `Route::page` for a title-only default; declare dynamic page metadata with `cx.metadata(...)?`.
 - Return `Json<T>`, tuples, `Redirect`, `StatusCode`, or `Response` directly from Axum handlers.
 - Keep server mutations in handlers or service-layer functions.
 - Validate form and JSON input on the server.

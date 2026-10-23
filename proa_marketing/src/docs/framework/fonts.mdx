@@ -6,15 +6,14 @@ keywords: [google_font!, local_font!, font-display]
 
 `proa_fonts` brings the valuable part of Next.js' `next/font` to Proa's SSR pipeline: fonts are **self-hosted**, **content-hashed**, **preloaded**, and given **metric-compatible fallbacks**, all at build time, with **no runtime request to a third party** and **no JavaScript**.
 
-Fonts are declared in code, next to the code that uses them. `google_font!` fetches and vendors a family from Google Fonts; `local_font!` vendors font files you already have. Both are driven by an ordinary `build.rs`, and both produce the same self-hosted, metric-matched result, pinned in `proa-fonts.lock` so rebuilds are offline and reproducible.
+Fonts are declared in code, next to the code that uses them. `google_font!` fetches and vendors a family from Google Fonts; `local_font!` vendors font files you already have. Both are driven by an ordinary `build.rs`, and both produce the same self-hosted, metric-matched result, pinned in `proa-fonts.lock` so rebuilds are offline and reproducible. Both macros are re-exported by `proa_fonts` with default features.
 
 ## Declare fonts in code
 
 Write the font in Rust and let the build vendor it:
 
 ```rust
-use proa_fonts::Font;
-use proa_fonts_macros::{google_font, local_font};
+use proa_fonts::{Font, google_font, local_font};
 
 static SANS: Font = google_font!("Geist", subsets = [latin], weights = [400, 700], variable = "--font-sans");
 static MONO: Font = google_font!("Geist Mono", variable_font = true, generic = mono, variable = "--font-mono");
@@ -100,8 +99,7 @@ A generated `Font` renders everything it needs into the document `<head>` with o
 
 ```rust
 use proa_core::{WebContext, WebRenderSync, WriteError};
-use proa_fonts::Font;
-use proa_fonts_macros::google_font;
+use proa_fonts::{Font, google_font};
 use proa_macros::html_sync;
 
 static SANS: Font = google_font!("Geist", subsets = [latin], weights = [400, 700], variable = "--font-sans");

@@ -379,7 +379,7 @@ async fn prepare_stream(
     }
 }
 
-fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
+pub(super) fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
     let request_location = ctx.current_uri().cloned().map(RequestLocation::from);
     let route_params = Some(ctx.current_route_params().clone());
     let mut request = RequestContext::new().with_base_path(ctx.base_path().clone());
@@ -393,6 +393,10 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
     }
     if let Some(params) = route_params.clone() {
         request.set_route_params(params);
+    }
+    let setup = ctx.setup_plan();
+    if !setup.is_empty() {
+        request.extensions_mut().insert(setup);
     }
     FrameworkRequestContext {
         request,
@@ -413,21 +417,23 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
     fn into_response(self) -> Response {
         ROUTE_CONTEXT
             .try_with(|ctx| {
-                let (manifest, is_client_request, page_title, request) = {
-                    let mut ctx_ref = ctx.borrow_mut();
+                let (manifest, is_client_request, request) = {
+                    let ctx_ref = ctx.borrow();
                     let manifest = ctx_ref.manifest_arc();
                     let is_client = ctx_ref.is_client_request();
                     let request = framework_request_context(&ctx_ref);
-                    let page_title = if is_client {
-                        ctx_ref.resolve_metadata().and_then(|meta| meta.title)
-                    } else {
-                        None
-                    };
-                    (manifest, is_client, page_title, request)
+                    (manifest, is_client, request)
                 };
 
                 let mode = if is_client_request {
-                    RouteFinalizeMode::ClientPayload { page_title }
+                    RouteFinalizeMode::ClientPayload {
+                        page_title: request
+                            .request
+                            .extensions()
+                            .get::<proa_framework_core::RouteSetupPlan>()
+                            .and_then(|plan| plan.page_title())
+                            .map(str::to_owned),
+                    }
                 } else {
                     RouteFinalizeMode::Document
                 };

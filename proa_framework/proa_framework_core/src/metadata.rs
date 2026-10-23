@@ -1,725 +1,144 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_core::ctx::Ctx;
-use proa_core::text::{text, UnsafeRaw};
-use proa_core::WebRenderSync;
+//! Registered route setup. Metadata is declared and emitted by the live render
+//! context, never resolved from a registration-time provider snapshot.
 
 use crate::manifest::IslandManifest;
+use proa_core::{
+    DataLoader, DynLoaderHandle, SendWebContext, WebContext, WebRenderSendSync, WebRenderSync,
+    WriteBuf, WriteError,
+};
+pub use proa_core::{Metadata, MetadataError, OpenGraph, OpenGraphImage};
+use std::sync::Arc;
 
-pub type MetadataRef = &'static dyn Metadata;
+pub type LayoutRef = &'static dyn Layout;
 
-/// Represents how a metadata field should cascade from parent to child.
-#[derive(Clone, Debug, Default)]
-pub enum CascadeValue<T> {
-    /// Override with this value (wins over parent).
-    Set(T),
-    /// Explicitly clear this field (force None, don't inherit from parent).
-    Tombstone,
-    /// Not specified (inherit from parent if available).
-    #[default]
-    Unset,
-}
+/// Request-time defaults for a registered route layout. The framework runs
+/// setup outermost to innermost before the page, using its live context.
+/// Ordinary HTML wrappers do not establish a route scope.
+///
+/// Setup is synchronous; pages can await data on their normal render path
+/// before declaring their own metadata and emitting the head.
+pub trait Layout: Send + Sync + 'static {
+    fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError>;
 
-impl<T> CascadeValue<T> {
-    pub fn resolve(self, parent_value: Option<T>) -> Option<T>
-    where
-        T: Clone,
-    {
-        match self {
-            CascadeValue::Set(v) => Some(v),
-            CascadeValue::Tombstone => None,
-            CascadeValue::Unset => parent_value,
-        }
+    /// Implement this callback when using a compiler-proved Send response.
+    /// The default reports unsupported setup rather than silently dropping it.
+    fn setup_send(&self, _cx: &mut SendWebContext<DynLoaderHandle>) -> Result<(), WriteError> {
+        Err(WriteError::Render(
+            "this layout must implement setup_send for Send responses".into(),
+        ))
     }
 }
 
-/// Simple metadata struct that only provides a title.
-pub struct TitleOnly {
-    pub title: &'static str,
-}
-
-impl TitleOnly {
-    pub const fn new(title: &'static str) -> Self {
-        Self { title }
-    }
-}
-
-impl Metadata for TitleOnly {
-    fn title(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set(self.title)
-    }
-}
-
-/// Trait for defining page metadata (title, description, Open Graph, etc.).
-pub trait Metadata: Send + Sync + 'static {
-    /// Returns the page title cascade value. Can be a template like "%s • Site Name" or a complete title.
-    fn title(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Unset
-    }
-
-    /// Returns true if this title should be treated as an absolute title that ignores templates.
-    fn absolute_title(&self) -> bool {
-        false
-    }
-
-    fn description(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Unset
-    }
-
-    fn open_graph(&self) -> CascadeOpenGraph {
-        CascadeOpenGraph::default()
-    }
-}
-
-/// Precomputed metadata for a specific route (flattened at build time).
+/// Ordered registered setup callbacks, collected without executing them.
+/// Runtime metadata can only be discovered by rendering with a real request.
 #[derive(Clone, Default)]
-pub struct ComputedRouteMeta {
-    pub title: Option<String>,
-    pub description: Option<&'static str>,
-    pub open_graph: ComputedOpenGraph,
-    pub(crate) title_template: Option<String>,
-    pub(crate) og_title_template: Option<String>,
-    pub(crate) og_description_template: Option<String>,
+pub struct RouteSetupPlan {
+    layouts: Option<Arc<[LayoutRef]>>,
+    page_title: Option<&'static str>,
 }
-
-impl ComputedRouteMeta {
-    /// Creates computed metadata by cascading parent metadata with local metadata providers.
-    pub fn cascade(parent: &ComputedRouteMeta, local_providers: &[MetadataRef]) -> Self {
-        let mut computed = parent.clone();
-        let mut raw_page_title: Option<&'static str> = None;
-
-        for provider in local_providers {
-            match provider.title() {
-                CascadeValue::Set(title) => {
-                    if provider.absolute_title() {
-                        computed.title = Some(title.to_string());
-                        computed.title_template = None;
-                        raw_page_title = None;
-                    } else if title.contains("%s") {
-                        computed.title_template = Some(title.to_string());
-                    } else {
-                        raw_page_title = Some(title);
-                        if let Some(template) = &computed.title_template {
-                            computed.title = Some(template.replace("%s", title));
-                        } else {
-                            computed.title = Some(title.to_string());
-                        }
-                    }
-                }
-                CascadeValue::Tombstone => {
-                    computed.title = None;
-                    computed.title_template = None;
-                    raw_page_title = None;
-                }
-                CascadeValue::Unset => {}
-            }
-
-            computed.description = provider.description().resolve(computed.description);
-
-            let og = provider.open_graph();
-
-            match og.title {
-                CascadeValue::Set(og_title) => {
-                    if og_title.contains("%s") {
-                        computed.og_title_template = Some(og_title.to_string());
-                    } else if let Some(template) = &computed.og_title_template {
-                        computed.open_graph.title = Some(template.replace("%s", og_title));
-                    } else {
-                        computed.open_graph.title = Some(og_title.to_string());
-                    }
-                }
-                CascadeValue::Tombstone => {
-                    computed.open_graph.title = None;
-                    computed.og_title_template = None;
-                }
-                CascadeValue::Unset => {}
-            }
-
-            match og.description {
-                CascadeValue::Set(og_desc) => {
-                    if og_desc.contains("%s") {
-                        computed.og_description_template = Some(og_desc.to_string());
-                    } else if let Some(template) = &computed.og_description_template {
-                        computed.open_graph.description = Some(template.replace("%s", og_desc));
-                    } else {
-                        computed.open_graph.description = Some(og_desc.to_string());
-                    }
-                }
-                CascadeValue::Tombstone => {
-                    computed.open_graph.description = None;
-                    computed.og_description_template = None;
-                }
-                CascadeValue::Unset => {}
-            }
-
-            match og.site_name {
-                CascadeValue::Set(v) => computed.open_graph.site_name = Some(v.to_string()),
-                CascadeValue::Tombstone => computed.open_graph.site_name = None,
-                CascadeValue::Unset => {}
-            }
-            computed.open_graph.determiner = og.determiner.resolve(computed.open_graph.determiner);
-            computed.open_graph.r#type = og.r#type.resolve(computed.open_graph.r#type);
-            computed.open_graph.url = og.url.resolve(computed.open_graph.url);
-            computed.open_graph.locale = og.locale.resolve(computed.open_graph.locale);
-
-            match og.locale_alternates {
-                CascadeValue::Set(alts) => {
-                    computed.open_graph.locale_alternates = alts.to_vec();
-                }
-                CascadeValue::Tombstone => {
-                    computed.open_graph.locale_alternates.clear();
-                }
-                CascadeValue::Unset => {}
-            }
-
-            match og.images {
-                CascadeValue::Set(images) => {
-                    for image in images.iter() {
-                        if let Some(resolved_image) = ResolvedOpenGraphImage::from_image(image) {
-                            computed.open_graph.images.push(resolved_image);
-                        }
-                    }
-                }
-                CascadeValue::Tombstone => {
-                    computed.open_graph.images.clear();
-                }
-                CascadeValue::Unset => {}
-            }
-
-            match og.audio {
-                CascadeValue::Set(audio) => {
-                    for media in audio.iter() {
-                        if let Some(resolved_media) = ResolvedOpenGraphMedia::from_media(media) {
-                            computed.open_graph.audio.push(resolved_media);
-                        }
-                    }
-                }
-                CascadeValue::Tombstone => {
-                    computed.open_graph.audio.clear();
-                }
-                CascadeValue::Unset => {}
-            }
-
-            match og.video {
-                CascadeValue::Set(video) => {
-                    for media in video.iter() {
-                        if let Some(resolved_media) = ResolvedOpenGraphMedia::from_media(media) {
-                            computed.open_graph.video.push(resolved_media);
-                        }
-                    }
-                }
-                CascadeValue::Tombstone => {
-                    computed.open_graph.video.clear();
-                }
-                CascadeValue::Unset => {}
-            }
+impl RouteSetupPlan {
+    pub fn cascade(parent: &Self, layouts: &[LayoutRef]) -> Self {
+        if layouts.is_empty() {
+            return parent.clone();
         }
-
-        if computed.open_graph.title.is_none() {
-            if let (Some(template), Some(page_title)) =
-                (&computed.og_title_template, raw_page_title)
-            {
-                computed.open_graph.title = Some(template.replace("%s", page_title));
-            }
-        }
-
-        if computed.open_graph.description.is_none() {
-            if let (Some(template), Some(page_desc)) =
-                (&computed.og_description_template, computed.description)
-            {
-                computed.open_graph.description = Some(template.replace("%s", page_desc));
-            }
-        }
-
-        computed
-    }
-}
-
-/// Resolved metadata from a stack of metadata providers.
-#[derive(Clone, Default)]
-pub struct ResolvedMetadata {
-    pub title: Option<String>,
-    pub description: Option<&'static str>,
-    pub open_graph: ResolvedOpenGraph,
-}
-
-/// Cascade specification for Open Graph metadata.
-#[derive(Clone, Default)]
-pub struct CascadeOpenGraph {
-    pub title: CascadeValue<&'static str>,
-    pub description: CascadeValue<&'static str>,
-    pub site_name: CascadeValue<&'static str>,
-    pub determiner: CascadeValue<&'static str>,
-    pub r#type: CascadeValue<&'static str>,
-    pub url: CascadeValue<&'static str>,
-    pub locale: CascadeValue<&'static str>,
-    pub locale_alternates: CascadeValue<&'static [&'static str]>,
-    pub images: CascadeValue<&'static [OpenGraphImage]>,
-    pub audio: CascadeValue<&'static [OpenGraphMedia]>,
-    pub video: CascadeValue<&'static [OpenGraphMedia]>,
-}
-
-/// Static Open Graph descriptor returned by metadata providers.
-#[derive(Clone, Default)]
-pub struct OpenGraph {
-    pub title: Option<&'static str>,
-    pub description: Option<&'static str>,
-    pub site_name: Option<&'static str>,
-    pub determiner: Option<&'static str>,
-    pub r#type: Option<&'static str>,
-    pub url: Option<&'static str>,
-    pub locale: Option<&'static str>,
-    pub locale_alternates: &'static [&'static str],
-    pub images: &'static [OpenGraphImage],
-    pub audio: &'static [OpenGraphMedia],
-    pub video: &'static [OpenGraphMedia],
-}
-
-/// Static Open Graph image descriptor.
-#[derive(Clone)]
-pub struct OpenGraphImage {
-    pub url: Option<&'static str>,
-    pub secure_url: Option<&'static str>,
-    pub path: Option<&'static str>,
-    pub width: Option<u32>,
-    pub height: Option<u32>,
-    pub alt: Option<&'static str>,
-    pub mime_type: Option<&'static str>,
-}
-
-impl OpenGraphImage {
-    pub const fn new(url: &'static str) -> Self {
+        let mut chain = parent.layouts.as_deref().unwrap_or_default().to_vec();
+        chain.extend_from_slice(layouts);
         Self {
-            url: Some(url),
-            secure_url: None,
-            path: None,
-            width: None,
-            height: None,
-            alt: None,
-            mime_type: None,
+            layouts: Some(chain.into()),
+            page_title: None,
         }
     }
-
-    pub const fn with_secure_url(mut self, secure_url: &'static str) -> Self {
-        self.secure_url = Some(secure_url);
-        self
-    }
-
-    pub const fn with_path(mut self, path: &'static str) -> Self {
-        self.path = Some(path);
-        self
-    }
-
-    pub const fn with_width(mut self, width: u32) -> Self {
-        self.width = Some(width);
-        self
-    }
-
-    pub const fn with_height(mut self, height: u32) -> Self {
-        self.height = Some(height);
-        self
-    }
-
-    pub const fn with_dimensions(mut self, width: u32, height: u32) -> Self {
-        self.width = Some(width);
-        self.height = Some(height);
-        self
-    }
-
-    pub const fn with_alt(mut self, alt: &'static str) -> Self {
-        self.alt = Some(alt);
-        self
-    }
-
-    pub const fn with_mime(mut self, mime_type: &'static str) -> Self {
-        self.mime_type = Some(mime_type);
-        self
-    }
-}
-
-/// Static Open Graph media descriptor (audio/video).
-#[derive(Clone)]
-pub struct OpenGraphMedia {
-    pub url: Option<&'static str>,
-    pub secure_url: Option<&'static str>,
-    pub mime_type: Option<&'static str>,
-}
-
-impl OpenGraphMedia {
-    pub const fn new(url: &'static str) -> Self {
+    pub fn new(layouts: &[LayoutRef], page_title: Option<&'static str>) -> Self {
         Self {
-            url: Some(url),
-            secure_url: None,
-            mime_type: None,
+            layouts: (!layouts.is_empty()).then(|| layouts.into()),
+            page_title,
         }
     }
-
-    pub const fn with_secure_url(mut self, secure_url: &'static str) -> Self {
-        self.secure_url = Some(secure_url);
+    pub fn with_page_title(mut self, title: Option<&'static str>) -> Self {
+        self.page_title = title;
         self
     }
-
-    pub const fn with_mime(mut self, mime_type: &'static str) -> Self {
-        self.mime_type = Some(mime_type);
-        self
+    pub fn is_empty(&self) -> bool {
+        self.layouts.is_none() && self.page_title.is_none()
+    }
+    pub fn layout_count(&self) -> usize {
+        self.layouts.as_deref().map_or(0, <[_]>::len)
+    }
+    pub fn page_title(&self) -> Option<&'static str> {
+        self.page_title
     }
 }
 
-/// Precomputed Open Graph metadata for a specific route.
-#[derive(Clone, Default)]
-pub struct ComputedOpenGraph {
-    pub title: Option<String>,
-    pub description: Option<String>,
-    pub site_name: Option<String>,
-    pub determiner: Option<&'static str>,
-    pub r#type: Option<&'static str>,
-    pub url: Option<&'static str>,
-    pub locale: Option<&'static str>,
-    pub locale_alternates: Vec<&'static str>,
-    pub images: Vec<ResolvedOpenGraphImage>,
-    pub audio: Vec<ResolvedOpenGraphMedia>,
-    pub video: Vec<ResolvedOpenGraphMedia>,
-}
-
-/// Resolved Open Graph metadata ready for rendering.
-#[derive(Clone, Default)]
-pub struct ResolvedOpenGraph {
-    pub title: Option<String>,
-    pub description: Option<String>,
-    pub site_name: Option<String>,
-    pub determiner: Option<&'static str>,
-    pub r#type: Option<&'static str>,
-    pub url: Option<&'static str>,
-    pub locale: Option<&'static str>,
-    pub locale_alternates: Vec<&'static str>,
-    pub images: Vec<ResolvedOpenGraphImage>,
-    pub audio: Vec<ResolvedOpenGraphMedia>,
-    pub video: Vec<ResolvedOpenGraphMedia>,
-}
-
-#[derive(Clone)]
-pub struct ResolvedOpenGraphImage {
-    pub url: String,
-    pub secure_url: Option<String>,
-    pub mime_type: Option<&'static str>,
-    pub width: Option<u32>,
-    pub height: Option<u32>,
-    pub alt: Option<&'static str>,
-}
-
-impl ResolvedOpenGraphImage {
-    pub(crate) fn from_image(image: &OpenGraphImage) -> Option<Self> {
-        let url = image.url.or(image.path)?;
-        Some(Self {
-            url: url.to_string(),
-            secure_url: image.secure_url.map(|value| value.to_string()),
-            mime_type: image.mime_type,
-            width: image.width,
-            height: image.height,
-            alt: image.alt,
-        })
-    }
-}
-
-#[derive(Clone)]
-pub struct ResolvedOpenGraphMedia {
-    pub url: String,
-    pub secure_url: Option<String>,
-    pub mime_type: Option<&'static str>,
-}
-
-impl ResolvedOpenGraphMedia {
-    pub(crate) fn from_media(media: &OpenGraphMedia) -> Option<Self> {
-        let url = media.url?;
-        Some(Self {
-            url: url.to_string(),
-            secure_url: media.secure_url.map(|value| value.to_string()),
-            mime_type: media.mime_type,
-        })
-    }
-}
-
-pub fn resolved_metadata_from_computed(computed: &ComputedRouteMeta) -> ResolvedMetadata {
-    ResolvedMetadata {
-        title: computed.title.clone(),
-        description: computed.description,
-        open_graph: ResolvedOpenGraph {
-            title: computed.open_graph.title.clone(),
-            description: computed.open_graph.description.clone(),
-            site_name: computed.open_graph.site_name.clone(),
-            determiner: computed.open_graph.determiner,
-            r#type: computed.open_graph.r#type,
-            url: computed.open_graph.url,
-            locale: computed.open_graph.locale,
-            locale_alternates: computed.open_graph.locale_alternates.clone(),
-            images: computed.open_graph.images.clone(),
-            audio: computed.open_graph.audio.clone(),
-            video: computed.open_graph.video.clone(),
-        },
-    }
-}
-
-pub fn resolve_metadata_stack(metadata: &[MetadataRef]) -> Option<ResolvedMetadata> {
-    if metadata.is_empty() {
-        return None;
-    }
-
-    let mut resolved = ResolvedMetadata::default();
-    let mut title_template: Option<&'static str> = None;
-    let mut og_title_template: Option<&'static str> = None;
-    let mut og_description_template: Option<&'static str> = None;
-    let mut raw_page_title: Option<&'static str> = None;
-
-    for metadata in metadata {
-        match metadata.title() {
-            CascadeValue::Set(title) => {
-                if metadata.absolute_title() {
-                    resolved.title = Some(title.to_string());
-                    title_template = None;
-                    raw_page_title = None;
-                } else if title.contains("%s") {
-                    title_template = Some(title);
-                } else {
-                    raw_page_title = Some(title);
-                    if let Some(template) = title_template {
-                        resolved.title = Some(template.replace("%s", title));
-                    } else {
-                        resolved.title = Some(title.to_string());
-                    }
-                }
-            }
-            CascadeValue::Tombstone => {
-                resolved.title = None;
-                title_template = None;
-            }
-            CascadeValue::Unset => {}
+pub(crate) fn prepare_layouts<L: DataLoader + 'static>(
+    cx: &mut WebContext<L>,
+) -> Result<(), WriteError> {
+    let Some(plan) = cx.request().extensions().get::<RouteSetupPlan>().cloned() else {
+        return Ok(());
+    };
+    if plan.layouts.is_none() {
+        if let Some(title) = plan.page_title {
+            cx.metadata(Metadata::new().title(title))?;
         }
-
-        resolved.description = metadata.description().resolve(resolved.description);
-
-        let og = metadata.open_graph();
-        match og.title {
-            CascadeValue::Set(og_title) => {
-                if og_title.contains("%s") {
-                    og_title_template = Some(og_title);
-                } else if let Some(template) = og_title_template {
-                    resolved.open_graph.title = Some(template.replace("%s", og_title));
-                } else {
-                    resolved.open_graph.title = Some(og_title.to_string());
-                }
-            }
-            CascadeValue::Tombstone => {
-                resolved.open_graph.title = None;
-            }
-            CascadeValue::Unset => {}
-        }
-
-        match og.description {
-            CascadeValue::Set(og_desc) => {
-                if og_desc.contains("%s") {
-                    og_description_template = Some(og_desc);
-                } else if let Some(template) = og_description_template {
-                    resolved.open_graph.description = Some(template.replace("%s", og_desc));
-                } else {
-                    resolved.open_graph.description = Some(og_desc.to_string());
-                }
-            }
-            CascadeValue::Tombstone => {
-                resolved.open_graph.description = None;
-            }
-            CascadeValue::Unset => {}
-        }
+        return Ok(());
     }
-
-    if resolved.open_graph.title.is_none() {
-        if let (Some(template), Some(page_title)) = (og_title_template, raw_page_title) {
-            resolved.open_graph.title = Some(template.replace("%s", page_title));
+    cx.__with_erased_loader(|cx| {
+        for layout in plan.layouts.as_deref().unwrap_or_default() {
+            layout.setup(cx)?;
+            cx.__next_metadata_route_scope()?;
         }
-    }
-
-    if resolved.open_graph.description.is_none() {
-        if let (Some(template), Some(page_desc)) = (og_description_template, resolved.description) {
-            resolved.open_graph.description = Some(template.replace("%s", page_desc));
+        if let Some(title) = plan.page_title {
+            cx.metadata(Metadata::new().title(title))?;
         }
+        Ok(())
+    })
+}
+pub(crate) fn prepare_layouts_send<L: DataLoader + 'static>(
+    cx: &mut SendWebContext<L>,
+) -> Result<(), WriteError> {
+    let Some(plan) = cx.request().extensions().get::<RouteSetupPlan>().cloned() else {
+        return Ok(());
+    };
+    if plan.layouts.is_none() {
+        if let Some(title) = plan.page_title {
+            cx.metadata(Metadata::new().title(title))?;
+        }
+        return Ok(());
     }
-
-    Some(resolved)
+    cx.__with_erased_loader(|cx| {
+        for layout in plan.layouts.as_deref().unwrap_or_default() {
+            layout.setup_send(cx)?;
+            cx.__next_metadata_route_scope()?;
+        }
+        if let Some(title) = plan.page_title {
+            cx.metadata(Metadata::new().title(title))?;
+        }
+        Ok(())
+    })
 }
 
 pub fn css_asset_path(manifest: &IslandManifest) -> Option<&str> {
-    manifest.assets.css.as_ref().map(|css| css.path.as_str())
+    manifest.assets.css.as_ref().map(|css| css.path.as_ref())
 }
-
-/// Write a string as an HTML attribute value, escaping `& < > " '` for the
-/// active dialect.
-///
-/// The metadata head builds `<meta>` / `<link>` tags by hand with `UnsafeRaw`
-/// scaffolding, so any value placed inside `"..."` must use attribute escaping,
-/// which neutralizes the closing quote. Plain text escaping (`text()`) does NOT
-/// escape `"` and would let a value carrying a quote break out of the attribute
-/// and inject further attributes (for example an `http-equiv="refresh"`
-/// redirect). Metadata fields are `&'static str` today, so this is defense in
-/// depth, but it keeps the head safe if the API later accepts dynamic values.
-fn write_attr_value(cx: &mut Ctx, value: &str) {
-    let dialect = cx.__proa_current_escape_dialect();
-    proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, value, dialect).unwrap();
-}
-
-pub fn render_css_link(cx: &mut Ctx, css_path: &str) {
-    UnsafeRaw("<link rel=\"stylesheet\" href=\"")
+pub fn render_css_link<L: DataLoader, B: WriteBuf>(cx: &mut WebContext<L, B>, path: &str) {
+    use proa_core::text::StaticRaw;
+    StaticRaw("<link rel=\"stylesheet\" href=\"")
         .render(cx)
         .unwrap();
-    write_attr_value(cx, css_path);
-    UnsafeRaw("\"/>").render(cx).unwrap();
+    let dialect = cx.__proa_current_escape_dialect();
+    proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, path, dialect).unwrap();
+    StaticRaw("\"/>").render(cx).unwrap();
 }
-
-pub fn render_metadata_head(cx: &mut Ctx, metadata: &ResolvedMetadata) {
-    if let Some(title) = &metadata.title {
-        UnsafeRaw("<title>").render(cx).unwrap();
-        text(title.as_str()).render(cx).unwrap();
-        UnsafeRaw("</title>").render(cx).unwrap();
-    }
-
-    if let Some(description) = metadata.description {
-        render_named_meta(cx, "description", description);
-    }
-
-    let og = &metadata.open_graph;
-
-    if let Some(title) = &og.title {
-        render_property_meta(cx, "og:title", title.as_str());
-    }
-
-    if let Some(description) = &og.description {
-        render_property_meta(cx, "og:description", description.as_str());
-    }
-
-    if let Some(site_name) = &og.site_name {
-        render_property_meta(cx, "og:site_name", site_name.as_str());
-    }
-
-    if let Some(determiner) = og.determiner {
-        render_property_meta(cx, "og:determiner", determiner);
-    }
-
-    if let Some(kind) = og.r#type {
-        render_property_meta(cx, "og:type", kind);
-    }
-
-    if let Some(url) = og.url {
-        render_property_meta(cx, "og:url", url);
-    }
-
-    if let Some(locale) = og.locale {
-        render_property_meta(cx, "og:locale", locale);
-    }
-
-    for alternate in &og.locale_alternates {
-        render_property_meta(cx, "og:locale:alternate", alternate);
-    }
-
-    for image in &og.images {
-        render_property_meta(cx, "og:image", image.url.as_str());
-        if let Some(secure_url) = image.secure_url.as_ref() {
-            render_property_meta(cx, "og:image:secure_url", secure_url.as_str());
-        }
-        if let Some(width) = image.width {
-            let width_str = width.to_string();
-            render_property_meta(cx, "og:image:width", width_str.as_str());
-        }
-        if let Some(height) = image.height {
-            let height_str = height.to_string();
-            render_property_meta(cx, "og:image:height", height_str.as_str());
-        }
-        if let Some(alt) = image.alt {
-            render_property_meta(cx, "og:image:alt", alt);
-        }
-        if let Some(mime) = image.mime_type {
-            render_property_meta(cx, "og:image:type", mime);
-        }
-    }
-
-    for media in &og.audio {
-        render_property_meta(cx, "og:audio", media.url.as_str());
-        if let Some(secure_url) = media.secure_url.as_ref() {
-            render_property_meta(cx, "og:audio:secure_url", secure_url.as_str());
-        }
-        if let Some(mime) = media.mime_type {
-            render_property_meta(cx, "og:audio:type", mime);
-        }
-    }
-
-    for media in &og.video {
-        render_property_meta(cx, "og:video", media.url.as_str());
-        if let Some(secure_url) = media.secure_url.as_ref() {
-            render_property_meta(cx, "og:video:secure_url", secure_url.as_str());
-        }
-        if let Some(mime) = media.mime_type {
-            render_property_meta(cx, "og:video:type", mime);
-        }
-    }
+/// Immediate compatibility emitter; using it and `head()` counts as two emissions.
+pub fn render_metadata_head<L: DataLoader, B: WriteBuf>(
+    cx: &mut WebContext<L, B>,
+) -> Result<(), WriteError> {
+    cx.metadata.head().render(cx)
 }
-
-fn render_named_meta(cx: &mut Ctx, name: &str, content: &str) {
-    UnsafeRaw("<meta name=\"").render(cx).unwrap();
-    write_attr_value(cx, name);
-    UnsafeRaw("\" content=\"").render(cx).unwrap();
-    write_attr_value(cx, content);
-    UnsafeRaw("\"/>").render(cx).unwrap();
-}
-
-fn render_property_meta(cx: &mut Ctx, property: &str, content: &str) {
-    UnsafeRaw("<meta property=\"").render(cx).unwrap();
-    write_attr_value(cx, property);
-    UnsafeRaw("\" content=\"").render(cx).unwrap();
-    write_attr_value(cx, content);
-    UnsafeRaw("\"/>").render(cx).unwrap();
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct BaseMeta;
-
-    impl Metadata for BaseMeta {
-        fn title(&self) -> CascadeValue<&'static str> {
-            CascadeValue::Set("%s | Base")
-        }
-
-        fn description(&self) -> CascadeValue<&'static str> {
-            CascadeValue::Set("base-desc")
-        }
-    }
-
-    struct PageMeta;
-
-    impl Metadata for PageMeta {
-        fn title(&self) -> CascadeValue<&'static str> {
-            CascadeValue::Set("Page")
-        }
-    }
-
-    #[test]
-    fn resolve_metadata_stack_applies_templates() {
-        let providers: &[MetadataRef] = &[&BaseMeta, &PageMeta];
-        let resolved = resolve_metadata_stack(providers).expect("metadata should resolve");
-        assert_eq!(resolved.title.as_deref(), Some("Page | Base"));
-        assert_eq!(resolved.description, Some("base-desc"));
-    }
-
-    #[test]
-    fn render_metadata_head_writes_tags() {
-        let metadata = ResolvedMetadata {
-            title: Some("Page".to_string()),
-            description: Some("desc"),
-            ..Default::default()
-        };
-        let mut cx = Ctx::new();
-        render_metadata_head(&mut cx, &metadata);
-        let html = cx.into_output().into_string();
-        assert!(html.contains("<title>Page</title>"));
-        assert!(html.contains("meta name=\"description\""));
-    }
+pub fn render_metadata_head_send<L: DataLoader, B: WriteBuf + Send>(
+    cx: &mut SendWebContext<L, B>,
+) -> Result<(), WriteError> {
+    cx.metadata.head().render_send_sync(cx)
 }

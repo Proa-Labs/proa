@@ -1,0 +1,76 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+use proa_core::text::StaticRaw;
+use proa_core::{WebContext, WebRenderSync, WriteError};
+use proa_framework_axum::{
+    router_from_spec, CascadeOpenGraph, CascadeValue, FrameworkBuilder, Layout, Metadata, Route,
+    RouteResponse,
+};
+struct Site;
+impl Metadata for Site {
+    fn title(&self) -> CascadeValue<&'static str> {
+        CascadeValue::Set("%s | Store")
+    }
+    fn description(&self) -> CascadeValue<&'static str> {
+        CascadeValue::Set("Plans")
+    }
+    fn open_graph(&self) -> CascadeOpenGraph {
+        CascadeOpenGraph {
+            title: CascadeValue::Set("%s | Store"),
+            description: CascadeValue::Set("Plans"),
+            site_name: CascadeValue::Set("Store"),
+            r#type: CascadeValue::Set("website"),
+            url: CascadeValue::Set("https://example.com/pricing"),
+            ..Default::default()
+        }
+    }
+}
+impl Layout for Site {}
+struct Document;
+impl WebRenderSync for Document {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        StaticRaw("<html><head>").render(cx)?;
+        proa_framework_axum::render_metadata_head(cx);
+        StaticRaw("</head><body>Pricing</body></html>").render(cx)
+    }
+}
+pub fn app() -> axum::Router {
+    let (routes, metadata) = router_from_spec(vec![Route::layout(
+        "/",
+        &Site,
+        vec![Route::page(
+            "pricing",
+            "Pricing",
+            axum::routing::get(|| async { RouteResponse::ssr(Document) }),
+        )],
+    )]);
+    FrameworkBuilder::new(manifest())
+        .with_dynamic_routes_and_metadata(routes, metadata)
+        .build()
+}
+fn manifest() -> proa_framework_axum::IslandManifest {
+    proa_framework_axum::IslandManifest {
+        islands: Default::default(),
+        assets: Default::default(),
+        import_map: Default::default(),
+        ssr_bundle: None,
+    }
+}
+pub struct Prepared(proa_framework_core::ResolvedMetadata);
+impl Prepared {
+    pub fn new() -> Self {
+        let map =
+            proa_framework_core::compute_metadata_map(&[proa_framework_core::RouteSpec::layout(
+                "/",
+                &Site,
+                vec![proa_framework_core::RouteSpec::page("pricing", "Pricing")],
+            )]);
+        Self(proa_framework_core::resolved_metadata_from_computed(
+            &map["/pricing"],
+        ))
+    }
+    pub fn emit(&self, cx: &mut WebContext) {
+        proa_framework_core::render_metadata_head(cx, &self.0);
+    }
+}

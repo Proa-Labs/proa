@@ -112,13 +112,13 @@ use tower_http::services::ServeDir;
 
 pub fn build_app(config: RuntimeConfig) -> anyhow::Result<Router> {
     let manifest = load_island_manifest()?;
-    let (routes, metadata) = build_routes();
+    let (routes, setups) = build_routes();
 
     let static_router = Router::new().nest_service("/", ServeDir::new(&config.static_dir));
 
     let mut builder = FrameworkBuilder::new(manifest)
         .with_static_service(static_router)
-        .with_dynamic_routes_and_metadata(routes, metadata);
+        .with_dynamic_routes_and_setups(routes, setups);
 
     if let Some(origin) = config.trusted_origin.as_deref() {
         builder = builder.with_trusted_origin(origin);
