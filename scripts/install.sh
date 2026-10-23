@@ -1,6 +1,7 @@
 #!/bin/sh
 # Copyright Proa Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
+
 # PROA_BUNDLE_INSTALLER_V1
 
 # Proa CLI installer for Linux and macOS.
