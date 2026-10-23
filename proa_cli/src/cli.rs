@@ -52,7 +52,7 @@ where
         .first()
         .and_then(|arg| std::path::Path::new(arg).file_name())
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name == "cargo-proa");
+        .is_some_and(|name| matches!(name, "cargo-proa" | "cargo-proa.exe"));
 
     if invoked_as_cargo_proa
         && args
@@ -80,5 +80,35 @@ mod tests {
         ]);
         let rendered: Vec<_> = args.iter().map(|arg| arg.to_string_lossy()).collect();
         assert_eq!(rendered, ["cargo-proa", "fmt", "--check"]);
+    }
+
+    #[test]
+    fn windows_cargo_subcommand_reaches_the_requested_command() {
+        let args = normalize_cargo_subcommand_args([
+            "cargo-proa.exe".into(),
+            "proa".into(),
+            "fmt".into(),
+            "--check".into(),
+        ]);
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(matches!(cli.command, commands::Command::Fmt(_)));
+    }
+
+    #[test]
+    fn direct_invocation_keeps_its_first_argument() {
+        for executable in ["proa", "proa.exe", "cargo-proa", "cargo-proa.exe"] {
+            let args = normalize_cargo_subcommand_args([
+                executable.into(),
+                "fmt".into(),
+                "--check".into(),
+            ]);
+            assert!(Cli::try_parse_from(args).is_ok(), "{executable}");
+        }
+        assert!(Cli::try_parse_from(normalize_cargo_subcommand_args([
+            "proa.exe".into(),
+            "proa".into(),
+            "fmt".into(),
+        ]))
+        .is_err());
     }
 }

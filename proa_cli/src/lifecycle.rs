@@ -36,7 +36,7 @@ use crate::{
     diagnostic::Severity,
     rsjs::build::{
         DescriptorCargoRequest, DESCRIPTOR_TARGET_POLICY_VERSION,
-        DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION,
+        DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION, TOOL_NAMESPACE_DIR,
     },
     rsjs::cache::DESCRIPTOR_CACHE_SCHEMA_VERSION,
     rsjs::pipeline::{
@@ -1918,24 +1918,32 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
         .invocation_id()
         .context("derive the pre-descriptor RSJS invocation identity")?;
 
-    let build_root = metadata
-        .target_directory
-        .join("proa-rsjs")
-        .join(invocation.to_string());
+    // Windows linkers and native build tools can still impose MAX_PATH even
+    // when Rust accepts long paths. Keep full cache identities, but spend fewer
+    // characters on descriptive directory labels before Cargo adds its tree.
+    let namespace = metadata.target_directory.join(TOOL_NAMESPACE_DIR);
+    let build_root = namespace.join(invocation.to_string());
     let source_exclusion_directory = metadata.target_directory.clone();
     let nonce = fresh_build_nonce();
-    let descriptor_staging = build_root.join("descriptor-staging").join(&nonce);
-    let descriptor_target = build_root.join(format!(
-        "descriptor-target-policy-v{DESCRIPTOR_TARGET_POLICY_VERSION}-sidecar-v{DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION}-persistent-v{PERSISTENT_DESCRIPTOR_TARGET_LAYOUT_VERSION}"
-    ));
-    let descriptor_cache_directory = build_root.join(format!(
-        "descriptor-cache-v{DESCRIPTOR_CACHE_SCHEMA_VERSION}"
-    ));
-    let plan_directory = metadata.target_directory.join("proa-rsjs").join("plans");
-    let final_target_root = metadata
-        .target_directory
-        .join("proa-rsjs")
-        .join("final-target");
+    let descriptor_staging = build_root
+        .join(if cfg!(windows) {
+            "s"
+        } else {
+            "descriptor-staging"
+        })
+        .join(&nonce);
+    let descriptor_target = build_root.join(if cfg!(windows) {
+        format!("d{DESCRIPTOR_TARGET_POLICY_VERSION}-{DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION}-{PERSISTENT_DESCRIPTOR_TARGET_LAYOUT_VERSION}")
+    } else {
+        format!("descriptor-target-policy-v{DESCRIPTOR_TARGET_POLICY_VERSION}-sidecar-v{DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION}-persistent-v{PERSISTENT_DESCRIPTOR_TARGET_LAYOUT_VERSION}")
+    });
+    let descriptor_cache_directory = build_root.join(if cfg!(windows) {
+        format!("c{DESCRIPTOR_CACHE_SCHEMA_VERSION}")
+    } else {
+        format!("descriptor-cache-v{DESCRIPTOR_CACHE_SCHEMA_VERSION}")
+    });
+    let plan_directory = namespace.join(if cfg!(windows) { "p" } else { "plans" });
+    let final_target_root = namespace.join(if cfg!(windows) { "f" } else { "final-target" });
     let mut descriptor_cargo_args = parsed.cargo_args.clone();
     // The wrapper adds one explicit object output even when Cargo selected
     // `check`, so linked checks can keep descriptor and final rustc unit
@@ -2972,10 +2980,16 @@ fn run_command_status(root: &Path, command: &[String], label: &str) -> Result<()
 fn missing_program_message(program: &str) -> String {
     let hint = match program {
         "tailwindcss" => {
-            "\n  Install Tailwind CSS CLI v4 with the Proa installer:\n  \
-             curl -fsSL https://proa.so/install.sh | \
-             sh -s -- --tailwind-only\n  \
-             Or, on macOS or Linux with Homebrew: brew install tailwindcss"
+            if cfg!(windows) {
+                "\n  Install the standalone Tailwind CSS CLI v4 for Windows as tailwindcss.exe\n  \
+                 and add its directory to PATH, then reopen your terminal.\n  \
+                 See https://proa.so/docs/cli/new-site#tailwind-prerequisite"
+            } else {
+                "\n  Install Tailwind CSS CLI v4 with the Proa installer:\n  \
+                 curl -fsSL https://proa.so/install.sh | \
+                 sh -s -- --tailwind-only\n  \
+                 Or, on macOS or Linux with Homebrew: brew install tailwindcss"
+            }
         }
         _ => "\n  Install it and make sure it is on PATH, or set an explicit `command` for this asset in proa.config.json.",
     };

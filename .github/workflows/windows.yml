@@ -1,0 +1,67 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Windows
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Native Windows CLI and linked builds
+    # An optional label supports an ephemeral Windows pool. PR code must never
+    # run on a persistent runner with credentials or production access.
+    runs-on: ${{ vars.WINDOWS_CI_RUNNER || 'windows-latest' }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_TEST_THREADS: "2"
+      CARGO_TARGET_DIR: 'C:\pt'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Create short build and temporary directories
+        run: |
+          New-Item -ItemType Directory -Force C:\pt, C:\p-temp
+          'TEMP=C:\p-temp' >> $env:GITHUB_ENV
+          'TMP=C:\p-temp' >> $env:GITHUB_ENV
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - name: Test build-engine invariants and PE snapshots
+        run: cargo test --locked -p proa_build --lib
+      - name: Test Windows COFF transport
+        run: cargo test --locked -p rsjs_transport --lib windows_
+      - name: Check CLI including Windows code and test targets
+        run: cargo check --locked -p proa-cli --all-targets
+      - name: Test Cargo subcommand argument handling
+        run: cargo test --locked -p proa-cli --lib cli::tests
+      - name: Test artifact replacement
+        run: cargo test --locked -p proa-cli --lib artifact_export_replaces_the_destination_and_preserves_permissions
+      - name: Test platform-specific dependency guidance
+        run: cargo test --locked -p proa-cli --lib missing_tailwind_cli_message_offers_platform_installation
+      - name: Test installed Cargo dispatch and release startup
+        run: cargo test --locked -p proa-cli --test lifecycle_start
+      - name: Test final target layout and linked plan reuse
+        run: cargo test --locked -p proa-cli --test rsjs_final --test lifecycle_check
+      - name: Test linked build export and cache reuse
+        run: cargo test --locked -p proa-cli --test lifecycle_build
+      - name: Test linked execution and argument forwarding
+        run: cargo test --locked -p proa-cli --test lifecycle_run_test
+      - name: Test RSJS linking and generated browser artifacts
+        run: cargo test --locked -p proa-cli --test rsjs_pipeline

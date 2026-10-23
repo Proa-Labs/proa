@@ -185,6 +185,25 @@ jobs:
         with:
           cache-backend: ${{ github.event_name == 'pull_request' && 'gha' || startsWith(vars.CI_RUNNER, 'gcp') && 'gcs' || 'gha' }}
 
+  windows-cross-check:
+    name: Windows build-engine cross-check
+    # This pure-Rust graph needs no Windows linker. Run it independently so
+    # cfg(windows) coverage does not extend the main Rust validation job.
+    runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
+    timeout-minutes: 10
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Check Windows build-engine compilation
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          cargo check --locked -p proa_build --lib --target x86_64-pc-windows-msvc
+
   linked-acceptance:
     name: Linked acceptance (${{ matrix.mode }})
     needs: changes
@@ -245,6 +264,7 @@ jobs:
       - workflow-lint
       - changes
       - rust
+      - windows-cross-check
       - linked-acceptance
       - deployment-tests
       - marketing-tests
@@ -258,6 +278,7 @@ jobs:
           WORKFLOW_LINT_RESULT: ${{ needs.workflow-lint.result }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           RUST_RESULT: ${{ needs.rust.result }}
+          WINDOWS_CROSS_CHECK_RESULT: ${{ needs.windows-cross-check.result }}
           LINKED_ACCEPTANCE_RESULT: ${{ needs.linked-acceptance.result }}
           LINKED_ACCEPTANCE_SKIPPABLE: ${{ needs.changes.outputs.linked == 'false' }}
           DEPLOYMENT_RESULT: ${{ needs.deployment-tests.result }}
@@ -274,6 +295,7 @@ jobs:
             "$WORKFLOW_LINT_RESULT" \
             "$CHANGES_RESULT" \
             "$RUST_RESULT" \
+            "$WINDOWS_CROSS_CHECK_RESULT" \
             "$LINKED_ACCEPTANCE_RESULT" \
             "$DEPLOYMENT_RESULT" \
             "$MARKETING_RESULT"

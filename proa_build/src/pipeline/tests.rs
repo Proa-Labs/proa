@@ -248,6 +248,36 @@ fn selector_rejects_non_root_roles_and_relative_artifacts() {
 }
 
 #[test]
+fn windows_root_selection_prefers_cargo_executable_over_debug_companions() {
+    let temp = TempDir::new().unwrap();
+    let selector = fixture_request(&temp).root;
+    let executable = temp.path().join("fixture.exe");
+    let mut artifact = fixture_root_artifact(&selector, temp.path(), Some(executable.clone()));
+    artifact.filenames.insert(temp.path().join("fixture.pdb"));
+    assert_eq!(select_root_path(&artifact, &selector).unwrap(), executable);
+
+    artifact.executable = None;
+    artifact.filenames.insert(temp.path().join("fixture.PDB"));
+    assert_eq!(select_root_path(&artifact, &selector).unwrap(), executable);
+
+    let other = temp.path().join("other.exe");
+    artifact.filenames.insert(other.clone());
+    assert!(matches!(
+        select_root_path(&artifact, &selector),
+        Err(LinkedCargoError::AmbiguousRootArtifact { matches: 2 })
+    ));
+    let mut explicit = selector.clone();
+    explicit.artifact_path = Some(other.clone());
+    assert_eq!(select_root_path(&artifact, &explicit).unwrap(), other);
+
+    artifact.filenames = BTreeSet::from([temp.path().join("fixture.pdb")]);
+    assert!(matches!(
+        select_root_path(&artifact, &selector),
+        Err(LinkedCargoError::RootHasNoArtifact)
+    ));
+}
+
+#[test]
 fn final_root_attestation_requires_the_descriptor_coordinate_and_real_file() {
     let temp = TempDir::new().unwrap();
     let target_directory = temp.path().join("generated/final-target");

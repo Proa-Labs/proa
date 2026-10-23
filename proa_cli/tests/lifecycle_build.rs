@@ -100,7 +100,10 @@ fn cargo_proa_build_runs_the_exact_linked_binary_pipeline() {
     // Keep exported artifacts under Cargo's excluded target tree. Exporting
     // into the package source closure would itself invalidate the next
     // descriptor build and turn this into a self-modifying fixture.
-    let exported = target.join("dist/proa_linked_build_fixture");
+    let exported = target.join(format!(
+        "dist/proa_linked_build_fixture{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     let first = run_build(temp.path(), &target, &host, &exported);
     assert_success(&first);
     let first_stdout = stdout(&first);
