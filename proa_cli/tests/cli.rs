@@ -360,9 +360,16 @@ fn standalone_bundles_switch_together_while_the_previous_binary_is_running() {
         }
         command.current_dir(temp.path()).output().unwrap()
     };
+    // Reinstalling the same version must still migrate a legacy flat layout.
+    fs::create_dir(&public).unwrap();
+    for name in &names {
+        fs::copy(sources[0].join(name), public.join(name)).unwrap();
+    }
+    let legacy_path = public.join(&names[0]).canonicalize().unwrap();
     let output = install(&sources[0], false);
     assert!(output.status.success(), "{}", stderr(&output));
     let previous = public.join(&names[0]).canonicalize().unwrap();
+    assert_ne!(previous, legacy_path);
     struct Running(std::process::Child);
     impl Drop for Running {
         fn drop(&mut self) {

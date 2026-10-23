@@ -68,13 +68,13 @@ pub(super) fn detect(executable: &Path) -> Result<Installation> {
         if let Some(root) = releases.parent() {
             if root.join(MANIFEST).is_file() {
                 let manifest: Manifest = serde_json::from_slice(&fs::read(root.join(MANIFEST))?)?;
+                let current = root.join("current").canonicalize()?;
+                let registered = manifest.bin_dir.join(&names()[0]).canonicalize()?;
                 if manifest.format == 1
                     && manifest.bin_dir.is_absolute()
                     && root_for_bin(&manifest.bin_dir).canonicalize()? == root.canonicalize()?
-                    && root
-                        .join("current")
-                        .canonicalize()?
-                        .starts_with(releases.canonicalize()?)
+                    && current.starts_with(releases.canonicalize()?)
+                    && registered.parent() == Some(current.as_path())
                 {
                     return Ok(Installation::Standalone {
                         root: external_path(root),

@@ -49,20 +49,27 @@ pub(crate) fn install_self(args: InstallSelfArgs) -> Result<()> {
     let manifest_path = root.join(MANIFEST);
     if manifest_path.exists() {
         let manifest: Manifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+        let same_directory = manifest.bin_dir == bin_dir
+            || manifest
+                .bin_dir
+                .canonicalize()
+                .ok()
+                .zip(bin_dir.canonicalize().ok())
+                .is_some_and(|(existing, requested)| existing == requested);
         ensure!(
-            manifest.format == 1 && manifest.bin_dir == bin_dir,
+            manifest.format == 1 && same_directory,
             "installation manifest belongs to another installation"
         );
     }
     let names = installation::names();
+    let mut managed = false;
     if bin_dir.join(&names[0]).exists() {
+        let owner = installation::detect(&bin_dir.join(&names[0]).canonicalize()?)?;
         ensure!(
-            !matches!(
-                installation::detect(&bin_dir.join(&names[0]).canonicalize()?)?,
-                installation::Installation::Cargo { .. }
-            ),
+            !matches!(owner, installation::Installation::Cargo { .. }),
             "Cargo owns this installation; use cargo install --locked proa-cli instead"
         );
+        managed = matches!(owner, installation::Installation::Standalone { .. });
     }
     let releases = root.join("releases");
     fs::create_dir_all(&releases)?;
@@ -90,7 +97,7 @@ pub(crate) fn install_self(args: InstallSelfArgs) -> Result<()> {
     );
     if !args.allow_downgrade && bin_dir.join(&names[0]).exists() {
         let installed = binary_version(&bin_dir.join(&names[0]))?;
-        if installed >= version {
+        if installed > version || (managed && installed == version) {
             println!("Proa {installed} is already installed; no update needed.");
             return Ok(());
         }
@@ -142,7 +149,7 @@ fn binary_version(executable: &Path) -> Result<Version> {
         })?;
     ensure!(
         output.status.success(),
-        "release cannot run on this system: {}",
+        "release cannot run on this system: {}\nRetry with proa update --build-from-source.",
         String::from_utf8_lossy(&output.stderr)
     );
     let text = String::from_utf8(output.stdout)?;
@@ -168,9 +175,12 @@ fn publish(
         fs::symlink_metadata(current).map_or(true, |meta| meta.file_type().is_symlink()),
         "current must be an installer-owned symlink"
     );
-    let transaction = tempfile::tempdir_in(root)?;
+    let transaction = tempfile::Builder::new()
+        .prefix("legacy-")
+        .tempdir_in(root)?;
     let old_current = fs::read_link(current).ok();
     let mut replaced = Vec::new();
+    let mut keep_legacy = false;
     let result = (|| -> Result<()> {
         for (index, name) in names.iter().enumerate() {
             let visible = bin_dir.join(name);
@@ -178,9 +188,10 @@ fn publish(
             if fs::read_link(&visible).ok().as_ref() == Some(&target) {
                 continue;
             }
-            let backup = transaction.path().join(format!("previous-{index}"));
+            let backup = transaction.path().join(name);
             let existed = fs::symlink_metadata(&visible).is_ok();
             if existed {
+                keep_legacy |= fs::symlink_metadata(&visible)?.file_type().is_file();
                 ensure!(
                     !visible.is_dir(),
                     "refusing to replace an entry-point directory"
@@ -218,6 +229,11 @@ fn publish(
             );
         }
         return Err(error);
+    }
+    // A legacy Unix process may resolve current_exe again for a compiler
+    // wrapper. Keep its renamed executable and companion available.
+    if keep_legacy {
+        let _ = transaction.keep();
     }
     Ok(())
 }
