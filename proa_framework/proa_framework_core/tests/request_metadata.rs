@@ -406,15 +406,20 @@ async fn failed_buffered_documents_discard_metadata_and_replacement_uses_fresh_s
     assert_eq!(body(replacement).await, "<title>replacement</title>");
 }
 
-struct Fragment(Option<&'static str>);
+struct Fragment(Metadata);
 impl WebRenderSync for Fragment {
     fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        if let Some(title) = self.0 {
-            cx.metadata(Metadata::new().title(title)).unwrap();
-        }
+        cx.metadata(self.0)?;
         WebRenderSync::render(cx.metadata.head(), cx)?;
         assert_eq!(cx.metadata_rejections(), 0);
         WebRenderSync::render(StaticRaw("<p>fragment</p>"), cx)
+    }
+}
+impl WebRenderSendSync for Fragment {
+    fn render_send_sync(self, cx: &mut SendWebContext) -> Result<(), WriteError> {
+        cx.metadata(self.0)?;
+        cx.metadata.head().render_send_sync(cx)?;
+        raw_send(cx, "<p>fragment</p>")
     }
 }
 #[tokio::test]
@@ -423,12 +428,77 @@ async fn client_payloads_report_the_resolved_title_without_head_tags() {
         (Some("Post"), "Post | Section"),
         (None, "compatibility title | Section"),
     ] {
-        let response = RouteResponse::ssr(Fragment(declared))
-            .into_client_payload_framework_response(None, &manifest(), &request())
-            .await;
+        let response = RouteResponse::ssr(Fragment(
+            declared
+                .map(|title| Metadata::new().title(title))
+                .unwrap_or_default(),
+        ))
+        .into_client_payload_framework_response(None, &manifest(), &request())
+        .await;
         let json: serde_json::Value = serde_json::from_str(&body(response).await).unwrap();
         assert_eq!(json["html"], "<p>fragment</p>");
         assert_eq!(json["title"], expected);
+    }
+}
+
+#[tokio::test]
+async fn navigation_title_defaults_do_not_resurrect_explicit_clears() {
+    for request in [FrameworkRequestContext::default(), request()] {
+        let registered = request
+            .request
+            .extensions()
+            .get::<RouteSetupPlan>()
+            .is_some();
+        for (patch, expected) in [
+            (
+                Metadata::new(),
+                Some(if registered {
+                    "compatibility title | Section"
+                } else {
+                    "navigation default"
+                }),
+            ),
+            (
+                Metadata::new().title("Post"),
+                Some(if registered { "Post | Section" } else { "Post" }),
+            ),
+            (Metadata::new().clear_title(), None),
+        ] {
+            let responses = [
+                RouteResponse::ssr(Fragment(patch.clone())),
+                RouteResponse::ssr_async(proa_core::to_async(Fragment(patch.clone()))),
+                RouteResponse::ssr_async_send(proa_core::to_send(Fragment(patch.clone()))),
+            ];
+            for response in responses {
+                let response = response
+                    .into_client_payload_framework_response(
+                        Some("navigation default".into()),
+                        &manifest(),
+                        &request,
+                    )
+                    .await;
+                let json: serde_json::Value = serde_json::from_str(&body(response).await).unwrap();
+                assert_eq!(json["html"], "<p>fragment</p>");
+                assert_eq!(
+                    json.get("title").and_then(serde_json::Value::as_str),
+                    expected
+                );
+            }
+            let response = proa_framework_core::finalize_route_response_sync(
+                RouteResponse::ssr(Fragment(patch)),
+                &manifest(),
+                &request,
+                proa_framework_core::RouteFinalizeMode::ClientPayload {
+                    page_title: Some("navigation default".into()),
+                },
+            )
+            .unwrap();
+            let json: serde_json::Value = serde_json::from_str(&body(response).await).unwrap();
+            assert_eq!(
+                json.get("title").and_then(serde_json::Value::as_str),
+                expected
+            );
+        }
     }
 }
 

@@ -69,9 +69,9 @@ actually uphold it.
 
 | Module | What it defines |
 |---|---|
-| `route_spec` | `RouteSpec` / `ResolvedRouteSpec` route tables, `RouteMode` (static vs dynamic), static-path enumeration, metadata map computation |
+| `route_spec` | `RouteSpec` / `ResolvedRouteSpec` route tables, `RouteMode` (static vs dynamic), static-path enumeration, ordered layout setup plans |
 | `route_snapshot` | `FrameworkRouteSnapshot` and route-pattern parameter extraction |
-| `metadata` | Request-aware `Metadata` providers, owned-or-borrowed patches, static-prefix plans, URL resolution and head rendering |
+| `metadata` | Registered request-time layout setup and managed head helpers; `Metadata` builders are re-exported from `proa_core` |
 | `response` | The opaque `RouteResponse` render plan, `FrameworkStreamFactory`, and portable finalizers for buffered and streamed responses |
 | `manifest` | `IslandManifest`, asset entries, and hydration strategy config produced at build time |
 | `bootstrap` | Renders the island bootstrap script for the islands a page actually used |
@@ -79,8 +79,8 @@ actually uphold it.
 ## Writing an adapter
 
 The [metadata guide](../../proa_marketing/src/docs/framework/metadata.mdx)
-covers request inputs, shared loader access, deployment URLs and migration
-from the existing metadata getters.
+covers request inputs, shared loader access, explicit head emission, deployment
+URLs, and migration from the removed metadata provider traits.
 
 An adapter owns everything IO-shaped. The contract surface it implements:
 
