@@ -251,11 +251,12 @@ fn writer_failure_keeps_metadata_closed_and_fresh_documents_have_fresh_state() {
 #[test]
 fn caught_inline_errors_keep_prior_declarations_and_scoped_state_survives_unwind() {
     use proa_core::WriteError;
-    let mut cx = WebContext::new();
-    let result: Result<(), WriteError> = (|| {
+    fn declare_then_fail(cx: &mut WebContext) -> Result<(), WriteError> {
         cx.metadata(Metadata::new().title("before failure"));
         Err(WriteError::OutOfCapacity)
-    })();
+    }
+    let mut cx = WebContext::new();
+    let result = declare_then_fail(&mut cx);
     assert!(result.is_err());
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         cx.__with_erased_loader(|setup| {

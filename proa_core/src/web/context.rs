@@ -2405,6 +2405,25 @@ impl<L: DataLoader + 'static> WebContext<L> {
         &mut self,
         setup: impl FnOnce(&mut WebContext<DynLoaderHandle>) -> R,
     ) -> R {
+        // Every field is either swapped into the setup context below or
+        // deliberately kept on the parent. A new field fails to compile here
+        // until it is classified, so setup cannot silently lose live state.
+        let WebContext {
+            metadata: _,
+            out: _,
+            mode: _,
+            escape_dialect: _,
+            render_mode: _,
+            md_state: _,
+            context_parts: _,
+            rsjs_artifact_transaction: _,
+            rsjs_shared_state_transaction: _,
+            stream_recorder: _,
+            stream_chunk_flusher: _,
+            // Kept on the parent: setup has its own loader and no boundaries.
+            loader: _,
+            boundary_error_fallbacks: _,
+        } = &*self;
         let loader: Arc<dyn DynDataLoader> = self.loader.clone();
         let mut child = WebContext {
             metadata: super::DocumentMetadata::default(),

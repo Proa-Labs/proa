@@ -484,33 +484,6 @@ impl<L: DataLoader> SendWebContext<L, RenderBuffer> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn assert_send<T: Send>() {}
-
-    #[test]
-    fn context_is_send_and_detached_artifacts_are_branch_owned() {
-        assert_send::<SendWebContext>();
-
-        let mut root = SendWebContext::new();
-        root.react_island_used("Root");
-        let parts = root.context_parts();
-        let mut child = SendWebContext::with_loader_buffer_and_context_parts(
-            RenderBuffer::new(),
-            Arc::new(NoLoader),
-            parts,
-        );
-        child.react_island_used("Child");
-
-        assert_eq!(root.render_artifacts_snapshot().react_islands, ["Root"]);
-        assert_eq!(child.render_artifacts_snapshot().react_islands, ["Child"]);
-        assert_eq!(root.next_react_island_id(), 0);
-        assert_eq!(child.next_react_island_id(), 1);
-    }
-}
-
 struct ErasedSendLoaderScope<'a, L: DataLoader> {
     parent: &'a mut SendWebContext<L>,
     child: SendWebContext<crate::DynLoaderHandle>,
@@ -542,6 +515,21 @@ impl<L: DataLoader + 'static> SendWebContext<L> {
         &mut self,
         setup: impl FnOnce(&mut SendWebContext<crate::DynLoaderHandle>) -> R,
     ) -> R {
+        // Every field is either swapped into the setup context below or
+        // deliberately kept on the parent. A new field fails to compile here
+        // until it is classified, so setup cannot silently lose live state.
+        let SendWebContext {
+            out: _,
+            metadata: _,
+            mode: _,
+            escape_dialect: _,
+            render_mode: _,
+            parts: _,
+            stream_recorder: _,
+            stream_chunk_flusher: _,
+            // Kept on the parent: setup has its own loader.
+            loader: _,
+        } = &*self;
         let loader: Arc<dyn crate::DynDataLoader> = self.loader.clone();
         // An inert placeholder shares immutable identity only; no request state
         // is cloned or lost when the real parts are moved into the setup context.
@@ -584,5 +572,32 @@ impl<L: DataLoader + 'static> SendWebContext<L> {
             child,
         };
         setup(&mut scope.child)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_send<T: Send>() {}
+
+    #[test]
+    fn context_is_send_and_detached_artifacts_are_branch_owned() {
+        assert_send::<SendWebContext>();
+
+        let mut root = SendWebContext::new();
+        root.react_island_used("Root");
+        let parts = root.context_parts();
+        let mut child = SendWebContext::with_loader_buffer_and_context_parts(
+            RenderBuffer::new(),
+            Arc::new(NoLoader),
+            parts,
+        );
+        child.react_island_used("Child");
+
+        assert_eq!(root.render_artifacts_snapshot().react_islands, ["Root"]);
+        assert_eq!(child.render_artifacts_snapshot().react_islands, ["Child"]);
+        assert_eq!(root.next_react_island_id(), 0);
+        assert_eq!(child.next_react_island_id(), 1);
     }
 }
