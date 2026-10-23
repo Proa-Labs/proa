@@ -54,7 +54,7 @@ jobs:
       - name: Test artifact replacement
         run: cargo test --locked -p proa-cli --lib artifact_export_replaces_the_destination_and_preserves_permissions
       - name: Test CLI self-update and running executable replacement
-        run: cargo test --locked -p proa-cli --lib commands::update::tests
+        run: cargo test --locked -p proa-cli --lib commands::update
       - name: Test platform-specific dependency guidance
         run: cargo test --locked -p proa-cli --lib missing_tailwind_cli_message_offers_platform_installation
       - name: Test installed Cargo dispatch and release startup

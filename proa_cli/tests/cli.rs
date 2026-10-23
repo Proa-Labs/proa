@@ -305,6 +305,11 @@ fn update_preview_does_not_install_and_invalid_versions_fail_before_network_acce
     let invalid = proa(&["update", "--version", "../../other"], temp.path());
     assert!(!invalid.status.success());
     assert!(stderr(&invalid).contains("invalid release version"));
+    let snapshot = proa(&["update", "--version", "0.1.4-main.abc123"], temp.path());
+    assert!(!snapshot.status.success());
+    assert!(stderr(&snapshot).contains("stable releases only"));
+    assert!(!stdout(&snapshot).contains("Downloading"));
+    assert!(!stdout(&snapshot).contains("Building"));
     assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
 }
 

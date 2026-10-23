@@ -17,6 +17,8 @@ use semver::Version;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+mod cargo_install;
+
 const DOWNLOAD_BASE: &str = "https://proa.so/downloads/cli";
 const REGISTRY_METADATA: &str = "https://crates.io/api/v1/crates/proa-cli";
 const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
@@ -27,7 +29,7 @@ pub(crate) struct UpdateArgs {
     /// Show the available version without changing any files.
     #[arg(long)]
     check: bool,
-    /// Install an exact published version (also permits an explicit downgrade).
+    /// Install an exact stable release (also permits an explicit downgrade).
     #[arg(long, value_name = "VERSION")]
     version: Option<String>,
     /// Build with Cargo instead of downloading a prebuilt archive (for example on older glibc).
@@ -54,11 +56,19 @@ struct RegistryPackage {
 pub(crate) fn run(args: UpdateArgs) -> Result<()> {
     let client = Client::builder()
         .https_only(true)
+        .connect_timeout(Duration::from_secs(30))
+        // The blocking response's Read implementation resets this per read.
+        // Keep streaming slow downloads; only a stalled read should time out.
         .timeout(Duration::from_secs(120))
         .user_agent(concat!("proa/", env!("CARGO_PKG_VERSION")))
         .build()?;
-    let requested = args.version.as_deref().map(parse_version).transpose()?;
-    let executable = std::env::current_exe().context("locate the installed Proa CLI")?;
+    let requested = args
+        .version
+        .as_deref()
+        .map(parse_requested_version)
+        .transpose()?;
+    let executable =
+        resolve_executable(&std::env::current_exe().context("locate the installed Proa CLI")?)?;
     // Take the lock before version selection and keep it through preparation.
     // Another invocation must not install a newer release while this one builds.
     // The process image may have started before another updater finished. Read
@@ -89,7 +99,7 @@ pub(crate) fn run(args: UpdateArgs) -> Result<()> {
         return Ok(());
     }
 
-    let staging = tempfile::Builder::new().prefix("proa-update-").tempdir()?;
+    let staging = update_staging(&executable)?;
     let prepared = prepare_update(
         &client,
         DOWNLOAD_BASE,
@@ -98,8 +108,10 @@ pub(crate) fn run(args: UpdateArgs) -> Result<()> {
         args.build_from_source,
     )?;
     validate_binaries(&prepared, &version)?;
-    replace_pair(&executable, &prepared, |source| {
-        self_replace::self_replace(source)
+    cargo_install::with_updated_records(&executable, &prepared, &version, || {
+        replace_pair(&executable, &prepared, |source| {
+            replace_running_executable(&executable, source)
+        })
     })?;
     println!("Updated proa and cargo-proa to {version}. Run proa --version to verify.");
     Ok(())
@@ -110,6 +122,46 @@ fn parse_version(value: &str) -> Result<Version> {
     Version::parse(normalized.strip_prefix('v').unwrap_or(normalized)).with_context(|| {
         format!("invalid release version `{value}`; expected a version such as 0.1.3")
     })
+}
+
+fn parse_requested_version(value: &str) -> Result<Version> {
+    let version = parse_version(value)?;
+    ensure!(
+        version.pre.is_empty() && version.build.is_empty(),
+        "proa update --version supports stable releases only; use the Proa installer for main snapshots"
+    );
+    Ok(version)
+}
+
+fn resolve_executable(executable: &Path) -> Result<PathBuf> {
+    executable
+        .canonicalize()
+        .context("resolve the installed CLI path")
+}
+
+fn update_staging(executable: &Path) -> Result<tempfile::TempDir> {
+    tempfile::Builder::new()
+        .prefix(".proa-update-staging-")
+        .tempdir_in(executable_directory(executable)?)
+        .context("create update staging beside the installed CLI; the installation directory must be writable")
+}
+
+fn replace_running_executable(executable: &Path, source: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        // Use the same canonical destination as the companion and installation
+        // lock. self-replace 1.5 only follows one link from current_exe on Unix.
+        let temporary = tempfile::NamedTempFile::new_in(executable.parent().unwrap())?;
+        fs::copy(source, temporary.path())?;
+        fs::set_permissions(temporary.path(), executable.metadata()?.permissions())?;
+        temporary.persist(executable).map_err(|error| error.error)?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = executable;
+        self_replace::self_replace(source)
+    }
 }
 
 fn needs_update(current: &Version, selected: &Version, explicitly_pinned: bool) -> bool {
@@ -247,6 +299,9 @@ fn build_source_update(version: &Version, staging: &Path) -> Result<PathBuf> {
     let status = Command::new("cargo")
         .current_dir(staging)
         .env("CARGO_TARGET_DIR", staging.join("build"))
+        .env("TMPDIR", staging)
+        .env("TEMP", staging)
+        .env("TMP", staging)
         .args([
             "install",
             "--locked",
@@ -508,7 +563,7 @@ mod tests {
 
     fn install_pair(executable: &Path, prepared: &Path) -> Result<()> {
         install_pair_with(executable, prepared, |source| {
-            self_replace::self_replace(source)
+            replace_running_executable(executable, source)
         })
     }
 
@@ -633,6 +688,115 @@ mod tests {
         }
         for input in ["../1.2.3", "1.2.3/other", "--help", "latest", "1.2.3\n", ""] {
             assert!(parse_version(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn snapshots_are_readable_as_installed_versions_but_rejected_as_update_requests() {
+        for version in ["0.1.4-main.abc123", "v0.1.4-rc.1", "0.1.4+build.123"] {
+            assert!(parse_version(version).is_ok());
+            assert!(parse_requested_version(version)
+                .unwrap_err()
+                .to_string()
+                .contains("stable releases only"));
+        }
+        assert_eq!(
+            parse_requested_version("proa-cli-v1.2.3").unwrap(),
+            Version::new(1, 2, 3)
+        );
+    }
+
+    #[test]
+    fn streaming_reads_can_outlast_the_blocking_clients_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let timeout = Duration::from_millis(500);
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = [0; 4096];
+            stream.read(&mut request).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+            for _ in 0..10 {
+                stream.write_all(b"x").unwrap();
+                stream.flush().unwrap();
+                thread::sleep(Duration::from_millis(100));
+            }
+        });
+        let client = Client::builder()
+            .no_proxy()
+            .timeout(timeout)
+            .build()
+            .unwrap();
+        let started = std::time::Instant::now();
+        let mut response = client.get(url).send().unwrap();
+        let mut downloaded = Vec::new();
+        io::copy(&mut response, &mut downloaded).unwrap();
+        assert_eq!(downloaded, b"xxxxxxxxxx");
+        assert!(started.elapsed() > timeout);
+        server.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_updates_use_the_real_pair_and_stage_beside_it() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        for linked_peer in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let installation = temp.path().join("real installation");
+            let links = temp.path().join("links");
+            fs::create_dir(&installation).unwrap();
+            fs::create_dir(&links).unwrap();
+            let names = binary_names();
+            let actual = installation.join(&names[0]);
+            fs::write(&actual, "old running").unwrap();
+            fs::set_permissions(&actual, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::write(installation.join(&names[1]), "old peer").unwrap();
+            // Include a relative link chain: replacement must use the full
+            // canonical destination, rather than following just one link.
+            symlink(
+                Path::new("../real installation").join(&names[0]),
+                links.join("middle"),
+            )
+            .unwrap();
+            symlink("middle", links.join(&names[0])).unwrap();
+            if linked_peer {
+                symlink(installation.join(&names[1]), links.join(&names[1])).unwrap();
+            }
+            let executable = resolve_executable(&links.join(&names[0])).unwrap();
+            assert_eq!(executable, actual.canonicalize().unwrap());
+            let staging = update_staging(&executable).unwrap();
+            assert_eq!(
+                staging.path().parent().unwrap(),
+                installation.canonicalize().unwrap()
+            );
+            fs::write(staging.path().join(&names[0]), "new running").unwrap();
+            fs::write(staging.path().join(&names[1]), "new peer").unwrap();
+            install_pair(&executable, staging.path()).unwrap();
+            assert_eq!(fs::read_to_string(&actual).unwrap(), "new running");
+            assert_eq!(
+                fs::read_to_string(installation.join(&names[1])).unwrap(),
+                "new peer"
+            );
+            assert!(fs::symlink_metadata(links.join(&names[0]))
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            if linked_peer {
+                assert!(fs::symlink_metadata(links.join(&names[1]))
+                    .unwrap()
+                    .file_type()
+                    .is_symlink());
+            } else {
+                assert!(!links.join(&names[1]).exists());
+            }
+            assert!(!links.join(".proa-update.lock").exists());
         }
     }
 
