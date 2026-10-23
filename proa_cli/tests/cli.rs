@@ -296,6 +296,153 @@ fn lint_changed_errors_outside_a_git_repository() {
 }
 
 #[test]
+fn update_preview_does_not_install_and_invalid_versions_fail_before_network_access() {
+    let temp = tempfile::tempdir().unwrap();
+    let preview = proa(&["update", "--check", "--version", "9.8.7"], temp.path());
+    assert!(preview.status.success(), "{}", stderr(&preview));
+    assert!(stdout(&preview).contains("Requested: 9.8.7"));
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+    let invalid = proa(&["update", "--version", "../../other"], temp.path());
+    assert!(!invalid.status.success());
+    assert!(stderr(&invalid).contains("invalid release version"));
+    let snapshot = proa(&["update", "--version", "0.1.4-main.abc123"], temp.path());
+    assert!(!snapshot.status.success());
+    assert!(stderr(&snapshot).contains("stable releases only"));
+    assert!(!stdout(&snapshot).contains("Downloading"));
+    assert!(!stdout(&snapshot).contains("Building"));
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn standalone_bundles_switch_together_while_the_previous_binary_is_running() {
+    let temp = tempfile::Builder::new()
+        .prefix("proa bundles with spaces ")
+        .tempdir()
+        .unwrap();
+    let public = temp.path().join("bin");
+    let fixture = temp.path().join("fixture.rs");
+    fs::write(
+        &fixture,
+        r#"fn main() {
+        if std::env::args().any(|arg| arg == "--hold") {
+            std::thread::sleep(std::time::Duration::from_secs(120));
+        }
+        println!("proa {}", env!("FIXTURE_VERSION"));
+    }"#,
+    )
+    .unwrap();
+    let names =
+        ["proa", "cargo-proa"].map(|name| format!("{name}{}", std::env::consts::EXE_SUFFIX));
+    let mut sources = Vec::new();
+    for version in ["1.2.3", "1.3.0"] {
+        let source = temp.path().join(version);
+        fs::create_dir(&source).unwrap();
+        let output = Command::new("rustc")
+            .arg(&fixture)
+            .arg("-o")
+            .arg(source.join(&names[0]))
+            .env("FIXTURE_VERSION", version)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", stderr(&output));
+        fs::copy(source.join(&names[0]), source.join(&names[1])).unwrap();
+        sources.push(source);
+    }
+    let install = |source: &Path, downgrade: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_proa"));
+        command
+            .args(["install-self", "--source"])
+            .arg(source)
+            .arg("--bin-dir")
+            .arg(&public);
+        if downgrade {
+            command.arg("--allow-downgrade");
+        }
+        command.current_dir(temp.path()).output().unwrap()
+    };
+    // Reinstalling the same version must still migrate a legacy flat layout.
+    fs::create_dir(&public).unwrap();
+    for name in &names {
+        fs::copy(sources[0].join(name), public.join(name)).unwrap();
+    }
+    let legacy_path = public.join(&names[0]).canonicalize().unwrap();
+    let output = install(&sources[0], false);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let previous = public.join(&names[0]).canonicalize().unwrap();
+    assert_ne!(previous, legacy_path);
+    struct Running(std::process::Child);
+    impl Drop for Running {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut running = Running(Command::new(&previous).arg("--hold").spawn().unwrap());
+    let output = install(&sources[1], false);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let selected = public.join(&names[0]).canonicalize().unwrap();
+    assert_ne!(previous, selected);
+    assert!(previous.exists());
+    assert!(running.0.try_wait().unwrap().is_none());
+    for name in &names {
+        let output = Command::new(public.join(name))
+            .arg("--version")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(stdout(&output).trim(), "proa 1.3.0");
+    }
+    // Main archives have a distinct distribution identity without changing
+    // the compiled package version. Refreshing one must still switch bundles.
+    let snapshot = format!("1.3.0-main.{}", "0".repeat(40));
+    let output = Command::new(env!("CARGO_BIN_EXE_proa"))
+        .args(["install-self", "--source"])
+        .arg(&sources[1])
+        .arg("--bin-dir")
+        .arg(&public)
+        .args([
+            "--expected-version",
+            "1.3.0",
+            "--distribution-version",
+            &snapshot,
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    let snapshot_selected = public.join(&names[0]).canonicalize().unwrap();
+    assert_ne!(snapshot_selected, selected);
+    assert_eq!(
+        fs::read_to_string(
+            snapshot_selected
+                .parent()
+                .unwrap()
+                .join("distribution-version")
+        )
+        .unwrap(),
+        snapshot
+    );
+    let selected = snapshot_selected;
+    // A stale automatic update must not undo the newer installation.
+    let output = install(&sources[0], false);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(public.join(&names[0]).canonicalize().unwrap(), selected);
+    // A mismatched pair fails before changing the selected bundle.
+    fs::copy(sources[0].join(&names[1]), sources[1].join(&names[1])).unwrap();
+    assert!(!install(&sources[1], false).status.success());
+    assert_eq!(public.join(&names[0]).canonicalize().unwrap(), selected);
+    // Explicit downgrades still switch both binaries through the same path.
+    let output = install(&sources[0], true);
+    assert!(output.status.success(), "{}", stderr(&output));
+    for name in &names {
+        let output = Command::new(public.join(name))
+            .arg("--version")
+            .output()
+            .unwrap();
+        assert_eq!(stdout(&output).trim(), "proa 1.2.3");
+    }
+}
+
+#[test]
 fn dev_exposes_live_reload_controls_and_rejects_an_unhonourable_debounce() {
     let temp = tempfile::tempdir().unwrap();
     let help = proa(&["dev", "--help"], temp.path());

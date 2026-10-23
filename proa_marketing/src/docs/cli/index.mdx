@@ -42,6 +42,68 @@ Generated project builds resolve Proa crates from crates.io and use `Cargo.lock`
 cargo run -p proa-cli --bin proa -- <command>
 ```
 
+## Update
+
+Update the CLI using the tool that installed it:
+
+```bash
+proa update
+```
+
+Preview the latest stable version without changing files, or select an exact
+stable release:
+
+```bash
+proa update --check
+proa update --version 0.1.3
+proa update --build-from-source
+```
+
+`cargo proa update` works too. Proa identifies the installation before updating:
+
+- **Standalone installer:** downloads and runs the official installer. It
+  verifies SHA256, checks both binaries, and switches one pointer to a complete
+  versioned bundle. Existing processes keep using the previous bundle.
+- **Cargo:** lets Cargo update its own installation and records. On Unix,
+  Proa hands the process over to Cargo. On Windows, it prints the exact
+  PowerShell command to run after Proa exits, then exits without installing.
+  This avoids locked executables.
+- **Unknown or debug installation:** refuses to overwrite it and provides
+  manual upgrade guidance. `--check` remains available in debug builds.
+
+An explicit `--version` can reinstall the same release or downgrade; the
+default command never downgrades to an older stable release. Prerelease and
+main snapshot versions are rejected; use the installer to select a snapshot.
+
+The updater uses Proa's CLI release metadata and verifies SHA256 checksums
+before installing prebuilt binaries. If no archive exists for a standalone
+installation, it builds the exact selected release from crates.io in private
+staging. This requires Cargo and can take several minutes. Both binaries must
+report the requested version before the bundle becomes current.
+
+Checksum verification trusts Proa's HTTPS release channel; it does not yet
+verify an independent publisher signature.
+
+Download timeouts apply to stalled reads, so a slow download can take more
+than two minutes as long as data continues arriving. Standalone executable staging stays
+on the installation filesystem to support hosts where the system temporary
+directory does not allow execution.
+
+Use `--build-from-source` when a prebuilt binary cannot run on your system,
+such as a Linux distribution with an older glibc. This bypasses archive
+downloads and builds the selected release with your local toolchain.
+
+Older CLIs without `update` need one upgrade through the installer or
+`cargo install proa-cli --locked` before this command is available.
+
+New standalone installations keep releases in a sibling directory named
+`<bin-directory>.proa`. On Unix, the two public commands are symlinks through
+its `current` pointer. On Windows, a dedicated bin directory is a junction
+through `current`; shared directories containing other programs are refused.
+Previous bundles remain available for processes that are still running.
+Older releases without the bundle publisher can still be installed in their
+legacy layout; rerun the installer to migrate once a capable release exists.
+
 ## Invocation
 
 The installed binary is `proa`:
@@ -60,6 +122,7 @@ cargo proa fmt --check --verify src
 
 | Command | Purpose |
 |---------|---------|
+| `proa update` | Update both CLI binaries; use `--check` to preview or `--version` to select a release. |
 | `proa init` | Add `proa.config.json` and `proa.lock.json` to an existing project. |
 | `proa config validate` | Check `proa.config.json` for unknown keys, empty commands, and invalid asset definitions. |
 | `proa config show` | Print the effective configuration with defaults filled in. |

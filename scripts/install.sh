@@ -2,6 +2,8 @@
 # Copyright Proa Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
+# PROA_BUNDLE_INSTALLER_V1
+
 # Proa CLI installer for Linux and macOS.
 #
 #   curl -fsSL https://proa.so/install.sh | sh
@@ -50,7 +52,7 @@ set_defaults() {
     # Bump this when the installer itself changes. It is the only thing in a
     # pasted log that identifies which installer produced it, since the script
     # is served from a URL and carries no other version.
-    INSTALLER_REVISION="2026-10-12"
+    INSTALLER_REVISION="2026-10-23"
 
     # Tailwind is an optional companion install. Keep the version and hashes
     # pinned together: changing the version without updating every hash below
@@ -1700,6 +1702,9 @@ download_to() {
 # ---------------------------------------------------------------------------
 
 cleanup() {
+    if [ -n "${BOOTSTRAP_DIR:-}" ] && [ -d "$BOOTSTRAP_DIR" ]; then
+        rm -rf "$BOOTSTRAP_DIR"
+    fi
     if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
         rm -rf "$TMP_DIR"
     fi
@@ -2360,6 +2365,58 @@ install_file() {
     log_info "installed $src -> $dest (mode 755)"
 }
 
+# New releases publish their complete bundle through the same Rust helper used
+# for updates. Old releases remain installable through the legacy copy path.
+binary_version_for_distribution() {
+    local version="$1"
+    case "$version" in
+        *-main.*)
+            local core="${version%%-main.*}"
+            local rest="${version#*-main.}"
+            local revision="${rest%%.*}"
+            case "$revision" in *[!0-9a-fA-F]*) err "main snapshots require a full 40-character commit SHA" ;; esac
+            [ "${#revision}" -eq 40 ] || err "main snapshots require a full 40-character commit SHA"
+            if [ "$rest" = "$revision" ]; then printf '%s' "$core"
+            else printf '%s-%s' "$core" "${rest#*.}"; fi
+            ;;
+        *) printf '%s' "$version" ;;
+    esac
+}
+
+install_bundle() {
+    local source="$1"
+    local helper="${PROA_INSTALL_HELPER:-$source/proa}"
+    local binary_version
+    binary_version=$(binary_version_for_distribution "$VERSION") || err "invalid distribution version"
+    local name
+    for name in proa cargo-proa; do
+        chmod 755 "$source/$name" || err "could not make the release executable"
+        strip_quarantine "$source/$name"
+    done
+    if [ -z "${PROA_INSTALL_HELPER:-}" ]; then
+        for name in proa cargo-proa; do
+            local reported
+            reported=$("$source/$name" --version 2>&1) ||
+                err "the downloaded $name cannot run on this system; retry with --build-from-source. The installed CLI was not changed."
+            [ -z "$binary_version" ] || [ "$reported" = "proa $binary_version" ] ||
+                err "the downloaded $name did not report the requested version; the installed CLI was not changed"
+        done
+        if ! "$helper" install-self --help > "$TMP_DIR/install-help" 2>/dev/null ||
+            ! grep -q -- '--bin-dir' "$TMP_DIR/install-help"; then
+            [ ! -f "$BIN_DIR/../.crates.toml" ] ||
+                err "this is a Cargo installation directory; install Proa with cargo install --locked proa-cli"
+            [ ! -f "$BIN_DIR.proa/proa-install.json" ] ||
+                err "this release needs a newer installer helper; update from the current managed CLI"
+            return 1
+        fi
+    fi
+    set -- install-self --source "$source" --bin-dir "$BIN_DIR"
+    if [ -n "$VERSION" ]; then set -- "$@" --expected-version "$binary_version" --distribution-version "$VERSION"; fi
+    if [ -n "${BUNDLE_ALLOW_DOWNGRADE:-}" ]; then set -- "$@" --allow-downgrade; fi
+    "$helper" "$@" || err "could not publish the Proa bundle; the previous selection was preserved"
+    return 0
+}
+
 # ---------------------------------------------------------------------------
 # PATH handling
 # ---------------------------------------------------------------------------
@@ -2652,6 +2709,7 @@ source_uses_registry() {
 
 install_from_source() {
     local cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+    local standalone="${PROA_STANDALONE_SOURCE:-}"
 
     if ! check_cmd cargo; then
         err "building from source needs cargo. Install Rust first: $(rustup_command)"
@@ -2659,10 +2717,10 @@ install_from_source() {
 
     # cargo install always writes to cargo's own bin directory, so a requested
     # directory cannot be honoured on this path.
-    if [ -n "$DIR_WAS_EXPLICIT" ] && [ "$BIN_DIR" != "$cargo_bin" ]; then
+    if [ -z "$standalone" ] && [ -n "$DIR_WAS_EXPLICIT" ] && [ "$BIN_DIR" != "$cargo_bin" ]; then
         warn "cargo installs into $cargo_bin, so the requested directory $BIN_DIR was not used"
     fi
-    if [ "$BIN_DIR" != "$cargo_bin" ]; then
+    if [ -z "$standalone" ] && [ "$BIN_DIR" != "$cargo_bin" ]; then
         # Any existing install that matters here is cargo's, so re-read the
         # previous version from there before the build overwrites it.
         log_info "install directory switched to $cargo_bin because cargo install decides its own destination"
@@ -2719,9 +2777,19 @@ install_from_source() {
         log_info "git is not installed; cargo falls back to its built-in git fetcher"
     fi
     log_debug "CARGO_NET_GIT_FETCH_WITH_CLI=$fetch_with_cli"
+    if [ -n "$standalone" ]; then
+        set -- "$@" --root "$TMP_DIR/cargo" --force
+        cargo_bin="$TMP_DIR/cargo/bin"
+        # The updater supplies an executable temporary directory beside its
+        # installation. Keep Cargo build scripts on that filesystem as well.
+        CARGO_TARGET_DIR="$TMP_DIR/b" CARGO_NET_GIT_FETCH_WITH_CLI="$fetch_with_cli" cargo "$@" ||
+            err "cargo install failed. The output above has the compiler error."
+        install_bundle "$cargo_bin" || err "the standalone helper is unavailable"
+    else
     CARGO_NET_GIT_FETCH_WITH_CLI="$fetch_with_cli" \
         cargo "$@" ||
         err "cargo install failed. The output above has the compiler error."
+    fi
     log_info "cargo install finished, binaries are in $cargo_bin"
 
     blank
@@ -2760,7 +2828,7 @@ install_prebuilt() {
     local base="$DOWNLOAD_BASE/$VERSION"
     local archive_path="$TMP_DIR/$archive"
     local sums_path="$TMP_DIR/$sums"
-    local unpacked="$TMP_DIR/proa-cli-$VERSION-$TARGET"
+    local unpacked
     local name
 
     need_cmd tar "used to unpack the release archive"
@@ -2797,14 +2865,18 @@ install_prebuilt() {
     verify_checksum "$archive_path" "$sums_path" "$archive"
 
     log_archive_contents "$archive_path"
-    tar -xzf "$archive_path" -C "$TMP_DIR" || err "could not unpack $archive"
+    # Candidate binaries must run even on hosts mounting system /tmp noexec.
+    mkdir -p "$BIN_DIR.proa" || err "could not create the standalone installation root"
+    BOOTSTRAP_DIR=$(mktemp -d "$BIN_DIR.proa/.bootstrap.XXXXXX") || err "could not stage the release"
+    unpacked="$BOOTSTRAP_DIR/proa-cli-$VERSION-$TARGET"
+    tar -xzf "$archive_path" -C "$BOOTSTRAP_DIR" || err "could not unpack $archive"
     log_info "unpacked $archive into $TMP_DIR"
 
     # The archive holds a single top-level proa-cli-<version>-<target>/
     # directory. Older or hand-built archives may be flat, so accept that too.
     if [ ! -d "$unpacked" ]; then
         log_info "no $unpacked directory in the archive, treating it as a flat layout"
-        unpacked="$TMP_DIR"
+        unpacked="$BOOTSTRAP_DIR"
     fi
 
     # Both binaries are checked before either is written. install_file also
@@ -2820,8 +2892,10 @@ install_prebuilt() {
     log_section "install"
     log_info "installing into $BIN_DIR"
     mkdir -p "$BIN_DIR" || err "could not create $BIN_DIR"
-    install_file "$unpacked/proa" "$BIN_DIR/proa"
-    install_file "$unpacked/cargo-proa" "$BIN_DIR/cargo-proa"
+    if ! install_bundle "$unpacked"; then
+        install_file "$unpacked/proa" "$BIN_DIR/proa"
+        install_file "$unpacked/cargo-proa" "$BIN_DIR/cargo-proa"
+    fi
     step_ok "installed" "proa, cargo-proa into $(tilde_path "$BIN_DIR")"
 
     verify_install
@@ -2936,6 +3010,9 @@ main() {
     trap 'on_signal HUP 129' HUP
 
     parse_args "$@"
+    # Capture explicit version intent before resolving latest.json.
+    BUNDLE_ALLOW_DOWNGRADE="$VERSION"
+    if [ -n "${PROA_INSTALL_HELPER:-}" ]; then BUNDLE_ALLOW_DOWNGRADE="${PROA_ALLOW_DOWNGRADE:-}"; fi
     log_inputs
 
     need_cmd grep "used to check your shell profile before editing it"

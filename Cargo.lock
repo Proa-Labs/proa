@@ -3067,6 +3067,7 @@ dependencies = [
  "reqwest 0.12.24",
  "rsjs_ir",
  "rsjs_transport",
+ "semver",
  "serde",
  "serde_ignored",
  "serde_json",

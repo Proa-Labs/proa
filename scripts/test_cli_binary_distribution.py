@@ -101,6 +101,33 @@ def make_distribution(directory: Path) -> None:
 
 
 class ReleaseVersionContractTests(unittest.TestCase):
+    def test_installers_distinguish_main_archive_identity_from_binary_version(self) -> None:
+        # This is the release workflow's contract: its main archive identity
+        # adds a commit SHA while Cargo.toml (and --version) stay unchanged.
+        definitions = (ROOT / "scripts/install.sh").read_text().rsplit('\nmain "$@"', 1)[0]
+        powershell = shutil.which("pwsh")
+        with tempfile.TemporaryDirectory() as directory:
+            harness = Path(directory) / "version.ps1"
+            harness.write_text(r'''
+param($Installer, $Distribution)
+$tokens=$null; $errors=$null
+$ast=[System.Management.Automation.Language.Parser]::ParseFile($Installer,[ref]$tokens,[ref]$errors)
+$function=$ast.FindAll({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-BinaryVersionForDistribution'}, $true)[0]
+Invoke-Expression $function.Extent.Text
+Get-BinaryVersionForDistribution $Distribution
+''')
+            for binary_version in [cli_manifest_version(), "0.1.1-beta.1"]:
+                distribution = main_snapshot_version(binary_version)
+                unix = subprocess.run(["sh", "-c", definitions + '\nbinary_version_for_distribution "$1"', "--", distribution],
+                                      capture_output=True, text=True, timeout=10)
+                self.assertEqual(unix.returncode, 0, unix.stderr)
+                self.assertEqual(unix.stdout.strip(), binary_version)
+                if powershell:
+                    windows = subprocess.run([powershell, "-NoProfile", "-File", str(harness), str(ROOT / "scripts/install.ps1"), distribution],
+                                             capture_output=True, text=True, timeout=15)
+                    self.assertEqual(windows.returncode, 0, windows.stderr)
+                    self.assertEqual(windows.stdout.strip(), binary_version)
+
     def test_manifest_version_fits_stable_and_main_distribution_identities(self) -> None:
         version = cli_manifest_version()
         assert_distribution_version(self, version)
@@ -349,6 +376,7 @@ foreach ($name in @('Get-SourceInstallArguments', 'Install-FromSource')) {
 }
 function Get-CargoBinDir { return '/tmp/cargo/bin' }
 function Test-CommandExists { return $true }
+function Test-EnvFlag { return $false }
 function Set-PreviousVersion {}
 function Write-LogSection {}
 function Write-StepStart {}

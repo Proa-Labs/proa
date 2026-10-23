@@ -40,10 +40,12 @@ rsjs_transport = { workspace = true, features = ["extract"] }
 serde = { workspace = true }
 serde_ignored = { version = "0.1" }
 serde_json = { workspace = true }
+semver = { version = "1" }
 sha2 = { workspace = true }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate"] }
 syn = { workspace = true, features = ["full", "visit"] }
 thiserror = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 toml = { workspace = true }
 toml_edit = { version = "0.22" }
@@ -54,8 +56,7 @@ walkdir = { workspace = true }
 libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_System_IO"] }
 
 [dev-dependencies]
 object = { workspace = true }
-tempfile = { workspace = true }
