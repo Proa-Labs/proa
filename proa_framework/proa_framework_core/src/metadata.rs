@@ -1,9 +1,11 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_core::ctx::Ctx;
+use std::borrow::Cow;
+
 use proa_core::text::{text, UnsafeRaw};
 use proa_core::WebRenderSync;
+use proa_core::{DataLoader, WebContext, WriteBuf};
 
 use crate::manifest::IslandManifest;
 
@@ -107,7 +109,7 @@ pub trait Metadata: Send + Sync + 'static {
 #[derive(Clone, Default)]
 pub struct ComputedRouteMeta {
     pub title: Option<String>,
-    pub description: Option<&'static str>,
+    pub description: Option<Cow<'static, str>>,
     pub open_graph: ComputedOpenGraph,
     pub twitter: ResolvedTwitter,
     pub(crate) title_template: Option<String>,
@@ -124,7 +126,7 @@ pub struct ComputedRouteMeta {
     /// the cascade so a descendant's Open Graph and Twitter templates are
     /// filled with the descendant's title rather than reusing a value filled
     /// for an ancestor.
-    pub(crate) page_title: Option<&'static str>,
+    pub(crate) page_title: Option<Cow<'static, str>>,
 }
 
 impl ComputedRouteMeta {
@@ -142,7 +144,7 @@ impl ComputedRouteMeta {
                     } else if title.contains("%s") {
                         computed.title_template = Some(title.to_string());
                     } else {
-                        computed.page_title = Some(title);
+                        computed.page_title = Some(Cow::Borrowed(title));
                         if let Some(template) = &computed.title_template {
                             computed.title = Some(template.replace("%s", title));
                         } else {
@@ -158,7 +160,13 @@ impl ComputedRouteMeta {
                 CascadeValue::Unset => {}
             }
 
-            computed.description = provider.description().resolve(computed.description);
+            match provider.description() {
+                CascadeValue::Set(description) => {
+                    computed.description = Some(Cow::Borrowed(description));
+                }
+                CascadeValue::Tombstone => computed.description = None,
+                CascadeValue::Unset => {}
+            }
 
             let og = provider.open_graph();
 
@@ -253,29 +261,130 @@ impl ComputedRouteMeta {
             );
         }
 
-        // Template-filled values are refilled on every route, so a child page
-        // uses its own title and description instead of its ancestor's.
-        refill_from_template(
-            &mut computed.open_graph.title,
-            &mut computed.og_title_filled,
-            computed.og_title_template.as_deref(),
-            computed.page_title,
-        );
-        refill_from_template(
-            &mut computed.open_graph.description,
-            &mut computed.og_description_filled,
-            computed.og_description_template.as_deref(),
-            computed.description,
-        );
-
-        finish_twitter_templates(
-            &mut computed.twitter,
-            &mut computed.twitter_templates,
-            computed.page_title,
-            computed.description,
-        );
-
+        computed.fill_templates();
         computed
+    }
+
+    /// Applies per-request values on top of the route's providers, as the
+    /// last cascade layer. See [`RequestMetadata`].
+    pub fn apply_request(&mut self, request: &RequestMetadata) {
+        if let Some(title) = &request.title {
+            self.title = Some(match &self.title_template {
+                Some(template) => template.replace("%s", title),
+                None => title.clone(),
+            });
+            self.page_title = Some(Cow::Owned(title.clone()));
+            // An explicit Open Graph title named the route's page, so the
+            // request's page title replaces it. A template is refilled.
+            if self.og_title_template.is_some() {
+                self.open_graph.title = None;
+                self.og_title_filled = false;
+            } else if self.open_graph.title.is_some() {
+                self.open_graph.title = Some(title.clone());
+            }
+            // Twitter falls back to the Open Graph and page titles.
+            self.twitter.title = None;
+            self.twitter_templates.title_filled = false;
+        }
+
+        if let Some(description) = &request.description {
+            self.description = Some(Cow::Owned(description.clone()));
+            if self.og_description_template.is_some() {
+                self.open_graph.description = None;
+                self.og_description_filled = false;
+            } else if self.open_graph.description.is_some() {
+                self.open_graph.description = Some(description.clone());
+            }
+            self.twitter.description = None;
+            self.twitter_templates.description_filled = false;
+        }
+
+        if let Some(url) = &request.image {
+            self.open_graph.images = vec![ResolvedOpenGraphImage {
+                url: url.clone(),
+                secure_url: None,
+                mime_type: None,
+                width: None,
+                height: None,
+                alt: request.image_alt.clone().map(Cow::Owned),
+            }];
+            // The card falls back to the request's Open Graph image.
+            self.twitter.image = None;
+            self.twitter.image_alt = None;
+        }
+
+        self.fill_templates();
+    }
+
+    /// Fills Open Graph and Twitter `%s` templates from the page title and
+    /// description. Template-filled values are refilled on every route, so a
+    /// child page uses its own title and description instead of its
+    /// ancestor's.
+    fn fill_templates(&mut self) {
+        refill_from_template(
+            &mut self.open_graph.title,
+            &mut self.og_title_filled,
+            self.og_title_template.as_deref(),
+            self.page_title.as_deref(),
+        );
+        refill_from_template(
+            &mut self.open_graph.description,
+            &mut self.og_description_filled,
+            self.og_description_template.as_deref(),
+            self.description.as_deref(),
+        );
+        finish_twitter_templates(
+            &mut self.twitter,
+            &mut self.twitter_templates,
+            self.page_title.as_deref(),
+            self.description.as_deref(),
+        );
+    }
+}
+
+/// Metadata known only while handling a request, such as a blog post's
+/// title, description, and cover image.
+///
+/// Attach it to a response with `RouteResponse::with_metadata`. It applies
+/// after the route's layout and page providers, as the last cascade layer:
+/// the layout's `%s` title, Open Graph, and Twitter templates format the
+/// request's title and description, and an image replaces the inherited
+/// Open Graph images and becomes the Twitter Card image.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RequestMetadata {
+    title: Option<String>,
+    description: Option<String>,
+    image: Option<String>,
+    image_alt: Option<String>,
+}
+
+impl RequestMetadata {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The page title, formatted through the layout's title template.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// The meta description, also used for Open Graph and Twitter.
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    /// An absolute image URL that replaces the inherited Open Graph images.
+    pub fn image(mut self, url: impl Into<String>) -> Self {
+        self.image = Some(url.into());
+        self
+    }
+
+    /// Alt text for [`RequestMetadata::image`].
+    pub fn image_alt(mut self, alt: impl Into<String>) -> Self {
+        self.image_alt = Some(alt.into());
+        self
     }
 }
 
@@ -283,7 +392,7 @@ impl ComputedRouteMeta {
 #[derive(Clone, Debug, Default)]
 pub struct ResolvedMetadata {
     pub title: Option<String>,
-    pub description: Option<&'static str>,
+    pub description: Option<Cow<'static, str>>,
     pub open_graph: ResolvedOpenGraph,
     pub twitter: ResolvedTwitter,
 }
@@ -671,7 +780,7 @@ pub struct ResolvedOpenGraphImage {
     pub mime_type: Option<&'static str>,
     pub width: Option<u32>,
     pub height: Option<u32>,
-    pub alt: Option<&'static str>,
+    pub alt: Option<Cow<'static, str>>,
 }
 
 impl ResolvedOpenGraphImage {
@@ -683,7 +792,7 @@ impl ResolvedOpenGraphImage {
             mime_type: image.mime_type,
             width: image.width,
             height: image.height,
-            alt: image.alt,
+            alt: image.alt.map(Cow::Borrowed),
         })
     }
 }
@@ -709,7 +818,7 @@ impl ResolvedOpenGraphMedia {
 pub fn resolved_metadata_from_computed(computed: &ComputedRouteMeta) -> ResolvedMetadata {
     ResolvedMetadata {
         title: computed.title.clone(),
-        description: computed.description,
+        description: computed.description.clone(),
         open_graph: ResolvedOpenGraph {
             title: computed.open_graph.title.clone(),
             description: computed.open_graph.description.clone(),
@@ -734,11 +843,20 @@ pub fn resolved_metadata_from_computed(computed: &ComputedRouteMeta) -> Resolved
 /// [`ComputedRouteMeta::cascade`], so a route renders the same head whichever
 /// path resolves it.
 pub fn resolve_metadata_stack(metadata: &[MetadataRef]) -> Option<ResolvedMetadata> {
+    compute_metadata_stack(metadata).map(|computed| resolved_metadata_from_computed(&computed))
+}
+
+/// Cascades a full provider stack (outermost layout first) in one pass,
+/// keeping the templates so [`ComputedRouteMeta::apply_request`] can still
+/// format per-request values.
+pub fn compute_metadata_stack(metadata: &[MetadataRef]) -> Option<ComputedRouteMeta> {
     if metadata.is_empty() {
         return None;
     }
-    let computed = ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), metadata);
-    Some(resolved_metadata_from_computed(&computed))
+    Some(ComputedRouteMeta::cascade(
+        &ComputedRouteMeta::default(),
+        metadata,
+    ))
 }
 
 pub fn css_asset_path(manifest: &IslandManifest) -> Option<&str> {
@@ -755,12 +873,13 @@ pub fn css_asset_path(manifest: &IslandManifest) -> Option<&str> {
 /// and inject further attributes (for example an `http-equiv="refresh"`
 /// redirect). Metadata fields are `&'static str` today, so this is defense in
 /// depth, but it keeps the head safe if the API later accepts dynamic values.
-fn write_attr_value(cx: &mut Ctx, value: &str) {
+fn write_attr_value<L: DataLoader, B: WriteBuf>(cx: &mut WebContext<L, B>, value: &str) {
     let dialect = cx.__proa_current_escape_dialect();
     proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, value, dialect).unwrap();
 }
 
-pub fn render_css_link(cx: &mut Ctx, css_path: &str) {
+// proa-perf-ok(scope): fixed tag scaffolding; every value is attribute-escaped by write_attr_value.
+pub fn render_css_link<L: DataLoader, B: WriteBuf>(cx: &mut WebContext<L, B>, css_path: &str) {
     UnsafeRaw("<link rel=\"stylesheet\" href=\"")
         .render(cx)
         .unwrap();
@@ -768,14 +887,18 @@ pub fn render_css_link(cx: &mut Ctx, css_path: &str) {
     UnsafeRaw("\"/>").render(cx).unwrap();
 }
 
-pub fn render_metadata_head(cx: &mut Ctx, metadata: &ResolvedMetadata) {
+// proa-perf-ok(scope): fixed tag scaffolding; every value is attribute-escaped by write_attr_value.
+pub fn render_metadata_head<L: DataLoader, B: WriteBuf>(
+    cx: &mut WebContext<L, B>,
+    metadata: &ResolvedMetadata,
+) {
     if let Some(title) = &metadata.title {
         UnsafeRaw("<title>").render(cx).unwrap();
         text(title.as_str()).render(cx).unwrap();
         UnsafeRaw("</title>").render(cx).unwrap();
     }
 
-    if let Some(description) = metadata.description {
+    if let Some(description) = metadata.description.as_deref() {
         render_named_meta(cx, "description", description);
     }
 
@@ -819,14 +942,12 @@ pub fn render_metadata_head(cx: &mut Ctx, metadata: &ResolvedMetadata) {
             render_property_meta(cx, "og:image:secure_url", secure_url.as_str());
         }
         if let Some(width) = image.width {
-            let width_str = width.to_string();
-            render_property_meta(cx, "og:image:width", width_str.as_str());
+            render_u32_property_meta(cx, "og:image:width", width);
         }
         if let Some(height) = image.height {
-            let height_str = height.to_string();
-            render_property_meta(cx, "og:image:height", height_str.as_str());
+            render_u32_property_meta(cx, "og:image:height", height);
         }
-        if let Some(alt) = image.alt {
+        if let Some(alt) = image.alt.as_deref() {
             render_property_meta(cx, "og:image:alt", alt);
         }
         if let Some(mime) = image.mime_type {
@@ -857,7 +978,10 @@ pub fn render_metadata_head(cx: &mut Ctx, metadata: &ResolvedMetadata) {
     render_twitter_tags(cx, metadata);
 }
 
-fn render_twitter_tags(cx: &mut Ctx, metadata: &ResolvedMetadata) {
+fn render_twitter_tags<L: DataLoader, B: WriteBuf>(
+    cx: &mut WebContext<L, B>,
+    metadata: &ResolvedMetadata,
+) {
     let twitter = &metadata.twitter;
     if twitter.is_empty() {
         return;
@@ -870,7 +994,7 @@ fn render_twitter_tags(cx: &mut Ctx, metadata: &ResolvedMetadata) {
         (Some(image), _) => (Some(image), twitter.image_alt),
         (None, Some(og_image)) => (
             Some(og_image.url.as_str()),
-            twitter.image_alt.or(og_image.alt),
+            twitter.image_alt.or(og_image.alt.as_deref()),
         ),
         (None, None) => (None, None),
     };
@@ -901,7 +1025,7 @@ fn render_twitter_tags(cx: &mut Ctx, metadata: &ResolvedMetadata) {
         .description
         .as_deref()
         .or(og.description.as_deref())
-        .or(metadata.description)
+        .or(metadata.description.as_deref())
     {
         render_named_meta(cx, "twitter:description", description);
     }
@@ -914,7 +1038,12 @@ fn render_twitter_tags(cx: &mut Ctx, metadata: &ResolvedMetadata) {
     }
 }
 
-fn render_named_meta(cx: &mut Ctx, name: &str, content: &str) {
+// proa-perf-ok(scope): fixed tag scaffolding; every value is attribute-escaped by write_attr_value.
+fn render_named_meta<L: DataLoader, B: WriteBuf>(
+    cx: &mut WebContext<L, B>,
+    name: &str,
+    content: &str,
+) {
     UnsafeRaw("<meta name=\"").render(cx).unwrap();
     write_attr_value(cx, name);
     UnsafeRaw("\" content=\"").render(cx).unwrap();
@@ -922,7 +1051,12 @@ fn render_named_meta(cx: &mut Ctx, name: &str, content: &str) {
     UnsafeRaw("\"/>").render(cx).unwrap();
 }
 
-fn render_property_meta(cx: &mut Ctx, property: &str, content: &str) {
+// proa-perf-ok(scope): fixed tag scaffolding; every value is attribute-escaped by write_attr_value.
+fn render_property_meta<L: DataLoader, B: WriteBuf>(
+    cx: &mut WebContext<L, B>,
+    property: &str,
+    content: &str,
+) {
     UnsafeRaw("<meta property=\"").render(cx).unwrap();
     write_attr_value(cx, property);
     UnsafeRaw("\" content=\"").render(cx).unwrap();
@@ -930,9 +1064,22 @@ fn render_property_meta(cx: &mut Ctx, property: &str, content: &str) {
     UnsafeRaw("\"/>").render(cx).unwrap();
 }
 
+fn render_u32_property_meta<L: DataLoader, B: WriteBuf>(
+    cx: &mut WebContext<L, B>,
+    property: &str,
+    value: u32,
+) {
+    let mut digits = [0u8; 10];
+    let len = itoa_lut::write_u32(value, &mut digits);
+    // ASCII digits are valid UTF-8.
+    let value = std::str::from_utf8(&digits[..len]).unwrap();
+    render_property_meta(cx, property, value);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proa_core::ctx::Ctx;
 
     struct BaseMeta;
 
@@ -959,14 +1106,14 @@ mod tests {
         let providers: &[MetadataRef] = &[&BaseMeta, &PageMeta];
         let resolved = resolve_metadata_stack(providers).expect("metadata should resolve");
         assert_eq!(resolved.title.as_deref(), Some("Page | Base"));
-        assert_eq!(resolved.description, Some("base-desc"));
+        assert_eq!(resolved.description.as_deref(), Some("base-desc"));
     }
 
     #[test]
     fn render_metadata_head_writes_tags() {
         let metadata = ResolvedMetadata {
             title: Some("Page".to_string()),
-            description: Some("desc"),
+            description: Some("desc".into()),
             ..Default::default()
         };
         let mut cx = Ctx::new();
@@ -1745,8 +1892,168 @@ mod tests {
         );
     }
 
+    struct BlogLayout;
+
+    impl Metadata for BlogLayout {
+        fn title(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("%s | Acme")
+        }
+
+        fn description(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("site-desc")
+        }
+
+        fn open_graph(&self) -> CascadeOpenGraph {
+            static IMAGES: [OpenGraphImage; 1] =
+                [OpenGraphImage::new("https://example.com/site.png").with_alt("Site")];
+            CascadeOpenGraph {
+                title: CascadeValue::Set("%s on OG"),
+                images: CascadeValue::Set(&IMAGES),
+                ..Default::default()
+            }
+        }
+
+        fn twitter(&self) -> CascadeTwitter {
+            CascadeTwitter {
+                site: CascadeValue::Set("@acme"),
+                title: CascadeValue::Set("%s on X"),
+                image: CascadeValue::Set("https://example.com/x.png"),
+                image_alt: CascadeValue::Set("X default"),
+                ..Default::default()
+            }
+        }
+    }
+
+    struct BlogPostRoute;
+
+    impl Metadata for BlogPostRoute {
+        fn title(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("Blog")
+        }
+
+        fn open_graph(&self) -> CascadeOpenGraph {
+            CascadeOpenGraph {
+                description: CascadeValue::Set("Read the Acme blog"),
+                ..Default::default()
+            }
+        }
+    }
+
+    fn with_request(providers: &[MetadataRef], request: &RequestMetadata) -> String {
+        let mut computed = compute_metadata_stack(providers).unwrap_or_default();
+        computed.apply_request(request);
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &resolved_metadata_from_computed(&computed));
+        cx.into_output().into_string()
+    }
+
+    #[test]
+    fn request_metadata_is_formatted_by_layout_templates() {
+        let html = with_request(
+            &[&BlogLayout, &BlogPostRoute],
+            &RequestMetadata::new()
+                .title("Launch day")
+                .description("We launched.")
+                .image("https://example.com/launch.png")
+                .image_alt("A rocket"),
+        );
+        assert!(html.contains("<title>Launch day | Acme</title>"), "{html}");
+        assert!(html.contains("name=\"description\" content=\"We launched.\""));
+        assert!(html.contains("property=\"og:title\" content=\"Launch day on OG\""));
+        assert!(html.contains("property=\"og:description\" content=\"We launched.\""));
+        assert!(html.contains("property=\"og:image\" content=\"https://example.com/launch.png\""));
+        assert!(html.contains("property=\"og:image:alt\" content=\"A rocket\""));
+        assert!(!html.contains("site.png"), "{html}");
+        assert!(html.contains("name=\"twitter:title\" content=\"Launch day on X\""));
+        assert!(html.contains("name=\"twitter:description\" content=\"We launched.\""));
+        assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/launch.png\""));
+        assert!(html.contains("name=\"twitter:image:alt\" content=\"A rocket\""));
+        assert!(
+            !html.contains("x.png") && !html.contains("X default"),
+            "{html}"
+        );
+        assert!(
+            !html.contains("Blog"),
+            "the route's static title is replaced: {html}"
+        );
+    }
+
+    #[test]
+    fn request_metadata_keeps_route_values_it_does_not_set() {
+        let html = with_request(
+            &[&BlogLayout, &BlogPostRoute],
+            &RequestMetadata::new().title("Launch day"),
+        );
+        assert!(html.contains("<title>Launch day | Acme</title>"));
+        assert!(html.contains("name=\"description\" content=\"site-desc\""));
+        assert!(html.contains("property=\"og:description\" content=\"Read the Acme blog\""));
+        assert!(html.contains("property=\"og:image\" content=\"https://example.com/site.png\""));
+        assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/x.png\""));
+    }
+
+    #[test]
+    fn request_metadata_replaces_explicit_open_graph_title() {
+        struct ExplicitOgTitle;
+
+        impl Metadata for ExplicitOgTitle {
+            fn open_graph(&self) -> CascadeOpenGraph {
+                CascadeOpenGraph {
+                    title: CascadeValue::Set("Blog"),
+                    description: CascadeValue::Set("Read the blog"),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let html = with_request(
+            &[&ExplicitOgTitle],
+            &RequestMetadata::new()
+                .title("Launch day")
+                .description("We launched."),
+        );
+        assert!(html.contains("<title>Launch day</title>"), "{html}");
+        assert!(html.contains("property=\"og:title\" content=\"Launch day\""));
+        assert!(html.contains("property=\"og:description\" content=\"We launched.\""));
+    }
+
+    #[test]
+    fn request_metadata_without_route_providers() {
+        let html = with_request(&[], &RequestMetadata::new().title("Standalone"));
+        assert_eq!(html, "<title>Standalone</title>");
+    }
+
+    #[test]
+    fn image_dimensions_render_without_allocating_strings() {
+        let metadata = ResolvedMetadata {
+            open_graph: ResolvedOpenGraph {
+                images: vec![ResolvedOpenGraphImage {
+                    url: "https://example.com/a.png".to_string(),
+                    secure_url: None,
+                    mime_type: None,
+                    width: Some(0),
+                    height: Some(u32::MAX),
+                    alt: None,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &metadata);
+        let html = cx.into_output().into_string();
+        assert!(
+            html.contains("property=\"og:image:width\" content=\"0\""),
+            "{html}"
+        );
+        assert!(
+            html.contains("property=\"og:image:height\" content=\"4294967295\""),
+            "{html}"
+        );
+    }
+
     mod split_invariance {
         use super::super::*;
+        use proa_core::ctx::Ctx;
 
         macro_rules! provider {
             ($name:ident { $($body:tt)* }) => {

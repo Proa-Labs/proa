@@ -28,7 +28,7 @@ pub use local_executor::LocalStreamExecutorConfig;
 pub use metadata::{
     css_asset_path, render_css_link, render_metadata_head, resolved_metadata, CascadeOpenGraph,
     CascadeTwitter, CascadeValue, ComputedRouteMeta, Metadata, MetadataRef, OpenGraph,
-    OpenGraphImage, OpenGraphMedia, ResolvedMetadata, ResolvedOpenGraphImage,
+    OpenGraphImage, OpenGraphMedia, RequestMetadata, ResolvedMetadata, ResolvedOpenGraphImage,
     ResolvedOpenGraphMedia, ResolvedTwitter, TitleOnly, TwitterCard,
 };
 pub use page_cache::{PageCacheLayer, PageCacheService};

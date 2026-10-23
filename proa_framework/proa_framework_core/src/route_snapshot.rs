@@ -63,6 +63,12 @@ impl FrameworkRouteSnapshot {
         self.current_uri.as_ref()
     }
 
+    /// The metadata providers installed for the current endpoint, outermost
+    /// layout first.
+    pub fn metadata_stack(&self) -> &[MetadataRef] {
+        &self.metadata
+    }
+
     pub fn get_computed_metadata(&self, path: &str) -> Option<ComputedRouteMeta> {
         self.computed_metadata.get(path).cloned()
     }

@@ -6,12 +6,14 @@
 //! asserted tags identical to the rendered head shown there.
 
 // DOCS SAMPLE START
+use axum::extract::Path;
 use axum::routing::get;
 use proa_core::{WebContext, WebRenderSync, WriteError};
 use proa_framework_axum::manifest::IslandManifest;
 use proa_framework_axum::{
     render_metadata_head, router_from_spec, CascadeOpenGraph, CascadeTwitter, CascadeValue,
-    FrameworkBuilder, Layout, Metadata, OpenGraphImage, Route, RouteResponse, TwitterCard,
+    FrameworkBuilder, Layout, Metadata, OpenGraphImage, RequestMetadata, Route, RouteResponse,
+    TwitterCard,
 };
 use proa_macros::html_sync;
 
@@ -109,10 +111,19 @@ async fn pricing() -> RouteResponse {
     })
 }
 
-async fn blog_post() -> RouteResponse {
+// 5. A dynamic route sets values that are only known per request.
+async fn blog_post(Path(slug): Path<String>) -> RouteResponse {
+    // Load the post from your data store. This example derives it from the slug.
+    let title = slug.replace('-', " ");
     RouteResponse::ssr(Document {
         content: html_sync! { <h1>"A post"</h1> },
     })
+    .with_metadata(
+        RequestMetadata::new()
+            .title(title)
+            .description(format!("Notes on {slug}."))
+            .image(format!("https://acme.example/og/blog/{slug}.png")),
+    )
 }
 
 static PRICING_META: PricingMeta = PricingMeta;
@@ -181,12 +192,19 @@ async fn pricing_head_matches_the_docs() {
 }
 
 #[tokio::test]
-async fn dynamic_route_inherits_layout_metadata_as_the_docs_describe() {
-    let head = head("/blog/hello").await;
-    assert!(head.starts_with("<title>Blog | Acme</title>"), "{head}");
-    assert!(head.contains(r#"<meta name="description" content="Acme builds rockets."/>"#));
-    assert!(head
-        .contains(r#"<meta property="og:image" content="https://acme.example/og/default.png"/>"#));
-    assert!(head
-        .contains(r#"<meta name="twitter:image" content="https://acme.example/og/default.png"/>"#));
+async fn dynamic_route_uses_request_metadata_as_the_docs_describe() {
+    let expected = [
+        r#"<title>launch day | Acme</title>"#,
+        r#"<meta name="description" content="Notes on launch-day."/>"#,
+        r#"<meta property="og:site_name" content="Acme"/>"#,
+        r#"<meta property="og:type" content="website"/>"#,
+        r#"<meta property="og:image" content="https://acme.example/og/blog/launch-day.png"/>"#,
+        r#"<meta name="twitter:card" content="summary_large_image"/>"#,
+        r#"<meta name="twitter:site" content="@acme"/>"#,
+        r#"<meta name="twitter:title" content="launch day | Acme"/>"#,
+        r#"<meta name="twitter:description" content="Notes on launch-day."/>"#,
+        r#"<meta name="twitter:image" content="https://acme.example/og/blog/launch-day.png"/>"#,
+    ]
+    .concat();
+    assert_eq!(head("/blog/launch-day").await, expected);
 }

@@ -68,6 +68,10 @@ impl RouteContext {
         self.snapshot.set_current_uri(uri);
     }
 
+    pub(super) fn metadata_stack(&self) -> &[MetadataRef] {
+        self.snapshot.metadata_stack()
+    }
+
     pub(super) fn get_computed_metadata(&self, path: &str) -> Option<ComputedRouteMeta> {
         self.snapshot.get_computed_metadata(path)
     }

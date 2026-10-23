@@ -39,6 +39,16 @@ All notable public changes are tracked here.
   metadata before rendering and stores it on the render context.
   `FrameworkRequestContext` gains a public `metadata` field.
 
+- Handlers can set head metadata known only per request with
+  `RouteResponse::with_metadata(RequestMetadata::new().title(..))`. It applies
+  after the route's layout and page metadata, so layout `%s` templates format
+  the title and description, and its image replaces the inherited Open Graph
+  images and the Twitter Card image. Breaking: to hold owned values,
+  `ResolvedMetadata::description`, `ComputedRouteMeta::description`, and
+  `ResolvedOpenGraphImage::alt` are now `Option<Cow<'static, str>>`.
+- `render_metadata_head` and `render_css_link` accept any `WebContext<L, B>`,
+  so documents rendered with a custom `DataLoader` can call them.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while

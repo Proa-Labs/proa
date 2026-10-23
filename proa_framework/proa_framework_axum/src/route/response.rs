@@ -14,15 +14,16 @@ use proa_core::{
 };
 use proa_framework_core::{
     finalize_route_response, finalize_route_response_stream, finalize_route_response_sync,
-    FrameworkBody, FrameworkRequestContext, FrameworkResponse, FrameworkSendStream,
-    FrameworkStreamFactory, RouteFinalizeMode, RouteResponse as CoreRouteResponse,
+    resolved_metadata_from_computed, ComputedRouteMeta, FrameworkBody, FrameworkRequestContext,
+    FrameworkResponse, FrameworkSendStream, FrameworkStreamFactory, RouteFinalizeMode,
+    RouteResponse as CoreRouteResponse,
 };
 use proa_react::ReactBootstrapConfig;
 use tracing::error;
 
 use super::context::{RouteContext, ROUTE_CONTEXT};
 use super::local_executor::{LocalStreamExecutor, LocalStreamPrepareError};
-use super::metadata::route_metadata;
+use super::metadata::{route_computed_metadata, RequestMetadata};
 pub use proa_framework_core::{
     drive_dyn_render, drive_dyn_send_render, DynRenderOutcome, DynSendRenderOutcome, DynWebRender,
     DynWebRenderSend,
@@ -156,6 +157,13 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// Chunked modes stream; static and agent modes buffer.
     pub fn with_render_mode(self, render_mode: RenderMode) -> Self {
         Self(self.0.with_render_mode(render_mode))
+    }
+
+    /// Set head metadata that is only known while handling this request,
+    /// such as a blog post's title. It applies after the route's layout and
+    /// page metadata, so layout title templates still format it.
+    pub fn with_metadata(self, metadata: RequestMetadata) -> Self {
+        Self(self.0.with_metadata(metadata))
     }
 }
 
@@ -416,13 +424,20 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
         ROUTE_CONTEXT
             .try_with(|ctx| {
                 let (manifest, is_client_request, page_title, request) = {
-                    let mut ctx_ref = ctx.borrow_mut();
+                    let ctx_ref = ctx.borrow();
                     let manifest = ctx_ref.manifest_arc();
                     let is_client = ctx_ref.is_client_request();
                     let mut request = framework_request_context(&ctx_ref);
                     // Resolve head metadata now, while the route context is
                     // installed: streamed documents render after it is gone.
-                    request.metadata = route_metadata(&mut ctx_ref).map(Arc::new);
+                    let mut computed = route_computed_metadata(&ctx_ref);
+                    if let Some(overrides) = self.0.request_metadata() {
+                        computed
+                            .get_or_insert_with(ComputedRouteMeta::default)
+                            .apply_request(overrides);
+                    }
+                    request.metadata = computed
+                        .map(|computed| Arc::new(resolved_metadata_from_computed(&computed)));
                     let page_title = if is_client {
                         request
                             .metadata

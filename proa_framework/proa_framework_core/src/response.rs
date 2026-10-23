@@ -42,7 +42,7 @@ use crate::bootstrap::{
     render_bootstrap_for_islands, render_bootstrap_for_islands_with_import_map,
 };
 use crate::manifest::IslandManifest;
-use crate::metadata::ResolvedMetadata;
+use crate::metadata::{RequestMetadata, ResolvedMetadata};
 
 /// A response stream that may retain request-local, non-`Send` render state.
 ///
@@ -154,6 +154,7 @@ pub struct RouteResponse<L: DataLoader = NoLoader> {
     plan: RoutePlan<L>,
     islands: Vec<String>,
     bootstrap: ReactBootstrapConfig<'static>,
+    metadata: Option<RequestMetadata>,
 }
 
 impl RouteResponse<DynLoaderHandle> {
@@ -282,6 +283,7 @@ impl RouteResponse<NoLoader> {
             plan: RoutePlan::Sync(Box::new(component)),
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -305,6 +307,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -322,6 +325,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -339,6 +343,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -356,6 +361,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 }
@@ -379,6 +385,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -396,6 +403,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -413,6 +421,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -430,6 +439,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -452,6 +462,18 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// `L` is the loader's concrete type, which lets `cx.load(...)` calls
     /// monomorphize to a direct call on the loader rather than going through
     /// a `Box::pin` at the dyn boundary.
+    /// Attach per-request head metadata, applied after the route's layout
+    /// and page providers. See [`RequestMetadata`].
+    pub fn with_metadata(mut self, metadata: RequestMetadata) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// The per-request metadata attached with [`RouteResponse::with_metadata`].
+    pub fn request_metadata(&self) -> Option<&RequestMetadata> {
+        self.metadata.as_ref()
+    }
+
     pub fn with_loader(mut self, loader: Arc<L>) -> Self {
         match &mut self.plan {
             RoutePlan::Async { loader: target, .. }
@@ -510,6 +532,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             plan,
             islands,
             bootstrap,
+            metadata: _,
         } = self;
         match plan {
             RoutePlan::Sync(_) => Err(FrameworkError::Invariant(
@@ -573,6 +596,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             plan,
             islands,
             bootstrap,
+            metadata: _,
         } = self;
         match plan {
             RoutePlan::Sync(component) => {
@@ -688,6 +712,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             plan,
             islands,
             bootstrap,
+            metadata: _,
         } = self;
         let RoutePlan::Sync(component) = plan else {
             return Err(FrameworkError::Invariant(

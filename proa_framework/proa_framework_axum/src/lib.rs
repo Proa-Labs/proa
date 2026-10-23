@@ -42,9 +42,9 @@ pub use route::{
     CascadeValue, ComputedRouteMeta, DynRenderOutcome, DynSendRenderOutcome, DynWebRender,
     DynWebRenderSend, Layout, LayoutRef, LocalStreamExecutorConfig, MarkdownAlternate, Metadata,
     MetadataRef, OpenGraph, OpenGraphImage, OpenGraphMedia, PageCacheLayer, PageCacheService,
-    RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage, ResolvedOpenGraphMedia,
-    ResolvedTwitter, Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec, StaticPathsFn,
-    TwitterCard,
+    RepresentationResponse, RequestMetadata, ResolvedMetadata, ResolvedOpenGraphImage,
+    ResolvedOpenGraphMedia, ResolvedTwitter, Route, RouteContextLayer, RouteMode, RouteResponse,
+    RouteSpec, StaticPathsFn, TwitterCard,
 };
 pub use rsjs_assets::rsjs_assets_router;
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};

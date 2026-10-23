@@ -280,6 +280,93 @@ async fn metadata_head_renders_for_sync_async_and_streamed_documents() {
     }
 }
 
+/// A handler sets metadata that is only known per request, such as a blog
+/// post's title, and the layout's title template still formats it, for
+/// buffered and streamed documents alike.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn handler_sets_request_metadata_for_a_dynamic_route() {
+    use axum::extract::Path;
+
+    struct BlogLayout;
+    impl Metadata for BlogLayout {
+        fn title(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("%s | Acme")
+        }
+
+        fn twitter(&self) -> CascadeTwitter {
+            CascadeTwitter {
+                site: CascadeValue::Set("@acme"),
+                ..Default::default()
+            }
+        }
+    }
+    impl Layout for BlogLayout {}
+
+    fn post_metadata(slug: &str) -> super::RequestMetadata {
+        super::RequestMetadata::new()
+            .title(format!("Post {slug}"))
+            .description(format!("All about {slug}"))
+            .image(format!("https://example.com/{slug}.png"))
+    }
+
+    let routes = vec![Route::layout(
+        "/",
+        &BlogLayout,
+        vec![
+            Route::page(
+                "posts/:slug",
+                "Blog",
+                get(|Path(slug): Path<String>| async move {
+                    RouteResponse::ssr(MetadataPage).with_metadata(post_metadata(&slug))
+                }),
+            ),
+            Route::page(
+                "streamed/:slug",
+                "Blog",
+                get(|Path(slug): Path<String>| async move {
+                    RouteResponse::ssr_stream(proa_core::to_async(MetadataPage))
+                        .with_metadata(post_metadata(&slug))
+                }),
+            ),
+        ],
+    )];
+
+    let manifest = Arc::new(IslandManifest {
+        islands: Default::default(),
+        assets: Default::default(),
+        import_map: Default::default(),
+        ssr_bundle: Default::default(),
+    });
+    let (router, computed_metadata) = router_from_spec(routes);
+    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+
+    for (path, slug) in [("/posts/launch", "launch"), ("/streamed/recap", "recap")] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            html.contains(&format!("<title>Post {slug} | Acme</title>")),
+            "{path}: {html}"
+        );
+        assert!(html.contains(&format!(
+            "name=\"description\" content=\"All about {slug}\""
+        )));
+        assert!(html.contains(&format!(
+            "property=\"og:image\" content=\"https://example.com/{slug}.png\""
+        )));
+        assert!(html.contains(&format!(
+            "name=\"twitter:title\" content=\"Post {slug} | Acme\""
+        )));
+        assert!(html.contains("name=\"twitter:card\" content=\"summary_large_image\""));
+        assert!(!html.contains("Blog | Acme"), "{path}: {html}");
+    }
+}
+
 #[tokio::test]
 async fn page_owned_cache_survives_endpoint_replacement_and_router_merge() {
     use crate::{FrameworkBuilder, PageCacheLayer};
@@ -429,4 +516,14 @@ fn resolved_twitter_is_constructible_outside_the_core_crate() {
     assert!(html.contains("name=\"twitter:card\" content=\"summary\""));
     assert!(html.contains("name=\"twitter:site\" content=\"@proa\""));
     assert!(html.contains("name=\"twitter:title\" content=\"Hello\""));
+}
+
+/// The head helpers accept any loader and buffer, so a document generic over
+/// its `DataLoader` can call them.
+#[allow(dead_code)]
+fn head_helpers_accept_any_loader<L: proa_core::DataLoader, B: proa_core::WriteBuf>(
+    cx: &mut proa_core::WebContext<L, B>,
+) {
+    render_metadata_head(cx);
+    super::metadata::render_css_link(cx);
 }
