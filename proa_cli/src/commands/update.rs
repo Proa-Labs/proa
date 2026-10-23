@@ -30,6 +30,9 @@ pub(crate) struct UpdateArgs {
     /// Install an exact published version (also permits an explicit downgrade).
     #[arg(long, value_name = "VERSION")]
     version: Option<String>,
+    /// Build with Cargo instead of downloading a prebuilt archive (for example on older glibc).
+    #[arg(long)]
+    build_from_source: bool,
 }
 
 #[derive(Deserialize)]
@@ -55,11 +58,21 @@ pub(crate) fn run(args: UpdateArgs) -> Result<()> {
         .user_agent(concat!("proa/", env!("CARGO_PKG_VERSION")))
         .build()?;
     let requested = args.version.as_deref().map(parse_version).transpose()?;
+    let executable = std::env::current_exe().context("locate the installed Proa CLI")?;
+    // Take the lock before version selection and keep it through preparation.
+    // Another invocation must not install a newer release while this one builds.
+    // The process image may have started before another updater finished. Read
+    // the version now installed on disk under the lock, not that image's version.
+    let (_lock, current) = if args.check {
+        (None, Version::parse(env!("CARGO_PKG_VERSION"))?)
+    } else {
+        let (lock, current) = lock_and_read_installation(&executable)?;
+        (Some(lock), current)
+    };
     let version = match requested {
         Some(version) => version,
         None => latest_version(&client, DOWNLOAD_BASE, REGISTRY_METADATA)?,
     };
-    let current = Version::parse(env!("CARGO_PKG_VERSION"))?;
     println!(
         "Installed: {current}\n{}: {version}",
         if args.version.is_some() {
@@ -71,17 +84,23 @@ pub(crate) fn run(args: UpdateArgs) -> Result<()> {
     if args.check {
         return Ok(());
     }
-    if args.version.is_none() && version <= current {
+    if !needs_update(&current, &version, args.version.is_some()) {
         println!("No update needed.");
         return Ok(());
     }
 
-    let executable = std::env::current_exe().context("locate the installed Proa CLI")?;
-    executable_directory(&executable)?;
     let staging = tempfile::Builder::new().prefix("proa-update-").tempdir()?;
-    let prepared = prepare_update(&client, DOWNLOAD_BASE, &version, staging.path())?;
+    let prepared = prepare_update(
+        &client,
+        DOWNLOAD_BASE,
+        &version,
+        staging.path(),
+        args.build_from_source,
+    )?;
     validate_binaries(&prepared, &version)?;
-    install_pair(&executable, &prepared)?;
+    replace_pair(&executable, &prepared, |source| {
+        self_replace::self_replace(source)
+    })?;
     println!("Updated proa and cargo-proa to {version}. Run proa --version to verify.");
     Ok(())
 }
@@ -91,6 +110,10 @@ fn parse_version(value: &str) -> Result<Version> {
     Version::parse(normalized.strip_prefix('v').unwrap_or(normalized)).with_context(|| {
         format!("invalid release version `{value}`; expected a version such as 0.1.3")
     })
+}
+
+fn needs_update(current: &Version, selected: &Version, explicitly_pinned: bool) -> bool {
+    explicitly_pinned || selected > current
 }
 
 fn read_limited(reader: impl Read, limit: u64) -> Result<Vec<u8>> {
@@ -158,8 +181,27 @@ fn prepare_update(
     base: &str,
     version: &Version,
     staging: &Path,
+    build_from_source: bool,
 ) -> Result<PathBuf> {
-    if let Some(target) = release_target() {
+    prepare_update_with_source(
+        client,
+        base,
+        version,
+        staging,
+        build_from_source,
+        build_source_update,
+    )
+}
+
+fn prepare_update_with_source(
+    client: &Client,
+    base: &str,
+    version: &Version,
+    staging: &Path,
+    build_from_source: bool,
+    source: impl FnOnce(&Version, &Path) -> Result<PathBuf>,
+) -> Result<PathBuf> {
+    if let Some(target) = release_target().filter(|_| !build_from_source) {
         let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
         let prefix = format!("proa-cli-{version}-{target}");
         let archive = format!("{prefix}.{extension}");
@@ -196,7 +238,11 @@ fn prepare_update(
         }
     }
 
-    println!("No prebuilt archive for this platform. Building proa-cli {version} from crates.io; this can take several minutes.");
+    source(version, staging)
+}
+
+fn build_source_update(version: &Version, staging: &Path) -> Result<PathBuf> {
+    println!("Building proa-cli {version} from crates.io; this can take several minutes.");
     let cargo_root = staging.join("cargo");
     let status = Command::new("cargo")
         .current_dir(staging)
@@ -330,10 +376,19 @@ fn validate_binaries(prepared: &Path, version: &Version) -> Result<()> {
         let output = Command::new(&binary)
             .arg("--version")
             .output()
-            .with_context(|| format!("verify downloaded binary `{}`", binary.display()))?;
+            .with_context(|| {
+                format!(
+                    "cannot run downloaded binary `{}`; try proa update --build-from-source",
+                    binary.display()
+                )
+            })?;
         ensure!(
-            output.status.success()
-                && String::from_utf8_lossy(&output.stdout).trim() == format!("proa {version}"),
+            output.status.success(),
+            "release binary `{}` could not run ({}): {}\nTry proa update --build-from-source. The installed CLI was not changed.",
+            binary.display(), output.status, String::from_utf8_lossy(&output.stderr).trim()
+        );
+        ensure!(
+            String::from_utf8_lossy(&output.stdout).trim() == format!("proa {version}"),
             "release binary `{}` did not report proa {version}; the installed CLI was not changed",
             binary.display()
         );
@@ -353,17 +408,30 @@ fn executable_directory(executable: &Path) -> Result<&Path> {
         .context("the installed CLI has no parent directory")
 }
 
-fn install_pair(executable: &Path, prepared: &Path) -> Result<()> {
-    install_pair_with(executable, prepared, |source| {
-        self_replace::self_replace(source)
-    })
+fn installed_version(executable: &Path) -> Result<Version> {
+    let output = Command::new(executable)
+        .arg("--version")
+        .output()
+        .context("read the currently installed CLI version")?;
+    ensure!(
+        output.status.success(),
+        "the installed CLI could not report its version"
+    );
+    let output = String::from_utf8(output.stdout)?;
+    let version = output
+        .trim()
+        .strip_prefix("proa ")
+        .context("unrecognized installed CLI version")?;
+    parse_version(version)
 }
 
-fn install_pair_with(
-    executable: &Path,
-    prepared: &Path,
-    replace_running: impl FnOnce(&Path) -> io::Result<()>,
-) -> Result<()> {
+fn lock_and_read_installation(executable: &Path) -> Result<(fs::File, Version)> {
+    let lock = lock_installation(executable)?;
+    let version = installed_version(executable)?;
+    Ok((lock, version))
+}
+
+fn lock_installation(executable: &Path) -> Result<fs::File> {
     let directory = executable_directory(executable)?;
     let lock = fs::OpenOptions::new()
         .read(true)
@@ -374,6 +442,15 @@ fn install_pair_with(
         .context("the CLI installation directory is not writable")?;
     lock.try_lock()
         .context("another Proa update is running; wait for it to finish and retry")?;
+    Ok(lock)
+}
+
+fn replace_pair(
+    executable: &Path,
+    prepared: &Path,
+    replace_running: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<()> {
+    let directory = executable_directory(executable)?;
     let peer_name = binary_names()
         .into_iter()
         .find(|name| executable.file_name().unwrap() != name.as_str())
@@ -428,6 +505,21 @@ mod tests {
     use std::io::Cursor;
     use std::net::TcpListener;
     use std::thread;
+
+    fn install_pair(executable: &Path, prepared: &Path) -> Result<()> {
+        install_pair_with(executable, prepared, |source| {
+            self_replace::self_replace(source)
+        })
+    }
+
+    fn install_pair_with(
+        executable: &Path,
+        prepared: &Path,
+        replace: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> Result<()> {
+        let _lock = lock_installation(executable)?;
+        replace_pair(executable, prepared, replace)
+    }
 
     fn fixture_server(responses: Vec<(String, u16, Vec<u8>)>) -> (String, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -596,6 +688,116 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn binary_validation_reports_loader_failures_and_the_source_update_option() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let names = binary_names();
+        for name in &names {
+            let binary = temp.path().join(name);
+            fs::write(&binary, "#!/bin/sh\nprintf 'proa 1.2.3\\n'\n").unwrap();
+            fs::set_permissions(binary, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        validate_binaries(temp.path(), &Version::new(1, 2, 3)).unwrap();
+        fs::write(
+            temp.path().join(&names[1]),
+            "#!/bin/sh\nprintf 'GLIBC_2.39 not found\\n' >&2\nexit 127\n",
+        )
+        .unwrap();
+        let error = validate_binaries(temp.path(), &Version::new(1, 2, 3))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("GLIBC_2.39 not found"));
+        assert!(error.contains("--build-from-source"));
+    }
+
+    #[test]
+    fn source_updates_can_bypass_archives_and_missing_archives_keep_the_exact_version() {
+        let client = test_client();
+        let temp = tempfile::tempdir().unwrap();
+        let version = Version::new(1, 2, 3);
+        let expected = temp.path().join("cargo/bin");
+        let result = prepare_update_with_source(
+            &client,
+            "http://127.0.0.1:1",
+            &version,
+            temp.path(),
+            true,
+            |selected, staging| {
+                assert_eq!(selected, &version);
+                assert_eq!(staging, temp.path());
+                Ok(expected.clone())
+            },
+        )
+        .unwrap();
+        assert_eq!(result, expected);
+
+        if let Some(target) = release_target() {
+            let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
+            let (base, server) = fixture_server(vec![(
+                format!("/{version}/proa-cli-{version}-{target}.{extension}"),
+                404,
+                Vec::new(),
+            )]);
+            let result = prepare_update_with_source(
+                &client,
+                &base,
+                &version,
+                temp.path(),
+                false,
+                |selected, _| {
+                    assert_eq!(selected, &version);
+                    Ok(expected.clone())
+                },
+            )
+            .unwrap();
+            assert_eq!(result, expected);
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn a_stale_update_reads_the_newly_installed_version_under_the_lock() {
+        let temp = tempfile::Builder::new()
+            .prefix("proa stale update ")
+            .tempdir()
+            .unwrap();
+        let executable = temp.path().join(&binary_names()[0]);
+        let source = temp.path().join("version_fixture.rs");
+        fs::write(
+            &source,
+            r#"fn main() {
+            let path = std::env::current_exe().unwrap().with_extension("version");
+            println!("proa {}", std::fs::read_to_string(path).unwrap());
+        }"#,
+        )
+        .unwrap();
+        let compilation = Command::new("rustc")
+            .arg(&source)
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(
+            compilation.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compilation.stderr)
+        );
+        let stale_selection = Version::new(1, 2, 3);
+        fs::write(executable.with_extension("version"), "1.3.0").unwrap();
+        let (lock, current) = lock_and_read_installation(&executable).unwrap();
+        assert_eq!(current, Version::new(1, 3, 0));
+        assert!(!needs_update(&current, &stale_selection, false));
+        assert!(needs_update(&current, &stale_selection, true));
+        assert!(lock_and_read_installation(&executable).is_err());
+        drop(lock);
+        fs::write(executable.with_extension("version"), "1.4.0").unwrap();
+        let (_lock, refreshed) = lock_and_read_installation(&executable).unwrap();
+        assert_eq!(refreshed, Version::new(1, 4, 0));
+        assert!(!needs_update(&refreshed, &current, false));
+    }
+
     #[test]
     fn tar_and_zip_extract_both_binaries_and_reject_missing_files_or_links() {
         for zip in [false, true] {
@@ -651,7 +853,7 @@ mod tests {
                 ),
             ]);
             let temp = tempfile::tempdir().unwrap();
-            let result = prepare_update(&test_client(), &base, &version, temp.path());
+            let result = prepare_update(&test_client(), &base, &version, temp.path(), false);
             assert_eq!(result.is_ok(), correct, "{result:?}");
             assert_eq!(temp.path().join("extracted").exists(), correct);
             server.join().unwrap();

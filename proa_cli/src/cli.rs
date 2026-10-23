@@ -87,6 +87,7 @@ mod tests {
         for args in [
             vec!["proa", "update", "--check"],
             vec!["cargo-proa", "proa", "update", "--version", "1.2.3"],
+            vec!["proa", "update", "--build-from-source"],
         ] {
             let args = normalize_cargo_subcommand_args(args.into_iter().map(Into::into));
             let cli = Cli::try_parse_from(args).unwrap();
