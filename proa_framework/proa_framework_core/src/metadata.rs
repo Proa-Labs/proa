@@ -106,6 +106,10 @@ pub struct ComputedRouteMeta {
     pub(crate) og_title_template: Option<String>,
     pub(crate) og_description_template: Option<String>,
     pub(crate) twitter_templates: TwitterTemplates,
+    /// Plain (non-template) page title in effect for this route, kept across
+    /// the cascade so a descendant's Twitter template is filled with the
+    /// descendant's title rather than reusing a value filled for an ancestor.
+    pub(crate) page_title: Option<&'static str>,
 }
 
 impl ComputedRouteMeta {
@@ -121,10 +125,12 @@ impl ComputedRouteMeta {
                         computed.title = Some(title.to_string());
                         computed.title_template = None;
                         raw_page_title = None;
+                        computed.page_title = None;
                     } else if title.contains("%s") {
                         computed.title_template = Some(title.to_string());
                     } else {
                         raw_page_title = Some(title);
+                        computed.page_title = Some(title);
                         if let Some(template) = &computed.title_template {
                             computed.title = Some(template.replace("%s", title));
                         } else {
@@ -136,6 +142,7 @@ impl ComputedRouteMeta {
                     computed.title = None;
                     computed.title_template = None;
                     raw_page_title = None;
+                    computed.page_title = None;
                 }
                 CascadeValue::Unset => {}
             }
@@ -265,8 +272,8 @@ impl ComputedRouteMeta {
 
         finish_twitter_templates(
             &mut computed.twitter,
-            &computed.twitter_templates,
-            raw_page_title,
+            &mut computed.twitter_templates,
+            computed.page_title,
             computed.description,
         );
 
@@ -363,6 +370,12 @@ fn twitter_spec_sets_any(spec: &CascadeTwitter) -> bool {
 pub(crate) struct TwitterTemplates {
     title: Option<String>,
     description: Option<String>,
+    /// The resolved title was filled from `title` rather than set explicitly,
+    /// so each route refills it from its own page title.
+    title_filled: bool,
+    /// The resolved description was filled from `description` rather than set
+    /// explicitly, so each route refills it from its own page description.
+    description_filled: bool,
 }
 
 fn apply_twitter_cascade(
@@ -383,11 +396,17 @@ fn apply_twitter_cascade(
     dst.card = spec.card.resolve(dst.card);
     dst.site = spec.site.resolve(dst.site);
     dst.creator = spec.creator.resolve(dst.creator);
-    apply_templated(spec.title, &mut dst.title, &mut templates.title);
+    apply_templated(
+        spec.title,
+        &mut dst.title,
+        &mut templates.title,
+        &mut templates.title_filled,
+    );
     apply_templated(
         spec.description,
         &mut dst.description,
         &mut templates.description,
+        &mut templates.description_filled,
     );
     // Alt text describes one image. A provider that replaces or clears the
     // image without restating the alt drops the inherited alt instead of
@@ -402,11 +421,13 @@ fn apply_twitter_cascade(
 
 /// Applies a templatable cascade value: a value containing `%s` becomes the
 /// template for descendants, and a plain value is formatted through the
-/// current template.
+/// current template. `filled` tracks whether `dst` holds a template-filled
+/// value rather than an explicit one.
 fn apply_templated(
     value: CascadeValue<&'static str>,
     dst: &mut Option<String>,
     template: &mut Option<String>,
+    filled: &mut bool,
 ) {
     match value {
         CascadeValue::Set(value) if value.contains("%s") => {
@@ -417,33 +438,61 @@ fn apply_templated(
                 Some(template) => template.replace("%s", value),
                 None => value.to_string(),
             });
+            *filled = false;
         }
         CascadeValue::Tombstone => {
             *dst = None;
             *template = None;
+            *filled = false;
         }
         CascadeValue::Unset => {}
     }
 }
 
-/// Fills an unset Twitter title or description from its template and the
-/// page title or description, matching the Open Graph template fallback.
+/// Fills the Twitter title and description from their templates and the
+/// page title and description, matching the Open Graph template fallback.
+///
+/// A value filled for an ancestor route is refilled for each descendant, so a
+/// child page's card uses the child's title. Explicitly set values are kept.
 fn finish_twitter_templates(
     dst: &mut ResolvedTwitter,
-    templates: &TwitterTemplates,
+    templates: &mut TwitterTemplates,
     page_title: Option<&str>,
     page_description: Option<&str>,
 ) {
-    if dst.title.is_none() {
-        if let (Some(template), Some(page_title)) = (&templates.title, page_title) {
-            dst.title = Some(template.replace("%s", page_title));
-        }
+    refill_from_template(
+        &mut dst.title,
+        &mut templates.title_filled,
+        templates.title.as_deref(),
+        page_title,
+    );
+    refill_from_template(
+        &mut dst.description,
+        &mut templates.description_filled,
+        templates.description.as_deref(),
+        page_description,
+    );
+}
+
+fn refill_from_template(
+    dst: &mut Option<String>,
+    filled: &mut bool,
+    template: Option<&str>,
+    source: Option<&str>,
+) {
+    if dst.is_some() && !*filled {
+        return;
     }
-    if dst.description.is_none() {
-        if let (Some(template), Some(page_description)) = (&templates.description, page_description)
-        {
-            dst.description = Some(template.replace("%s", page_description));
+    match (template, source) {
+        (Some(template), Some(source)) => {
+            *dst = Some(template.replace("%s", source));
+            *filled = true;
         }
+        _ if *filled => {
+            *dst = None;
+            *filled = false;
+        }
+        _ => {}
     }
 }
 
@@ -757,7 +806,7 @@ pub fn resolve_metadata_stack(metadata: &[MetadataRef]) -> Option<ResolvedMetada
 
     finish_twitter_templates(
         &mut resolved.twitter,
-        &twitter_templates,
+        &mut twitter_templates,
         raw_page_title,
         resolved.description,
     );
@@ -1493,5 +1542,116 @@ mod tests {
         let html = cx.into_output().into_string();
         assert!(html.contains("name=\"twitter:card\" content=\"summary\""));
         assert!(html.contains("name=\"twitter:title\" content=\"Hello\""));
+    }
+
+    struct HomeLayout;
+
+    impl Metadata for HomeLayout {
+        fn title(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("Home")
+        }
+
+        fn description(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("home-desc")
+        }
+
+        fn twitter(&self) -> CascadeTwitter {
+            CascadeTwitter {
+                title: CascadeValue::Set("%s on Site"),
+                description: CascadeValue::Set("About %s"),
+                ..Default::default()
+            }
+        }
+    }
+
+    fn nested(parent: &[MetadataRef], child: &[MetadataRef]) -> ResolvedTwitter {
+        let parent = ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), parent);
+        assert_eq!(parent.twitter.title.as_deref(), Some("Home on Site"));
+        let child = ComputedRouteMeta::cascade(&parent, child);
+        resolved_metadata_from_computed(&child).twitter
+    }
+
+    #[test]
+    fn nested_route_refills_twitter_templates_with_its_own_copy() {
+        let twitter = nested(&[&HomeLayout], &[&PricingPage]);
+        assert_eq!(twitter.title.as_deref(), Some("Pricing on Site"));
+        assert_eq!(twitter.description.as_deref(), Some("About plans"));
+    }
+
+    #[test]
+    fn nested_route_without_its_own_title_keeps_the_inherited_fill() {
+        struct Untitled;
+        impl Metadata for Untitled {}
+
+        let twitter = nested(&[&HomeLayout], &[&Untitled]);
+        assert_eq!(twitter.title.as_deref(), Some("Home on Site"));
+        assert_eq!(twitter.description.as_deref(), Some("About home-desc"));
+    }
+
+    #[test]
+    fn nested_route_refills_with_a_new_template_and_the_inherited_title() {
+        struct NewTemplate;
+
+        impl Metadata for NewTemplate {
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    title: CascadeValue::Set("%s, now on Site"),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let twitter = nested(&[&HomeLayout], &[&NewTemplate]);
+        assert_eq!(twitter.title.as_deref(), Some("Home, now on Site"));
+    }
+
+    #[test]
+    fn explicit_twitter_title_is_not_refilled_by_descendants() {
+        struct ExplicitTitle;
+
+        impl Metadata for ExplicitTitle {
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    title: CascadeValue::Set("Plans"),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let parent = ComputedRouteMeta::cascade(
+            &ComputedRouteMeta::default(),
+            &[&HomeLayout, &ExplicitTitle],
+        );
+        assert_eq!(parent.twitter.title.as_deref(), Some("Plans on Site"));
+        let child = ComputedRouteMeta::cascade(&parent, &[&PricingPage]);
+        assert_eq!(child.twitter.title.as_deref(), Some("Plans on Site"));
+    }
+
+    #[test]
+    fn nested_absolute_title_drops_the_inherited_fill() {
+        struct AbsolutePage;
+
+        impl Metadata for AbsolutePage {
+            fn title(&self) -> CascadeValue<&'static str> {
+                CascadeValue::Set("Standalone")
+            }
+
+            fn absolute_title(&self) -> bool {
+                true
+            }
+        }
+
+        let twitter = nested(&[&HomeLayout], &[&AbsolutePage]);
+        assert!(twitter.title.is_none(), "{:?}", twitter.title);
+
+        let parent = ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), &[&HomeLayout]);
+        let child = ComputedRouteMeta::cascade(&parent, &[&AbsolutePage]);
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &resolved_metadata_from_computed(&child));
+        let html = cx.into_output().into_string();
+        assert!(
+            html.contains("name=\"twitter:title\" content=\"Standalone\""),
+            "{html}"
+        );
     }
 }
