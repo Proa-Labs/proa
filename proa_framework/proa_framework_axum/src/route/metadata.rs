@@ -1,5 +1,6 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+
 use proa_core::{DataLoader, WebContext, WriteBuf};
 use proa_framework_core::{
     css_asset_path as css_asset_path_from_manifest, render_css_link as render_css_link_with_path,

@@ -58,7 +58,7 @@ def apply_documented_edits(project: Path, guide: str) -> str:
     (project / "src/pages/about.rs").write_text(about + "\n", encoding="utf-8")
     (project / "src/pages/mod.rs").write_text(modules + "\n", encoding="utf-8")
     path = project / "src/routes.rs"
-    source, count = re.subn(r"(?m)^( +)let \(router, metadata\) = router_from_spec\(vec!\[.*?^\1\]\);",
+    source, count = re.subn(r"(?m)^( +)let \(router, setups\) = router_from_spec\(vec!\[.*?^\1\]\);",
                             lambda match: textwrap.indent(routes, match[1]),
                             path.read_text(encoding="utf-8"), count=1, flags=re.DOTALL)
     assert count == 1, "the documented route table must match the Basic app"

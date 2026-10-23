@@ -1,5 +1,6 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+
 // The first three product blocks in docs/framework/metadata.mdx, compiled together.
 
 #[rustfmt::skip]
