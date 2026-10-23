@@ -3356,6 +3356,7 @@ dependencies = [
  "bytes",
  "futures",
  "http",
+ "itoa_lut",
  "proa_core",
  "proa_macros",
  "proa_react",

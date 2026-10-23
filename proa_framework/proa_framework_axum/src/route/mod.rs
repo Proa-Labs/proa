@@ -5,7 +5,7 @@
 //!
 //! This module provides declarative routing with support for:
 //! - Nested metadata layouts
-//! - Metadata composition (title, description, Open Graph)
+//! - Metadata composition (title, description, Open Graph, Twitter Cards)
 //! - Server-side rendering (SSR) with islands architecture
 //! - Buffered and streaming async rendering
 
@@ -27,8 +27,9 @@ pub use layout::{Layout, LayoutRef};
 pub use local_executor::LocalStreamExecutorConfig;
 pub use metadata::{
     css_asset_path, render_css_link, render_metadata_head, resolved_metadata, CascadeOpenGraph,
-    CascadeValue, ComputedRouteMeta, Metadata, MetadataRef, OpenGraph, OpenGraphImage,
-    OpenGraphMedia, ResolvedMetadata, ResolvedOpenGraphImage, ResolvedOpenGraphMedia, TitleOnly,
+    CascadeTwitter, CascadeValue, ComputedRouteMeta, Metadata, MetadataRef, OpenGraph,
+    OpenGraphImage, OpenGraphMedia, RequestMetadata, ResolvedMetadata, ResolvedOpenGraphImage,
+    ResolvedOpenGraphMedia, ResolvedTwitter, TitleOnly, TwitterCard,
 };
 pub use page_cache::{PageCacheLayer, PageCacheService};
 pub use proa_framework_core::{ComputedOpenGraph, ResolvedOpenGraph};

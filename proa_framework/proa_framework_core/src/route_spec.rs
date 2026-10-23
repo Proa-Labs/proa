@@ -286,4 +286,44 @@ mod tests {
         assert_eq!(child.full_path, "/dashboard");
         assert_eq!(child.metadata_stack.len(), 2);
     }
+
+    struct HomeLayoutMeta;
+    impl Metadata for HomeLayoutMeta {
+        fn title(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("Home")
+        }
+
+        fn open_graph(&self) -> crate::metadata::CascadeOpenGraph {
+            crate::metadata::CascadeOpenGraph {
+                title: CascadeValue::Set("%s on OG"),
+                ..Default::default()
+            }
+        }
+
+        fn twitter(&self) -> crate::metadata::CascadeTwitter {
+            crate::metadata::CascadeTwitter {
+                title: CascadeValue::Set("%s on X"),
+                ..Default::default()
+            }
+        }
+    }
+
+    #[test]
+    fn compute_metadata_map_fills_templates_with_each_route_title() {
+        let routes = vec![RouteSpec::layout(
+            "/",
+            &HomeLayoutMeta,
+            vec![RouteSpec::page_with_metadata("dashboard", &PageMeta)],
+        )];
+        let map = compute_metadata_map(&routes);
+
+        // The layout's own cascade fills "Home on OG" / "Home on X"; the child
+        // must refill from its own title instead of inheriting that value.
+        let dashboard = map.get("/dashboard").expect("child route");
+        assert_eq!(
+            dashboard.open_graph.title.as_deref(),
+            Some("Dashboard on OG")
+        );
+        assert_eq!(dashboard.twitter.title.as_deref(), Some("Dashboard on X"));
+    }
 }
