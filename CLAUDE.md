@@ -53,7 +53,7 @@ Package names are unchanged by the grouping, so `cargo` invocations and
 | Group directory | Crates inside |
 |---|---|
 | `proa_framework/` | `proa_framework_axum`, `proa_framework_core` |
-| `proa_fonts/` | `proa_fonts`, `proa_fonts_build`, `proa_fonts_macros`, `proa_fonts_parse` |
+| `proa_fonts/` | `proa_fonts`, `proa_fonts_build`, `proa_fonts_macros`, `proa_fonts_parse`, `proa_fonts_types` |
 | `proa_docs/` | `proa_docs`, `proa_docs_build` |
 | `tailwind-merge/` | `tailwind-merge`, `tailwind-merge-macro` |
 | `const_json/` | `const_json`, `const_json_macros` |
@@ -147,7 +147,7 @@ pub const BUTTON_BASE: &str = "inline-flex items-center rounded-md text-sm";
 
 ### Fonts (proa_fonts)
 
-Self-host web fonts instead of hitting Google at runtime: content-hashed files, a metric-matched fallback (no layout shift on swap), preload hints, zero JS. Fonts are declared in code with `google_font!` / `local_font!` from `proa_fonts_macros`, e.g. `static SANS: Font = google_font!("Geist", subsets = [latin], weights = [400, 700], variable = "--font-sans");`. Each declaration produces a `proa_fonts::Font` rendered in `<head>` with one allocation-free call `SANS.head(cx)?` (apply `class={SANS.class_name()}` on `<html>`, or reference `var(--font-...)`).
+Self-host web fonts instead of hitting Google at runtime: content-hashed files, a metric-matched fallback (no layout shift on swap), preload hints, zero JS. Fonts are declared in code with `google_font!` / `local_font!` from `proa_fonts`, e.g. `static SANS: Font = google_font!("Geist", subsets = [latin], weights = [400, 700], variable = "--font-sans");`. Each declaration produces a `proa_fonts::Font` rendered in `<head>` with one allocation-free call `SANS.head(cx)?` (apply `class={SANS.class_name()}` on `<html>`, or reference `var(--font-...)`).
 
 A `build.rs` calling `proa_fonts_build::collect::run(&CollectOptions::from_build_env()?)` scans for the macros, vendors into `public/fonts`, records the result in `proa-fonts.lock`, and generates the consts into `OUT_DIR` (Google fetching is behind the default-on `fetch` feature). Needs one boilerplate line: `mod __proa_fonts_generated { include!(concat!(env!("OUT_DIR"), "/proa_fonts.rs")); }`. Vendoring is lock-gated: unchanged declarations with intact vendored files (sha256 + size verified) regenerate offline from disk; commit `proa-fonts.lock` and `public/fonts` so builds are offline and reproducible. `cargo proa font sync` runs the same collector outside a build; `--offline` is strictly verify-only for all sources (no writes, fails with "proa-fonts.lock is stale" on any lock or file drift; the CI gate), and plain `sync` under `CARGO_NET_OFFLINE=true` also verifies only. During a `cargo build` with `CARGO_NET_OFFLINE=true`, local fonts still vendor; only needed Google fetches fail actionably. `font add`/`font remove` and `proa-fonts.toml` no longer exist.
 

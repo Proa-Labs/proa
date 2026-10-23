@@ -4,6 +4,10 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- `proa_fonts` re-exports `google_font!` and `local_font!` through its default
+  `macros` feature. Applications no longer need a direct `proa_fonts_macros`
+  dependency; descriptor-only builds can still disable default features.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while

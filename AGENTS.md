@@ -41,7 +41,7 @@ Package names and Rust import paths are unchanged; only filesystem paths differ.
 | Group directory | Crates inside |
 |---|---|
 | `proa_framework/` | `proa_framework_axum`, `proa_framework_core` |
-| `proa_fonts/` | `proa_fonts`, `proa_fonts_build`, `proa_fonts_macros`, `proa_fonts_parse` |
+| `proa_fonts/` | `proa_fonts`, `proa_fonts_build`, `proa_fonts_macros`, `proa_fonts_parse`, `proa_fonts_types` |
 | `proa_docs/` | `proa_docs`, `proa_docs_build` |
 | `tailwind-merge/` | `tailwind-merge`, `tailwind-merge-macro` |
 | `const_json/` | `const_json`, `const_json_macros` |

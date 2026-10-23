@@ -22,6 +22,7 @@ members = [
     "proa_fonts/proa_fonts",
     "proa_fonts/proa_fonts_build",
     "proa_fonts/proa_fonts_parse",
+    "proa_fonts/proa_fonts_types",
     "proa_fonts/proa_fonts_macros",
     "proa_actions",
     "const_json/const_json",
@@ -115,6 +116,7 @@ proa_fonts = { path = "proa_fonts/proa_fonts", version = "0.1.0", default-featur
 proa_fonts_build = { path = "proa_fonts/proa_fonts_build", version = "0.1.0" }
 proa_fonts_macros = { path = "proa_fonts/proa_fonts_macros", version = "0.1.0" }
 proa_fonts_parse = { path = "proa_fonts/proa_fonts_parse", version = "0.1.0" }
+proa_fonts_types = { path = "proa_fonts/proa_fonts_types", version = "0.1.0" }
 proa_framework_axum = { path = "proa_framework/proa_framework_axum", version = "0.3.0" }
 proa_framework_core = { path = "proa_framework/proa_framework_core", version = "0.3.0" }
 proa_ir = { path = "proa_ir", version = "0.1.2" }

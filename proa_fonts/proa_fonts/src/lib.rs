@@ -33,8 +33,7 @@
 //! `<head>` markup where you build the document head:
 //!
 //! ```ignore
-//! use proa_fonts::Font;
-//! use proa_fonts_macros::google_font;
+//! use proa_fonts::{Font, google_font};
 //!
 //! // Declared in code; the build collector vendors it and generates the const
 //! // this expands to a reference of:
@@ -57,10 +56,16 @@
 //! inserted into known face URLs when the application is mounted under a prefix.
 //!
 //! The default `render` feature enables these rendering methods. Build scripts
-//! and proc macros can disable default features to use descriptors and request
-//! IDs without compiling the renderer.
+//! can disable default features to use descriptors and request
+//! IDs without compiling the renderer. The default `macros` feature re-exports
+//! `google_font!` and `local_font!`; disable it when only descriptors are needed.
 
 pub mod request;
+pub use proa_fonts_types::FontStyle;
+
+/// Declare fonts through the same crate as their runtime descriptors.
+#[cfg(feature = "macros")]
+pub use proa_fonts_macros::{google_font, local_font};
 
 #[cfg(feature = "render")]
 use proa_core::{StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError};
@@ -107,24 +112,6 @@ impl FontFormat {
             FontFormat::Woff2 => "woff2",
             FontFormat::Truetype => "ttf",
             FontFormat::Opentype => "otf",
-        }
-    }
-}
-
-/// Style axis of a single `@font-face`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum FontStyle {
-    Normal,
-    Italic,
-}
-
-impl FontStyle {
-    /// The CSS `font-style` value.
-    #[inline]
-    pub const fn css(self) -> &'static str {
-        match self {
-            FontStyle::Normal => "normal",
-            FontStyle::Italic => "italic",
         }
     }
 }

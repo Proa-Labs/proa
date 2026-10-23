@@ -9,8 +9,8 @@
 //! Keeping one parser is what makes the "declare in code" model sound: there is
 //! no second grammar to drift.
 
-use proa_fonts::request::{FontRequest, Generic, RequestSource};
-use proa_fonts::FontStyle;
+pub use proa_fonts_types::request::{FontRequest, Generic, RequestSource};
+use proa_fonts_types::FontStyle;
 use proc_macro2::TokenStream;
 use syn::parse::{Parse, ParseStream};
 use syn::{Expr, ExprArray, Ident, Lit, LitStr, Token};

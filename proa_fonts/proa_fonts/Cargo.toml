@@ -13,11 +13,14 @@ repository.workspace = true
 homepage.workspace = true
 
 [features]
-default = ["render"]
+default = ["render", "macros"]
 # Build collectors and proc macros only need font descriptors and request IDs.
 render = ["dep:proa_core"]
+macros = ["dep:proa_fonts_macros"]
 
 [dependencies]
+proa_fonts_types = { workspace = true }
+proa_fonts_macros = { workspace = true, optional = true }
 proa_core = { workspace = true, optional = true }
 
 [[test]]

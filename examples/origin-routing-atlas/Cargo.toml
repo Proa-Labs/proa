@@ -17,8 +17,7 @@ const_format = { version = "0.2" }
 heapless = { workspace = true }
 proa_actions = { workspace = true }
 proa_core = { workspace = true }
-proa_fonts = { workspace = true, features = ["render"] }
-proa_fonts_macros = { workspace = true }
+proa_fonts = { workspace = true, features = ["render", "macros"] }
 proa_framework_axum = { workspace = true }
 proa_ir = { workspace = true }
 proa_macros = { workspace = true }

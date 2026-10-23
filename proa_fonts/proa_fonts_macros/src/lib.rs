@@ -4,8 +4,7 @@
 //! Declare self-hosted fonts where you use them.
 //!
 //! ```ignore
-//! use proa_fonts::Font;
-//! use proa_fonts_macros::google_font;
+//! use proa_fonts::{Font, google_font};
 //!
 //! static SANS: Font = google_font!("Geist", subsets = [latin], weights = [400, 700], variable = "--font-sans");
 //! ```
@@ -32,7 +31,7 @@
 //! }
 //! ```
 
-use proa_fonts::request::FontRequest;
+use proa_fonts_parse::FontRequest;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;

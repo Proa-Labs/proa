@@ -1329,10 +1329,7 @@ fn cargo_toml(project_name: &str, options: &NewSiteOptions) -> String {
         "proa_macros = \"0.3.0\"".to_string(),
     ];
     if has_fonts {
-        deps.extend([
-            "proa_fonts = \"0.1.0\"".to_string(),
-            "proa_fonts_macros = \"0.1.0\"".to_string(),
-        ]);
+        deps.push("proa_fonts = \"0.1.0\"".to_string());
     }
     if options.server == ServerIntegration::Axum {
         deps.extend([
@@ -2819,7 +2816,7 @@ mod tests {
 
         let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
         assert!(cargo.contains("proa_fonts = \"0.1.0\""));
-        assert!(cargo.contains("proa_fonts_macros = \"0.1.0\""));
+        assert!(!cargo.contains("proa_fonts_macros"));
         assert!(cargo.contains("[build-dependencies]\nproa_fonts_build = \"0.1.0\""));
         assert!(!cargo.contains("proa_docs_build"));
 

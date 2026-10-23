@@ -16,7 +16,6 @@ homepage.workspace = true
 proc-macro = true
 
 [dependencies]
-proa_fonts = { workspace = true }
 proa_fonts_parse = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }

@@ -8,8 +8,7 @@ use proa_core::{
     ClassList, DataLoader, Metadata, RenderOutcome, StaticRaw, WebContext, WebRender,
     WebRenderSync, WriteError,
 };
-use proa_fonts::Font;
-use proa_fonts_macros::google_font;
+use proa_fonts::{google_font, Font};
 use proa_macros::html;
 
 static SANS: Font = google_font!(
