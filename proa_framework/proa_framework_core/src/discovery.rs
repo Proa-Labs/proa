@@ -25,10 +25,14 @@ pub enum DiscoveryError {
     InvalidPath,
     #[error("lastmod must be a YYYY-MM-DD calendar date")]
     InvalidLastmod,
-    #[error("sitemap loc exceeds 2048 bytes")]
+    #[error("absolute sitemap URL must use the sitemap origin")]
+    CrossOrigin,
+    #[error("sitemap loc must be shorter than 2048 bytes")]
     LocTooLong,
-    #[error("robots field cannot be empty or contain CR, LF, or other control characters")]
+    #[error("robots field cannot contain whitespace, `#`, or control characters")]
     InvalidRobotsField,
+    #[error("robots rule path must be empty or start with `/` or `*`")]
+    InvalidRobotsPath,
     #[error(transparent)]
     Write(#[from] WriteError),
 }
@@ -149,12 +153,17 @@ impl Sitemap {
     }
 
     pub fn with_url(self, path: impl Into<String>) -> Result<Self, DiscoveryError> {
-        Ok(self.with_entry(SitemapUrl::new(path)?))
+        self.with_entry(SitemapUrl::new(path)?)
     }
 
-    pub fn with_entry(mut self, url: SitemapUrl) -> Self {
+    /// Add an entry. Absolute entries must use the sitemap origin, because the
+    /// sitemap protocol only covers URLs on the host that serves the sitemap.
+    pub fn with_entry(mut self, url: SitemapUrl) -> Result<Self, DiscoveryError> {
+        if is_absolute_http_url(&url.path) && !has_origin(&url.path, &self.origin) {
+            return Err(DiscoveryError::CrossOrigin);
+        }
         self.urls.push(url);
-        self
+        Ok(self)
     }
 
     pub fn origin(&self) -> &str {
@@ -259,22 +268,26 @@ impl RobotsTxt {
         Ok(self)
     }
 
+    /// Add an `Allow` rule. The path must be empty or start with `/` or `*`.
     pub fn allow(self, path: &str) -> Result<Self, DiscoveryError> {
-        self.push_rule(RobotsRule::Allow(checked_robots_field(path)?))
+        self.push_rule(RobotsRule::Allow(checked_robots_path(path)?))
     }
 
+    /// Add a `Disallow` rule. The path must be empty or start with `/` or `*`.
     pub fn disallow(self, path: &str) -> Result<Self, DiscoveryError> {
-        self.push_rule(RobotsRule::Disallow(checked_robots_field(path)?))
+        self.push_rule(RobotsRule::Disallow(checked_robots_path(path)?))
     }
 
     /// Allow a public path, joining `base_path` the same way sitemap locs are.
     pub fn allow_path(self, base_path: &BasePath, path: &str) -> Result<Self, DiscoveryError> {
+        validate_local_path(path)?;
         // proa-perf-ok: robots.txt is built once per request outside Proa HTML rendering
         self.allow(&base_path.url(path).to_string())
     }
 
     /// Disallow a public path, joining `base_path` the same way sitemap locs are.
     pub fn disallow_path(self, base_path: &BasePath, path: &str) -> Result<Self, DiscoveryError> {
+        validate_local_path(path)?;
         // proa-perf-ok: robots.txt is built once per request outside Proa HTML rendering
         self.disallow(&base_path.url(path).to_string())
     }
@@ -284,7 +297,7 @@ impl RobotsTxt {
             return Err(DiscoveryError::InvalidPath);
         }
         validate_absolute_http_url(loc)?;
-        if loc.len() > MAX_LOC_BYTES {
+        if loc.len() >= MAX_LOC_BYTES {
             return Err(DiscoveryError::LocTooLong);
         }
         self.sitemaps.push(loc.to_string());
@@ -321,6 +334,11 @@ impl RobotsTxt {
             out.push_str("User-agent: ");
             out.push_str(&group.user_agent);
             out.push('\n');
+            if group.rules.is_empty() {
+                // An empty `Disallow` allows everything. Without a rule line, this
+                // `User-agent` merges into the next group (RFC 9309 section 2.1).
+                out.push_str("Disallow:\n");
+            }
             for rule in &group.rules {
                 match rule {
                     RobotsRule::Allow(path) => {
@@ -372,7 +390,7 @@ pub fn absolute_http_url(
 ) -> Result<String, DiscoveryError> {
     if is_absolute_http_url(path) {
         validate_absolute_http_url(path)?;
-        if path.len() > MAX_LOC_BYTES {
+        if path.len() >= MAX_LOC_BYTES {
             return Err(DiscoveryError::LocTooLong);
         }
         return Ok(path.to_string());
@@ -381,7 +399,7 @@ pub fn absolute_http_url(
     let origin = normalize_origin(origin)?;
     validate_entry_path(path)?;
     let composed = format!("{}{}", origin, base_path.url(path));
-    if composed.len() > MAX_LOC_BYTES {
+    if composed.len() >= MAX_LOC_BYTES {
         return Err(DiscoveryError::LocTooLong);
     }
     Ok(composed)
@@ -390,49 +408,87 @@ pub fn absolute_http_url(
 fn normalize_origin(origin: &str) -> Result<&str, DiscoveryError> {
     let origin = origin.trim();
     let origin = origin.strip_suffix('/').unwrap_or(origin);
-    let rest = origin
-        .strip_prefix("https://")
-        .or_else(|| origin.strip_prefix("http://"))
-        .ok_or(DiscoveryError::InvalidOrigin)?;
-    if rest.is_empty() {
-        return Err(DiscoveryError::InvalidOrigin);
-    }
-    if rest.starts_with('[') {
-        let end = rest.find(']').ok_or(DiscoveryError::InvalidOrigin)?;
-        let after = &rest[end + 1..];
-        if !after.is_empty() {
-            let port = after
-                .strip_prefix(':')
-                .ok_or(DiscoveryError::InvalidOrigin)?;
-            if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(DiscoveryError::InvalidOrigin);
-            }
-        }
-    } else if let Some((host, port)) = rest.rsplit_once(':') {
-        if host.is_empty() || port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(DiscoveryError::InvalidOrigin);
-        }
-    }
-    if contains_invalid_url_char(rest) || rest.contains(['/', '?', '#']) {
+    let authority = strip_http_scheme(origin).ok_or(DiscoveryError::InvalidOrigin)?;
+    if contains_invalid_url_char(authority) || !is_valid_authority(authority) {
         return Err(DiscoveryError::InvalidOrigin);
     }
     Ok(origin)
 }
 
+fn strip_http_scheme(url: &str) -> Option<&str> {
+    url.strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+}
+
 fn is_absolute_http_url(path: &str) -> bool {
-    path.starts_with("https://") || path.starts_with("http://")
+    strip_http_scheme(path).is_some()
+}
+
+/// `host[:port]` with no userinfo, path, query, or fragment. Bracketed hosts
+/// must be non-empty IPv6 literals; ports must be 1 to 5 digits up to 65535.
+fn is_valid_authority(authority: &str) -> bool {
+    let (host_ok, port) = if let Some(rest) = authority.strip_prefix('[') {
+        let Some((host, after)) = rest.split_once(']') else {
+            return false;
+        };
+        let host_ok = !host.is_empty()
+            && host
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() || byte == b':' || byte == b'.');
+        let port = match after {
+            "" => None,
+            _ => match after.strip_prefix(':') {
+                Some(port) => Some(port),
+                None => return false,
+            },
+        };
+        (host_ok, port)
+    } else {
+        let (host, port) = match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        };
+        (
+            !host.is_empty() && !host.contains(['@', '[', ']', '/', '?', '#']),
+            port,
+        )
+    };
+    host_ok
+        && port.is_none_or(|port| {
+            !port.is_empty()
+                && port.len() <= 5
+                && port.bytes().all(|byte| byte.is_ascii_digit())
+                && port.parse::<u16>().is_ok()
+        })
+}
+
+/// True when `url` is `origin` itself or a URL on it (ASCII case-insensitive
+/// scheme and host). Rejects look-alikes such as `https://example.com.evil.test`.
+fn has_origin(url: &str, origin: &str) -> bool {
+    url.len() >= origin.len()
+        && url.is_char_boundary(origin.len())
+        && url[..origin.len()].eq_ignore_ascii_case(origin)
+        && matches!(
+            url.as_bytes().get(origin.len()),
+            None | Some(b'/' | b'?' | b'#')
+        )
 }
 
 fn validate_absolute_http_url(url: &str) -> Result<(), DiscoveryError> {
     if contains_invalid_url_char(url) {
         return Err(DiscoveryError::InvalidPath);
     }
-    let rest = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-        .ok_or(DiscoveryError::InvalidPath)?;
-    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
-    if host.is_empty() {
+    let rest = strip_http_scheme(url).ok_or(DiscoveryError::InvalidPath)?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if !is_valid_authority(authority) {
+        return Err(DiscoveryError::InvalidPath);
+    }
+    Ok(())
+}
+
+/// A root-relative application path (`/...`, not protocol-relative `//...`).
+fn validate_local_path(path: &str) -> Result<(), DiscoveryError> {
+    if !path.starts_with('/') || path.starts_with("//") || contains_invalid_url_char(path) {
         return Err(DiscoveryError::InvalidPath);
     }
     Ok(())
@@ -442,13 +498,7 @@ fn validate_entry_path(path: &str) -> Result<(), DiscoveryError> {
     if is_absolute_http_url(path) {
         return validate_absolute_http_url(path);
     }
-    if !path.starts_with('/') || path.starts_with("//") {
-        return Err(DiscoveryError::InvalidPath);
-    }
-    if contains_invalid_url_char(path) {
-        return Err(DiscoveryError::InvalidPath);
-    }
-    Ok(())
+    validate_local_path(path)
 }
 
 /// Space, ASCII controls, backslash, and XML 1.0 non-Char values (including
@@ -510,16 +560,29 @@ fn parse_two_digits(bytes: &[u8]) -> u8 {
     (bytes[0] - b'0') * 10 + (bytes[1] - b'0')
 }
 
+/// RFC 9309 values exclude controls (including DEL), space, and `#`, which
+/// starts a comment and would silently truncate the value.
+fn has_invalid_robots_byte(value: &str) -> bool {
+    value
+        .bytes()
+        .any(|byte| byte <= b' ' || byte == b'#' || byte == 0x7F)
+}
+
 fn validate_robots_field(value: &str) -> Result<(), DiscoveryError> {
-    if value.is_empty() || value.bytes().any(|byte| byte < b' ') {
+    if value.is_empty() || has_invalid_robots_byte(value) {
         return Err(DiscoveryError::InvalidRobotsField);
     }
     Ok(())
 }
 
-fn checked_robots_field(value: &str) -> Result<String, DiscoveryError> {
-    if value.bytes().any(|byte| byte < b' ') {
+/// Crawlers ignore rules whose path does not start with `/` or `*`, so such a
+/// rule would leave the intended path crawlable. Empty means "match nothing".
+fn checked_robots_path(value: &str) -> Result<String, DiscoveryError> {
+    if has_invalid_robots_byte(value) {
         return Err(DiscoveryError::InvalidRobotsField);
+    }
+    if !value.is_empty() && !value.starts_with(['/', '*']) {
+        return Err(DiscoveryError::InvalidRobotsPath);
     }
     Ok(value.to_string())
 }
@@ -542,7 +605,8 @@ mod tests {
                     .unwrap()
                     .changefreq(ChangeFreq::Weekly)
                     .priority(SitemapPriority::tenths(8).unwrap()),
-            );
+            )
+            .unwrap();
 
         let xml = sitemap.render_xml().unwrap();
         assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
@@ -568,14 +632,80 @@ mod tests {
     }
 
     #[test]
-    fn sitemap_keeps_absolute_http_entries() {
+    fn sitemap_keeps_same_origin_absolute_entries() {
         let xml = Sitemap::new("https://example.com")
             .unwrap()
-            .with_url("https://cdn.example.com/docs")
+            .with_base_path(BasePath::new("/apps/demo").unwrap())
+            .with_url("https://example.com/docs")
+            .unwrap()
+            .with_url("https://EXAMPLE.com")
             .unwrap()
             .render_xml()
             .unwrap();
-        assert!(xml.contains("<loc>https://cdn.example.com/docs</loc>"));
+        assert!(xml.contains("<loc>https://example.com/docs</loc>"));
+        assert!(xml.contains("<loc>https://EXAMPLE.com</loc>"));
+    }
+
+    #[test]
+    fn sitemap_rejects_cross_origin_absolute_entries() {
+        let sitemap = || Sitemap::new("https://example.com").unwrap();
+        for url in [
+            "https://cdn.example.com/docs",
+            "http://example.com/docs",
+            "https://example.com:8443/docs",
+            "https://example.com.evil.test/docs",
+        ] {
+            assert_eq!(
+                sitemap().with_url(url).unwrap_err(),
+                DiscoveryError::CrossOrigin,
+                "{url}"
+            );
+        }
+        assert_eq!(
+            sitemap()
+                .with_entry(SitemapUrl::new("https://cdn.example.com/").unwrap())
+                .unwrap_err(),
+            DiscoveryError::CrossOrigin
+        );
+    }
+
+    #[test]
+    fn origins_reject_userinfo_extra_ports_and_empty_ipv6() {
+        for origin in [
+            "https://example.com:80:80",
+            "https://user:pw@example.com",
+            "https://user@example.com",
+            "https://[]",
+            "https://[::1",
+            "https://[::1]x",
+            "https://example.com:",
+            "https://example.com:65536",
+            "https://:443",
+        ] {
+            assert_eq!(
+                Sitemap::new(origin).unwrap_err(),
+                DiscoveryError::InvalidOrigin,
+                "{origin}"
+            );
+        }
+        for origin in [
+            "https://example.com:8443",
+            "http://[::1]:3000",
+            "http://[::1]",
+            "http://127.0.0.1:3000",
+        ] {
+            assert!(Sitemap::new(origin).is_ok(), "{origin}");
+        }
+        assert_eq!(
+            SitemapUrl::new("https://user@example.com/").unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
+        assert_eq!(
+            RobotsTxt::new()
+                .sitemap("https://example.com:1:2/sitemap.xml")
+                .unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
     }
 
     #[test]
@@ -703,7 +833,58 @@ mod tests {
     }
 
     #[test]
+    fn robots_txt_keeps_empty_groups_separate() {
+        let body = RobotsTxt::new()
+            .group("GoodBot")
+            .unwrap()
+            .group("*")
+            .unwrap()
+            .disallow("/")
+            .unwrap()
+            .render_txt();
+        assert_eq!(
+            body,
+            "User-agent: GoodBot\nDisallow:\n\nUser-agent: *\nDisallow: /\n"
+        );
+    }
+
+    #[test]
+    fn robots_txt_rejects_paths_crawlers_ignore() {
+        let base = BasePath::new("/apps/demo").unwrap();
+        assert_eq!(
+            RobotsTxt::new().disallow("admin").unwrap_err(),
+            DiscoveryError::InvalidRobotsPath
+        );
+        assert_eq!(
+            RobotsTxt::new().disallow("/admin #old").unwrap_err(),
+            DiscoveryError::InvalidRobotsField
+        );
+        assert!(RobotsTxt::new().disallow("").is_ok());
+        assert!(RobotsTxt::new().disallow("*.pdf$").is_ok());
+        for path in ["https://x.test/admin", "//x.test/admin", "admin"] {
+            assert_eq!(
+                RobotsTxt::new().disallow_path(&base, path).unwrap_err(),
+                DiscoveryError::InvalidPath,
+                "{path}"
+            );
+            assert_eq!(
+                RobotsTxt::new().allow_path(&base, path).unwrap_err(),
+                DiscoveryError::InvalidPath,
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
     fn robots_txt_rejects_control_characters() {
+        assert_eq!(
+            RobotsTxt::new().group("Bot\u{7F}").unwrap_err(),
+            DiscoveryError::InvalidRobotsField
+        );
+        assert_eq!(
+            RobotsTxt::new().disallow("/a\u{7F}").unwrap_err(),
+            DiscoveryError::InvalidRobotsField
+        );
         assert_eq!(
             RobotsTxt::new().group("*\nGooglebot").unwrap_err(),
             DiscoveryError::InvalidRobotsField
@@ -723,9 +904,26 @@ mod tests {
                 .unwrap_err(),
             DiscoveryError::InvalidPath
         );
-        let long_path = format!("/{}", "a".repeat(MAX_LOC_BYTES));
+        let origin = "https://example.com";
+        let at_limit = format!("/{}", "a".repeat(MAX_LOC_BYTES - origin.len() - 1));
         assert_eq!(
-            absolute_http_url("https://example.com", &BasePath::default(), &long_path).unwrap_err(),
+            absolute_http_url(origin, &BasePath::default(), &at_limit).unwrap_err(),
+            DiscoveryError::LocTooLong
+        );
+        let under_limit = &at_limit[..at_limit.len() - 1];
+        assert_eq!(
+            absolute_http_url(origin, &BasePath::default(), under_limit)
+                .unwrap()
+                .len(),
+            MAX_LOC_BYTES - 1
+        );
+        let absolute_at_limit = format!("{origin}{at_limit}");
+        assert_eq!(
+            absolute_http_url(origin, &BasePath::default(), &absolute_at_limit).unwrap_err(),
+            DiscoveryError::LocTooLong
+        );
+        assert_eq!(
+            RobotsTxt::new().sitemap(&absolute_at_limit).unwrap_err(),
             DiscoveryError::LocTooLong
         );
     }

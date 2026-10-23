@@ -9,7 +9,11 @@ All notable public changes are tracked here.
   `robots_txt` return Axum responses with the matching content types.
   Query strings are XML-escaped, `lastmod` must be a real calendar date, and
   sitemap paths, absolute URLs, and origins reject XML-forbidden control
-  characters. Robots fields reject CR/LF injection. `allow_path` and
+  characters. Absolute sitemap entries must use the sitemap origin, and
+  `sitemap_xml` answers render failures with a logged, generic 500. Robots
+  fields reject whitespace, `#`, and control characters, rule paths must be
+  empty or start with `/` or `*`, and rule-less groups render an empty
+  `Disallow:` instead of merging into the next group. `allow_path` and
   `disallow_path` join Allow/Disallow rules with the public mount prefix;
   crawlers still fetch `/robots.txt` at the origin root.
 
