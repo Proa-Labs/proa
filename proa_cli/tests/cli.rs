@@ -392,6 +392,36 @@ fn standalone_bundles_switch_together_while_the_previous_binary_is_running() {
         assert!(output.status.success());
         assert_eq!(stdout(&output).trim(), "proa 1.3.0");
     }
+    // Main archives have a distinct distribution identity without changing
+    // the compiled package version. Refreshing one must still switch bundles.
+    let snapshot = format!("1.3.0-main.{}", "0".repeat(40));
+    let output = Command::new(env!("CARGO_BIN_EXE_proa"))
+        .args(["install-self", "--source"])
+        .arg(&sources[1])
+        .arg("--bin-dir")
+        .arg(&public)
+        .args([
+            "--expected-version",
+            "1.3.0",
+            "--distribution-version",
+            &snapshot,
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    let snapshot_selected = public.join(&names[0]).canonicalize().unwrap();
+    assert_ne!(snapshot_selected, selected);
+    assert_eq!(
+        fs::read_to_string(
+            snapshot_selected
+                .parent()
+                .unwrap()
+                .join("distribution-version")
+        )
+        .unwrap(),
+        snapshot
+    );
+    let selected = snapshot_selected;
     // A stale automatic update must not undo the newer installation.
     let output = install(&sources[0], false);
     assert!(output.status.success(), "{}", stderr(&output));

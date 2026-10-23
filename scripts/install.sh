@@ -1,6 +1,7 @@
 #!/bin/sh
 # Copyright Proa Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
+# PROA_BUNDLE_INSTALLER_V1
 
 # Proa CLI installer for Linux and macOS.
 #
@@ -2365,9 +2366,27 @@ install_file() {
 
 # New releases publish their complete bundle through the same Rust helper used
 # for updates. Old releases remain installable through the legacy copy path.
+binary_version_for_distribution() {
+    local version="$1"
+    case "$version" in
+        *-main.*)
+            local core="${version%%-main.*}"
+            local rest="${version#*-main.}"
+            local revision="${rest%%.*}"
+            case "$revision" in *[!0-9a-fA-F]*) err "main snapshots require a full 40-character commit SHA" ;; esac
+            [ "${#revision}" -eq 40 ] || err "main snapshots require a full 40-character commit SHA"
+            if [ "$rest" = "$revision" ]; then printf '%s' "$core"
+            else printf '%s-%s' "$core" "${rest#*.}"; fi
+            ;;
+        *) printf '%s' "$version" ;;
+    esac
+}
+
 install_bundle() {
     local source="$1"
     local helper="${PROA_INSTALL_HELPER:-$source/proa}"
+    local binary_version
+    binary_version=$(binary_version_for_distribution "$VERSION") || err "invalid distribution version"
     local name
     for name in proa cargo-proa; do
         chmod 755 "$source/$name" || err "could not make the release executable"
@@ -2378,7 +2397,7 @@ install_bundle() {
             local reported
             reported=$("$source/$name" --version 2>&1) ||
                 err "the downloaded $name cannot run on this system; retry with --build-from-source. The installed CLI was not changed."
-            [ -z "$VERSION" ] || [ "$reported" = "proa $VERSION" ] ||
+            [ -z "$binary_version" ] || [ "$reported" = "proa $binary_version" ] ||
                 err "the downloaded $name did not report the requested version; the installed CLI was not changed"
         done
         if ! "$helper" install-self --help > "$TMP_DIR/install-help" 2>/dev/null ||
@@ -2391,7 +2410,7 @@ install_bundle() {
         fi
     fi
     set -- install-self --source "$source" --bin-dir "$BIN_DIR"
-    if [ -n "$VERSION" ]; then set -- "$@" --expected-version "$VERSION"; fi
+    if [ -n "$VERSION" ]; then set -- "$@" --expected-version "$binary_version" --distribution-version "$VERSION"; fi
     if [ -n "${BUNDLE_ALLOW_DOWNGRADE:-}" ]; then set -- "$@" --allow-downgrade; fi
     "$helper" "$@" || err "could not publish the Proa bundle; the previous selection was preserved"
     return 0

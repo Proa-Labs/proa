@@ -22,6 +22,8 @@ pub(crate) struct InstallSelfArgs {
     #[arg(long)]
     expected_version: Option<Version>,
     #[arg(long)]
+    distribution_version: Option<String>,
+    #[arg(long)]
     allow_downgrade: bool,
 }
 
@@ -95,13 +97,23 @@ pub(crate) fn install_self(args: InstallSelfArgs) -> Result<()> {
         binary_version(&staged.path().join(&names[1]))? == version,
         "release CLI versions do not match"
     );
+    // Distribution IDs are opaque: a numeric commit SHA with leading zeroes
+    // is valid here even though SemVer would reject that prerelease identifier.
+    let distribution = args
+        .distribution_version
+        .unwrap_or_else(|| version.to_string());
     if !args.allow_downgrade && bin_dir.join(&names[0]).exists() {
         let installed = binary_version(&bin_dir.join(&names[0]))?;
-        if installed > version || (managed && installed == version) {
+        let selected_distribution = fs::read_to_string(root.join("current/distribution-version"))
+            .unwrap_or_else(|_| installed.to_string());
+        if installed > version
+            || (managed && installed == version && selected_distribution.trim() == distribution)
+        {
             println!("Proa {installed} is already installed; no update needed.");
             return Ok(());
         }
     }
+    fs::write(staged.path().join("distribution-version"), &distribution)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

@@ -194,7 +194,10 @@ fn run_installer(
         .send()?
         .error_for_status()?;
     let script = staging.path().join(filename);
-    fs::write(&script, read_response(response)?)?;
+    let script_body = read_response(response)?;
+    ensure!(std::str::from_utf8(&script_body)?.contains("PROA_BUNDLE_INSTALLER_V1"),
+        "the published installer is older than this CLI's bundle format; retry after the Proa installer has been updated");
+    fs::write(&script, script_body)?;
     let program = if cfg!(windows) {
         "powershell.exe"
     } else {

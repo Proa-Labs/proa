@@ -1,5 +1,6 @@
 # Copyright Proa Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
+# PROA_BUNDLE_INSTALLER_V1
 
 <#
 .SYNOPSIS
@@ -2479,9 +2480,21 @@ function Install-FromSource {
     return (Join-Path $cargoBin 'proa.exe')
 }
 
+function Get-BinaryVersionForDistribution {
+    param([string]$VersionText)
+    if ([string]::IsNullOrEmpty($VersionText)) { return '' }
+    if ($VersionText -cmatch '^([0-9]+\.[0-9]+\.[0-9]+)-main\.([0-9a-fA-F]{40})(?:\.(.+))?$') {
+        if ($Matches[3]) { return ($Matches[1] + '-' + $Matches[3]) }
+        return $Matches[1]
+    }
+    if ($VersionText.Contains('-main.')) { Stop-Install 'main snapshots require a full 40-character commit SHA' }
+    return $VersionText
+}
+
 function Publish-ProaBundle {
     param([string]$Source, [string]$BinDir, [string]$VersionText)
     $helper = Get-EnvValue 'PROA_INSTALL_HELPER'
+    $binaryVersion = Get-BinaryVersionForDistribution $VersionText
     $bootstrap = ''
     try {
         if ([string]::IsNullOrEmpty($helper)) {
@@ -2496,7 +2509,7 @@ function Publish-ProaBundle {
                     $text = & $candidate --version 2>&1
                     [pscustomobject]@{ Code = (Get-LastExitCode); Text = (($text | Out-String).Trim()) }
                 }
-                if ($probe.Code -ne 0 -or ($VersionText -and $probe.Text -cne ('proa ' + $VersionText))) {
+                if ($probe.Code -ne 0 -or ($binaryVersion -and $probe.Text -cne ('proa ' + $binaryVersion))) {
                     Stop-Install 'the downloaded CLI cannot run or reports the wrong version; retry with -BuildFromSource. The installed CLI was not changed.'
                 }
             }
@@ -2513,7 +2526,7 @@ function Publish-ProaBundle {
             }
         }
         $arguments = @('install-self', '--source', $Source, '--bin-dir', $BinDir)
-        if ($VersionText) { $arguments += @('--expected-version', $VersionText) }
+        if ($VersionText) { $arguments += @('--expected-version', $binaryVersion, '--distribution-version', $VersionText) }
         if ($script:BundleAllowDowngrade) { $arguments += '--allow-downgrade' }
         if ((Invoke-NativeCommand $helper $arguments) -ne 0) {
             Stop-Install 'could not publish the Proa bundle; the previous selection was preserved'
