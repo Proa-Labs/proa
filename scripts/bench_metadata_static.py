@@ -12,6 +12,7 @@ sizes are printed alongside Criterion timings. Requires Cargo's dependencies.
 """
 
 import argparse
+import os
 import pathlib
 import shutil
 import subprocess
@@ -21,8 +22,8 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
-def run(*args, cwd=ROOT):
-    subprocess.run(args, cwd=cwd, check=True)
+def run(*args, cwd=ROOT, env=None):
+    subprocess.run(args, cwd=cwd, env=env, check=True)
 
 
 def main():
@@ -37,6 +38,7 @@ def main():
     # Same-version crates in different worktrees must not overwrite each
     # other's build artifacts. Only Criterion's measurements are shared.
     baseline_target = target / "metadata-static-main-build"
+    bench_env = {**os.environ, "CRITERION_HOME": str(target / "criterion")}
     with tempfile.TemporaryDirectory(prefix="proa-static-metadata-") as directory:
         baseline = pathlib.Path(directory) / "main"
         run("git", "worktree", "add", "--detach", str(baseline), revision)
@@ -58,7 +60,7 @@ def main():
                 + '\n[[bench]]\nname = "metadata_static"\nharness = false\n')
             run("cargo", "bench", "--target-dir", str(baseline_target), "-p", "proa_bench",
                 "--bench", "metadata_static", "--", "--noplot", "--save-baseline",
-                "metadata-static-main", cwd=baseline)
+                "metadata-static-main", cwd=baseline, env=bench_env)
         finally:
             for path, original in originals.items():
                 path.write_bytes(original)
@@ -68,11 +70,9 @@ def main():
             if fixtures.is_dir() and not any(fixtures.iterdir()):
                 fixtures.rmdir()
             run("git", "worktree", "remove", str(baseline))
-    for source in (baseline_target / "criterion/static_metadata").glob("*/metadata-static-main"):
-        destination = target / "criterion/static_metadata" / source.parent.name / source.name
-        shutil.copytree(source, destination, dirs_exist_ok=True)
     run("cargo", "bench", "--locked", "--target-dir", str(target), "-p", "proa_bench",
-        "--bench", "metadata_static", "--", "--noplot", "--baseline", "metadata-static-main")
+        "--bench", "metadata_static", "--", "--noplot", "--baseline", "metadata-static-main",
+        env=bench_env)
 
 
 if __name__ == "__main__":
