@@ -76,15 +76,20 @@ pub trait Metadata: Send + Sync + 'static {
     /// Unset fields inherit from the parent provider. `title` and
     /// `description` accept `%s` templates, formatted with the page title and
     /// description the same way as Open Graph. At render time, title,
-    /// description, image, and image alt still fall back to Open Graph and then
-    /// to the page title and description when those Twitter fields stay empty.
-    /// Tombstoning a field clears that field without dropping the rest of the
-    /// card, including Open Graph fallbacks. Setting or tombstoning `image`
-    /// without restating `image_alt` drops the inherited alt, because alt text
-    /// describes one image. An Open Graph alt is used only alongside the Open
-    /// Graph image. [`TwitterCard::SummaryLargeImage`]
-    /// is written as [`TwitterCard::Summary`] when the resolved page has no
-    /// Twitter or Open Graph image.
+    /// description, image, and image alt fall back to Open Graph and then to
+    /// the page title and description when those Twitter fields stay empty.
+    ///
+    /// Tombstoning a field clears that field and keeps the rest of the card,
+    /// including Open Graph fallbacks. Tombstoning `card` instead turns
+    /// Twitter tags off and clears every inherited Twitter field; a field set
+    /// afterward turns them back on.
+    ///
+    /// Setting or tombstoning `image` without restating `image_alt` drops the
+    /// inherited alt, because alt text describes one image. An Open Graph alt
+    /// is used only alongside the Open Graph image.
+    /// [`TwitterCard::SummaryLargeImage`] is written as
+    /// [`TwitterCard::Summary`] when the resolved page has no Twitter or Open
+    /// Graph image.
     fn twitter(&self) -> CascadeTwitter {
         CascadeTwitter::default()
     }
@@ -321,15 +326,17 @@ pub struct ResolvedTwitter {
     pub description: Option<String>,
     pub image: Option<&'static str>,
     pub image_alt: Option<&'static str>,
-    /// True when any Twitter field was `Set` during cascade, including fields
-    /// that a later provider tombstoned.
-    requested: bool,
+    /// Writes Twitter tags even when every field above is empty, filling them
+    /// from Open Graph and the page title and description. The cascade sets
+    /// this when any provider sets a Twitter field, so tombstoning individual
+    /// fields keeps the card. Tombstoning `card` clears it.
+    pub enabled: bool,
 }
 
 impl ResolvedTwitter {
-    /// True when no Twitter Card field was set on the cascade.
+    /// True when no Twitter tags will be written: not enabled and no field set.
     pub fn is_empty(&self) -> bool {
-        !self.requested
+        !self.enabled
             && self.card.is_none()
             && self.site.is_none()
             && self.creator.is_none()
@@ -363,8 +370,15 @@ fn apply_twitter_cascade(
     templates: &mut TwitterTemplates,
     spec: CascadeTwitter,
 ) {
+    // Tombstoning the card turns Twitter tags off: every inherited field and
+    // template is cleared. Fields set by the same or a later provider turn
+    // the card back on.
+    if matches!(spec.card, CascadeValue::Tombstone) {
+        *dst = ResolvedTwitter::default();
+        *templates = TwitterTemplates::default();
+    }
     if twitter_spec_sets_any(&spec) {
-        dst.requested = true;
+        dst.enabled = true;
     }
     dst.card = spec.card.resolve(dst.card);
     dst.site = spec.site.resolve(dst.site);
@@ -1219,7 +1233,7 @@ mod tests {
         assert!(computed.twitter.image.is_none());
         assert!(computed.twitter.image_alt.is_none());
         assert!(computed.twitter.card.is_none());
-        assert!(computed.twitter.requested);
+        assert!(computed.twitter.enabled);
         assert!(!computed.twitter.is_empty());
 
         let resolved = resolved_metadata_from_computed(&computed);
@@ -1424,5 +1438,60 @@ mod tests {
 
         let html = render_providers(&[&LayoutTwitterTemplates, &ClearTwitterTitle, &PricingPage]);
         assert!(html.contains("name=\"twitter:title\" content=\"Pricing | Site\""));
+    }
+
+    struct NoTwitter;
+
+    impl Metadata for NoTwitter {
+        fn twitter(&self) -> CascadeTwitter {
+            CascadeTwitter {
+                card: CascadeValue::Tombstone,
+                ..Default::default()
+            }
+        }
+    }
+
+    #[test]
+    fn tombstoning_twitter_card_turns_twitter_tags_off() {
+        let providers: &[MetadataRef] = &[&LayoutTwitter, &PageTwitter, &NoTwitter];
+        let html = render_providers(providers);
+        assert!(!html.contains("twitter:"), "{html}");
+        assert!(
+            html.contains("property=\"og:image\""),
+            "Open Graph is unaffected: {html}"
+        );
+
+        let resolved = resolve_metadata_stack(providers).expect("metadata should resolve");
+        assert!(resolved.twitter.is_empty());
+    }
+
+    #[test]
+    fn twitter_fields_after_card_tombstone_turn_tags_back_on() {
+        let html = render_providers(&[&LayoutTwitter, &NoTwitter, &PageTwitter]);
+        assert!(html.contains("name=\"twitter:creator\" content=\"@author\""));
+        assert!(
+            !html.contains("@site"),
+            "layout fields stay cleared: {html}"
+        );
+        assert!(!html.contains("https://example.com/twitter.png"), "{html}");
+        assert!(html.contains("name=\"twitter:card\" content=\"summary_large_image\""));
+        assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/og.png\""));
+    }
+
+    #[test]
+    fn enabled_twitter_without_fields_uses_open_graph_and_page_copy() {
+        let metadata = ResolvedMetadata {
+            title: Some("Hello".to_string()),
+            twitter: ResolvedTwitter {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &metadata);
+        let html = cx.into_output().into_string();
+        assert!(html.contains("name=\"twitter:card\" content=\"summary\""));
+        assert!(html.contains("name=\"twitter:title\" content=\"Hello\""));
     }
 }

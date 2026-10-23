@@ -9,6 +9,10 @@ All notable public changes are tracked here.
   `twitter:title`, `twitter:description`, `twitter:image`, and `twitter:image:alt`.
   Title, description, image, and image alt fall back to Open Graph and then to
   the page title and description when those Twitter fields are unset.
+  Twitter title and description accept `%s` templates, and tombstoning
+  `twitter.card` turns Twitter tags off for a route. `ResolvedMetadata` gains a
+  public `twitter` field, so code that builds it with a struct literal must add
+  the field or use `..Default::default()`.
 
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.

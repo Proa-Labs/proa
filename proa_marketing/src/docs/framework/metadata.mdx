@@ -138,3 +138,16 @@ impl Metadata for PricingMeta {
 Alt text stays with the image it describes. A provider that sets or tombstones `twitter.image` without also setting `image_alt` drops the inherited alt. When the card falls back to the first Open Graph image, it uses that image's Open Graph alt unless a Twitter `image_alt` is set.
 
 `twitter.title` and `twitter.description` accept `%s` templates, the same as Open Graph. A layout that sets `title: CascadeValue::Set("%s on Proa")` gives a page titled `Pricing` the card title `Pricing on Proa`.
+
+To turn Twitter tags off for a route, tombstone the card. This clears every inherited Twitter field and writes no `twitter:*` tags. Open Graph tags are unaffected, and a descendant that sets any Twitter field turns the card back on.
+
+```rust
+impl Metadata for EmbedMeta {
+    fn twitter(&self) -> CascadeTwitter {
+        CascadeTwitter {
+            card: CascadeValue::Tombstone,
+            ..Default::default()
+        }
+    }
+}
+```

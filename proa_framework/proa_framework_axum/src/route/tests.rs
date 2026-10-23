@@ -301,3 +301,22 @@ async fn nested_page_refresh_preserves_metadata_and_does_not_cache_siblings() {
         .unwrap();
     assert!(!sibling.headers().contains_key("x-proa-page-cache"));
 }
+
+#[test]
+fn resolved_twitter_is_constructible_outside_the_core_crate() {
+    let metadata = crate::ResolvedMetadata {
+        title: Some("Hello".to_string()),
+        twitter: crate::ResolvedTwitter {
+            card: Some(TwitterCard::Summary),
+            site: Some("@proa"),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut cx = Ctx::new();
+    proa_framework_core::render_metadata_head(&mut cx, &metadata);
+    let html = cx.into_output().into_string();
+    assert!(html.contains("name=\"twitter:card\" content=\"summary\""));
+    assert!(html.contains("name=\"twitter:site\" content=\"@proa\""));
+    assert!(html.contains("name=\"twitter:title\" content=\"Hello\""));
+}
