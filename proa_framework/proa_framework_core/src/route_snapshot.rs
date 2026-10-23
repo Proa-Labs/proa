@@ -22,7 +22,6 @@ pub struct FrameworkRouteSnapshot {
     setup: RouteSetupPlan,
     route_setups: Arc<HashMap<String, RouteSetupPlan>>,
     current_uri: Option<Uri>,
-    current_route_pattern: Option<Arc<str>>,
     current_route_params: RouteParams,
     is_client_request: bool,
 }
@@ -37,7 +36,6 @@ impl FrameworkRouteSnapshot {
             setup: RouteSetupPlan::default(),
             route_setups,
             current_uri: None,
-            current_route_pattern: None,
             current_route_params: RouteParams::default(),
             is_client_request: false,
         }
@@ -55,17 +53,9 @@ impl FrameworkRouteSnapshot {
         self.current_uri = Some(uri);
     }
 
-    pub fn set_current_route_pattern(&mut self, pattern: Arc<str>) {
-        self.current_route_pattern = Some(pattern);
-    }
-
+    /// The setup plan the matched endpoint installed for this request.
     pub fn setup_plan(&self) -> RouteSetupPlan {
-        self.current_route_pattern
-            .as_deref()
-            .or_else(|| self.current_path())
-            .and_then(|path| self.route_setups.get(path))
-            .cloned()
-            .unwrap_or_else(|| self.setup.clone())
+        self.setup.clone()
     }
 
     pub fn current_path(&self) -> Option<&str> {

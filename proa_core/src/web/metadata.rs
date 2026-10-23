@@ -260,6 +260,7 @@ pub struct DocumentMetadata {
     state: Option<Box<State>>,
     closed: bool,
     denied: bool,
+    title_only: bool,
     rejections: u32,
 }
 
@@ -286,6 +287,28 @@ impl DocumentMetadata {
             denied: true,
             ..Self::default()
         }
+    }
+
+    /// Framework integration only: a client navigation payload. Declarations
+    /// resolve normally so the payload can report the page title, but
+    /// rendering the head writes nothing because the client keeps its head.
+    #[doc(hidden)]
+    pub fn title_only() -> Self {
+        Self {
+            title_only: true,
+            ..Self::default()
+        }
+    }
+
+    /// The document title as the head would render it, with the inherited
+    /// title template applied.
+    pub fn resolved_title(&self) -> Option<String> {
+        let state = self.state.as_ref()?;
+        let title = state.title.as_deref()?;
+        let Some(template) = state.title_format.as_deref() else {
+            return Some(title.to_owned());
+        };
+        Some(template.replace("%s", title))
     }
 
     #[track_caller]
@@ -412,6 +435,9 @@ impl DocumentMetadata {
             return Ok(());
         }
         self.closed = true;
+        if self.title_only {
+            return Ok(());
+        }
         let Some(state) = self.state.as_ref() else {
             return Ok(());
         };
@@ -518,20 +544,10 @@ impl DocumentMetadata {
                 )?;
             }
             if let Some(value) = image.width {
-                number(
-                    out,
-                    dialect,
-                    b"<meta property=\"og:image:width\" content=\"",
-                    value,
-                )?;
+                number(out, b"<meta property=\"og:image:width\" content=\"", value)?;
             }
             if let Some(value) = image.height {
-                number(
-                    out,
-                    dialect,
-                    b"<meta property=\"og:image:height\" content=\"",
-                    value,
-                )?;
+                number(out, b"<meta property=\"og:image:height\" content=\"", value)?;
             }
             if let Some(value) = &image.alt {
                 meta(
@@ -556,25 +572,11 @@ fn meta<B: WriteBuf>(
     escape_attr_value_for_dialect(out, value, dialect)?;
     out.extend_static(b"\"/>")
 }
-fn number<B: WriteBuf>(
-    out: &mut B,
-    _dialect: EscapeDialect,
-    prefix: &'static [u8],
-    value: u32,
-) -> Result<(), WriteError> {
-    let mut digits = [0u8; 10];
-    let mut index = digits.len();
-    let mut remaining = value;
-    loop {
-        index -= 1;
-        digits[index] = b'0' + (remaining % 10) as u8;
-        remaining /= 10;
-        if remaining == 0 {
-            break;
-        }
-    }
+fn number<B: WriteBuf>(out: &mut B, prefix: &'static [u8], value: u32) -> Result<(), WriteError> {
     out.extend_static(prefix)?;
-    out.extend(&digits[index..])?;
+    out.extend_with(10, |buf| {
+        itoa_lut::write_u32(value, buf.try_into().unwrap())
+    })?;
     out.extend_static(b"\"/>")
 }
 

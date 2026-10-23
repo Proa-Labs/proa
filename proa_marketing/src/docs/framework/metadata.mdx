@@ -502,9 +502,11 @@ A failed buffered full-document render discards its output and metadata. Catchin
 
 This API generates HTML head tags. It does not automatically add metadata to Markdown responses, update a document from a standalone fragment, or implement browser-side navigation patches.
 
+Client navigation payloads run the same layout setup and page declarations. The head handle writes nothing there; the payload's `title` field carries the resolved title, with the inherited title template applied.
+
 ## Migrate existing metadata
 
-Replace `impl Metadata` providers with ordinary `Metadata::new()` declarations. Move registered layout defaults into `Layout::setup`; move page lookups into the page's normal async render before the document head. `MetadataContext`, `generate_metadata`, `CascadeValue`, and provider registration are replaced by this path.
+Replace `impl Metadata` providers with ordinary `Metadata::new()` declarations. Move registered layout defaults into `Layout::setup`; move page lookups into the page's normal async render before the document head. The provider trait, `CascadeValue`, `CascadeOpenGraph`, `ComputedRouteMeta`, `resolved_metadata()`, `Route::page_with_metadata`, and `Route::with_metadata` are removed.
 
 `Route::page(path, title, handler)` remains a title-only compatibility default in the page scope. A page's explicit declaration overrides it. Use `Route::endpoint` when the page supplies all of its own metadata. Pass the setup plans from `router_from_spec` to `FrameworkBuilder::with_dynamic_routes_and_setups`; they contain ordered callbacks, not precomputed metadata.
 

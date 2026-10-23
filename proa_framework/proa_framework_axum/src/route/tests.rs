@@ -70,7 +70,8 @@ fn manifest() -> IslandManifest {
     }
 }
 
-#[tokio::test]
+// Client payloads for async routes finalize with `block_in_place`.
+#[tokio::test(flavor = "multi_thread")]
 async fn route_layouts_use_live_context_in_order_and_page_declarations_override_legacy_title() {
     for stream in [false, true] {
         let page = if stream {
@@ -98,6 +99,7 @@ async fn route_layouts_use_live_context_in_order_and_page_declarations_override_
             let app = app.clone();
             async move {
                 let response = app
+                    .clone()
                     .oneshot(
                         Request::builder()
                             .uri(format!("/blog/{slug}?q=A&B"))
@@ -120,6 +122,25 @@ async fn route_layouts_use_live_context_in_order_and_page_declarations_override_
                 assert!(html.contains("content=\"q=A&amp;B\""));
                 assert!(html.contains("og:site_name\" content=\"Site\""));
                 assert!(!html.contains("legacy"));
+
+                // Client navigation reports the same resolved title.
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .uri(format!("/blog/{slug}?q=A&B"))
+                            .header("x-preview", slug)
+                            .header("X-Proa-Client", "1")
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+                let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(payload["title"], format!("{slug} {slug} | Section"));
+                assert!(!payload["html"].as_str().unwrap().contains("<title>"));
             }
         };
         tokio::join!(fetch("first"), fetch("second"));

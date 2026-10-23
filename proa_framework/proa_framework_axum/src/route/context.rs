@@ -182,8 +182,6 @@ where
         let (previous_setup, previous_route_params) = ROUTE_CONTEXT.with(|ctx| {
             let mut ctx = ctx.borrow_mut();
             ctx.set_current_uri(uri);
-            ctx.snapshot
-                .set_current_route_pattern(self.route_pattern.clone());
             let previous_setup = ctx.swap_setup(self.setup.clone());
             let previous_route_params = ctx.swap_route_params(route_params);
             (previous_setup, previous_route_params)

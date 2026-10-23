@@ -375,29 +375,30 @@ async fn failed_buffered_documents_discard_metadata_and_replacement_uses_fresh_s
     assert_eq!(body(replacement).await, "<title>replacement</title>");
 }
 
-struct Fragment;
+struct Fragment(Option<&'static str>);
 impl WebRenderSync for Fragment {
     fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        cx.metadata(Metadata::new().title("no ambient head"));
+        if let Some(title) = self.0 {
+            cx.metadata(Metadata::new().title(title));
+        }
         WebRenderSync::render(cx.metadata.head(), cx)?;
-        assert_eq!(cx.metadata.rejections(), 2);
+        assert_eq!(cx.metadata.rejections(), 0);
         WebRenderSync::render(StaticRaw("<p>fragment</p>"), cx)
     }
 }
 #[tokio::test]
-async fn fragments_do_not_run_document_layouts_or_generate_head_patches() {
-    let mut request = FrameworkRequestContext::default();
-    // Site would fail its request assertions if fragment finalization ran setup.
-    request
-        .request
-        .extensions_mut()
-        .insert(RouteSetupPlan::new(&[&Site], None));
-    let response = RouteResponse::ssr(Fragment)
-        .into_client_payload_framework_response(None, &manifest(), &request)
-        .await;
-    let json: serde_json::Value = serde_json::from_str(&body(response).await).unwrap();
-    assert_eq!(json["html"], "<p>fragment</p>");
-    assert!(json.get("title").is_none());
+async fn client_payloads_report_the_resolved_title_without_head_tags() {
+    for (declared, expected) in [
+        (Some("Post"), "Post | Section"),
+        (None, "compatibility title | Section"),
+    ] {
+        let response = RouteResponse::ssr(Fragment(declared))
+            .into_client_payload_framework_response(None, &manifest(), &request())
+            .await;
+        let json: serde_json::Value = serde_json::from_str(&body(response).await).unwrap();
+        assert_eq!(json["html"], "<p>fragment</p>");
+        assert_eq!(json["title"], expected);
+    }
 }
 
 struct SlowBody(Arc<tokio::sync::Notify>);

@@ -638,9 +638,9 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         request: &FrameworkRequestContext,
     ) -> FrameworkResponse {
         let Self { plan, .. } = self;
-        let html = match plan {
+        let rendered = match plan {
             RoutePlan::Sync(component) => match render_sync_component_to_html(component, request) {
-                Ok(html) => html,
+                Ok(rendered) => rendered,
                 Err(err) => {
                     return framework_error_response(err);
                 }
@@ -658,7 +658,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 )
                 .await
                 {
-                    Ok(html) => html,
+                    Ok(rendered) => rendered,
                     Err(err) => return framework_error_response(err),
                 }
             }
@@ -670,12 +670,12 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 match render_send_component_to_html(component, &request, loader, RenderMode::Static)
                     .await
                 {
-                    Ok(html) => html,
+                    Ok(rendered) => rendered,
                     Err(err) => return framework_error_response(err),
                 }
             }
         };
-        encode_client_payload(html, page_title.as_deref())
+        encode_client_payload(rendered, page_title.as_deref())
     }
 
     fn into_sync_framework_response(
@@ -700,7 +700,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             }
             RouteFinalizeMode::ClientPayload { page_title } => {
                 match render_sync_component_to_html(component, request) {
-                    Ok(html) => Ok(encode_client_payload(html, page_title.as_deref())),
+                    Ok(rendered) => Ok(encode_client_payload(rendered, page_title.as_deref())),
                     Err(err) => Ok(framework_error_response(err)),
                 }
             }
@@ -708,15 +708,21 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     }
 }
 
-fn encode_client_payload(html: String, fallback_title: Option<&str>) -> FrameworkResponse {
+/// The route's static title is used only when rendering resolved none.
+fn encode_client_payload(
+    rendered: ClientPayloadHtml,
+    fallback_title: Option<&str>,
+) -> FrameworkResponse {
     #[derive(serde::Serialize)]
     struct ClientPayload<'a> {
         html: &'a str,
         #[serde(skip_serializing_if = "Option::is_none")]
         title: Option<&'a str>,
     }
-    let title = fallback_title;
-    let payload = ClientPayload { html: &html, title };
+    let payload = ClientPayload {
+        html: &rendered.html,
+        title: rendered.title.as_deref().or(fallback_title),
+    };
     match serde_json::to_vec(&payload) {
         Ok(bytes) => FrameworkResponse::json(Bytes::from(bytes)),
         Err(_) => {
@@ -1239,15 +1245,24 @@ where
     })
 }
 
+/// A rendered client navigation payload and the title its metadata resolved.
+struct ClientPayloadHtml {
+    html: String,
+    title: Option<String>,
+}
+
 fn render_sync_component_to_html(
     component: Box<dyn DynWebRenderSync<NoLoader, RenderBuffer> + Send>,
     request: &FrameworkRequestContext,
-) -> Result<String, FrameworkError> {
+) -> Result<ClientPayloadHtml, FrameworkError> {
+    let title;
     let (rsjs_artifacts, shared_seed_table_json, buffer) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
-        ctx.metadata = proa_core::DocumentMetadata::denied();
+        ctx.metadata = proa_core::DocumentMetadata::title_only();
+        prepare_layouts(&mut ctx)?;
         component.render_sync_dyn(&mut ctx)?;
+        title = ctx.metadata.resolved_title();
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
@@ -1274,7 +1289,7 @@ fn render_sync_component_to_html(
     )?;
     let html =
         String::from_utf8(buffer).map_err(|error| FrameworkError::Encoding(error.utf8_error()))?;
-    Ok(html)
+    Ok(ClientPayloadHtml { html, title })
 }
 
 async fn render_async_component_to_html<L: DataLoader + 'static>(
@@ -1282,14 +1297,17 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     render_mode: RenderMode,
-) -> Result<String, FrameworkError> {
+) -> Result<ClientPayloadHtml, FrameworkError> {
+    let title;
     let (rsjs_artifacts, shared_seed_table_json, buffer) = {
         let mut ctx =
             WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(render_mode);
         install_request_context(&mut ctx, request);
-        ctx.metadata = proa_core::DocumentMetadata::denied();
+        ctx.metadata = proa_core::DocumentMetadata::title_only();
+        prepare_layouts(&mut ctx)?;
         drive_dyn_render(component.render_dyn(&mut ctx)).await?;
+        title = ctx.metadata.resolved_title();
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
@@ -1316,7 +1334,7 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
     )?;
     let html =
         String::from_utf8(buffer).map_err(|error| FrameworkError::Encoding(error.utf8_error()))?;
-    Ok(html)
+    Ok(ClientPayloadHtml { html, title })
 }
 
 async fn render_send_component_to_html<L: DataLoader + 'static>(
@@ -1324,14 +1342,17 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     render_mode: RenderMode,
-) -> Result<String, FrameworkError> {
+) -> Result<ClientPayloadHtml, FrameworkError> {
+    let title;
     let (rsjs_artifacts, buffer) = {
         let mut ctx =
             SendWebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(render_mode);
         install_send_request_context(&mut ctx, request);
-        ctx.metadata = proa_core::DocumentMetadata::denied();
+        ctx.metadata = proa_core::DocumentMetadata::title_only();
+        prepare_layouts_send(&mut ctx)?;
         drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
+        title = ctx.metadata.resolved_title();
         let (buffer, artifacts) = ctx.into_output_and_render_artifacts();
         (artifacts.rsjs, buffer)
     };
@@ -1356,7 +1377,7 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
     )?;
     let html =
         String::from_utf8(buffer).map_err(|error| FrameworkError::Encoding(error.utf8_error()))?;
-    Ok(html)
+    Ok(ClientPayloadHtml { html, title })
 }
 
 fn framework_error_response(err: FrameworkError) -> FrameworkResponse {
