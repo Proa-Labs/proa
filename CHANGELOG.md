@@ -4,6 +4,51 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- Route metadata can declare Twitter Cards through `Metadata::twitter`.
+  `render_metadata_head` writes `twitter:card`, `twitter:site`, `twitter:creator`,
+  `twitter:title`, `twitter:description`, `twitter:image`, and `twitter:image:alt`.
+  Title, description, image, and image alt fall back to Open Graph and then to
+  the page title and description when those Twitter fields are unset.
+  Twitter title and description accept `%s` templates, and tombstoning
+  `twitter.card` turns Twitter tags off for a route. `ResolvedMetadata` gains a
+  public `twitter` field, so code that builds it with a struct literal must add
+  the field or use `..Default::default()`.
+
+- Nested routes fill Open Graph `%s` title and description templates with
+  their own page title and description. A child route previously kept the
+  value filled for its layout, so a page titled `Pricing` under a layout
+  titled `Home` rendered `og:title` as the layout's text. A child with an
+  absolute or tombstoned title no longer inherits the layout's filled value.
+
+- Dynamic routes such as `/posts/:slug` render the full metadata head. Their
+  request path is not a key in the precomputed metadata map, so the head is
+  resolved from the provider stack at request time, and that path only
+  resolved titles and descriptions: `og:image`, `og:site_name`, `og:type`,
+  `og:url`, `og:locale`, audio, and video were dropped. `resolve_metadata_stack`
+  now runs the same cascade as the precomputed map.
+
+- Breaking: setting Open Graph `images`, `audio`, or `video` replaces the
+  inherited list instead of appending to it, matching every other field. A
+  page that sets its own image no longer renders its layout's image first.
+  To keep the layout's images, list them again in the page's slice.
+
+- Streamed documents (`RouteResponse::ssr_stream`) render their metadata
+  head. They render after the handler returns, when the route context
+  `render_metadata_head` read from is gone, so their `<head>` had no title,
+  description, Open Graph, or Twitter tags. A `RouteResponse` now resolves the
+  metadata before rendering and stores it on the render context.
+  `FrameworkRequestContext` gains a public `metadata` field.
+
+- Handlers can set head metadata known only per request with
+  `RouteResponse::with_metadata(RequestMetadata::new().title(..))`. It applies
+  after the route's layout and page metadata, so layout `%s` templates format
+  the title and description, and its image replaces the inherited Open Graph
+  images and the Twitter Card image. Breaking: to hold owned values,
+  `ResolvedMetadata::description`, `ComputedRouteMeta::description`, and
+  `ResolvedOpenGraphImage::alt` are now `Option<Cow<'static, str>>`.
+- `render_metadata_head` and `render_css_link` accept any `WebContext<L, B>`,
+  so documents rendered with a custom `DataLoader` can call them.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while

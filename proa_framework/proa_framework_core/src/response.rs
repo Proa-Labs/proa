@@ -42,6 +42,7 @@ use crate::bootstrap::{
     render_bootstrap_for_islands, render_bootstrap_for_islands_with_import_map,
 };
 use crate::manifest::IslandManifest;
+use crate::metadata::{RequestMetadata, ResolvedMetadata};
 
 /// A response stream that may retain request-local, non-`Send` render state.
 ///
@@ -153,6 +154,7 @@ pub struct RouteResponse<L: DataLoader = NoLoader> {
     plan: RoutePlan<L>,
     islands: Vec<String>,
     bootstrap: ReactBootstrapConfig<'static>,
+    metadata: Option<RequestMetadata>,
 }
 
 impl RouteResponse<DynLoaderHandle> {
@@ -281,6 +283,7 @@ impl RouteResponse<NoLoader> {
             plan: RoutePlan::Sync(Box::new(component)),
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -304,6 +307,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -321,6 +325,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -338,6 +343,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -355,6 +361,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 }
@@ -378,6 +385,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -395,6 +403,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -412,6 +421,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -429,6 +439,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            metadata: None,
         }
     }
 
@@ -451,6 +462,18 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// `L` is the loader's concrete type, which lets `cx.load(...)` calls
     /// monomorphize to a direct call on the loader rather than going through
     /// a `Box::pin` at the dyn boundary.
+    /// Attach per-request head metadata, applied after the route's layout
+    /// and page providers. See [`RequestMetadata`].
+    pub fn with_metadata(mut self, metadata: RequestMetadata) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// The per-request metadata attached with [`RouteResponse::with_metadata`].
+    pub fn request_metadata(&self) -> Option<&RequestMetadata> {
+        self.metadata.as_ref()
+    }
+
     pub fn with_loader(mut self, loader: Arc<L>) -> Self {
         match &mut self.plan {
             RoutePlan::Async { loader: target, .. }
@@ -509,6 +532,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             plan,
             islands,
             bootstrap,
+            metadata: _,
         } = self;
         match plan {
             RoutePlan::Sync(_) => Err(FrameworkError::Invariant(
@@ -572,6 +596,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             plan,
             islands,
             bootstrap,
+            metadata: _,
         } = self;
         match plan {
             RoutePlan::Sync(component) => {
@@ -687,6 +712,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             plan,
             islands,
             bootstrap,
+            metadata: _,
         } = self;
         let RoutePlan::Sync(component) = plan else {
             return Err(FrameworkError::Invariant(
@@ -784,6 +810,11 @@ pub struct FrameworkRequestContext {
     pub render_mode: RenderMode,
     /// Optional per-request nonce applied to every Proa-emitted script tag.
     pub csp_nonce: Option<CspNonce>,
+    /// The route's resolved head metadata, resolved while the request's
+    /// route context is still installed. It is copied into each render
+    /// context's locals so `render_metadata_head` works in renders that run
+    /// after the handler returns, such as streamed documents.
+    pub metadata: Option<Arc<ResolvedMetadata>>,
 }
 
 /// The body half of a `FrameworkResponse`.
@@ -2016,6 +2047,9 @@ pub(crate) fn install_request_context<B: proa_core::WriteBuf, L: DataLoader>(
     if let Some(nonce) = request.csp_nonce.clone() {
         ctx.set_csp_nonce(nonce);
     }
+    if let Some(metadata) = request.metadata.clone() {
+        ctx.locals_mut().insert_arc(metadata);
+    }
 }
 
 fn install_send_request_context<B: proa_core::WriteBuf + Send, L: DataLoader>(
@@ -2031,6 +2065,9 @@ fn install_send_request_context<B: proa_core::WriteBuf + Send, L: DataLoader>(
     }
     if let Some(nonce) = request.csp_nonce.clone() {
         ctx.set_csp_nonce(nonce);
+    }
+    if let Some(metadata) = request.metadata.clone() {
+        ctx.locals_mut().insert_arc(metadata);
     }
 }
 

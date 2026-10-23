@@ -1,101 +1,292 @@
 ---
-title: Metadata and OG images
-description: Compose titles, descriptions, and social preview images.
+title: Metadata and social previews
+description: Set titles, descriptions, Open Graph tags, and Twitter Cards for every route.
 ---
 
-Proa metadata is resolved from the current route context. Layouts and pages can both provide metadata; the framework precomputes a metadata map from the route specification and exposes helpers for rendering the current route's head tags.
+Proa writes each route's `<title>`, meta description, Open Graph (`og:*`) tags, and Twitter Card (`twitter:*`) tags for you. You declare values on layouts and pages, Proa merges them down the route tree, and one call renders the result in `<head>`.
 
-## Title-Only Pages
+## Complete example
 
-`Route::page` creates title-only metadata:
-
-```rust
-Route::page("/pricing", "Pricing", get(pricing))
-```
-
-Use this for simple pages where layout defaults provide the rest.
-
-## Custom Metadata
-
-Implement `Metadata` for full control:
+This is a whole app: a layout with site-wide defaults, a page that overrides some of them, a dynamic route that sets its title per request, and a document component that renders the tags.
 
 ```rust
+use axum::extract::Path;
+use axum::routing::get;
+use proa_core::{WebContext, WebRenderSync, WriteError};
+use proa_framework_axum::manifest::IslandManifest;
 use proa_framework_axum::{
-    CascadeOpenGraph, CascadeValue, Metadata, OpenGraphImage,
+    render_metadata_head, router_from_spec, CascadeOpenGraph, CascadeTwitter, CascadeValue,
+    FrameworkBuilder, Layout, Metadata, OpenGraphImage, RequestMetadata, Route, RouteResponse,
+    TwitterCard,
 };
+use proa_macros::html_sync;
 
-pub struct PricingMeta;
+// 1. Site-wide defaults live on the layout.
+pub struct SiteLayout;
 
-impl Metadata for PricingMeta {
+impl Layout for SiteLayout {}
+
+impl Metadata for SiteLayout {
     fn title(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("Pricing")
+        CascadeValue::Set("%s | Acme") // `%s` makes this a template for child titles
     }
 
     fn description(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("Plans and deployment options for Proa.")
+        CascadeValue::Set("Acme builds rockets.")
     }
 
     fn open_graph(&self) -> CascadeOpenGraph {
-        static IMAGES: [OpenGraphImage; 1] = [
-            OpenGraphImage::new("https://proa.so/static/og/pricing.png")
+        static IMAGES: [OpenGraphImage; 1] =
+            [OpenGraphImage::new("https://acme.example/og/default.png")
                 .with_dimensions(1200, 630)
-                .with_alt("Proa pricing"),
-        ];
-
+                .with_alt("The Acme logo")];
         CascadeOpenGraph {
+            site_name: CascadeValue::Set("Acme"),
+            r#type: CascadeValue::Set("website"),
             images: CascadeValue::Set(&IMAGES),
+            ..Default::default()
+        }
+    }
+
+    fn twitter(&self) -> CascadeTwitter {
+        CascadeTwitter {
+            card: CascadeValue::Set(TwitterCard::SummaryLargeImage),
+            site: CascadeValue::Set("@acme"),
             ..Default::default()
         }
     }
 }
 
-static PRICING_META: PricingMeta = PricingMeta;
+// 2. A page overrides only what differs.
+pub struct PricingMeta;
 
-let route = Route::page_with_metadata("/pricing", get(pricing), &PRICING_META);
-```
-
-## Layout Metadata
-
-Layouts implement `Metadata` as well as `Layout`, so they can provide defaults:
-
-```rust
-impl Metadata for AppLayout {
+impl Metadata for PricingMeta {
     fn title(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("%s - Proa")
+        CascadeValue::Set("Pricing") // becomes "Pricing | Acme"
     }
 
     fn description(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("A Proa application.")
+        CascadeValue::Set("Plans for every launch.")
+    }
+
+    fn open_graph(&self) -> CascadeOpenGraph {
+        static IMAGES: [OpenGraphImage; 1] =
+            [OpenGraphImage::new("https://acme.example/og/pricing.png").with_alt("Acme pricing")];
+        CascadeOpenGraph {
+            images: CascadeValue::Set(&IMAGES), // replaces the layout's image
+            ..Default::default()
+        }
+    }
+}
+
+// 3. One component renders the resolved tags into <head>.
+pub struct MetadataHead;
+
+impl WebRenderSync for MetadataHead {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        render_metadata_head(cx);
+        Ok(())
+    }
+}
+
+pub struct Document<C> {
+    pub content: C,
+}
+
+impl<C: WebRenderSync> WebRenderSync for Document<C> {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <!DOCTYPE html>
+            <html lang="en">
+                <head>
+                    <meta charset="utf-8" />
+                    {MetadataHead}
+                </head>
+                <body>{self.content}</body>
+            </html>
+        }
+        .render(cx)
+    }
+}
+
+async fn pricing() -> RouteResponse {
+    RouteResponse::ssr(Document {
+        content: html_sync! { <h1>"Pricing"</h1> },
+    })
+}
+
+// 5. A dynamic route sets values that are only known per request.
+async fn blog_post(Path(slug): Path<String>) -> RouteResponse {
+    // Load the post from your data store. This example derives it from the slug.
+    let title = slug.replace('-', " ");
+    RouteResponse::ssr(Document {
+        content: html_sync! { <h1>"A post"</h1> },
+    })
+    .with_metadata(
+        RequestMetadata::new()
+            .title(title)
+            .description(format!("Notes on {slug}."))
+            .image(format!("https://acme.example/og/blog/{slug}.png")),
+    )
+}
+
+static PRICING_META: PricingMeta = PricingMeta;
+
+// 4. The route tree says which metadata applies where.
+pub fn app(manifest: IslandManifest) -> axum::Router {
+    let (router, metadata) = router_from_spec(vec![Route::layout(
+        "/",
+        &SiteLayout,
+        vec![
+            Route::page_with_metadata("pricing", get(pricing), &PRICING_META),
+            Route::page("blog/:slug", "Blog", get(blog_post)),
+        ],
+    )]);
+
+    FrameworkBuilder::new(manifest)
+        .with_dynamic_routes_and_metadata(router, metadata)
+        .build()
+}
+```
+
+`GET /pricing` renders this head (one tag per line for readability):
+
+```html
+<title>Pricing | Acme</title>
+<meta name="description" content="Plans for every launch."/>
+<meta property="og:site_name" content="Acme"/>
+<meta property="og:type" content="website"/>
+<meta property="og:image" content="https://acme.example/og/pricing.png"/>
+<meta property="og:image:alt" content="Acme pricing"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:site" content="@acme"/>
+<meta name="twitter:title" content="Pricing | Acme"/>
+<meta name="twitter:description" content="Plans for every launch."/>
+<meta name="twitter:image" content="https://acme.example/og/pricing.png"/>
+<meta name="twitter:image:alt" content="Acme pricing"/>
+```
+
+What happened:
+
+- The title template `%s | Acme` from the layout wrapped the page title `Pricing`.
+- The page's description replaced the layout's.
+- `og:site_name` and `og:type` were inherited unchanged.
+- The page's Open Graph image replaced the layout's image.
+- No Twitter title, description, or image was set, so the card reuses the page title, description, and Open Graph image with its alt text.
+- `GET /blog/launch-day` gets `launch day | Acme`, its own description, and its own image from `RequestMetadata`. The layout's template still wraps the title, and the layout's site name, type, and Twitter handle still apply.
+
+## How it fits together
+
+Metadata moves through three stages. You only write the first one.
+
+1. **You declare it.** Layouts and pages implement the `Metadata` trait. Each method returns `Cascade*` values that say "set this", "clear this", or "inherit this". A handler can add values known only for that request with `RouteResponse::with_metadata(RequestMetadata)`.
+2. **Proa merges it per route.** `router_from_spec` walks the route tree once at startup and merges each route's providers, outermost layout first, into a `ComputedRouteMeta`. You pass that map to `FrameworkBuilder::with_dynamic_routes_and_metadata`. Requests whose path is not in the map, such as `/blog/hello` for the `blog/:slug` route, are merged on the first `render_metadata_head` call in the request, with the same result.
+3. **Proa renders it.** When the handler returns, Proa applies any `RequestMetadata` on top, produces the request's `ResolvedMetadata`, and `render_metadata_head(cx)` writes the tags. This works for sync, async, and streamed documents.
+
+### The types
+
+Names starting with `Cascade` are what you write. Names starting with `Computed` or `Resolved` are what Proa produces.
+
+| Type | Stage | What it is |
+|------|-------|------------|
+| `Metadata` | You write | Trait with `title`, `absolute_title`, `description`, `open_graph`, and `twitter` methods. Every method has a default, so implement only what you need. |
+| `Layout` | You write | Marker trait for a layout. A layout implements both `Layout` and `Metadata`. |
+| `MetadataRef` | You write | `&'static dyn Metadata`, the reference a `Route` holds. Providers are usually unit structs in a `static`. |
+| `CascadeValue<T>` | You write | One field's instruction: `Set(value)`, `Tombstone` (clear the inherited value), or `Unset` (inherit, the default). |
+| `CascadeOpenGraph` | You write | Every Open Graph field as a `CascadeValue`. Returned from `Metadata::open_graph`. |
+| `CascadeTwitter` | You write | Every Twitter Card field as a `CascadeValue`. Returned from `Metadata::twitter`. |
+| `OpenGraphImage`, `OpenGraphMedia` | You write | Static image, audio, and video descriptors used inside `CascadeOpenGraph`. Build them with `new` and the `with_*` methods. |
+| `TwitterCard` | You write | The card type: `Summary` or `SummaryLargeImage`. |
+| `RequestMetadata` | You write | Owned title, description, image, and image alt for one request. Attach it with `RouteResponse::with_metadata`. |
+| `TitleOnly` | You write | A ready-made provider that only sets a title. `Route::page` creates one for you. |
+| `ComputedRouteMeta`, `ComputedOpenGraph` | Proa produces | The merged metadata for one route, built at startup by `router_from_spec`. You pass the map along and do not read it. |
+| `ResolvedMetadata` | Proa produces | The final values for the current request: `title`, `description`, `open_graph`, and `twitter`. |
+| `ResolvedOpenGraph`, `ResolvedOpenGraphImage`, `ResolvedOpenGraphMedia` | Proa produces | The Open Graph part of `ResolvedMetadata`. |
+| `ResolvedTwitter` | Proa produces | The Twitter part of `ResolvedMetadata`. |
+| `OpenGraph` | Neither | An older static Open Graph struct. The cascade does not read it; use `CascadeOpenGraph`. |
+
+You normally never touch the `Computed*` or `Resolved*` types. Use them when you need the values for something other than the standard tags: `resolved_metadata()` returns the current request's `ResolvedMetadata`, and `proa_framework_core::render_metadata_head(cx, &metadata)` renders one you built yourself.
+
+## Cascade rules
+
+Providers apply in route order: outer layout, inner layouts, then the page. For each field:
+
+- `Set(value)` replaces the inherited value.
+- `Tombstone` clears it, so the route renders no tag for that field.
+- `Unset` keeps the inherited value. Fields you leave out of a struct with `..Default::default()` are `Unset`.
+
+A few fields have extra behavior:
+
+- **Templates.** A `title` containing `%s` becomes a template, and later plain titles are formatted through it (`"%s | Acme"` plus `"Pricing"` gives `"Pricing | Acme"`). The Open Graph and Twitter title and description fields work the same way, filled with the route's page title or description.
+- **Absolute titles.** Return `true` from `absolute_title` to use the title exactly as written, ignoring the layout's template.
+- **Lists replace as a whole.** Setting `images`, `audio`, `video`, or `locale_alternates` replaces the entire inherited list. `Tombstone` empties it.
+
+## Title-only pages
+
+`Route::page` sets just the title and inherits everything else from the layout:
+
+```rust
+Route::page("/about", "About", get(about))
+```
+
+## Rendering head tags
+
+Call `render_metadata_head` inside `<head>` while a request is being handled. The example wraps it in a small `MetadataHead` component so it can sit inside `html_sync!`. `render_css_link(cx)` does the same for the CSS asset in the current `IslandManifest`.
+
+Both helpers accept any `WebContext`, including documents rendered with a custom `DataLoader`. `render_metadata_head` works the same in sync, async, and streamed documents.
+
+## Twitter Cards
+
+Twitter Card tags are written only when a layout or page sets at least one Twitter field. Twitter title, description, image, and image alt fall back to Open Graph and then to the page title and description, so most sites only set the card type and site handle on the layout:
+
+```rust
+fn twitter(&self) -> CascadeTwitter {
+    CascadeTwitter {
+        card: CascadeValue::Set(TwitterCard::SummaryLargeImage),
+        site: CascadeValue::Set("@acme"),
+        ..Default::default()
     }
 }
 ```
 
-Use layout metadata for site-wide title templates, default descriptions, and default Open Graph fields.
+Card type:
 
-## Rendering Head Tags
+- With no `card` set, the card is `summary_large_image` when an image is available and `summary` otherwise.
+- An explicit `summary_large_image` is written as `summary` when the page has no Twitter or Open Graph image.
 
-Inside a document layout, call the helpers while route context is installed:
+Images:
+
+- With no Twitter image, the card uses the first Open Graph image. Set `twitter.image` only when the card should show a different image than Open Graph.
+- Alt text stays with its image. Setting or tombstoning `twitter.image` without also setting `image_alt` drops the inherited alt. An Open Graph image's alt is used only when the card falls back to that image.
+
+Turning cards off: tombstone the card. This clears every inherited Twitter field and writes no `twitter:*` tags. A descendant that sets any Twitter field turns cards back on.
 
 ```rust
-use proa_framework_axum::{render_css_link, render_metadata_head};
-
-fn render_head(cx: &mut proa_core::WebContext) {
-    render_metadata_head(cx);
-    render_css_link(cx);
+fn twitter(&self) -> CascadeTwitter {
+    CascadeTwitter {
+        card: CascadeValue::Tombstone,
+        ..Default::default()
+    }
 }
 ```
 
-`render_metadata_head` reads the resolved metadata for the current route. `render_css_link` reads the CSS asset path from the current `IslandManifest`.
+## Per-request metadata
 
-## Clearing Inherited Values
-
-Use `CascadeValue::Tombstone` to explicitly clear an inherited field. This is useful for pages that should not inherit layout-level Open Graph images.
+`Metadata` providers hold `&'static str` values, so they describe a route, not one request. For values you only know while handling the request, such as a blog post's title, build a `RequestMetadata` and attach it to the response:
 
 ```rust
-CascadeOpenGraph {
-    images: CascadeValue::Tombstone,
-    ..Default::default()
-}
+RouteResponse::ssr(page).with_metadata(
+    RequestMetadata::new()
+        .title(post.title)
+        .description(post.summary)
+        .image(post.cover_url)
+        .image_alt(post.cover_alt),
+)
 ```
 
-Use tombstones deliberately. Most routes should inherit sensible layout defaults.
+It applies after the route's layout and page providers, as the last layer of the cascade:
+
+- **Title.** Formatted through the layout's title template, and through the Open Graph and Twitter title templates. It also replaces an explicit Open Graph title set on the route. With no Twitter template, the card uses the Open Graph or page title.
+- **Description.** Replaces the meta description, and the Open Graph description the same way as the title. Twitter falls back to it.
+- **Image.** Replaces the inherited Open Graph images and becomes the Twitter Card image.
+- Values you do not set keep the route's metadata.
