@@ -45,6 +45,7 @@ runs:
       run: |
         python3 scripts/test_cli_binary_distribution.py
         python3 scripts/test_publish.py
+        python3 scripts/test_release_plz.py
 
     - name: Test the linked-acceptance path classifier
       shell: bash

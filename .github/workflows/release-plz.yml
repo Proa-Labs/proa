@@ -1,0 +1,53 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Release crates
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Release operation (the same command works with scripts/release-plz.sh)
+        required: true
+        type: choice
+        default: check
+        options:
+          - check
+          - release-pr
+          - release-dry-run
+          - release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-plz
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Run shared release flow
+    # Run the audited workflow on main. The wrapper also checks the exact
+    # current main commit immediately before a live PR or publication.
+    if: github.ref == 'refs/heads/main'
+    runs-on: gcp-pr-ci
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned release tools
+        run: scripts/release-plz.sh install
+
+      - name: Run selected release operation
+        env:
+          RELEASE_COMMAND: ${{ inputs.command }}
+          PROA_RELEASE_EXPECTED_SHA: ${{ github.sha }}
+          PROA_RELEASE_REPOSITORY: ${{ github.repository }}
+          # A PAT/App token lets release PRs trigger CI and CLI tags trigger
+          # Release CLI. The default GITHUB_TOKEN suppresses those events.
+          GIT_TOKEN: ${{ inputs.command != 'check' && secrets.RELEASE_GITHUB_TOKEN || '' }}
+          CARGO_REGISTRY_TOKEN: ${{ inputs.command == 'release' && secrets.CARGO_REGISTRY_TOKEN || '' }}
+        run: scripts/release-plz.sh "$RELEASE_COMMAND"

@@ -237,7 +237,17 @@ def main() -> int:
         if release_config.get("workspace", {}).get("semver_check") is not True:
             errors.append(
                 f"{RELEASE_PLZ_CONFIG}: workspace.semver_check must be true "
-                "for normal automated releases"
+                "for normal releases"
+            )
+        cli = next(
+            (package for package in release_config.get("package", [])
+             if package.get("name") == "proa-cli"),
+            {},
+        )
+        if cli.get("git_release_enable") is not False or cli.get("git_tag_enable") is not True:
+            errors.append(
+                f"{RELEASE_PLZ_CONFIG}: proa-cli must create its tag but leave "
+                "the GitHub Release to the Release CLI binary workflow"
             )
     else:
         errors.append(f"missing release-plz config: {RELEASE_PLZ_CONFIG}")

@@ -169,11 +169,89 @@ verify public installation after publication without changing the docs.
 
 ## crates.io releases
 
-The CLI and reusable libraries support crates.io installation. GitHub releases
-and Git source installation remain available. The manual publishing tools
-target `crates-io`; no automatic Cargo publishing workflow is enabled. Before
-publishing, review package-name ownership and release readiness in
-[`docs/registry.md`](../docs/registry.md).
+The CLI and reusable libraries support crates.io installation. Normal releases
+use [`scripts/release-plz.sh`](release-plz.sh), both locally and through the
+manually dispatched **Release crates** workflow. Both entry points use the
+same pinned release-plz and cargo-semver-checks versions, configuration,
+crates.io destination, policy checks, and archive/license checks. Ordinary
+pushes and PR merges do not publish crates.
+
+The installer selects a separate, pinned Rust toolchain to build the release
+tools. This does not change `rust-toolchain.toml` or the toolchain used for
+application builds and release preflights. All three pins live in the wrapper.
+
+Install the tools once, then choose the same operation locally or in Actions:
+
+```bash
+scripts/release-plz.sh install
+scripts/release-plz.sh check
+```
+
+| Operation | Local command | Effect |
+| --- | --- | --- |
+| `check` (workflow default) | `scripts/release-plz.sh check` | Check tool versions, publication policy, and archive/license boundaries; no remote changes |
+| `release-pr` | `scripts/release-plz.sh release-pr` | Open or update the version/changelog PR |
+| `release-dry-run` | `scripts/release-plz.sh release-dry-run` | Run release-plz publication checks without uploads or tags |
+| `release` | `scripts/release-plz.sh release` | Publish pending versions to crates.io and create their tags/releases |
+
+`release --dry-run` is also accepted locally. A publication dry run cannot
+prove an initial dependency chain builds against crates.io until its
+dependencies have been published. `check` is the credential-free preflight;
+it does not rebuild every packaged crate.
+
+To use Actions after this workflow is on `main`, open **Actions → Release
+crates → Run workflow**, choose `main`, and select the operation. The equivalent
+CLI trigger is:
+
+```bash
+gh workflow run release-plz.yml --ref main -f command=check
+```
+
+Configure these repository secrets once:
+
+| Actions secret | Local environment | Purpose |
+| --- | --- | --- |
+| `RELEASE_GITHUB_TOKEN` | `GIT_TOKEN` (or `GITHUB_TOKEN`) | A repository-scoped PAT or GitHub App token with Contents and Pull requests read/write access |
+| `CARGO_REGISTRY_TOKEN` | `CARGO_REGISTRY_TOKEN` | crates.io publishing permission for the workspace packages; needed only for `release` |
+
+Set Actions secrets with `gh secret set RELEASE_GITHUB_TOKEN` and
+`gh secret set CARGO_REGISTRY_TOKEN`, which prompt for their values. Load local
+tokens through your secret manager. The default Actions `GITHUB_TOKEN` cannot
+replace `RELEASE_GITHUB_TOKEN`: its release PRs would not trigger CI and its
+tags would not trigger the CLI binary workflow. See the
+[release-plz token documentation](https://release-plz.dev/docs/github/token).
+Private-repository metadata access also needs the GitHub token during dry runs.
+The wrapper removes release-token environment variables during policy/archive
+checks and tool installation. Locally, `CARGO_REGISTRIES_CRATES_IO_TOKEN` is
+also accepted and normalized to `CARGO_REGISTRY_TOKEN` for publication.
+
+For a normal release:
+
+1. Start from a clean checkout of current `main` and run `release-pr`.
+2. Review and merge the release PR after its CI passes.
+3. Update to current `main`, wait for CI, and run `release-dry-run`, then `release`.
+4. Verify public installation with the registry checker below.
+
+Local and CI live operations both reject dirty checkouts, a different origin
+repository, and a revision that no longer matches GitHub's current `main`.
+CI additionally supplies its expected checkout SHA. `release_always = true`
+lets an explicit publication release pending versions even if another commit
+has landed since the version PR; it does not enable automatic publication.
+The wrapper rechecks the main revision after preflight, immediately before
+the live operation. It does not provide a lock against a merge after that check.
+
+For `proa-cli`, release-plz publishes to crates.io and creates the
+`proa-cli-v<version>` tag. **Release CLI** then builds and verifies its binary
+archives and owns the GitHub Release page. Other package GitHub Releases remain
+owned by release-plz. The separate automatic `main` binary snapshots are
+unchanged and do not publish crates to crates.io.
+
+### Initial bootstrap and recovery
+
+Before the first standalone crates.io release, review package-name ownership
+and release readiness in [`docs/registry.md`](../docs/registry.md). The legacy
+bootstrap publisher handles unpublished dependency chains in dependency order
+and keeps the CLI after the libraries referenced by its scaffolds:
 
 ```bash
 python3 scripts/check_publish_policy.py
@@ -206,16 +284,6 @@ The registry checker installs the latest stable CLI by default. Its optional
 `--only crate1,crate2` selects packages. `--skip-published` checks exact versions
 through the public crates.io API without sending a token. `--no-verify` skips
 Cargo's package rebuild; prefer the default verification.
-
-After an initial crates.io release, maintainers can use the pinned release-plz
-wrapper and [`release-plz.toml`](../release-plz.toml) for release preparation:
-
-```bash
-scripts/release-plz.sh install
-# Supply GIT_TOKEN for GitHub and CARGO_REGISTRY_TOKEN for Cargo publication.
-scripts/release-plz.sh release-pr
-scripts/release-plz.sh release
-```
 
 Both tools run policy and archive/license checks before publishing. They do
 not discover credentials in other repositories or infrastructure services.
