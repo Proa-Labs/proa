@@ -194,10 +194,12 @@ scripts/release-plz.sh check
 | `release-dry-run` | `scripts/release-plz.sh release-dry-run` | Run release-plz publication checks without uploads or tags |
 | `release` | `scripts/release-plz.sh release` | Publish pending versions to crates.io and create their tags/releases |
 
-`release --dry-run` is also accepted locally. A publication dry run cannot
-prove an initial dependency chain builds against crates.io until its
-dependencies have been published. `check` is the credential-free preflight;
-it does not rebuild every packaged crate.
+`release --dry-run` is also accepted locally. A multi-crate publication dry run
+can fail when a consumer needs an internal dependency version or feature that
+is not published yet: the dry run never uploads the dependency for that consumer
+to resolve. Prepare the version PR first and inspect the failure; the live
+release publishes in dependency order and verifies each package. `check` is the
+credential-free preflight; it does not rebuild every packaged crate.
 
 To use Actions after this workflow is on `main`, open **Actions → Release
 crates → Run workflow**, choose `main`, and select the operation. The equivalent
@@ -229,7 +231,7 @@ For a normal release:
 
 1. Start from a clean checkout of current `main` and run `release-pr`.
 2. Review and merge the release PR after its CI passes.
-3. Update to current `main`, wait for CI, and run `release-dry-run`, then `release`.
+3. Update to current `main`, wait for CI, and inspect `release-dry-run` before running `release`.
 4. Verify public installation with the registry checker below.
 
 Local and CI live operations both reject dirty checkouts, a different origin
