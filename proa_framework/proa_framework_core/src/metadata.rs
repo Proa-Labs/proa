@@ -73,7 +73,9 @@ pub trait Metadata: Send + Sync + 'static {
 
     /// Returns Twitter Card cascade values.
     ///
-    /// Unset fields inherit from the parent provider. At render time, title,
+    /// Unset fields inherit from the parent provider. `title` and
+    /// `description` accept `%s` templates, formatted with the page title and
+    /// description the same way as Open Graph. At render time, title,
     /// description, image, and image alt still fall back to Open Graph and then
     /// to the page title and description when those Twitter fields stay empty.
     /// Tombstoning a field clears that field without dropping the rest of the
@@ -98,6 +100,7 @@ pub struct ComputedRouteMeta {
     pub(crate) title_template: Option<String>,
     pub(crate) og_title_template: Option<String>,
     pub(crate) og_description_template: Option<String>,
+    pub(crate) twitter_templates: TwitterTemplates,
 }
 
 impl ComputedRouteMeta {
@@ -232,7 +235,11 @@ impl ComputedRouteMeta {
                 CascadeValue::Unset => {}
             }
 
-            apply_twitter_cascade(&mut computed.twitter, provider.twitter());
+            apply_twitter_cascade(
+                &mut computed.twitter,
+                &mut computed.twitter_templates,
+                provider.twitter(),
+            );
         }
 
         if computed.open_graph.title.is_none() {
@@ -250,6 +257,13 @@ impl ComputedRouteMeta {
                 computed.open_graph.description = Some(template.replace("%s", page_desc));
             }
         }
+
+        finish_twitter_templates(
+            &mut computed.twitter,
+            &computed.twitter_templates,
+            raw_page_title,
+            computed.description,
+        );
 
         computed
     }
@@ -303,8 +317,8 @@ pub struct ResolvedTwitter {
     pub card: Option<TwitterCard>,
     pub site: Option<&'static str>,
     pub creator: Option<&'static str>,
-    pub title: Option<&'static str>,
-    pub description: Option<&'static str>,
+    pub title: Option<String>,
+    pub description: Option<String>,
     pub image: Option<&'static str>,
     pub image_alt: Option<&'static str>,
     /// True when any Twitter field was `Set` during cascade, including fields
@@ -336,15 +350,31 @@ fn twitter_spec_sets_any(spec: &CascadeTwitter) -> bool {
         || matches!(spec.image_alt, CascadeValue::Set(_))
 }
 
-fn apply_twitter_cascade(dst: &mut ResolvedTwitter, spec: CascadeTwitter) {
+/// `%s` templates for Twitter title and description, carried down the cascade
+/// the same way as the Open Graph templates.
+#[derive(Clone, Default)]
+pub(crate) struct TwitterTemplates {
+    title: Option<String>,
+    description: Option<String>,
+}
+
+fn apply_twitter_cascade(
+    dst: &mut ResolvedTwitter,
+    templates: &mut TwitterTemplates,
+    spec: CascadeTwitter,
+) {
     if twitter_spec_sets_any(&spec) {
         dst.requested = true;
     }
     dst.card = spec.card.resolve(dst.card);
     dst.site = spec.site.resolve(dst.site);
     dst.creator = spec.creator.resolve(dst.creator);
-    dst.title = spec.title.resolve(dst.title);
-    dst.description = spec.description.resolve(dst.description);
+    apply_templated(spec.title, &mut dst.title, &mut templates.title);
+    apply_templated(
+        spec.description,
+        &mut dst.description,
+        &mut templates.description,
+    );
     // Alt text describes one image. A provider that replaces or clears the
     // image without restating the alt drops the inherited alt instead of
     // attaching it to a different image.
@@ -354,6 +384,53 @@ fn apply_twitter_cascade(dst: &mut ResolvedTwitter, spec: CascadeTwitter) {
         CascadeValue::Unset if image_changed => None,
         image_alt => image_alt.resolve(dst.image_alt),
     };
+}
+
+/// Applies a templatable cascade value: a value containing `%s` becomes the
+/// template for descendants, and a plain value is formatted through the
+/// current template.
+fn apply_templated(
+    value: CascadeValue<&'static str>,
+    dst: &mut Option<String>,
+    template: &mut Option<String>,
+) {
+    match value {
+        CascadeValue::Set(value) if value.contains("%s") => {
+            *template = Some(value.to_string());
+        }
+        CascadeValue::Set(value) => {
+            *dst = Some(match template {
+                Some(template) => template.replace("%s", value),
+                None => value.to_string(),
+            });
+        }
+        CascadeValue::Tombstone => {
+            *dst = None;
+            *template = None;
+        }
+        CascadeValue::Unset => {}
+    }
+}
+
+/// Fills an unset Twitter title or description from its template and the
+/// page title or description, matching the Open Graph template fallback.
+fn finish_twitter_templates(
+    dst: &mut ResolvedTwitter,
+    templates: &TwitterTemplates,
+    page_title: Option<&str>,
+    page_description: Option<&str>,
+) {
+    if dst.title.is_none() {
+        if let (Some(template), Some(page_title)) = (&templates.title, page_title) {
+            dst.title = Some(template.replace("%s", page_title));
+        }
+    }
+    if dst.description.is_none() {
+        if let (Some(template), Some(page_description)) = (&templates.description, page_description)
+        {
+            dst.description = Some(template.replace("%s", page_description));
+        }
+    }
 }
 
 /// Cascade specification for Open Graph metadata.
@@ -583,6 +660,7 @@ pub fn resolve_metadata_stack(metadata: &[MetadataRef]) -> Option<ResolvedMetada
     let mut og_title_template: Option<&'static str> = None;
     let mut og_description_template: Option<&'static str> = None;
     let mut raw_page_title: Option<&'static str> = None;
+    let mut twitter_templates = TwitterTemplates::default();
 
     for metadata in metadata {
         match metadata.title() {
@@ -644,7 +722,11 @@ pub fn resolve_metadata_stack(metadata: &[MetadataRef]) -> Option<ResolvedMetada
             CascadeValue::Unset => {}
         }
 
-        apply_twitter_cascade(&mut resolved.twitter, metadata.twitter());
+        apply_twitter_cascade(
+            &mut resolved.twitter,
+            &mut twitter_templates,
+            metadata.twitter(),
+        );
     }
 
     if resolved.open_graph.title.is_none() {
@@ -658,6 +740,13 @@ pub fn resolve_metadata_stack(metadata: &[MetadataRef]) -> Option<ResolvedMetada
             resolved.open_graph.description = Some(template.replace("%s", page_desc));
         }
     }
+
+    finish_twitter_templates(
+        &mut resolved.twitter,
+        &twitter_templates,
+        raw_page_title,
+        resolved.description,
+    );
 
     Some(resolved)
 }
@@ -811,6 +900,7 @@ fn render_twitter_tags(cx: &mut Ctx, metadata: &ResolvedMetadata) {
 
     if let Some(title) = twitter
         .title
+        .as_deref()
         .or(og.title.as_deref())
         .or(metadata.title.as_deref())
     {
@@ -819,6 +909,7 @@ fn render_twitter_tags(cx: &mut Ctx, metadata: &ResolvedMetadata) {
 
     if let Some(description) = twitter
         .description
+        .as_deref()
         .or(og.description.as_deref())
         .or(metadata.description)
     {
@@ -1007,7 +1098,7 @@ mod tests {
         let metadata = ResolvedMetadata {
             twitter: ResolvedTwitter {
                 card: Some(TwitterCard::Summary),
-                title: Some("Docs & <examples> \"quoted\""),
+                title: Some("Docs & <examples> \"quoted\"".to_string()),
                 ..Default::default()
             },
             ..Default::default()
@@ -1251,5 +1342,87 @@ mod tests {
         let html = render_providers(&[&LayoutTwitterImageOnly, &TombstoneTwitterImage, &AltOnly]);
         assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/og.png\""));
         assert!(html.contains("name=\"twitter:image:alt\" content=\"Twitter copy of the OG alt\""));
+    }
+
+    struct LayoutTwitterTemplates;
+
+    impl Metadata for LayoutTwitterTemplates {
+        fn title(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("%s | Site")
+        }
+
+        fn twitter(&self) -> CascadeTwitter {
+            CascadeTwitter {
+                site: CascadeValue::Set("@site"),
+                title: CascadeValue::Set("%s on Site"),
+                description: CascadeValue::Set("Read about %s"),
+                ..Default::default()
+            }
+        }
+    }
+
+    struct PricingPage;
+
+    impl Metadata for PricingPage {
+        fn title(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("Pricing")
+        }
+
+        fn description(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("plans")
+        }
+    }
+
+    #[test]
+    fn twitter_templates_format_page_title_and_description() {
+        let html = render_providers(&[&LayoutTwitterTemplates, &PricingPage]);
+        assert!(html.contains("name=\"twitter:title\" content=\"Pricing on Site\""));
+        assert!(html.contains("name=\"twitter:description\" content=\"Read about plans\""));
+        assert!(!html.contains("%s"), "{html}");
+
+        let resolved = resolve_metadata_stack(&[&LayoutTwitterTemplates, &PricingPage])
+            .expect("metadata should resolve");
+        assert_eq!(resolved.twitter.title.as_deref(), Some("Pricing on Site"));
+        assert_eq!(
+            resolved.twitter.description.as_deref(),
+            Some("Read about plans")
+        );
+    }
+
+    #[test]
+    fn twitter_title_value_is_formatted_through_inherited_template() {
+        struct PageTwitterTitle;
+
+        impl Metadata for PageTwitterTitle {
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    title: CascadeValue::Set("Plans"),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let providers: &[MetadataRef] = &[&LayoutTwitterTemplates, &PricingPage, &PageTwitterTitle];
+        let html = render_providers(providers);
+        assert!(html.contains("name=\"twitter:title\" content=\"Plans on Site\""));
+        let resolved = resolve_metadata_stack(providers).expect("metadata should resolve");
+        assert_eq!(resolved.twitter.title.as_deref(), Some("Plans on Site"));
+    }
+
+    #[test]
+    fn tombstoned_twitter_title_template_falls_back_to_open_graph_and_page_title() {
+        struct ClearTwitterTitle;
+
+        impl Metadata for ClearTwitterTitle {
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    title: CascadeValue::Tombstone,
+                    ..Default::default()
+                }
+            }
+        }
+
+        let html = render_providers(&[&LayoutTwitterTemplates, &ClearTwitterTitle, &PricingPage]);
+        assert!(html.contains("name=\"twitter:title\" content=\"Pricing | Site\""));
     }
 }
