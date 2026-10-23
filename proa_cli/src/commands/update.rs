@@ -716,8 +716,13 @@ mod tests {
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
-            let mut request = [0; 4096];
-            stream.read(&mut request).unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let mut buffer = [0; 1024];
+                let size = stream.read(&mut buffer).unwrap();
+                assert!(size > 0 && request.len() < 8192);
+                request.extend_from_slice(&buffer[..size]);
+            }
             write!(
                 stream,
                 "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n"
