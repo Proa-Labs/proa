@@ -6,8 +6,8 @@ use proa_framework_core::{
     css_asset_path as css_asset_path_from_manifest, render_css_link as render_css_link_with_path,
 };
 pub use proa_framework_core::{
-    render_metadata_head, render_metadata_head_send, Metadata, OpenGraph, OpenGraphImage,
-    RouteSetupPlan,
+    render_metadata_head, render_metadata_head_send, Metadata, MetadataError, OpenGraph,
+    OpenGraphImage, RouteSetupPlan,
 };
 /// Returns the CSS asset path from the manifest, if available.
 pub fn css_asset_path() -> Option<String> {

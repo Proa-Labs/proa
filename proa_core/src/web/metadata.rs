@@ -56,6 +56,7 @@ impl Metadata {
         self
     }
     pub fn open_graph(mut self, declare: impl FnOnce(&mut OpenGraph)) -> Self {
+        self.open_graph.enabled = true;
         declare(&mut self.open_graph);
         self
     }
@@ -94,10 +95,12 @@ impl Metadata {
     }
 }
 
-/// Structured Open Graph declaration. Fields merge individually; images replace
-/// the preceding list when at least one image is supplied.
+/// Structured Open Graph declaration. Fields merge individually; image lists
+/// replace the preceding list. Omitted title, description, and URL fall back to
+/// the final document values at emission. Explicit clears suppress fallback.
 #[derive(Clone, Debug, Default)]
 pub struct OpenGraph {
+    enabled: bool,
     title: Field<Text>,
     description: Field<Text>,
     site_name: Field<Text>,
@@ -164,6 +167,17 @@ impl OpenGraph {
         self.locale = Field::Clear;
         self
     }
+    /// Replace the complete inherited or preceding image list.
+    pub fn images<I, T>(&mut self, images: I) -> &mut Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OpenGraphImage>,
+    {
+        self.images = Field::Set(images.into_iter().map(Into::into).collect());
+        self
+    }
+    /// Add one image to this declaration. The declaration's list replaces the
+    /// previous list when applied; separate declarations do not append.
     pub fn image(&mut self, image: impl Into<OpenGraphImage>) -> &mut Self {
         if !matches!(self.images, Field::Set(_)) {
             self.images = Field::Set(Vec::new());
@@ -236,27 +250,54 @@ impl From<Text> for OpenGraphImage {
 
 #[derive(Debug, Default)]
 struct State {
+    open_graph: bool,
     title: Option<Text>,
     title_format: Option<Text>,
     inherited_template: Option<Text>,
     descendant_template: Option<Text>,
     description: Option<Text>,
     canonical: Option<Text>,
-    og_title: Option<Text>,
-    og_description: Option<Text>,
+    og_title: Field<Text>,
+    og_description: Field<Text>,
     og_site_name: Option<Text>,
     og_determiner: Option<Text>,
     og_ty: Option<Text>,
-    og_url: Option<Text>,
+    og_url: Field<Text>,
     og_locale: Option<Text>,
     images: Option<Vec<OpenGraphImage>>,
 }
 
-/// Request-local managed metadata. Obtain a borrow-free render handle with
-/// `head()`; declare values through `WebContext::metadata`.
+/// Stateless access to the managed head render command. All mutable state is
+/// private to the active context; replacing this façade cannot reset it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DocumentMetadata;
+impl DocumentMetadata {
+    /// Rendering the returned command emits the active context's metadata and
+    /// closes declarations. Obtaining it takes no snapshot and retains no borrow.
+    pub fn head(&self) -> Head {
+        Head
+    }
+}
+
+/// A rejected declaration or head operation. Errors never include metadata values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum MetadataError {
+    #[error("metadata was already emitted; declare before rendering the head")]
+    Closed,
+    #[error("deferred branches and fallbacks cannot change or emit document metadata")]
+    Ineligible,
+    #[error("managed metadata head was already emitted")]
+    DuplicateHead,
+    #[error("metadata title template must contain exactly one %s placeholder")]
+    InvalidTitleTemplate,
+    #[error("{field} must be an absolute public HTTP(S) URL without credentials, whitespace, controls, or backslashes")]
+    InvalidUrl { field: &'static str },
+}
+
+/// Private request-local managed metadata, shared across scoped writers.
 /// No registry is allocated until the first nonempty declaration.
 #[derive(Debug, Default)]
-pub struct DocumentMetadata {
+pub(super) struct MetadataState {
     state: Option<Box<State>>,
     closed: bool,
     denied: bool,
@@ -264,14 +305,7 @@ pub struct DocumentMetadata {
     rejections: u32,
 }
 
-impl DocumentMetadata {
-    /// Obtaining this handle does not snapshot or close metadata. Rendering it
-    /// reads the active context and emits immediately into its current writer.
-    pub fn head(&self) -> Head {
-        // A concrete, hidden handle supports every loader/writer combination.
-        Head
-    }
-
+impl MetadataState {
     /// Number of rejected declarations/emissions in this context, saturating at
     /// `u32::MAX`. Intended for strict render tests and development diagnostics.
     pub fn rejections(&self) -> usize {
@@ -289,15 +323,17 @@ impl DocumentMetadata {
         }
     }
 
-    /// Framework integration only: a client navigation payload. Declarations
-    /// resolve normally so the payload can report the page title, but
-    /// rendering the head writes nothing because the client keeps its head.
-    #[doc(hidden)]
-    pub fn title_only() -> Self {
-        Self {
-            title_only: true,
-            ..Self::default()
+    /// Switch an open context into the existing navigation adapter's title-only
+    /// mode without resetting its declarations or reopening an emitted head.
+    pub(super) fn enable_title_only(&mut self) -> Result<(), MetadataError> {
+        if self.denied {
+            return Err(self.reject(MetadataError::Ineligible));
         }
+        if self.closed {
+            return Err(self.reject(MetadataError::Closed));
+        }
+        self.title_only = true;
+        Ok(())
     }
 
     /// The document title as the head would render it, with the inherited
@@ -312,30 +348,33 @@ impl DocumentMetadata {
     }
 
     #[track_caller]
-    fn reject(&mut self, reason: &'static str) {
+    fn reject(&mut self, error: MetadataError) -> MetadataError {
         self.rejections = self.rejections.saturating_add(1);
         static DIAGNOSTICS: AtomicUsize = AtomicUsize::new(0);
         let count = DIAGNOSTICS.fetch_add(1, Ordering::Relaxed);
         if cfg!(debug_assertions) || count < 8 || count.is_power_of_two() {
             let caller = std::panic::Location::caller();
             tracing::warn!(
-                reason,
+                error = %error,
                 file = caller.file(),
                 line = caller.line(),
                 "managed metadata operation rejected"
             );
         }
+        error
     }
     #[track_caller]
-    pub(crate) fn declare(&mut self, patch: Metadata) {
+    pub(super) fn declare(&mut self, patch: Metadata) -> Result<(), MetadataError> {
         if self.denied {
-            self.reject("deferred branches and fallbacks cannot change document metadata");
-            return;
+            return Err(self.reject(MetadataError::Ineligible));
         }
         if self.closed {
-            self.reject("metadata was already emitted; declare before rendering the head");
-            return;
+            return Err(self.reject(MetadataError::Closed));
         }
+        if let Err(error) = patch.validate() {
+            return Err(self.reject(error));
+        }
+        // Validate the complete patch before mutating any field.
         // An empty declaration does not allocate.
         let Metadata {
             title,
@@ -346,6 +385,7 @@ impl DocumentMetadata {
             open_graph,
         } = patch;
         let OpenGraph {
+            enabled,
             title: og_title,
             description: og_description,
             site_name,
@@ -356,6 +396,7 @@ impl DocumentMetadata {
             images,
         } = open_graph;
         if self.state.is_none()
+            && !enabled
             && matches!(
                 (
                     &title,
@@ -387,7 +428,7 @@ impl DocumentMetadata {
                 )
             )
         {
-            return;
+            return Ok(());
         }
         // proa-perf-ok: lazy per-document typed state; no per-component allocation
         let state = self.state.get_or_insert_with(|| Box::new(State::default()));
@@ -402,23 +443,32 @@ impl DocumentMetadata {
         title_template.apply(&mut state.descendant_template);
         description.apply(&mut state.description);
         canonical.apply(&mut state.canonical);
-        og_title.apply(&mut state.og_title);
-        og_description.apply(&mut state.og_description);
+        state.open_graph |= enabled;
+        state.og_title.override_with(og_title);
+        state.og_description.override_with(og_description);
         site_name.apply(&mut state.og_site_name);
         determiner.apply(&mut state.og_determiner);
         ty.apply(&mut state.og_ty);
-        url.apply(&mut state.og_url);
+        state.og_url.override_with(url);
         locale.apply(&mut state.og_locale);
         images.apply(&mut state.images);
+        Ok(())
     }
 
     /// Framework integration only: begin the next registered route scope.
     /// Ordinary components and scoped writers never call this.
     #[doc(hidden)]
-    pub fn __next_route_scope(&mut self) {
+    pub(super) fn next_route_scope(&mut self) -> Result<(), MetadataError> {
+        if self.denied {
+            return Err(self.reject(MetadataError::Ineligible));
+        }
+        if self.closed {
+            return Err(self.reject(MetadataError::Closed));
+        }
         if let Some(state) = self.state.as_mut() {
             state.inherited_template = state.descendant_template.clone();
         }
+        Ok(())
     }
 
     pub(crate) fn emit<B: WriteBuf>(
@@ -427,12 +477,10 @@ impl DocumentMetadata {
         dialect: EscapeDialect,
     ) -> Result<(), WriteError> {
         if self.denied {
-            self.reject("deferred branches and fallbacks cannot emit document metadata");
-            return Ok(());
+            return Err(self.reject(MetadataError::Ineligible).into());
         }
         if self.closed {
-            self.reject("managed metadata head was already emitted");
-            return Ok(());
+            return Err(self.reject(MetadataError::DuplicateHead).into());
         }
         self.closed = true;
         if self.title_only {
@@ -443,17 +491,7 @@ impl DocumentMetadata {
         };
         if let Some(title) = &state.title {
             out.extend_static(b"<title>")?;
-            if let Some(template) = &state.title_format {
-                let mut parts = template.split("%s").peekable();
-                while let Some(part) = parts.next() {
-                    escape_text_for_dialect(out, part, ContentMode::Html, dialect)?;
-                    if parts.peek().is_some() {
-                        escape_text_for_dialect(out, title, ContentMode::Html, dialect)?;
-                    }
-                }
-            } else {
-                escape_text_for_dialect(out, title, ContentMode::Html, dialect)?;
-            }
+            write_title(out, title, state.title_format.as_deref(), false, dialect)?;
             out.extend_static(b"</title>")?;
         }
         if let Some(description) = &state.description {
@@ -469,15 +507,29 @@ impl DocumentMetadata {
             escape_attr_value_for_dialect(out, canonical, dialect)?;
             out.extend_static(b"\"/>")?;
         }
-        if let Some(value) = &state.og_title {
-            meta(
+        if !state.open_graph {
+            return Ok(());
+        }
+        match &state.og_title {
+            Field::Set(value) => meta(
                 out,
                 dialect,
                 b"<meta property=\"og:title\" content=\"",
                 value,
-            )?;
+            )?,
+            Field::Clear => {}
+            Field::Inherit => {
+                if let Some(title) = &state.title {
+                    out.extend_static(b"<meta property=\"og:title\" content=\"")?;
+                    write_title(out, title, state.title_format.as_deref(), true, dialect)?;
+                    out.extend_static(b"\"/>")?;
+                }
+            }
         }
-        if let Some(value) = &state.og_description {
+        if let Some(value) = state
+            .og_description
+            .or_fallback(state.description.as_deref())
+        {
             meta(
                 out,
                 dialect,
@@ -509,7 +561,7 @@ impl DocumentMetadata {
                 value,
             )?;
         }
-        if let Some(value) = &state.og_url {
+        if let Some(value) = state.og_url.or_fallback(state.canonical.as_deref()) {
             meta(out, dialect, b"<meta property=\"og:url\" content=\"", value)?;
         }
         if let Some(value) = &state.og_locale {
@@ -586,7 +638,7 @@ pub struct Head;
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Head {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let dialect = cx.__proa_current_escape_dialect();
-        cx.metadata.emit(&mut cx.out, dialect)
+        cx.metadata_state.emit(&mut cx.out, dialect)
     }
 }
 impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Head {
@@ -596,14 +648,14 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Head {
     ) -> RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>> {
         let dialect = cx.__proa_current_escape_dialect();
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.metadata.emit(&mut cx.out, dialect),
+            cx.metadata_state.emit(&mut cx.out, dialect),
         )
     }
 }
 impl<L: DataLoader, B: WriteBuf + Send> WebRenderSendSync<L, B> for Head {
     fn render_send_sync(self, cx: &mut SendWebContext<L, B>) -> Result<(), WriteError> {
         let dialect = cx.__proa_current_escape_dialect();
-        cx.metadata.emit(&mut cx.out, dialect)
+        cx.metadata_state.emit(&mut cx.out, dialect)
     }
 }
 impl<L: DataLoader, B: WriteBuf + Send> WebRenderSend<L, B> for Head {
@@ -613,22 +665,22 @@ impl<L: DataLoader, B: WriteBuf + Send> WebRenderSend<L, B> for Head {
     ) -> RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>> + Send> {
         let dialect = cx.__proa_current_escape_dialect();
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.metadata.emit(&mut cx.out, dialect),
+            cx.metadata_state.emit(&mut cx.out, dialect),
         )
     }
 }
 
 pub(super) trait MetadataAccess {
-    fn document_metadata(&mut self) -> &mut DocumentMetadata;
+    fn document_metadata(&mut self) -> &mut MetadataState;
 }
 impl<L: DataLoader, B: WriteBuf> MetadataAccess for WebContext<L, B> {
-    fn document_metadata(&mut self) -> &mut DocumentMetadata {
-        &mut self.metadata
+    fn document_metadata(&mut self) -> &mut MetadataState {
+        &mut self.metadata_state
     }
 }
 impl<L: DataLoader, B: WriteBuf + Send> MetadataAccess for SendWebContext<L, B> {
-    fn document_metadata(&mut self) -> &mut DocumentMetadata {
-        &mut self.metadata
+    fn document_metadata(&mut self) -> &mut MetadataState {
+        &mut self.metadata_state
     }
 }
 struct DeniedScope<'a, C: MetadataAccess> {
@@ -655,4 +707,124 @@ pub(super) async fn without_metadata_async<C: MetadataAccess, R>(
     let saved_denied = std::mem::replace(&mut cx.document_metadata().denied, true);
     let scope = DeniedScope { cx, saved_denied };
     render(scope.cx).await
+}
+
+impl<T> Field<T> {
+    fn override_with(&mut self, incoming: Self) {
+        if !matches!(incoming, Self::Inherit) {
+            *self = incoming;
+        }
+    }
+}
+impl Field<Text> {
+    fn or_fallback<'a>(&'a self, fallback: Option<&'a str>) -> Option<&'a str> {
+        match self {
+            Self::Inherit => fallback,
+            Self::Set(value) => Some(value),
+            Self::Clear => None,
+        }
+    }
+}
+fn write_title<B: WriteBuf>(
+    out: &mut B,
+    title: &str,
+    template: Option<&str>,
+    attribute: bool,
+    dialect: EscapeDialect,
+) -> Result<(), WriteError> {
+    let mut write = |value: &str| {
+        if attribute {
+            escape_attr_value_for_dialect(out, value, dialect)
+        } else {
+            escape_text_for_dialect(out, value, ContentMode::Html, dialect)
+        }
+    };
+    if let Some((before, after)) = template.and_then(|value| value.split_once("%s")) {
+        write(before)?;
+        write(title)?;
+        write(after)
+    } else {
+        write(title)
+    }
+}
+impl Metadata {
+    fn validate(&self) -> Result<(), MetadataError> {
+        if let Field::Set(template) = &self.title_template {
+            if template.matches("%s").count() != 1 {
+                return Err(MetadataError::InvalidTitleTemplate);
+            }
+        }
+        for (field, value) in [
+            ("canonical", &self.canonical),
+            ("og:url", &self.open_graph.url),
+        ] {
+            if let Field::Set(url) = value {
+                validate_url(url, field)?;
+            }
+        }
+        if let Field::Set(images) = &self.open_graph.images {
+            for image in images {
+                validate_url(&image.url, "og:image")?;
+                if let Some(url) = &image.secure_url {
+                    validate_url(url, "og:image:secure_url")?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+// A narrow allocation-free URL policy, without fetching, normalization, or
+// implicit origin resolution. Public metadata never accepts credentials.
+fn validate_url(url: &str, field: &'static str) -> Result<(), MetadataError> {
+    let valid = || -> Option<()> {
+        let (scheme, rest) = url.split_once("://")?;
+        if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+            return None;
+        }
+        if url
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '\\' | '"' | '<' | '>'))
+        {
+            return None;
+        }
+        let authority = rest.split(['/', '?', '#']).next()?;
+        if authority.is_empty() || authority.contains('@') {
+            return None;
+        }
+        let (host, port) = if let Some(ipv6) = authority.strip_prefix('[') {
+            let (address, tail) = ipv6.split_once(']')?;
+            address.parse::<std::net::Ipv6Addr>().ok()?;
+            (
+                address,
+                if tail.is_empty() {
+                    None
+                } else {
+                    Some(tail.strip_prefix(':')?)
+                },
+            )
+        } else {
+            let (host, port) = authority
+                .split_once(':')
+                .map_or((authority, None), |(h, p)| (h, Some(p)));
+            if host.is_empty()
+                || !host
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.'))
+            {
+                return None;
+            }
+            (host, port)
+        };
+        if host.is_empty() {
+            return None;
+        }
+        if let Some(port) = port {
+            if port.is_empty() || !port.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            port.parse::<u16>().ok()?;
+        }
+        Some(())
+    };
+    valid().ok_or(MetadataError::InvalidUrl { field })
 }

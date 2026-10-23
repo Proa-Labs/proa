@@ -10,7 +10,7 @@ All notable public changes are tracked here.
   retaining their Rust crate names.
 
 - **Breaking:** document metadata is declared on the render context with
-  `cx.metadata(Metadata::new()...)` and emitted once with
+  `cx.metadata(Metadata::new()...)?` and emitted once with
   `{cx.metadata.head()}`. Pages can use request params, headers, query, and
   loaded data. Registered layouts declare defaults in `Layout::setup` (and
   `Layout::setup_send` for Send responses). Removed the `Metadata` provider
@@ -20,6 +20,11 @@ All notable public changes are tracked here.
   `router_from_spec` now returns setup plans, mounted with
   `FrameworkBuilder::with_dynamic_routes_and_setups`. Client navigation
   payloads report the resolved title, including the layout's title template.
+  Rejected declarations and duplicate head emissions return typed errors;
+  invalid patches apply no fields. The public head facade is stateless, so
+  replacing it cannot reset private document state. Once Open Graph is enabled,
+  omitted social title, description, and URL fall back to the final document
+  values at emission; explicit social values and clears take precedence.
 
 - Content coverage now reports supported missing contributions across render
   targets as errors, failing `proa lint` by default. Unchecked coverage is a

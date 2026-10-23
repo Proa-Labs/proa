@@ -92,6 +92,7 @@ pub struct SendWebContext<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderB
     pub out: B,
     /// Managed metadata for this document.
     pub metadata: super::DocumentMetadata,
+    pub(super) metadata_state: super::metadata::MetadataState,
     mode: ContentMode,
     escape_dialect: EscapeDialect,
     render_mode: RenderMode,
@@ -122,9 +123,30 @@ impl<B: WriteBuf + Send> SendWebContext<NoLoader, B> {
 impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
     /// Declare metadata before emitting the managed head.
     #[track_caller]
-    pub fn metadata(&mut self, value: super::Metadata) {
-        self.metadata.declare(value);
+    pub fn metadata(&mut self, value: super::Metadata) -> Result<(), super::MetadataError> {
+        self.metadata_state.declare(value)
     }
+    /// Rejected metadata operations in this render context.
+    pub fn metadata_rejections(&self) -> usize {
+        self.metadata_state.rejections()
+    }
+    /// Whether the managed head was already emitted.
+    pub fn metadata_is_closed(&self) -> bool {
+        self.metadata_state.is_closed()
+    }
+    /// The final document title, primarily for the existing navigation adapter.
+    pub fn metadata_title(&self) -> Option<String> {
+        self.metadata_state.resolved_title()
+    }
+    #[doc(hidden)]
+    pub fn __next_metadata_route_scope(&mut self) -> Result<(), super::MetadataError> {
+        self.metadata_state.next_route_scope()
+    }
+    #[doc(hidden)]
+    pub fn __metadata_title_only(&mut self) -> Result<(), crate::WriteError> {
+        self.metadata_state.enable_title_only().map_err(Into::into)
+    }
+
     #[doc(hidden)]
     pub async fn __without_document_metadata_async<R>(
         &mut self,
@@ -135,7 +157,8 @@ impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
 
     pub fn with_loader_buffer(out: B, loader: Arc<L>) -> Self {
         Self {
-            metadata: super::DocumentMetadata::default(),
+            metadata: super::DocumentMetadata,
+            metadata_state: super::metadata::MetadataState::default(),
             out,
             mode: ContentMode::Html,
             escape_dialect: EscapeDialect::Html,
@@ -154,10 +177,11 @@ impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
         parts: SendWebContextParts,
     ) -> Self {
         Self {
-            metadata: if parts.metadata_denied {
-                super::DocumentMetadata::denied()
+            metadata: super::DocumentMetadata,
+            metadata_state: if parts.metadata_denied {
+                super::metadata::MetadataState::denied()
             } else {
-                super::DocumentMetadata::default()
+                super::metadata::MetadataState::default()
             },
             out,
             mode: ContentMode::Html,
@@ -490,7 +514,10 @@ struct ErasedSendLoaderScope<'a, L: DataLoader> {
 }
 impl<L: DataLoader> Drop for ErasedSendLoaderScope<'_, L> {
     fn drop(&mut self) {
-        std::mem::swap(&mut self.parent.metadata, &mut self.child.metadata);
+        std::mem::swap(
+            &mut self.parent.metadata_state,
+            &mut self.child.metadata_state,
+        );
         std::mem::swap(&mut self.parent.out, &mut self.child.out);
         std::mem::swap(&mut self.parent.mode, &mut self.child.mode);
         std::mem::swap(
@@ -519,8 +546,9 @@ impl<L: DataLoader + 'static> SendWebContext<L> {
         // deliberately kept on the parent. A new field fails to compile here
         // until it is classified, so setup cannot silently lose live state.
         let SendWebContext {
-            out: _,
             metadata: _,
+            out: _,
+            metadata_state: _,
             mode: _,
             escape_dialect: _,
             render_mode: _,
@@ -546,7 +574,8 @@ impl<L: DataLoader + 'static> SendWebContext<L> {
             next_react_island_id: Arc::clone(&self.parts.next_react_island_id),
         };
         let mut child = SendWebContext {
-            metadata: super::DocumentMetadata::default(),
+            metadata: super::DocumentMetadata,
+            metadata_state: super::metadata::MetadataState::default(),
             out: RenderBuffer::new(),
             mode: ContentMode::Html,
             escape_dialect: EscapeDialect::Html,
@@ -556,7 +585,7 @@ impl<L: DataLoader + 'static> SendWebContext<L> {
             stream_recorder: None,
             stream_chunk_flusher: None,
         };
-        std::mem::swap(&mut self.metadata, &mut child.metadata);
+        std::mem::swap(&mut self.metadata_state, &mut child.metadata_state);
         std::mem::swap(&mut self.out, &mut child.out);
         std::mem::swap(&mut self.mode, &mut child.mode);
         std::mem::swap(&mut self.escape_dialect, &mut child.escape_dialect);

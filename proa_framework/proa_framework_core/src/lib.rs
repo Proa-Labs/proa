@@ -26,7 +26,7 @@ pub use manifest::{
 pub use markdown::{render_sync_markdown_response, MarkdownResponse};
 pub use metadata::{
     css_asset_path, render_css_link, render_metadata_head, render_metadata_head_send, Layout,
-    LayoutRef, Metadata, OpenGraph, OpenGraphImage, RouteSetupPlan,
+    LayoutRef, Metadata, MetadataError, OpenGraph, OpenGraphImage, RouteSetupPlan,
 };
 pub use response::{
     add_default_security_headers, build_dyn_in_order_loader_handle,

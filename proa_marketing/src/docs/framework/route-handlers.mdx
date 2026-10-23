@@ -15,7 +15,7 @@ Use route handlers for:
 - health checks, robots.txt, sitemaps, and downloads
 - redirects and canonical URL handlers
 
-Use `Route::page` for a title-only compatibility default. Use `Route::endpoint` for API/transport endpoints or pages that declare their own metadata through `cx.metadata(...)`. Both can participate in registered layout setup.
+Use `Route::page` for a title-only compatibility default. Use `Route::endpoint` for API/transport endpoints or pages that declare their own metadata through `cx.metadata(...)?`. Both can participate in registered layout setup.
 
 `Route::endpoint` accepts an Axum `MethodRouter`, so compose methods exactly as you would in Axum:
 
@@ -278,7 +278,7 @@ async fn health_check_returns_ok() {
 Before shipping:
 
 - Use `Route::endpoint` for API, form, webhook, health, and static text handlers.
-- Use `Route::page` for a title-only default; declare dynamic page metadata with `cx.metadata(...)`.
+- Use `Route::page` for a title-only default; declare dynamic page metadata with `cx.metadata(...)?`.
 - Return `Json<T>`, tuples, `Redirect`, `StatusCode`, or `Response` directly from Axum handlers.
 - Keep server mutations in handlers or service-layer functions.
 - Validate form and JSON input on the server.

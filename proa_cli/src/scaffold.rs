@@ -1479,7 +1479,7 @@ where
     C: WebRenderSync<L>,
 {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        cx.metadata(Metadata::new().title(self.meta.title).description(self.meta.description));
+        cx.metadata(Metadata::new().title(self.meta.title).description(self.meta.description))?;
         let favicon = cx.request().url("/static/favicon.svg");
         let stylesheet = cx.request().url("/static/styles.css");
         html_sync! {
@@ -2350,7 +2350,7 @@ where
     C: WebRenderSync<L>,
 {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        cx.metadata(Metadata::new().title(self.title).description(self.description));
+        cx.metadata(Metadata::new().title(self.title).description(self.description))?;
         html_sync! {
             <!DOCTYPE html>
             <html lang="en">

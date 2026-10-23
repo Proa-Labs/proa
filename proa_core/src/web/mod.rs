@@ -27,4 +27,4 @@ pub use base_path::{AppUrl, BasePath, InvalidBasePath};
 pub use base_path_html::BasePathHtml;
 
 mod metadata;
-pub use metadata::{DocumentMetadata, Metadata, OpenGraph, OpenGraphImage};
+pub use metadata::{DocumentMetadata, Metadata, MetadataError, OpenGraph, OpenGraphImage};

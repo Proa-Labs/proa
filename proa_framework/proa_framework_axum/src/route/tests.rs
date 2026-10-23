@@ -24,7 +24,8 @@ impl Layout for MetadataLayout {
                 .open_graph(|og| {
                     og.site_name("Site");
                 }),
-        );
+        )
+        .unwrap();
         // Setup uses the live request/response, not a copied metadata context.
         if !cx.response().streaming_started() {
             cx.response_mut().insert_header(
@@ -38,7 +39,8 @@ impl Layout for MetadataLayout {
 struct Section;
 impl Layout for Section {
     fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
-        cx.metadata(Metadata::new().title_template("%s | Section"));
+        cx.metadata(Metadata::new().title_template("%s | Section"))
+            .unwrap();
         Ok(())
     }
 }
@@ -52,7 +54,8 @@ impl WebRenderSync for MetadataPage {
                 Metadata::new()
                     .title(format!("{slug} {variant}"))
                     .description(query.to_owned()),
-            );
+            )
+            .unwrap();
         }
         StaticRaw("<!DOCTYPE html><html><head>").render(cx)?;
         super::render_metadata_head(cx)?;

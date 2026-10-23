@@ -9,7 +9,7 @@ use proa_core::{
     DataLoader, DynLoaderHandle, SendWebContext, WebContext, WebRenderSendSync, WebRenderSync,
     WriteBuf, WriteError,
 };
-pub use proa_core::{Metadata, OpenGraph, OpenGraphImage};
+pub use proa_core::{Metadata, MetadataError, OpenGraph, OpenGraphImage};
 use std::sync::Arc;
 
 pub type LayoutRef = &'static dyn Layout;
@@ -80,17 +80,17 @@ pub(crate) fn prepare_layouts<L: DataLoader + 'static>(
     };
     if plan.layouts.is_none() {
         if let Some(title) = plan.page_title {
-            cx.metadata(Metadata::new().title(title));
+            cx.metadata(Metadata::new().title(title))?;
         }
         return Ok(());
     }
     cx.__with_erased_loader(|cx| {
         for layout in plan.layouts.as_deref().unwrap_or_default() {
             layout.setup(cx)?;
-            cx.metadata.__next_route_scope();
+            cx.__next_metadata_route_scope()?;
         }
         if let Some(title) = plan.page_title {
-            cx.metadata(Metadata::new().title(title));
+            cx.metadata(Metadata::new().title(title))?;
         }
         Ok(())
     })
@@ -103,17 +103,17 @@ pub(crate) fn prepare_layouts_send<L: DataLoader + 'static>(
     };
     if plan.layouts.is_none() {
         if let Some(title) = plan.page_title {
-            cx.metadata(Metadata::new().title(title));
+            cx.metadata(Metadata::new().title(title))?;
         }
         return Ok(());
     }
     cx.__with_erased_loader(|cx| {
         for layout in plan.layouts.as_deref().unwrap_or_default() {
             layout.setup_send(cx)?;
-            cx.metadata.__next_route_scope();
+            cx.__next_metadata_route_scope()?;
         }
         if let Some(title) = plan.page_title {
-            cx.metadata(Metadata::new().title(title));
+            cx.metadata(Metadata::new().title(title))?;
         }
         Ok(())
     })

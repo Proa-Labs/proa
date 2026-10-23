@@ -185,7 +185,7 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let RootDocument { title, content } = self;
-            cx.metadata(Metadata::new().title(title));
+            cx.metadata(Metadata::new().title(title))?;
             let favicon = cx.request().url("/static/favicon.svg");
             let stylesheet = cx.request().url("/static/styles.css");
             html! {

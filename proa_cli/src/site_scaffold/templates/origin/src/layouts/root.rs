@@ -89,7 +89,7 @@ where
                 .add("dark");
             cx.metadata(Metadata::new()
                 .title("ORIGIN — how the internet reaches websites")
-                .description("ORIGIN shows how the internet reaches any website: the addresses, the networks, and the routes between them."));
+                .description("ORIGIN shows how the internet reaches any website: the addresses, the networks, and the routes between them."))?;
             let favicon = cx.request().url("/static/favicon.svg");
             let stylesheet = cx.request().url(css_href());
             let ui_stylesheet = cx.request().url("/static/proa/proa-ui/proa-free.css");

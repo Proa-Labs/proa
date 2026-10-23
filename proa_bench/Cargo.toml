@@ -17,6 +17,7 @@ heapless = { workspace = true }
 http-body-util = { workspace = true }
 proa_core = { workspace = true }
 proa_framework_axum = { workspace = true }
+proa_framework_core = { workspace = true }
 proa_macros = { workspace = true }
 proa_showcase = { workspace = true, default-features = false }
 proa_stream = { workspace = true, features = ["rt-tokio"] }
@@ -73,4 +74,8 @@ harness = false
 
 [[bench]]
 name = "in_order_streaming_pages"
+harness = false
+
+[[bench]]
+name = "metadata_static"
 harness = false

@@ -85,7 +85,7 @@ pub struct AppLayout;
 
 impl Layout for AppLayout {
     fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
-        cx.metadata(Metadata::new().title("Acme").title_template("%s · Acme"));
+        cx.metadata(Metadata::new().title("Acme").title_template("%s · Acme"))?;
         Ok(())
     }
 }

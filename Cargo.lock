@@ -3115,6 +3115,7 @@ dependencies = [
  "http-body-util",
  "proa_core",
  "proa_framework_axum",
+ "proa_framework_core",
  "proa_macros",
  "proa_showcase",
  "proa_stream",

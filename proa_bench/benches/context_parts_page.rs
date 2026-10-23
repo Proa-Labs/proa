@@ -574,7 +574,7 @@ fn bench_context_parts_page(c: &mut Criterion) {
 fn bench_document_metadata(c: &mut Criterion) {
     use proa_core::{DocumentMetadata, Metadata, OpenGraphImage, SendWebContext};
     eprintln!(
-        "metadata context sizes: local={} send={} metadata={} parts={}",
+        "metadata context sizes: local={} send={} facade={} parts={}",
         std::mem::size_of::<WebContext>(),
         std::mem::size_of::<SendWebContext>(),
         std::mem::size_of::<DocumentMetadata>(),
@@ -583,7 +583,7 @@ fn bench_document_metadata(c: &mut Criterion) {
     let mut bytes = Vec::with_capacity(4096);
     let mut cx = WebContext::with_buffer(&mut bytes);
     let unused = count_allocations(|| {
-        cx.metadata(Metadata::new());
+        cx.metadata(Metadata::new()).unwrap();
     });
     assert_eq!(unused, 0);
     let static_declaration = count_allocations(|| {
@@ -594,20 +594,23 @@ fn bench_document_metadata(c: &mut Criterion) {
                 .open_graph(|og| {
                     og.site_name("Store");
                 }),
-        );
-        cx.metadata.__next_route_scope();
+        )
+        .unwrap();
+        cx.__next_metadata_route_scope().unwrap();
         cx.metadata(
             Metadata::new()
                 .title("Pricing")
                 .canonical("https://example.com/pricing"),
-        );
+        )
+        .unwrap();
     });
     let static_emission = count_allocations(|| {
         cx.metadata.head().render(&mut cx).unwrap();
     });
     assert_eq!(static_declaration, 1);
     assert_eq!(static_emission, 0);
-    cx.metadata = DocumentMetadata::default();
+    drop(cx);
+    let mut cx = WebContext::with_buffer(&mut bytes);
     let dynamic = count_allocations(|| {
         cx.metadata(
             Metadata::new()
@@ -619,7 +622,8 @@ fn bench_document_metadata(c: &mut Criterion) {
                     );
                     og.image(String::from("https://example.com/back.png"));
                 }),
-        );
+        )
+        .unwrap();
     });
     let dynamic_emission = count_allocations(|| {
         cx.metadata.head().render(&mut cx).unwrap();
@@ -631,45 +635,54 @@ fn bench_document_metadata(c: &mut Criterion) {
     group.warm_up_time(Duration::from_secs(1));
     group.measurement_time(Duration::from_secs(3));
     group.bench_function("static_layout_and_page", |b| {
-        b.iter(|| {
-            cx.out.clear();
-            cx.metadata = DocumentMetadata::default();
-            cx.metadata(
-                Metadata::new()
-                    .title("Store")
-                    .title_template("%s | Store")
-                    .open_graph(|og| {
-                        og.site_name("Store");
-                    }),
-            );
-            cx.metadata.__next_route_scope();
-            cx.metadata(
-                Metadata::new()
-                    .title("Pricing")
-                    .canonical("https://example.com/pricing"),
-            );
-            cx.metadata.head().render(&mut cx).unwrap();
-            black_box(cx.out.len());
-        })
+        b.iter_batched(
+            || WebContext::with_buffer(Vec::with_capacity(4096)),
+            |mut cx| {
+                cx.metadata(
+                    Metadata::new()
+                        .title("Store")
+                        .title_template("%s | Store")
+                        .open_graph(|og| {
+                            og.site_name("Store");
+                        }),
+                )
+                .unwrap();
+                cx.__next_metadata_route_scope().unwrap();
+                cx.metadata(
+                    Metadata::new()
+                        .title("Pricing")
+                        .canonical("https://example.com/pricing"),
+                )
+                .unwrap();
+                cx.metadata.head().render(&mut cx).unwrap();
+                black_box(cx.out.len());
+                cx
+            },
+            criterion::BatchSize::SmallInput,
+        )
     });
     group.bench_function("owned_title_and_two_images", |b| {
-        b.iter(|| {
-            cx.out.clear();
-            cx.metadata = DocumentMetadata::default();
-            cx.metadata(
-                Metadata::new()
-                    .title(String::from("A dynamic title"))
-                    .open_graph(|og| {
-                        og.image(
-                            OpenGraphImage::new(String::from("https://example.com/front.png"))
-                                .with_alt(String::from("Front")),
-                        );
-                        og.image(String::from("https://example.com/back.png"));
-                    }),
-            );
-            cx.metadata.head().render(&mut cx).unwrap();
-            black_box(cx.out.len());
-        })
+        b.iter_batched(
+            || WebContext::with_buffer(Vec::with_capacity(4096)),
+            |mut cx| {
+                cx.metadata(
+                    Metadata::new()
+                        .title(String::from("A dynamic title"))
+                        .open_graph(|og| {
+                            og.image(
+                                OpenGraphImage::new(String::from("https://example.com/front.png"))
+                                    .with_alt(String::from("Front")),
+                            );
+                            og.image(String::from("https://example.com/back.png"));
+                        }),
+                )
+                .unwrap();
+                cx.metadata.head().render(&mut cx).unwrap();
+                black_box(cx.out.len());
+                cx
+            },
+            criterion::BatchSize::SmallInput,
+        )
     });
     group.finish();
 }

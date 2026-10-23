@@ -27,7 +27,7 @@ pub use layout::{Layout, LayoutRef};
 pub use local_executor::LocalStreamExecutorConfig;
 pub use metadata::{
     css_asset_path, render_css_link, render_metadata_head, render_metadata_head_send, Metadata,
-    OpenGraph, OpenGraphImage, RouteSetupPlan,
+    MetadataError, OpenGraph, OpenGraphImage, RouteSetupPlan,
 };
 pub use page_cache::{PageCacheLayer, PageCacheService};
 pub use representation::{

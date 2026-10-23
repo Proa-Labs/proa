@@ -40,9 +40,9 @@ pub use route::{
     explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader, render_css_link,
     render_metadata_head, render_metadata_head_send, router_from_spec, DynRenderOutcome,
     DynSendRenderOutcome, DynWebRender, DynWebRenderSend, Layout, LayoutRef,
-    LocalStreamExecutorConfig, MarkdownAlternate, Metadata, OpenGraph, OpenGraphImage,
-    PageCacheLayer, PageCacheService, RepresentationResponse, Route, RouteContextLayer, RouteMode,
-    RouteResponse, RouteSetupPlan, RouteSpec, StaticPathsFn,
+    LocalStreamExecutorConfig, MarkdownAlternate, Metadata, MetadataError, OpenGraph,
+    OpenGraphImage, PageCacheLayer, PageCacheService, RepresentationResponse, Route,
+    RouteContextLayer, RouteMode, RouteResponse, RouteSetupPlan, RouteSpec, StaticPathsFn,
 };
 pub use rsjs_assets::rsjs_assets_router;
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};

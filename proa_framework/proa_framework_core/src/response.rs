@@ -1259,10 +1259,10 @@ fn render_sync_component_to_html(
     let (rsjs_artifacts, shared_seed_table_json, buffer) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
-        ctx.metadata = proa_core::DocumentMetadata::title_only();
+        ctx.__metadata_title_only()?;
         prepare_layouts(&mut ctx)?;
         component.render_sync_dyn(&mut ctx)?;
-        title = ctx.metadata.resolved_title();
+        title = ctx.metadata_title();
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
@@ -1304,10 +1304,10 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
             WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(render_mode);
         install_request_context(&mut ctx, request);
-        ctx.metadata = proa_core::DocumentMetadata::title_only();
+        ctx.__metadata_title_only()?;
         prepare_layouts(&mut ctx)?;
         drive_dyn_render(component.render_dyn(&mut ctx)).await?;
-        title = ctx.metadata.resolved_title();
+        title = ctx.metadata_title();
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
@@ -1349,10 +1349,10 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
             SendWebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(render_mode);
         install_send_request_context(&mut ctx, request);
-        ctx.metadata = proa_core::DocumentMetadata::title_only();
+        ctx.__metadata_title_only()?;
         prepare_layouts_send(&mut ctx)?;
         drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
-        title = ctx.metadata.resolved_title();
+        title = ctx.metadata_title();
         let (buffer, artifacts) = ctx.into_output_and_render_artifacts();
         (artifacts.rsjs, buffer)
     };
