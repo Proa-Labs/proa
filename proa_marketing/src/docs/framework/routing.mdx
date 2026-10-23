@@ -11,7 +11,7 @@ Proa route declarations are regular Rust values. You define a route tree with `R
 use axum::routing::get;
 use proa_framework_axum::{router_from_spec, Route, RouteMode};
 
-let (routes, metadata) = router_from_spec(vec![
+let (routes, setups) = router_from_spec(vec![
     Route::layout(
         "",
         &AppLayout,
@@ -25,7 +25,7 @@ let (routes, metadata) = router_from_spec(vec![
 ]);
 ```
 
-The generated router contains the Axum routes. The metadata map contains precomputed metadata for those same paths and should be passed to `FrameworkBuilder::with_dynamic_routes_and_metadata`.
+The generated router contains the Axum routes. The second value contains ordered route setup plans; pass it to `FrameworkBuilder::with_dynamic_routes_and_setups`. Layout callbacks run with each real request before the page. Registration does not compute final metadata.
 
 For JSON APIs, form submissions, webhooks, health checks, and other non-page routes, use [Route handlers](/docs/framework/route-handlers).
 
@@ -35,7 +35,6 @@ For JSON APIs, form submissions, webhooks, health checks, and other non-page rou
 |-------------|------------|
 | `Route::endpoint(path, router)` | Raw endpoint without generated title metadata. |
 | `Route::page(path, title, router)` | Page endpoint with title-only metadata. |
-| `Route::page_with_metadata(path, router, metadata)` | Page endpoint with a custom metadata provider. |
 | `Route::layout(path, layout, children)` | Metadata layout shared by child routes. |
 
 ## Route Modes
@@ -76,23 +75,31 @@ The keys match the `:param` names in the route path.
 
 ## Layouts
 
-A route layout is a metadata boundary. It implements `Metadata`, so title templates and Open Graph defaults can live at the layout level.
+A registered route layout supplies request-time defaults through the live `WebContext`. Matched layouts run outermost to innermost in separate route scopes, followed by the page scope:
 
 ```rust
+use proa_core::{DynLoaderHandle, WebContext, WriteError};
 use proa_framework_axum::{Layout, Metadata};
 
 pub struct AppLayout;
 
-impl Metadata for AppLayout {}
-impl Layout for AppLayout {}
+impl Layout for AppLayout {
+    fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
+        cx.metadata(Metadata::new().title("Acme").title_template("%s · Acme"));
+        Ok(())
+    }
+}
 ```
+
+Implement `setup_send` with `SendWebContext<DynLoaderHandle>` too when serving compiler-proved Send responses. The default reports an unsupported layout instead of silently omitting defaults. Await page data in the page's normal render path, then declare metadata before emitting `{cx.metadata.head()}`. See [Metadata and OG images](/docs/framework/metadata) for the full flow.
 
 Compose shared HTML chrome explicitly in the render tree, normally with a reusable `RootDocument` component:
 
 ```rust
 use proa_framework_axum::RouteResponse;
 
-RouteResponse::ssr(RootDocument { content: ProductPage })
+// Load page data and declare its metadata before invoking RootDocument.
+RouteResponse::ssr(ProductPage)
 ```
 
-That composition is typed and works the same way for synchronous, buffered async, and streaming routes; route metadata continues to cascade independently.
+Ordinary document wrappers share the current scope; they do not become registered layouts by name or nesting. They must emit the head after metadata-dependent page preparation. The same declaration deadline applies to synchronous, buffered async, and streaming routes.

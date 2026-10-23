@@ -394,9 +394,9 @@ pub(super) fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestC
     if let Some(params) = route_params.clone() {
         request.set_route_params(params);
     }
-    request.extensions_mut().insert(ctx.metadata_plan());
-    if let Some(base) = ctx.metadata_base() {
-        request.extensions_mut().insert(base.clone());
+    let setup = ctx.setup_plan();
+    if !setup.is_empty() {
+        request.extensions_mut().insert(setup);
     }
     FrameworkRequestContext {
         request,
@@ -426,7 +426,14 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
                 };
 
                 let mode = if is_client_request {
-                    RouteFinalizeMode::ClientPayload { page_title: None }
+                    RouteFinalizeMode::ClientPayload {
+                        page_title: request
+                            .request
+                            .extensions()
+                            .get::<proa_framework_core::RouteSetupPlan>()
+                            .and_then(|plan| plan.page_title())
+                            .map(str::to_owned),
+                    }
                 } else {
                     RouteFinalizeMode::Document
                 };

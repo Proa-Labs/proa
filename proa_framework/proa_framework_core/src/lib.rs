@@ -25,13 +25,8 @@ pub use manifest::{
 };
 pub use markdown::{render_sync_markdown_response, MarkdownResponse};
 pub use metadata::{
-    css_asset_path, local_metadata, metadata_from_context, render_css_link, render_metadata_head,
-    render_metadata_head_send, resolve_metadata_stack, resolved_metadata_from_computed,
-    CascadeOpenGraph, CascadeValue, ComputedOpenGraph, ComputedRouteMeta, DynMetadata,
-    LocalMetadata, LocalMetadataProvider, Metadata, MetadataBase, MetadataContext, MetadataError,
-    MetadataPatch, MetadataRef, MetadataResult, MetadataText, OpenGraph, OpenGraphImage,
-    OpenGraphMedia, OpenGraphPatch, ResolvedMetadata, ResolvedOpenGraph, ResolvedOpenGraphImage,
-    ResolvedOpenGraphMedia, TitleOnly,
+    css_asset_path, render_css_link, render_metadata_head, render_metadata_head_send, Layout,
+    LayoutRef, Metadata, OpenGraph, OpenGraphImage, RouteSetupPlan,
 };
 pub use response::{
     add_default_security_headers, build_dyn_in_order_loader_handle,
@@ -53,6 +48,6 @@ pub use proa_core::{
 };
 pub use route_snapshot::{extract_route_params, FrameworkRouteSnapshot};
 pub use route_spec::{
-    compute_metadata_map, resolve_route_path, resolve_route_specs, ResolvedRouteSpec, RouteMode,
+    collect_route_setups, resolve_route_path, resolve_route_specs, ResolvedRouteSpec, RouteMode,
     RouteSpec, StaticPathsFn,
 };

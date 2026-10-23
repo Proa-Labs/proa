@@ -37,16 +37,12 @@ pub use proa_core::{AppUrl, BasePath, CspNonce, InvalidBasePath};
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
     app_url, css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
-    explicit_markdown_async_with_loader, local_metadata, metadata_from_context, negotiate,
-    negotiate_async_with_loader, render_css_link, render_metadata_head, render_metadata_head_send,
-    resolved_metadata, router_from_spec, CascadeOpenGraph, CascadeValue, ComputedRouteMeta,
-    DynMetadata, DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend, Layout,
-    LayoutRef, LocalMetadata, LocalMetadataProvider, LocalStreamExecutorConfig, MarkdownAlternate,
-    Metadata, MetadataBase, MetadataContext, MetadataError, MetadataPatch, MetadataRef,
-    MetadataResult, MetadataText, OpenGraph, OpenGraphImage, OpenGraphMedia, OpenGraphPatch,
-    PageCacheLayer, PageCacheService, RepresentationResponse, ResolvedMetadata,
-    ResolvedOpenGraphImage, ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode,
-    RouteResponse, RouteSpec, StaticPathsFn,
+    explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader, render_css_link,
+    render_metadata_head, render_metadata_head_send, router_from_spec, DynRenderOutcome,
+    DynSendRenderOutcome, DynWebRender, DynWebRenderSend, Layout, LayoutRef,
+    LocalStreamExecutorConfig, MarkdownAlternate, Metadata, OpenGraph, OpenGraphImage,
+    PageCacheLayer, PageCacheService, RepresentationResponse, Route, RouteContextLayer, RouteMode,
+    RouteResponse, RouteSetupPlan, RouteSpec, StaticPathsFn,
 };
 pub use rsjs_assets::rsjs_assets_router;
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};
@@ -111,12 +107,11 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct FrameworkBuilder {
     manifest: Arc<IslandManifest>,
     base_path: BasePath,
-    metadata_base: Option<MetadataBase>,
     rsjs_assets: bool,
     config: ProaConfig,
     static_router: Option<Router>,
     dynamic_router: Option<Router>,
-    computed_metadata: Option<Arc<HashMap<String, ComputedRouteMeta>>>,
+    route_setups: Option<Arc<HashMap<String, RouteSetupPlan>>>,
     external_apps: Vec<ExternalApp>,
     process_manager: process_manager::ProcessManager,
     /// Global request-body size limit applied via `DefaultBodyLimit`
@@ -150,12 +145,11 @@ impl FrameworkBuilder {
         Self {
             manifest: Arc::new(manifest),
             base_path: BasePath::default(),
-            metadata_base: None,
             rsjs_assets: false,
             config: ProaConfig::default(),
             static_router: None,
             dynamic_router: None,
-            computed_metadata: None,
+            route_setups: None,
             external_apps: Vec::new(),
             process_manager: process_manager::ProcessManager::new(),
             body_limit: None,
@@ -346,13 +340,13 @@ impl FrameworkBuilder {
         self
     }
 
-    pub fn with_dynamic_routes_and_metadata(
+    pub fn with_dynamic_routes_and_setups(
         mut self,
         router: Router,
-        metadata: Arc<HashMap<String, ComputedRouteMeta>>,
+        setups: Arc<HashMap<String, RouteSetupPlan>>,
     ) -> Self {
         self.dynamic_router = Some(router);
-        self.computed_metadata = Some(metadata);
+        self.route_setups = Some(setups);
         self
     }
 
@@ -383,13 +377,6 @@ impl FrameworkBuilder {
         self
     }
 
-    /// Public base for canonical and social URLs. Configure per deployment;
-    /// include the public mount prefix when the app is mounted below `/`.
-    pub fn with_metadata_base(mut self, base: MetadataBase) -> Self {
-        self.metadata_base = Some(base);
-        self
-    }
-
     pub fn config(&self) -> &ProaConfig {
         &self.config
     }
@@ -398,12 +385,11 @@ impl FrameworkBuilder {
         let FrameworkBuilder {
             manifest,
             base_path,
-            metadata_base,
             rsjs_assets,
             config,
             static_router,
             dynamic_router,
-            computed_metadata,
+            route_setups,
             external_apps,
             process_manager,
             body_limit,
@@ -446,13 +432,10 @@ impl FrameworkBuilder {
             app = app.merge(dynamic_router);
         }
 
-        let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
-        let mut layer = RouteContextLayer::new(manifest.clone(), computed_metadata)
+        let route_setups = route_setups.unwrap_or_else(|| Arc::new(HashMap::new()));
+        let layer = RouteContextLayer::new(manifest.clone(), route_setups)
             .with_base_path(base_path)
             .with_local_stream_executor_config(local_stream_executor);
-        if let Some(base) = metadata_base {
-            layer = layer.with_metadata_base(base);
-        }
         app = app.layer(layer);
         // Apply a global body-size limit so a single oversized POST cannot
         // tie up the worker indefinitely. Per-route overrides via

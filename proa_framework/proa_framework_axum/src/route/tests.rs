@@ -1,403 +1,129 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
+use super::{router_from_spec, Layout, Route, RouteResponse};
+use crate::manifest::IslandManifest;
 use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
     routing::get,
 };
-use proa_core::ctx::Ctx;
 use proa_core::text::{text, StaticRaw};
-use proa_core::WriteError;
+use proa_core::{ctx::Ctx, DynLoaderHandle, Metadata, WebContext, WebRenderSync, WriteError};
+use std::sync::Arc;
 use tower::ServiceExt;
 
-use crate::manifest::IslandManifest;
-
-use super::context::RouteContextLayer;
-use super::layout::Layout;
-use super::metadata::{
-    render_metadata_head, CascadeOpenGraph, CascadeValue, Metadata, OpenGraphImage,
-};
-use super::response::RouteResponse;
-use super::spec::{router_from_spec, Route};
-
-struct PassthroughLayout;
-impl Metadata for PassthroughLayout {}
-impl Layout for PassthroughLayout {}
-
-#[tokio::test]
-async fn endpoint_runs_under_metadata_layout() {
-    let routes = vec![Route::layout(
-        "/",
-        &PassthroughLayout,
-        vec![Route::endpoint(
-            "dashboard",
-            get(|| async { RouteResponse::ssr(StaticRaw("ok")) }),
-        )],
-    )];
-
-    let manifest = Arc::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: Default::default(),
-    });
-
-    let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/dashboard")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    assert_eq!(body.as_ref(), b"ok");
-}
-
-struct BaseMetadata;
-impl Metadata for BaseMetadata {
-    fn title(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("Base Title")
-    }
-
-    fn description(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("Base Description")
-    }
-
-    fn open_graph(&self) -> CascadeOpenGraph {
-        static IMAGES: [OpenGraphImage; 1] = [OpenGraphImage::new("https://example.com/base.png")];
-        CascadeOpenGraph {
-            title: CascadeValue::Set("Base OG Title"),
-            description: CascadeValue::Set("Base OG Description"),
-            images: CascadeValue::Set(&IMAGES),
-            ..Default::default()
-        }
-    }
-}
-
-struct PageMetadata;
-impl Metadata for PageMetadata {
-    fn title(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("Page Title")
-    }
-
-    fn open_graph(&self) -> CascadeOpenGraph {
-        static IMAGES: [OpenGraphImage; 1] = [OpenGraphImage::new("https://example.com/page.png")
-            .with_dimensions(1200, 630)
-            .with_alt("Preview")];
-        CascadeOpenGraph {
-            title: CascadeValue::Set("Page OG Title"),
-            images: CascadeValue::Set(&IMAGES),
-            ..Default::default()
-        }
-    }
-}
-
 struct MetadataLayout;
-impl Metadata for MetadataLayout {}
-impl Layout for MetadataLayout {}
-
+impl Layout for MetadataLayout {
+    fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
+        cx.metadata(
+            Metadata::new()
+                .title("Site")
+                .title_template("%s | Site")
+                .description("Base Description")
+                .open_graph(|og| {
+                    og.site_name("Site");
+                }),
+        );
+        // Setup uses the live request/response, not a copied metadata context.
+        if !cx.response().streaming_started() {
+            cx.response_mut().insert_header(
+                http::HeaderName::from_static("x-layout"),
+                http::HeaderValue::from_static("setup"),
+            );
+        }
+        Ok(())
+    }
+}
+struct Section;
+impl Layout for Section {
+    fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
+        cx.metadata(Metadata::new().title_template("%s | Section"));
+        Ok(())
+    }
+}
 struct MetadataPage;
-impl proa_core::WebRenderSync for MetadataPage {
+impl WebRenderSync for MetadataPage {
     fn render(self, cx: &mut Ctx) -> Result<(), WriteError> {
-        proa_core::WebRenderSync::render(StaticRaw("<!DOCTYPE html><html><head>"), cx)?;
-        render_metadata_head(cx);
-        proa_core::WebRenderSync::render(StaticRaw("</head><body>"), cx)?;
-        proa_core::WebRenderSync::render(text("content"), cx)?;
-        proa_core::WebRenderSync::render(StaticRaw("</body></html>"), cx)
-    }
-}
-
-#[tokio::test]
-async fn metadata_is_composed() {
-    let routes = vec![Route::layout(
-        "/",
-        &MetadataLayout,
-        vec![
-            Route::endpoint("", get(|| async { RouteResponse::ssr(MetadataPage) }))
-                .with_metadata(&PageMetadata),
-        ],
-    )
-    .with_metadata(&BaseMetadata)];
-
-    let manifest = Arc::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: Default::default(),
-    });
-
-    let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
-
-    let response = app
-        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let html = String::from_utf8(body.to_vec()).unwrap();
-    assert!(html.contains("<title>Page Title</title>"));
-    assert!(html.contains("name=\"description\" content=\"Base Description\""));
-    assert!(html.contains("property=\"og:title\" content=\"Page OG Title\""));
-    assert!(!html.contains("https://example.com/base.png"));
-    assert!(html.contains("property=\"og:image\" content=\"https://example.com/page.png\""));
-    assert!(html.contains("property=\"og:image:width\" content=\"1200\""));
-    assert!(html.contains("property=\"og:image:alt\" content=\"Preview\""));
-}
-
-struct RequestDrivenMetadata;
-impl Metadata for RequestDrivenMetadata {
-    fn metadata(&self, cx: &super::MetadataContext) -> super::MetadataPatch {
-        let slug = cx.param("slug").unwrap();
-        let variant = cx.request().headers()["x-preview"].to_str().unwrap();
-        let query = cx
-            .search_params()
-            .find(|(key, _)| key == "q")
-            .unwrap()
-            .1
-            .into_owned();
-        super::MetadataPatch {
-            title: CascadeValue::Set(format!("{slug} {variant}").into()),
-            description: CascadeValue::Set(query.into()),
-            canonical: CascadeValue::Set(format!("/blog/{slug}").into()),
-            ..Default::default()
+        if let Some(slug) = cx.param("slug") {
+            let variant = cx.request().headers()["x-preview"].to_str().unwrap();
+            let query = cx.request().location().unwrap().query().unwrap();
+            cx.metadata(
+                Metadata::new()
+                    .title(format!("{slug} {variant}"))
+                    .description(query.to_owned()),
+            );
         }
+        StaticRaw("<!DOCTYPE html><html><head>").render(cx)?;
+        super::render_metadata_head(cx)?;
+        StaticRaw("</head><body>").render(cx)?;
+        text("content").render(cx)?;
+        StaticRaw("</body></html>").render(cx)
     }
 }
-
-async fn async_request_metadata(cx: super::MetadataContext) -> super::MetadataResult {
-    tokio::task::yield_now().await;
-    Ok(RequestDrivenMetadata.metadata(&cx))
-}
-
-fn request_metadata_app(stream: bool) -> axum::Router {
-    let route = if stream {
-        Route::page_with_metadata(
-            "/blog/:slug",
-            get(|| async { RouteResponse::ssr_stream(proa_core::to_async(MetadataPage)) }),
-            &async_request_metadata,
-        )
-    } else {
-        Route::page_with_metadata(
-            "/blog/:slug",
-            get(|| async { RouteResponse::ssr(MetadataPage) }),
-            &RequestDrivenMetadata,
-        )
-    };
-    let (router, plans) = router_from_spec(vec![route]);
-    crate::FrameworkBuilder::new(IslandManifest {
+fn manifest() -> IslandManifest {
+    IslandManifest {
         islands: Default::default(),
         assets: Default::default(),
         import_map: Default::default(),
         ssr_bundle: None,
-    })
-    .with_dynamic_routes_and_metadata(router, plans)
-    .with_metadata_base(super::MetadataBase::new("https://staging.example/app").unwrap())
-    .build()
-}
-
-#[tokio::test]
-async fn dynamic_route_metadata_reads_request_and_uses_deployment_or_middleware_base() {
-    let app = request_metadata_app(false);
-    for (slug, middleware_base) in [
-        ("first", None),
-        ("second", Some("https://preview.example/mount")),
-    ] {
-        let mut request = Request::builder()
-            .uri(format!("/blog/{slug}?q=A%26B"))
-            .header("x-preview", "draft")
-            .body(Body::empty())
-            .unwrap();
-        if let Some(base) = middleware_base {
-            request
-                .extensions_mut()
-                .insert(super::MetadataBase::new(base).unwrap());
-        }
-        let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let html = std::str::from_utf8(&bytes).unwrap();
-        assert!(
-            html.contains(&format!("<title>{slug} draft</title>")),
-            "{html}"
-        );
-        assert!(html.contains("content=\"A&amp;B\""));
-        let base = middleware_base.unwrap_or("https://staging.example/app");
-        assert!(
-            html.contains(&format!("href=\"{base}/blog/{slug}\"")),
-            "{html}"
-        );
     }
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/blog/client?q=x")
-                .header("x-preview", "published")
-                .header("x-proa-client", "1")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let payload: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(payload["title"], "client published");
 }
 
 #[tokio::test]
-async fn streamed_metadata_survives_endpoint_context_teardown_and_concurrent_requests() {
-    let app = request_metadata_app(true);
-    let fetch = |slug: &'static str| {
-        let app = app.clone();
-        async move {
-            let response = app
-                .oneshot(
-                    Request::builder()
-                        .uri(format!("/blog/{slug}?q={slug}"))
-                        .header("x-preview", slug)
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-            let html = std::str::from_utf8(&bytes).unwrap();
-            assert!(
-                html.contains(&format!("<title>{slug} {slug}</title>")),
-                "{html}"
-            );
-            assert!(
-                html.contains(&format!("href=\"https://staging.example/app/blog/{slug}\"")),
-                "{html}"
-            );
-        }
-    };
-    tokio::join!(fetch("first"), fetch("second"));
-}
-
-async fn site_metadata(cx: super::MetadataContext) -> super::MetadataResult {
-    Ok(super::MetadataPatch {
-        title: CascadeValue::Set("%s | Site".into()),
-        description: CascadeValue::Set(
-            cx.request().headers()["x-preview"]
-                .to_str()
-                .unwrap()
-                .to_owned()
-                .into(),
-        ),
-        ..Default::default()
-    })
-}
-
-#[tokio::test]
-async fn plain_async_functions_work_as_request_aware_layouts() {
-    let (router, plans) = router_from_spec(vec![Route::layout(
-        "/",
-        &site_metadata,
-        vec![Route::page(
-            "/page",
-            "Page",
-            get(|| async { RouteResponse::ssr(MetadataPage) }),
-        )],
-    )]);
-    let app = router.layer(RouteContextLayer::new(
-        Arc::new(IslandManifest {
-            islands: Default::default(),
-            assets: Default::default(),
-            import_map: Default::default(),
-            ssr_bundle: None,
-        }),
-        plans,
-    ));
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/page")
-                .header("x-preview", "draft")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let html = std::str::from_utf8(&bytes).unwrap();
-    assert!(html.contains("<title>Page | Site</title>"));
-    assert!(html.contains("name=\"description\" content=\"draft\""));
-}
-
-async fn local_request_metadata(cx: super::MetadataContext) -> super::MetadataResult {
-    let metadata = std::rc::Rc::new(RequestDrivenMetadata.metadata(&cx));
-    tokio::task::yield_now().await;
-    Ok(std::rc::Rc::try_unwrap(metadata).ok().unwrap())
-}
-
-#[tokio::test]
-async fn native_local_generators_work_as_layouts_and_fail_before_send_response_bytes() {
-    let (router, plans) = router_from_spec(vec![Route::layout(
-        "/blog",
-        super::local_metadata(local_request_metadata),
-        vec![
-            Route::endpoint(
-                ":slug",
+async fn route_layouts_use_live_context_in_order_and_page_declarations_override_legacy_title() {
+    for stream in [false, true] {
+        let page = if stream {
+            Route::page(
+                "blog/:slug",
+                "legacy",
                 get(|| async { RouteResponse::ssr_stream(proa_core::to_async(MetadataPage)) }),
-            ),
-            Route::endpoint("send", get(|| async { RouteResponse::ssr_stream_send(()) })),
-        ],
-    )]);
-    let app = crate::FrameworkBuilder::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: None,
-    })
-    .with_dynamic_routes_and_metadata(router, plans)
-    .with_metadata_base(super::MetadataBase::new("https://staging.example").unwrap())
-    .build();
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/blog/local?q=local")
-                .header("x-preview", "draft")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    assert!(std::str::from_utf8(&bytes)
-        .unwrap()
-        .contains("<title>local draft</title>"));
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/blog/send?q=local")
-                .header("x-preview", "draft")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    assert_eq!(bytes.as_ref(), b"render error");
+            )
+        } else {
+            Route::page(
+                "blog/:slug",
+                "legacy",
+                get(|| async { RouteResponse::ssr(MetadataPage) }),
+            )
+        };
+        let (router, plans) = router_from_spec(vec![Route::layout(
+            "/",
+            &MetadataLayout,
+            vec![Route::layout("", &Section, vec![page])],
+        )]);
+        let app = crate::FrameworkBuilder::new(manifest())
+            .with_dynamic_routes_and_setups(router, plans)
+            .build();
+        let fetch = |slug: &'static str| {
+            let app = app.clone();
+            async move {
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .uri(format!("/blog/{slug}?q=A&B"))
+                            .header("x-preview", slug)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                if !stream {
+                    assert_eq!(response.headers()["x-layout"], "setup");
+                }
+                let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+                let html = std::str::from_utf8(&bytes).unwrap();
+                assert!(
+                    html.contains(&format!("<title>{slug} {slug} | Section</title>")),
+                    "{html}"
+                );
+                assert!(html.contains("content=\"q=A&amp;B\""));
+                assert!(html.contains("og:site_name\" content=\"Site\""));
+                assert!(!html.contains("legacy"));
+            }
+        };
+        tokio::join!(fetch("first"), fetch("second"));
+    }
 }
 
 #[tokio::test]
@@ -485,7 +211,6 @@ async fn nested_page_refresh_preserves_metadata_and_does_not_cache_siblings() {
     .with_page_cache(PageCacheLayer::new("build").revalidate(Duration::from_secs(10)));
     let sibling = Route::endpoint("sibling", get(|| async { "uncached" }));
     let parent = Route::layout("/group", &MetadataLayout, vec![child, sibling])
-        .with_metadata(&BaseMetadata)
         .with_page_cache(PageCacheLayer::new("unused-layout-policy"));
     let app = FrameworkBuilder::new(IslandManifest {
         islands: Default::default(),
@@ -517,7 +242,7 @@ async fn nested_page_refresh_preserves_metadata_and_does_not_cache_siblings() {
     assert_eq!(refreshed.headers()["x-proa-page-cache"], "HIT");
     let bytes = to_bytes(refreshed.into_body(), usize::MAX).await.unwrap();
     let html = std::str::from_utf8(&bytes).unwrap();
-    assert!(html.contains("<title>Child title</title>"));
+    assert!(html.contains("<title>Child title | Site</title>"));
     assert!(html.contains("name=\"description\" content=\"Base Description\""));
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     let sibling = app

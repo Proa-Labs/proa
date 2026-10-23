@@ -37,6 +37,7 @@ use crate::{RenderBuffer, WriteBuf, WriteError};
 #[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct SendWebContextParts {
+    metadata_denied: bool,
     request: Arc<RequestContext>,
     response: ResponseContext,
     head: HeadContext,
@@ -51,6 +52,7 @@ pub struct SendWebContextParts {
 impl Default for SendWebContextParts {
     fn default() -> Self {
         Self {
+            metadata_denied: false,
             request: Arc::new(RequestContext::new()),
             response: ResponseContext::new(),
             head: HeadContext::new(),
@@ -67,6 +69,7 @@ impl Default for SendWebContextParts {
 impl SendWebContextParts {
     fn fork_for_detached(&self) -> Self {
         Self {
+            metadata_denied: true,
             request: Arc::clone(&self.request),
             response: self.response.clone(),
             head: self.head.clone(),
@@ -87,6 +90,8 @@ impl SendWebContextParts {
 /// [`RenderArtifacts`] value at commit time.
 pub struct SendWebContext<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuffer> {
     pub out: B,
+    /// Managed metadata for this document.
+    pub metadata: super::DocumentMetadata,
     mode: ContentMode,
     escape_dialect: EscapeDialect,
     render_mode: RenderMode,
@@ -115,8 +120,22 @@ impl<B: WriteBuf + Send> SendWebContext<NoLoader, B> {
 }
 
 impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
+    /// Declare metadata before emitting the managed head.
+    #[track_caller]
+    pub fn metadata(&mut self, value: super::Metadata) {
+        self.metadata.declare(value);
+    }
+    #[doc(hidden)]
+    pub async fn __without_document_metadata_async<R>(
+        &mut self,
+        render: impl AsyncFnOnce(&mut Self) -> R,
+    ) -> R {
+        super::metadata::without_metadata_async(self, render).await
+    }
+
     pub fn with_loader_buffer(out: B, loader: Arc<L>) -> Self {
         Self {
+            metadata: super::DocumentMetadata::default(),
             out,
             mode: ContentMode::Html,
             escape_dialect: EscapeDialect::Html,
@@ -135,6 +154,11 @@ impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
         parts: SendWebContextParts,
     ) -> Self {
         Self {
+            metadata: if parts.metadata_denied {
+                super::DocumentMetadata::denied()
+            } else {
+                super::DocumentMetadata::default()
+            },
             out,
             mode: ContentMode::Html,
             escape_dialect: EscapeDialect::Html,
@@ -484,5 +508,81 @@ mod tests {
         assert_eq!(child.render_artifacts_snapshot().react_islands, ["Child"]);
         assert_eq!(root.next_react_island_id(), 0);
         assert_eq!(child.next_react_island_id(), 1);
+    }
+}
+
+struct ErasedSendLoaderScope<'a, L: DataLoader> {
+    parent: &'a mut SendWebContext<L>,
+    child: SendWebContext<crate::DynLoaderHandle>,
+}
+impl<L: DataLoader> Drop for ErasedSendLoaderScope<'_, L> {
+    fn drop(&mut self) {
+        std::mem::swap(&mut self.parent.metadata, &mut self.child.metadata);
+        std::mem::swap(&mut self.parent.out, &mut self.child.out);
+        std::mem::swap(&mut self.parent.mode, &mut self.child.mode);
+        std::mem::swap(
+            &mut self.parent.escape_dialect,
+            &mut self.child.escape_dialect,
+        );
+        std::mem::swap(&mut self.parent.render_mode, &mut self.child.render_mode);
+        std::mem::swap(&mut self.parent.parts, &mut self.child.parts);
+        std::mem::swap(
+            &mut self.parent.stream_recorder,
+            &mut self.child.stream_recorder,
+        );
+        std::mem::swap(
+            &mut self.parent.stream_chunk_flusher,
+            &mut self.child.stream_chunk_flusher,
+        );
+    }
+}
+impl<L: DataLoader + 'static> SendWebContext<L> {
+    #[doc(hidden)]
+    pub fn __with_erased_loader<R>(
+        &mut self,
+        setup: impl FnOnce(&mut SendWebContext<crate::DynLoaderHandle>) -> R,
+    ) -> R {
+        let loader: Arc<dyn crate::DynDataLoader> = self.loader.clone();
+        // An inert placeholder shares immutable identity only; no request state
+        // is cloned or lost when the real parts are moved into the setup context.
+        let parts = SendWebContextParts {
+            metadata_denied: true,
+            request: Arc::clone(&self.parts.request),
+            response: ResponseContext::new(),
+            head: HeadContext::new(),
+            cache_trace: CacheTrace::new(),
+            telemetry: RenderTelemetry::new(),
+            locals: Locals::new(),
+            csp_nonce: None,
+            artifacts: RenderArtifacts::default(),
+            next_react_island_id: Arc::clone(&self.parts.next_react_island_id),
+        };
+        let mut child = SendWebContext {
+            metadata: super::DocumentMetadata::default(),
+            out: RenderBuffer::new(),
+            mode: ContentMode::Html,
+            escape_dialect: EscapeDialect::Html,
+            render_mode: RenderMode::Static,
+            parts,
+            loader: Arc::new(crate::DynLoaderHandle::new(loader)),
+            stream_recorder: None,
+            stream_chunk_flusher: None,
+        };
+        std::mem::swap(&mut self.metadata, &mut child.metadata);
+        std::mem::swap(&mut self.out, &mut child.out);
+        std::mem::swap(&mut self.mode, &mut child.mode);
+        std::mem::swap(&mut self.escape_dialect, &mut child.escape_dialect);
+        std::mem::swap(&mut self.render_mode, &mut child.render_mode);
+        std::mem::swap(&mut self.parts, &mut child.parts);
+        std::mem::swap(&mut self.stream_recorder, &mut child.stream_recorder);
+        std::mem::swap(
+            &mut self.stream_chunk_flusher,
+            &mut child.stream_chunk_flusher,
+        );
+        let mut scope = ErasedSendLoaderScope {
+            parent: self,
+            child,
+        };
+        setup(&mut scope.child)
     }
 }

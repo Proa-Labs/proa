@@ -144,7 +144,7 @@ fn app(prefix: &str) -> Router {
         ),
     ]);
     FrameworkBuilder::new(manifest())
-        .with_dynamic_routes_and_metadata(router, metadata)
+        .with_dynamic_routes_and_setups(router, metadata)
         .with_static_service(
             Router::new()
                 .route(

@@ -1440,7 +1440,7 @@ fn nav_data() -> String {
 
 fn root_layout() -> String {
     r#"use crate::data::nav::NAV_ITEMS;
-use proa_core::{raw_text_ok, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_core::{DataLoader, Metadata, WebContext, WebRenderSync, WriteError};
 use proa_macros::html_sync;
 
 pub struct PageMeta {
@@ -1479,6 +1479,7 @@ where
     C: WebRenderSync<L>,
 {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        cx.metadata(Metadata::new().title(self.meta.title).description(self.meta.description));
         let favicon = cx.request().url("/static/favicon.svg");
         let stylesheet = cx.request().url("/static/styles.css");
         html_sync! {
@@ -1487,8 +1488,7 @@ where
                 <head>
                     <meta charset="utf-8" />
                     <meta name="viewport" content="width=device-width, initial-scale=1" />
-                    <title>{raw_text_ok(self.meta.title)}</title>
-                    <meta name="description" content={self.meta.description} />
+                    {cx.metadata.head()}
                     <meta name="proa-route" content={self.meta.path} />
                     <link rel="icon" href={favicon} type="image/svg+xml" />
                     <link rel="stylesheet" href={stylesheet} />
@@ -2335,7 +2335,7 @@ where
 fn document_layout_source(struct_name: &str) -> String {
     fill(
         r#"// proa:document-root
-use proa_core::{raw_text_ok, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_core::{DataLoader, Metadata, WebContext, WebRenderSync, WriteError};
 use proa_macros::html_sync;
 
 pub struct __STRUCT__<C> {
@@ -2350,14 +2350,14 @@ where
     C: WebRenderSync<L>,
 {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        cx.metadata(Metadata::new().title(self.title).description(self.description));
         html_sync! {
             <!DOCTYPE html>
             <html lang="en">
                 <head>
                     <meta charset="utf-8" />
                     <meta name="viewport" content="width=device-width, initial-scale=1" />
-                    <title>{raw_text_ok(self.title)}</title>
-                    <meta name="description" content={self.description} />
+                    {cx.metadata.head()}
                 </head>
                 <body>{self.content}</body>
             </html>

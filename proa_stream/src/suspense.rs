@@ -17,6 +17,10 @@ use crate::context::{LocalBoundaryBranch, SendBoundaryBranch};
 
 /// Explicit fallback boundary for streamed rendering.
 ///
+/// Children and transient fallbacks cannot declare or emit document metadata,
+/// including in buffered HTML. Prepare metadata on the owning document path
+/// before entering the boundary; readiness never changes this capability.
+///
 /// `priority` and `timeout` apply to out-of-order HTML streaming. Every
 /// boundary starts concurrently; priority deterministically orders boundaries
 /// that become ready in the same driver turn, and timeout cancels a stalled
@@ -191,7 +195,9 @@ where
                 ));
 
                 let result = write_boundary_comment(cx, b"start", boundary_id)
-                    .and_then(|()| WebRenderSync::render(fallback, cx))
+                    .and_then(|()| {
+                        cx.__without_document_metadata(|cx| WebRenderSync::render(fallback, cx))
+                    })
                     .and_then(|()| write_boundary_comment(cx, b"end", boundary_id));
                 return RenderOutcome::<
                     std::pin::Pin<
@@ -215,7 +221,12 @@ where
                 let error_fallback = cx.current_boundary_error_fallback();
                 let seed_checkpoint = cx.rsjs_shared_state_seed_checkpoint();
                 let artifact_checkpoint = cx.rsjs_artifact_checkpoint();
-                match proa_core::render_in_context_async(cx, child).await {
+                match cx
+                    .__without_document_metadata_async(async |cx| {
+                        proa_core::render_in_context_async(cx, child).await
+                    })
+                    .await
+                {
                     Ok(()) => {
                         cx.rsjs_shared_state_commit_seeds(seed_checkpoint);
                         cx.rsjs_artifact_commit(artifact_checkpoint);
@@ -239,7 +250,7 @@ where
                             mode = RenderMode::ChunkedInOrder.as_str(),
                             "streaming boundary recovered with error fallback"
                         );
-                        error_fallback.render_buffer(cx)?;
+                        cx.__without_document_metadata(|cx| error_fallback.render_buffer(cx))?;
                     }
                     Err(err) => {
                         cx.rsjs_shared_state_commit_seeds(seed_checkpoint);
@@ -255,9 +266,12 @@ where
         }
 
         let _ = fallback;
-        RenderOutcome::Pending(Box::pin(
-            async move { proa_core::render_child(cx, child).await },
-        ))
+        RenderOutcome::Pending(Box::pin(async move {
+            cx.__without_document_metadata_async(async |cx| {
+                proa_core::render_child(cx, child).await
+            })
+            .await
+        }))
     }
 }
 
@@ -313,7 +327,10 @@ where
                     ));
 
                     write_send_boundary_comment(cx, b"start", boundary_id)?;
-                    proa_core::render_send_child(cx, fallback).await?;
+                    cx.__without_document_metadata_async(async |cx| {
+                        proa_core::render_send_child(cx, fallback).await
+                    })
+                    .await?;
                     return write_send_boundary_comment(cx, b"end", boundary_id);
                 }
             }
@@ -324,14 +341,22 @@ where
             {
                 let pre_flush = cx.flush_stream_chunk();
                 pre_flush?;
-                if let Err(error) = proa_core::render_send_child(cx, child).await {
+                if let Err(error) = cx
+                    .__without_document_metadata_async(async |cx| {
+                        proa_core::render_send_child(cx, child).await
+                    })
+                    .await
+                {
                     cx.out.clear();
                     return Err(error);
                 }
                 return cx.flush_stream_chunk();
             }
 
-            proa_core::render_send_child(cx, child).await
+            cx.__without_document_metadata_async(async |cx| {
+                proa_core::render_send_child(cx, child).await
+            })
+            .await
         })
     }
 }

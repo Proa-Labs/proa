@@ -25,3 +25,6 @@ pub use send_context::{SendWebContext, SendWebContextParts};
 
 pub use base_path::{AppUrl, BasePath, InvalidBasePath};
 pub use base_path_html::BasePathHtml;
+
+mod metadata;
+pub use metadata::{DocumentMetadata, Metadata, OpenGraph, OpenGraphImage};

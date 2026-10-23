@@ -9,7 +9,7 @@ use http::Uri;
 use proa_core::{RouteParam, RouteParams};
 
 use crate::manifest::IslandManifest;
-use crate::metadata::{resolve_metadata_stack, ComputedRouteMeta, MetadataRef, ResolvedMetadata};
+use crate::metadata::RouteSetupPlan;
 
 /// Portable per-request route snapshot used during route finalization.
 ///
@@ -19,9 +19,8 @@ use crate::metadata::{resolve_metadata_stack, ComputedRouteMeta, MetadataRef, Re
 #[derive(Clone)]
 pub struct FrameworkRouteSnapshot {
     manifest: Arc<IslandManifest>,
-    metadata: Arc<[MetadataRef]>,
-    resolved_metadata: Option<ResolvedMetadata>,
-    computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>,
+    setup: RouteSetupPlan,
+    route_setups: Arc<HashMap<String, RouteSetupPlan>>,
     current_uri: Option<Uri>,
     current_route_pattern: Option<Arc<str>>,
     current_route_params: RouteParams,
@@ -31,13 +30,12 @@ pub struct FrameworkRouteSnapshot {
 impl FrameworkRouteSnapshot {
     pub fn new(
         manifest: Arc<IslandManifest>,
-        computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>,
+        route_setups: Arc<HashMap<String, RouteSetupPlan>>,
     ) -> Self {
         Self {
             manifest,
-            metadata: Arc::from([]),
-            resolved_metadata: None,
-            computed_metadata,
+            setup: RouteSetupPlan::default(),
+            route_setups,
             current_uri: None,
             current_route_pattern: None,
             current_route_params: RouteParams::default(),
@@ -61,15 +59,13 @@ impl FrameworkRouteSnapshot {
         self.current_route_pattern = Some(pattern);
     }
 
-    pub fn metadata_plan(&self) -> ComputedRouteMeta {
+    pub fn setup_plan(&self) -> RouteSetupPlan {
         self.current_route_pattern
             .as_deref()
             .or_else(|| self.current_path())
-            .and_then(|path| self.computed_metadata.get(path))
+            .and_then(|path| self.route_setups.get(path))
             .cloned()
-            .unwrap_or_else(|| {
-                ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), &self.metadata)
-            })
+            .unwrap_or_else(|| self.setup.clone())
     }
 
     pub fn current_path(&self) -> Option<&str> {
@@ -80,8 +76,8 @@ impl FrameworkRouteSnapshot {
         self.current_uri.as_ref()
     }
 
-    pub fn get_computed_metadata(&self, path: &str) -> Option<ComputedRouteMeta> {
-        self.computed_metadata.get(path).cloned()
+    pub fn get_route_setups(&self, path: &str) -> Option<RouteSetupPlan> {
+        self.route_setups.get(path).cloned()
     }
 
     pub fn current_route_params(&self) -> &RouteParams {
@@ -100,35 +96,11 @@ impl FrameworkRouteSnapshot {
         self.manifest.clone()
     }
 
-    pub fn swap_metadata(
-        &mut self,
-        metadata: Arc<[MetadataRef]>,
-    ) -> (Arc<[MetadataRef]>, Option<ResolvedMetadata>) {
-        let previous_metadata = mem::replace(&mut self.metadata, metadata);
-        let previous_resolved = self.resolved_metadata.take();
-        (previous_metadata, previous_resolved)
+    pub fn swap_setup(&mut self, setup: RouteSetupPlan) -> RouteSetupPlan {
+        mem::replace(&mut self.setup, setup)
     }
-
-    pub fn restore_metadata(
-        &mut self,
-        metadata: Arc<[MetadataRef]>,
-        resolved: Option<ResolvedMetadata>,
-    ) {
-        self.metadata = metadata;
-        self.resolved_metadata = resolved;
-    }
-
-    pub fn resolve_metadata(&mut self) -> Option<ResolvedMetadata> {
-        if self.metadata.is_empty() {
-            return None;
-        }
-
-        if let Some(meta) = &self.resolved_metadata {
-            return Some(meta.clone());
-        }
-
-        self.resolved_metadata = resolve_metadata_stack(self.metadata.as_ref());
-        self.resolved_metadata.clone()
+    pub fn restore_setup(&mut self, setup: RouteSetupPlan) {
+        self.setup = setup;
     }
 }
 

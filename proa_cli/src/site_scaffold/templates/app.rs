@@ -166,7 +166,7 @@ pub fn root_layout() -> &'static str {
     r#"// proa:document-root
 use std::future::Future;
 
-use proa_core::{raw_text_ok, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa_core::{DataLoader, Metadata, RenderOutcome, WebContext, WebRender, WriteError};
 use proa_macros::html;
 
 pub struct RootDocument<C> {
@@ -185,6 +185,7 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let RootDocument { title, content } = self;
+            cx.metadata(Metadata::new().title(title));
             let favicon = cx.request().url("/static/favicon.svg");
             let stylesheet = cx.request().url("/static/styles.css");
             html! {
@@ -194,7 +195,7 @@ where
                         <meta charset="utf-8">
                         <meta name="viewport" content="width=device-width, initial-scale=1">
                         <meta name="color-scheme" content="dark">
-                        <title>{raw_text_ok(title)}</title>
+                        {cx.metadata.head()}
                         <link rel="icon" href={favicon}>
                         <link rel="stylesheet" href={stylesheet}>
                     </head>
@@ -669,7 +670,7 @@ use tower_http::trace::TraceLayer;
 use crate::{app::AppState, endpoints, pages, static_assets};
 
 pub fn router(state: AppState, base_path: proa_core::BasePath) -> Router {
-    let (router, metadata) = router_from_spec(vec![
+    let (router, setups) = router_from_spec(vec![
         // proa:route-specs:start
         Route::endpoint("/", get(pages::home::handler)),
         // proa:route-specs:end
@@ -689,7 +690,7 @@ pub fn router(state: AppState, base_path: proa_core::BasePath) -> Router {
         .nest_service("/static", static_assets::service(base_path.clone()))
         .with_state(state)
         .merge(proa_framework_axum::rsjs_assets_router(&base_path))
-        .layer(RouteContextLayer::new(manifest, metadata).with_base_path(base_path))
+        .layer(RouteContextLayer::new(manifest, setups).with_base_path(base_path))
         .layer(TraceLayer::new_for_http())
 }
 "#

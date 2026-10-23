@@ -26,15 +26,10 @@ pub use context::{app_url, RouteContextLayer, RouteContextService};
 pub use layout::{Layout, LayoutRef};
 pub use local_executor::LocalStreamExecutorConfig;
 pub use metadata::{
-    css_asset_path, local_metadata, metadata_from_context, render_css_link, render_metadata_head,
-    render_metadata_head_send, resolved_metadata, CascadeOpenGraph, CascadeValue,
-    ComputedRouteMeta, DynMetadata, LocalMetadata, LocalMetadataProvider, Metadata, MetadataBase,
-    MetadataContext, MetadataError, MetadataPatch, MetadataRef, MetadataResult, MetadataText,
-    OpenGraph, OpenGraphImage, OpenGraphMedia, OpenGraphPatch, ResolvedMetadata,
-    ResolvedOpenGraphImage, ResolvedOpenGraphMedia, TitleOnly,
+    css_asset_path, render_css_link, render_metadata_head, render_metadata_head_send, Metadata,
+    OpenGraph, OpenGraphImage, RouteSetupPlan,
 };
 pub use page_cache::{PageCacheLayer, PageCacheService};
-pub use proa_framework_core::{ComputedOpenGraph, ResolvedOpenGraph};
 pub use representation::{
     explicit_markdown, explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader,
     MarkdownAlternate, RepresentationResponse,

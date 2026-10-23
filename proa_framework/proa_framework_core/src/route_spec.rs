@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::metadata::{ComputedRouteMeta, MetadataRef, TitleOnly};
+use crate::metadata::{LayoutRef, RouteSetupPlan};
 
 /// Function type for generating static paths at build time.
 pub type StaticPathsFn = fn() -> Vec<HashMap<&'static str, String>>;
@@ -27,20 +27,20 @@ pub enum RouteMode {
 pub struct RouteSpec {
     pub path: &'static str,
     pub has_endpoint: bool,
-    pub layout_metadata: Option<MetadataRef>,
-    pub metadata: Option<MetadataRef>,
+    pub layout: Option<LayoutRef>,
+    pub title: Option<&'static str>,
     pub children: Vec<RouteSpec>,
     pub route_mode: RouteMode,
     pub static_paths: Option<StaticPathsFn>,
 }
 
-/// A fully-resolved route node with concrete full path and metadata stack.
+/// A fully-resolved route node with concrete full path and layout setup chain.
 #[derive(Clone)]
 pub struct ResolvedRouteSpec {
     pub path: &'static str,
     pub full_path: String,
     pub has_endpoint: bool,
-    pub metadata_stack: Vec<MetadataRef>,
+    pub setup_plan: RouteSetupPlan,
     pub route_mode: RouteMode,
     pub static_paths: Option<StaticPathsFn>,
     pub children: Vec<ResolvedRouteSpec>,
@@ -51,8 +51,8 @@ impl RouteSpec {
         Self {
             path,
             has_endpoint: true,
-            layout_metadata: None,
-            metadata: None,
+            layout: None,
+            title: None,
             children: Vec::new(),
             route_mode: RouteMode::default(),
             static_paths: None,
@@ -61,28 +61,17 @@ impl RouteSpec {
 
     pub fn page(path: &'static str, title: &'static str) -> Self {
         Self {
-            metadata: Some(Box::leak(Box::new(TitleOnly::new(title)))),
+            title: Some(title),
             ..Self::endpoint(path)
         }
     }
 
-    pub fn page_with_metadata(path: &'static str, metadata: MetadataRef) -> Self {
-        Self {
-            metadata: Some(metadata),
-            ..Self::endpoint(path)
-        }
-    }
-
-    pub fn layout(
-        path: &'static str,
-        layout_metadata: MetadataRef,
-        children: Vec<RouteSpec>,
-    ) -> Self {
+    pub fn layout(path: &'static str, layout: LayoutRef, children: Vec<RouteSpec>) -> Self {
         Self {
             path,
             has_endpoint: false,
-            layout_metadata: Some(layout_metadata),
-            metadata: None,
+            layout: Some(layout),
+            title: None,
             children,
             route_mode: RouteMode::default(),
             static_paths: None,
@@ -91,16 +80,6 @@ impl RouteSpec {
 
     pub fn with_children(mut self, children: Vec<RouteSpec>) -> Self {
         self.children = children;
-        self
-    }
-
-    pub fn with_metadata(mut self, metadata: MetadataRef) -> Self {
-        self.metadata = Some(metadata);
-        self
-    }
-
-    pub fn with_layout_metadata(mut self, layout_metadata: MetadataRef) -> Self {
-        self.layout_metadata = Some(layout_metadata);
         self
     }
 
@@ -115,17 +94,12 @@ impl RouteSpec {
     }
 }
 
-pub fn compute_metadata_map(routes: &[RouteSpec]) -> HashMap<String, ComputedRouteMeta> {
-    let mut computed_metadata_map = HashMap::new();
+pub fn collect_route_setups(routes: &[RouteSpec]) -> HashMap<String, RouteSetupPlan> {
+    let mut route_setups = HashMap::new();
     for route in routes {
-        compute_metadata(
-            route,
-            &[],
-            &ComputedRouteMeta::default(),
-            &mut computed_metadata_map,
-        );
+        collect_setup(route, &[], &RouteSetupPlan::default(), &mut route_setups);
     }
-    computed_metadata_map
+    route_setups
 }
 
 pub fn resolve_route_specs(routes: &[RouteSpec]) -> Vec<ResolvedRouteSpec> {
@@ -171,59 +145,51 @@ pub fn resolve_route_path(parent_segments: &[String], path: &str) -> (Vec<String
 fn resolve_route_spec(
     route: &RouteSpec,
     parent_segments: &[String],
-    parent_metadata: &[MetadataRef],
+    parent_layouts: &[LayoutRef],
 ) -> ResolvedRouteSpec {
     let (segments, full_path) = resolve_route_path(parent_segments, route.path);
 
-    let mut metadata_stack = parent_metadata.to_vec();
-    if let Some(layout_metadata) = route.layout_metadata {
-        metadata_stack.push(layout_metadata);
-    }
-    if let Some(metadata) = route.metadata {
-        metadata_stack.push(metadata);
+    let mut layouts = parent_layouts.to_vec();
+    if let Some(layout) = route.layout {
+        layouts.push(layout);
     }
 
     let children = route
         .children
         .iter()
-        .map(|child| resolve_route_spec(child, &segments, &metadata_stack))
+        .map(|child| resolve_route_spec(child, &segments, &layouts))
         .collect();
 
     ResolvedRouteSpec {
         path: route.path,
         full_path,
         has_endpoint: route.has_endpoint,
-        metadata_stack,
+        setup_plan: RouteSetupPlan::new(&layouts, route.title),
         route_mode: route.route_mode,
         static_paths: route.static_paths,
         children,
     }
 }
 
-fn compute_metadata(
+fn collect_setup(
     route: &RouteSpec,
     parent_segments: &[String],
-    parent_computed: &ComputedRouteMeta,
-    map: &mut HashMap<String, ComputedRouteMeta>,
+    parent_plan: &RouteSetupPlan,
+    map: &mut HashMap<String, RouteSetupPlan>,
 ) {
     let (segments, full_path) = resolve_route_path(parent_segments, route.path);
 
-    let mut local_providers = Vec::new();
-    if let Some(layout_metadata) = route.layout_metadata {
-        local_providers.push(layout_metadata);
-    }
-    if let Some(metadata) = route.metadata {
-        local_providers.push(metadata);
-    }
-
-    let computed = ComputedRouteMeta::cascade(parent_computed, &local_providers);
+    let plan = match route.layout {
+        Some(layout) => RouteSetupPlan::cascade(parent_plan, std::slice::from_ref(&layout)),
+        None => parent_plan.clone(),
+    };
 
     if route.has_endpoint {
-        map.insert(full_path.clone(), computed.clone());
+        map.insert(full_path.clone(), plan.clone().with_page_title(route.title));
     }
 
     for child in &route.children {
-        compute_metadata(child, &segments, &computed, map);
+        collect_setup(child, &segments, &plan, map);
     }
 }
 
@@ -237,65 +203,40 @@ fn split_route_segments(path: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metadata::{CascadeValue, Metadata};
-
-    struct BaseMeta;
-    impl Metadata for BaseMeta {
-        fn static_metadata(&self) -> Option<crate::metadata::MetadataPatch> {
-            Some(crate::metadata::MetadataPatch {
-                title: CascadeValue::Set("%s | Base".into()),
-                ..Default::default()
-            })
-        }
-        fn title(&self) -> CascadeValue<&'static str> {
-            CascadeValue::Set("%s | Base")
+    use crate::Layout;
+    use proa_core::{DynLoaderHandle, WebContext, WriteError};
+    struct NeverAtRegistration;
+    impl Layout for NeverAtRegistration {
+        fn setup(&self, _: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
+            panic!("registration must not execute request-time setup")
         }
     }
-
-    struct PageMeta;
-    impl Metadata for PageMeta {
-        fn static_metadata(&self) -> Option<crate::metadata::MetadataPatch> {
-            Some(crate::metadata::MetadataPatch {
-                title: CascadeValue::Set("Dashboard".into()),
-                ..Default::default()
-            })
-        }
-        fn title(&self) -> CascadeValue<&'static str> {
-            CascadeValue::Set("Dashboard")
-        }
-    }
-
     #[test]
-    fn resolve_route_path_builds_nested_paths() {
-        let parent = vec!["app".to_string()];
-        let (_, path) = resolve_route_path(&parent, "dashboard");
-        assert_eq!(path, "/app/dashboard");
-    }
-
-    #[test]
-    fn compute_metadata_map_cascades_layout_metadata() {
+    fn registration_collects_ordered_layouts_and_titles_without_executing_them() {
         let routes = vec![RouteSpec::layout(
-            "/",
-            &BaseMeta,
-            vec![RouteSpec::page_with_metadata("dashboard", &PageMeta)],
+            "/app",
+            &NeverAtRegistration,
+            vec![RouteSpec::layout(
+                "",
+                &NeverAtRegistration,
+                vec![RouteSpec::page("dashboard", "Dashboard")],
+            )],
         )];
-        let map = compute_metadata_map(&routes);
-        assert_eq!(
-            map.get("/dashboard").and_then(|meta| meta.title.as_deref()),
-            Some("Dashboard | Base")
-        );
-    }
-
-    #[test]
-    fn resolve_route_specs_builds_full_paths_and_metadata_stack() {
-        let routes = vec![RouteSpec::layout(
-            "/",
-            &BaseMeta,
-            vec![RouteSpec::page_with_metadata("dashboard", &PageMeta)],
-        )];
+        let map = collect_route_setups(&routes);
+        let plan = map.get("/app/dashboard").unwrap();
+        assert_eq!(plan.layout_count(), 2);
+        assert_eq!(plan.page_title(), Some("Dashboard"));
         let resolved = resolve_route_specs(&routes);
-        let child = &resolved[0].children[0];
-        assert_eq!(child.full_path, "/dashboard");
-        assert_eq!(child.metadata_stack.len(), 2);
+        let child = &resolved[0].children[0].children[0];
+        assert_eq!(child.full_path, "/app/dashboard");
+        assert_eq!(child.setup_plan.layout_count(), 2);
+        assert_eq!(child.setup_plan.page_title(), Some("Dashboard"));
+    }
+    #[test]
+    fn nested_and_absolute_route_paths() {
+        let parent = vec!["app".to_string()];
+        assert_eq!(resolve_route_path(&parent, "dashboard").1, "/app/dashboard");
+        assert_eq!(resolve_route_path(&parent, "/account").1, "/account");
+        assert_eq!(resolve_route_path(&parent, "/").1, "/");
     }
 }

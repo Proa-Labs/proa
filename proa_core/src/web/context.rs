@@ -1277,6 +1277,7 @@ impl fmt::Debug for RsjsArtifactContext {
 /// [`WebContext::context_parts`] to create that explicit fork.
 #[derive(Debug, Default)]
 pub struct WebContextParts {
+    metadata_denied: bool,
     request: RequestContext,
     response: ResponseContext,
     head: HeadContext,
@@ -1965,6 +1966,8 @@ impl WebContextParts {
 /// separate context for graphics resources.
 ///
 pub struct WebContext<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
+    /// Managed metadata, emitted only when its head handle is rendered.
+    pub metadata: super::DocumentMetadata,
     /// The owned output buffer for the selected representation.
     pub out: B,
 
@@ -2085,6 +2088,7 @@ pub struct WebContext<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 /// The parent output itself is never moved; only the child context points at
 /// the temporary output type.
 struct ScopedWebState<'scope, L: DataLoader> {
+    metadata: &'scope mut super::DocumentMetadata,
     mode: &'scope mut ContentMode,
     escape_dialect: &'scope mut EscapeDialect,
     render_mode: &'scope mut RenderMode,
@@ -2118,6 +2122,7 @@ where
 {
     fn new(parent: ScopedWebState<'scope, L>, out: C) -> Self {
         let child = WebContext {
+            metadata: std::mem::take(parent.metadata),
             out,
             mode: *parent.mode,
             escape_dialect: *parent.escape_dialect,
@@ -2145,6 +2150,7 @@ where
 
     fn restore(&mut self) -> Option<C> {
         let mut child = self.child.take()?;
+        *self.parent.metadata = std::mem::take(&mut child.metadata);
         *self.parent.mode = child.mode;
         *self.parent.escape_dialect = child.escape_dialect;
         *self.parent.render_mode = child.render_mode;
@@ -2316,6 +2322,7 @@ impl<B: WriteBuf> WebContext<NoLoader, B> {
 
     fn with_optional_context_parts(out: B, context_parts: Option<Box<WebContextParts>>) -> Self {
         Self {
+            metadata: super::DocumentMetadata::default(),
             out,
             mode: ContentMode::Html,
             escape_dialect: EscapeDialect::Html,
@@ -2352,7 +2359,115 @@ impl<B: WriteBuf> WebContext<DynLoaderHandle, B> {
     }
 }
 
+// Loader erasure is confined to registered route setup; the page retains its
+// concrete loader. Live context state is transferred and restored even on panic.
+struct ErasedLoaderScope<'a, L: DataLoader> {
+    parent: &'a mut WebContext<L>,
+    child: WebContext<DynLoaderHandle>,
+}
+impl<L: DataLoader> Drop for ErasedLoaderScope<'_, L> {
+    fn drop(&mut self) {
+        std::mem::swap(&mut self.parent.metadata, &mut self.child.metadata);
+        std::mem::swap(&mut self.parent.out, &mut self.child.out);
+        std::mem::swap(&mut self.parent.mode, &mut self.child.mode);
+        std::mem::swap(
+            &mut self.parent.escape_dialect,
+            &mut self.child.escape_dialect,
+        );
+        std::mem::swap(&mut self.parent.render_mode, &mut self.child.render_mode);
+        std::mem::swap(&mut self.parent.md_state, &mut self.child.md_state);
+        std::mem::swap(
+            &mut self.parent.context_parts,
+            &mut self.child.context_parts,
+        );
+        std::mem::swap(
+            &mut self.parent.rsjs_artifact_transaction,
+            &mut self.child.rsjs_artifact_transaction,
+        );
+        std::mem::swap(
+            &mut self.parent.rsjs_shared_state_transaction,
+            &mut self.child.rsjs_shared_state_transaction,
+        );
+        std::mem::swap(
+            &mut self.parent.stream_recorder,
+            &mut self.child.stream_recorder,
+        );
+        std::mem::swap(
+            &mut self.parent.stream_chunk_flusher,
+            &mut self.child.stream_chunk_flusher,
+        );
+    }
+}
+impl<L: DataLoader + 'static> WebContext<L> {
+    /// Framework-only synchronous setup on this context with a heterogeneous loader.
+    #[doc(hidden)]
+    pub fn __with_erased_loader<R>(
+        &mut self,
+        setup: impl FnOnce(&mut WebContext<DynLoaderHandle>) -> R,
+    ) -> R {
+        let loader: Arc<dyn DynDataLoader> = self.loader.clone();
+        let mut child = WebContext {
+            metadata: super::DocumentMetadata::default(),
+            out: RenderBuffer::new(),
+            mode: ContentMode::Html,
+            escape_dialect: EscapeDialect::Html,
+            render_mode: RenderMode::Static,
+            md_state: crate::md::MdState::default(),
+            context_parts: None,
+            rsjs_artifact_transaction: OnceCell::new(),
+            rsjs_shared_state_transaction: None,
+            loader: Arc::new(DynLoaderHandle::new(loader)),
+            stream_recorder: None,
+            stream_chunk_flusher: None,
+            boundary_error_fallbacks: None,
+        };
+        std::mem::swap(&mut self.metadata, &mut child.metadata);
+        std::mem::swap(&mut self.out, &mut child.out);
+        std::mem::swap(&mut self.mode, &mut child.mode);
+        std::mem::swap(&mut self.escape_dialect, &mut child.escape_dialect);
+        std::mem::swap(&mut self.render_mode, &mut child.render_mode);
+        std::mem::swap(&mut self.md_state, &mut child.md_state);
+        std::mem::swap(&mut self.context_parts, &mut child.context_parts);
+        std::mem::swap(
+            &mut self.rsjs_artifact_transaction,
+            &mut child.rsjs_artifact_transaction,
+        );
+        std::mem::swap(
+            &mut self.rsjs_shared_state_transaction,
+            &mut child.rsjs_shared_state_transaction,
+        );
+        std::mem::swap(&mut self.stream_recorder, &mut child.stream_recorder);
+        std::mem::swap(
+            &mut self.stream_chunk_flusher,
+            &mut child.stream_chunk_flusher,
+        );
+        let mut scope = ErasedLoaderScope {
+            parent: self,
+            child,
+        };
+        setup(&mut scope.child)
+    }
+}
+
 impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
+    /// Declare managed metadata before rendering `cx.metadata.head()`.
+    #[track_caller]
+    pub fn metadata(&mut self, value: super::Metadata) {
+        self.metadata.declare(value);
+    }
+
+    #[doc(hidden)]
+    pub async fn __without_document_metadata_async<R>(
+        &mut self,
+        render: impl AsyncFnOnce(&mut Self) -> R,
+    ) -> R {
+        super::metadata::without_metadata_async(self, render).await
+    }
+    #[doc(hidden)]
+    pub fn __without_document_metadata<R>(&mut self, render: impl FnOnce(&mut Self) -> R) -> R {
+        super::metadata::without_metadata(self, render)
+    }
+
     /// Create a context with a custom loader.
     pub fn with_loader_buffer(out: B, loader: Arc<L>) -> Self {
         Self::with_loader_buffer_and_context_parts(out, loader, WebContextParts::new())
@@ -2377,6 +2492,11 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         }
 
         Self {
+            metadata: if context_parts.metadata_denied {
+                super::DocumentMetadata::denied()
+            } else {
+                super::DocumentMetadata::default()
+            },
             out,
             mode: ContentMode::Html,
             escape_dialect: EscapeDialect::Html,
@@ -2412,6 +2532,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 
     fn state_slots(&mut self) -> ScopedWebState<'_, L> {
         let WebContext {
+            metadata,
             out: _,
             mode,
             escape_dialect,
@@ -2426,6 +2547,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             boundary_error_fallbacks,
         } = self;
         ScopedWebState {
+            metadata,
             mode,
             escape_dialect,
             render_mode,
@@ -2442,6 +2564,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 
     fn output_and_state(&mut self) -> (&mut B, ScopedWebState<'_, L>) {
         let WebContext {
+            metadata,
             out,
             mode,
             escape_dialect,
@@ -2458,6 +2581,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         (
             out,
             ScopedWebState {
+                metadata,
                 mode,
                 escape_dialect,
                 render_mode,
@@ -2518,7 +2642,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             output,
         };
         let child = scope.output.child_mut();
-        node.render(child)?;
+        child.__without_document_metadata(|child| node.render(child))?;
         Ok(std::mem::take(&mut child.out))
     }
 
@@ -2565,7 +2689,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         let child = scope.output.child_mut();
         child.mode = ContentMode::Html;
         child.escape_dialect = EscapeDialect::Html;
-        node.render(child)
+        child.__without_document_metadata(|child| node.render(child))
     }
 
     /// Async counterpart to [`Self::with_metered_output`].
@@ -2791,6 +2915,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         let shared_state_transaction = self.rsjs_shared_state_transaction;
         let parts = self.ensure_context_parts_mut();
         let snapshot = WebContextParts {
+            metadata_denied: true,
             request: parts.request.clone(),
             response: parts.response.fork_for_detached(),
             head: parts.head.clone(),
@@ -2811,6 +2936,9 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 
     /// Replace all forkable request-scoped state.
     pub fn set_context_parts(&mut self, parts: WebContextParts) {
+        if parts.metadata_denied {
+            self.metadata = super::DocumentMetadata::denied();
+        }
         let artifact_transaction = parts.rsjs_artifact_transaction.clone();
         self.rsjs_artifact_transaction = OnceCell::new();
         if artifact_transaction.is_some() {

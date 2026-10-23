@@ -12,10 +12,7 @@ use axum::body::Body;
 use axum::response::Response;
 use pin_project::{pin_project, pinned_drop};
 use proa_core::{CspNonce, RouteParams};
-use proa_framework_core::{
-    extract_route_params, ComputedRouteMeta, FrameworkRouteSnapshot, MetadataBase, MetadataRef,
-    ResolvedMetadata,
-};
+use proa_framework_core::{extract_route_params, FrameworkRouteSnapshot, RouteSetupPlan};
 use tower::layer::Layer;
 use tower::Service;
 
@@ -37,26 +34,20 @@ pub struct RouteContext {
     request_headers: http::HeaderMap,
     csp_nonce: Option<CspNonce>,
     base_path: proa_core::BasePath,
-    metadata_base: Option<MetadataBase>,
 }
 
 impl RouteContext {
     pub(super) fn new(
         manifest: Arc<IslandManifest>,
-        computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
+        route_setups: Arc<std::collections::HashMap<String, RouteSetupPlan>>,
     ) -> Self {
         Self {
-            snapshot: FrameworkRouteSnapshot::new(manifest, computed_metadata),
+            snapshot: FrameworkRouteSnapshot::new(manifest, route_setups),
             request_method: None,
             request_headers: http::HeaderMap::new(),
             csp_nonce: None,
             base_path: proa_core::BasePath::default(),
-            metadata_base: None,
         }
-    }
-
-    pub(super) fn metadata_base(&self) -> Option<&MetadataBase> {
-        self.metadata_base.as_ref()
     }
 
     pub(super) fn base_path(&self) -> &proa_core::BasePath {
@@ -75,8 +66,8 @@ impl RouteContext {
         self.snapshot.set_current_uri(uri);
     }
 
-    pub(super) fn metadata_plan(&self) -> ComputedRouteMeta {
-        self.snapshot.metadata_plan()
+    pub(super) fn setup_plan(&self) -> RouteSetupPlan {
+        self.snapshot.setup_plan()
     }
 
     pub(super) fn current_uri(&self) -> Option<&http::Uri> {
@@ -126,52 +117,26 @@ impl RouteContext {
         self.snapshot.manifest_arc()
     }
 
-    pub(super) fn swap_metadata(
-        &mut self,
-        metadata: Arc<[MetadataRef]>,
-    ) -> (Arc<[MetadataRef]>, Option<ResolvedMetadata>) {
-        self.snapshot.swap_metadata(metadata)
+    pub(super) fn swap_setup(&mut self, setup: RouteSetupPlan) -> RouteSetupPlan {
+        self.snapshot.swap_setup(setup)
     }
 
-    pub(super) fn restore_metadata(
-        &mut self,
-        metadata: Arc<[MetadataRef]>,
-        resolved: Option<ResolvedMetadata>,
-    ) {
-        self.snapshot.restore_metadata(metadata, resolved);
-    }
-}
-
-/// Helper type for managing metadata stacks.
-#[derive(Clone)]
-pub(super) struct Stack<T>(Arc<[T]>);
-
-impl<T: Copy> Stack<T> {
-    pub(super) fn from_slice(items: &[T]) -> Self {
-        if items.is_empty() {
-            Self(Arc::from([]))
-        } else {
-            let owned: Vec<T> = items.to_vec();
-            Self(Arc::from(owned.into_boxed_slice()))
-        }
-    }
-
-    pub(super) fn arc(&self) -> Arc<[T]> {
-        self.0.clone()
+    pub(super) fn restore_setup(&mut self, setup: RouteSetupPlan) {
+        self.snapshot.restore_setup(setup);
     }
 }
 
 /// Tower layer for managing endpoint-specific metadata and route params.
 #[derive(Clone)]
 pub(super) struct EndpointContextLayer {
-    metadata: Stack<MetadataRef>,
+    setup: RouteSetupPlan,
     route_pattern: Arc<str>,
 }
 
 impl EndpointContextLayer {
-    pub(super) fn new(metadata: Stack<MetadataRef>, route_pattern: Arc<str>) -> Self {
+    pub(super) fn new(setup: RouteSetupPlan, route_pattern: Arc<str>) -> Self {
         Self {
-            metadata,
+            setup,
             route_pattern,
         }
     }
@@ -183,7 +148,7 @@ impl<S> Layer<S> for EndpointContextLayer {
     fn layer(&self, inner: S) -> Self::Service {
         EndpointContextService {
             inner,
-            metadata: self.metadata.clone(),
+            setup: self.setup.clone(),
             route_pattern: self.route_pattern.clone(),
         }
     }
@@ -192,7 +157,7 @@ impl<S> Layer<S> for EndpointContextLayer {
 #[derive(Clone)]
 pub(super) struct EndpointContextService<S> {
     inner: S,
-    metadata: Stack<MetadataRef>,
+    setup: RouteSetupPlan,
     route_pattern: Arc<str>,
 }
 
@@ -214,21 +179,19 @@ where
         let uri = req.uri().clone();
         let route_params = extract_route_params(self.route_pattern.as_ref(), uri.path());
 
-        let (previous_metadata, previous_resolved, previous_route_params) =
-            ROUTE_CONTEXT.with(|ctx| {
-                let mut ctx = ctx.borrow_mut();
-                ctx.set_current_uri(uri);
-                ctx.snapshot
-                    .set_current_route_pattern(self.route_pattern.clone());
-                let (previous_metadata, previous_resolved) = ctx.swap_metadata(self.metadata.arc());
-                let previous_route_params = ctx.swap_route_params(route_params);
-                (previous_metadata, previous_resolved, previous_route_params)
-            });
+        let (previous_setup, previous_route_params) = ROUTE_CONTEXT.with(|ctx| {
+            let mut ctx = ctx.borrow_mut();
+            ctx.set_current_uri(uri);
+            ctx.snapshot
+                .set_current_route_pattern(self.route_pattern.clone());
+            let previous_setup = ctx.swap_setup(self.setup.clone());
+            let previous_route_params = ctx.swap_route_params(route_params);
+            (previous_setup, previous_route_params)
+        });
 
         EndpointContextFuture {
             future: self.inner.call(req),
-            previous_metadata,
-            previous_resolved,
+            previous_setup,
             previous_route_params,
             restored: false,
             _marker: PhantomData,
@@ -243,8 +206,7 @@ where
 {
     #[pin]
     future: F,
-    previous_metadata: Arc<[MetadataRef]>,
-    previous_resolved: Option<ResolvedMetadata>,
+    previous_setup: RouteSetupPlan,
     previous_route_params: RouteParams,
     restored: bool,
     _marker: PhantomData<E>,
@@ -262,8 +224,7 @@ where
             Poll::Ready(result) => {
                 if !*this.restored {
                     restore_context(
-                        this.previous_metadata.clone(),
-                        this.previous_resolved.clone(),
+                        this.previous_setup.clone(),
                         this.previous_route_params.clone(),
                     );
                     *this.restored = true;
@@ -284,22 +245,17 @@ where
         let this = self.project();
         if !*this.restored {
             restore_context(
-                this.previous_metadata.clone(),
-                this.previous_resolved.clone(),
+                this.previous_setup.clone(),
                 this.previous_route_params.clone(),
             );
         }
     }
 }
 
-fn restore_context(
-    previous_metadata: Arc<[MetadataRef]>,
-    previous_resolved: Option<ResolvedMetadata>,
-    previous_route_params: RouteParams,
-) {
+fn restore_context(previous_setup: RouteSetupPlan, previous_route_params: RouteParams) {
     ROUTE_CONTEXT.with(|ctx| {
         let mut ctx = ctx.borrow_mut();
-        ctx.restore_metadata(previous_metadata, previous_resolved);
+        ctx.restore_setup(previous_setup);
         ctx.restore_route_params(previous_route_params);
     });
 }
@@ -309,31 +265,23 @@ fn restore_context(
 pub struct RouteContextLayer {
     manifest: Arc<IslandManifest>,
     unprefixed_manifest: Arc<IslandManifest>,
-    computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
+    route_setups: Arc<std::collections::HashMap<String, RouteSetupPlan>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
-    metadata_base: Option<MetadataBase>,
 }
 
 impl RouteContextLayer {
     pub fn new(
         manifest: Arc<IslandManifest>,
-        computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
+        route_setups: Arc<std::collections::HashMap<String, RouteSetupPlan>>,
     ) -> Self {
         Self {
             unprefixed_manifest: manifest.clone(),
             manifest,
-            computed_metadata,
+            route_setups,
             local_stream_executor: LocalStreamExecutor::new(LocalStreamExecutorConfig::default()),
             base_path: proa_core::BasePath::default(),
-            metadata_base: None,
         }
-    }
-
-    /// Set a deployment's public base URL, including its mount prefix.
-    pub fn with_metadata_base(mut self, base: MetadataBase) -> Self {
-        self.metadata_base = Some(base);
-        self
     }
 
     /// Set the public mount prefix without changing incoming routes.
@@ -366,10 +314,9 @@ impl<S> Layer<S> for RouteContextLayer {
         RouteContextService {
             inner,
             manifest: self.manifest.clone(),
-            computed_metadata: self.computed_metadata.clone(),
+            route_setups: self.route_setups.clone(),
             local_stream_executor: self.local_stream_executor.clone(),
             base_path: self.base_path.clone(),
-            metadata_base: self.metadata_base.clone(),
         }
     }
 }
@@ -378,10 +325,9 @@ impl<S> Layer<S> for RouteContextLayer {
 pub struct RouteContextService<S> {
     inner: S,
     manifest: Arc<IslandManifest>,
-    computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
+    route_setups: Arc<std::collections::HashMap<String, RouteSetupPlan>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
-    metadata_base: Option<MetadataBase>,
 }
 
 impl<S> Service<axum::http::Request<Body>> for RouteContextService<S>
@@ -411,16 +357,11 @@ where
         let current_uri = req.uri().clone();
         let csp_nonce = req.extensions().get::<CspNonce>().cloned();
 
-        let mut context = RouteContext::new(self.manifest.clone(), self.computed_metadata.clone());
+        let mut context = RouteContext::new(self.manifest.clone(), self.route_setups.clone());
         context.set_is_client_request(is_client_request);
         context.set_current_request_parts(current_method, current_headers, current_uri);
         context.set_csp_nonce(csp_nonce);
         context.base_path = self.base_path.clone();
-        context.metadata_base = req
-            .extensions()
-            .get::<MetadataBase>()
-            .cloned()
-            .or_else(|| self.metadata_base.clone());
 
         let future = self.inner.call(req);
         let scoped = ROUTE_CONTEXT.scope(RefCell::new(context), future);

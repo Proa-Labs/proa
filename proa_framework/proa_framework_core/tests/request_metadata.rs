@@ -1,45 +1,74 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use futures::StreamExt;
+use proa_core::text::{text, StaticRaw};
+use proa_core::{
+    DataLoader, DynLoaderHandle, LoadError, LoadKey, LoadRequest, LoadValue, Metadata, RenderMode,
+    RenderOutcome, RequestContext, RequestLocation, RouteParam, RouteParams, SendWebContext,
+    WebContext, WebRender, WebRenderSend, WebRenderSendSync, WebRenderSync, WriteError,
+};
+use proa_framework_core::{
+    FrameworkBody, FrameworkRequestContext, IslandManifest, Layout, RouteResponse, RouteSetupPlan,
+};
+use proa_stream::{DataResolver, Suspense};
 use std::{
-    borrow::Cow,
     future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
+    time::Duration,
 };
-
-use futures::StreamExt;
-use proa_core::text::{text, StaticRaw};
-use proa_core::{
-    DataLoader, LoadError, LoadKey, LoadRequest, LoadValue, RenderMode, RenderOutcome,
-    RequestContext, RequestLocation, RouteParam, RouteParams, SendWebContext, WebContext,
-    WebRenderSend, WebRenderSync, WriteError,
-};
-use proa_framework_core::{
-    metadata_from_context, render_metadata_head, render_metadata_head_send, CascadeValue::Set,
-    ComputedRouteMeta, FrameworkBody, FrameworkRequestContext, IslandManifest, Metadata,
-    MetadataBase, MetadataContext, MetadataPatch, MetadataResult, OpenGraphPatch, ResolvedMetadata,
-    ResolvedOpenGraphImage, RouteResponse,
-};
-use proa_stream::DataResolver;
 
 struct Site;
-impl Metadata for Site {
-    fn static_metadata(&self) -> Option<MetadataPatch> {
-        Some(MetadataPatch {
-            title: Set("%s | Site".into()),
-            description: Set("inherited".into()),
-            open_graph: OpenGraphPatch {
-                images: Set(Cow::Borrowed(&MEDIA_0)),
-                ..Default::default()
-            },
-            ..Default::default()
+fn site() -> Metadata {
+    Metadata::new()
+        .title("Site")
+        .title_template("%s | Site")
+        .description("inherited")
+        .open_graph(|og| {
+            og.site_name("Site");
+            og.image("https://example.com/default.png");
         })
+}
+impl Layout for Site {
+    fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
+        assert_eq!(cx.param("slug"), Some("one"));
+        assert_eq!(
+            cx.response().streaming_started(),
+            matches!(
+                cx.render_mode(),
+                RenderMode::ChunkedInOrder | RenderMode::ChunkedOutOfOrder
+            )
+        );
+        cx.metadata(site());
+        Ok(())
+    }
+    fn setup_send(&self, cx: &mut SendWebContext<DynLoaderHandle>) -> Result<(), WriteError> {
+        assert_eq!(cx.param("slug"), Some("one"));
+        assert_eq!(
+            cx.response().streaming_started(),
+            matches!(
+                cx.render_mode(),
+                RenderMode::ChunkedInOrder | RenderMode::ChunkedOutOfOrder
+            )
+        );
+        cx.metadata(site());
+        Ok(())
     }
 }
-
+struct Section;
+impl Layout for Section {
+    fn setup(&self, cx: &mut WebContext<DynLoaderHandle>) -> Result<(), WriteError> {
+        cx.metadata(Metadata::new().title_template("%s | Section"));
+        Ok(())
+    }
+    fn setup_send(&self, cx: &mut SendWebContext<DynLoaderHandle>) -> Result<(), WriteError> {
+        cx.metadata(Metadata::new().title_template("%s | Section"));
+        Ok(())
+    }
+}
 struct Post {
     title: String,
 }
@@ -53,110 +82,82 @@ impl DataLoader for PostLoader {
         }))
     }
 }
-
-async fn post_metadata(cx: MetadataContext) -> MetadataResult {
-    let slug = cx.param("slug").unwrap();
-    let post = cx.load_typed::<Post>(LoadKey::named("post", slug)).await?;
-    let lang = cx.request().headers()["accept-language"].to_str().unwrap();
-    let query: Vec<_> = cx
-        .search_params()
-        .map(|(key, value)| (key.into_owned(), value.into_owned()))
-        .collect();
-    assert_eq!(
-        query,
-        [("tag".into(), "a b".into()), ("tag".into(), "c&d".into())]
-    );
-    assert_eq!(cx.parent().description.as_deref(), Some("inherited"));
-    let mut images = cx.parent().open_graph.images.to_vec();
-    images.push(ResolvedOpenGraphImage::new("/post.png"));
-    Ok(MetadataPatch {
-        title: Set(format!("{} {lang}", post.title).into()),
-        description: Set(format!("{slug}\"<>&").into()),
-        canonical: Set(format!("/blog/{slug}").into()),
-        open_graph: OpenGraphPatch {
-            images: Set(Cow::Owned(images)),
-            ..Default::default()
-        },
-        ..Default::default()
-    })
+fn page_metadata(request: &RequestContext, post: &Post) -> Metadata {
+    let lang = request.headers()["accept-language"].to_str().unwrap();
+    let query = request.location().unwrap().query().unwrap();
+    Metadata::new()
+        .title(format!("{} {lang}", post.title))
+        .description(query.to_owned())
+        .canonical("https://staging.example/blog/one")
+        .open_graph(|og| {
+            og.image("https://staging.example/post.png");
+        })
 }
-
 struct PostPage;
-impl<L: DataLoader> proa_core::WebRender<L> for PostPage {
+impl<L: DataLoader> WebRender<L> for PostPage {
     fn render(
         self,
         cx: &mut WebContext<L>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            // The data comes from the same request resolver used by metadata.
-            let slug = cx.request().param("slug").unwrap().to_owned();
-            let post = cx
-                .load_typed::<Post>(LoadKey::named("post", slug))
-                .await
-                .unwrap();
-            assert!(metadata_from_context(cx).is_some());
-            WebRenderSync::render(StaticRaw("<html><head>"), cx)?;
-            render_metadata_head(cx, metadata_from_context(cx).cloned().as_ref().unwrap());
-            WebRenderSync::render(StaticRaw("</head><body>"), cx)?;
+            let key = LoadKey::named("post", cx.param("slug").unwrap());
+            let post = cx.load_typed::<Post>(key).await?;
+            cx.metadata(page_metadata(cx.request(), &post));
+            WebRenderSync::render(StaticRaw("<html><head><!--before-->"), cx)?;
+            WebRenderSync::render(cx.metadata.head(), cx)?;
+            WebRenderSync::render(StaticRaw("<!--after--></head><body>"), cx)?;
+            cx.metadata(Metadata::new().clear_title().description("late"));
+            assert_eq!(cx.metadata.rejections(), 1);
             WebRenderSync::render(text(post.title.as_str()), cx)?;
             WebRenderSync::render(StaticRaw("</body></html>"), cx)
         })
     }
 }
-
 impl<L: DataLoader> WebRenderSend<L> for PostPage {
     fn render_send(
         self,
         cx: &mut SendWebContext<L>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
-            let slug = cx.request().param("slug").unwrap().to_owned();
-            let post = cx
-                .load_typed::<Post>(LoadKey::named("post", slug))
-                .await
-                .unwrap();
-            let metadata = cx
-                .request()
-                .extensions()
-                .get::<Arc<ResolvedMetadata>>()
-                .unwrap()
-                .clone();
-            cx.__proa_with_stateless_context(|local| StaticRaw("<html><head>").render(local))?;
-            render_metadata_head_send(cx, &metadata);
-            cx.__proa_with_stateless_context(|local| {
-                StaticRaw("</head><body>").render(local)?;
-                text(post.title.as_str()).render(local)?;
-                StaticRaw("</body></html>").render(local)
-            })
+            let key = LoadKey::named("post", cx.param("slug").unwrap());
+            let post = cx.load_typed::<Post>(key).await?;
+            cx.metadata(page_metadata(cx.request(), &post));
+            raw_send(cx, "<html><head><!--before-->")?;
+            WebRenderSendSync::render_send_sync(cx.metadata.head(), cx)?;
+            raw_send(cx, "<!--after--></head><body>")?;
+            cx.metadata(Metadata::new().clear_title().description("late"));
+            assert_eq!(cx.metadata.rejections(), 1);
+            post.title.as_str().render_send_sync(cx)?;
+            raw_send(cx, "</body></html>")
         })
     }
 }
-
-fn request(slug: &str, lang: &'static str) -> FrameworkRequestContext {
+fn request() -> FrameworkRequestContext {
     let mut request = RequestContext::new()
         .with_location(RequestLocation::new(
-            "/blog/post?tag=a+b&tag=c%26d".parse().unwrap(),
+            "/blog/one?tag=a&tag=b".parse().unwrap(),
         ))
-        .with_route_params(RouteParams::from_vec(vec![RouteParam::new(
-            "slug",
-            slug.to_owned().into_boxed_str(),
-        )]));
+        .with_route_params(RouteParams::from_vec(vec![RouteParam::new("slug", "one")]));
     request
         .headers_mut()
-        .insert("accept-language", http::HeaderValue::from_static(lang));
-    request
-        .extensions_mut()
-        .insert(MetadataBase::new("https://staging.example/app").unwrap());
-    request.extensions_mut().insert(ComputedRouteMeta::cascade(
-        &ComputedRouteMeta::default(),
-        &[&Site, &post_metadata],
+        .insert("accept-language", http::HeaderValue::from_static("en"));
+    request.extensions_mut().insert(RouteSetupPlan::new(
+        &[&Site, &Section],
+        Some("compatibility title"),
     ));
     FrameworkRequestContext {
         request,
         ..Default::default()
     }
 }
-
+fn manifest() -> IslandManifest {
+    IslandManifest {
+        islands: Default::default(),
+        assets: Default::default(),
+        import_map: Default::default(),
+        ssr_bundle: None,
+    }
+}
 async fn body(response: proa_framework_core::FrameworkResponse) -> String {
     let bytes = match response.body {
         FrameworkBody::Full(bytes) => bytes.to_vec(),
@@ -176,9 +177,8 @@ async fn body(response: proa_framework_core::FrameworkResponse) -> String {
     };
     String::from_utf8(bytes).unwrap()
 }
-
 #[tokio::test]
-async fn metadata_and_page_share_data_in_every_async_delivery_mode() {
+async fn data_is_loaded_once_head_is_immediate_and_late_writes_fail_in_all_modes() {
     for send in [false, true] {
         for mode in [
             RenderMode::Static,
@@ -187,7 +187,7 @@ async fn metadata_and_page_share_data_in_every_async_delivery_mode() {
             RenderMode::ChunkedOutOfOrder,
         ] {
             let calls = Arc::new(AtomicUsize::new(0));
-            let loader = Arc::new(DataResolver::new_typed(Arc::new(PostLoader(calls.clone()))));
+            let loader = DataResolver::request_scope(Arc::new(PostLoader(calls.clone())));
             let response = if send {
                 RouteResponse::ssr_async_send_with_loader(PostPage, loader).with_render_mode(mode)
             } else {
@@ -195,187 +195,283 @@ async fn metadata_and_page_share_data_in_every_async_delivery_mode() {
             };
             let html = body(
                 response
-                    .into_framework_response(&manifest(), &request("one", "en"))
+                    .into_framework_response(&manifest(), &request())
                     .await
                     .unwrap(),
             )
             .await;
             assert!(
-                html.contains("<title>post:one en | Site</title>"),
+                html.contains("<!--before--><title>post:one en | Section</title>"),
                 "{mode:?}, send={send}: {html}"
             );
-            assert!(
-                html.contains("content=\"one&quot;&lt;&gt;&amp;\""),
-                "{html}"
-            );
-            assert!(html.contains("href=\"https://staging.example/app/blog/one\""));
-            assert_eq!(html.matches("property=\"og:image\"").count(), 2);
-            assert!(html.contains("https://staging.example/app/default.png"));
-            assert!(html.contains("https://staging.example/app/post.png"));
-            assert_eq!(calls.load(Ordering::SeqCst), 1, "{mode:?}, send={send}");
+            assert!(html.contains("content=\"tag=a&amp;tag=b\""));
+            assert!(html.contains("href=\"https://staging.example/blog/one\""));
+            assert_eq!(html.matches("property=\"og:image\"").count(), 1);
+            assert!(!html.contains("default.png"));
+            assert!(html.contains("og:site_name\" content=\"Site\""));
+            assert!(!html.contains("og:title"));
+            assert!(!html.contains("late"));
+            assert!(html.find("</title>").unwrap() < html.find("<!--after-->").unwrap());
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
         }
     }
 }
 
-#[tokio::test]
-async fn client_payload_uses_generated_title_and_shares_loader() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let loader = Arc::new(DataResolver::new_typed(Arc::new(PostLoader(calls.clone()))));
-    let response = RouteResponse::ssr_async_with_loader(PostPage, loader)
-        .into_client_payload_framework_response(
-            Some("old title".into()),
-            &manifest(),
-            &request("two", "fr"),
-        )
-        .await;
-    let payload: serde_json::Value = serde_json::from_str(&body(response).await).unwrap();
-    assert_eq!(payload["title"], "post:two fr | Site");
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-}
-
-async fn failing_metadata(_cx: MetadataContext) -> MetadataResult {
-    tokio::task::yield_now().await;
-    Err(proa_framework_core::MetadataError::InvalidBase)
-}
-
-#[tokio::test]
-async fn streaming_metadata_failure_precedes_every_body_chunk() {
-    for send in [false, true] {
-        for mode in [RenderMode::ChunkedInOrder, RenderMode::ChunkedOutOfOrder] {
-            let mut request = FrameworkRequestContext::default();
-            request
-                .request
-                .extensions_mut()
-                .insert(ComputedRouteMeta::cascade(
-                    &ComputedRouteMeta::default(),
-                    &[&failing_metadata],
-                ));
-            let response = if send {
-                RouteResponse::ssr_stream_send(())
-            } else {
-                RouteResponse::ssr_stream(())
-            }
-            .with_render_mode(mode);
-            let response = response
-                .into_stream_framework_response(&manifest(), &request)
-                .unwrap();
-            let FrameworkBody::Stream(factory) = response.body else {
-                panic!("expected stream")
-            };
-            let chunks = match factory {
-                proa_framework_core::FrameworkStreamFactory::Local(make) => {
-                    make().collect::<Vec<_>>().await
-                }
-                proa_framework_core::FrameworkStreamFactory::Send(make) => {
-                    make().collect::<Vec<_>>().await
-                }
-            };
-            assert_eq!(chunks.len(), 1);
-            assert!(chunks[0].is_err());
-        }
-    }
-}
-
-static MEDIA_0: [ResolvedOpenGraphImage; 1] = [ResolvedOpenGraphImage::new("/default.png")];
-
-fn manifest() -> IslandManifest {
-    IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: None,
-    }
-}
-
-struct ClearTitle;
-impl Metadata for ClearTitle {
-    fn static_metadata(&self) -> Option<MetadataPatch> {
-        Some(MetadataPatch {
-            title: proa_framework_core::CascadeValue::Tombstone,
-            ..Default::default()
-        })
-    }
-}
-
-#[tokio::test]
-async fn client_payload_does_not_restore_a_cleared_title_from_fallback() {
-    let mut request = FrameworkRequestContext::default();
-    request
-        .request
-        .extensions_mut()
-        .insert(ComputedRouteMeta::cascade(
-            &ComputedRouteMeta::default(),
-            &[&ClearTitle],
-        ));
-    let response = RouteResponse::ssr(())
-        .into_client_payload_framework_response(Some("stale title".into()), &manifest(), &request)
-        .await;
-    let payload: serde_json::Value = serde_json::from_str(&body(response).await).unwrap();
-    assert!(payload.get("title").is_none());
-}
-
-struct MetadataBoundary {
-    expected: Arc<ResolvedMetadata>,
-    seen: Arc<AtomicUsize>,
-}
-impl<L: DataLoader> proa_core::WebRender<L> for MetadataBoundary {
+struct Intruder(Duration);
+impl<L: DataLoader> WebRender<L> for Intruder {
     fn render(
         self,
         cx: &mut WebContext<L>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            tokio::task::yield_now().await;
-            let current = cx
-                .request()
-                .extensions()
-                .get::<Arc<ResolvedMetadata>>()
-                .unwrap();
-            assert!(Arc::ptr_eq(current, &self.expected));
-            self.seen.fetch_add(1, Ordering::SeqCst);
-            WebRenderSync::render(text(self.expected.title.as_deref().unwrap()), cx)
+            tokio::time::sleep(self.0).await;
+            let previous_rejections = cx.metadata.rejections();
+            cx.metadata(Metadata::new().title("intruder"));
+            WebRenderSync::render(cx.metadata.head(), cx)?;
+            assert_eq!(cx.metadata.rejections(), previous_rejections + 2);
+            WebRenderSync::render(StaticRaw("<p>branch</p>"), cx)
         })
     }
 }
-
-struct BoundaryPage {
-    seen: Arc<AtomicUsize>,
+impl<L: DataLoader> WebRenderSend<L> for Intruder {
+    fn render_send(
+        self,
+        cx: &mut SendWebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move {
+            tokio::time::sleep(self.0).await;
+            let previous_rejections = cx.metadata.rejections();
+            cx.metadata(Metadata::new().title("intruder"));
+            cx.metadata.head().render_send_sync(cx)?;
+            assert_eq!(cx.metadata.rejections(), previous_rejections + 2);
+            raw_send(cx, "<p>branch</p>")
+        })
+    }
 }
-impl<L: DataLoader + 'static> proa_core::WebRender<L> for BoundaryPage {
+struct Fallback;
+impl<L: DataLoader> WebRenderSync<L> for Fallback {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        cx.metadata(Metadata::new().title("fallback"));
+        WebRenderSync::render(cx.metadata.head(), cx)?;
+        WebRenderSync::render(StaticRaw("<p>fallback</p>"), cx)
+    }
+}
+impl<L: DataLoader> WebRenderSend<L> for Fallback {
+    fn render_send(
+        self,
+        cx: &mut SendWebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        cx.metadata(Metadata::new().title("fallback"));
+        let result = cx
+            .metadata
+            .head()
+            .render_send_sync(cx)
+            .and_then(|()| raw_send(cx, "<p>fallback</p>"));
+        RenderOutcome::<std::future::Ready<_>>::Done(result)
+    }
+}
+struct BranchPage(bool);
+impl<L: DataLoader + 'static> WebRender<L> for BranchPage {
     fn render(
         self,
         cx: &mut WebContext<L>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
-        let expected = cx
-            .request()
-            .extensions()
-            .get::<Arc<ResolvedMetadata>>()
-            .unwrap()
-            .clone();
-        proa_core::WebRender::render(
-            proa_stream::Suspense::new(
-                MetadataBoundary {
-                    expected,
-                    seen: self.seen,
-                },
-                (),
-            ),
-            cx,
-        )
+        RenderOutcome::pending(async move {
+            cx.metadata(Metadata::new().title("owner"));
+            for delay in if self.0 { [0, 3] } else { [3, 0] } {
+                proa_core::render_child(
+                    cx,
+                    Suspense::new(Intruder(Duration::from_millis(delay)), Fallback),
+                )
+                .await?;
+            }
+            WebRenderSync::render(cx.metadata.head(), cx)
+        })
+    }
+}
+impl<L: DataLoader + 'static> WebRenderSend<L> for BranchPage {
+    fn render_send(
+        self,
+        cx: &mut SendWebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move {
+            cx.metadata(Metadata::new().title("owner"));
+            for delay in if self.0 { [0, 3] } else { [3, 0] } {
+                proa_core::render_send_child(
+                    cx,
+                    Suspense::new(Intruder(Duration::from_millis(delay)), Fallback),
+                )
+                .await?;
+            }
+            cx.metadata.head().render_send_sync(cx)
+        })
+    }
+}
+#[tokio::test]
+async fn suspense_children_and_fallbacks_cannot_declare_or_emit_even_before_owner_head() {
+    for mode in [
+        RenderMode::Static,
+        RenderMode::ChunkedInOrder,
+        RenderMode::ChunkedOutOfOrder,
+    ] {
+        for send in [false, true] {
+            for reverse in [false, true] {
+                let response = if send {
+                    RouteResponse::ssr_async_send(BranchPage(reverse)).with_render_mode(mode)
+                } else {
+                    RouteResponse::ssr_async(BranchPage(reverse)).with_render_mode(mode)
+                };
+                let html = body(
+                    response
+                        .into_framework_response(&manifest(), &FrameworkRequestContext::default())
+                        .await
+                        .unwrap(),
+                )
+                .await;
+                assert_eq!(
+                    html.matches("<title>").count(),
+                    1,
+                    "{mode:?}, send={send}: {html}"
+                );
+                assert!(html.contains("<title>owner</title>"));
+                assert!(!html.contains("intruder"));
+            }
+        }
     }
 }
 
+fn raw_send<L: DataLoader>(
+    cx: &mut SendWebContext<L>,
+    value: &'static str,
+) -> Result<(), WriteError> {
+    cx.__proa_with_stateless_context(|local| WebRenderSync::render(StaticRaw(value), local))
+}
+
+struct FailingPage;
+impl WebRenderSync for FailingPage {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.metadata(Metadata::new().title("failed document"));
+        WebRenderSync::render(cx.metadata.head(), cx)?;
+        Err(WriteError::OutOfCapacity)
+    }
+}
+struct ReplacementPage;
+impl WebRenderSync for ReplacementPage {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.metadata(Metadata::new().title("replacement"));
+        WebRenderSync::render(cx.metadata.head(), cx)
+    }
+}
 #[tokio::test]
-async fn deferred_boundary_keeps_the_same_resolved_metadata_snapshot() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let loader = Arc::new(DataResolver::new_typed(Arc::new(PostLoader(calls.clone()))));
-    let seen = Arc::new(AtomicUsize::new(0));
-    let response =
-        RouteResponse::ssr_stream_with_loader(BoundaryPage { seen: seen.clone() }, loader)
-            .with_render_mode(RenderMode::ChunkedOutOfOrder)
-            .into_stream_framework_response(&manifest(), &request("late", "en"))
+async fn failed_buffered_documents_discard_metadata_and_replacement_uses_fresh_state() {
+    let failed = RouteResponse::ssr(FailingPage)
+        .into_framework_response(&manifest(), &FrameworkRequestContext::default())
+        .await;
+    assert!(failed.is_err());
+    let replacement = RouteResponse::ssr(ReplacementPage)
+        .into_framework_response(&manifest(), &FrameworkRequestContext::default())
+        .await
+        .unwrap();
+    assert_eq!(body(replacement).await, "<title>replacement</title>");
+}
+
+struct Fragment;
+impl WebRenderSync for Fragment {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.metadata(Metadata::new().title("no ambient head"));
+        WebRenderSync::render(cx.metadata.head(), cx)?;
+        assert_eq!(cx.metadata.rejections(), 2);
+        WebRenderSync::render(StaticRaw("<p>fragment</p>"), cx)
+    }
+}
+#[tokio::test]
+async fn fragments_do_not_run_document_layouts_or_generate_head_patches() {
+    let mut request = FrameworkRequestContext::default();
+    // Site would fail its request assertions if fragment finalization ran setup.
+    request
+        .request
+        .extensions_mut()
+        .insert(RouteSetupPlan::new(&[&Site], None));
+    let response = RouteResponse::ssr(Fragment)
+        .into_client_payload_framework_response(None, &manifest(), &request)
+        .await;
+    let json: serde_json::Value = serde_json::from_str(&body(response).await).unwrap();
+    assert_eq!(json["html"], "<p>fragment</p>");
+    assert!(json.get("title").is_none());
+}
+
+struct SlowBody(Arc<tokio::sync::Notify>);
+impl WebRender for SlowBody {
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            cx.metadata(Metadata::new().title("head before slow body"));
+            WebRenderSync::render(cx.metadata.head(), cx)?;
+            cx.flush_stream_chunk()?;
+            self.0.notified().await;
+            WebRenderSync::render(StaticRaw("<p>slow body</p>"), cx)
+        })
+    }
+}
+impl WebRenderSend for SlowBody {
+    fn render_send(
+        self,
+        cx: &mut SendWebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move {
+            cx.metadata(Metadata::new().title("head before slow body"));
+            cx.metadata.head().render_send_sync(cx)?;
+            cx.flush_stream_chunk()?;
+            self.0.notified().await;
+            raw_send(cx, "<p>slow body</p>")
+        })
+    }
+}
+#[tokio::test]
+async fn head_can_be_delivered_while_unrelated_body_data_is_still_pending() {
+    for send in [false, true] {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let page = SlowBody(release.clone());
+        let response = if send {
+            RouteResponse::ssr_stream_send(page)
+        } else {
+            RouteResponse::ssr_stream(page)
+        }
+        .with_render_mode(RenderMode::ChunkedInOrder);
+        let response = response
+            .into_framework_response(&manifest(), &FrameworkRequestContext::default())
+            .await
             .unwrap();
-    let html = body(response).await;
-    assert!(html.contains("data-proa-encoding=\"base64-v1\""));
-    assert_eq!(seen.load(Ordering::SeqCst), 1);
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let mut stream: std::pin::Pin<
+            Box<
+                dyn futures::Stream<
+                    Item = Result<bytes::Bytes, proa_framework_core::FrameworkError>,
+                >,
+            >,
+        > = match response.body {
+            FrameworkBody::Stream(proa_framework_core::FrameworkStreamFactory::Local(make)) => {
+                Box::pin(make())
+            }
+            FrameworkBody::Stream(proa_framework_core::FrameworkStreamFactory::Send(make)) => {
+                Box::pin(make())
+            }
+            _ => panic!("expected streaming response"),
+        };
+        let first = tokio::time::timeout(Duration::from_secs(1), stream.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(&first[..], b"<title>head before slow body</title>");
+        release.notify_one();
+        let rest: Vec<_> = stream.collect().await;
+        assert!(rest
+            .into_iter()
+            .flat_map(Result::unwrap)
+            .collect::<Vec<_>>()
+            .windows(b"<p>slow body</p>".len())
+            .any(|bytes| bytes == b"<p>slow body</p>"));
+    }
 }
