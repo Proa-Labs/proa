@@ -133,4 +133,4 @@ impl Metadata for PricingMeta {
 }
 ```
 
-`TwitterCard::Summary` is the default card when Twitter tags are requested and no image is available. `TwitterCard::SummaryLargeImage` is the default when an image comes from Twitter metadata or Open Graph. Tombstoning `twitter.image` clears a Twitter-specific image so the first Open Graph image is used again.
+`TwitterCard::Summary` is the default card when Twitter tags are requested and no image is available. `TwitterCard::SummaryLargeImage` is the default when an image comes from Twitter metadata or Open Graph. An explicit `summary_large_image` card is also written as `summary` when the resolved page has no Twitter or Open Graph image. Tombstoning `twitter.image` clears a Twitter-specific image so the first Open Graph image is used again, and does not drop the rest of the Twitter tags.
