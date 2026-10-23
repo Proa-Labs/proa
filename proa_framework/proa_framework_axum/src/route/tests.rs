@@ -225,6 +225,61 @@ async fn dynamic_route_metadata_keeps_open_graph_image_and_twitter_card() {
     assert!(html.contains("name=\"twitter:image:alt\" content=\"Preview\""));
 }
 
+/// Streamed documents render after the handler returns and the route
+/// context is gone, so the head must come from the metadata resolved for the
+/// response, not from the route context.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn metadata_head_renders_for_sync_async_and_streamed_documents() {
+    let routes = vec![Route::layout(
+        "/",
+        &MetadataLayout,
+        vec![
+            Route::endpoint("sync", get(|| async { RouteResponse::ssr(MetadataPage) }))
+                .with_metadata(&PageMetadata),
+            Route::endpoint(
+                "async",
+                get(|| async { RouteResponse::ssr_async(proa_core::to_async(MetadataPage)) }),
+            )
+            .with_metadata(&PageMetadata),
+            Route::endpoint(
+                "stream",
+                get(|| async { RouteResponse::ssr_stream(proa_core::to_async(MetadataPage)) }),
+            )
+            .with_metadata(&PageMetadata),
+        ],
+    )
+    .with_metadata(&BaseMetadata)];
+
+    let manifest = Arc::new(IslandManifest {
+        islands: Default::default(),
+        assets: Default::default(),
+        import_map: Default::default(),
+        ssr_bundle: Default::default(),
+    });
+    let (router, computed_metadata) = router_from_spec(routes);
+    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+
+    for path in ["/sync", "/async", "/stream"] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("<title>Page Title</title>"), "{path}: {html}");
+        assert!(
+            html.contains("property=\"og:image\" content=\"https://example.com/page.png\""),
+            "{path}: {html}"
+        );
+        assert!(
+            html.contains("name=\"twitter:card\" content=\"summary_large_image\""),
+            "{path}: {html}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn page_owned_cache_survives_endpoint_replacement_and_router_merge() {
     use crate::{FrameworkBuilder, PageCacheLayer};

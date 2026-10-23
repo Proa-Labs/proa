@@ -32,6 +32,13 @@ All notable public changes are tracked here.
   page that sets its own image no longer renders its layout's image first.
   To keep the layout's images, list them again in the page's slice.
 
+- Streamed documents (`RouteResponse::ssr_stream`) render their metadata
+  head. They render after the handler returns, when the route context
+  `render_metadata_head` read from is gone, so their `<head>` had no title,
+  description, Open Graph, or Twitter tags. A `RouteResponse` now resolves the
+  metadata before rendering and stores it on the render context.
+  `FrameworkRequestContext` gains a public `metadata` field.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while

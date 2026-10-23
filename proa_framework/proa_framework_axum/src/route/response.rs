@@ -22,6 +22,7 @@ use tracing::error;
 
 use super::context::{RouteContext, ROUTE_CONTEXT};
 use super::local_executor::{LocalStreamExecutor, LocalStreamPrepareError};
+use super::metadata::route_metadata;
 pub use proa_framework_core::{
     drive_dyn_render, drive_dyn_send_render, DynRenderOutcome, DynSendRenderOutcome, DynWebRender,
     DynWebRenderSend,
@@ -400,6 +401,7 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
         route_params,
         render_mode: RenderMode::Static,
         csp_nonce: ctx.csp_nonce().cloned(),
+        metadata: None,
     }
 }
 
@@ -417,9 +419,15 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
                     let mut ctx_ref = ctx.borrow_mut();
                     let manifest = ctx_ref.manifest_arc();
                     let is_client = ctx_ref.is_client_request();
-                    let request = framework_request_context(&ctx_ref);
+                    let mut request = framework_request_context(&ctx_ref);
+                    // Resolve head metadata now, while the route context is
+                    // installed: streamed documents render after it is gone.
+                    request.metadata = route_metadata(&mut ctx_ref).map(Arc::new);
                     let page_title = if is_client {
-                        ctx_ref.resolve_metadata().and_then(|meta| meta.title)
+                        request
+                            .metadata
+                            .as_ref()
+                            .and_then(|meta| meta.title.clone())
                     } else {
                         None
                     };

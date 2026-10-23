@@ -280,7 +280,7 @@ impl ComputedRouteMeta {
 }
 
 /// Resolved metadata from a stack of metadata providers.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ResolvedMetadata {
     pub title: Option<String>,
     pub description: Option<&'static str>,
@@ -649,7 +649,7 @@ pub struct ComputedOpenGraph {
 }
 
 /// Resolved Open Graph metadata ready for rendering.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ResolvedOpenGraph {
     pub title: Option<String>,
     pub description: Option<String>,
@@ -664,7 +664,7 @@ pub struct ResolvedOpenGraph {
     pub video: Vec<ResolvedOpenGraphMedia>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ResolvedOpenGraphImage {
     pub url: String,
     pub secure_url: Option<String>,
@@ -688,7 +688,7 @@ impl ResolvedOpenGraphImage {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ResolvedOpenGraphMedia {
     pub url: String,
     pub secure_url: Option<String>,
