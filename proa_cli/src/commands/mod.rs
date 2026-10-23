@@ -40,6 +40,8 @@ use clap::Subcommand;
 pub(crate) enum Command {
     /// Update the installed Proa CLI and Cargo subcommand together.
     Update(update::UpdateArgs),
+    #[command(name = "install-self", hide = true)]
+    InstallSelf(update::InstallSelfArgs),
     /// Initialize proa.config.json and proa.lock.json in an existing project.
     Init(init::InitArgs),
     /// Inspect and validate proa.config.json.
@@ -92,6 +94,7 @@ pub(crate) enum Command {
 pub(crate) fn dispatch(command: Command) -> Result<()> {
     match command {
         Command::Update(args) => update::run(args),
+        Command::InstallSelf(args) => update::install_self(args),
         Command::Init(args) => init::run(args),
         Command::Config(args) => config::run(args),
         Command::Add(args) => add::run(args),

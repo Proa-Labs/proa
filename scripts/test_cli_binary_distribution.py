@@ -349,6 +349,7 @@ foreach ($name in @('Get-SourceInstallArguments', 'Install-FromSource')) {
 }
 function Get-CargoBinDir { return '/tmp/cargo/bin' }
 function Test-CommandExists { return $true }
+function Test-EnvFlag { return $false }
 function Set-PreviousVersion {}
 function Write-LogSection {}
 function Write-StepStart {}

@@ -2409,6 +2409,8 @@ function Install-FromSource {
           [string]$VersionText, [bool]$BuildFromSource = $false)
 
     $cargoBin = Get-CargoBinDir
+    $standalone = Test-EnvFlag 'PROA_STANDALONE_SOURCE'
+    $cargoRoot = ''
 
     if (-not (Test-CommandExists 'cargo')) {
         Stop-Install 'building from source needs cargo, and it is not on PATH' @(
@@ -2420,12 +2422,12 @@ function Install-FromSource {
     # cargo install always writes to cargo's own bin directory, so a requested
     # directory cannot be honoured on this path.
     $sameDir = [string]::Equals($cargoBin.TrimEnd('\', '/'), $BinDir.TrimEnd('\', '/'), [System.StringComparison]::OrdinalIgnoreCase)
-    if ($DirWasExplicit -and -not $sameDir) {
+    if (-not $standalone -and $DirWasExplicit -and -not $sameDir) {
         Write-Warn ('cargo installs into ' + $cargoBin + ', so the requested directory ' + $BinDir + ' was not used')
     }
     # Any existing install that matters here is cargo's, so re-read the previous
     # version from there before the build overwrites it.
-    Set-PreviousVersion $cargoBin
+    if (-not $standalone) { Set-PreviousVersion $cargoBin }
 
     Write-LogSection 'install'
     Write-StepStart 'building' 'proa-cli from source, this takes several minutes'
@@ -2438,6 +2440,11 @@ function Install-FromSource {
     }
     try {
         $arguments = @(Get-SourceInstallArguments $Repository $VersionText $BuildFromSource)
+        if ($standalone) {
+            $cargoRoot = Join-Path ([IO.Path]::GetTempPath()) ('proa-source-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $cargoRoot -Force | Out-Null
+            $arguments += @('--root', $cargoRoot, '--force')
+        }
         if ($arguments -contains '--registry') {
             Write-KeyValue 'source' 'crates.io/proa-cli (built on this machine)'
         } else {
@@ -2445,10 +2452,18 @@ function Install-FromSource {
         }
         Write-LogLine 'INFO' ('running: cargo ' + ($arguments -join ' '))
         $code = Invoke-NativeCommand 'cargo' $arguments
+        if ($standalone -and $code -eq 0) {
+            if (-not (Publish-ProaBundle (Join-Path $cargoRoot 'bin') $BinDir $VersionText)) {
+                Stop-Install 'the standalone helper is unavailable'
+            }
+            $script:FilesWritten = $true
+            return (Join-Path $BinDir 'proa.exe')
+        }
     } finally {
         if ([string]::IsNullOrEmpty($callerFetch)) {
             Remove-Item -LiteralPath 'Env:\CARGO_NET_GIT_FETCH_WITH_CLI' -ErrorAction SilentlyContinue
         }
+        if ($standalone -and $cargoRoot) { Remove-TempDirectory $cargoRoot }
     }
     if ($code -ne 0) {
         Stop-Install 'cargo install failed' @(
@@ -2462,6 +2477,51 @@ function Install-FromSource {
     Write-Blank
     Write-StepOk 'installed' ('proa, cargo-proa into ' + (Get-DisplayPath $cargoBin))
     return (Join-Path $cargoBin 'proa.exe')
+}
+
+function Publish-ProaBundle {
+    param([string]$Source, [string]$BinDir, [string]$VersionText)
+    $helper = Get-EnvValue 'PROA_INSTALL_HELPER'
+    $bootstrap = ''
+    try {
+        if ([string]::IsNullOrEmpty($helper)) {
+            # Execute bootstrap binaries from the installation filesystem.
+            $bootstrap = Join-Path ($BinDir + '.proa') ('.bootstrap-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $bootstrap -Force | Out-Null
+            foreach ($name in @('proa.exe', 'cargo-proa.exe')) {
+                Copy-Item -LiteralPath (Join-Path $Source $name) -Destination (Join-Path $bootstrap $name)
+                $candidate = Join-Path $bootstrap $name
+                $probe = & {
+                    $ErrorActionPreference = 'Continue'
+                    $text = & $candidate --version 2>&1
+                    [pscustomobject]@{ Code = (Get-LastExitCode); Text = (($text | Out-String).Trim()) }
+                }
+                if ($probe.Code -ne 0 -or ($VersionText -and $probe.Text -cne ('proa ' + $VersionText))) {
+                    Stop-Install 'the downloaded CLI cannot run or reports the wrong version; retry with -BuildFromSource. The installed CLI was not changed.'
+                }
+            }
+            $helper = Join-Path $bootstrap 'proa.exe'
+            $helpText = Invoke-NativeCapture $helper @('install-self', '--help')
+            if ($helpText -notmatch '--bin-dir') {
+                if (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $BinDir) '.crates.toml')) {
+                    Stop-Install 'this is a Cargo installation directory; install Proa with cargo install --locked proa-cli'
+                }
+                if (Test-Path -LiteralPath (Join-Path ($BinDir + '.proa') 'proa-install.json')) {
+                    Stop-Install 'this release needs a newer installer helper; update from the current managed CLI'
+                }
+                return $false
+            }
+        }
+        $arguments = @('install-self', '--source', $Source, '--bin-dir', $BinDir)
+        if ($VersionText) { $arguments += @('--expected-version', $VersionText) }
+        if ($script:BundleAllowDowngrade) { $arguments += '--allow-downgrade' }
+        if ((Invoke-NativeCommand $helper $arguments) -ne 0) {
+            Stop-Install 'could not publish the Proa bundle; the previous selection was preserved'
+        }
+        return $true
+    } finally {
+        if ($bootstrap) { Remove-TempDirectory $bootstrap }
+    }
 }
 
 # Returns the path of the installed proa.exe, or an empty string when there is
@@ -2563,8 +2623,10 @@ function Install-FromRelease {
                 $_.Exception.Message)
         }
 
-        Copy-Binary (Join-Path $sourceDir 'proa.exe') (Join-Path $BinDir 'proa.exe')
-        Copy-Binary (Join-Path $sourceDir 'cargo-proa.exe') (Join-Path $BinDir 'cargo-proa.exe')
+        if (-not (Publish-ProaBundle $sourceDir $BinDir $VersionText)) {
+            Copy-Binary (Join-Path $sourceDir 'proa.exe') (Join-Path $BinDir 'proa.exe')
+            Copy-Binary (Join-Path $sourceDir 'cargo-proa.exe') (Join-Path $BinDir 'cargo-proa.exe')
+        }
         Write-StepOk 'installed' ('proa, cargo-proa into ' + (Get-DisplayPath $BinDir))
     } finally {
         Remove-TempDirectory $tempDir
@@ -2696,6 +2758,8 @@ function Invoke-Main {
         $homeSource = 'default'
     }
     Write-Setting 'PROA_HOME' $proaHome $homeSource
+    $script:BundleAllowDowngrade = -not [string]::IsNullOrEmpty($requestedVersion)
+    if (Get-EnvValue 'PROA_INSTALL_HELPER') { $script:BundleAllowDowngrade = Test-EnvFlag 'PROA_ALLOW_DOWNGRADE' }
 
     $dirWasExplicit = $false
     $binDir = $ToArg
