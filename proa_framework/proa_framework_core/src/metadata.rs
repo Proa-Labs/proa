@@ -14,6 +14,8 @@ use std::{borrow::Cow, future::Future, pin::Pin, sync::Arc};
 
 pub type MetadataRef = &'static dyn DynMetadata;
 pub type MetadataText = Cow<'static, str>;
+/// Result returned by an async metadata function.
+pub type MetadataResult = Result<MetadataPatch, MetadataError>;
 
 /// Override, explicitly clear, or inherit a field. Lists replace on `Set`;
 /// extend a parent's list explicitly in a generated patch when needed.
@@ -102,31 +104,37 @@ pub enum MetadataError {
     Generate(#[from] anyhow::Error),
 }
 
-/// Read-only request and loader access for metadata generation.
-///
-/// The framework borrows these inputs from the page's render context. Authors
-/// receive `&dyn MetadataContext`; they do not need lifetime parameters or a
-/// separate request/loader instance.
-pub trait MetadataContext: Sync {
-    fn request(&self) -> &RequestContext;
-    fn loader(&self) -> &dyn DynDataLoader;
+/// Inputs to a plain async metadata function. The request and loader are
+/// shared with the page; inherited metadata is available through `parent()`.
+pub struct MetadataContext {
+    request: Arc<RequestContext>,
+    loader: Arc<dyn DynDataLoader>,
+    parent: ResolvedMetadata,
 }
 
-struct MetadataInputs<'a> {
-    request: &'a RequestContext,
-    loader: &'a dyn DynDataLoader,
-}
-
-impl MetadataContext for MetadataInputs<'_> {
-    fn request(&self) -> &RequestContext {
-        self.request
+impl MetadataContext {
+    pub fn new(
+        request: Arc<RequestContext>,
+        loader: Arc<dyn DynDataLoader>,
+        parent: ResolvedMetadata,
+    ) -> Self {
+        Self {
+            request,
+            loader,
+            parent,
+        }
     }
-    fn loader(&self) -> &dyn DynDataLoader {
-        self.loader
-    }
-}
 
-impl dyn MetadataContext + '_ {
+    pub fn request(&self) -> &RequestContext {
+        &self.request
+    }
+    pub fn parent(&self) -> &ResolvedMetadata {
+        &self.parent
+    }
+    pub fn loader(&self) -> &dyn DynDataLoader {
+        self.loader.as_ref()
+    }
+
     pub fn param(&self, name: &str) -> Option<&str> {
         self.request().param(name)
     }
@@ -187,52 +195,40 @@ impl dyn MetadataContext + '_ {
     }
 }
 
-/// Author request-aware metadata with a normal `async fn` implementation.
+/// Compatibility provider for static metadata and stateful providers.
+///
+/// Application metadata can be a plain async function; it is registered through
+/// the blanket implementation below, without an implementation block or trait
+/// object in its signature.
 ///
 /// ```
 /// use proa_core::LoadKey;
-/// use proa_framework_core::{
-///     CascadeValue, Metadata, MetadataContext, MetadataError, MetadataPatch,
-///     ResolvedMetadata,
-/// };
+/// use proa_framework_core::{CascadeValue, MetadataContext, MetadataPatch, MetadataResult};
 ///
-/// struct PostMetadata;
-/// impl Metadata for PostMetadata {
-///     async fn generate_metadata(
-///         &self,
-///         cx: &dyn MetadataContext,
-///         _parent: &ResolvedMetadata,
-///     ) -> Result<MetadataPatch, MetadataError> {
-///         let slug = cx.param("slug").unwrap_or_default();
-///         let title = cx.load_typed::<String>(LoadKey::named("post", slug)).await?;
-///         Ok(MetadataPatch {
-///             title: CascadeValue::Set(title.as_str().to_owned().into()),
-///             ..Default::default()
-///         })
-///     }
+/// async fn generate_metadata(cx: MetadataContext) -> MetadataResult {
+///     let slug = cx.param("slug").unwrap_or_default();
+///     let title = cx.load_typed::<String>(LoadKey::named("post", slug)).await?;
+///     Ok(MetadataPatch {
+///         title: CascadeValue::Set(title.as_str().to_owned().into()),
+///         ..Default::default()
+///     })
 /// }
 /// ```
-///
-/// The return-position `Send` bound lets authors write `async fn` while the
-/// framework retains the proof needed by Send response streams. Use
-/// [`LocalMetadata`] for a generator that awaits request-local futures.
 pub trait Metadata: Send + Sync + 'static {
     fn static_metadata(&self) -> Option<MetadataPatch> {
         None
     }
 
-    /// Optional immediate hook; the default async generator calls it.
-    fn metadata(&self, _cx: &dyn MetadataContext, _parent: &ResolvedMetadata) -> MetadataPatch {
+    fn metadata(&self, _cx: &MetadataContext) -> MetadataPatch {
         self.static_metadata()
             .unwrap_or_else(|| legacy_metadata_patch(self))
     }
 
     fn generate_metadata(
         &self,
-        cx: &dyn MetadataContext,
-        parent: &ResolvedMetadata,
-    ) -> impl Future<Output = Result<MetadataPatch, MetadataError>> + Send {
-        async move { Ok(self.metadata(cx, parent)) }
+        cx: MetadataContext,
+    ) -> impl Future<Output = MetadataResult> + Send {
+        async move { Ok(self.metadata(&cx)) }
     }
 
     // Compatibility for existing static providers.
@@ -250,6 +246,16 @@ pub trait Metadata: Send + Sync + 'static {
     }
 }
 
+impl<F, Fut> Metadata for F
+where
+    F: Fn(MetadataContext) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = MetadataResult> + Send,
+{
+    async fn generate_metadata(&self, cx: MetadataContext) -> MetadataResult {
+        self(cx).await
+    }
+}
+
 /// Metadata generator whose future may retain request-local, non-Send state.
 /// Register it through [`local_metadata`]. Ordinary generators implement
 /// [`Metadata`] and can serve both local and Send responses.
@@ -259,18 +265,33 @@ pub trait LocalMetadata: Send + Sync + 'static {
         None
     }
 
-    async fn generate_metadata(
-        &self,
-        cx: &dyn MetadataContext,
-        parent: &ResolvedMetadata,
-    ) -> Result<MetadataPatch, MetadataError>;
+    async fn generate_metadata(&self, cx: MetadataContext) -> MetadataResult;
+}
+
+impl<F, Fut> LocalMetadata for F
+where
+    F: Fn(MetadataContext) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = MetadataResult>,
+{
+    async fn generate_metadata(&self, cx: MetadataContext) -> MetadataResult {
+        self(cx).await
+    }
 }
 
 /// Explicit local-future registration adapter. It does not allocate or spawn.
 pub struct LocalMetadataProvider<T>(T);
 
-pub const fn local_metadata<T: LocalMetadata>(provider: T) -> LocalMetadataProvider<T> {
-    LocalMetadataProvider(provider)
+impl<T> LocalMetadataProvider<T> {
+    pub const fn new(provider: T) -> Self {
+        Self(provider)
+    }
+}
+
+/// Register a local async function once while constructing the route tree.
+/// Stateful providers are retained for the route's lifetime; zero-sized
+/// function items require no heap allocation.
+pub fn local_metadata<T: LocalMetadata>(provider: T) -> &'static LocalMetadataProvider<T> {
+    Box::leak(Box::new(LocalMetadataProvider::new(provider)))
 }
 
 /// Object-safe storage adapter for heterogeneous route providers.
@@ -279,11 +300,7 @@ pub const fn local_metadata<T: LocalMetadata>(provider: T) -> LocalMetadataProvi
 pub trait DynMetadata: Send + Sync + 'static {
     fn static_metadata_dyn(&self) -> Option<MetadataPatch>;
     fn legacy_metadata_dyn(&self) -> MetadataPatch;
-    fn generate_metadata_dyn<'a>(
-        &'a self,
-        cx: &'a dyn MetadataContext,
-        parent: &'a ResolvedMetadata,
-    ) -> DynMetadataFuture<'a>;
+    fn generate_metadata_dyn<'a>(&'a self, cx: MetadataContext) -> DynMetadataFuture<'a>;
 }
 
 impl<T: Metadata> DynMetadata for T {
@@ -293,12 +310,8 @@ impl<T: Metadata> DynMetadata for T {
     fn legacy_metadata_dyn(&self) -> MetadataPatch {
         legacy_metadata_patch(self)
     }
-    fn generate_metadata_dyn<'a>(
-        &'a self,
-        cx: &'a dyn MetadataContext,
-        parent: &'a ResolvedMetadata,
-    ) -> DynMetadataFuture<'a> {
-        DynMetadataFuture::Send(Box::pin(self.generate_metadata(cx, parent)))
+    fn generate_metadata_dyn<'a>(&'a self, cx: MetadataContext) -> DynMetadataFuture<'a> {
+        DynMetadataFuture::Send(Box::pin(Metadata::generate_metadata(self, cx)))
     }
 }
 
@@ -309,12 +322,8 @@ impl<T: LocalMetadata> DynMetadata for LocalMetadataProvider<T> {
     fn legacy_metadata_dyn(&self) -> MetadataPatch {
         MetadataPatch::default()
     }
-    fn generate_metadata_dyn<'a>(
-        &'a self,
-        cx: &'a dyn MetadataContext,
-        parent: &'a ResolvedMetadata,
-    ) -> DynMetadataFuture<'a> {
-        DynMetadataFuture::Local(Box::pin(self.0.generate_metadata(cx, parent)))
+    fn generate_metadata_dyn<'a>(&'a self, cx: MetadataContext) -> DynMetadataFuture<'a> {
+        DynMetadataFuture::Local(Box::pin(LocalMetadata::generate_metadata(&self.0, cx)))
     }
 }
 
@@ -698,66 +707,61 @@ impl ComputedRouteMeta {
 
     pub fn resolve_sync(
         &self,
-        request: &RequestContext,
-        loader: &dyn DynDataLoader,
+        request: Arc<RequestContext>,
+        loader: Arc<dyn DynDataLoader>,
     ) -> Result<ResolvedMetadata, MetadataError> {
-        let cx = MetadataInputs { request, loader };
         if self.is_static() {
-            return finish_urls(self.snapshot.as_ref().clone(), cx.request);
+            return finish_urls(self.snapshot.as_ref().clone(), &request);
         }
         let mut state = self.state.as_ref().clone();
         for provider in self.pending.iter() {
-            let parent = state.snapshot();
+            let cx =
+                MetadataContext::new(Arc::clone(&request), Arc::clone(&loader), state.snapshot());
             use futures::FutureExt;
             let result = provider
-                .generate_metadata_dyn(&cx, &parent)
+                .generate_metadata_dyn(cx)
                 .resolve()
                 .now_or_never()
                 .ok_or(MetadataError::AsyncInSyncResponse)?;
             state.apply(result?);
         }
-        finish_urls(state.snapshot(), cx.request)
+        finish_urls(state.snapshot(), &request)
     }
 
     pub async fn resolve(
         &self,
-        request: &RequestContext,
-        loader: &dyn DynDataLoader,
+        request: Arc<RequestContext>,
+        loader: Arc<dyn DynDataLoader>,
     ) -> Result<ResolvedMetadata, MetadataError> {
-        let cx = MetadataInputs { request, loader };
         if self.is_static() {
-            return finish_urls(self.snapshot.as_ref().clone(), cx.request);
+            return finish_urls(self.snapshot.as_ref().clone(), &request);
         }
         let mut state = self.state.as_ref().clone();
         for provider in self.pending.iter() {
-            let parent = state.snapshot();
-            state.apply(
-                provider
-                    .generate_metadata_dyn(&cx, &parent)
-                    .resolve()
-                    .await?,
-            );
+            let cx =
+                MetadataContext::new(Arc::clone(&request), Arc::clone(&loader), state.snapshot());
+            state.apply(provider.generate_metadata_dyn(cx).resolve().await?);
         }
-        finish_urls(state.snapshot(), cx.request)
+        finish_urls(state.snapshot(), &request)
     }
 
     /// Resolve for a Send response. Reject local continuations before rendering.
     pub async fn resolve_send(
         &self,
-        request: &RequestContext,
-        loader: &dyn DynDataLoader,
+        request: Arc<RequestContext>,
+        loader: Arc<dyn DynDataLoader>,
     ) -> Result<ResolvedMetadata, MetadataError> {
-        let cx = MetadataInputs { request, loader };
         if self.is_static() {
-            return finish_urls(self.snapshot.as_ref().clone(), cx.request);
+            return finish_urls(self.snapshot.as_ref().clone(), &request);
         }
         let mut state = self.state.as_ref().clone();
         for provider in self.pending.iter() {
-            let parent = state.snapshot();
-            let outcome = provider.generate_metadata_dyn(&cx, &parent).into_send()?;
+            let cx =
+                MetadataContext::new(Arc::clone(&request), Arc::clone(&loader), state.snapshot());
+            let outcome = provider.generate_metadata_dyn(cx).into_send()?;
             state.apply(outcome.await?);
         }
-        finish_urls(state.snapshot(), cx.request)
+        finish_urls(state.snapshot(), &request)
     }
 }
 
@@ -880,36 +884,84 @@ fn validate_absolute_url(value: &str) -> Result<(), MetadataError> {
     }
 }
 
-/// Resolve once before rendering; the request owns the result for the head,
-/// client payload and deferred boundaries. No Tokio/task-local dependency.
-pub(crate) fn prepare_metadata_sync<L: DataLoader>(
+/// Holds the render request while callbacks own shared views of it. The common
+/// path moves it back without cloning headers, extensions or route parameters.
+/// Retained callback contexts keep their snapshot; only that explicit case
+/// requires a clone to restore the renderer's independently mutable request.
+struct MetadataRequest<'a> {
+    target: &'a mut RequestContext,
+    shared: Option<Arc<RequestContext>>,
+}
+impl<'a> MetadataRequest<'a> {
+    fn take(target: &'a mut RequestContext) -> Self {
+        let shared = Some(Arc::new(std::mem::take(target)));
+        Self { target, shared }
+    }
+    fn shared(&self) -> Arc<RequestContext> {
+        Arc::clone(self.shared.as_ref().unwrap())
+    }
+}
+impl Drop for MetadataRequest<'_> {
+    fn drop(&mut self) {
+        let shared = self.shared.take().unwrap();
+        *self.target = Arc::try_unwrap(shared).unwrap_or_else(|shared| shared.as_ref().clone());
+    }
+}
+
+/// Resolve once before rendering, preserving the render request on success,
+/// error, cancellation and unwinding. Static plans never create callback inputs.
+pub(crate) fn prepare_metadata_sync<L: DataLoader + 'static>(
     request: &mut RequestContext,
-    loader: &L,
+    loader: Arc<L>,
 ) -> Result<(), MetadataError> {
-    if let Some(plan) = request.extensions().get::<ComputedRouteMeta>() {
-        let resolved = plan.resolve_sync(request, loader)?;
+    if let Some(plan) = request.extensions().get::<ComputedRouteMeta>().cloned() {
+        let resolved = if plan.is_static() {
+            finish_urls(plan.snapshot.as_ref().clone(), request)?
+        } else {
+            let result = {
+                let source = MetadataRequest::take(request);
+                plan.resolve_sync(source.shared(), loader)
+            };
+            result?
+        };
         request.extensions_mut().insert(Arc::new(resolved));
     }
     Ok(())
 }
 
-pub(crate) async fn prepare_metadata<L: DataLoader>(
+pub(crate) async fn prepare_metadata<L: DataLoader + 'static>(
     request: &mut RequestContext,
-    loader: &L,
+    loader: Arc<L>,
 ) -> Result<(), MetadataError> {
-    if let Some(plan) = request.extensions().get::<ComputedRouteMeta>() {
-        let resolved = plan.resolve(request, loader).await?;
+    if let Some(plan) = request.extensions().get::<ComputedRouteMeta>().cloned() {
+        let resolved = if plan.is_static() {
+            finish_urls(plan.snapshot.as_ref().clone(), request)?
+        } else {
+            let result = {
+                let source = MetadataRequest::take(request);
+                plan.resolve(source.shared(), loader).await
+            };
+            result?
+        };
         request.extensions_mut().insert(Arc::new(resolved));
     }
     Ok(())
 }
 
-pub(crate) async fn prepare_metadata_send<L: DataLoader>(
+pub(crate) async fn prepare_metadata_send<L: DataLoader + 'static>(
     request: &mut RequestContext,
-    loader: &L,
+    loader: Arc<L>,
 ) -> Result<(), MetadataError> {
-    if let Some(plan) = request.extensions().get::<ComputedRouteMeta>() {
-        let resolved = plan.resolve_send(request, loader).await?;
+    if let Some(plan) = request.extensions().get::<ComputedRouteMeta>().cloned() {
+        let resolved = if plan.is_static() {
+            finish_urls(plan.snapshot.as_ref().clone(), request)?
+        } else {
+            let result = {
+                let source = MetadataRequest::take(request);
+                plan.resolve_send(source.shared(), loader).await
+            };
+            result?
+        };
         request.extensions_mut().insert(Arc::new(resolved));
     }
     Ok(())

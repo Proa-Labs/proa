@@ -11,8 +11,8 @@ use proa_framework_core::{
 pub use proa_framework_core::{
     local_metadata, metadata_from_context, CascadeOpenGraph, CascadeValue, ComputedRouteMeta,
     DynMetadata, LocalMetadata, LocalMetadataProvider, Metadata, MetadataBase, MetadataContext,
-    MetadataError, MetadataPatch, MetadataRef, MetadataText, OpenGraph, OpenGraphImage,
-    OpenGraphMedia, OpenGraphPatch, ResolvedMetadata, ResolvedOpenGraphImage,
+    MetadataError, MetadataPatch, MetadataRef, MetadataResult, MetadataText, OpenGraph,
+    OpenGraphImage, OpenGraphMedia, OpenGraphPatch, ResolvedMetadata, ResolvedOpenGraphImage,
     ResolvedOpenGraphMedia, TitleOnly,
 };
 
@@ -25,12 +25,11 @@ pub fn resolved_metadata() -> Option<ResolvedMetadata> {
     ROUTE_CONTEXT
         .try_with(|ctx| {
             let ctx = ctx.borrow();
-            let request = super::response::framework_request_context(&ctx);
+            let request = Arc::new(super::response::framework_request_context(&ctx).request);
             request
-                .request
                 .extensions()
                 .get::<ComputedRouteMeta>()?
-                .resolve_sync(&request.request, &proa_core::NoLoader)
+                .resolve_sync(Arc::clone(&request), Arc::new(proa_core::NoLoader))
                 .ok()
         })
         .ok()

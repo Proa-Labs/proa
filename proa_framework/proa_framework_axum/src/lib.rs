@@ -43,10 +43,10 @@ pub use route::{
     DynMetadata, DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend, Layout,
     LayoutRef, LocalMetadata, LocalMetadataProvider, LocalStreamExecutorConfig, MarkdownAlternate,
     Metadata, MetadataBase, MetadataContext, MetadataError, MetadataPatch, MetadataRef,
-    MetadataText, OpenGraph, OpenGraphImage, OpenGraphMedia, OpenGraphPatch, PageCacheLayer,
-    PageCacheService, RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage,
-    ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec,
-    StaticPathsFn,
+    MetadataResult, MetadataText, OpenGraph, OpenGraphImage, OpenGraphMedia, OpenGraphPatch,
+    PageCacheLayer, PageCacheService, RepresentationResponse, ResolvedMetadata,
+    ResolvedOpenGraphImage, ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode,
+    RouteResponse, RouteSpec, StaticPathsFn,
 };
 pub use rsjs_assets::rsjs_assets_router;
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};

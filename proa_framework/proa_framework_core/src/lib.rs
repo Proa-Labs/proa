@@ -29,8 +29,8 @@ pub use metadata::{
     render_metadata_head_send, resolve_metadata_stack, resolved_metadata_from_computed,
     CascadeOpenGraph, CascadeValue, ComputedOpenGraph, ComputedRouteMeta, DynMetadata,
     LocalMetadata, LocalMetadataProvider, Metadata, MetadataBase, MetadataContext, MetadataError,
-    MetadataPatch, MetadataRef, MetadataText, OpenGraph, OpenGraphImage, OpenGraphMedia,
-    OpenGraphPatch, ResolvedMetadata, ResolvedOpenGraph, ResolvedOpenGraphImage,
+    MetadataPatch, MetadataRef, MetadataResult, MetadataText, OpenGraph, OpenGraphImage,
+    OpenGraphMedia, OpenGraphPatch, ResolvedMetadata, ResolvedOpenGraph, ResolvedOpenGraphImage,
     ResolvedOpenGraphMedia, TitleOnly,
 };
 pub use response::{

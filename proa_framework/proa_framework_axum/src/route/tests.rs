@@ -158,11 +158,7 @@ async fn metadata_is_composed() {
 
 struct RequestDrivenMetadata;
 impl Metadata for RequestDrivenMetadata {
-    fn metadata(
-        &self,
-        cx: &dyn super::MetadataContext,
-        _parent: &super::ResolvedMetadata,
-    ) -> super::MetadataPatch {
+    fn metadata(&self, cx: &super::MetadataContext) -> super::MetadataPatch {
         let slug = cx.param("slug").unwrap();
         let variant = cx.request().headers()["x-preview"].to_str().unwrap();
         let query = cx
@@ -180,16 +176,9 @@ impl Metadata for RequestDrivenMetadata {
     }
 }
 
-struct AsyncRequestDrivenMetadata;
-impl Metadata for AsyncRequestDrivenMetadata {
-    async fn generate_metadata(
-        &self,
-        cx: &dyn super::MetadataContext,
-        parent: &super::ResolvedMetadata,
-    ) -> Result<super::MetadataPatch, super::MetadataError> {
-        tokio::task::yield_now().await;
-        Ok(RequestDrivenMetadata.metadata(cx, parent))
-    }
+async fn async_request_metadata(cx: super::MetadataContext) -> super::MetadataResult {
+    tokio::task::yield_now().await;
+    Ok(RequestDrivenMetadata.metadata(&cx))
 }
 
 fn request_metadata_app(stream: bool) -> axum::Router {
@@ -197,7 +186,7 @@ fn request_metadata_app(stream: bool) -> axum::Router {
         Route::page_with_metadata(
             "/blog/:slug",
             get(|| async { RouteResponse::ssr_stream(proa_core::to_async(MetadataPage)) }),
-            &AsyncRequestDrivenMetadata,
+            &async_request_metadata,
         )
     } else {
         Route::page_with_metadata(
@@ -299,27 +288,68 @@ async fn streamed_metadata_survives_endpoint_context_teardown_and_concurrent_req
     tokio::join!(fetch("first"), fetch("second"));
 }
 
-struct LocalRequestDrivenMetadata;
-impl super::LocalMetadata for LocalRequestDrivenMetadata {
-    async fn generate_metadata(
-        &self,
-        cx: &dyn super::MetadataContext,
-        parent: &super::ResolvedMetadata,
-    ) -> Result<super::MetadataPatch, super::MetadataError> {
-        let metadata = std::rc::Rc::new(RequestDrivenMetadata.metadata(cx, parent));
-        tokio::task::yield_now().await;
-        Ok(std::rc::Rc::try_unwrap(metadata).ok().unwrap())
-    }
+async fn site_metadata(cx: super::MetadataContext) -> super::MetadataResult {
+    Ok(super::MetadataPatch {
+        title: CascadeValue::Set("%s | Site".into()),
+        description: CascadeValue::Set(
+            cx.request().headers()["x-preview"]
+                .to_str()
+                .unwrap()
+                .to_owned()
+                .into(),
+        ),
+        ..Default::default()
+    })
 }
 
-static LOCAL_METADATA_LAYOUT: super::LocalMetadataProvider<LocalRequestDrivenMetadata> =
-    super::local_metadata(LocalRequestDrivenMetadata);
+#[tokio::test]
+async fn plain_async_functions_work_as_request_aware_layouts() {
+    let (router, plans) = router_from_spec(vec![Route::layout(
+        "/",
+        &site_metadata,
+        vec![Route::page(
+            "/page",
+            "Page",
+            get(|| async { RouteResponse::ssr(MetadataPage) }),
+        )],
+    )]);
+    let app = router.layer(RouteContextLayer::new(
+        Arc::new(IslandManifest {
+            islands: Default::default(),
+            assets: Default::default(),
+            import_map: Default::default(),
+            ssr_bundle: None,
+        }),
+        plans,
+    ));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/page")
+                .header("x-preview", "draft")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&bytes).unwrap();
+    assert!(html.contains("<title>Page | Site</title>"));
+    assert!(html.contains("name=\"description\" content=\"draft\""));
+}
+
+async fn local_request_metadata(cx: super::MetadataContext) -> super::MetadataResult {
+    let metadata = std::rc::Rc::new(RequestDrivenMetadata.metadata(&cx));
+    tokio::task::yield_now().await;
+    Ok(std::rc::Rc::try_unwrap(metadata).ok().unwrap())
+}
 
 #[tokio::test]
 async fn native_local_generators_work_as_layouts_and_fail_before_send_response_bytes() {
     let (router, plans) = router_from_spec(vec![Route::layout(
         "/blog",
-        &LOCAL_METADATA_LAYOUT,
+        super::local_metadata(local_request_metadata),
         vec![
             Route::endpoint(
                 ":slug",

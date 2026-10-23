@@ -998,7 +998,8 @@ pub fn render_sync_html_response(
     let (render_artifacts, shared_seed_table_json, response_context, buffer) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
-        prepare_metadata_sync(ctx.request_mut(), &NoLoader)?;
+        let metadata_loader = Arc::clone(ctx.loader());
+        prepare_metadata_sync(ctx.request_mut(), metadata_loader)?;
         component.render_sync_dyn(&mut ctx)?;
         let state = (
             ctx.render_artifacts_snapshot(),
@@ -1057,7 +1058,7 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
         ctx.set_render_mode(request.render_mode);
         install_request_context(&mut ctx, request);
         let metadata_loader = Arc::clone(ctx.loader());
-        prepare_metadata(ctx.request_mut(), metadata_loader.as_ref()).await?;
+        prepare_metadata(ctx.request_mut(), metadata_loader).await?;
         drive_dyn_render(component.render_dyn(&mut ctx)).await?;
         let state = (
             ctx.render_artifacts_snapshot(),
@@ -1116,7 +1117,7 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
         ctx.set_render_mode(request.render_mode);
         install_send_request_context(&mut ctx, request);
         let metadata_loader = Arc::clone(ctx.loader());
-        prepare_metadata_send(ctx.request_mut(), metadata_loader.as_ref()).await?;
+        prepare_metadata_send(ctx.request_mut(), metadata_loader).await?;
         drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
         let (buffer, artifacts, response) = ctx.into_output_render_artifacts_and_response();
         (artifacts, response, buffer)
@@ -1263,7 +1264,8 @@ fn render_sync_component_to_html(
     let (rsjs_artifacts, shared_seed_table_json, buffer, metadata) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
-        prepare_metadata_sync(ctx.request_mut(), &NoLoader)?;
+        let metadata_loader = Arc::clone(ctx.loader());
+        prepare_metadata_sync(ctx.request_mut(), metadata_loader)?;
         component.render_sync_dyn(&mut ctx)?;
         let state = (
             ctx.rsjs_artifacts_snapshot(),
@@ -1311,7 +1313,7 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
         ctx.set_render_mode(render_mode);
         install_request_context(&mut ctx, request);
         let metadata_loader = Arc::clone(ctx.loader());
-        prepare_metadata(ctx.request_mut(), metadata_loader.as_ref()).await?;
+        prepare_metadata(ctx.request_mut(), metadata_loader).await?;
         drive_dyn_render(component.render_dyn(&mut ctx)).await?;
         let state = (
             ctx.rsjs_artifacts_snapshot(),
@@ -1359,7 +1361,7 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
         ctx.set_render_mode(render_mode);
         install_send_request_context(&mut ctx, request);
         let metadata_loader = Arc::clone(ctx.loader());
-        prepare_metadata_send(ctx.request_mut(), metadata_loader.as_ref()).await?;
+        prepare_metadata_send(ctx.request_mut(), metadata_loader).await?;
         drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
         let metadata = ctx
             .request()
@@ -1446,7 +1448,7 @@ where
                 ctx.set_render_mode(request.render_mode);
                 install_request_context(&mut ctx, &request);
                 let metadata_loader = Arc::clone(ctx.loader());
-                prepare_metadata(ctx.request_mut(), metadata_loader.as_ref()).await?;
+                prepare_metadata(ctx.request_mut(), metadata_loader).await?;
                 ctx.response_mut().mark_streaming_started();
                 ctx.set_stream_recorder(Rc::clone(&recorder));
                 drive_dyn_render(component.render_dyn(&mut ctx)).await?;
@@ -1623,7 +1625,7 @@ where
                 ctx.set_render_mode(request.render_mode);
                 install_send_request_context(&mut ctx, &request);
                 let metadata_loader = Arc::clone(ctx.loader());
-                prepare_metadata_send(ctx.request_mut(), metadata_loader.as_ref()).await?;
+                prepare_metadata_send(ctx.request_mut(), metadata_loader).await?;
                 ctx.response_mut().mark_streaming_started();
                 ctx.set_stream_recorder(Arc::clone(&recorder));
                 drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
@@ -1816,7 +1818,7 @@ where
                     ctx.set_render_mode(request.render_mode);
                     install_request_context(&mut ctx, &request);
                     let metadata_loader = Arc::clone(ctx.loader());
-                    prepare_metadata(ctx.request_mut(), metadata_loader.as_ref()).await?;
+                    prepare_metadata(ctx.request_mut(), metadata_loader).await?;
                     ctx.response_mut().mark_streaming_started();
                     ctx.set_stream_chunk_flusher(flusher);
                     drive_dyn_render(component.render_dyn(&mut ctx)).await?;
@@ -1937,7 +1939,7 @@ where
                     ctx.set_render_mode(request.render_mode);
                     install_send_request_context(&mut ctx, &request);
                     let metadata_loader = Arc::clone(ctx.loader());
-                    prepare_metadata_send(ctx.request_mut(), metadata_loader.as_ref()).await?;
+                    prepare_metadata_send(ctx.request_mut(), metadata_loader).await?;
                     ctx.response_mut().mark_streaming_started();
                     ctx.set_stream_chunk_flusher(flusher);
                     drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;

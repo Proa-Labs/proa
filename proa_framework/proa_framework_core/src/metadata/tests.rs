@@ -11,7 +11,7 @@ fn resolve(
     request: &RequestContext,
 ) -> Result<ResolvedMetadata, MetadataError> {
     ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), providers)
-        .resolve_sync(request, &NoLoader)
+        .resolve_sync(Arc::new(request.clone()), Arc::new(NoLoader))
 }
 
 struct Template;
@@ -32,8 +32,8 @@ impl Metadata for Template {
 
 struct RequestTitle;
 impl Metadata for RequestTitle {
-    fn metadata(&self, cx: &dyn MetadataContext, parent: &ResolvedMetadata) -> MetadataPatch {
-        assert_eq!(parent.description.as_deref(), Some("site description"));
+    fn metadata(&self, cx: &MetadataContext) -> MetadataPatch {
+        assert_eq!(cx.parent().description.as_deref(), Some("site description"));
         MetadataPatch {
             title: Set(cx.param("slug").unwrap().to_owned().into()),
             description: Set(cx.request().user_agent().unwrap().to_owned().into()),
@@ -56,7 +56,9 @@ fn request_providers_are_not_called_at_startup_and_receive_fresh_inputs() {
         request
             .headers_mut()
             .insert("user-agent", http::HeaderValue::from_static("crawler"));
-        let resolved = plan.resolve_sync(&request, &NoLoader).unwrap();
+        let resolved = plan
+            .resolve_sync(Arc::new(request.clone()), Arc::new(NoLoader))
+            .unwrap();
         assert_eq!(
             resolved.title.as_deref(),
             Some(format!("{slug} | Site").as_str())
@@ -91,7 +93,7 @@ fn static_prefix_runs_once_and_borrows_literal_values() {
     assert!(plan.is_static());
     for _ in 0..2 {
         let result = plan
-            .resolve_sync(&RequestContext::new(), &NoLoader)
+            .resolve_sync(Arc::new(RequestContext::new()), Arc::new(NoLoader))
             .unwrap();
         assert!(matches!(result.title, Some(Cow::Borrowed("static"))));
     }
@@ -127,7 +129,7 @@ fn tombstones_remove_templates_and_prevent_fallback_resurrection() {
 
 struct Absolute;
 impl Metadata for Absolute {
-    fn metadata(&self, _: &dyn MetadataContext, _: &ResolvedMetadata) -> MetadataPatch {
+    fn metadata(&self, _: &MetadataContext) -> MetadataPatch {
         MetadataPatch {
             title: Set("100% specific %s".into()),
             absolute_title: true,
@@ -160,7 +162,7 @@ impl Metadata for Lists {
 }
 struct ReplaceLists;
 impl Metadata for ReplaceLists {
-    fn metadata(&self, _: &dyn MetadataContext, _: &ResolvedMetadata) -> MetadataPatch {
+    fn metadata(&self, _: &MetadataContext) -> MetadataPatch {
         MetadataPatch {
             open_graph: OpenGraphPatch {
                 images: Set(Cow::Borrowed(&MEDIA_2)),
@@ -209,7 +211,9 @@ fn url_resolution_uses_deployment_base_or_request_origin_and_mount_path() {
                 format!("https://{host}/blog/post").parse().unwrap(),
             ))
             .with_base_path(proa_core::BasePath::new("/app").unwrap());
-        let value = plan.resolve_sync(&request, &NoLoader).unwrap();
+        let value = plan
+            .resolve_sync(Arc::new(request.clone()), Arc::new(NoLoader))
+            .unwrap();
         assert_eq!(
             value.canonical.as_deref(),
             Some(format!("https://{host}/app/blog/post?q=one&lang=en").as_str())
@@ -231,13 +235,15 @@ fn url_resolution_uses_deployment_base_or_request_origin_and_mount_path() {
     request
         .extensions_mut()
         .insert(MetadataBase::new("https://preview.example/prefix").unwrap());
-    let value = plan.resolve_sync(&request, &NoLoader).unwrap();
+    let value = plan
+        .resolve_sync(Arc::new(request.clone()), Arc::new(NoLoader))
+        .unwrap();
     assert_eq!(
         value.open_graph.url.as_deref(),
         Some("https://preview.example/prefix/blog/post")
     );
     assert!(matches!(
-        plan.resolve_sync(&RequestContext::new(), &NoLoader),
+        plan.resolve_sync(Arc::new(RequestContext::new()), Arc::new(NoLoader)),
         Err(MetadataError::MissingBase)
     ));
 }
@@ -324,7 +330,9 @@ fn precomputation_stops_at_the_first_request_provider() {
     request
         .headers_mut()
         .insert("user-agent", http::HeaderValue::from_static("crawler"));
-    let result = plan.resolve_sync(&request, &NoLoader).unwrap();
+    let result = plan
+        .resolve_sync(Arc::new(request.clone()), Arc::new(NoLoader))
+        .unwrap();
     assert_eq!(TAIL_CALLS.load(Ordering::SeqCst), 1);
     assert_eq!(result.title.as_deref(), Some("post | Site"));
     assert_eq!(result.description.as_deref(), Some("tail"));
@@ -338,11 +346,7 @@ fn legacy_stack_resolution_never_invokes_request_providers_with_missing_inputs()
 
 struct LocalGenerator;
 impl LocalMetadata for LocalGenerator {
-    async fn generate_metadata(
-        &self,
-        _: &dyn MetadataContext,
-        _: &ResolvedMetadata,
-    ) -> Result<MetadataPatch, MetadataError> {
+    async fn generate_metadata(&self, _: MetadataContext) -> MetadataResult {
         let title = std::rc::Rc::new("local title".to_owned());
         tokio::task::yield_now().await;
         Ok(MetadataPatch {
@@ -357,7 +361,7 @@ async fn local_metadata_futures_preserve_render_capability_requirements() {
     let plan = ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), &[&LOCAL_GENERATOR]);
     let request = RequestContext::new();
     assert_eq!(
-        plan.resolve(&request, &NoLoader)
+        plan.resolve(Arc::new(request.clone()), Arc::new(NoLoader))
             .await
             .unwrap()
             .title
@@ -365,54 +369,174 @@ async fn local_metadata_futures_preserve_render_capability_requirements() {
         Some("local title")
     );
     assert!(matches!(
-        plan.resolve_sync(&request, &NoLoader),
+        plan.resolve_sync(Arc::new(request.clone()), Arc::new(NoLoader)),
         Err(MetadataError::AsyncInSyncResponse)
     ));
     assert!(matches!(
-        plan.resolve_send(&request, &NoLoader).await,
+        plan.resolve_send(Arc::new(request.clone()), Arc::new(NoLoader))
+            .await,
         Err(MetadataError::LocalInSendResponse)
     ));
 }
 
-static LOCAL_GENERATOR: LocalMetadataProvider<LocalGenerator> = local_metadata(LocalGenerator);
+static LOCAL_GENERATOR: LocalMetadataProvider<LocalGenerator> =
+    LocalMetadataProvider::new(LocalGenerator);
 
-struct ImmediateGenerator;
-impl Metadata for ImmediateGenerator {
-    async fn generate_metadata(
-        &self,
-        cx: &dyn MetadataContext,
-        parent: &ResolvedMetadata,
-    ) -> Result<MetadataPatch, MetadataError> {
-        let title = cx
-            .request()
-            .user_agent()
-            .ok_or(MetadataError::InvalidBase)?;
-        assert_eq!(parent.description.as_deref(), Some("site description"));
-        Ok(MetadataPatch {
-            title: Set(title.to_owned().into()),
-            ..Default::default()
-        })
-    }
+async fn immediate_generator(cx: MetadataContext) -> MetadataResult {
+    let title = cx
+        .request()
+        .user_agent()
+        .ok_or(MetadataError::InvalidBase)?;
+    assert_eq!(cx.parent().description.as_deref(), Some("site description"));
+    Ok(MetadataPatch {
+        title: Set(title.to_owned().into()),
+        ..Default::default()
+    })
 }
 
 #[tokio::test]
 async fn native_async_generators_can_complete_immediately_and_propagate_errors() {
     let plan = ComputedRouteMeta::cascade(
         &ComputedRouteMeta::default(),
-        &[&Template, &ImmediateGenerator],
+        &[&Template, &immediate_generator],
     );
     let mut request = RequestContext::new();
     assert!(matches!(
-        plan.resolve_sync(&request, &NoLoader),
+        plan.resolve_sync(Arc::new(request.clone()), Arc::new(NoLoader)),
         Err(MetadataError::InvalidBase)
     ));
     request
         .headers_mut()
         .insert("user-agent", http::HeaderValue::from_static("crawler"));
-    let synchronous = plan.resolve_sync(&request, &NoLoader).unwrap();
-    let local = plan.resolve(&request, &NoLoader).await.unwrap();
-    let send = plan.resolve_send(&request, &NoLoader).await.unwrap();
+    let synchronous = plan
+        .resolve_sync(Arc::new(request.clone()), Arc::new(NoLoader))
+        .unwrap();
+    let local = plan
+        .resolve(Arc::new(request.clone()), Arc::new(NoLoader))
+        .await
+        .unwrap();
+    let send = plan
+        .resolve_send(Arc::new(request.clone()), Arc::new(NoLoader))
+        .await
+        .unwrap();
     assert_eq!(synchronous.title.as_deref(), Some("crawler | Site"));
     assert_eq!(local.title, synchronous.title);
     assert_eq!(send.title, synchronous.title);
+}
+
+struct RequestCloneCounter(Arc<AtomicUsize>);
+impl Clone for RequestCloneCounter {
+    fn clone(&self) -> Self {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Self(Arc::clone(&self.0))
+    }
+}
+
+fn callback_request(providers: &[MetadataRef]) -> RequestContext {
+    let mut request =
+        RequestContext::new().with_route_params(proa_core::RouteParams::from_vec(vec![
+            proa_core::RouteParam::new("slug", "snapshot"),
+        ]));
+    request
+        .headers_mut()
+        .insert("user-agent", http::HeaderValue::from_static("original"));
+    request.extensions_mut().insert(ComputedRouteMeta::cascade(
+        &ComputedRouteMeta::default(),
+        providers,
+    ));
+    request
+}
+
+async fn snapshot_metadata(cx: MetadataContext) -> MetadataResult {
+    assert_eq!(cx.request().user_agent(), Some("original"));
+    Ok(MetadataPatch {
+        description: Set(cx.param("slug").unwrap().to_owned().into()),
+        ..Default::default()
+    })
+}
+
+#[test]
+fn function_contexts_share_request_data_without_cloning_it_per_provider() {
+    let clones = Arc::new(AtomicUsize::new(0));
+    let mut request = callback_request(&[&snapshot_metadata, &snapshot_metadata]);
+    request
+        .extensions_mut()
+        .insert(RequestCloneCounter(Arc::clone(&clones)));
+    prepare_metadata_sync(&mut request, Arc::new(NoLoader)).unwrap();
+    assert_eq!(clones.load(Ordering::SeqCst), 0);
+    assert_eq!(request.param("slug"), Some("snapshot"));
+    assert_eq!(request.user_agent(), Some("original"));
+    assert_eq!(
+        request
+            .extensions()
+            .get::<Arc<ResolvedMetadata>>()
+            .unwrap()
+            .description
+            .as_deref(),
+        Some("snapshot")
+    );
+}
+
+async fn suspended_metadata(cx: MetadataContext) -> MetadataResult {
+    futures::future::pending::<()>().await;
+    snapshot_metadata(cx).await
+}
+
+async fn error_metadata(_: MetadataContext) -> MetadataResult {
+    Err(MetadataError::InvalidBase)
+}
+
+async fn panic_metadata(_: MetadataContext) -> MetadataResult {
+    panic!("callback panic");
+}
+
+#[test]
+fn request_is_restored_after_error_cancellation_or_panic() {
+    use futures::FutureExt;
+    let mut request = callback_request(&[&error_metadata]);
+    assert!(matches!(
+        prepare_metadata_sync(&mut request, Arc::new(NoLoader)),
+        Err(MetadataError::InvalidBase)
+    ));
+    assert_eq!(request.param("slug"), Some("snapshot"));
+    assert_eq!(request.user_agent(), Some("original"));
+
+    let mut request = callback_request(&[&suspended_metadata]);
+    assert!(prepare_metadata(&mut request, Arc::new(NoLoader))
+        .now_or_never()
+        .is_none());
+    assert_eq!(request.param("slug"), Some("snapshot"));
+    assert_eq!(request.user_agent(), Some("original"));
+    assert!(request
+        .extensions()
+        .get::<Arc<ResolvedMetadata>>()
+        .is_none());
+
+    let mut request = callback_request(&[&panic_metadata]);
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prepare_metadata_sync(&mut request, Arc::new(NoLoader))
+    }));
+    assert!(panic.is_err());
+    assert_eq!(request.param("slug"), Some("snapshot"));
+    assert_eq!(request.user_agent(), Some("original"));
+}
+
+static RETAINED_CONTEXT: std::sync::Mutex<Option<MetadataContext>> = std::sync::Mutex::new(None);
+
+async fn retained_metadata(cx: MetadataContext) -> MetadataResult {
+    *RETAINED_CONTEXT.lock().unwrap() = Some(cx);
+    Ok(MetadataPatch::default())
+}
+
+#[test]
+fn retained_context_keeps_its_snapshot_when_render_request_changes() {
+    let mut request = callback_request(&[&retained_metadata]);
+    prepare_metadata_sync(&mut request, Arc::new(NoLoader)).unwrap();
+    request
+        .headers_mut()
+        .insert("user-agent", http::HeaderValue::from_static("changed"));
+    let context = RETAINED_CONTEXT.lock().unwrap().take().unwrap();
+    assert_eq!(context.request().user_agent(), Some("original"));
+    assert_eq!(context.param("slug"), Some("snapshot"));
+    assert_eq!(request.user_agent(), Some("changed"));
 }

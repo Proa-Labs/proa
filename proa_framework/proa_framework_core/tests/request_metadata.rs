@@ -20,7 +20,7 @@ use proa_core::{
 use proa_framework_core::{
     metadata_from_context, render_metadata_head, render_metadata_head_send, CascadeValue::Set,
     ComputedRouteMeta, FrameworkBody, FrameworkRequestContext, IslandManifest, Metadata,
-    MetadataBase, MetadataContext, MetadataError, MetadataPatch, OpenGraphPatch, ResolvedMetadata,
+    MetadataBase, MetadataContext, MetadataPatch, MetadataResult, OpenGraphPatch, ResolvedMetadata,
     ResolvedOpenGraphImage, RouteResponse,
 };
 use proa_stream::DataResolver;
@@ -54,38 +54,31 @@ impl DataLoader for PostLoader {
     }
 }
 
-struct PostMetadata;
-impl Metadata for PostMetadata {
-    async fn generate_metadata(
-        &self,
-        cx: &dyn MetadataContext,
-        parent: &ResolvedMetadata,
-    ) -> Result<MetadataPatch, MetadataError> {
-        let slug = cx.param("slug").unwrap();
-        let post = cx.load_typed::<Post>(LoadKey::named("post", slug)).await?;
-        let lang = cx.request().headers()["accept-language"].to_str().unwrap();
-        let query: Vec<_> = cx
-            .search_params()
-            .map(|(key, value)| (key.into_owned(), value.into_owned()))
-            .collect();
-        assert_eq!(
-            query,
-            [("tag".into(), "a b".into()), ("tag".into(), "c&d".into())]
-        );
-        assert_eq!(parent.description.as_deref(), Some("inherited"));
-        let mut images = parent.open_graph.images.to_vec();
-        images.push(ResolvedOpenGraphImage::new("/post.png"));
-        Ok(MetadataPatch {
-            title: Set(format!("{} {lang}", post.title).into()),
-            description: Set(format!("{slug}\"<>&").into()),
-            canonical: Set(format!("/blog/{slug}").into()),
-            open_graph: OpenGraphPatch {
-                images: Set(Cow::Owned(images)),
-                ..Default::default()
-            },
+async fn post_metadata(cx: MetadataContext) -> MetadataResult {
+    let slug = cx.param("slug").unwrap();
+    let post = cx.load_typed::<Post>(LoadKey::named("post", slug)).await?;
+    let lang = cx.request().headers()["accept-language"].to_str().unwrap();
+    let query: Vec<_> = cx
+        .search_params()
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    assert_eq!(
+        query,
+        [("tag".into(), "a b".into()), ("tag".into(), "c&d".into())]
+    );
+    assert_eq!(cx.parent().description.as_deref(), Some("inherited"));
+    let mut images = cx.parent().open_graph.images.to_vec();
+    images.push(ResolvedOpenGraphImage::new("/post.png"));
+    Ok(MetadataPatch {
+        title: Set(format!("{} {lang}", post.title).into()),
+        description: Set(format!("{slug}\"<>&").into()),
+        canonical: Set(format!("/blog/{slug}").into()),
+        open_graph: OpenGraphPatch {
+            images: Set(Cow::Owned(images)),
             ..Default::default()
-        })
-    }
+        },
+        ..Default::default()
+    })
 }
 
 struct PostPage;
@@ -156,7 +149,7 @@ fn request(slug: &str, lang: &'static str) -> FrameworkRequestContext {
         .insert(MetadataBase::new("https://staging.example/app").unwrap());
     request.extensions_mut().insert(ComputedRouteMeta::cascade(
         &ComputedRouteMeta::default(),
-        &[&Site, &PostMetadata],
+        &[&Site, &post_metadata],
     ));
     FrameworkRequestContext {
         request,
@@ -240,16 +233,9 @@ async fn client_payload_uses_generated_title_and_shares_loader() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
-struct FailingMetadata;
-impl Metadata for FailingMetadata {
-    async fn generate_metadata(
-        &self,
-        _cx: &dyn MetadataContext,
-        _parent: &ResolvedMetadata,
-    ) -> Result<MetadataPatch, MetadataError> {
-        tokio::task::yield_now().await;
-        Err(proa_framework_core::MetadataError::InvalidBase)
-    }
+async fn failing_metadata(_cx: MetadataContext) -> MetadataResult {
+    tokio::task::yield_now().await;
+    Err(proa_framework_core::MetadataError::InvalidBase)
 }
 
 #[tokio::test]
@@ -262,7 +248,7 @@ async fn streaming_metadata_failure_precedes_every_body_chunk() {
                 .extensions_mut()
                 .insert(ComputedRouteMeta::cascade(
                     &ComputedRouteMeta::default(),
-                    &[&FailingMetadata],
+                    &[&failing_metadata],
                 ));
             let response = if send {
                 RouteResponse::ssr_stream_send(())
