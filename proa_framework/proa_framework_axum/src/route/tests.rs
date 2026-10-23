@@ -170,6 +170,53 @@ async fn metadata_is_composed() {
     assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/base.png\""));
 }
 
+/// A dynamic route's request path (`/posts/hello`) is not a key in the
+/// precomputed metadata map (`/posts/:slug`), so its head is resolved from the
+/// provider stack at request time. It must match a static route's head.
+#[tokio::test]
+async fn dynamic_route_metadata_keeps_open_graph_image_and_twitter_card() {
+    let routes = vec![Route::layout(
+        "/",
+        &MetadataLayout,
+        vec![Route::endpoint(
+            "posts/:slug",
+            get(|| async { RouteResponse::ssr(MetadataPage) }),
+        )
+        .with_metadata(&PageMetadata)],
+    )
+    .with_metadata(&BaseMetadata)];
+
+    let manifest = Arc::new(IslandManifest {
+        islands: Default::default(),
+        assets: Default::default(),
+        import_map: Default::default(),
+        ssr_bundle: Default::default(),
+    });
+
+    let (router, computed_metadata) = router_from_spec(routes);
+    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/posts/hello")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let html = String::from_utf8(body.to_vec()).unwrap();
+    assert!(html.contains("<title>Page Title</title>"), "{html}");
+    assert!(html.contains("property=\"og:image\" content=\"https://example.com/base.png\""));
+    assert!(html.contains("property=\"og:image\" content=\"https://example.com/page.png\""));
+    assert!(html.contains("property=\"og:image:alt\" content=\"Preview\""));
+    assert!(html.contains("name=\"twitter:card\" content=\"summary_large_image\""));
+    assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/base.png\""));
+}
+
 #[tokio::test]
 async fn page_owned_cache_survives_endpoint_replacement_and_router_merge() {
     use crate::{FrameworkBuilder, PageCacheLayer};

@@ -20,6 +20,13 @@ All notable public changes are tracked here.
   titled `Home` rendered `og:title` as the layout's text. A child with an
   absolute or tombstoned title no longer inherits the layout's filled value.
 
+- Dynamic routes such as `/posts/:slug` render the full metadata head. Their
+  request path is not a key in the precomputed metadata map, so the head is
+  resolved from the provider stack at request time, and that path only
+  resolved titles and descriptions: `og:image`, `og:site_name`, `og:type`,
+  `og:url`, `og:locale`, audio, and video were dropped. `resolve_metadata_stack`
+  now runs the same cascade as the precomputed map.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while

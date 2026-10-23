@@ -718,105 +718,18 @@ pub fn resolved_metadata_from_computed(computed: &ComputedRouteMeta) -> Resolved
     }
 }
 
+/// Resolves a full provider stack (outermost layout first) in one pass.
+///
+/// This is the fallback for requests whose path is not in the precomputed
+/// metadata map, such as dynamic `:param` routes. It runs the same cascade as
+/// [`ComputedRouteMeta::cascade`], so a route renders the same head whichever
+/// path resolves it.
 pub fn resolve_metadata_stack(metadata: &[MetadataRef]) -> Option<ResolvedMetadata> {
     if metadata.is_empty() {
         return None;
     }
-
-    let mut resolved = ResolvedMetadata::default();
-    let mut title_template: Option<&'static str> = None;
-    let mut og_title_template: Option<&'static str> = None;
-    let mut og_description_template: Option<&'static str> = None;
-    let mut raw_page_title: Option<&'static str> = None;
-    let mut twitter_templates = TwitterTemplates::default();
-
-    for metadata in metadata {
-        match metadata.title() {
-            CascadeValue::Set(title) => {
-                if metadata.absolute_title() {
-                    resolved.title = Some(title.to_string());
-                    title_template = None;
-                    raw_page_title = None;
-                } else if title.contains("%s") {
-                    title_template = Some(title);
-                } else {
-                    raw_page_title = Some(title);
-                    if let Some(template) = title_template {
-                        resolved.title = Some(template.replace("%s", title));
-                    } else {
-                        resolved.title = Some(title.to_string());
-                    }
-                }
-            }
-            CascadeValue::Tombstone => {
-                resolved.title = None;
-                title_template = None;
-            }
-            CascadeValue::Unset => {}
-        }
-
-        resolved.description = metadata.description().resolve(resolved.description);
-
-        let og = metadata.open_graph();
-        match og.title {
-            CascadeValue::Set(og_title) => {
-                if og_title.contains("%s") {
-                    og_title_template = Some(og_title);
-                } else if let Some(template) = og_title_template {
-                    resolved.open_graph.title = Some(template.replace("%s", og_title));
-                } else {
-                    resolved.open_graph.title = Some(og_title.to_string());
-                }
-            }
-            CascadeValue::Tombstone => {
-                resolved.open_graph.title = None;
-            }
-            CascadeValue::Unset => {}
-        }
-
-        match og.description {
-            CascadeValue::Set(og_desc) => {
-                if og_desc.contains("%s") {
-                    og_description_template = Some(og_desc);
-                } else if let Some(template) = og_description_template {
-                    resolved.open_graph.description = Some(template.replace("%s", og_desc));
-                } else {
-                    resolved.open_graph.description = Some(og_desc.to_string());
-                }
-            }
-            CascadeValue::Tombstone => {
-                resolved.open_graph.description = None;
-            }
-            CascadeValue::Unset => {}
-        }
-
-        apply_twitter_cascade(
-            &mut resolved.twitter,
-            &mut twitter_templates,
-            metadata.twitter(),
-        );
-    }
-
-    if resolved.open_graph.title.is_none() {
-        if let (Some(template), Some(page_title)) = (og_title_template, raw_page_title) {
-            resolved.open_graph.title = Some(template.replace("%s", page_title));
-        }
-    }
-
-    if resolved.open_graph.description.is_none() {
-        if let (Some(template), Some(page_desc)) = (og_description_template, resolved.description) {
-            resolved.open_graph.description = Some(template.replace("%s", page_desc));
-        }
-    }
-
-    finish_twitter_templates(
-        &mut resolved.twitter,
-        &mut twitter_templates,
-        raw_page_title,
-        resolved.description,
-    );
-
-    Some(resolved)
+    let computed = ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), metadata);
+    Some(resolved_metadata_from_computed(&computed))
 }
 
 pub fn css_asset_path(manifest: &IslandManifest) -> Option<&str> {
@@ -1758,5 +1671,191 @@ mod tests {
 
         let og = nested_og(&[&NoDescription]);
         assert!(og.description.is_none(), "{:?}", og.description);
+    }
+
+    #[test]
+    fn metadata_stack_keeps_open_graph_media_and_twitter_image() {
+        let resolved = resolve_metadata_stack(&[&LayoutTwitterImageOnly, &TombstoneTwitterImage])
+            .expect("metadata should resolve");
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &resolved);
+        let html = cx.into_output().into_string();
+        assert!(html.contains("property=\"og:image\" content=\"https://example.com/og.png\""));
+        assert!(html.contains("name=\"twitter:card\" content=\"summary_large_image\""));
+        assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/og.png\""));
+    }
+
+    mod split_invariance {
+        use super::super::*;
+
+        macro_rules! provider {
+            ($name:ident { $($body:tt)* }) => {
+                struct $name;
+                impl Metadata for $name {
+                    $($body)*
+                }
+            };
+        }
+
+        provider!(TitleTemplate {
+            fn title(&self) -> CascadeValue<&'static str> {
+                CascadeValue::Set("%s | Site")
+            }
+        });
+        provider!(Home {
+            fn title(&self) -> CascadeValue<&'static str> {
+                CascadeValue::Set("Home")
+            }
+            fn description(&self) -> CascadeValue<&'static str> {
+                CascadeValue::Set("home-desc")
+            }
+        });
+        provider!(Pricing {
+            fn title(&self) -> CascadeValue<&'static str> {
+                CascadeValue::Set("Pricing")
+            }
+            fn description(&self) -> CascadeValue<&'static str> {
+                CascadeValue::Set("plans")
+            }
+        });
+        provider!(Absolute {
+            fn title(&self) -> CascadeValue<&'static str> {
+                CascadeValue::Set("Standalone")
+            }
+            fn absolute_title(&self) -> bool {
+                true
+            }
+        });
+        provider!(ClearTitle {
+            fn title(&self) -> CascadeValue<&'static str> {
+                CascadeValue::Tombstone
+            }
+        });
+        provider!(ClearDescription {
+            fn description(&self) -> CascadeValue<&'static str> {
+                CascadeValue::Tombstone
+            }
+        });
+        provider!(OgTemplates {
+            fn open_graph(&self) -> CascadeOpenGraph {
+                CascadeOpenGraph {
+                    title: CascadeValue::Set("%s on OG"),
+                    description: CascadeValue::Set("About %s"),
+                    ..Default::default()
+                }
+            }
+        });
+        provider!(OgPlain {
+            fn open_graph(&self) -> CascadeOpenGraph {
+                static IMAGES: [OpenGraphImage; 1] =
+                    [OpenGraphImage::new("https://example.com/og.png").with_alt("OG alt")];
+                CascadeOpenGraph {
+                    title: CascadeValue::Set("Plans"),
+                    site_name: CascadeValue::Set("Site"),
+                    images: CascadeValue::Set(&IMAGES),
+                    ..Default::default()
+                }
+            }
+        });
+        provider!(OgClear {
+            fn open_graph(&self) -> CascadeOpenGraph {
+                CascadeOpenGraph {
+                    title: CascadeValue::Tombstone,
+                    description: CascadeValue::Tombstone,
+                    images: CascadeValue::Tombstone,
+                    ..Default::default()
+                }
+            }
+        });
+        provider!(TwitterTemplates {
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    site: CascadeValue::Set("@site"),
+                    title: CascadeValue::Set("%s on X"),
+                    description: CascadeValue::Set("X %s"),
+                    ..Default::default()
+                }
+            }
+        });
+        provider!(TwitterImage {
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    title: CascadeValue::Set("Tw"),
+                    image: CascadeValue::Set("https://example.com/x.png"),
+                    image_alt: CascadeValue::Set("X alt"),
+                    ..Default::default()
+                }
+            }
+        });
+        provider!(TwitterClear {
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    title: CascadeValue::Tombstone,
+                    image: CascadeValue::Tombstone,
+                    ..Default::default()
+                }
+            }
+        });
+        provider!(TwitterOff {
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    card: CascadeValue::Tombstone,
+                    ..Default::default()
+                }
+            }
+        });
+
+        fn head(metadata: &ResolvedMetadata) -> String {
+            let mut cx = Ctx::new();
+            render_metadata_head(&mut cx, metadata);
+            cx.into_output().into_string()
+        }
+
+        /// The precomputed map cascades one route level at a time, while the
+        /// request-time fallback resolves the whole stack at once. Splitting a
+        /// stack across route levels must not change the rendered head.
+        #[test]
+        fn splitting_a_stack_across_route_levels_keeps_the_same_head() {
+            let providers: [MetadataRef; 13] = [
+                &TitleTemplate,
+                &Home,
+                &Pricing,
+                &Absolute,
+                &ClearTitle,
+                &ClearDescription,
+                &OgTemplates,
+                &OgPlain,
+                &OgClear,
+                &TwitterTemplates,
+                &TwitterImage,
+                &TwitterClear,
+                &TwitterOff,
+            ];
+            let mut stacks: Vec<Vec<MetadataRef>> = Vec::new();
+            for &a in &providers {
+                for &b in &providers {
+                    stacks.push(vec![a, b]);
+                    for &c in &providers {
+                        stacks.push(vec![a, b, c]);
+                    }
+                }
+            }
+
+            for stack in &stacks {
+                let flat = head(&resolve_metadata_stack(stack).expect("non-empty stack"));
+                for split in 1..stack.len() {
+                    let parent =
+                        ComputedRouteMeta::cascade(&ComputedRouteMeta::default(), &stack[..split]);
+                    let child = ComputedRouteMeta::cascade(&parent, &stack[split..]);
+                    let nested = head(&resolved_metadata_from_computed(&child));
+                    assert_eq!(
+                        nested,
+                        flat,
+                        "stack of {} providers split after {split}",
+                        stack.len()
+                    );
+                }
+            }
+        }
     }
 }
