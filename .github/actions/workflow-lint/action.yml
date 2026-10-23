@@ -50,3 +50,7 @@ runs:
     - name: Test the linked-acceptance path classifier
       shell: bash
       run: python3 scripts/test_linked_acceptance_paths.py
+
+    - name: Test linked-acceptance shard isolation
+      shell: bash
+      run: python3 scripts/test_cli_acceptance_runner.py
