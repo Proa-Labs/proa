@@ -109,19 +109,22 @@ run_example() {
 # result, so a pull request shows a single check instead of one per shard.
 # Each shard is a full re-invocation of this script writing to its own log;
 # the logs are replayed in collapsible groups once everything has finished.
-# Cargo serializes the shared target/debug builds of proa-cli itself, but the
-# linked descriptor/final builds live in per-invocation directories and run
-# side by side.
+# Give each shard its own outer Cargo target directory too. `cargo test` and
+# `cargo run` can build different feature graphs and replace target/debug/proa
+# while another shard is still executing it. Cargo's build lock does not cover
+# the running CLI's lifetime or its later wrapper snapshot.
 run_shards_in_parallel() {
-  local logs
+  local logs target_root
   logs="$(mktemp -d)"
+  target_root="${CARGO_TARGET_DIR:-target}/acceptance-shards"
   local -a modes=("$@")
   local mode
   for mode in "${modes[@]}"; do
     (
       started="$(date +%s)"
       status=0
-      "$0" "$mode" > "$logs/$mode.log" 2>&1 || status=$?
+      CARGO_TARGET_DIR="$target_root/$mode" \
+        "$0" "$mode" > "$logs/$mode.log" 2>&1 || status=$?
       printf '%s %s\n' "$(( $(date +%s) - started ))" "$status" > "$logs/$mode.status"
       exit "$status"
     ) &

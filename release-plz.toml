@@ -4,7 +4,8 @@
 [workspace]
 # Publishing is additionally constrained in package manifests:
 # publish.workspace = true resolves to [workspace.package].publish = ["crates-io"].
-# The local release wrapper targets crates-io. No Cargo publish workflow is enabled.
+# Local commands and the manually dispatched Release crates workflow both use
+# scripts/release-plz.sh and target crates-io.
 release = false
 dependencies_update = false
 git_release_enable = true
@@ -16,8 +17,10 @@ publish_allow_dirty = false
 # should be fixed in the owning crate instead of hidden by the release tool.
 publish_no_verify = false
 publish_timeout = "30m"
-release_always = false
-# Keep public API compatibility checks enabled for normal automated releases.
+# Publication is manually selected, so release pending versions even if another
+# commit has landed after the release PR. Nothing publishes on ordinary pushes.
+release_always = true
+# Keep public API compatibility checks enabled for normal releases.
 # The initial standalone 0.3.0 bootstrap is a documented manual release because
 # the prior package history was coupled to sibling repositories.
 semver_check = true
@@ -154,6 +157,10 @@ version_group = "tailwind-merge-0-1"
 [[package]]
 name = "proa-cli"
 release = true
+# The tag triggers Release CLI, which owns the checksummed binary assets and
+# the GitHub Release. An empty release here would make its preflight fail.
+git_release_enable = false
+git_tag_enable = true
 
 [[package]]
 name = "proa_html_policy"

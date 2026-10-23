@@ -1,0 +1,93 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Release crates
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/release-plz.yml
+      - release-plz.toml
+      - rust-toolchain.toml
+      - scripts/release-plz.sh
+      - scripts/check_publish_policy.py
+      - scripts/check_crate_archives.py
+      - scripts/test_release_plz.py
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Release operation (the same command works with scripts/release-plz.sh)
+        required: true
+        type: choice
+        default: check
+        options:
+          - check
+          - release-pr
+          - release-dry-run
+          - release
+
+permissions:
+  contents: read
+
+concurrency:
+  # A check must not replace a queued publication: GitHub retains only one
+  # pending run per group, even with cancel-in-progress disabled.
+  group: release-plz-${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', inputs.command) || github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Check shared release flow
+    if: github.event_name == 'pull_request'
+    runs-on: gcp-pr-ci
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # This job receives no release secrets. It exercises the same installer
+      # and preflight on the CI runner before changes to them reach main.
+      - name: Install pinned release tools
+        run: scripts/release-plz.sh install
+
+      - name: Check shared release preflight
+        run: scripts/release-plz.sh check
+
+  release:
+    name: Run shared release flow
+    # Run the audited workflow on main. The wrapper also checks the exact
+    # current main commit immediately before a live PR or publication.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: gcp-pr-ci
+    timeout-minutes: 120
+    steps:
+      - name: Require main for manual dispatches
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          if [[ "$RELEASE_REF" != 'refs/heads/main' ]]; then
+            echo '::error::Release crates must run from main. Select main in Actions or pass --ref main to gh workflow run.'
+            exit 1
+          fi
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned release tools
+        run: scripts/release-plz.sh install
+
+      - name: Run selected release operation
+        env:
+          RELEASE_COMMAND: ${{ inputs.command }}
+          PROA_RELEASE_EXPECTED_SHA: ${{ github.sha }}
+          PROA_RELEASE_REPOSITORY: ${{ github.repository }}
+          # A PAT/App token lets release PRs trigger CI and CLI tags trigger
+          # Release CLI. The default GITHUB_TOKEN suppresses those events.
+          GIT_TOKEN: ${{ inputs.command != 'check' && secrets.RELEASE_GITHUB_TOKEN || '' }}
+          CARGO_REGISTRY_TOKEN: ${{ inputs.command == 'release' && secrets.CARGO_REGISTRY_TOKEN || '' }}
+        run: scripts/release-plz.sh "$RELEASE_COMMAND"

@@ -51,8 +51,13 @@ Actual publication verifies each archive and waits for registry visibility
 before proceeding. Forward development dependencies are path-only during the
 initial bootstrap, so Cargo can publish production dependencies in order without
 a cycle through test-only crates. Workspace tests retain those dependencies.
-Configure a current crates.io publishing token locally; never commit it. See
-[`scripts/README.md`](../scripts/README.md) for manual tooling.
+For normal releases after bootstrap, local commands and the manually triggered
+**Release crates** Actions workflow share `scripts/release-plz.sh`. Start with
+`scripts/release-plz.sh install` and `scripts/release-plz.sh check`; then use
+`release-pr`, `release-dry-run`, and `release` as documented in
+[`scripts/README.md`](../scripts/README.md#cratesio-releases). That guide covers
+the matching Actions inputs and credential setup. Nothing publishes to crates.io
+automatically on push or merge. Never commit publishing credentials.
 
 ## Component catalogs
 
