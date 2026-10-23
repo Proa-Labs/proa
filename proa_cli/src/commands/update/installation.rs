@@ -51,6 +51,28 @@ pub(super) fn root_for_bin(bin_dir: &Path) -> PathBuf {
 }
 
 pub(super) fn detect(executable: &Path) -> Result<Installation> {
+    let _lock = standalone_root(executable)
+        .filter(|root| root.join(MANIFEST).is_file())
+        .map(|root| -> Result<fs::File> {
+            let lock = fs::File::open(root.join("install.lock"))?;
+            lock.try_lock_shared()
+                .context("another Proa installation/update is running; retry after it finishes")?;
+            Ok(lock)
+        })
+        .transpose()?;
+    detect_with_bundle_lock(executable)
+}
+
+fn standalone_root(executable: &Path) -> Option<&Path> {
+    let releases = executable.parent()?.parent()?;
+    (releases.file_name()? == "releases")
+        .then(|| releases.parent())
+        .flatten()
+}
+
+/// The caller must hold this installation's `install.lock` when inspecting a
+/// standalone bundle. Publishing already holds it exclusively.
+pub(super) fn detect_with_bundle_lock(executable: &Path) -> Result<Installation> {
     if !names().iter().any(|name| {
         executable
             .file_name()
@@ -173,5 +195,18 @@ mod tests {
             assert_eq!(fs::read_to_string(&records).unwrap(), contents);
             assert!(!temp.path().join(".crates2.json").exists());
         }
+    }
+
+    #[test]
+    fn standalone_detection_refuses_to_read_during_publication() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let release = root.join("releases/selected");
+        fs::create_dir_all(&release).unwrap();
+        fs::write(root.join(MANIFEST), b"being replaced").unwrap();
+        let lock = fs::File::create(root.join("install.lock")).unwrap();
+        lock.try_lock().unwrap();
+        let error = detect(&release.join(&names()[0])).unwrap_err();
+        assert!(error.to_string().contains("retry after it finishes"));
     }
 }

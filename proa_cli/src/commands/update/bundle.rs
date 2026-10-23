@@ -66,7 +66,8 @@ pub(crate) fn install_self(args: InstallSelfArgs) -> Result<()> {
     let names = installation::names();
     let mut managed = false;
     if bin_dir.join(&names[0]).exists() {
-        let owner = installation::detect(&bin_dir.join(&names[0]).canonicalize()?)?;
+        let owner =
+            installation::detect_with_bundle_lock(&bin_dir.join(&names[0]).canonicalize()?)?;
         ensure!(
             !matches!(owner, installation::Installation::Cargo { .. }),
             "Cargo owns this installation; use cargo install --locked proa-cli instead"
