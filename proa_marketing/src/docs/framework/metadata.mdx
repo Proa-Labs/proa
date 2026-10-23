@@ -1,6 +1,6 @@
 ---
 title: Metadata and OG images
-description: Compose titles, descriptions, and social preview images.
+description: Compose titles, descriptions, Open Graph tags, and Twitter Cards.
 ---
 
 Proa metadata is resolved from the current route context. Layouts and pages can both provide metadata; the framework precomputes a metadata map from the route specification and exposes helpers for rendering the current route's head tags.
@@ -99,3 +99,38 @@ CascadeOpenGraph {
 ```
 
 Use tombstones deliberately. Most routes should inherit sensible layout defaults.
+
+## Twitter Cards
+
+`render_metadata_head` writes Twitter Card tags when a layout or page sets any Twitter field. Title, description, image, and image alt still use Open Graph values, then the page title and description, when those Twitter fields stay empty.
+
+```rust
+use proa_framework_axum::{CascadeTwitter, CascadeValue, Metadata, TwitterCard};
+
+impl Metadata for AppLayout {
+    fn twitter(&self) -> CascadeTwitter {
+        CascadeTwitter {
+            card: CascadeValue::Set(TwitterCard::SummaryLargeImage),
+            site: CascadeValue::Set("@yoursite"),
+            ..Default::default()
+        }
+    }
+}
+```
+
+A page can override the creator or the image without repeating the card type:
+
+```rust
+impl Metadata for PricingMeta {
+    fn twitter(&self) -> CascadeTwitter {
+        CascadeTwitter {
+            creator: CascadeValue::Set("@docs"),
+            image: CascadeValue::Set("https://example.com/static/og/pricing.png"),
+            image_alt: CascadeValue::Set("Proa pricing"),
+            ..Default::default()
+        }
+    }
+}
+```
+
+`TwitterCard::Summary` is the default card when Twitter tags are requested and no image is available. `TwitterCard::SummaryLargeImage` is the default when an image comes from Twitter metadata or Open Graph. Tombstoning `twitter.image` clears a Twitter-specific image so the first Open Graph image is used again.

@@ -4,6 +4,12 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- Route metadata can declare Twitter Cards through `Metadata::twitter`.
+  `render_metadata_head` writes `twitter:card`, `twitter:site`, `twitter:creator`,
+  `twitter:title`, `twitter:description`, `twitter:image`, and `twitter:image:alt`.
+  Title, description, image, and image alt fall back to Open Graph and then to
+  the page title and description when those Twitter fields are unset.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while

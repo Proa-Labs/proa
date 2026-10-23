@@ -70,6 +70,15 @@ pub trait Metadata: Send + Sync + 'static {
     fn open_graph(&self) -> CascadeOpenGraph {
         CascadeOpenGraph::default()
     }
+
+    /// Returns Twitter Card cascade values.
+    ///
+    /// Unset fields inherit from the parent provider. At render time, title,
+    /// description, image, and image alt still fall back to Open Graph and then
+    /// to the page title and description when those Twitter fields stay empty.
+    fn twitter(&self) -> CascadeTwitter {
+        CascadeTwitter::default()
+    }
 }
 
 /// Precomputed metadata for a specific route (flattened at build time).
@@ -78,6 +87,7 @@ pub struct ComputedRouteMeta {
     pub title: Option<String>,
     pub description: Option<&'static str>,
     pub open_graph: ComputedOpenGraph,
+    pub twitter: ResolvedTwitter,
     pub(crate) title_template: Option<String>,
     pub(crate) og_title_template: Option<String>,
     pub(crate) og_description_template: Option<String>,
@@ -214,6 +224,8 @@ impl ComputedRouteMeta {
                 }
                 CascadeValue::Unset => {}
             }
+
+            apply_twitter_cascade(&mut computed.twitter, provider.twitter());
         }
 
         if computed.open_graph.title.is_none() {
@@ -242,6 +254,72 @@ pub struct ResolvedMetadata {
     pub title: Option<String>,
     pub description: Option<&'static str>,
     pub open_graph: ResolvedOpenGraph,
+    pub twitter: ResolvedTwitter,
+}
+
+/// Twitter Card type written to `twitter:card`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TwitterCard {
+    /// Small image beside title and description.
+    Summary,
+    /// Large image above title and description.
+    SummaryLargeImage,
+}
+
+impl TwitterCard {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Summary => "summary",
+            Self::SummaryLargeImage => "summary_large_image",
+        }
+    }
+}
+
+/// Cascade specification for Twitter Card metadata.
+#[derive(Clone, Default)]
+pub struct CascadeTwitter {
+    pub card: CascadeValue<TwitterCard>,
+    pub site: CascadeValue<&'static str>,
+    pub creator: CascadeValue<&'static str>,
+    pub title: CascadeValue<&'static str>,
+    pub description: CascadeValue<&'static str>,
+    pub image: CascadeValue<&'static str>,
+    pub image_alt: CascadeValue<&'static str>,
+}
+
+/// Resolved Twitter Card metadata ready for rendering.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResolvedTwitter {
+    pub card: Option<TwitterCard>,
+    pub site: Option<&'static str>,
+    pub creator: Option<&'static str>,
+    pub title: Option<&'static str>,
+    pub description: Option<&'static str>,
+    pub image: Option<&'static str>,
+    pub image_alt: Option<&'static str>,
+}
+
+impl ResolvedTwitter {
+    /// True when no Twitter Card field was set on the cascade.
+    pub fn is_empty(&self) -> bool {
+        self.card.is_none()
+            && self.site.is_none()
+            && self.creator.is_none()
+            && self.title.is_none()
+            && self.description.is_none()
+            && self.image.is_none()
+            && self.image_alt.is_none()
+    }
+}
+
+fn apply_twitter_cascade(dst: &mut ResolvedTwitter, spec: CascadeTwitter) {
+    dst.card = spec.card.resolve(dst.card);
+    dst.site = spec.site.resolve(dst.site);
+    dst.creator = spec.creator.resolve(dst.creator);
+    dst.title = spec.title.resolve(dst.title);
+    dst.description = spec.description.resolve(dst.description);
+    dst.image = spec.image.resolve(dst.image);
+    dst.image_alt = spec.image_alt.resolve(dst.image_alt);
 }
 
 /// Cascade specification for Open Graph metadata.
@@ -457,6 +535,7 @@ pub fn resolved_metadata_from_computed(computed: &ComputedRouteMeta) -> Resolved
             audio: computed.open_graph.audio.clone(),
             video: computed.open_graph.video.clone(),
         },
+        twitter: computed.twitter.clone(),
     }
 }
 
@@ -530,6 +609,8 @@ pub fn resolve_metadata_stack(metadata: &[MetadataRef]) -> Option<ResolvedMetada
             }
             CascadeValue::Unset => {}
         }
+
+        apply_twitter_cascade(&mut resolved.twitter, metadata.twitter());
     }
 
     if resolved.open_graph.title.is_none() {
@@ -659,6 +740,59 @@ pub fn render_metadata_head(cx: &mut Ctx, metadata: &ResolvedMetadata) {
             render_property_meta(cx, "og:video:type", mime);
         }
     }
+
+    render_twitter_tags(cx, metadata);
+}
+
+fn render_twitter_tags(cx: &mut Ctx, metadata: &ResolvedMetadata) {
+    let twitter = &metadata.twitter;
+    if twitter.is_empty() {
+        return;
+    }
+
+    let og = &metadata.open_graph;
+    let image = twitter
+        .image
+        .or_else(|| og.images.first().map(|image| image.url.as_str()));
+    let card = twitter.card.unwrap_or(if image.is_some() {
+        TwitterCard::SummaryLargeImage
+    } else {
+        TwitterCard::Summary
+    });
+    render_named_meta(cx, "twitter:card", card.as_str());
+
+    if let Some(site) = twitter.site {
+        render_named_meta(cx, "twitter:site", site);
+    }
+    if let Some(creator) = twitter.creator {
+        render_named_meta(cx, "twitter:creator", creator);
+    }
+
+    if let Some(title) = twitter
+        .title
+        .or(og.title.as_deref())
+        .or(metadata.title.as_deref())
+    {
+        render_named_meta(cx, "twitter:title", title);
+    }
+
+    if let Some(description) = twitter
+        .description
+        .or(og.description.as_deref())
+        .or(metadata.description)
+    {
+        render_named_meta(cx, "twitter:description", description);
+    }
+
+    if let Some(image) = image {
+        render_named_meta(cx, "twitter:image", image);
+        if let Some(alt) = twitter
+            .image_alt
+            .or_else(|| og.images.first().and_then(|image| image.alt))
+        {
+            render_named_meta(cx, "twitter:image:alt", alt);
+        }
+    }
 }
 
 fn render_named_meta(cx: &mut Ctx, name: &str, content: &str) {
@@ -721,5 +855,178 @@ mod tests {
         let html = cx.into_output().into_string();
         assert!(html.contains("<title>Page</title>"));
         assert!(html.contains("meta name=\"description\""));
+        assert!(
+            !html.contains("twitter:"),
+            "unset Twitter cascade must not emit twitter tags: {html}"
+        );
+    }
+
+    struct LayoutTwitter;
+
+    impl Metadata for LayoutTwitter {
+        fn title(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("%s | Site")
+        }
+
+        fn description(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("site-desc")
+        }
+
+        fn open_graph(&self) -> CascadeOpenGraph {
+            static IMAGES: [OpenGraphImage; 1] =
+                [OpenGraphImage::new("https://example.com/og.png").with_alt("OG preview")];
+            CascadeOpenGraph {
+                images: CascadeValue::Set(&IMAGES),
+                ..Default::default()
+            }
+        }
+
+        fn twitter(&self) -> CascadeTwitter {
+            CascadeTwitter {
+                card: CascadeValue::Set(TwitterCard::SummaryLargeImage),
+                site: CascadeValue::Set("@site"),
+                image: CascadeValue::Set("https://example.com/twitter.png"),
+                ..Default::default()
+            }
+        }
+    }
+
+    struct PageTwitter;
+
+    impl Metadata for PageTwitter {
+        fn title(&self) -> CascadeValue<&'static str> {
+            CascadeValue::Set("Pricing")
+        }
+
+        fn twitter(&self) -> CascadeTwitter {
+            CascadeTwitter {
+                creator: CascadeValue::Set("@author"),
+                ..Default::default()
+            }
+        }
+    }
+
+    struct TombstoneTwitterImage;
+
+    impl Metadata for TombstoneTwitterImage {
+        fn twitter(&self) -> CascadeTwitter {
+            CascadeTwitter {
+                image: CascadeValue::Tombstone,
+                image_alt: CascadeValue::Tombstone,
+                ..Default::default()
+            }
+        }
+    }
+
+    #[test]
+    fn twitter_cascade_inherits_layout_and_falls_back_to_page_copy() {
+        let mut computed = ComputedRouteMeta::default();
+        computed = ComputedRouteMeta::cascade(&computed, &[&LayoutTwitter, &PageTwitter]);
+        let resolved = resolved_metadata_from_computed(&computed);
+        assert_eq!(resolved.twitter.card, Some(TwitterCard::SummaryLargeImage));
+        assert_eq!(resolved.twitter.site, Some("@site"));
+        assert_eq!(resolved.twitter.creator, Some("@author"));
+        assert!(resolved.twitter.title.is_none());
+        assert_eq!(
+            resolved.twitter.image,
+            Some("https://example.com/twitter.png")
+        );
+
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &resolved);
+        let html = cx.into_output().into_string();
+        assert!(html.contains("name=\"twitter:card\" content=\"summary_large_image\""));
+        assert!(html.contains("name=\"twitter:site\" content=\"@site\""));
+        assert!(html.contains("name=\"twitter:creator\" content=\"@author\""));
+        assert!(html.contains("name=\"twitter:title\" content=\"Pricing | Site\""));
+        assert!(html.contains("name=\"twitter:description\" content=\"site-desc\""));
+        assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/twitter.png\""));
+        assert!(html.contains("name=\"twitter:image:alt\" content=\"OG preview\""));
+    }
+
+    #[test]
+    fn twitter_image_tombstone_clears_override_and_uses_open_graph() {
+        let providers: &[MetadataRef] = &[&LayoutTwitter, &PageTwitter, &TombstoneTwitterImage];
+        let mut computed = ComputedRouteMeta::default();
+        computed = ComputedRouteMeta::cascade(&computed, providers);
+        assert!(computed.twitter.image.is_none());
+        assert_eq!(computed.twitter.card, Some(TwitterCard::SummaryLargeImage));
+
+        let resolved = resolved_metadata_from_computed(&computed);
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &resolved);
+        let html = cx.into_output().into_string();
+        assert!(html.contains("name=\"twitter:card\" content=\"summary_large_image\""));
+        assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/og.png\""));
+        assert!(!html.contains("https://example.com/twitter.png"));
+    }
+
+    #[test]
+    fn twitter_tags_escape_quotes_and_angle_brackets() {
+        let metadata = ResolvedMetadata {
+            twitter: ResolvedTwitter {
+                card: Some(TwitterCard::Summary),
+                title: Some("Docs & <examples> \"quoted\""),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &metadata);
+        let html = cx.into_output().into_string();
+        assert!(html.contains(
+            "name=\"twitter:title\" content=\"Docs &amp; &lt;examples&gt; &quot;quoted&quot;\""
+        ));
+        assert!(!html.contains("content=\"Docs & <examples>"));
+    }
+
+    #[test]
+    fn twitter_image_falls_back_to_first_open_graph_image() {
+        struct CardOnly;
+
+        impl Metadata for CardOnly {
+            fn open_graph(&self) -> CascadeOpenGraph {
+                static IMAGES: [OpenGraphImage; 1] =
+                    [OpenGraphImage::new("https://example.com/og.png").with_alt("OG preview")];
+                CascadeOpenGraph {
+                    images: CascadeValue::Set(&IMAGES),
+                    ..Default::default()
+                }
+            }
+
+            fn twitter(&self) -> CascadeTwitter {
+                CascadeTwitter {
+                    card: CascadeValue::Set(TwitterCard::SummaryLargeImage),
+                    ..Default::default()
+                }
+            }
+        }
+
+        let mut computed = ComputedRouteMeta::default();
+        computed = ComputedRouteMeta::cascade(&computed, &[&CardOnly]);
+        let resolved = resolved_metadata_from_computed(&computed);
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &resolved);
+        let html = cx.into_output().into_string();
+        assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/og.png\""));
+        assert!(html.contains("name=\"twitter:image:alt\" content=\"OG preview\""));
+    }
+
+    #[test]
+    fn twitter_defaults_to_summary_when_no_image_is_available() {
+        let metadata = ResolvedMetadata {
+            title: Some("Hello".to_string()),
+            twitter: ResolvedTwitter {
+                site: Some("@site"),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut cx = Ctx::new();
+        render_metadata_head(&mut cx, &metadata);
+        let html = cx.into_output().into_string();
+        assert!(html.contains("name=\"twitter:card\" content=\"summary\""));
+        assert!(html.contains("name=\"twitter:title\" content=\"Hello\""));
+        assert!(!html.contains("twitter:image"));
     }
 }

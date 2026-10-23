@@ -18,7 +18,8 @@ use crate::manifest::IslandManifest;
 use super::context::RouteContextLayer;
 use super::layout::Layout;
 use super::metadata::{
-    render_metadata_head, CascadeOpenGraph, CascadeValue, Metadata, OpenGraphImage,
+    render_metadata_head, CascadeOpenGraph, CascadeTwitter, CascadeValue, Metadata, OpenGraphImage,
+    TwitterCard,
 };
 use super::response::RouteResponse;
 use super::spec::{router_from_spec, Route};
@@ -79,6 +80,14 @@ impl Metadata for BaseMetadata {
             title: CascadeValue::Set("Base OG Title"),
             description: CascadeValue::Set("Base OG Description"),
             images: CascadeValue::Set(&IMAGES),
+            ..Default::default()
+        }
+    }
+
+    fn twitter(&self) -> CascadeTwitter {
+        CascadeTwitter {
+            card: CascadeValue::Set(TwitterCard::SummaryLargeImage),
+            site: CascadeValue::Set("@proa"),
             ..Default::default()
         }
     }
@@ -154,6 +163,11 @@ async fn metadata_is_composed() {
     assert!(html.contains("property=\"og:image\" content=\"https://example.com/page.png\""));
     assert!(html.contains("property=\"og:image:width\" content=\"1200\""));
     assert!(html.contains("property=\"og:image:alt\" content=\"Preview\""));
+    assert!(html.contains("name=\"twitter:card\" content=\"summary_large_image\""));
+    assert!(html.contains("name=\"twitter:site\" content=\"@proa\""));
+    assert!(html.contains("name=\"twitter:title\" content=\"Page OG Title\""));
+    assert!(html.contains("name=\"twitter:description\" content=\"Base OG Description\""));
+    assert!(html.contains("name=\"twitter:image\" content=\"https://example.com/base.png\""));
 }
 
 #[tokio::test]

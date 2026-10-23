@@ -8,9 +8,9 @@ use proa_framework_core::{
     render_metadata_head as render_resolved_metadata_head, resolved_metadata_from_computed,
 };
 pub use proa_framework_core::{
-    CascadeOpenGraph, CascadeValue, ComputedRouteMeta, Metadata, MetadataRef, OpenGraph,
-    OpenGraphImage, OpenGraphMedia, ResolvedMetadata, ResolvedOpenGraphImage,
-    ResolvedOpenGraphMedia, TitleOnly,
+    CascadeOpenGraph, CascadeTwitter, CascadeValue, ComputedRouteMeta, Metadata, MetadataRef,
+    OpenGraph, OpenGraphImage, OpenGraphMedia, ResolvedMetadata, ResolvedOpenGraphImage,
+    ResolvedOpenGraphMedia, ResolvedTwitter, TitleOnly, TwitterCard,
 };
 
 /// Resolves and returns the current metadata from the route context.

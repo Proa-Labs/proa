@@ -26,9 +26,10 @@ pub use manifest::{
 pub use markdown::{render_sync_markdown_response, MarkdownResponse};
 pub use metadata::{
     css_asset_path, render_css_link, render_metadata_head, resolve_metadata_stack,
-    resolved_metadata_from_computed, CascadeOpenGraph, CascadeValue, ComputedOpenGraph,
-    ComputedRouteMeta, Metadata, MetadataRef, OpenGraph, OpenGraphImage, OpenGraphMedia,
-    ResolvedMetadata, ResolvedOpenGraph, ResolvedOpenGraphImage, ResolvedOpenGraphMedia, TitleOnly,
+    resolved_metadata_from_computed, CascadeOpenGraph, CascadeTwitter, CascadeValue,
+    ComputedOpenGraph, ComputedRouteMeta, Metadata, MetadataRef, OpenGraph, OpenGraphImage,
+    OpenGraphMedia, ResolvedMetadata, ResolvedOpenGraph, ResolvedOpenGraphImage,
+    ResolvedOpenGraphMedia, ResolvedTwitter, TitleOnly, TwitterCard,
 };
 pub use response::{
     add_default_security_headers, build_dyn_in_order_loader_handle,
