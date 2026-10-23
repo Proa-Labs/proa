@@ -3,10 +3,6 @@ title: Metadata and OG images
 description: Declare metadata, then render its head tags immediately with WebContext.
 ---
 
-<Callout type="info">
-Unreleased API: this guide accompanies the metadata redesign. The product example is compiled and exercised by the framework's documentation integration test.
-</Callout>
-
 Declare titles, descriptions, canonical URLs, and social preview images with `cx.metadata(...)?`. Render their tags inside `<head>` with `{cx.metadata.head()}`.
 
 **Declare first, emit once.** Rendering `cx.metadata.head()` writes the current metadata immediately and closes further declarations. The same rule applies to synchronous, buffered async, and streaming responses.
