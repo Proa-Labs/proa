@@ -249,13 +249,21 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("default: check", workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertIn("persist-credentials: false", workflow)
-        self.assertIn("if: github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'", workflow)
         self.assertIn("run: scripts/release-plz.sh install", workflow)
         self.assertIn('run: scripts/release-plz.sh "$RELEASE_COMMAND"', workflow)
         for command in ("check", "release-pr", "release-dry-run", "release"):
             self.assertIn("          - " + command + "\n", workflow)
         self.assertIn("secrets.RELEASE_GITHUB_TOKEN", workflow)
         self.assertNotIn("cargo install release-plz", workflow)
+
+    def test_pr_checks_use_the_real_installer_without_release_secrets(self):
+        workflow = (ROOT / ".github/workflows/release-plz.yml").read_text()
+        check = workflow.split("  check:\n", 1)[1].split("\n  release:\n", 1)[0]
+        self.assertIn("if: github.event_name == 'pull_request'", check)
+        self.assertIn("run: scripts/release-plz.sh install", check)
+        self.assertIn("run: scripts/release-plz.sh check", check)
+        self.assertNotRegex(check, r"\$\{\{[^}]*\bsecrets\b")
 
 
 if __name__ == "__main__":

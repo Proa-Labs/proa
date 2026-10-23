@@ -175,6 +175,8 @@ manually dispatched **Release crates** workflow. Both entry points use the
 same pinned release-plz and cargo-semver-checks versions, configuration,
 crates.io destination, policy checks, and archive/license checks. Ordinary
 pushes and PR merges do not publish crates.
+Changes to release tooling also run the same installer and `check` command
+automatically in PR CI, without release secrets.
 
 The installer selects a separate, pinned Rust toolchain to build the release
 tools. This does not change `rust-toolchain.toml` or the toolchain used for

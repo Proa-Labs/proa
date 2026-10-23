@@ -4,6 +4,16 @@
 name: Release crates
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/release-plz.yml
+      - release-plz.toml
+      - rust-toolchain.toml
+      - scripts/release-plz.sh
+      - scripts/check_publish_policy.py
+      - scripts/check_crate_archives.py
+      - scripts/test_release_plz.py
   workflow_dispatch:
     inputs:
       command:
@@ -21,15 +31,34 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-plz
-  cancel-in-progress: false
+  group: release-plz-${{ github.event_name == 'workflow_dispatch' && 'manual' || github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  check:
+    name: Check shared release flow
+    if: github.event_name == 'pull_request'
+    runs-on: gcp-pr-ci
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # This job receives no release secrets. It exercises the same installer
+      # and preflight on the CI runner before changes to them reach main.
+      - name: Install pinned release tools
+        run: scripts/release-plz.sh install
+
+      - name: Check shared release preflight
+        run: scripts/release-plz.sh check
+
   release:
     name: Run shared release flow
     # Run the audited workflow on main. The wrapper also checks the exact
     # current main commit immediately before a live PR or publication.
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: gcp-pr-ci
     timeout-minutes: 120
     steps:
