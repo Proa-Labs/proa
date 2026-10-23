@@ -7,7 +7,7 @@ workflow's literal `gcp-pr-ci` label selects the unprivileged pull-request pool.
 | Piece | Where |
 |---|---|
 | Cluster | GKE Standard `proa-ci`, `us-west1-a`, project `airy-cycle-504821-k9` |
-| Runner image | `us-west1-docker.pkg.dev/airy-cycle-504821-k9/ci-images/proa-runner` (build: `runner.Dockerfile`, rebuild on toolchain bump; v5 includes GitHub CLI plus ssh, rsync, and zstd for preview/deploy control) |
+| Runner image | `us-west1-docker.pkg.dev/airy-cycle-504821-k9/ci-images/proa-runner` (build: `runner.Dockerfile`; v6 uses Actions runner 2.338.1 with patched Node 24.22.1) |
 | Trusted scale set | helm release `gcp` / label `gcp-ci`, values: `runner-scale-set-values.yaml` |
 | PR scale set | helm release `gcp-pr` / label `gcp-pr-ci`, values: `pr-runner-scale-set-values.yaml` |
 | Controller | helm release `arc` in ns `arc-systems` (gha-runner-scale-set-controller 0.14.2) |
@@ -50,6 +50,16 @@ Then bump the tag in runner-scale-set-values.yaml and roll the fleet
 
 Roll the isolated PR pool with the same chart version:
   helm upgrade --install gcp-pr oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set --version 0.14.2 -n arc-runners -f pr-runner-scale-set-values.yaml
+
+For the October 2026 security update, build and publish `1.95.0-v6` before
+applying these values. Changing `setup-node` only updates job commands; the
+runner's separate `externals/node24/bin/node` executes JavaScript actions.
+Runner 2.336.0 bundles Node 24.18.0; runner 2.338.1 bundles patched Node 24.22.1.
+Inspect every organization scale set, including latency, benchmark, and
+`proa-ui` pools maintained outside these two values files, and replace any
+old runner tag or digest. Let active jobs finish, replace retained idle runners,
+and verify `/home/runner/externals/node24/bin/node --version` on the replacement
+image. Updating this repository alone does not roll the existing fleet.
 
 The trusted repository runner variable is `CI_RUNNER=gcp-ci`. Keep the PR
 label literal in `ci.yml`: this deliberately prevents a missing variable from

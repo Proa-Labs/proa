@@ -114,7 +114,7 @@ FROM ${BUILD_ARTIFACTS} AS artifacts
 # and those files import bare `react`. Node resolution walks upward from each
 # file, so a shared parent `node_modules` satisfies both. Installing inside
 # `hono-ssr/` would leave the sibling unable to resolve React.
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS companions
+FROM node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS companions
 
 WORKDIR /companions
 
@@ -180,7 +180,7 @@ WORKDIR /app
 # only the interpreter differs, which is the whole point of the Node vs Bun
 # comparison in the playground.
 COPY --from=companions /usr/local/bin/node /usr/local/bin/node
-COPY --from=oven/bun:1-slim@sha256:14a223fa35747ec728bce300ef85888bc5f7958164d15bbba6a54b22b52a3288 /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=companions /companions /app/companions
 
 COPY --chmod=755 proa_marketing/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

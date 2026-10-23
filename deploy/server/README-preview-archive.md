@@ -1,4 +1,10 @@
-# Immutable preview archives
+# Retired immutable preview archives
+
+> **Retired as of 22 October 2026:** Railway PR environments replaced this
+> Coolify archive pipeline. All Proa applications, including `proa-ui`, use
+> Railway. The design and host commands below are historical reference; do not
+> provision or restart these services for current deployments. Verify cleanup
+> with [the decommissioning runbook](../COOLIFY_DECOMMISSION.md).
 
 Coolify's native preview owns the mutable `pr-N.proa.cool` route. A Coolify
 `{{random}}` preview template does not create a retained deployment: Coolify

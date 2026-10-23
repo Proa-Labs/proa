@@ -143,9 +143,20 @@ requests.
 
 ### Deployment
 
-The checked-in `railway.toml` selects this crate's production Dockerfile while
-keeping the repository root as the Docker build context. This is required for
-the shared Cargo workspace:
+Production runs on Railway at `https://proa.so`. All Proa applications,
+including `proa-ui`, have migrated from Coolify to Railway; Coolify is no
+longer an active deployment dependency.
+
+On `main`, GitHub Actions builds and checks the marketing image with Cloud
+Build, publishes the verified image to private GHCR, and deploys its immutable
+digest to Railway after CI passes. See
+[Marketing release images](../deploy/gcp-runners/README.md#marketing-release-images)
+for the release workflow and registry configuration.
+
+For Railway builds from source, including native PR environments, the
+checked-in `railway.toml` selects this crate's Dockerfile while keeping the
+repository root as the Docker build context. The shared Cargo workspace
+requires that context:
 
 - Config file: `/railway.toml`
 - Builder: Dockerfile
@@ -187,16 +198,16 @@ described above.
 `Cache-Control: no-store`. `PROA_BUILD_REVISION` remains available as a
 platform-neutral explicit override.
 
-Link and deploy from the repository root:
+Link and inspect the service from the repository root:
 
 ```bash
 railway link --project Proa --environment production --service proa
-railway up
+railway status --json
 ```
 
-The Railway service is also connected to `Proa-Labs/proa` on `main`. Enable
-**Wait for CI** in the service settings so a revision is built only after its
-GitHub Actions checks pass.
+Production image deployment is controlled by the `deploy-release` job in
+`.github/workflows/ci.yml`, which waits for the required CI gate and the
+verified release image.
 
 Enable native previews in **Project Settings → Environments → PR
 Environments**. Keep the Railway-provided domain on the production service;
@@ -217,6 +228,8 @@ retains the other comparison engines for local benchmarking.
 The eBay playground lives at `/playground/ebay/ebay-srp` and uses the interactive
 renderer. The former `/playground/ebay-rsjs/ebay-srp-rsjs` URL redirects there.
 
-The public Coolify deployment guide under `src/docs/framework/` remains part of
-the Proa product documentation. The old repository-specific Coolify marketing
-preview workflow has been retired in favor of Railway PR environments.
+The public Coolify deployment guide under `src/docs/framework/` documents the
+optional deployment preset for users who operate their own Coolify instance.
+This repository's former Coolify operations are archived in
+[`deploy/COOLIFY.md`](../deploy/COOLIFY.md); legacy resource cleanup is tracked
+in [the decommissioning runbook](../deploy/COOLIFY_DECOMMISSION.md).

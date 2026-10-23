@@ -1,18 +1,24 @@
 # `proa.so` Railway cutover
 
-This runbook moves the Proa marketing application from its temporary
-`preview.proa.so` hostname to the `proa.so` apex without making the apex depend
-on an unverified Railway certificate or an untested origin.
+> **Migration completed:** `proa.so` runs on Railway. All Proa applications,
+> including `proa-ui`, have moved off Coolify. The procedure below records the
+> domain cutover and remains a reference for domain recovery. Current release
+> operations are in [the marketing deployment guide](../proa_marketing/README.md#deployment).
 
-## Current ownership
+This runbook covers moving a Railway application from a temporary
+`preview.proa.so` hostname to the `proa.so` apex after verifying the certificate
+and origin.
+
+## Recorded cutover setup
 
 - Railway project `Proa`, production environment, service `proa` runs the
   marketing application.
-- `preview.proa.so` remains attached as the rollback hostname.
+- `preview.proa.so` served as the rollback hostname during the cutover.
 - `proa.so` must be attached to the same Railway service before its Cloudflare
   traffic record changes.
-- Production sets `SITE_URL=https://proa.so` without triggering a deployment.
-  The next production deployment applies that canonical origin.
+- The cutover prepared `SITE_URL=https://proa.so` for the deployment that
+  switched the canonical origin. Consult the current deployment guide before
+  changing runtime variables.
 
 ## 1. Retrieve the current Railway DNS requirements
 
