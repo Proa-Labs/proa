@@ -27,6 +27,7 @@
     "framework/routing",
     "framework/linking",
     "framework/route-handlers",
+    "framework/sitemaps",
     "framework/content-negotiation",
     "framework/page-caching",
     "framework/errors",

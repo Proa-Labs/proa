@@ -132,20 +132,30 @@ Prefer typed app state for values handlers need repeatedly:
 
 ```rust filename="src/routes/robots.rs"
 use axum::{extract::State, routing::get, Router};
+use proa_core::BasePath;
+use proa_framework_axum::{robots_txt, RobotsTxt};
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: RuntimeConfig,
 }
 
-async fn robots(State(state): State<AppState>) -> String {
+async fn robots(State(state): State<AppState>) -> impl axum::response::IntoResponse {
     let origin = state
         .config
         .public_base_url
         .as_deref()
         .unwrap_or("http://localhost:3000");
 
-    format!("Sitemap: {origin}/sitemap.xml\n")
+    robots_txt(
+        &RobotsTxt::new()
+            .group("*")
+            .expect("user-agent")
+            .allow("/")
+            .expect("allow")
+            .sitemap_path(origin, &BasePath::default(), "/sitemap.xml")
+            .expect("sitemap"),
+    )
 }
 
 let state = AppState { config };
