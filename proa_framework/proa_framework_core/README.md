@@ -78,9 +78,9 @@ actually uphold it.
 
 ## Writing an adapter
 
-The [metadata design and migration guide](../../docs/design/request-aware-metadata.md)
-describes request inputs, shared loader access, static precomputation and
-metadata resolution before the first document bytes.
+The [metadata guide](../../proa_marketing/src/docs/framework/metadata.mdx)
+covers request inputs, shared loader access, deployment URLs and migration
+from the existing metadata getters.
 
 An adapter owns everything IO-shaped. The contract surface it implements:
 

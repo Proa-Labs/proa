@@ -143,6 +143,15 @@ explicit base, an absolute request URI supplies its origin plus `BasePath`.
 Origin-form requests have no scheme, so relative URLs require a configured
 base; Proa does not infer HTTPS from `Host` or forwarding headers.
 
+The final provider's base takes precedence over the request extension, which
+includes the deployment default. When configuring the route context layer
+directly, use `RouteContextLayer::with_metadata_base` for that default.
+
+Both `/og.png` and `og.png` resolve within the configured base directory.
+Protocol-relative URLs use the base's scheme; dot segments, query-only and
+fragment-only references follow URL joining rules. Bases must be absolute
+HTTP(S) URLs without credentials, a query or a fragment.
+
 ## Parent values and lists
 
 `Unset` inherits and `Tombstone` clears. `Set` replaces, including lists. To
@@ -167,6 +176,11 @@ Parent values reflect earlier providers in the cascade. URL references are
 normalized after the final patch so the final metadata base applies to the
 whole document.
 
+`Set` with an empty list clears the list. Title templates use `%s`; setting
+`MetadataPatch::absolute_title` bypasses and clears the inherited title
+template. A title tombstone clears its template too, so later values cannot
+restore a removed title through that template.
+
 ## Rendering the head
 
 Axum's head helper supports any loader and writer:
@@ -184,6 +198,31 @@ a local component, use `metadata_from_context(cx)`. Resolved metadata travels
 with the request into deferred streams and boundaries. Client-navigation
 responses use the generated title from that same resolution.
 
-Existing `title`, `description` and `open_graph` getter implementations remain
-supported. New providers should return a `MetadataPatch`; only explicitly
-static providers run at startup.
+Metadata finishes before body bytes are sent in both streaming modes. A
+metadata error at that point can therefore become an HTTP error response.
+For cached pages, metadata that depends on headers needs matching cache
+variation or a private/no-store response, just like request-dependent content.
+
+## Migrating existing metadata
+
+1. Existing `title`, `description` and `open_graph` getters remain supported.
+   New providers return a `MetadataPatch`. Old getter providers resolve per
+   request until they explicitly implement `static_metadata`; `Route::page`
+   opts into static precomputation automatically.
+2. Resolved text fields, including Open Graph media text, now use
+   `Cow<'static, str>`. Construct values with `.into()` and borrow optional
+   text with `.as_deref()`. Use `OpenGraphPatch` for dynamic metadata;
+   `CascadeOpenGraph`, `OpenGraph`, `OpenGraphImage` and `OpenGraphMedia`
+   remain compatibility descriptors.
+3. Lists now replace on `Set` rather than implicitly appending. To preserve
+   parent entries, explicitly extend the parent's list as shown above.
+4. `ComputedRouteMeta` is a resolution plan rather than a public struct
+   literal. Construct it with `cascade`; call `resolve_sync`, `resolve` or
+   `resolve_send` with the real request. Dereferencing the plan and calling
+   `resolved_metadata_from_computed` expose only its precomputed static prefix.
+5. Inside components, use `metadata_from_context(cx)` to read the resolved
+   result. The legacy no-argument `resolved_metadata()` accessor can only run
+   immediate providers without a loader; it cannot support async generation
+   or deferred rendering. The request-free `resolve_metadata_stack` helper
+   only considers legacy getters and explicitly static patches, leaving URL
+   references unnormalized.
