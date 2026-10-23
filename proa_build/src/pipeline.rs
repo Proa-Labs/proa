@@ -430,10 +430,21 @@ fn select_root_path(
         ));
     }
 
-    let mut candidates = artifact.filenames.iter().cloned().collect::<BTreeSet<_>>();
+    // Cargo's executable field is authoritative. MSVC also enumerates a PDB,
+    // which is a debug companion rather than a second possible root.
     if let Some(executable) = &artifact.executable {
-        candidates.insert(executable.clone());
+        return Ok(executable.clone());
     }
+    let candidates = artifact
+        .filenames
+        .iter()
+        .filter(|path| {
+            !path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("pdb"))
+        })
+        .cloned()
+        .collect::<BTreeSet<_>>();
     match candidates.len() {
         0 => Err(LinkedCargoError::RootHasNoArtifact),
         1 => Ok(candidates

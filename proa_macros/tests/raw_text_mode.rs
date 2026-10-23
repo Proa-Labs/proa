@@ -19,6 +19,22 @@ fn render(f: impl FnOnce(&mut Ctx)) -> String {
 }
 
 #[test]
+fn dynamic_title_escapes_text_and_cannot_close_the_element() {
+    let payload = "</title><script>bad()</script>&";
+    let html = render(|cx| {
+        html_sync! {
+            <title>{payload}</title>
+        }
+        .render(cx)
+        .unwrap();
+    });
+    assert_eq!(
+        html,
+        "<title>&lt;/title&gt;&lt;script&gt;bad()&lt;/script&gt;&amp;</title>"
+    );
+}
+
+#[test]
 fn dynamic_script_child_cannot_close_the_element() {
     // A value that tries to break out of the <script>.
     let payload = "</script><img src=x onerror=alert(1)>";

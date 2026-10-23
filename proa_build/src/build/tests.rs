@@ -2166,6 +2166,7 @@ fn unhashed_dependency_cdylib_output_joins_its_cargo_artifact() {
 
 #[test]
 fn malformed_and_duplicate_cargo_messages_fail_closed() {
+    let temp = TempDir::new().unwrap();
     let mut collector = CargoArtifactCollector::default();
     assert!(matches!(
         collector.ingest_line("not json"),
@@ -2175,17 +2176,17 @@ fn malformed_and_duplicate_cargo_messages_fail_closed() {
     let artifact = serde_json::json!({
         "reason": "compiler-artifact",
         "package_id": "path+file:///workspace#app@0.1.0",
-        "manifest_path": "/workspace/Cargo.toml",
+        "manifest_path": temp.path().join("Cargo.toml"),
         "target": {
             "name": "app",
             "kind": ["lib"],
             "crate_types": ["lib"],
-            "src_path": "/workspace/src/lib.rs",
+            "src_path": temp.path().join("src/lib.rs"),
             "edition": "2021"
         },
         "profile": {"opt_level":"0","test":false},
         "features": [],
-        "filenames": ["/target/libapp.rlib"],
+        "filenames": [temp.path().join("target/libapp.rlib")],
         "executable": null,
         "fresh": false
     })
@@ -2220,20 +2221,22 @@ fn malformed_and_duplicate_cargo_messages_fail_closed() {
 
 #[test]
 fn collector_returns_only_cargo_enumerated_artifact_paths() {
+    let temp = TempDir::new().unwrap();
+    let artifact_path = temp.path().join("exact/cargo/path/libapp.rlib");
     let artifact = serde_json::json!({
         "reason": "compiler-artifact",
         "package_id": "path+file:///workspace#app@0.1.0",
-        "manifest_path": "/workspace/Cargo.toml",
+        "manifest_path": temp.path().join("Cargo.toml"),
         "target": {
             "name": "app",
             "kind": ["lib"],
             "crate_types": ["lib"],
-            "src_path": "/workspace/src/lib.rs",
+            "src_path": temp.path().join("src/lib.rs"),
             "edition": "2021"
         },
         "profile": {"opt_level":"0","test":false},
         "features": ["feature-a"],
-        "filenames": ["/exact/cargo/path/libapp.rlib"],
+        "filenames": [&artifact_path],
         "executable": null,
         "fresh": true
     })
@@ -2247,14 +2250,14 @@ fn collector_returns_only_cargo_enumerated_artifact_paths() {
     assert_eq!(artifacts.len(), 1);
     assert_eq!(
         artifacts[0].filenames,
-        BTreeSet::from([PathBuf::from("/exact/cargo/path/libapp.rlib")])
+        BTreeSet::from([artifact_path.clone()])
     );
 
     let matched = match_exact_cargo_artifacts(
         &artifacts,
         &[expectation(
             9,
-            "/exact/cargo/path/libapp.rlib",
+            artifact_path.to_str().unwrap(),
             &["feature-a"],
         )],
     )
@@ -2271,6 +2274,7 @@ fn source_dependency_equivalence_accepts_renamed_tool_tree_outputs() {
         absolute_path: PathBuf::from(path),
         content_hash: hash.to_owned(),
     };
+    let namespace = Path::new("/repo/target/proa-rsjs");
     let expected = [
         dep("/repo/proa_bench/src/lib.rs", "hash-lib"),
         dep(
@@ -2293,7 +2297,9 @@ fn source_dependency_equivalence_accepts_renamed_tool_tree_outputs() {
             "hash-t1",
         ),
     ];
-    assert!(source_dependency_sets_equivalent(&expected, &renamed));
+    assert!(source_dependency_sets_equivalent(
+        namespace, &expected, &renamed
+    ));
 
     // A changed hash under the tool tree is a real divergence.
     let tampered = [
@@ -2307,7 +2313,9 @@ fn source_dependency_equivalence_accepts_renamed_tool_tree_outputs() {
             "hash-OTHER",
         ),
     ];
-    assert!(!source_dependency_sets_equivalent(&expected, &tampered));
+    assert!(!source_dependency_sets_equivalent(
+        namespace, &expected, &tampered
+    ));
 
     // Paths outside the tool tree never get the relaxation, even with
     // identical content hashes.
@@ -2322,7 +2330,11 @@ fn source_dependency_equivalence_accepts_renamed_tool_tree_outputs() {
             "hash-t2",
         ),
     ];
-    assert!(!source_dependency_sets_equivalent(&expected, &moved_source));
+    assert!(!source_dependency_sets_equivalent(
+        namespace,
+        &expected,
+        &moved_source
+    ));
 
     // A generated file leaving the tool tree must not silently pass.
     let escaped = [
@@ -2333,7 +2345,40 @@ fn source_dependency_equivalence_accepts_renamed_tool_tree_outputs() {
             "hash-t2",
         ),
     ];
-    assert!(!source_dependency_sets_equivalent(&expected, &escaped));
+    assert!(!source_dependency_sets_equivalent(
+        namespace, &expected, &escaped
+    ));
+}
+
+#[test]
+fn source_dependency_equivalence_follows_relocated_short_tool_namespace() {
+    // Windows shortens the namespace label and CI relocates CARGO_TARGET_DIR,
+    // so neither a literal `target` nor `proa-rsjs` component is present.
+    let dep = |path: &str, hash: &str| DescriptorSourceDependency {
+        absolute_path: PathBuf::from(path),
+        content_hash: hash.to_owned(),
+    };
+    let namespace = Path::new("/pt/p");
+    let expected = [
+        dep("/repo/src/lib.rs", "hash-lib"),
+        dep("/pt/p/inv/d1/out/templates/aa-11", "hash-t1"),
+    ];
+    let renamed = [
+        dep("/repo/src/lib.rs", "hash-lib"),
+        dep("/pt/p/f/out/templates/bb-33", "hash-t1"),
+    ];
+    assert!(source_dependency_sets_equivalent(
+        namespace, &expected, &renamed
+    ));
+
+    // A sibling directory sharing the label prefix is outside the namespace.
+    let sibling = [
+        dep("/repo/src/lib.rs", "hash-lib"),
+        dep("/pt/px/f/out/templates/bb-33", "hash-t1"),
+    ];
+    assert!(!source_dependency_sets_equivalent(
+        namespace, &expected, &sibling
+    ));
 }
 
 #[test]

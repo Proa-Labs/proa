@@ -1074,12 +1074,22 @@ pub struct UnsupportedDescriptor {
     pub kind: DescriptorKind,
     /// Exact relocation-resolved defining record.
     pub definition: TransportDefinitionId,
+    /// Rust-resolved name for diagnostics when semantic identity is available.
+    /// This is diagnostic context, never a substitute for the definition ID.
+    pub semantic_path: Option<ResolvedSemanticPath>,
     /// Every independently detected compatibility gap, in deterministic order.
     pub gaps: Vec<CompatibilityGap>,
 }
 
 impl fmt::Display for UnsupportedDescriptor {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(path) = &self.semantic_path {
+            write!(formatter, "{}", path.crate_name)?;
+            for segment in &path.module_path {
+                write!(formatter, "::{segment}")?;
+            }
+            write!(formatter, "::{}: ", path.item)?;
+        }
         write!(
             formatter,
             "{:?} descriptor {:?} cannot be converted to canonical ABI v1",
@@ -1146,11 +1156,18 @@ impl fmt::Display for CompatibilityGap {
                 "legacy component fields lack concrete type/crossing witnesses: {}",
                 fields.join(", ")
             ),
-            Self::ComponentClientGraphMetadataMissing { features } => write!(
-                formatter,
-                "legacy client graph lacks canonical typed origin/effect/dependency metadata for: {}",
-                features.join(", ")
-            ),
+            Self::ComponentClientGraphMetadataMissing { features } => {
+                write!(formatter,
+                    "linked browser code generation does not support these client graph features: {}",
+                    features.join(", ")
+                )?;
+                if features.iter().any(|feature| feature == "unsupported_shapes") {
+                    formatter.write_str(
+                        "; unsupported_shapes means a client expression or dependency cannot be represented by the linked backend; run `proa lint <component-source.rs>` and see https://proa.so/docs/guides/troubleshooting#rsjs-unsupported-shapes-at-link-time",
+                    )?;
+                }
+                Ok(())
+            }
             Self::DirectComponentBindingMetadataMissing { edges } => write!(
                 formatter,
                 "{edges} direct component edge(s) cannot be losslessly adapted as static \
@@ -1747,6 +1764,7 @@ fn adapt_component_with_projection_roles(
         return Ok(AbiBridgeResult::Unsupported(UnsupportedDescriptor {
             kind: DescriptorKind::Component,
             definition: linked.definition,
+            semantic_path: identity.cloned(),
             gaps,
         }));
     }
@@ -2258,6 +2276,7 @@ pub fn adapt_helper(
         return Ok(AbiBridgeResult::Unsupported(UnsupportedDescriptor {
             kind: DescriptorKind::Helper,
             definition: linked.definition,
+            semantic_path: None,
             gaps: vec![CompatibilityGap::MissingResolvedSemanticIdentity],
         }));
     };

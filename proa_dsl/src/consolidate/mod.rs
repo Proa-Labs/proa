@@ -274,7 +274,7 @@ struct AncestorCtx<'a> {
     /// Whether we're inside a <script> or <style> element.
     in_script_or_style: bool,
     /// Whether we're inside a raw-text or escapable-raw-text element
-    /// (<textarea>, <title>, <xmp>, <noscript>, <noframes>, <iframe>).
+    /// (<textarea>, <xmp>, <noscript>, <noframes>).
     /// These have different parser semantics from normal flow content —
     /// dynamic interpolation requires different guarantees than HTML escape
     /// provides on its own. See CVE review Gap B.
@@ -318,7 +318,9 @@ impl<'a> AncestorCtx<'a> {
 /// for the raw-text variants (`<xmp>`, `<noscript>`, `<noframes>`) where
 /// entities are not decoded — the user would see literal `&lt;` in the output.
 fn is_raw_text_element(tag: &str) -> bool {
-    matches!(tag, "textarea" | "title" | "xmp" | "noscript" | "noframes")
+    // `<title>` is ordinary RCDATA: the normal text writer escapes `<` and
+    // `&`, so dynamic titles need no warning or custom render component.
+    matches!(tag, "textarea" | "xmp" | "noscript" | "noframes")
 }
 
 /// Foreign content containers. Content inside is parsed in the SVG or MathML
@@ -563,8 +565,8 @@ fn validate_block_expr(
     //
     // `<textarea>` / `<title>` are RCDATA: standard HTML escape is sufficient
     // because `<` → `&lt;` prevents any `</textarea>` bytes from appearing.
-    // We still surface a compile-time warning so developers can weigh whether
-    // the interpolation is appropriate — e.g. textarea initial values should
+    // Title interpolation uses normal escaping without a warning. For textarea
+    // we still surface an advisory because initial values should
     // usually come from a typed `value=` attribute path, not a free-form text
     // child node. For `<xmp>` / `<noscript>` / `<noframes>` (raw text, no
     // entity decoding) the escape leaves literal `&lt;` in the output, which
@@ -2841,6 +2843,22 @@ fn render_static_attr(attr: &Attribute, out: &mut String, dialect: MarkupDialect
 mod tests {
     use super::*;
     use crate::parse::HtmlRoot;
+
+    #[test]
+    fn dynamic_title_is_accepted_while_raw_text_warnings_remain() {
+        let title: HtmlRoot = syn::parse_str("<title>{page_title}</title>").unwrap();
+        let validation = validate(&title);
+        assert!(validation.errors.is_empty());
+        assert!(validation.warnings.is_empty());
+        for tag in ["textarea", "xmp", "noscript", "noframes"] {
+            let root: HtmlRoot = syn::parse_str(&format!("<{tag}>{{value}}</{tag}>")).unwrap();
+            let warnings = validate_security(&root).unwrap().to_string();
+            assert!(
+                warnings.contains("raw_text_element_dynamic_interpolation"),
+                "{tag}: {warnings}"
+            );
+        }
+    }
 
     #[test]
     fn indentation_warning_for_unindented_child_element() {

@@ -875,12 +875,19 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
         descriptor_target_dir(&first.request),
         descriptor_target_dir(&source_changed.request)
     );
-    assert!(first.descriptor_cache_directory.ends_with(format!(
-        "descriptor-cache-v{DESCRIPTOR_CACHE_SCHEMA_VERSION}"
-    )));
-    assert!(descriptor_target_dir(&first.request).ends_with(format!(
-            "descriptor-target-policy-v{DESCRIPTOR_TARGET_POLICY_VERSION}-sidecar-v{DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION}-persistent-v{PERSISTENT_DESCRIPTOR_TARGET_LAYOUT_VERSION}"
-        )));
+    let (cache_name, target_name) = if cfg!(windows) {
+        (
+            format!("c{DESCRIPTOR_CACHE_SCHEMA_VERSION}"),
+            format!("d{DESCRIPTOR_TARGET_POLICY_VERSION}-{DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION}-{PERSISTENT_DESCRIPTOR_TARGET_LAYOUT_VERSION}"),
+        )
+    } else {
+        (
+            format!("descriptor-cache-v{DESCRIPTOR_CACHE_SCHEMA_VERSION}"),
+            format!("descriptor-target-policy-v{DESCRIPTOR_TARGET_POLICY_VERSION}-sidecar-v{DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION}-persistent-v{PERSISTENT_DESCRIPTOR_TARGET_LAYOUT_VERSION}"),
+        )
+    };
+    assert!(first.descriptor_cache_directory.ends_with(cache_name));
+    assert!(descriptor_target_dir(&first.request).ends_with(target_name));
     let retired_one_shot_target = descriptor_target_dir(&first.request)
             .parent()
             .unwrap()
@@ -1229,11 +1236,16 @@ fn asset_command_builds_tailwind_invocation() {
 }
 
 #[test]
-fn missing_tailwind_cli_message_offers_installer_and_homebrew() {
+fn missing_tailwind_cli_message_offers_platform_installation() {
     let message = missing_program_message("tailwindcss");
 
-    assert!(message.contains("--tailwind-only"));
-    assert!(message.contains("brew install tailwindcss"));
+    if cfg!(windows) {
+        assert!(message.contains("tailwindcss.exe"));
+        assert!(!message.contains("curl"));
+    } else {
+        assert!(message.contains("--tailwind-only"));
+        assert!(message.contains("brew install tailwindcss"));
+    }
     assert!(!message.contains("npx"));
 }
 

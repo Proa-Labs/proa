@@ -7,7 +7,7 @@ Start with the fastest checks. They separate environment problems from template 
 
 ```bash
 proa --help
-cargo check
+proa check
 proa fmt --check --verify src
 proa lint --min-severity info src
 proa site check
@@ -74,6 +74,89 @@ cargo run -p proa-cli --bin proa -- --help
 ```
 
 Then use that same prefix for later commands. See [Install Proa](/docs#1-install-proa) and the [CLI reference](/docs/cli).
+
+## Windows Builds And Executable Launches
+
+Use a current stable Rust toolchain with the MSVC build tools installed, then
+run `proa --version` and `cargo proa --version`. Both entry points should
+report the installed CLI version. `proa dev`, `proa check`, `proa build`, and
+`proa test` coordinate the Cargo passes required for interactive components.
+Plain `cargo check` supports Rust type checking and editor feedback; it does
+not validate the complete linked browser graph. Plain `cargo build` and
+`cargo run` cannot produce a linked application containing RSJS islands.
+
+The release workflow currently publishes a Linux x86_64 CLI archive. Windows
+installation falls back to building from source, so installation includes a
+Rust dependency build. The first application build also compiles dependencies
+for the descriptor and final passes. Later runs reuse those Cargo artifacts.
+Keep the same toolchain, target, profile, and features when comparing cold and
+warm build times. In PowerShell, enable stage timing before reproducing a slow
+build:
+
+```powershell
+$env:PROA_BUILD_TIMINGS = '1'
+proa build
+Remove-Item Env:PROA_BUILD_TIMINGS
+```
+
+For `LNK1104` or errors involving a very long artifact path, use a short Cargo
+target directory for the same build and dev commands:
+
+```powershell
+$env:CARGO_TARGET_DIR = 'C:\pt'
+proa dev
+```
+
+Proa uses shorter directory labels on Windows while retaining complete cache
+identities. Native linkers and dependency build tools can still impose path
+limits, so a short target root remains useful for deeply nested checkouts.
+The shorter layout requires one cold build when upgrading from the old layout;
+Proa leaves the old artifacts in place.
+Use a separate target root for unrelated projects if their Cargo builds run
+concurrently.
+
+For missing `tailwindcss.exe`, follow the Windows instructions under
+[Tailwind prerequisite](/docs/cli/new-site#tailwind-prerequisite).
+
+`proa start` runs an exported executable. To choose its location explicitly:
+
+```powershell
+proa build --artifact-out target/release/server.exe
+proa start --bin target/release/server.exe
+```
+
+If launching or replacing a compiled file fails, preserve the executable path
+and numeric OS error from the original diagnostic. A successful retry alone
+does not identify which Windows feature caused the failure:
+
+| OS error | Meaning and next check |
+| --- | --- |
+| `5` | Access denied. Check file permissions and the security event for that exact path; this code alone does not identify antivirus. |
+| `32`, `33` | Another process holds a file or region lock. Stop an older server still using that output, or wait for the process holding the lock to release it. |
+| `577` | Windows could not verify the file's digital signature. Inspect the Code Integrity events for the named executable or DLL. |
+
+These meanings come from Microsoft's [system error codes 0–499](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--0-499-)
+and [500–999](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--500-999-).
+[Smart App Control](https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/overview/)
+can also block untrusted unsigned code. Include the Windows version, active
+security feature, error code, CLI version, and failing command in a report so
+the failure can be distinguished from a compiler error or file-lock race.
+
+## RSJS Unsupported Shapes At Link Time
+
+`unsupported_shapes` means the linked backend cannot represent a client
+expression or dependency in the selected component graph. It can appear after
+Rust compilation because the graph is only complete at link time. The error
+includes a Rust-resolved component name when one is available.
+
+Run `proa lint <component-source.rs>` while editing, then `proa check` for the
+whole project. Source lint does not prove every cross-component constraint.
+Use explicitly typed state when inference is ambiguous, a named event handler,
+and a small reproduction before changing several parts of a mutation at once.
+For example, `save.run(draft.get())` passes the current value; browser handlers
+cannot implicitly capture arbitrary server-only locals. The exact error and
+CLI version are needed to distinguish a compiler limitation from an inference
+or server/browser boundary error.
 
 ## The Installer Cannot Reach The Download Host
 
@@ -320,8 +403,8 @@ Make CI run the same commands as local development:
 
 ```bash
 cargo fmt --all --check
-cargo check
-proa check src
+proa check --locked
+proa test --locked
 ```
 
 If CI fails before compilation, check access to crates.io and the version requirements in `Cargo.toml`. Generated sites use public registry dependencies and need no GitHub credential or Cargo registry token. Commit `Cargo.lock` and use `--locked` to keep CI on the same resolved dependencies as local development.

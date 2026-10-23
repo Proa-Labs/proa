@@ -11,6 +11,7 @@ readonly -a MAIN_SHARD_1=(
   rsjs_explicit_island_static_scalar
   rsjs_shared_state_async_provider
   lifecycle_run_test
+  lifecycle_start
 )
 readonly -a MAIN_SHARD_2=(
   lifecycle_check
@@ -192,6 +193,7 @@ case "$shard" in
       rsjs_unit_projection
       rsjs_pipeline
       lifecycle_dev
+      lifecycle_start
       live_lint
     )
     ;;

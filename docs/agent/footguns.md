@@ -4,14 +4,61 @@ Each entry: **the error you'll see** → **what triggered it** → **how to fix*
 Compiled from the rsjs analyser, html_sync! parser, and patterns we hit
 authoring real islands and components.
 
-If you hit an error not in this list, the diagnostic itself is the canonical
-authority — rsjs/proa errors are intentionally written to be agent-quality
-(they describe the constraint and point at the fix). Read them carefully
-before guessing.
+Start with the original diagnostic and its source location. Some constraints
+depend on cross-component linking and are reported after Rust compilation;
+those diagnostics may expose compiler coordinates instead of an authored
+location. If the fix is unclear, keep the full error and reduce the failing
+component to a small reproduction. Do not repeatedly restructure working
+server code to guess at a linker constraint.
 
 ---
 
 ## `#[rsjs(component)]` (rsjs_macros)
+
+### `unsupported_shapes` at link time
+
+This is a linked browser-code generation compatibility error. Rust type
+checking can succeed before the compiler has the complete cross-component
+graph. The message names the Rust-resolved component when identity is
+available; `unsupported_shapes` alone does not identify one particular syntax
+error.
+
+Run `proa lint <component-source.rs>` while editing, then run a whole-project
+`proa check` to exercise linking. Source lint cannot prove every linked
+constraint. Keep a small failing component and the full diagnostic if the
+linker still rejects it. Give ambiguous state an explicit type, such as
+`let enabled: rsjs::Signal<bool> = rsjs::signal(self.enabled);`, so inference
+problems can be distinguished from unsupported dependency shapes.
+
+### Mutation arguments and server values
+
+`save.run(draft.get())` passes a value read from a signal. It does not pass
+the signal object. Supported literals and client expressions can also be
+arguments; a signal is not a universal requirement of `run`.
+
+A handler runs in the browser, so it cannot implicitly capture arbitrary
+server-only locals or call server-only Rust functions. Seed client state from
+the server value before declaring the handler, then read that state in the
+handler. Use a named handler and a typed signal when reducing a failing
+mutation. Do not put opaque server expressions inside a signal update to
+force them across the boundary.
+
+### Dynamic page titles
+
+`html_sync! { <title>{page_title}</title> }` supports normal escaped dynamic
+text. It needs no custom `Title` component or lint suppression. Rust `#[allow]`
+attributes do not suppress Proa's own source diagnostics; use the documented
+suppression for a specific diagnostic only when it is intentional.
+
+### Ambiguous `.render(cx)` calls
+
+`WebRenderSync` and `WebRender` both expose `render`. Import the trait needed
+by the component. If a module needs both traits, use a qualified call such as
+`WebRenderSync::render(child, cx)` or `WebRender::render(child, cx)`. An import
+alias still brings the trait methods into scope and does not resolve the
+ambiguity. Lift a sync child into an async tree with `proa_core::to_async(...)`.
+
+---
 
 ### "X is not a recognised IR primitive or linked `#[rsjs::client]` helper"
 

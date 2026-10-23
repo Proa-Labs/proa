@@ -1745,6 +1745,18 @@ fn extract_archive(
                 continue;
             }
         };
+        if member_kind == object::FileKind::CoffImport {
+            // raw-dylib rlibs contain short-import records naming DLL symbols.
+            // They have no native sections or RSJS records. Validate the record
+            // before skipping it so corrupt imports still produce a diagnostic.
+            object::read::coff::ImportFile::parse(member_data).map_err(|error| {
+                ExtractionError::ParseObject {
+                    location: format!("{}({member_name})", path.display()),
+                    reason: error.to_string(),
+                }
+            })?;
+            continue;
+        }
         if member_kind == object::FileKind::Archive {
             return Err(ExtractionError::UnsupportedArtifact {
                 path: path.to_path_buf(),
@@ -3665,6 +3677,76 @@ mod tests {
             error,
             ExtractionError::ComponentFieldCargoUnitMismatch { .. }
         ));
+    }
+
+    #[test]
+    fn windows_rlib_short_imports_do_not_hide_native_objects() {
+        let object = object::write::Object::new(
+            BinaryFormat::Coff,
+            object::Architecture::X86_64,
+            object::Endianness::Little,
+        )
+        .write()
+        .unwrap();
+        let short_import = windows_short_import_fixture();
+        let archive = windows_archive_fixture(&[
+            ("kernel32.dll", short_import.as_slice()),
+            ("fixture.obj", object.as_slice()),
+            ("lib.rmeta", b"Rust metadata"),
+        ]);
+        let records = ArtifactRecords::extract_exact_bytes("windows.rlib", &archive).unwrap();
+        assert_eq!(records.object_formats, vec![BinaryFormat::Coff]);
+    }
+
+    #[test]
+    fn windows_rlib_malformed_short_imports_still_report_the_member() {
+        let mut short_import = windows_short_import_fixture();
+        short_import.truncate(20);
+        let archive = windows_archive_fixture(&[("kernel32.dll", &short_import)]);
+        let error = ArtifactRecords::extract_exact_bytes("windows.rlib", &archive).unwrap_err();
+        assert!(matches!(
+            error,
+            ExtractionError::ParseObject { location, .. }
+                if location == "windows.rlib(kernel32.dll)"
+        ));
+    }
+
+    fn windows_short_import_fixture() -> Vec<u8> {
+        // COFF short-import header, followed by symbol and DLL name strings.
+        let payload = b"GetLastError\0kernel32.dll\0";
+        let mut bytes = Vec::new();
+        for field in [0_u16, 0xffff, 0, object::pe::IMAGE_FILE_MACHINE_AMD64] {
+            bytes.extend_from_slice(&field.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0_u32.to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&0_u16.to_le_bytes());
+        bytes.extend_from_slice(&(object::pe::IMPORT_OBJECT_NAME << 2).to_le_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    fn windows_archive_fixture(members: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut bytes = b"!<arch>\n".to_vec();
+        for (name, data) in members {
+            bytes.extend_from_slice(
+                format!(
+                    "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+                    format!("{name}/"),
+                    0,
+                    0,
+                    0,
+                    "100644",
+                    data.len()
+                )
+                .as_bytes(),
+            );
+            bytes.extend_from_slice(data);
+            if data.len() % 2 == 1 {
+                bytes.push(b'\n');
+            }
+        }
+        bytes
     }
 
     #[test]

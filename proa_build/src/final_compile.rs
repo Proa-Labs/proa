@@ -815,6 +815,11 @@ fn exact_sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn final_target_directory(target_root: &Path, invocation: InvocationId) -> PathBuf {
+    if cfg!(windows) {
+        return target_root
+            .join(format!("w{FINAL_WRAPPER_POLICY_VERSION}"))
+            .join(invocation.to_string());
+    }
     target_root
         .join("rsjs-final")
         .join(format!("wrapper-v{FINAL_WRAPPER_POLICY_VERSION}"))
@@ -938,7 +943,9 @@ fn snapshot_final_file(
     }
 
     if let Some(target_directory) = launch_target_directory {
-        if let Err(error) = validate_executable_snapshot_contract(&temporary, target_directory) {
+        if let Err(error) =
+            validate_executable_snapshot_contract(&temporary, source, target_directory)
+        {
             let _ = fs::remove_file(&temporary);
             return Err(error);
         }
@@ -1008,7 +1015,7 @@ pub fn snapshot_wrapper_executable(
             if existing_digest != digest || existing_permissions != permissions {
                 return Err(FinalCargoError::ConflictingSnapshotArtifact(destination));
             }
-            validate_executable_snapshot_contract(&destination, source_exclusion)?;
+            validate_executable_snapshot_contract(&destination, source, source_exclusion)?;
             return Ok(destination);
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -1037,11 +1044,14 @@ struct ExecutableSnapshotDependencies {
 }
 
 fn validate_executable_snapshot_contract(
+    snapshot: &Path,
     executable: &Path,
     target_directory: &Path,
 ) -> Result<(), FinalCargoError> {
-    let bytes = fs::read(executable).map_err(|source| FinalCargoError::SnapshotArtifactIo {
-        path: executable.to_path_buf(),
+    // Inspect the immutable copy's bytes, but resolve app-local dependencies
+    // beside the original executable before relocation changes their lookup.
+    let bytes = fs::read(snapshot).map_err(|source| FinalCargoError::SnapshotArtifactIo {
+        path: snapshot.to_path_buf(),
         source,
     })?;
     let file = object::File::parse(bytes.as_slice()).map_err(|source| {
@@ -1145,16 +1155,14 @@ fn executable_snapshot_dependencies(
         object::File::Elf64(file) => elf_snapshot_dependencies(file),
         object::File::MachO32(file) => macho_snapshot_dependencies(file),
         object::File::MachO64(file) => macho_snapshot_dependencies(file),
-        object::File::Pe32(_) | object::File::Pe64(_) => Err(
-            "PE launch snapshots are disabled until normal and delay-load import tables share one authoritative validator"
-                .to_string(),
-        ),
+        object::File::Pe32(file) => pe_snapshot_dependencies(file),
+        object::File::Pe64(file) => pe_snapshot_dependencies(file),
         _ => {
             let mut dependencies = ExecutableSnapshotDependencies::default();
             for import in file.imports().map_err(|error| error.to_string())? {
                 if import.library().is_empty() {
                     return Err(
-                        "an imported symbol has no authoritative library identity".to_string(),
+                        "an imported symbol has no authoritative library identity".to_string()
                     );
                 }
                 dependencies.libraries.insert(import.library().to_vec());
@@ -1219,6 +1227,49 @@ where
                 );
             }
             _ => {}
+        }
+    }
+    Ok(dependencies)
+}
+
+/// Read library descriptors, rather than symbol imports, so ordinal-only and
+/// delay-loaded DLLs receive the same dependency validation as named imports.
+fn pe_snapshot_dependencies<'data, Pe>(
+    file: &object::read::pe::PeFile<'data, Pe>,
+) -> Result<ExecutableSnapshotDependencies, String>
+where
+    Pe: object::read::pe::ImageNtHeaders,
+{
+    use object::LittleEndian as LE;
+
+    let mut dependencies = ExecutableSnapshotDependencies::default();
+    if let Some(table) = file.import_table().map_err(|error| error.to_string())? {
+        let mut descriptors = table.descriptors().map_err(|error| error.to_string())?;
+        while let Some(descriptor) = descriptors.next().map_err(|error| error.to_string())? {
+            let name = table
+                .name(descriptor.name.get(LE))
+                .map_err(|error| error.to_string())?;
+            dependencies.libraries.insert(name.to_vec());
+        }
+    }
+    let sections = file.section_table();
+    if let Some(table) = file
+        .data_directories()
+        .delay_load_import_table(file.data(), &sections)
+        .map_err(|error| error.to_string())?
+    {
+        let mut descriptors = table.descriptors().map_err(|error| error.to_string())?;
+        while let Some(descriptor) = descriptors.next().map_err(|error| error.to_string())? {
+            // PE/COFF defines bit zero as RvaBased; all other bits are reserved.
+            // Do not treat legacy virtual addresses as RVAs. object 0.37's
+            // IMAGE_DELAYLOAD_RVA_BASED constant incorrectly uses bit 31.
+            if descriptor.attributes.get(LE) != 1 {
+                return Err("PE delay-load imports require RVA-based descriptors with no reserved attributes".to_string());
+            }
+            let name = table
+                .name(descriptor.dll_name_rva.get(LE))
+                .map_err(|error| error.to_string())?;
+            dependencies.libraries.insert(name.to_vec());
         }
     }
     Ok(dependencies)
@@ -1360,6 +1411,27 @@ fn validate_snapshot_dependency(
     }
 
     if platform_system_dependency(format, dependency) {
+        if format == BinaryFormat::Pe {
+            if let Some(directory) = executable.parent() {
+                let adjacent = directory.join(dependency);
+                match fs::symlink_metadata(&adjacent) {
+                    Ok(_) => {
+                        return Err(FinalCargoError::UnsupportedSnapshotDependency {
+                            path: executable.to_path_buf(),
+                            dependency: dependency.to_string(),
+                            reason: "an app-local DLL beside the executable is not copied into the relocated snapshot",
+                        });
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(source) => {
+                        return Err(FinalCargoError::SnapshotArtifactIo {
+                            path: adjacent,
+                            source,
+                        });
+                    }
+                }
+            }
+        }
         return Ok(());
     }
     Err(FinalCargoError::UnsupportedSnapshotDependency {
@@ -1468,16 +1540,23 @@ fn platform_system_dependency(format: BinaryFormat, dependency: &str) -> bool {
         ),
         BinaryFormat::Pe => {
             let dependency = dependency.to_ascii_lowercase();
+            // API-set contracts and system DLLs are basenames. A prefix must
+            // never admit an app-relative path or an alternate data stream.
+            if dependency.contains(['/', '\\', ':']) || !dependency.ends_with(".dll") {
+                return false;
+            }
             dependency.starts_with("api-ms-win-")
                 || dependency.starts_with("ext-ms-win-")
                 || matches!(
                     dependency.as_str(),
                     "advapi32.dll"
                         | "bcrypt.dll"
+                        | "bcryptprimitives.dll"
                         | "crypt32.dll"
                         | "gdi32.dll"
                         | "iphlpapi.dll"
                         | "kernel32.dll"
+                        | "msvcrt.dll"
                         | "ncrypt.dll"
                         | "ntdll.dll"
                         | "ole32.dll"
@@ -1486,6 +1565,8 @@ fn platform_system_dependency(format: BinaryFormat, dependency: &str) -> bool {
                         | "ucrtbase.dll"
                         | "user32.dll"
                         | "userenv.dll"
+                        | "vcruntime140.dll"
+                        | "vcruntime140_1.dll"
                         | "ws2_32.dll"
                 )
         }
@@ -1825,13 +1906,15 @@ mod tests {
     fn final_target_is_stable_within_one_wrapper_policy() {
         let root = Path::new("/fixture/final-target-root");
         let invocation = InvocationId::derive("stable-final-target");
-        assert_eq!(
-            final_target_directory(root, invocation),
-            Path::new("/fixture/final-target-root")
-                .join("rsjs-final")
+        let expected = if cfg!(windows) {
+            root.join(format!("w{FINAL_WRAPPER_POLICY_VERSION}"))
+                .join(invocation.to_string())
+        } else {
+            root.join("rsjs-final")
                 .join(format!("wrapper-v{FINAL_WRAPPER_POLICY_VERSION}"))
                 .join(invocation.to_string())
-        );
+        };
+        assert_eq!(final_target_directory(root, invocation), expected);
     }
 
     #[test]
@@ -1913,6 +1996,95 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_pe_snapshot_rejects_dll_beside_original_executable() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let source_exclusion = temp.path().join("generated");
+        let target_directory = source_exclusion.join("target");
+        let snapshot_root = source_exclusion.join("snapshots");
+        fs::create_dir_all(&target_directory).unwrap();
+        let executable = target_directory.join("fixture.exe");
+        fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+        // Both Rust's MSVC and GNU Windows executables import this DLL.
+        fs::write(
+            target_directory.join("bcryptprimitives.dll"),
+            b"app-local runtime",
+        )
+        .unwrap();
+        let artifact = snapshot_fixture_artifact(temp.path(), executable.clone());
+        assert!(matches!(
+            snapshot_final_artifact(
+                &source_exclusion,
+                &snapshot_root,
+                &target_directory,
+                &artifact,
+            ),
+            Err(FinalCargoError::UnsupportedSnapshotDependency { path, dependency, reason })
+                if path == executable
+                    && dependency.eq_ignore_ascii_case("bcryptprimitives.dll")
+                    && reason.contains("app-local DLL")
+        ));
+        assert_eq!(fs::read_dir(&snapshot_root).unwrap().count(), 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_pe_cached_wrapper_rechecks_original_dll_directory() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let source_exclusion = temp.path().join("generated");
+        let target_directory = source_exclusion.join("target");
+        let snapshot_root = source_exclusion.join("snapshots");
+        fs::create_dir_all(&target_directory).unwrap();
+        let executable = target_directory.join("wrapper.exe");
+        fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+        let published =
+            snapshot_wrapper_executable(&source_exclusion, &snapshot_root, &executable).unwrap();
+        fs::write(
+            target_directory.join("bcryptprimitives.dll"),
+            b"app-local runtime",
+        )
+        .unwrap();
+        assert!(matches!(
+            snapshot_wrapper_executable(&source_exclusion, &snapshot_root, &executable),
+            Err(FinalCargoError::UnsupportedSnapshotDependency { path, dependency, reason })
+                if path == executable
+                    && dependency.eq_ignore_ascii_case("bcryptprimitives.dll")
+                    && reason.contains("app-local DLL")
+        ));
+        assert_eq!(fs::read(published).unwrap(), fs::read(executable).unwrap());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_pe_snapshot_of_current_executable_can_launch() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let source_exclusion = temp.path().join("generated");
+        let target_directory = source_exclusion.join("target");
+        let snapshot_root = source_exclusion.join("snapshots");
+        fs::create_dir_all(&target_directory).unwrap();
+        let executable = target_directory.join("fixture.exe");
+        fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+        let artifact = snapshot_fixture_artifact(temp.path(), executable.clone());
+        let snapshot = snapshot_final_artifact(
+            &source_exclusion,
+            &snapshot_root,
+            &target_directory,
+            &artifact,
+        )
+        .unwrap();
+        let published = snapshot.executable.unwrap();
+        assert_ne!(published, executable);
+        let output = Command::new(published).arg("--list").output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout)
+            .contains("windows_pe_snapshot_of_current_executable_can_launch"));
+    }
+
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn ordinary_host_executable_can_be_snapshotted() {
@@ -1986,6 +2158,152 @@ mod tests {
     }
 
     #[test]
+    fn windows_pe_snapshots_read_regular_and_delayed_dlls_for_both_bitnesses() {
+        for is_64 in [false, true] {
+            let (bytes, _) = windows_pe_fixture(is_64, "KERNEL32.dll", "bcryptprimitives.dll");
+            let file = object::File::parse(bytes.as_slice()).unwrap();
+            let dependencies = executable_snapshot_dependencies(&file).unwrap();
+            assert_eq!(
+                dependencies.libraries,
+                BTreeSet::from([b"KERNEL32.dll".to_vec(), b"bcryptprimitives.dll".to_vec()])
+            );
+            for dependency in &dependencies.libraries {
+                validate_snapshot_dependency(
+                    BinaryFormat::Pe,
+                    Path::new("fixture.exe"),
+                    Path::new("target"),
+                    dependency_name(dependency).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+        for runtime in ["msvcrt.dll", "vcruntime140.dll", "VCRUNTIME140_1.DLL"] {
+            assert!(platform_system_dependency(BinaryFormat::Pe, runtime));
+        }
+    }
+
+    #[test]
+    fn windows_pe_snapshot_does_not_silently_drop_an_app_local_runtime() {
+        let temp = tempfile::tempdir().unwrap();
+        let executable = temp.path().join("app.exe");
+        fs::write(temp.path().join("vcruntime140.dll"), b"app-local runtime").unwrap();
+        assert!(matches!(
+            validate_snapshot_dependency(BinaryFormat::Pe, &executable, temp.path(), "vcruntime140.dll"),
+            Err(FinalCargoError::UnsupportedSnapshotDependency { reason, .. })
+                if reason.contains("app-local DLL")
+        ));
+    }
+
+    #[test]
+    fn windows_pe_snapshots_reject_non_system_dlls_in_either_import_table() {
+        for is_64 in [false, true] {
+            for unsupported in [
+                "plugin.dll",
+                "libstd-fixture.dll",
+                ".\\kernel32.dll",
+                "api-ms-win-core-fixture\\plugin.dll",
+                "api-ms-win-core-fixture.dll:stream",
+                "api-ms-win-core-fixture",
+            ] {
+                for (normal, delayed) in
+                    [(unsupported, "kernel32.dll"), ("kernel32.dll", unsupported)]
+                {
+                    let (bytes, _) = windows_pe_fixture(is_64, normal, delayed);
+                    let file = object::File::parse(bytes.as_slice()).unwrap();
+                    let dependencies = executable_snapshot_dependencies(&file).unwrap();
+                    assert!(dependencies.libraries.iter().any(|dependency| {
+                        validate_snapshot_dependency(
+                            BinaryFormat::Pe,
+                            Path::new("fixture.exe"),
+                            Path::new("target"),
+                            dependency_name(dependency).unwrap(),
+                        )
+                        .is_err()
+                    }));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn windows_pe_snapshots_reject_malformed_or_legacy_delay_descriptors() {
+        for is_64 in [false, true] {
+            for attributes in [0_u32, 2, 0x8000_0000] {
+                let (mut bytes, section) = windows_pe_fixture(is_64, "kernel32.dll", "user32.dll");
+                bytes[section + 64..section + 68].copy_from_slice(&attributes.to_le_bytes());
+                let file = object::File::parse(bytes.as_slice()).unwrap();
+                assert!(executable_snapshot_dependencies(&file)
+                    .unwrap_err()
+                    .contains("RVA-based"));
+            }
+            for name_offset in [12, 68] {
+                let (mut bytes, section) = windows_pe_fixture(is_64, "kernel32.dll", "user32.dll");
+                bytes[section + name_offset..section + name_offset + 4]
+                    .copy_from_slice(&u32::MAX.to_le_bytes());
+                let file = object::File::parse(bytes.as_slice()).unwrap();
+                assert!(executable_snapshot_dependencies(&file).is_err());
+            }
+        }
+    }
+
+    // These are real PE32/PE32+ headers and import descriptors. No Windows
+    // compiler or execution is needed to test the production object reader.
+    fn windows_pe_fixture(is_64: bool, normal: &str, delayed: &str) -> (Vec<u8>, usize) {
+        use object::write::pe::{NtHeaders, Writer};
+        let mut bytes = Vec::new();
+        let mut writer = Writer::new(is_64, 0x1000, 0x200, &mut bytes);
+        writer.reserve_dos_header();
+        writer.reserve_nt_headers(16);
+        writer.reserve_section_headers(1);
+        let section = writer.reserve_rdata_section(512);
+        writer.set_data_directory(
+            object::pe::IMAGE_DIRECTORY_ENTRY_IMPORT,
+            section.virtual_address,
+            40,
+        );
+        writer.set_data_directory(
+            object::pe::IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT,
+            section.virtual_address + 64,
+            64,
+        );
+        let mut data = vec![0; 512];
+        data[12..16].copy_from_slice(&(section.virtual_address + 160).to_le_bytes());
+        data[64..68].copy_from_slice(&1_u32.to_le_bytes());
+        data[68..72].copy_from_slice(&(section.virtual_address + 256).to_le_bytes());
+        data[160..160 + normal.len()].copy_from_slice(normal.as_bytes());
+        data[256..256 + delayed.len()].copy_from_slice(delayed.as_bytes());
+        writer.write_empty_dos_header().unwrap();
+        writer.write_nt_headers(NtHeaders {
+            machine: if is_64 {
+                object::pe::IMAGE_FILE_MACHINE_AMD64
+            } else {
+                object::pe::IMAGE_FILE_MACHINE_I386
+            },
+            time_date_stamp: 0,
+            characteristics: object::pe::IMAGE_FILE_EXECUTABLE_IMAGE,
+            major_linker_version: 0,
+            minor_linker_version: 0,
+            address_of_entry_point: 0,
+            image_base: 0x400000,
+            major_operating_system_version: 6,
+            minor_operating_system_version: 0,
+            major_image_version: 0,
+            minor_image_version: 0,
+            major_subsystem_version: 6,
+            minor_subsystem_version: 0,
+            subsystem: object::pe::IMAGE_SUBSYSTEM_WINDOWS_CUI,
+            dll_characteristics: 0,
+            size_of_stack_reserve: 0x100000,
+            size_of_stack_commit: 0x1000,
+            size_of_heap_reserve: 0x100000,
+            size_of_heap_commit: 0x1000,
+        });
+        writer.write_section_headers();
+        writer.write_section(section.file_offset, &data);
+        (bytes, section.file_offset as usize)
+    }
+
+    #[test]
     fn elf_system_loader_soname_is_an_allowed_runtime_dependency() {
         assert!(validate_snapshot_dependency(
             BinaryFormat::Elf,
@@ -2017,15 +2335,18 @@ mod tests {
 
     #[test]
     fn interpreter_inside_mutable_target_is_rejected() {
-        let executable = Path::new("/fixture/target/app");
-        let target = Path::new("/fixture/target");
+        let temp = tempfile::TempDir::new().unwrap();
+        let target = temp.path().join("target");
+        let executable = target.join("app");
+        let interpreter = target.join("ld.so");
+        let interpreter = interpreter.to_str().unwrap();
         assert!(matches!(
-            validate_snapshot_interpreter(executable, target, "/fixture/target/ld.so"),
+            validate_snapshot_interpreter(&executable, &target, interpreter),
             Err(FinalCargoError::UnsupportedSnapshotDependency {
                 dependency,
                 reason,
                 ..
-            }) if dependency == "/fixture/target/ld.so" && reason.contains("mutable final Cargo target")
+            }) if dependency == interpreter && reason.contains("mutable final Cargo target")
         ));
     }
 

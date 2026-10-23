@@ -40,9 +40,12 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
         })
         .unwrap_or("app");
     let selected = args.bin.unwrap_or_else(|| {
-        PathBuf::from("target")
-            .join("release")
-            .join(configured_binary)
+        let mut filename = std::ffi::OsString::from(configured_binary);
+        let suffix = std::env::consts::EXE_SUFFIX;
+        if !suffix.is_empty() && !configured_binary.to_ascii_lowercase().ends_with(suffix) {
+            filename.push(suffix);
+        }
+        PathBuf::from("target").join("release").join(filename)
     });
     let executable = if selected.is_absolute() {
         selected
@@ -51,7 +54,8 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
     };
     if !executable.is_file() {
         bail!(
-            "release executable not found at {}\nRun `proa build` first",
+            "release executable not found at {}\nExport it first with `proa build --artifact-out \"{}\"`, or select an exported executable with `proa start --bin <path>`",
+            executable.display(),
             executable.display()
         );
     }
