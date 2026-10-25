@@ -7,17 +7,15 @@ Register discovery endpoints on `FrameworkBuilder`. Its public origin and runtim
 
 ## Run an application
 
-This complete `src/main.rs` registers two Proa page routes, configures their discovery endpoints, and starts the HTTP server. It loads the app's generated manifest from `dist/island-manifest.json`.
+Configure discovery endpoints and start the HTTP server in `src/main.rs`. Route definitions are abbreviated below; replace the comment in `vec![]` with your application routes. The example loads the app's generated manifest from `dist/island-manifest.json`.
 
 ```rust filename="src/main.rs"
 use std::time::Duration;
 
-use axum::routing::get;
 use proa_framework_axum::{
-    BasePath, FrameworkBuilder, IslandManifest, RobotsTxt, Route, RouteResponse, SitemapUrl,
+    BasePath, FrameworkBuilder, IslandManifest, RobotsTxt, SitemapUrl,
     router_from_spec, serve,
 };
-use proa_macros::html_sync;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -25,26 +23,7 @@ async fn main() -> anyhow::Result<()> {
     let base_path = BasePath::new(&std::env::var("PROA_BASE_PATH").unwrap_or_default())?;
     let origin = std::env::var("PUBLIC_BASE_URL")?;
 
-    let (routes, metadata) = router_from_spec(vec![
-        Route::page(
-            "/",
-            "Home",
-            get(|| async {
-                RouteResponse::ssr(html_sync! {
-                    <main><h1>"Welcome"</h1></main>
-                })
-            }),
-        ),
-        Route::page(
-            "/pricing",
-            "Pricing",
-            get(|| async {
-                RouteResponse::ssr(html_sync! {
-                    <main><h1>"Pricing"</h1><p>"Plans start at $10/month."</p></main>
-                })
-            }),
-        ),
-    ]);
+    let (routes, metadata) = router_from_spec(vec![/* your application routes */]);
 
     let app = FrameworkBuilder::new(manifest)
         .with_dynamic_routes_and_metadata(routes, metadata)
@@ -69,7 +48,7 @@ From the application crate, run with an empty base path for local development:
 PUBLIC_BASE_URL=http://127.0.0.1:3000 PROA_BASE_PATH="" cargo run
 ```
 
-Visit `http://127.0.0.1:3000/pricing` for the sample page, `/sitemap.xml` for the sitemap, and `/robots.txt` for crawler rules. The home page is at `/`.
+Visit `http://127.0.0.1:3000/sitemap.xml` for the sitemap and `/robots.txt` for crawler rules. The example sitemap lists `/` and `/pricing`; register those page routes in the application route list.
 
 `try_build()` returns an Axum router. Pass it to `serve()` with a bound TCP listener to start accepting requests. The server runs until Ctrl+C or SIGTERM, then allows up to 30 seconds for in-flight requests to finish.
 

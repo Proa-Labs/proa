@@ -199,7 +199,7 @@ must expose `/robots.txt` at the origin root in addition to forwarding mounted a
 paths. Do not register overlapping custom discovery handlers on this builder.
 
 See the [complete application example](../../proa_marketing/src/docs/framework/sitemaps.mdx#run-an-application)
-for sample page routes, environment configuration, listener binding, and `serve()`.
+for application route setup, environment configuration, listener binding, and `serve()`.
 Sitemap entries are explicit; registering a page route does not add it automatically.
 
 ### Liveness and readiness
