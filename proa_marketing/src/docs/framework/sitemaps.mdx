@@ -44,6 +44,8 @@ let (router, metadata) = router_from_spec(vec![
 
 `with_base_path` uses the same `BasePath` the rest of the app uses for links and assets. A mount of `/apps/demo` turns `/pricing` into `https://example.com/apps/demo/pricing`. Absolute `http` and `https` entries pass through unchanged, but they must use the sitemap origin (the sitemap protocol only covers URLs on the host that serves it), so `with_url` and `with_entry` reject other hosts, schemes, and ports.
 
+Origins compare the scheme, host, and effective port. An omitted port is equivalent to `:443` for HTTPS or `:80` for HTTP; for example, `https://example.com:443/docs` is accepted for `https://example.com`. Scheme and host matching is ASCII case-insensitive, and equivalent IPv6 spellings match. The original URL spelling is preserved in the XML.
+
 Query strings are XML-escaped. Paths, absolute URLs, and origins reject XML-forbidden control characters. `lastmod` is a real `YYYY-MM-DD` calendar date (the day must exist, including leap years). Priority is stored in tenths from `0.0` to `1.0`. Each loc must be shorter than 2048 bytes. If a loc only goes over that limit once the base path is applied, `sitemap_xml` logs the error and returns a generic 500.
 
 ## robots.txt

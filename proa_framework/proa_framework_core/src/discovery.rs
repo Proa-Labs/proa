@@ -416,8 +416,13 @@ fn normalize_origin(origin: &str) -> Result<&str, DiscoveryError> {
 }
 
 fn strip_http_scheme(url: &str) -> Option<&str> {
-    url.strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
+    split_http_scheme(url).map(|(_, rest)| rest)
+}
+
+fn split_http_scheme(url: &str) -> Option<(&str, &str)> {
+    let (scheme, rest) = url.split_once("://")?;
+    (scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http"))
+        .then_some((scheme, rest))
 }
 
 fn is_absolute_http_url(path: &str) -> bool {
@@ -427,51 +432,74 @@ fn is_absolute_http_url(path: &str) -> bool {
 /// `host[:port]` with no userinfo, path, query, or fragment. Bracketed hosts
 /// must be non-empty IPv6 literals; ports must be 1 to 5 digits up to 65535.
 fn is_valid_authority(authority: &str) -> bool {
-    let (host_ok, port) = if let Some(rest) = authority.strip_prefix('[') {
-        let Some((host, after)) = rest.split_once(']') else {
-            return false;
-        };
-        let host_ok = !host.is_empty()
-            && host
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit() || byte == b':' || byte == b'.');
+    parse_authority(authority).is_some()
+}
+
+enum OriginHost<'a> {
+    Name(&'a str),
+    Ipv6(std::net::Ipv6Addr),
+}
+
+fn parse_authority(authority: &str) -> Option<(OriginHost<'_>, Option<u16>)> {
+    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
+        let (literal, after) = rest.split_once(']')?;
+        let host = OriginHost::Ipv6(literal.parse().ok()?);
         let port = match after {
             "" => None,
-            _ => match after.strip_prefix(':') {
-                Some(port) => Some(port),
-                None => return false,
-            },
+            _ => Some(after.strip_prefix(':')?),
         };
-        (host_ok, port)
+        (host, port)
     } else {
         let (host, port) = match authority.split_once(':') {
             Some((host, port)) => (host, Some(port)),
             None => (authority, None),
         };
-        (
-            !host.is_empty() && !host.contains(['@', '[', ']', '/', '?', '#']),
-            port,
-        )
+        if host.is_empty() || host.contains(['@', '[', ']', '/', '?', '#']) {
+            return None;
+        }
+        (OriginHost::Name(host), port)
     };
-    host_ok
-        && port.is_none_or(|port| {
-            !port.is_empty()
+    let port = match port {
+        None => None,
+        Some(port)
+            if !port.is_empty()
                 && port.len() <= 5
-                && port.bytes().all(|byte| byte.is_ascii_digit())
-                && port.parse::<u16>().is_ok()
-        })
+                && port.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            Some(port.parse().ok()?)
+        }
+        Some(_) => return None,
+    };
+    Some((host, port))
 }
 
-/// True when `url` is `origin` itself or a URL on it (ASCII case-insensitive
-/// scheme and host). Rejects look-alikes such as `https://example.com.evil.test`.
+/// RFC 6454 origin components. An omitted port uses the scheme's default;
+/// parsing IPv6 literals also makes expanded and compressed spellings equivalent.
+fn parse_http_origin(url: &str) -> Option<(&str, OriginHost<'_>, u16)> {
+    let (scheme, rest) = split_http_scheme(url)?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let (host, port) = parse_authority(authority)?;
+    let default_port = if scheme.eq_ignore_ascii_case("https") {
+        443
+    } else {
+        80
+    };
+    Some((scheme, host, port.unwrap_or(default_port)))
+}
+
+/// Compare scheme, host and effective port, not serialized URL prefixes.
 fn has_origin(url: &str, origin: &str) -> bool {
-    url.len() >= origin.len()
-        && url.is_char_boundary(origin.len())
-        && url[..origin.len()].eq_ignore_ascii_case(origin)
-        && matches!(
-            url.as_bytes().get(origin.len()),
-            None | Some(b'/' | b'?' | b'#')
-        )
+    let (Some((url_scheme, url_host, url_port)), Some((scheme, host, port))) =
+        (parse_http_origin(url), parse_http_origin(origin))
+    else {
+        return false;
+    };
+    let same_host = match (url_host, host) {
+        (OriginHost::Name(a), OriginHost::Name(b)) => a.eq_ignore_ascii_case(b),
+        (OriginHost::Ipv6(a), OriginHost::Ipv6(b)) => a == b,
+        _ => false,
+    };
+    url_scheme.eq_ignore_ascii_case(scheme) && same_host && url_port == port
 }
 
 fn validate_absolute_http_url(url: &str) -> Result<(), DiscoveryError> {
@@ -507,7 +535,7 @@ fn validate_entry_path(path: &str) -> Result<(), DiscoveryError> {
 fn contains_invalid_url_char(value: &str) -> bool {
     value
         .chars()
-        .any(|ch| ch <= ' ' || ch == '\\' || !is_xml10_char(ch))
+        .any(|ch| ch <= ' ' || ch == '\u{7F}' || ch == '\\' || !is_xml10_char(ch))
 }
 
 fn is_xml10_char(ch: char) -> bool {
@@ -647,6 +675,40 @@ mod tests {
     }
 
     #[test]
+    fn sitemap_compares_scheme_host_and_effective_port() {
+        for (origin, url) in [
+            ("https://example.com", "https://example.com:443/docs"),
+            ("https://example.com:443", "https://example.com/docs"),
+            ("http://example.com", "http://example.com:80/docs"),
+            ("http://example.com:80", "http://example.com/docs"),
+            ("HTTPS://EXAMPLE.COM:00443", "https://example.com/docs?q=1"),
+            ("http://example.com", "HTTP://EXAMPLE.COM:00080/docs"),
+            ("https://example.com:8443", "https://EXAMPLE.COM:08443/docs"),
+            ("https://[::1]", "https://[0:0:0:0:0:0:0:1]:443/docs"),
+        ] {
+            let xml = Sitemap::new(origin)
+                .unwrap()
+                .with_url(url)
+                .unwrap_or_else(|error| panic!("{origin} / {url}: {error}"))
+                .render_xml()
+                .unwrap();
+            assert!(xml.contains(&format!("<loc>{url}</loc>")), "{xml}");
+        }
+        for (origin, url) in [
+            ("https://example.com", "https://example.com:80/docs"),
+            ("http://example.com", "http://example.com:443/docs"),
+            ("https://example.com:8443", "https://example.com/docs"),
+            ("https://[::1]", "https://[::2]/docs"),
+        ] {
+            assert_eq!(
+                Sitemap::new(origin).unwrap().with_url(url).unwrap_err(),
+                DiscoveryError::CrossOrigin,
+                "{origin} / {url}"
+            );
+        }
+    }
+
+    #[test]
     fn sitemap_rejects_cross_origin_absolute_entries() {
         let sitemap = || Sitemap::new("https://example.com").unwrap();
         for url in [
@@ -678,6 +740,10 @@ mod tests {
             "https://[]",
             "https://[::1",
             "https://[::1]x",
+            "https://[abcd]",
+            "https://[:::]",
+            "https://[1:2:3]",
+            "https://[1:2:3:4:5:6:7:8:9]",
             "https://example.com:",
             "https://example.com:65536",
             "https://:443",
@@ -698,6 +764,10 @@ mod tests {
         }
         assert_eq!(
             SitemapUrl::new("https://user@example.com/").unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
+        assert_eq!(
+            SitemapUrl::new("https://[abcd]/docs").unwrap_err(),
             DiscoveryError::InvalidPath
         );
         assert_eq!(
@@ -783,6 +853,27 @@ mod tests {
                 .unwrap_err(),
             DiscoveryError::InvalidPath
         );
+    }
+
+    #[test]
+    fn discovery_urls_reject_unescaped_del() {
+        assert_eq!(
+            Sitemap::new("https://exam\u{7F}ple.com").unwrap_err(),
+            DiscoveryError::InvalidOrigin
+        );
+        for path in ["/a\u{7F}", "https://example.com/a\u{7F}"] {
+            assert_eq!(
+                SitemapUrl::new(path).unwrap_err(),
+                DiscoveryError::InvalidPath
+            );
+        }
+        assert_eq!(
+            RobotsTxt::new()
+                .sitemap("https://example.com/a\u{7F}")
+                .unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
+        assert!(SitemapUrl::new("/a%7F").is_ok());
     }
 
     #[test]
