@@ -4,6 +4,8 @@
 //! Sitemap and robots.txt documents that honor the public origin and runtime
 //! base path.
 
+use std::{fmt::Write as _, time::Duration};
+
 use proa_core::text::UnsafeRaw;
 use proa_core::{BasePath, DataLoader, WebContext, WebRenderSync, WriteError};
 use proa_macros::xml_sync;
@@ -49,6 +51,10 @@ pub enum DiscoveryError {
     LocTooLong,
     #[error("robots field cannot contain whitespace, `#`, or control characters")]
     InvalidRobotsField,
+    #[error("robots host must be a hostname with optional port, or an HTTP(S) origin")]
+    InvalidRobotsHost,
+    #[error("custom robots directive must have a non-reserved ASCII field name and a value without comments or control characters")]
+    InvalidRobotsDirective,
     #[error("robots rule path must be empty or start with `/` or `*`")]
     InvalidRobotsPath,
     #[error(transparent)]
@@ -385,17 +391,33 @@ fn checked_document(cx: WebContext) -> Result<String, DiscoveryError> {
 /// One `User-agent` group in robots.txt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RobotsGroup {
-    user_agent: String,
+    user_agents: Vec<String>,
     rules: Vec<RobotsRule>,
+    crawl_delay: Option<Duration>,
+    directives: Vec<(String, String)>,
 }
 
 impl RobotsGroup {
+    /// The first user agent in this group. See `user_agents` for shared groups.
     pub fn user_agent(&self) -> &str {
-        &self.user_agent
+        &self.user_agents[0]
+    }
+
+    pub fn user_agents(&self) -> &[String] {
+        &self.user_agents
     }
 
     pub fn rules(&self) -> &[RobotsRule] {
         &self.rules
+    }
+
+    pub fn crawl_delay(&self) -> Option<Duration> {
+        self.crawl_delay
+    }
+
+    /// Custom directive name/value pairs, in insertion order.
+    pub fn directives(&self) -> &[(String, String)] {
+        &self.directives
     }
 }
 
@@ -418,6 +440,7 @@ pub struct RobotsTxt {
     base_path: BasePath,
     groups: Vec<RobotsGroup>,
     sitemaps: Vec<String>,
+    host: Option<String>,
 }
 
 impl RobotsTxt {
@@ -442,12 +465,72 @@ impl RobotsTxt {
         &self.base_path
     }
 
-    pub fn group(mut self, user_agent: &str) -> Result<Self, DiscoveryError> {
-        validate_robots_field(user_agent)?;
+    pub fn group(self, user_agent: &str) -> Result<Self, DiscoveryError> {
+        self.group_agents([user_agent])
+    }
+
+    /// Start a group whose rules apply to all supplied user agents.
+    /// At least one nonempty user agent is required.
+    pub fn group_agents<I, S>(mut self, user_agents: I) -> Result<Self, DiscoveryError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let mut agents = Vec::new();
+        for agent in user_agents {
+            let agent = agent.into();
+            validate_robots_field(&agent)?;
+            agents.push(agent);
+        }
+        if agents.is_empty() {
+            return Err(DiscoveryError::InvalidRobotsField);
+        }
         self.groups.push(RobotsGroup {
-            user_agent: user_agent.to_string(),
+            user_agents: agents,
             rules: Vec::new(),
+            crawl_delay: None,
+            directives: Vec::new(),
         });
+        Ok(self)
+    }
+
+    /// Set a crawler-specific delay for the current group, in seconds.
+    /// `Duration` supports fractional seconds without negative or nonfinite values.
+    /// This extension is not supported by every crawler;
+    /// [Google ignores it](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec).
+    /// Creates a wildcard group when called before `group` or `group_agents`.
+    pub fn crawl_delay(mut self, delay: Duration) -> Self {
+        self.current_group_mut().crawl_delay = Some(delay);
+        self
+    }
+
+    /// Add a nonstandard per-group directive, such as `Request-Rate`.
+    ///
+    /// Names retain their casing and repeated calls emit repeated lines.
+    /// Values may contain spaces, but not `#` or control characters. Values
+    /// render verbatim: the base path is applied only to allow/disallow rules.
+    /// Reserved fields must use their typed methods instead.
+    pub fn directive(mut self, name: &str, value: &str) -> Result<Self, DiscoveryError> {
+        validate_robots_directive(name, value)?;
+        self.current_group_mut()
+            .directives
+            .push((name.to_owned(), value.to_owned()));
+        Ok(self)
+    }
+
+    /// Set the optional, nonstandard `Host` directive.
+    /// Accepts a hostname with an optional port, or an HTTP(S) origin. It is
+    /// explicit document configuration, not inferred from request headers.
+    pub fn host(mut self, host: &str) -> Result<Self, DiscoveryError> {
+        let host = if is_absolute_http_url(host) {
+            normalize_origin(host).map_err(|_| DiscoveryError::InvalidRobotsHost)?
+        } else {
+            if contains_invalid_url_char(host) || !is_valid_authority(host) {
+                return Err(DiscoveryError::InvalidRobotsHost);
+            }
+            host
+        };
+        self.host = Some(host.to_owned());
         Ok(self)
     }
 
@@ -503,9 +586,11 @@ impl RobotsTxt {
             if index > 0 {
                 out.push('\n');
             }
-            out.push_str("User-agent: ");
-            out.push_str(&group.user_agent);
-            out.push('\n');
+            for agent in &group.user_agents {
+                out.push_str("User-agent: ");
+                out.push_str(agent);
+                out.push('\n');
+            }
             if group.rules.is_empty() {
                 // An empty `Disallow` allows everything. Without a rule line, this
                 // `User-agent` merges into the next group (RFC 9309 section 2.1).
@@ -526,8 +611,33 @@ impl RobotsTxt {
                 }
                 push_robots_line(&mut out, field, base, path);
             }
+            if let Some(delay) = group.crawl_delay {
+                write!(out, "Crawl-delay: {}", delay.as_secs())
+                    .expect("String writes are infallible");
+                let mut fraction = delay.subsec_nanos();
+                if fraction != 0 {
+                    let mut width = 9;
+                    while fraction.is_multiple_of(10) {
+                        fraction /= 10;
+                        width -= 1;
+                    }
+                    write!(out, ".{fraction:0width$}").expect("String writes are infallible");
+                }
+                out.push('\n');
+            }
+            for (name, value) in &group.directives {
+                out.push_str(name);
+                out.push_str(": ");
+                out.push_str(value);
+                out.push('\n');
+            }
         }
-        if !self.sitemaps.is_empty() && !out.is_empty() {
+        if (self.host.is_some() || !self.sitemaps.is_empty()) && !out.is_empty() {
+            out.push('\n');
+        }
+        if let Some(host) = &self.host {
+            out.push_str("Host: ");
+            out.push_str(host);
             out.push('\n');
         }
         for loc in &self.sitemaps {
@@ -539,18 +649,20 @@ impl RobotsTxt {
     }
 
     fn push_rule(mut self, rule: RobotsRule) -> Result<Self, DiscoveryError> {
+        self.current_group_mut().rules.push(rule);
+        Ok(self)
+    }
+
+    fn current_group_mut(&mut self) -> &mut RobotsGroup {
         if self.groups.is_empty() {
             self.groups.push(RobotsGroup {
-                user_agent: "*".to_string(),
+                user_agents: vec!["*".to_string()],
                 rules: Vec::new(),
+                crawl_delay: None,
+                directives: Vec::new(),
             });
         }
-        self.groups
-            .last_mut()
-            .expect("group inserted above")
-            .rules
-            .push(rule);
-        Ok(self)
+        self.groups.last_mut().expect("group inserted above")
     }
 }
 
@@ -779,6 +891,29 @@ fn has_invalid_robots_byte(value: &str) -> bool {
 fn validate_robots_field(value: &str) -> Result<(), DiscoveryError> {
     if value.is_empty() || has_invalid_robots_byte(value) {
         return Err(DiscoveryError::InvalidRobotsField);
+    }
+    Ok(())
+}
+
+fn validate_robots_directive(name: &str, value: &str) -> Result<(), DiscoveryError> {
+    const RESERVED: [&str; 6] = [
+        "user-agent",
+        "allow",
+        "disallow",
+        "sitemap",
+        "host",
+        "crawl-delay",
+    ];
+    if !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        || RESERVED
+            .iter()
+            .any(|field| name.eq_ignore_ascii_case(field))
+        || value.chars().any(|ch| ch == '#' || ch.is_control())
+    {
+        return Err(DiscoveryError::InvalidRobotsDirective);
     }
     Ok(())
 }
@@ -1223,6 +1358,161 @@ mod tests {
             body,
             "User-agent: *\nAllow: /\nDisallow: /admin\n\nUser-agent: BadBot\nDisallow: /\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
         );
+    }
+
+    #[test]
+    fn robots_txt_shared_agents_and_extensions_keep_group_scope() {
+        let robots = RobotsTxt::new()
+            .group_agents(["Applebot", "Bingbot"])
+            .unwrap()
+            .disallow("/private/")
+            .unwrap()
+            .crawl_delay(Duration::from_millis(1500))
+            .directive("Clean-param", "ref /articles/")
+            .unwrap()
+            .directive("Clean-param", "sort /products/")
+            .unwrap()
+            .group("SeznamBot")
+            .unwrap()
+            .allow("/")
+            .unwrap()
+            .directive("Request-Rate", "10/1m")
+            .unwrap()
+            .host("https://example.com/")
+            .unwrap()
+            .sitemap("https://example.com/pages.xml")
+            .unwrap()
+            .sitemap("https://example.com/products.xml")
+            .unwrap();
+        assert_eq!(robots.groups()[0].user_agent(), "Applebot");
+        assert_eq!(robots.groups()[0].user_agents(), ["Applebot", "Bingbot"]);
+        assert_eq!(
+            robots.groups()[0].crawl_delay(),
+            Some(Duration::from_millis(1500))
+        );
+        assert_eq!(robots.groups()[0].directives().len(), 2);
+        assert_eq!(robots.render_txt(), concat!(
+            "User-agent: Applebot\nUser-agent: Bingbot\nDisallow: /private/\n",
+            "Crawl-delay: 1.5\nClean-param: ref /articles/\nClean-param: sort /products/\n\n",
+            "User-agent: SeznamBot\nAllow: /\nRequest-Rate: 10/1m\n\n",
+            "Host: https://example.com\nSitemap: https://example.com/pages.xml\nSitemap: https://example.com/products.xml\n"
+        ));
+    }
+
+    #[test]
+    fn robots_crawl_delay_preserves_exact_seconds_and_group_boundaries() {
+        for (delay, seconds) in [
+            (Duration::ZERO, "0"),
+            (Duration::from_nanos(1), "0.000000001"),
+            (Duration::from_millis(1), "0.001"),
+            (Duration::new(1, 1), "1.000000001"),
+            (Duration::from_secs(10), "10"),
+            (Duration::MAX, "18446744073709551615.999999999"),
+        ] {
+            let robots = RobotsTxt::new()
+                .crawl_delay(Duration::from_secs(99))
+                .crawl_delay(delay)
+                .group("OtherBot")
+                .unwrap()
+                .disallow("/private")
+                .unwrap();
+            assert_eq!(robots.render_txt(), format!(
+                "User-agent: *\nDisallow:\nCrawl-delay: {seconds}\n\nUser-agent: OtherBot\nDisallow: /private\n"
+            ));
+        }
+    }
+
+    #[test]
+    fn robots_extensions_reject_injection_and_reserved_fields() {
+        assert_eq!(
+            RobotsTxt::new()
+                .group_agents(std::iter::empty::<&str>())
+                .unwrap_err(),
+            DiscoveryError::InvalidRobotsField
+        );
+        assert_eq!(
+            RobotsTxt::new()
+                .group_agents(["GoodBot", "Bad\nBot"])
+                .unwrap_err(),
+            DiscoveryError::InvalidRobotsField
+        );
+        for name in [
+            "",
+            "User-Agent",
+            "ALLOW",
+            "Disallow",
+            "Sitemap",
+            "HOST",
+            "Crawl-Delay",
+            "Bad:Name",
+            "Bad\nName",
+            "Bad Name",
+            "é",
+            "-Name",
+        ] {
+            assert_eq!(
+                RobotsTxt::new().directive(name, "value").unwrap_err(),
+                DiscoveryError::InvalidRobotsDirective,
+                "{name}"
+            );
+        }
+        for value in [
+            "a\nDisallow: /",
+            "a\rHost: other.example",
+            "a#comment",
+            "a\tvalue",
+            "a\u{7f}",
+            "a\u{85}",
+        ] {
+            assert_eq!(
+                RobotsTxt::new()
+                    .directive("Request-Rate", value)
+                    .unwrap_err(),
+                DiscoveryError::InvalidRobotsDirective
+            );
+        }
+        // Spaces and repeated extension fields are valid; extensions do not
+        // bypass the typed fields or interpret their values as application paths.
+        let txt = RobotsTxt::new()
+            .directive("Clean-param", "ref /articles/")
+            .unwrap()
+            .with_base_path(BasePath::new("/app").unwrap())
+            .render_txt();
+        assert_eq!(
+            txt,
+            "User-agent: *\nDisallow:\nClean-param: ref /articles/\n"
+        );
+    }
+
+    #[test]
+    fn robots_host_accepts_authorities_and_origins_without_paths() {
+        for host in [
+            "example.com",
+            "example.com:8443",
+            "https://example.com",
+            "[::1]:3000",
+            "https://[::1]:3000",
+        ] {
+            assert_eq!(
+                RobotsTxt::new().host(host).unwrap().render_txt(),
+                format!("Host: {host}\n")
+            );
+        }
+        for host in [
+            "",
+            "example.com/app",
+            "https://example.com/app",
+            "example.com#comment",
+            "user@example.com",
+            "https://example.com?x=1",
+            "example.com\nDisallow: /",
+        ] {
+            assert_eq!(
+                RobotsTxt::new().host(host).unwrap_err(),
+                DiscoveryError::InvalidRobotsHost,
+                "{host}"
+            );
+        }
     }
 
     #[test]

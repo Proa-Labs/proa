@@ -59,6 +59,52 @@ async fn generate_sitemaps() -> Result<Vec<SitemapFile>, DiscoveryError> {
 }
 
 #[tokio::test]
+async fn async_generated_robots_preserves_groups_and_extensions_under_final_mount() {
+    async fn generate_robots(paths: &[&str]) -> Result<RobotsTxt, DiscoveryError> {
+        tokio::task::yield_now().await;
+        let mut robots = RobotsTxt::new().group_agents(["Applebot", "Bingbot"])?;
+        for path in paths {
+            robots = robots.disallow(path)?;
+        }
+        Ok(robots
+            .crawl_delay(std::time::Duration::from_millis(1250))
+            .directive("Clean-param", "ref /public/")?
+            .group("*")?
+            .allow("/")?
+            .host("example.com")?
+            .sitemap("https://example.com/app/sitemap.xml")?
+            .sitemap("https://cdn.example/extra.xml")?
+            .with_base_path(BasePath::new("/old").unwrap()))
+    }
+
+    let app = builder()
+        .with_robots(generate_robots(&["/private/", "/admin/"]).await.unwrap())
+        .with_sitemaps(generate_sitemaps().await.unwrap())
+        .with_base_path(BasePath::new("/app").unwrap())
+        .with_public_origin("https://example.com")
+        .unwrap()
+        .try_build()
+        .unwrap();
+    let (status, headers, body) = fetch(&app, "/robots.txt").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "text/plain; charset=utf-8");
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert_eq!(headers["x-content-type-options"], "nosniff");
+    assert_eq!(
+        body,
+        concat!(
+            "User-agent: Applebot\nUser-agent: Bingbot\n",
+            "Disallow: /app/private/\nDisallow: /app/admin/\n",
+            "Crawl-delay: 1.25\nClean-param: ref /public/\n\n",
+            "User-agent: *\nAllow: /app$\nAllow: /app/\n\n",
+            "Host: example.com\nSitemap: https://example.com/app/sitemap.xml\n",
+            "Sitemap: https://cdn.example/extra.xml\n"
+        )
+    );
+    assert_eq!(fetch(&app, "/robots.txt").await.2, body);
+}
+
+#[tokio::test]
 async fn multiple_sitemaps_serve_an_index_and_separate_documents() {
     let app = builder()
         .with_sitemaps(generate_sitemaps().await.unwrap())

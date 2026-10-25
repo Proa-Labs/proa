@@ -25,7 +25,12 @@ All notable public changes are tracked here.
   `Disallow:` instead of merging into the next group. `RobotsTxt::with_base_path`
   renders root-relative rules under the public mount prefix exactly once, and
   a root rule also matches the bare mount URL (`/apps/demo$`); crawlers still
-  fetch `/robots.txt` at the origin root.
+  fetch `/robots.txt` at the origin root. Robots documents also support shared
+  user-agent groups, exact `Duration` crawl delays, an optional explicit host,
+  and validated custom per-group directives. An awaited application-owned
+  `generate_robots` function can supply the document at startup; requests serve
+  cached bytes, preserving explicit sitemap links and adding the generated
+  sitemap/index link automatically.
 
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.

@@ -282,6 +282,37 @@ impl FrameworkBuilder {
     /// prefix-stripping proxy must explicitly forward origin-root `/robots.txt`.
     /// Do not also register a custom `/robots.txt` handler. Existing absolute
     /// sitemap links in `robots` pass through unchanged.
+    ///
+    /// Await an application-owned async function to generate rules from data.
+    /// Generation and rendering run at startup; HTTP requests serve cached bytes.
+    /// Shared user-agent groups, optional crawl delays, host, and custom
+    /// directives are configured on `RobotsTxt` before passing it here.
+    ///
+    /// ```
+    /// use proa_framework_axum::{
+    ///     DiscoveryError, FrameworkBuilder, IslandManifest, ManifestAssets, RobotsTxt,
+    /// };
+    /// use std::time::Duration;
+    ///
+    /// async fn generate_robots() -> Result<RobotsTxt, DiscoveryError> {
+    ///     // Application code can await database or CMS queries here.
+    ///     Ok(RobotsTxt::new()
+    ///         .group("*")?.allow("/")?.disallow("/private/")?
+    ///         .group_agents(["Applebot", "Bingbot"])?.disallow("/admin/")?
+    ///         .crawl_delay(Duration::from_millis(1500)))
+    /// }
+    /// # let run = async {
+    /// # let manifest = IslandManifest {
+    /// #     islands: Default::default(), assets: ManifestAssets::default(),
+    /// #     import_map: Default::default(), ssr_bundle: None,
+    /// # };
+    /// let app = FrameworkBuilder::new(manifest)
+    ///     .with_robots(generate_robots().await?)
+    ///     .try_build()?;
+    /// # Ok::<(), DiscoveryError>(())
+    /// # };
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(run).unwrap();
+    /// ```
     pub fn with_robots(mut self, robots: RobotsTxt) -> Self {
         self.robots = Some(robots);
         self

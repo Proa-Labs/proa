@@ -216,6 +216,20 @@ uncompressed XML. Use smaller batches for long URLs. For application-managed
 refresh or dynamic responses, use `SitemapIndex` and `sitemap_index_xml` alongside
 the existing standalone sitemap helpers.
 
+Robots uses the same application-owned async generation pattern:
+`.with_robots(generate_robots(&db).await?)`. Generate a `RobotsTxt` at startup;
+requests serve its cached text, with the final builder mount applied once and
+an automatic sitemap/index link. There is one robots.txt per origin.
+
+`RobotsTxt::group_agents(["Applebot", "Bingbot"])?` shares rules across bots.
+Per-group options include `.crawl_delay(Duration::from_millis(1500))` for exact
+seconds and `.directive("Request-Rate", "10/1m")?` for crawler extensions.
+`.host("https://example.com")?` sets an optional explicit host; repeated
+`.sitemap(...)` calls add sitemap links. Extension support depends on the bot;
+Google ignores crawl delay. Custom directives reject comments, control
+characters, malformed names, and reserved fields, while permitting spaces in
+values. Only allow/disallow rules receive the base path.
+
 ### Liveness and readiness
 
 Liveness and readiness should not share dependency policy:
