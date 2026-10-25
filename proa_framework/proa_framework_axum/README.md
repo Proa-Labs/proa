@@ -202,6 +202,20 @@ See the [complete application example](../../proa_marketing/src/docs/framework/s
 for application route setup, environment configuration, listener binding, and `serve()`.
 Sitemap entries are explicit; registering a page route does not add it automatically.
 
+Use `.with_sitemaps(files)` for multiple documents. Each
+`SitemapFile::new("products-0", urls)?` is served at `/sitemap/products-0.xml`;
+`/sitemap.xml` becomes an index linking to the documents, and robots.txt
+advertises that index. Supply an awaited application generator with
+`.with_sitemaps(generate_sitemaps(&db).await?)`. Generation and rendering happen
+once at startup; requests serve cached bytes. The last `with_sitemap` or
+`with_sitemaps` call replaces the previous configuration.
+
+IDs must be unique, nonempty ASCII letters/digits/`-`/`_`; an empty file list is
+an error. Each sitemap and index is limited to 50,000 entries and 50 MiB of
+uncompressed XML. Use smaller batches for long URLs. For application-managed
+refresh or dynamic responses, use `SitemapIndex` and `sitemap_index_xml` alongside
+the existing standalone sitemap helpers.
+
 ### Liveness and readiness
 
 Liveness and readiness should not share dependency policy:

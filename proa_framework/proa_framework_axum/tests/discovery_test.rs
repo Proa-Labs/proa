@@ -11,7 +11,7 @@ use axum::{
 };
 use proa_framework_axum::{
     BasePath, ChangeFreq, DiscoveryError, FrameworkBuilder, IslandManifest, ManifestAssets,
-    RobotsTxt, SitemapPriority, SitemapUrl,
+    RobotsTxt, SitemapFile, SitemapPriority, SitemapUrl,
 };
 use tower::ServiceExt;
 
@@ -45,6 +45,157 @@ fn robots() -> RobotsTxt {
         .unwrap()
         .disallow("/admin")
         .unwrap()
+}
+
+async fn generate_sitemaps() -> Result<Vec<SitemapFile>, DiscoveryError> {
+    tokio::task::yield_now().await;
+    Ok(vec![
+        SitemapFile::new("pages", [SitemapUrl::new("/")?])?,
+        SitemapFile::new(
+            "products-0",
+            [SitemapUrl::new("/products/1?q=a&b=c")?.lastmod("2026-10-25")?],
+        )?,
+    ])
+}
+
+#[tokio::test]
+async fn multiple_sitemaps_serve_an_index_and_separate_documents() {
+    let app = builder()
+        .with_sitemaps(generate_sitemaps().await.unwrap())
+        .with_public_origin("https://old.example")
+        .unwrap()
+        .with_base_path(BasePath::new("/old").unwrap())
+        .with_robots(
+            robots()
+                .sitemap("https://example.com/app/sitemap.xml")
+                .unwrap(),
+        )
+        .with_public_origin("https://example.com")
+        .unwrap()
+        .with_base_path(BasePath::new("/app").unwrap())
+        .try_build()
+        .unwrap();
+    let (status, headers, index) = fetch(&app, "/sitemap.xml").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers[header::CONTENT_TYPE],
+        "application/xml; charset=utf-8"
+    );
+    assert!(index.contains("<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"));
+    assert!(index.contains("<loc>https://example.com/app/sitemap/pages.xml</loc>"));
+    assert!(index.contains("<loc>https://example.com/app/sitemap/products-0.xml</loc>"));
+    assert_eq!(index.matches("<sitemap>").count(), 2);
+    assert!(!index.contains("<url>"));
+    for (path, expected_loc) in [
+        ("/sitemap/pages.xml", "https://example.com/app/"),
+        (
+            "/sitemap/products-0.xml",
+            "https://example.com/app/products/1?q=a&amp;b=c",
+        ),
+    ] {
+        let (status, headers, xml) = fetch(&app, path).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers[header::CONTENT_TYPE],
+            "application/xml; charset=utf-8"
+        );
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        assert_eq!(xml.matches("<url>").count(), 1);
+        assert!(xml.contains(&format!("<loc>{expected_loc}</loc>")));
+        let head = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::HEAD)
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(head.status(), StatusCode::OK);
+        assert_eq!(
+            head.headers()[header::CONTENT_TYPE],
+            "application/xml; charset=utf-8"
+        );
+        assert!(to_bytes(head.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+    let products = fetch(&app, "/sitemap/products-0.xml").await.2;
+    assert!(products.contains("<lastmod>2026-10-25</lastmod>"));
+    let robots = fetch(&app, "/robots.txt").await.2;
+    assert_eq!(robots.matches("Sitemap:").count(), 1);
+    assert!(robots.contains("Sitemap: https://example.com/app/sitemap.xml\n"));
+    assert_eq!(
+        fetch(&app, "/sitemap/missing.xml").await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        fetch(&app, "/app/sitemap/pages.xml").await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn multiple_sitemaps_reject_invalid_startup_configuration() {
+    assert!(matches!(
+        builder()
+            .with_sitemaps(generate_sitemaps().await.unwrap())
+            .try_build(),
+        Err(DiscoveryError::MissingPublicOrigin)
+    ));
+    let configured = || builder().with_public_origin("https://example.com").unwrap();
+    assert!(matches!(
+        configured().with_sitemaps([]).try_build(),
+        Err(DiscoveryError::EmptySitemapIndex)
+    ));
+    let file = SitemapFile::new("pages", [SitemapUrl::new("/").unwrap()]).unwrap();
+    assert!(matches!(
+        configured().with_sitemaps([file.clone(), file]).try_build(),
+        Err(DiscoveryError::DuplicateSitemapId)
+    ));
+    let foreign = SitemapFile::new(
+        "foreign",
+        [SitemapUrl::new("https://other.example/").unwrap()],
+    )
+    .unwrap();
+    assert!(matches!(
+        configured().with_sitemaps([foreign]).try_build(),
+        Err(DiscoveryError::CrossOrigin)
+    ));
+}
+
+#[tokio::test]
+async fn sitemap_setters_replace_previous_configuration() {
+    let app = builder()
+        .with_public_origin("https://example.com")
+        .unwrap()
+        .with_sitemaps(generate_sitemaps().await.unwrap())
+        .with_sitemap([SitemapUrl::new("/single").unwrap()])
+        .build();
+    assert!(fetch(&app, "/sitemap.xml")
+        .await
+        .2
+        .contains("<loc>https://example.com/single</loc>"));
+    assert_eq!(
+        fetch(&app, "/sitemap/pages.xml").await.0,
+        StatusCode::NOT_FOUND
+    );
+    let app = builder()
+        .with_public_origin("https://example.com")
+        .unwrap()
+        .with_sitemap([SitemapUrl::new("/single").unwrap()])
+        .with_sitemaps(generate_sitemaps().await.unwrap())
+        .build();
+    assert!(fetch(&app, "/sitemap.xml")
+        .await
+        .2
+        .contains("<sitemapindex"));
+    assert_eq!(fetch(&app, "/sitemap/pages.xml").await.0, StatusCode::OK);
+    assert!(!fetch(&app, "/sitemap.xml").await.2.contains("/single"));
 }
 
 async fn fetch(app: &Router, path: &str) -> (StatusCode, axum::http::HeaderMap, String) {

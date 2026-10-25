@@ -10,6 +10,10 @@ use proa_macros::xml_sync;
 use thiserror::Error;
 
 const MAX_LOC_BYTES: usize = 2048;
+/// Maximum number of URLs in a sitemap, or sitemaps in an index.
+pub const MAX_SITEMAP_ENTRIES: usize = 50_000;
+/// Maximum uncompressed UTF-8 document size permitted by the sitemap protocol.
+pub const MAX_SITEMAP_BYTES: usize = 50 * 1024 * 1024;
 const PRIORITY_TEXT: [&str; 11] = [
     "0.0", "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0",
 ];
@@ -23,6 +27,18 @@ pub enum DiscoveryError {
     InvalidOrigin,
     #[error("a public origin is required when sitemap routes are enabled")]
     MissingPublicOrigin,
+    #[error(
+        "sitemap ID must contain only ASCII letters, digits, `-`, or `_`, and cannot be empty"
+    )]
+    InvalidSitemapId,
+    #[error("sitemap IDs must be unique")]
+    DuplicateSitemapId,
+    #[error("a sitemap index must contain at least one sitemap")]
+    EmptySitemapIndex,
+    #[error("a sitemap or index cannot contain more than 50,000 entries")]
+    TooManySitemapEntries,
+    #[error("a sitemap or index cannot exceed 50 MiB of uncompressed XML")]
+    SitemapTooLarge,
     #[error("path must be a root-relative application path or an http(s) URL")]
     InvalidPath,
     #[error("lastmod must be a YYYY-MM-DD calendar date")]
@@ -161,6 +177,9 @@ impl Sitemap {
     /// Add an entry. Absolute entries must use the sitemap origin, because the
     /// sitemap protocol only covers URLs on the host that serves the sitemap.
     pub fn with_entry(mut self, url: SitemapUrl) -> Result<Self, DiscoveryError> {
+        if self.urls.len() >= MAX_SITEMAP_ENTRIES {
+            return Err(DiscoveryError::TooManySitemapEntries);
+        }
         if is_absolute_http_url(&url.path) && !has_origin(&url.path, &self.origin) {
             return Err(DiscoveryError::CrossOrigin);
         }
@@ -183,7 +202,7 @@ impl Sitemap {
     pub fn render_xml(&self) -> Result<String, DiscoveryError> {
         let mut cx = WebContext::new();
         self.write_xml(&mut cx)?;
-        Ok(cx.into_output().into_string())
+        checked_document(cx)
     }
 
     fn write_xml<L: DataLoader>(&self, cx: &mut WebContext<L>) -> Result<(), DiscoveryError> {
@@ -217,6 +236,150 @@ impl Sitemap {
         WebRenderSync::render(UnsafeRaw("</urlset>\n"), cx)?;
         Ok(())
     }
+}
+
+/// One named document served at `/sitemap/{id}.xml` by `with_sitemaps`.
+///
+/// IDs are literal path segments, not route patterns. Origin and mount prefix
+/// are supplied by the framework builder after application generation finishes.
+#[derive(Debug, Clone)]
+pub struct SitemapFile {
+    id: String,
+    urls: Vec<SitemapUrl>,
+}
+
+impl SitemapFile {
+    pub fn new(
+        id: impl Into<String>,
+        urls: impl IntoIterator<Item = SitemapUrl>,
+    ) -> Result<Self, DiscoveryError> {
+        let id = id.into();
+        if id.is_empty()
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err(DiscoveryError::InvalidSitemapId);
+        }
+        let mut entries = Vec::new();
+        for url in urls {
+            if entries.len() >= MAX_SITEMAP_ENTRIES {
+                return Err(DiscoveryError::TooManySitemapEntries);
+            }
+            entries.push(url);
+        }
+        Ok(Self { id, urls: entries })
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn urls(&self) -> &[SitemapUrl] {
+        &self.urls
+    }
+
+    pub fn into_urls(self) -> Vec<SitemapUrl> {
+        self.urls
+    }
+}
+
+/// A reference to a sitemap document, rather than a page URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SitemapIndexEntry {
+    path: String,
+    lastmod: Option<String>,
+}
+
+impl SitemapIndexEntry {
+    pub fn new(path: impl Into<String>) -> Result<Self, DiscoveryError> {
+        let path = path.into();
+        validate_entry_path(&path)?;
+        Ok(Self {
+            path,
+            lastmod: None,
+        })
+    }
+
+    /// When this sitemap document last changed, not the index generation date.
+    pub fn lastmod(mut self, lastmod: impl Into<String>) -> Result<Self, DiscoveryError> {
+        let lastmod = lastmod.into();
+        if !is_calendar_date(&lastmod) {
+            return Err(DiscoveryError::InvalidLastmod);
+        }
+        self.lastmod = Some(lastmod);
+        Ok(self)
+    }
+}
+
+/// An XML sitemap index linking to multiple same-origin sitemap documents.
+///
+/// See <https://www.sitemaps.org/protocol.html#index>.
+#[derive(Debug, Clone)]
+pub struct SitemapIndex {
+    origin: String,
+    base_path: BasePath,
+    entries: Vec<SitemapIndexEntry>,
+}
+
+impl SitemapIndex {
+    pub fn new(origin: &str) -> Result<Self, DiscoveryError> {
+        Ok(Self {
+            origin: normalize_origin(origin)?.to_owned(),
+            base_path: BasePath::default(),
+            entries: Vec::new(),
+        })
+    }
+
+    pub fn with_base_path(mut self, base_path: BasePath) -> Self {
+        self.base_path = base_path;
+        self
+    }
+
+    pub fn with_entry(mut self, entry: SitemapIndexEntry) -> Result<Self, DiscoveryError> {
+        if self.entries.len() >= MAX_SITEMAP_ENTRIES {
+            return Err(DiscoveryError::TooManySitemapEntries);
+        }
+        if is_absolute_http_url(&entry.path) && !has_origin(&entry.path, &self.origin) {
+            return Err(DiscoveryError::CrossOrigin);
+        }
+        self.entries.push(entry);
+        Ok(self)
+    }
+
+    /// Render and validate the index once, outside the HTML render hot path.
+    pub fn render_xml(&self) -> Result<String, DiscoveryError> {
+        if self.entries.is_empty() {
+            return Err(DiscoveryError::EmptySitemapIndex);
+        }
+        let mut cx = WebContext::new();
+        UnsafeRaw(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
+        ).render(&mut cx)?;
+        for entry in &self.entries {
+            let loc = absolute_http_url(&self.origin, &self.base_path, &entry.path)?;
+            let lastmod = entry.lastmod.as_deref().unwrap_or("");
+            xml_sync! {
+                <sitemap>
+                    <loc>{loc.as_str()}</loc>
+                    {if !lastmod.is_empty() {
+                        xml_sync! { <lastmod>{lastmod}</lastmod> }
+                    }}
+                </sitemap>
+            }
+            .render(&mut cx)?;
+        }
+        UnsafeRaw("</sitemapindex>\n").render(&mut cx)?;
+        checked_document(cx)
+    }
+}
+
+fn checked_document(cx: WebContext) -> Result<String, DiscoveryError> {
+    let xml = cx.into_output().into_string();
+    if xml.len() > MAX_SITEMAP_BYTES {
+        return Err(DiscoveryError::SitemapTooLarge);
+    }
+    Ok(xml)
 }
 
 /// One `User-agent` group in robots.txt.
@@ -639,6 +802,144 @@ fn checked_robots_path(value: &str) -> Result<String, DiscoveryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sitemap_index_resolves_document_urls_and_escapes_metadata() {
+        let xml = SitemapIndex::new("https://example.com")
+            .unwrap()
+            .with_base_path(BasePath::new("/app").unwrap())
+            .with_entry(
+                SitemapIndexEntry::new("/sitemap/products.xml?x=1&y=2")
+                    .unwrap()
+                    .lastmod("2024-02-29")
+                    .unwrap(),
+            )
+            .unwrap()
+            .with_entry(
+                SitemapIndexEntry::new("https://example.com:443/sitemap/pages.xml").unwrap(),
+            )
+            .unwrap()
+            .render_xml()
+            .unwrap();
+        assert_eq!(
+            xml,
+            concat!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
+                "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
+                "<sitemap><loc>https://example.com/app/sitemap/products.xml?x=1&amp;y=2</loc>",
+                "<lastmod>2024-02-29</lastmod></sitemap>",
+                "<sitemap><loc>https://example.com:443/sitemap/pages.xml</loc></sitemap>",
+                "</sitemapindex>\n"
+            )
+        );
+    }
+
+    #[test]
+    fn sitemap_index_validates_origin_dates_and_composed_locations() {
+        assert_eq!(
+            SitemapIndex::new("https://example.com")
+                .unwrap()
+                .render_xml()
+                .unwrap_err(),
+            DiscoveryError::EmptySitemapIndex
+        );
+        assert_eq!(
+            SitemapIndexEntry::new("/sitemap/0.xml")
+                .unwrap()
+                .lastmod("2026-02-29")
+                .unwrap_err(),
+            DiscoveryError::InvalidLastmod
+        );
+        assert_eq!(
+            SitemapIndexEntry::new("javascript:alert(1)").unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
+        assert_eq!(
+            SitemapIndex::new("https://example.com")
+                .unwrap()
+                .with_entry(SitemapIndexEntry::new("https://other.example/sitemap.xml").unwrap())
+                .unwrap_err(),
+            DiscoveryError::CrossOrigin
+        );
+        assert_eq!(
+            SitemapIndex::new("https://example.com")
+                .unwrap()
+                .with_base_path(BasePath::new(&format!("/{}", "x".repeat(2030))).unwrap())
+                .with_entry(SitemapIndexEntry::new("/sitemap/0.xml").unwrap())
+                .unwrap()
+                .render_xml()
+                .unwrap_err(),
+            DiscoveryError::LocTooLong
+        );
+    }
+
+    #[test]
+    fn sitemap_ids_cannot_inject_routes_or_url_components() {
+        for id in [
+            "", "../pages", "a/b", ":id", "{id}", "*rest", "a?x=1", "a#b", "a%2fb", "a b", "é",
+        ] {
+            assert_eq!(
+                SitemapFile::new(id, []).unwrap_err(),
+                DiscoveryError::InvalidSitemapId,
+                "{id}"
+            );
+        }
+        let file =
+            SitemapFile::new("products_0-ABC", [SitemapUrl::new("/products/1").unwrap()]).unwrap();
+        assert_eq!(file.id(), "products_0-ABC");
+        assert_eq!(file.urls()[0].path(), "/products/1");
+    }
+
+    #[test]
+    fn sitemap_and_index_enforce_entry_limits_at_the_boundary() {
+        let url = SitemapUrl::new("/page").unwrap();
+        let file =
+            SitemapFile::new("0", std::iter::repeat_n(url.clone(), MAX_SITEMAP_ENTRIES)).unwrap();
+        assert_eq!(file.urls().len(), MAX_SITEMAP_ENTRIES);
+        assert_eq!(
+            SitemapFile::new(
+                "0",
+                std::iter::repeat_n(url.clone(), MAX_SITEMAP_ENTRIES + 1)
+            )
+            .unwrap_err(),
+            DiscoveryError::TooManySitemapEntries
+        );
+        let mut sitemap = Sitemap::new("https://example.com").unwrap();
+        sitemap.urls = file.into_urls();
+        assert!(sitemap.render_xml().is_ok());
+        assert_eq!(
+            sitemap.with_entry(url).unwrap_err(),
+            DiscoveryError::TooManySitemapEntries
+        );
+
+        let entry = SitemapIndexEntry::new("/sitemap/0.xml").unwrap();
+        let mut index = SitemapIndex::new("https://example.com").unwrap();
+        index.entries = vec![entry.clone(); MAX_SITEMAP_ENTRIES];
+        assert!(index.render_xml().is_ok());
+        assert_eq!(
+            index.with_entry(entry).unwrap_err(),
+            DiscoveryError::TooManySitemapEntries
+        );
+    }
+
+    #[test]
+    fn sitemap_size_limit_counts_escaped_xml_bytes() {
+        // Each raw URL fits the loc limit, but XML escaping takes the document
+        // beyond 50 MiB even though its unescaped URL strings fit comfortably.
+        let path = format!("/search?q={}", "&".repeat(210));
+        let mut sitemap = Sitemap::new("https://example.com").unwrap();
+        sitemap.urls = vec![SitemapUrl::new(path.clone()).unwrap(); MAX_SITEMAP_ENTRIES];
+        assert_eq!(
+            sitemap.render_xml().unwrap_err(),
+            DiscoveryError::SitemapTooLarge
+        );
+        let mut index = SitemapIndex::new("https://example.com").unwrap();
+        index.entries = vec![SitemapIndexEntry::new(path).unwrap(); MAX_SITEMAP_ENTRIES];
+        assert_eq!(
+            index.render_xml().unwrap_err(),
+            DiscoveryError::SitemapTooLarge
+        );
+    }
 
     #[test]
     fn sitemap_joins_origin_base_path_and_local_routes() {

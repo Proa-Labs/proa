@@ -10,11 +10,19 @@ use axum::http::{
 use axum::response::{IntoResponse, Response};
 use axum::{body::Bytes, routing::get, Router};
 use proa_core::BasePath;
-use proa_framework_core::{absolute_http_url, DiscoveryError, RobotsTxt, Sitemap, SitemapUrl};
+use proa_framework_core::{
+    absolute_http_url, DiscoveryError, RobotsTxt, Sitemap, SitemapFile, SitemapIndex,
+    SitemapIndexEntry, SitemapUrl,
+};
 
 const XML_UTF_8: HeaderValue = HeaderValue::from_static("application/xml; charset=utf-8");
 const TEXT_PLAIN_UTF_8: HeaderValue = HeaderValue::from_static("text/plain; charset=utf-8");
 const NO_STORE: HeaderValue = HeaderValue::from_static("no-store");
+
+pub(crate) enum SitemapConfig {
+    Single(Vec<SitemapUrl>),
+    Multiple(Vec<SitemapFile>),
+}
 
 /// Render a sitemap as `application/xml`.
 ///
@@ -22,10 +30,20 @@ const NO_STORE: HeaderValue = HeaderValue::from_static("no-store");
 /// that pushes a loc past the length limit), so it returns a generic 500 and
 /// logs the cause instead of exposing it to the client.
 pub fn sitemap_xml(sitemap: &Sitemap) -> Response {
-    match sitemap.render_xml() {
+    sitemap_response(sitemap.render_xml())
+}
+
+/// Render a sitemap index as `application/xml` for a custom/dynamic handler.
+/// Render errors are logged and returned as a generic 500.
+pub fn sitemap_index_xml(index: &SitemapIndex) -> Response {
+    sitemap_response(index.render_xml())
+}
+
+fn sitemap_response(xml: Result<String, DiscoveryError>) -> Response {
+    match xml {
         Ok(body) => ([(CONTENT_TYPE, XML_UTF_8), (CACHE_CONTROL, NO_STORE)], body).into_response(),
         Err(error) => {
-            tracing::error!(%error, "failed to render sitemap.xml");
+            tracing::error!(%error, "failed to render sitemap XML");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 [(CONTENT_TYPE, TEXT_PLAIN_UTF_8), (CACHE_CONTROL, NO_STORE)],
@@ -49,24 +67,30 @@ pub fn robots_txt(robots: &RobotsTxt) -> Response {
 pub(crate) fn discovery_routes(
     origin: Option<&str>,
     base_path: &BasePath,
-    urls: Option<Vec<SitemapUrl>>,
+    sitemaps: Option<SitemapConfig>,
     robots: Option<RobotsTxt>,
 ) -> Result<Router, DiscoveryError> {
     let mut router = Router::new();
-    let sitemap_loc = if let Some(urls) = urls {
+    let sitemap_loc = if let Some(sitemaps) = sitemaps {
         let origin = origin.ok_or(DiscoveryError::MissingPublicOrigin)?;
-        let mut sitemap = Sitemap::new(origin)?.with_base_path(base_path.clone());
-        for url in urls {
-            sitemap = sitemap.with_entry(url)?;
-        }
-        let body = Bytes::from(sitemap.render_xml()?);
-        router = router.route(
-            "/sitemap.xml",
-            get(move || {
-                let body = body.clone();
-                async move { ([(CONTENT_TYPE, XML_UTF_8), (CACHE_CONTROL, NO_STORE)], body) }
-            }),
-        );
+        let xml = match sitemaps {
+            SitemapConfig::Single(urls) => render_sitemap(origin, base_path, urls)?,
+            SitemapConfig::Multiple(files) => {
+                let mut index = SitemapIndex::new(origin)?.with_base_path(base_path.clone());
+                let mut ids = std::collections::HashSet::new();
+                for file in files {
+                    if !ids.insert(file.id().to_owned()) {
+                        return Err(DiscoveryError::DuplicateSitemapId);
+                    }
+                    let path = format!("/sitemap/{}.xml", file.id());
+                    index = index.with_entry(SitemapIndexEntry::new(path.clone())?)?;
+                    let xml = render_sitemap(origin, base_path, file.into_urls())?;
+                    router = router.route(&path, xml_route(xml));
+                }
+                index.render_xml()?
+            }
+        };
+        router = router.route("/sitemap.xml", xml_route(xml));
         Some(absolute_http_url(origin, base_path, "/sitemap.xml")?)
     } else {
         None
@@ -96,6 +120,26 @@ pub(crate) fn discovery_routes(
     Ok(router)
 }
 
+fn render_sitemap(
+    origin: &str,
+    base_path: &BasePath,
+    urls: Vec<SitemapUrl>,
+) -> Result<String, DiscoveryError> {
+    let mut sitemap = Sitemap::new(origin)?.with_base_path(base_path.clone());
+    for url in urls {
+        sitemap = sitemap.with_entry(url)?;
+    }
+    sitemap.render_xml()
+}
+
+fn xml_route(xml: String) -> axum::routing::MethodRouter {
+    let body = Bytes::from(xml);
+    get(move || {
+        let body = body.clone();
+        async move { ([(CONTENT_TYPE, XML_UTF_8), (CACHE_CONTROL, NO_STORE)], body) }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use axum::{
@@ -105,10 +149,40 @@ mod tests {
         Router,
     };
     use proa_core::BasePath;
-    use proa_framework_core::{ChangeFreq, RobotsTxt, Sitemap, SitemapPriority, SitemapUrl};
+    use proa_framework_core::{
+        ChangeFreq, RobotsTxt, Sitemap, SitemapIndex, SitemapIndexEntry, SitemapPriority,
+        SitemapUrl,
+    };
     use tower::ServiceExt;
 
-    use super::{robots_txt, sitemap_xml};
+    use super::{robots_txt, sitemap_index_xml, sitemap_xml};
+
+    #[tokio::test]
+    async fn custom_index_response_uses_xml_and_maps_render_errors() {
+        let index = SitemapIndex::new("https://example.com")
+            .unwrap()
+            .with_entry(SitemapIndexEntry::new("/sitemap/0.xml").unwrap())
+            .unwrap();
+        let response = sitemap_index_xml(&index);
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[axum::http::header::CONTENT_TYPE],
+            "application/xml; charset=utf-8"
+        );
+        let xml = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(std::str::from_utf8(&xml)
+            .unwrap()
+            .contains("<loc>https://example.com/sitemap/0.xml</loc>"));
+        let response = sitemap_index_xml(&SitemapIndex::new("https://example.com").unwrap());
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .as_ref(),
+            b"Internal Server Error"
+        );
+    }
 
     #[tokio::test]
     async fn sitemap_route_uses_base_path_and_xml_content_type() {

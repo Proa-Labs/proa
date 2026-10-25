@@ -83,6 +83,84 @@ Query strings are XML-escaped. Paths and URLs reject ASCII controls and XML-forb
 
 `try_build()` validates and renders these static documents once, then serves their shared bytes on each request. It returns a `DiscoveryError` for a missing public origin, cross-origin entry or invalid composed URL. The existing `build()` API also works, but panics on invalid discovery configuration. Axum's duplicate-route restrictions apply to both.
 
+## Multiple sitemaps
+
+Use `with_sitemaps` when the site needs separate page, product, or blog documents. Each `SitemapFile` contains page entries; its ID determines the document's route.
+
+```rust
+use proa_framework_axum::{FrameworkBuilder, RobotsTxt, SitemapFile, SitemapUrl};
+
+let app = FrameworkBuilder::new(manifest)
+    .with_dynamic_routes_and_metadata(routes, metadata)
+    .with_public_origin("https://example.com")?
+    .with_sitemaps([
+        SitemapFile::new("pages", [
+            SitemapUrl::new("/")?,
+            SitemapUrl::new("/pricing")?,
+        ])?,
+        SitemapFile::new("products-0", [
+            SitemapUrl::new("/products/1")?.lastmod("2026-10-25")?,
+        ])?,
+    ])
+    .with_robots(RobotsTxt::new())
+    .try_build()?;
+```
+
+The builder installs:
+
+| Route | Contents |
+|---|---|
+| `/sitemap.xml` | A `<sitemapindex>` linking to both documents. |
+| `/sitemap/pages.xml` | A `<urlset>` containing `/` and `/pricing`. |
+| `/sitemap/products-0.xml` | A `<urlset>` containing `/products/1`. |
+| `/robots.txt` | Advertises `/sitemap.xml`, the index. |
+
+The final public origin and base path apply to index links and page URLs. With a mount of `/apps/demo`, the index links to `https://example.com/apps/demo/sitemap/pages.xml`; incoming handler paths remain unprefixed. Forward both the index and its child documents through the proxy.
+
+IDs must be nonempty and contain only ASCII letters, digits, `-`, or `_`. Duplicate IDs and an empty file list return startup errors. `with_sitemap` and `with_sitemaps` select alternative modes; the last call replaces the previous configuration. One file passed to `with_sitemaps` still produces an index and a child document.
+
+### Async generation from application data
+
+Await an application-owned `generate_sitemaps` function before building the router. It can query a database or CMS and return named documents. The example below assumes your application's `Database::published_products()` returns products with `path` and `last_modified` strings.
+
+```rust
+use proa_framework_axum::{
+    DiscoveryError, FrameworkBuilder, RobotsTxt, SitemapFile, SitemapUrl, MAX_SITEMAP_ENTRIES,
+};
+
+async fn generate_sitemaps(db: &Database) -> anyhow::Result<Vec<SitemapFile>> {
+    let products = db.published_products().await?;
+    let mut files = vec![SitemapFile::new("pages", [
+        SitemapUrl::new("/")?,
+        SitemapUrl::new("/pricing")?,
+    ])?];
+
+    for (id, products) in products.chunks(MAX_SITEMAP_ENTRIES).enumerate() {
+        let urls = products.iter().map(|product| {
+            SitemapUrl::new(product.path.as_str())?
+                .lastmod(product.last_modified.as_str())
+        }).collect::<Result<Vec<_>, DiscoveryError>>()?;
+        files.push(SitemapFile::new(format!("products-{id}"), urls)?);
+    }
+    Ok(files)
+}
+
+// Inside async main, before binding the listener:
+let app = FrameworkBuilder::new(manifest)
+    .with_dynamic_routes_and_metadata(routes, metadata)
+    .with_base_path(base_path)
+    .with_public_origin(&origin)?
+    .with_sitemaps(generate_sitemaps(&db).await?)
+    .with_robots(RobotsTxt::new())
+    .try_build()?;
+```
+
+This uses the same named-document idea as [Next.js generateSitemaps](https://nextjs.org/docs/app/api-reference/functions/generate-sitemaps). Proa's generator returns each document's entries together with its ID. It is ordinary application code, so it can borrow database handles and return application-specific errors without framework callback or lifetime constraints.
+
+Generation runs **once at application startup**, followed by validation and XML rendering. HTTP requests serve cached bytes and do not rerun the generator. New content requires regenerating/restarting the app; for request-time generation or application-managed refresh, use custom handlers with `sitemap_xml` and `sitemap_index_xml`.
+
+Both sitemaps and indexes enforce the [protocol limits](https://www.sitemaps.org/protocol.html#index): at most 50,000 entries and 50 MiB of uncompressed UTF-8 XML per document. The byte check includes XML escaping. Splitting by entry count alone may still exceed the byte limit for long URLs; use smaller batches in that case. An oversized document returns a `DiscoveryError` rather than silently serving invalid XML. Dates should reflect actual content changes, rather than the time the generator runs.
+
 ## Origin-root robots.txt
 
 Crawlers fetch `https://example.com/robots.txt`, even when the app lives at `/apps/demo/`. They do not discover robots rules from `/apps/demo/robots.txt`.
@@ -95,9 +173,9 @@ Whitespace, `#` and control characters are rejected in user-agent and rule field
 
 ## Custom and dynamic handlers
 
-The standalone `Sitemap`, `RobotsTxt`, `sitemap_xml` and `robots_txt` APIs remain available for applications that generate documents dynamically or use custom routing. In that mode, pass the application's configured origin and base path explicitly. Standalone robots rules are application paths too; call `RobotsTxt::with_base_path` to render them under the mount prefix. The response helpers use `application/xml` and `text/plain`, both with UTF-8.
+The standalone `Sitemap`, `SitemapIndex`, `RobotsTxt`, `sitemap_xml`, `sitemap_index_xml` and `robots_txt` APIs remain available for applications that generate documents dynamically or use custom routing. In that mode, pass the application's configured origin and base path explicitly. Standalone robots rules are application paths too; call `RobotsTxt::with_base_path` to render them under the mount prefix. The response helpers use `application/xml` and `text/plain`, both with UTF-8.
 
-If a dynamically generated sitemap fails to render, `sitemap_xml` logs the cause and returns a generic 500. Builder-managed documents are validated at startup instead.
+If a dynamically generated sitemap or index fails to render, its response helper logs the cause and returns a generic 500. Builder-managed documents are validated at startup instead.
 
 ## Next steps
 

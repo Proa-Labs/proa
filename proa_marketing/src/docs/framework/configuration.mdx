@@ -49,7 +49,8 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa_f
 | `.with_config(config)` | Override project paths, codegen flags, and server defaults. |
 | [`.with_base_path(base_path)`](#frameworkbuilder-base-paths-and-rsjs-assets) | Set the public URL prefix for a mounted application. |
 | [`.with_public_origin(origin)?`](/docs/framework/sitemaps) | Set the public HTTP(S) origin used by discovery endpoints. |
-| [`.with_sitemap(entries)`](/docs/framework/sitemaps) | Serve sitemap.xml using the final public origin and base path. |
+| [`.with_sitemap(entries)`](/docs/framework/sitemaps) | Serve one sitemap using the final public origin and base path. |
+| [`.with_sitemaps(files)`](/docs/framework/sitemaps#multiple-sitemaps) | Serve named sitemap documents plus a sitemap index; accepts results from an awaited async generator. |
 | [`.with_robots(robots)`](/docs/framework/sitemaps) | Serve origin-root robots.txt with prefixed app rules and the sitemap link. |
 | [`.with_rsjs_assets()`](#frameworkbuilder-base-paths-and-rsjs-assets) | Serve the linked RSJS runtimes and generated modules. |
 | `.with_static_service(router)` | Mount a router under `/static`. |

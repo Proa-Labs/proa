@@ -10,8 +10,12 @@ All notable public changes are tracked here.
   `FrameworkBuilder::with_public_origin`, `with_sitemap`, and `with_robots`
   configure both endpoints with the builder's final base path. Static documents
   are validated and rendered at startup; `try_build` reports invalid discovery
-  configuration. Robots rules use application paths, and the generated sitemap
-  link is advertised automatically when both endpoints are enabled.
+  configuration. `with_sitemaps` accepts named `SitemapFile` documents, including
+  results from an awaited async generator, and serves `/sitemap/{id}.xml` plus
+  an automatic index at `/sitemap.xml`. `SitemapIndex` and `sitemap_index_xml`
+  support custom handlers. Sitemaps and indexes enforce the 50,000-entry and
+  50 MiB uncompressed XML limits. Robots rules use application paths, and the
+  generated sitemap link is advertised automatically when both endpoints are enabled.
   Query strings are XML-escaped, `lastmod` must be a real calendar date, and
   sitemap paths, absolute URLs, and origins reject XML-forbidden control
   characters. Absolute sitemap entries must use the sitemap origin, and

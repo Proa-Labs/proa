@@ -30,7 +30,7 @@ pub use config::{CodegenConfig, PathsConfig, ProaConfig, ServerConfig};
 pub use csp::{CspNonceLayer, CspPolicy};
 pub use csrf::CrossOriginProtectionLayer;
 pub use dev_reload::{DevReloadLayer, RELOAD_PORT_ENV, RELOAD_TOKEN_ENV};
-pub use discovery::{robots_txt, sitemap_xml};
+pub use discovery::{robots_txt, sitemap_index_xml, sitemap_xml};
 pub use external::{ExternalApp, ExternalAppStrategy};
 pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
@@ -38,7 +38,8 @@ pub use manifest::{
 pub use proa_core::{AppUrl, BasePath, CspNonce, InvalidBasePath};
 pub use proa_framework_core::{
     absolute_http_url, ChangeFreq, DiscoveryError, RobotsGroup, RobotsRule, RobotsTxt, Sitemap,
-    SitemapPriority, SitemapUrl,
+    SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_SITEMAP_BYTES,
+    MAX_SITEMAP_ENTRIES,
 };
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
@@ -115,7 +116,7 @@ pub struct FrameworkBuilder {
     manifest: Arc<IslandManifest>,
     base_path: BasePath,
     public_origin: Option<String>,
-    sitemap_urls: Option<Vec<SitemapUrl>>,
+    sitemaps: Option<discovery::SitemapConfig>,
     robots: Option<RobotsTxt>,
     rsjs_assets: bool,
     config: ProaConfig,
@@ -156,7 +157,7 @@ impl FrameworkBuilder {
             manifest: Arc::new(manifest),
             base_path: BasePath::default(),
             public_origin: None,
-            sitemap_urls: None,
+            sitemaps: None,
             robots: None,
             rsjs_assets: false,
             config: ProaConfig::default(),
@@ -204,6 +205,7 @@ impl FrameworkBuilder {
     /// Entries are application-local paths or same-origin absolute URLs. The
     /// document is validated and rendered once at startup. Do not also register
     /// a custom `/sitemap.xml` handler. Requires `with_public_origin`.
+    /// Replaces any previous `with_sitemap` or `with_sitemaps` configuration.
     ///
     /// ```
     /// use proa_framework_axum::{
@@ -223,7 +225,50 @@ impl FrameworkBuilder {
     /// # Ok::<(), DiscoveryError>(())
     /// ```
     pub fn with_sitemap(mut self, urls: impl IntoIterator<Item = SitemapUrl>) -> Self {
-        self.sitemap_urls = Some(urls.into_iter().collect());
+        self.sitemaps = Some(discovery::SitemapConfig::Single(urls.into_iter().collect()));
+        self
+    }
+
+    /// Serve multiple named sitemaps at `/sitemap/{id}.xml`, with a sitemap
+    /// index at `/sitemap.xml`. Robots advertises the index when enabled.
+    ///
+    /// Await an application-owned async generator before calling this method:
+    /// `.with_sitemaps(generate_sitemaps(&db).await?)`. All documents are
+    /// validated and rendered at startup using the final origin and base path.
+    /// New database content requires regeneration/restart, or custom handlers.
+    /// Requires `with_public_origin`. IDs must be unique; an empty set is an error.
+    /// This replaces a previous `with_sitemap` or `with_sitemaps` configuration.
+    ///
+    /// ```
+    /// use proa_framework_axum::{
+    ///     DiscoveryError, FrameworkBuilder, IslandManifest, ManifestAssets,
+    ///     RobotsTxt, SitemapFile, SitemapUrl,
+    /// };
+    /// # let manifest = IslandManifest {
+    /// #     islands: Default::default(), assets: ManifestAssets::default(),
+    /// #     import_map: Default::default(), ssr_bundle: None,
+    /// # };
+    /// async fn generate_sitemaps() -> Result<Vec<SitemapFile>, DiscoveryError> {
+    ///     // Application code can await database or CMS queries here.
+    ///     Ok(vec![
+    ///         SitemapFile::new("pages", [SitemapUrl::new("/")?])?,
+    ///         SitemapFile::new("products-0", [SitemapUrl::new("/products/1")?])?,
+    ///     ])
+    /// }
+    /// # let run = async move {
+    /// let app = FrameworkBuilder::new(manifest)
+    ///     .with_public_origin("https://example.com")?
+    ///     .with_sitemaps(generate_sitemaps().await?)
+    ///     .with_robots(RobotsTxt::new())
+    ///     .try_build()?;
+    /// # Ok::<(), DiscoveryError>(())
+    /// # };
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(run).unwrap();
+    /// ```
+    pub fn with_sitemaps(mut self, files: impl IntoIterator<Item = SitemapFile>) -> Self {
+        self.sitemaps = Some(discovery::SitemapConfig::Multiple(
+            files.into_iter().collect(),
+        ));
         self
     }
 
@@ -464,7 +509,7 @@ impl FrameworkBuilder {
             manifest,
             base_path,
             public_origin,
-            sitemap_urls,
+            sitemaps,
             robots,
             rsjs_assets,
             config,
@@ -486,12 +531,8 @@ impl FrameworkBuilder {
 
         let body_limit_bytes = body_limit.unwrap_or(DEFAULT_BODY_LIMIT_BYTES);
 
-        let mut app = discovery::discovery_routes(
-            public_origin.as_deref(),
-            &base_path,
-            sitemap_urls,
-            robots,
-        )?;
+        let mut app =
+            discovery::discovery_routes(public_origin.as_deref(), &base_path, sitemaps, robots)?;
         if rsjs_assets {
             app = app.merge(rsjs_assets_router(&base_path));
         }
