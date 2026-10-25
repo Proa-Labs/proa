@@ -18,9 +18,10 @@ All notable public changes are tracked here.
   `sitemap_xml` answers render failures with a logged, generic 500. Robots
   fields reject whitespace, `#`, and control characters, rule paths must be
   empty or start with `/` or `*`, and rule-less groups render an empty
-  `Disallow:` instead of merging into the next group. `allow_path` and
-  `disallow_path` join Allow/Disallow rules with the public mount prefix;
-  crawlers still fetch `/robots.txt` at the origin root.
+  `Disallow:` instead of merging into the next group. `RobotsTxt::with_base_path`
+  renders root-relative rules under the public mount prefix exactly once, and
+  a root rule also matches the bare mount URL (`/apps/demo$`); crawlers still
+  fetch `/robots.txt` at the origin root.
 
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.

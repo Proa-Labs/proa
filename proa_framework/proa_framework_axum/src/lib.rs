@@ -228,8 +228,10 @@ impl FrameworkBuilder {
     }
 
     /// Serve `/robots.txt`, prefixing root-relative application rules using the
-    /// final `with_base_path`. Empty and wildcard-leading rules remain unchanged.
-    /// If a sitemap is enabled, advertise its public URL automatically.
+    /// final `with_base_path` (it replaces any base path already set on
+    /// `robots`). Empty and wildcard-leading rules remain unchanged; a root rule
+    /// also matches the bare mount URL. If a sitemap is enabled, advertise its
+    /// public URL automatically.
     ///
     /// Crawlers still need this handler exposed at the origin root: a
     /// prefix-stripping proxy must explicitly forward origin-root `/robots.txt`.

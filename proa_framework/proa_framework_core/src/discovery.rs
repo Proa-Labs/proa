@@ -247,11 +247,12 @@ pub enum RobotsRule {
 ///
 /// Crawlers fetch `/robots.txt` at the origin root. Incoming Proa routes stay
 /// unprefixed, so the handler path is still `/robots.txt`; a prefix-stripping
-/// proxy must forward that origin-root URL to the handler. Use `allow_path`,
-/// `disallow_path`, and `sitemap_path` so rules and sitemap locs use the
-/// public mount prefix (`Disallow: /admin` does not block `/apps/demo/admin`).
+/// proxy must forward that origin-root URL to the handler. Root-relative rules
+/// are application paths that render under `with_base_path`, and
+/// `sitemap_path` joins sitemap locs with the public mount prefix.
 #[derive(Debug, Clone, Default)]
 pub struct RobotsTxt {
+    base_path: BasePath,
     groups: Vec<RobotsGroup>,
     sitemaps: Vec<String>,
 }
@@ -259,6 +260,23 @@ pub struct RobotsTxt {
 impl RobotsTxt {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Render root-relative rules under this mount prefix.
+    ///
+    /// With `/apps/demo`, `disallow("/admin")` renders
+    /// `Disallow: /apps/demo/admin`. A root rule (`/` or `/$`) also matches the
+    /// bare mount URL with an end anchor (`/apps/demo$`), because rules match by
+    /// prefix and `/apps/demo/` alone leaves `/apps/demo` crawlable. Empty and
+    /// `*`-leading rules render unchanged. The prefix replaces any earlier one;
+    /// it is never applied twice.
+    pub fn with_base_path(mut self, base_path: BasePath) -> Self {
+        self.base_path = base_path;
+        self
+    }
+
+    pub fn base_path(&self) -> &BasePath {
+        &self.base_path
     }
 
     pub fn group(mut self, user_agent: &str) -> Result<Self, DiscoveryError> {
@@ -270,28 +288,16 @@ impl RobotsTxt {
         Ok(self)
     }
 
-    /// Add an `Allow` rule. The path must be empty or start with `/` or `*`.
+    /// Add an `Allow` rule. The path must be empty, start with `*`, or be a
+    /// root-relative application path (not protocol-relative `//...`).
     pub fn allow(self, path: &str) -> Result<Self, DiscoveryError> {
         self.push_rule(RobotsRule::Allow(checked_robots_path(path)?))
     }
 
-    /// Add a `Disallow` rule. The path must be empty or start with `/` or `*`.
+    /// Add a `Disallow` rule. The path must be empty, start with `*`, or be a
+    /// root-relative application path (not protocol-relative `//...`).
     pub fn disallow(self, path: &str) -> Result<Self, DiscoveryError> {
         self.push_rule(RobotsRule::Disallow(checked_robots_path(path)?))
-    }
-
-    /// Allow a public path, joining `base_path` the same way sitemap locs are.
-    pub fn allow_path(self, base_path: &BasePath, path: &str) -> Result<Self, DiscoveryError> {
-        validate_local_path(path)?;
-        // proa-perf-ok: robots.txt is built once per request outside Proa HTML rendering
-        self.allow(&base_path.url(path).to_string())
-    }
-
-    /// Disallow a public path, joining `base_path` the same way sitemap locs are.
-    pub fn disallow_path(self, base_path: &BasePath, path: &str) -> Result<Self, DiscoveryError> {
-        validate_local_path(path)?;
-        // proa-perf-ok: robots.txt is built once per request outside Proa HTML rendering
-        self.disallow(&base_path.url(path).to_string())
     }
 
     pub fn sitemap(mut self, loc: &str) -> Result<Self, DiscoveryError> {
@@ -317,6 +323,7 @@ impl RobotsTxt {
         Ok(self)
     }
 
+    /// Groups with rules as supplied, before the base path is applied.
     pub fn groups(&self) -> &[RobotsGroup] {
         &self.groups
     }
@@ -342,18 +349,19 @@ impl RobotsTxt {
                 out.push_str("Disallow:\n");
             }
             for rule in &group.rules {
-                match rule {
-                    RobotsRule::Allow(path) => {
-                        out.push_str("Allow: ");
-                        out.push_str(path);
-                        out.push('\n');
-                    }
-                    RobotsRule::Disallow(path) => {
-                        out.push_str("Disallow: ");
-                        out.push_str(path);
-                        out.push('\n');
-                    }
+                let (field, path) = match rule {
+                    RobotsRule::Allow(path) => ("Allow: ", path.as_str()),
+                    RobotsRule::Disallow(path) => ("Disallow: ", path.as_str()),
+                };
+                let base = if path.starts_with('/') {
+                    self.base_path.as_str()
+                } else {
+                    ""
+                };
+                if !base.is_empty() && (path == "/" || path == "/$") {
+                    push_robots_line(&mut out, field, base, "$");
                 }
+                push_robots_line(&mut out, field, base, path);
             }
         }
         if !self.sitemaps.is_empty() && !out.is_empty() {
@@ -381,6 +389,13 @@ impl RobotsTxt {
             .push(rule);
         Ok(self)
     }
+}
+
+fn push_robots_line(out: &mut String, field: &str, base: &str, path: &str) {
+    out.push_str(field);
+    out.push_str(base);
+    out.push_str(path);
+    out.push('\n');
 }
 
 /// Join a public origin, runtime base path, and application path into an
@@ -607,12 +622,16 @@ fn validate_robots_field(value: &str) -> Result<(), DiscoveryError> {
 
 /// Crawlers ignore rules whose path does not start with `/` or `*`, so such a
 /// rule would leave the intended path crawlable. Empty means "match nothing".
+/// A protocol-relative `//...` rule is not an application path.
 fn checked_robots_path(value: &str) -> Result<String, DiscoveryError> {
     if has_invalid_robots_byte(value) {
         return Err(DiscoveryError::InvalidRobotsField);
     }
     if !value.is_empty() && !value.starts_with(['/', '*']) {
         return Err(DiscoveryError::InvalidRobotsPath);
+    }
+    if value.starts_with("//") {
+        return Err(DiscoveryError::InvalidPath);
     }
     Ok(value.to_string())
 }
@@ -906,23 +925,60 @@ mod tests {
     }
 
     #[test]
-    fn robots_txt_prefixes_public_rule_paths() {
+    fn robots_txt_prefixes_application_rule_paths() {
         let base = BasePath::new("/apps/demo").unwrap();
         let body = RobotsTxt::new()
             .group("*")
             .unwrap()
-            .allow_path(&base, "/")
+            .allow("/")
             .unwrap()
-            .disallow_path(&base, "/admin")
+            .disallow("/admin")
+            .unwrap()
+            .disallow("*.pdf$")
+            .unwrap()
+            .disallow("")
             .unwrap()
             .sitemap_path("https://example.com", &base, "/sitemap.xml")
             .unwrap()
+            .with_base_path(base)
             .render_txt();
 
         assert_eq!(
             body,
-            "User-agent: *\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
+            "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\nDisallow: *.pdf$\nDisallow: \n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
         );
+    }
+
+    #[test]
+    fn robots_txt_root_rules_cover_the_bare_mount_url() {
+        let body = RobotsTxt::new()
+            .group("PrivateBot")
+            .unwrap()
+            .disallow("/")
+            .unwrap()
+            .group("HomeBot")
+            .unwrap()
+            .allow("/$")
+            .unwrap()
+            .with_base_path(BasePath::new("/apps/demo").unwrap())
+            .render_txt();
+        assert_eq!(
+            body,
+            "User-agent: PrivateBot\nDisallow: /apps/demo$\nDisallow: /apps/demo/\n\nUser-agent: HomeBot\nAllow: /apps/demo$\nAllow: /apps/demo/$\n"
+        );
+    }
+
+    #[test]
+    fn robots_txt_base_path_replaces_instead_of_stacking() {
+        let base = BasePath::new("/apps/demo").unwrap();
+        let body = RobotsTxt::new()
+            .disallow("/admin")
+            .unwrap()
+            .with_base_path(BasePath::new("/old").unwrap())
+            .with_base_path(base.clone())
+            .with_base_path(base)
+            .render_txt();
+        assert_eq!(body, "User-agent: *\nDisallow: /apps/demo/admin\n");
     }
 
     #[test]
@@ -943,7 +999,6 @@ mod tests {
 
     #[test]
     fn robots_txt_rejects_paths_crawlers_ignore() {
-        let base = BasePath::new("/apps/demo").unwrap();
         assert_eq!(
             RobotsTxt::new().disallow("admin").unwrap_err(),
             DiscoveryError::InvalidRobotsPath
@@ -954,14 +1009,20 @@ mod tests {
         );
         assert!(RobotsTxt::new().disallow("").is_ok());
         assert!(RobotsTxt::new().disallow("*.pdf$").is_ok());
-        for path in ["https://x.test/admin", "//x.test/admin", "admin"] {
+        assert_eq!(
+            RobotsTxt::new()
+                .disallow("https://x.test/admin")
+                .unwrap_err(),
+            DiscoveryError::InvalidRobotsPath
+        );
+        for path in ["//x.test/admin", "//admin"] {
             assert_eq!(
-                RobotsTxt::new().disallow_path(&base, path).unwrap_err(),
+                RobotsTxt::new().disallow(path).unwrap_err(),
                 DiscoveryError::InvalidPath,
                 "{path}"
             );
             assert_eq!(
-                RobotsTxt::new().allow_path(&base, path).unwrap_err(),
+                RobotsTxt::new().allow(path).unwrap_err(),
                 DiscoveryError::InvalidPath,
                 "{path}"
             );

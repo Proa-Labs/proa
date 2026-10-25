@@ -99,7 +99,7 @@ async fn builder_uses_one_origin_and_mount_for_both_documents() {
     assert_eq!(headers[header::CONTENT_TYPE], "text/plain; charset=utf-8");
     assert_eq!(
         text,
-        "User-agent: *\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
+        "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
     );
     assert_eq!(fetch(&app, "/pricing").await.0, StatusCode::OK);
     // Incoming routes stay unprefixed behind a prefix-stripping proxy.
@@ -200,9 +200,23 @@ async fn builder_preserves_special_rules_groups_and_additional_sitemaps() {
         1
     );
     assert!(body.contains("Disallow: \nDisallow: *.pdf$\n"));
-    assert!(body.contains("User-agent: PrivateBot\nDisallow: /mount/\n"));
+    assert!(body.contains("User-agent: PrivateBot\nDisallow: /mount$\nDisallow: /mount/\n"));
     assert!(body.contains("User-agent: PublicBot\nDisallow:\n"));
     assert!(body.contains("Sitemap: https://cdn.example/news.xml\n"));
+}
+
+#[tokio::test]
+async fn builder_does_not_prefix_rules_twice() {
+    let base = BasePath::new("/apps/demo").unwrap();
+    let app = builder()
+        .with_base_path(base.clone())
+        .with_robots(robots().with_base_path(base))
+        .try_build()
+        .unwrap();
+    assert_eq!(
+        fetch(&app, "/robots.txt").await.2,
+        "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\n"
+    );
 }
 
 #[tokio::test]
@@ -272,11 +286,5 @@ fn builder_validates_composed_urls_before_serving() {
             .with_base_path(BasePath::new(&format!("/{}", "p".repeat(100))).unwrap())
             .try_build(),
         Err(DiscoveryError::LocTooLong)
-    ));
-    assert!(matches!(
-        builder()
-            .with_robots(RobotsTxt::new().disallow("//admin").unwrap())
-            .try_build(),
-        Err(DiscoveryError::InvalidPath)
     ));
 }

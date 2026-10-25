@@ -10,9 +10,7 @@ use axum::http::{
 use axum::response::{IntoResponse, Response};
 use axum::{body::Bytes, routing::get, Router};
 use proa_core::BasePath;
-use proa_framework_core::{
-    absolute_http_url, DiscoveryError, RobotsRule, RobotsTxt, Sitemap, SitemapUrl,
-};
+use proa_framework_core::{absolute_http_url, DiscoveryError, RobotsTxt, Sitemap, SitemapUrl};
 
 const XML_UTF_8: HeaderValue = HeaderValue::from_static("application/xml; charset=utf-8");
 const TEXT_PLAIN_UTF_8: HeaderValue = HeaderValue::from_static("text/plain; charset=utf-8");
@@ -74,7 +72,8 @@ pub(crate) fn discovery_routes(
         None
     };
     if let Some(robots) = robots {
-        let mut robots = prefix_robots_rules(&robots, base_path)?;
+        // Rules stay application paths; the final mount applies once at render.
+        let mut robots = robots.with_base_path(base_path.clone());
         if let Some(loc) = sitemap_loc {
             if !robots.sitemaps().contains(&loc) {
                 robots = robots.sitemap(&loc)?;
@@ -95,32 +94,6 @@ pub(crate) fn discovery_routes(
         );
     }
     Ok(router)
-}
-
-fn prefix_robots_rules(
-    robots: &RobotsTxt,
-    base_path: &BasePath,
-) -> Result<RobotsTxt, DiscoveryError> {
-    let mut prefixed = RobotsTxt::new();
-    for group in robots.groups() {
-        prefixed = prefixed.group(group.user_agent())?;
-        for rule in group.rules() {
-            prefixed = match rule {
-                RobotsRule::Allow(path) if path.starts_with('/') => {
-                    prefixed.allow_path(base_path, path)?
-                }
-                RobotsRule::Disallow(path) if path.starts_with('/') => {
-                    prefixed.disallow_path(base_path, path)?
-                }
-                RobotsRule::Allow(path) => prefixed.allow(path)?,
-                RobotsRule::Disallow(path) => prefixed.disallow(path)?,
-            };
-        }
-    }
-    for loc in robots.sitemaps() {
-        prefixed = prefixed.sitemap(loc)?;
-    }
-    Ok(prefixed)
 }
 
 #[cfg(test)]
@@ -213,10 +186,11 @@ mod tests {
                     &RobotsTxt::new()
                         .group("*")
                         .unwrap()
-                        .allow_path(&base_path, "/")
+                        .allow("/")
                         .unwrap()
                         .sitemap_path("https://example.com", &base_path, "/sitemap.xml")
-                        .unwrap(),
+                        .unwrap()
+                        .with_base_path(base_path),
                 )
             }),
         );
@@ -244,7 +218,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             body,
-            "User-agent: *\nAllow: /apps/demo/\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
+            "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo/\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
         );
     }
 }

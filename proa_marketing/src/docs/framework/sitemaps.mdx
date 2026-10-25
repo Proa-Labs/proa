@@ -89,13 +89,13 @@ Crawlers fetch `https://example.com/robots.txt`, even when the app lives at `/ap
 
 Incoming Proa routes stay unprefixed. For a [prefix-stripping proxy](/docs/framework/deployment#serving-behind-a-url-path-prefix), forward origin-root `/robots.txt` to the builder's `/robots.txt` handler in addition to stripping `/apps/demo` for the app's other routes. Builder configuration cannot change the proxy's public routing.
 
-Root-relative robots rules supplied to `with_robots` are application-local paths: pass `/admin`, not `/apps/demo/admin`. Empty rules and wildcard-leading patterns such as `*.pdf$` remain unchanged; those patterns match public paths directly. To scope a wildcard to the mount, use a root-relative rule such as `/*.pdf$`.
+Root-relative robots rules supplied to `with_robots` are application-local paths: pass `/admin`, not `/apps/demo/admin`. The builder's base path replaces any base path already set on the document, so rules are never prefixed twice. A root rule (`/` or `/$`) also renders an end-anchored rule for the bare mount URL, so `disallow("/")` blocks both `/apps/demo` and everything under `/apps/demo/`. Empty rules and wildcard-leading patterns such as `*.pdf$` remain unchanged; those patterns match public paths directly. To scope a wildcard to the mount, use a root-relative rule such as `/*.pdf$`.
 
 Whitespace, `#` and control characters are rejected in user-agent and rule fields. A group with no rules renders an empty `Disallow:` so it does not merge into the next group.
 
 ## Custom and dynamic handlers
 
-The standalone `Sitemap`, `RobotsTxt`, `sitemap_xml` and `robots_txt` APIs remain available for applications that generate documents dynamically or use custom routing. In that mode, pass the application's configured origin and base path explicitly. Standalone robots `allow`/`disallow` rules are public patterns; use `allow_path`/`disallow_path` to prefix application-local paths. The response helpers use `application/xml` and `text/plain`, both with UTF-8.
+The standalone `Sitemap`, `RobotsTxt`, `sitemap_xml` and `robots_txt` APIs remain available for applications that generate documents dynamically or use custom routing. In that mode, pass the application's configured origin and base path explicitly. Standalone robots rules are application paths too; call `RobotsTxt::with_base_path` to render them under the mount prefix. The response helpers use `application/xml` and `text/plain`, both with UTF-8.
 
 If a dynamically generated sitemap fails to render, `sitemap_xml` logs the cause and returns a generic 500. Builder-managed documents are validated at startup instead.
 
