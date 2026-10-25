@@ -7,7 +7,7 @@
 use std::{fmt::Write as _, time::Duration};
 
 use proa_core::text::UnsafeRaw;
-use proa_core::{BasePath, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_core::{BasePath, DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::xml_sync;
 use thiserror::Error;
 
@@ -37,6 +37,8 @@ pub enum DiscoveryError {
     DuplicateSitemapId,
     #[error("a sitemap index must contain at least one sitemap")]
     EmptySitemapIndex,
+    #[error("a sitemap must contain at least one page URL")]
+    EmptySitemap,
     #[error("a sitemap or index cannot contain more than 50,000 entries")]
     TooManySitemapEntries,
     #[error("a sitemap or index cannot exceed 50 MiB of uncompressed XML")]
@@ -203,7 +205,8 @@ impl Sitemap {
 
     /// Render the sitemap protocol XML.
     ///
-    /// Allocates the response body once per request, outside HTML page rendering.
+    /// Allocates an owned XML body outside HTML page rendering. The framework
+    /// builder calls this once at startup; custom handlers control their own refresh.
     // proa-perf-ok: sitemap XML is emitted once per request outside Proa HTML rendering
     pub fn render_xml(&self) -> Result<String, DiscoveryError> {
         let mut cx = WebContext::new();
@@ -212,6 +215,9 @@ impl Sitemap {
     }
 
     fn write_xml<L: DataLoader>(&self, cx: &mut WebContext<L>) -> Result<(), DiscoveryError> {
+        if self.urls.is_empty() {
+            return Err(DiscoveryError::EmptySitemap);
+        }
         WebRenderSync::render(
             UnsafeRaw(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
@@ -238,6 +244,7 @@ impl Sitemap {
                 </url>
             }
             .render(cx)?;
+            check_document_size(cx.output().len())?;
         }
         WebRenderSync::render(UnsafeRaw("</urlset>\n"), cx)?;
         Ok(())
@@ -273,6 +280,9 @@ impl SitemapFile {
                 return Err(DiscoveryError::TooManySitemapEntries);
             }
             entries.push(url);
+        }
+        if entries.is_empty() {
+            return Err(DiscoveryError::EmptySitemap);
         }
         Ok(Self { id, urls: entries })
     }
@@ -374,6 +384,7 @@ impl SitemapIndex {
                 </sitemap>
             }
             .render(&mut cx)?;
+            check_document_size(cx.output().len())?;
         }
         UnsafeRaw("</sitemapindex>\n").render(&mut cx)?;
         checked_document(cx)
@@ -381,11 +392,16 @@ impl SitemapIndex {
 }
 
 fn checked_document(cx: WebContext) -> Result<String, DiscoveryError> {
-    let xml = cx.into_output().into_string();
-    if xml.len() > MAX_SITEMAP_BYTES {
+    let output = cx.into_output();
+    check_document_size(output.len())?;
+    Ok(output.into_string())
+}
+
+fn check_document_size(bytes: usize) -> Result<(), DiscoveryError> {
+    if bytes > MAX_SITEMAP_BYTES {
         return Err(DiscoveryError::SitemapTooLarge);
     }
-    Ok(xml)
+    Ok(())
 }
 
 /// One `User-agent` group in robots.txt.
@@ -451,11 +467,12 @@ impl RobotsTxt {
     /// Render root-relative rules under this mount prefix.
     ///
     /// With `/apps/demo`, `disallow("/admin")` renders
-    /// `Disallow: /apps/demo/admin`. A root rule (`/` or `/$`) also matches the
-    /// bare mount URL with an end anchor (`/apps/demo$`), because rules match by
-    /// prefix and `/apps/demo/` alone leaves `/apps/demo` crawlable. Empty and
-    /// `*`-leading rules render unchanged. The prefix replaces any earlier one;
-    /// it is never applied twice.
+    /// `Disallow: /apps/demo/admin`. Application-wide rules (`/`, `/*`, etc.)
+    /// also cover the bare mount and its query variants. The exact-root `/$`
+    /// covers the bare and slash root without queries. Literal `*` and `$` in
+    /// the mount prefix are escaped, while rule operators remain unchanged.
+    /// Empty and `*`-leading rules render unchanged. The prefix replaces any
+    /// earlier one; it is never applied twice.
     pub fn with_base_path(mut self, base_path: BasePath) -> Self {
         self.base_path = base_path;
         self
@@ -606,8 +623,13 @@ impl RobotsTxt {
                 } else {
                     ""
                 };
-                if !base.is_empty() && (path == "/" || path == "/$") {
+                let app_wide = is_application_wide_rule(path);
+                if !base.is_empty() && (app_wide || path == "/$") {
                     push_robots_line(&mut out, field, base, "$");
+                    if app_wide {
+                        // The bare mount can also be requested with a query.
+                        push_robots_line(&mut out, field, base, "?");
+                    }
                 }
                 push_robots_line(&mut out, field, base, path);
             }
@@ -668,9 +690,26 @@ impl RobotsTxt {
 
 fn push_robots_line(out: &mut String, field: &str, base: &str, path: &str) {
     out.push_str(field);
-    out.push_str(base);
+    for ch in base.chars() {
+        match ch {
+            '*' => out.push_str("%2A"),
+            '$' => out.push_str("%24"),
+            _ => out.push(ch),
+        }
+    }
     out.push_str(path);
     out.push('\n');
+}
+
+fn is_application_wide_rule(path: &str) -> bool {
+    let Some(tail) = path.strip_prefix('/') else {
+        return false;
+    };
+    if tail.is_empty() {
+        return true;
+    }
+    let stars = tail.strip_suffix('$').unwrap_or(tail);
+    !stars.is_empty() && stars.bytes().all(|byte| byte == b'*')
 }
 
 /// Join a public origin, runtime base path, and application path into an
@@ -701,7 +740,7 @@ fn normalize_origin(origin: &str) -> Result<&str, DiscoveryError> {
     let origin = origin.trim();
     let origin = origin.strip_suffix('/').unwrap_or(origin);
     let authority = strip_http_scheme(origin).ok_or(DiscoveryError::InvalidOrigin)?;
-    if contains_invalid_url_char(authority) || !is_valid_authority(authority) {
+    if authority.contains(['/', '?', '#']) || parse_http_url(origin).is_none() {
         return Err(DiscoveryError::InvalidOrigin);
     }
     Ok(origin)
@@ -721,94 +760,58 @@ fn is_absolute_http_url(path: &str) -> bool {
     strip_http_scheme(path).is_some()
 }
 
-/// `host[:port]` with no userinfo, path, query, or fragment. Bracketed hosts
-/// must be non-empty IPv6 literals; ports must be 1 to 5 digits up to 65535.
 fn is_valid_authority(authority: &str) -> bool {
-    parse_authority(authority).is_some()
+    !authority.contains(['/', '?', '#'])
+        && parse_http_url(&format!("https://{authority}")).is_some()
 }
 
-enum OriginHost<'a> {
-    Name(&'a str),
-    Ipv6(std::net::Ipv6Addr),
-}
-
-fn parse_authority(authority: &str) -> Option<(OriginHost<'_>, Option<u16>)> {
-    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
-        let (literal, after) = rest.split_once(']')?;
-        let host = OriginHost::Ipv6(literal.parse().ok()?);
-        let port = match after {
-            "" => None,
-            _ => Some(after.strip_prefix(':')?),
-        };
-        (host, port)
-    } else {
-        let (host, port) = match authority.split_once(':') {
-            Some((host, port)) => (host, Some(port)),
-            None => (authority, None),
-        };
-        if host.is_empty() || host.contains(['@', '[', ']', '/', '?', '#']) {
-            return None;
-        }
-        (OriginHost::Name(host), port)
-    };
-    let port = match port {
-        None => None,
-        Some(port)
-            if !port.is_empty()
-                && port.len() <= 5
-                && port.bytes().all(|byte| byte.is_ascii_digit()) =>
-        {
-            Some(port.parse().ok()?)
-        }
-        Some(_) => return None,
-    };
-    Some((host, port))
-}
-
-/// RFC 6454 origin components. An omitted port uses the scheme's default;
-/// parsing IPv6 literals also makes expanded and compressed spellings equivalent.
-fn parse_http_origin(url: &str) -> Option<(&str, OriginHost<'_>, u16)> {
-    let (scheme, rest) = split_http_scheme(url)?;
-    let authority = rest.split(['/', '?', '#']).next()?;
-    let (host, port) = parse_authority(authority)?;
-    let default_port = if scheme.eq_ignore_ascii_case("https") {
-        443
-    } else {
-        80
-    };
-    Some((scheme, host, port.unwrap_or(default_port)))
-}
-
-/// Compare scheme, host and effective port, not serialized URL prefixes.
+/// Compare canonical tuple origins, including IDNA, IPv6 and default ports.
 fn has_origin(url: &str, origin: &str) -> bool {
-    let (Some((url_scheme, url_host, url_port)), Some((scheme, host, port))) =
-        (parse_http_origin(url), parse_http_origin(origin))
-    else {
+    let (Some(url), Some(origin)) = (parse_http_url(url), parse_http_url(origin)) else {
         return false;
     };
-    let same_host = match (url_host, host) {
-        (OriginHost::Name(a), OriginHost::Name(b)) => a.eq_ignore_ascii_case(b),
-        (OriginHost::Ipv6(a), OriginHost::Ipv6(b)) => a == b,
-        _ => false,
-    };
-    url_scheme.eq_ignore_ascii_case(scheme) && same_host && url_port == port
+    url.origin() == origin.origin()
 }
 
-fn validate_absolute_http_url(url: &str) -> Result<(), DiscoveryError> {
-    if contains_invalid_url_char(url) {
-        return Err(DiscoveryError::InvalidPath);
+fn parse_http_url(value: &str) -> Option<url::Url> {
+    if contains_invalid_url_char(value) || has_invalid_percent_escape(value) {
+        return None;
     }
-    let rest = strip_http_scheme(url).ok_or(DiscoveryError::InvalidPath)?;
+    let rest = strip_http_scheme(value)?;
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    if !is_valid_authority(authority) {
-        return Err(DiscoveryError::InvalidPath);
+    if authority.is_empty() || authority.contains('@') || authority.ends_with(':') {
+        return None;
     }
-    Ok(())
+    let parsed = url::Url::parse(value).ok()?;
+    parsed.has_host().then_some(parsed)
+}
+
+fn validate_absolute_http_url(value: &str) -> Result<(), DiscoveryError> {
+    parse_http_url(value)
+        .map(|_| ())
+        .ok_or(DiscoveryError::InvalidPath)
+}
+
+fn has_invalid_percent_escape(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    while let Some(byte) = bytes.next() {
+        if byte == b'%'
+            && (!bytes.next().is_some_and(|b| b.is_ascii_hexdigit())
+                || !bytes.next().is_some_and(|b| b.is_ascii_hexdigit()))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// A root-relative application path (`/...`, not protocol-relative `//...`).
 fn validate_local_path(path: &str) -> Result<(), DiscoveryError> {
-    if !path.starts_with('/') || path.starts_with("//") || contains_invalid_url_char(path) {
+    if !path.starts_with('/')
+        || path.starts_with("//")
+        || contains_invalid_url_char(path)
+        || has_invalid_percent_escape(path)
+    {
         return Err(DiscoveryError::InvalidPath);
     }
     Ok(())
@@ -852,7 +855,7 @@ fn is_calendar_date(value: &str) -> bool {
     let year = parse_four_digits(&bytes[0..4]);
     let month = parse_two_digits(&bytes[5..7]);
     let day = parse_two_digits(&bytes[8..10]);
-    day >= 1 && day <= days_in_month(year, month)
+    year >= 1 && day >= 1 && day <= days_in_month(year, month)
 }
 
 fn days_in_month(year: u16, month: u8) -> u8 {
@@ -937,6 +940,141 @@ fn checked_robots_path(value: &str) -> Result<String, DiscoveryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn urls_reject_malformed_hosts_and_percent_escapes() {
+        for origin in [
+            "https://bad^host.example",
+            "https://bad%zz.example",
+            "https://bad<host.example",
+            "https:///example.com",
+        ] {
+            assert_eq!(
+                Sitemap::new(origin).unwrap_err(),
+                DiscoveryError::InvalidOrigin,
+                "{origin}"
+            );
+            assert_eq!(
+                SitemapUrl::new(format!("{origin}/page")).unwrap_err(),
+                DiscoveryError::InvalidPath
+            );
+        }
+        for path in [
+            "/bad%",
+            "/bad%2",
+            "/bad%xx",
+            "https://example.com/page?x=%qq",
+        ] {
+            assert_eq!(
+                SitemapUrl::new(path).unwrap_err(),
+                DiscoveryError::InvalidPath,
+                "{path}"
+            );
+        }
+        assert_eq!(
+            RobotsTxt::new().host("bad^host.example").unwrap_err(),
+            DiscoveryError::InvalidRobotsHost
+        );
+        assert!(SitemapUrl::new("/valid%25?x=%2f").is_ok());
+    }
+
+    #[test]
+    fn sitemap_origin_comparison_uses_canonical_url_hosts() {
+        for (origin, page) in [
+            (
+                "https://bücher.example",
+                "https://xn--bcher-kva.example/page",
+            ),
+            (
+                "https://xn--bcher-kva.example",
+                "https://bücher.example/page",
+            ),
+            ("https://example.com", "https://%65xample.com/page"),
+            ("https://127.0.0.1", "https://127.1/page"),
+        ] {
+            let xml = Sitemap::new(origin)
+                .unwrap()
+                .with_url(page)
+                .unwrap()
+                .render_xml()
+                .unwrap();
+            assert!(xml.contains(&format!("<loc>{page}</loc>")));
+        }
+    }
+
+    #[test]
+    fn schema_requires_a_page_and_disallows_year_zero() {
+        assert_eq!(
+            Sitemap::new("https://example.com")
+                .unwrap()
+                .render_xml()
+                .unwrap_err(),
+            DiscoveryError::EmptySitemap
+        );
+        assert_eq!(
+            SitemapFile::new("empty", []).unwrap_err(),
+            DiscoveryError::EmptySitemap
+        );
+        assert_eq!(
+            SitemapUrl::new("/")
+                .unwrap()
+                .lastmod("0000-01-01")
+                .unwrap_err(),
+            DiscoveryError::InvalidLastmod
+        );
+        assert_eq!(
+            SitemapIndexEntry::new("/sitemap-0.xml")
+                .unwrap()
+                .lastmod("0000-01-01")
+                .unwrap_err(),
+            DiscoveryError::InvalidLastmod
+        );
+        assert!(SitemapUrl::new("/").unwrap().lastmod("0001-01-01").is_ok());
+    }
+
+    #[test]
+    fn robots_mount_prefix_escapes_literal_pattern_operators() {
+        for (mount, escaped) in [
+            ("/app*", "/app%2A"),
+            ("/app$", "/app%24"),
+            ("/app%2A", "/app%2A"),
+        ] {
+            let body = RobotsTxt::new()
+                .allow("/public/*")
+                .unwrap()
+                .disallow("/private$")
+                .unwrap()
+                .with_base_path(BasePath::new(mount).unwrap())
+                .render_txt();
+            assert_eq!(
+                body,
+                format!("User-agent: *\nAllow: {escaped}/public/*\nDisallow: {escaped}/private$\n")
+            );
+        }
+    }
+
+    #[test]
+    fn robots_application_wide_rules_cover_bare_mount_queries() {
+        for pattern in ["/", "/*", "/*$", "/**", "/**$"] {
+            let body = RobotsTxt::new()
+                .disallow(pattern)
+                .unwrap()
+                .with_base_path(BasePath::new("/app").unwrap())
+                .render_txt();
+            assert_eq!(
+                body,
+                format!(
+                    "User-agent: *\nDisallow: /app$\nDisallow: /app?\nDisallow: /app{pattern}\n"
+                )
+            );
+        }
+        let exact = RobotsTxt::new()
+            .disallow("/$")
+            .unwrap()
+            .with_base_path(BasePath::new("/app").unwrap())
+            .render_txt();
+        assert_eq!(exact, "User-agent: *\nDisallow: /app$\nDisallow: /app/$\n");
+    }
 
     #[test]
     fn sitemap_index_resolves_document_urls_and_escapes_metadata() {
@@ -1068,6 +1206,12 @@ mod tests {
             sitemap.render_xml().unwrap_err(),
             DiscoveryError::SitemapTooLarge
         );
+        let mut cx = WebContext::new();
+        assert_eq!(
+            sitemap.write_xml(&mut cx).unwrap_err(),
+            DiscoveryError::SitemapTooLarge
+        );
+        assert!(cx.output().len() < MAX_SITEMAP_BYTES + MAX_LOC_BYTES * 6 + 256);
         let mut index = SitemapIndex::new("https://example.com").unwrap();
         index.entries = vec![SitemapIndexEntry::new(path).unwrap(); MAX_SITEMAP_ENTRIES];
         assert_eq!(
@@ -1536,7 +1680,7 @@ mod tests {
 
         assert_eq!(
             body,
-            "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\nDisallow: *.pdf$\nDisallow: \n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
+            "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo?\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\nDisallow: *.pdf$\nDisallow: \n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
         );
     }
 
@@ -1555,7 +1699,7 @@ mod tests {
             .render_txt();
         assert_eq!(
             body,
-            "User-agent: PrivateBot\nDisallow: /apps/demo$\nDisallow: /apps/demo/\n\nUser-agent: HomeBot\nAllow: /apps/demo$\nAllow: /apps/demo/$\n"
+            "User-agent: PrivateBot\nDisallow: /apps/demo$\nDisallow: /apps/demo?\nDisallow: /apps/demo/\n\nUser-agent: HomeBot\nAllow: /apps/demo$\nAllow: /apps/demo/$\n"
         );
     }
 

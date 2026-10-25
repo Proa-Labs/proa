@@ -227,7 +227,9 @@ Per-group options include `.crawl_delay(Duration::from_millis(1500))` for exact
 seconds and `.directive("Request-Rate", "10/1m")?` for crawler extensions.
 `.host("https://example.com")?` sets an optional explicit host; repeated
 `.sitemap(...)` calls add sitemap links. Extension support depends on the bot;
-Google ignores crawl delay. Custom directives reject comments, control
+Google ignores crawl delay. Application-wide rules cover the bare mount and
+its query variants; literal `*`/`$` in a mount are escaped independently of rule
+operators. Custom directives reject comments, control
 characters, malformed names, and reserved fields, while permitting spaces in
 values. Only allow/disallow rules receive the base path.
 

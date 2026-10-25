@@ -79,15 +79,15 @@ Output:
 | Entry API | Meaning |
 |---|---|
 | `SitemapUrl::new(path)?` | An application-local path or a same-origin absolute HTTP(S) URL. |
-| `.lastmod(date)?` | The page's actual modification date as `YYYY-MM-DD`; valid calendar dates include leap years. |
+| `.lastmod(date)?` | The page's actual modification date as `YYYY-MM-DD`; valid calendar dates span years `0001` through `9999`, including leap years. |
 | `.changefreq(value)` | An optional `ChangeFreq` value, such as `Weekly`. |
 | `.priority(value)` | An optional `SitemapPriority`, stored in tenths from `0.0` to `1.0`. |
 
-Local paths receive the builder's base path exactly once. Absolute entries retain their spelling and are not prefixed. Absolute URLs must match the configured scheme, host, and effective port: HTTPS with no port matches `:443`, and HTTP matches `:80`. Scheme/host comparison is ASCII case-insensitive, and equivalent IPv6 spellings match.
+Local paths receive the builder's base path exactly once. Absolute entries retain their spelling and are not prefixed. Absolute URLs must match the configured scheme, host, and effective port: HTTPS with no port matches `:443`, and HTTP matches `:80`. Origin comparison uses canonical URL hosts, including case, internationalized domains/punycode, IPv6 spellings, and default ports.
 
 For prefix-mounted apps, keep absolute page URLs within the public mount too; pages outside it fall outside the sitemap's default directory scope.
 
-Query strings are XML-escaped. Paths and URLs reject ASCII controls and XML-forbidden characters. Each final loc must be shorter than 2048 bytes. Dates should reflect actual content changes, rather than the time the generator runs.
+Query strings are XML-escaped. Paths and URLs reject malformed percent escapes, ASCII controls, and XML-forbidden characters. Origins and absolute URL hosts are parsed and validated as HTTP(S) URLs. Each final loc must be shorter than 2048 bytes. Dates should reflect actual content changes, rather than the time the generator runs.
 
 ## Multiple sitemaps
 
@@ -153,7 +153,7 @@ Sitemap: https://example.com/sitemap.xml
 
 `/sitemap.xml` now contains a `<sitemapindex>` linking to the two `<urlset>` documents. Robots.txt advertises the index. Named documents live alongside the index so their [default directory scope](https://www.sitemaps.org/protocol.html#location) includes the application's page paths. Incoming handler paths are `/sitemap.xml`, `/sitemap-pages.xml`, `/sitemap-products-0.xml`, and `/robots.txt`.
 
-IDs must be unique, nonempty, and contain only ASCII letters, digits, `-`, or `_`. An empty file list returns a startup error. `with_sitemap` and `with_sitemaps` select alternative modes; the last call replaces the previous configuration. One file passed to `with_sitemaps` still produces an index and a child document.
+IDs must be unique, nonempty, and contain only ASCII letters, digits, `-`, or `_`. An empty file list or sitemap with no page entries returns a startup error. `with_sitemap` and `with_sitemaps` select alternative modes; the last call replaces the previous configuration. One file passed to `with_sitemaps` still produces an index and a child document.
 
 ### Async generation from application data
 
@@ -218,7 +218,7 @@ The index and pages document follow the same structure as the preceding example.
 
 Generation runs once at startup, followed by validation and rendering. New content requires regenerating/restarting the app, or custom handlers with application-managed refresh.
 
-Sitemaps and indexes enforce the [protocol limits](https://www.sitemaps.org/protocol.html#index): at most 50,000 entries and 50 MiB of uncompressed UTF-8 XML per document, including escaping. Long URLs may require batches smaller than `MAX_SITEMAP_ENTRIES`. Oversized documents return a `DiscoveryError`.
+Sitemaps and indexes enforce the [protocol limits](https://www.sitemaps.org/protocol.html#index): at most 50,000 entries and 50 MiB of uncompressed UTF-8 XML per document, including escaping. Long URLs may require batches smaller than `MAX_SITEMAP_ENTRIES`. Oversized documents return a `DiscoveryError` during rendering, before the response buffer is flattened into a string.
 
 ## Configure public URLs
 

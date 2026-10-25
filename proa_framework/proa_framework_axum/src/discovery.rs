@@ -12,7 +12,7 @@ use axum::{body::Bytes, routing::get, Router};
 use proa_core::BasePath;
 use proa_framework_core::{
     absolute_http_url, DiscoveryError, RobotsTxt, Sitemap, SitemapFile, SitemapIndex,
-    SitemapIndexEntry, SitemapUrl,
+    SitemapIndexEntry, SitemapUrl, MAX_SITEMAP_ENTRIES,
 };
 
 const XML_UTF_8: HeaderValue = HeaderValue::from_static("application/xml; charset=utf-8");
@@ -76,6 +76,9 @@ pub(crate) fn discovery_routes(
         let xml = match sitemaps {
             SitemapConfig::Single(urls) => render_sitemap(origin, base_path, urls)?,
             SitemapConfig::Multiple(files) => {
+                if files.len() > MAX_SITEMAP_ENTRIES {
+                    return Err(DiscoveryError::TooManySitemapEntries);
+                }
                 let mut index = SitemapIndex::new(origin)?.with_base_path(base_path.clone());
                 let mut ids = std::collections::HashSet::new();
                 for file in files {
@@ -295,7 +298,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             body,
-            "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo/\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
+            "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo?\nAllow: /apps/demo/\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
         );
     }
 }

@@ -59,6 +59,46 @@ async fn generate_sitemaps() -> Result<Vec<SitemapFile>, DiscoveryError> {
 }
 
 #[tokio::test]
+async fn final_mount_covers_root_queries_without_turning_literal_stars_into_wildcards() {
+    let app = builder()
+        .with_base_path(BasePath::new("/old").unwrap())
+        .with_robots(RobotsTxt::new().disallow("/").unwrap())
+        .with_sitemap([SitemapUrl::new("/").unwrap()])
+        .with_public_origin("https://example.com")
+        .unwrap()
+        .with_base_path(BasePath::new("/tenant*").unwrap())
+        .try_build()
+        .unwrap();
+    let (status, _, body) = fetch(&app, "/robots.txt").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body,
+        concat!(
+        "User-agent: *\nDisallow: /tenant%2A$\nDisallow: /tenant%2A?\nDisallow: /tenant%2A/\n\n",
+        "Sitemap: https://example.com/tenant*/sitemap.xml\n"
+    )
+    );
+    let sitemap = fetch(&app, "/sitemap.xml").await.2;
+    assert!(sitemap.contains("<loc>https://example.com/tenant*/</loc>"));
+    assert_eq!(
+        fetch(&app, "/tenant*/robots.txt").await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[test]
+fn builder_rejects_empty_sitemaps_at_startup() {
+    assert!(matches!(
+        builder()
+            .with_public_origin("https://example.com")
+            .unwrap()
+            .with_sitemap([])
+            .try_build(),
+        Err(DiscoveryError::EmptySitemap)
+    ));
+}
+
+#[tokio::test]
 async fn async_generated_robots_preserves_groups_and_extensions_under_final_mount() {
     async fn generate_robots(paths: &[&str]) -> Result<RobotsTxt, DiscoveryError> {
         tokio::task::yield_now().await;
@@ -96,7 +136,7 @@ async fn async_generated_robots_preserves_groups_and_extensions_under_final_moun
             "User-agent: Applebot\nUser-agent: Bingbot\n",
             "Disallow: /app/private/\nDisallow: /app/admin/\n",
             "Crawl-delay: 1.25\nClean-param: ref /public/\n\n",
-            "User-agent: *\nAllow: /app$\nAllow: /app/\n\n",
+            "User-agent: *\nAllow: /app$\nAllow: /app?\nAllow: /app/\n\n",
             "Host: example.com\nSitemap: https://example.com/app/sitemap.xml\n",
             "Sitemap: https://cdn.example/extra.xml\n"
         )
@@ -342,7 +382,7 @@ async fn builder_uses_one_origin_and_mount_for_both_documents() {
     assert_eq!(headers[header::CONTENT_TYPE], "text/plain; charset=utf-8");
     assert_eq!(
         text,
-        "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
+        "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo?\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\n\nSitemap: https://example.com/apps/demo/sitemap.xml\n"
     );
     assert_eq!(fetch(&app, "/pricing").await.0, StatusCode::OK);
     // Incoming routes stay unprefixed behind a prefix-stripping proxy.
@@ -443,7 +483,9 @@ async fn builder_preserves_special_rules_groups_and_additional_sitemaps() {
         1
     );
     assert!(body.contains("Disallow: \nDisallow: *.pdf$\n"));
-    assert!(body.contains("User-agent: PrivateBot\nDisallow: /mount$\nDisallow: /mount/\n"));
+    assert!(body.contains(
+        "User-agent: PrivateBot\nDisallow: /mount$\nDisallow: /mount?\nDisallow: /mount/\n"
+    ));
     assert!(body.contains("User-agent: PublicBot\nDisallow:\n"));
     assert!(body.contains("Sitemap: https://cdn.example/news.xml\n"));
 }
@@ -458,7 +500,7 @@ async fn builder_does_not_prefix_rules_twice() {
         .unwrap();
     assert_eq!(
         fetch(&app, "/robots.txt").await.2,
-        "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\n"
+        "User-agent: *\nAllow: /apps/demo$\nAllow: /apps/demo?\nAllow: /apps/demo/\nDisallow: /apps/demo/admin\n"
     );
 }
 
