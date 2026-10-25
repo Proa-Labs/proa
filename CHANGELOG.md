@@ -7,6 +7,11 @@ All notable public changes are tracked here.
 - `Sitemap` and `RobotsTxt` build sitemap.xml and robots.txt from a public
   origin, the runtime base path, and application paths. `sitemap_xml` and
   `robots_txt` return Axum responses with the matching content types.
+  `FrameworkBuilder::with_public_origin`, `with_sitemap`, and `with_robots`
+  configure both endpoints with the builder's final base path. Static documents
+  are validated and rendered at startup; `try_build` reports invalid discovery
+  configuration. Robots rules use application paths, and the generated sitemap
+  link is advertised automatically when both endpoints are enabled.
   Query strings are XML-escaped, `lastmod` must be a real calendar date, and
   sitemap paths, absolute URLs, and origins reject XML-forbidden control
   characters. Absolute sitemap entries must use the sitemap origin, and

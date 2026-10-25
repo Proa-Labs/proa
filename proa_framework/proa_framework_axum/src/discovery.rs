@@ -8,7 +8,11 @@ use axum::http::{
     HeaderValue, StatusCode,
 };
 use axum::response::{IntoResponse, Response};
-use proa_framework_core::{RobotsTxt, Sitemap};
+use axum::{body::Bytes, routing::get, Router};
+use proa_core::BasePath;
+use proa_framework_core::{
+    absolute_http_url, DiscoveryError, RobotsRule, RobotsTxt, Sitemap, SitemapUrl,
+};
 
 const XML_UTF_8: HeaderValue = HeaderValue::from_static("application/xml; charset=utf-8");
 const TEXT_PLAIN_UTF_8: HeaderValue = HeaderValue::from_static("text/plain; charset=utf-8");
@@ -41,6 +45,82 @@ pub fn robots_txt(robots: &RobotsTxt) -> Response {
         robots.render_txt(),
     )
         .into_response()
+}
+
+/// Bind the builder's final configuration and cache static documents at startup.
+pub(crate) fn discovery_routes(
+    origin: Option<&str>,
+    base_path: &BasePath,
+    urls: Option<Vec<SitemapUrl>>,
+    robots: Option<RobotsTxt>,
+) -> Result<Router, DiscoveryError> {
+    let mut router = Router::new();
+    let sitemap_loc = if let Some(urls) = urls {
+        let origin = origin.ok_or(DiscoveryError::MissingPublicOrigin)?;
+        let mut sitemap = Sitemap::new(origin)?.with_base_path(base_path.clone());
+        for url in urls {
+            sitemap = sitemap.with_entry(url)?;
+        }
+        let body = Bytes::from(sitemap.render_xml()?);
+        router = router.route(
+            "/sitemap.xml",
+            get(move || {
+                let body = body.clone();
+                async move { ([(CONTENT_TYPE, XML_UTF_8), (CACHE_CONTROL, NO_STORE)], body) }
+            }),
+        );
+        Some(absolute_http_url(origin, base_path, "/sitemap.xml")?)
+    } else {
+        None
+    };
+    if let Some(robots) = robots {
+        let mut robots = prefix_robots_rules(&robots, base_path)?;
+        if let Some(loc) = sitemap_loc {
+            if !robots.sitemaps().contains(&loc) {
+                robots = robots.sitemap(&loc)?;
+            }
+        }
+        let body = Bytes::from(robots.render_txt());
+        router = router.route(
+            "/robots.txt",
+            get(move || {
+                let body = body.clone();
+                async move {
+                    (
+                        [(CONTENT_TYPE, TEXT_PLAIN_UTF_8), (CACHE_CONTROL, NO_STORE)],
+                        body,
+                    )
+                }
+            }),
+        );
+    }
+    Ok(router)
+}
+
+fn prefix_robots_rules(
+    robots: &RobotsTxt,
+    base_path: &BasePath,
+) -> Result<RobotsTxt, DiscoveryError> {
+    let mut prefixed = RobotsTxt::new();
+    for group in robots.groups() {
+        prefixed = prefixed.group(group.user_agent())?;
+        for rule in group.rules() {
+            prefixed = match rule {
+                RobotsRule::Allow(path) if path.starts_with('/') => {
+                    prefixed.allow_path(base_path, path)?
+                }
+                RobotsRule::Disallow(path) if path.starts_with('/') => {
+                    prefixed.disallow_path(base_path, path)?
+                }
+                RobotsRule::Allow(path) => prefixed.allow(path)?,
+                RobotsRule::Disallow(path) => prefixed.disallow(path)?,
+            };
+        }
+    }
+    for loc in robots.sitemaps() {
+        prefixed = prefixed.sitemap(loc)?;
+    }
+    Ok(prefixed)
 }
 
 #[cfg(test)]

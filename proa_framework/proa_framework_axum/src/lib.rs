@@ -114,6 +114,9 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct FrameworkBuilder {
     manifest: Arc<IslandManifest>,
     base_path: BasePath,
+    public_origin: Option<String>,
+    sitemap_urls: Option<Vec<SitemapUrl>>,
+    robots: Option<RobotsTxt>,
     rsjs_assets: bool,
     config: ProaConfig,
     static_router: Option<Router>,
@@ -152,6 +155,9 @@ impl FrameworkBuilder {
         Self {
             manifest: Arc::new(manifest),
             base_path: BasePath::default(),
+            public_origin: None,
+            sitemap_urls: None,
+            robots: None,
             rsjs_assets: false,
             config: ProaConfig::default(),
             static_router: None,
@@ -178,6 +184,59 @@ impl FrameworkBuilder {
     /// redirects use `app_url` or `cx.request().url` explicitly.
     pub fn with_base_path(mut self, base_path: BasePath) -> Self {
         self.base_path = base_path;
+        self
+    }
+
+    /// Set the public HTTP(S) origin used by discovery routes.
+    ///
+    /// Supply only the scheme, host and optional port, for example
+    /// `https://example.com`. The mount prefix comes from `with_base_path`.
+    /// This is explicit configuration; request headers are not used to infer it.
+    pub fn with_public_origin(mut self, origin: &str) -> Result<Self, DiscoveryError> {
+        let validated = Sitemap::new(origin)?;
+        self.public_origin = Some(validated.origin().to_owned());
+        Ok(self)
+    }
+
+    /// Serve `/sitemap.xml` from these entries using the builder's final public
+    /// origin and base path. Configuration order does not matter.
+    ///
+    /// Entries are application-local paths or same-origin absolute URLs. The
+    /// document is validated and rendered once at startup. Do not also register
+    /// a custom `/sitemap.xml` handler. Requires `with_public_origin`.
+    ///
+    /// ```
+    /// use proa_framework_axum::{
+    ///     BasePath, DiscoveryError, FrameworkBuilder, IslandManifest,
+    ///     ManifestAssets, RobotsTxt, SitemapUrl,
+    /// };
+    /// # let manifest = IslandManifest {
+    /// #     islands: Default::default(), assets: ManifestAssets::default(),
+    /// #     import_map: Default::default(), ssr_bundle: None,
+    /// # };
+    /// let app = FrameworkBuilder::new(manifest)
+    ///     .with_base_path(BasePath::new("/apps/demo").unwrap())
+    ///     .with_public_origin("https://example.com")?
+    ///     .with_sitemap([SitemapUrl::new("/")?, SitemapUrl::new("/pricing")?])
+    ///     .with_robots(RobotsTxt::new().disallow("/admin")?)
+    ///     .try_build()?;
+    /// # Ok::<(), DiscoveryError>(())
+    /// ```
+    pub fn with_sitemap(mut self, urls: impl IntoIterator<Item = SitemapUrl>) -> Self {
+        self.sitemap_urls = Some(urls.into_iter().collect());
+        self
+    }
+
+    /// Serve `/robots.txt`, prefixing root-relative application rules using the
+    /// final `with_base_path`. Empty and wildcard-leading rules remain unchanged.
+    /// If a sitemap is enabled, advertise its public URL automatically.
+    ///
+    /// Crawlers still need this handler exposed at the origin root: a
+    /// prefix-stripping proxy must explicitly forward origin-root `/robots.txt`.
+    /// Do not also register a custom `/robots.txt` handler. Existing absolute
+    /// sitemap links in `robots` pass through unchanged.
+    pub fn with_robots(mut self, robots: RobotsTxt) -> Self {
+        self.robots = Some(robots);
         self
     }
 
@@ -389,9 +448,22 @@ impl FrameworkBuilder {
     }
 
     pub fn build(self) -> Router {
+        self.try_build()
+            .expect("invalid framework discovery configuration")
+    }
+
+    /// Build the router, returning invalid discovery configuration as an error.
+    ///
+    /// Unlike `build`, this reports a missing public origin, cross-origin entry
+    /// or invalid composed URL without panicking. Axum's existing duplicate-route
+    /// restrictions still apply.
+    pub fn try_build(self) -> Result<Router, DiscoveryError> {
         let FrameworkBuilder {
             manifest,
             base_path,
+            public_origin,
+            sitemap_urls,
+            robots,
             rsjs_assets,
             config,
             static_router,
@@ -412,7 +484,12 @@ impl FrameworkBuilder {
 
         let body_limit_bytes = body_limit.unwrap_or(DEFAULT_BODY_LIMIT_BYTES);
 
-        let mut app = Router::new();
+        let mut app = discovery::discovery_routes(
+            public_origin.as_deref(),
+            &base_path,
+            sitemap_urls,
+            robots,
+        )?;
         if rsjs_assets {
             app = app.merge(rsjs_assets_router(&base_path));
         }
@@ -504,7 +581,7 @@ impl FrameworkBuilder {
         if let Some(policy) = csp {
             app = app.layer(CspNonceLayer::new(policy));
         }
-        app.layer(Extension(manifest))
+        Ok(app.layer(Extension(manifest)))
     }
 }
 

@@ -1,92 +1,78 @@
 ---
 title: Sitemaps and robots.txt
-description: Emit sitemap.xml and robots.txt with the public origin and runtime base path.
+description: Configure discovery endpoints through FrameworkBuilder with one public origin and base path.
 ---
 
-Search engines and crawlers need absolute URLs. When the app is mounted under a prefix, those URLs must include the prefix. `Sitemap` and `RobotsTxt` join the public origin, the runtime [base path](/docs/framework/deployment), and each application path, then write protocol-shaped documents.
+Register discovery endpoints on `FrameworkBuilder`. Its public origin and runtime [base path](/docs/framework/deployment) determine the URLs in both documents. Read environment variables once at startup; handlers do not need to repeat that configuration.
 
-## Sitemap
+## Configure the builder
 
-Build the document once at startup or per request, then return it from a route handler:
-
-```rust filename="src/endpoints/sitemap.rs"
-use axum::routing::get;
-use proa_core::BasePath;
+```rust filename="src/main.rs"
 use proa_framework_axum::{
-    router_from_spec, sitemap_xml, ChangeFreq, Route, Sitemap, SitemapPriority, SitemapUrl,
+    BasePath, ChangeFreq, FrameworkBuilder, RobotsTxt, SitemapPriority, SitemapUrl,
 };
 
-async fn sitemap() -> impl axum::response::IntoResponse {
-    let base_path = BasePath::new(&std::env::var("PROA_BASE_PATH").unwrap_or_default())
-        .expect("PROA_BASE_PATH");
-    sitemap_xml(
-        &Sitemap::new("https://example.com")
-            .expect("public origin")
-            .with_base_path(base_path)
-            .with_url("/")
-            .expect("home")
-            .with_entry(
-                SitemapUrl::new("/pricing")
-                    .expect("pricing path")
-                    .lastmod("2026-10-23")
-                    .expect("lastmod")
-                    .changefreq(ChangeFreq::Weekly)
-                    .priority(SitemapPriority::tenths(8).expect("priority")),
-            )
-            .expect("pricing entry"),
-    )
-}
+let base_path = BasePath::new(
+    &std::env::var("PROA_BASE_PATH").unwrap_or_default(),
+)?;
+let origin = std::env::var("PUBLIC_BASE_URL")?;
 
-let (router, metadata) = router_from_spec(vec![
-    Route::endpoint("/sitemap.xml", get(sitemap)),
-]);
+let app = FrameworkBuilder::new(manifest)
+    .with_base_path(base_path)
+    .with_public_origin(&origin)?
+    .with_sitemap([
+        SitemapUrl::new("/")?,
+        SitemapUrl::new("/pricing")?
+            .lastmod("2026-10-25")?
+            .changefreq(ChangeFreq::Weekly)
+            .priority(SitemapPriority::tenths(8).expect("priority")),
+    ])
+    .with_robots(
+        RobotsTxt::new()
+            .group("*")?
+            .allow("/")?
+            .disallow("/admin")?,
+    )
+    .try_build()?;
 ```
 
-`with_base_path` uses the same `BasePath` the rest of the app uses for links and assets. A mount of `/apps/demo` turns `/pricing` into `https://example.com/apps/demo/pricing`. Absolute `http` and `https` entries pass through unchanged, but they must use the sitemap origin (the sitemap protocol only covers URLs on the host that serves it), so `with_url` and `with_entry` reject other hosts, schemes, and ports.
+The public origin contains only a scheme, host and optional port: `https://example.com`, without the app prefix. With `PROA_BASE_PATH=/apps/demo`, the generated sitemap contains `https://example.com/apps/demo/pricing`. Robots rules become `Allow: /apps/demo/` and `Disallow: /apps/demo/admin`. When both endpoints are enabled, robots.txt automatically advertises `https://example.com/apps/demo/sitemap.xml`.
 
-Origins compare the scheme, host, and effective port. An omitted port is equivalent to `:443` for HTTPS or `:80` for HTTP; for example, `https://example.com:443/docs` is accepted for `https://example.com`. Scheme and host matching is ASCII case-insensitive, and equivalent IPv6 spellings match. The original URL spelling is preserved in the XML.
+Configuration order does not matter. The documents use the final `with_base_path` and `with_public_origin` values when the router is built. Origins are explicit configuration; request `Host` and forwarded headers do not override them.
 
-Query strings are XML-escaped. Paths, absolute URLs, and origins reject XML-forbidden control characters. `lastmod` is a real `YYYY-MM-DD` calendar date (the day must exist, including leap years). Priority is stored in tenths from `0.0` to `1.0`. Each loc must be shorter than 2048 bytes. If a loc only goes over that limit once the base path is applied, `sitemap_xml` logs the error and returns a generic 500.
+The endpoints are individually opt-in. `with_sitemap` installs `/sitemap.xml`; `with_robots` installs `/robots.txt`. Do not register custom handlers at the same paths when using these methods. A robots-only document needs no public origin unless you also enable the sitemap. Existing absolute sitemap links added with `RobotsTxt::sitemap` are preserved; an identical automatic sitemap link is not duplicated.
 
-## robots.txt
+## Sitemap entries
 
-Crawlers fetch `/robots.txt` at the origin root (`https://example.com/robots.txt`). They do not fetch a prefixed path such as `/apps/demo/robots.txt`.
+Entries are application-local paths or absolute `http`/`https` URLs on the configured origin. Local paths get the builder's base path exactly once. Absolute entries retain their spelling and are not prefixed.
 
-Incoming Proa routes stay unprefixed, so the handler is still `/robots.txt`. For a [prefix-stripping proxy](/docs/framework/deployment#serving-behind-a-url-path-prefix), forward origin-root `/robots.txt` to that handler in addition to stripping `/apps/demo` for the rest of the app. Prefix stripping alone publishes the file at `/apps/demo/robots.txt`, which crawlers never request.
+Origins compare scheme, host and effective port. An omitted port matches `:443` for HTTPS or `:80` for HTTP. Scheme and host matching is ASCII case-insensitive, and equivalent IPv6 spellings match. Different hosts, schemes or effective ports are rejected.
 
-Write Allow/Disallow using public paths, and point that origin-root file at the prefixed sitemap. `Disallow: /admin` does not block `/apps/demo/admin`.
+Query strings are XML-escaped. Paths and URLs reject ASCII controls and XML-forbidden characters. `lastmod` is a real `YYYY-MM-DD` calendar date, including leap years. Priority is stored in tenths from `0.0` to `1.0`. Each final loc must be shorter than 2048 bytes.
 
-```rust filename="src/endpoints/robots.rs"
-use axum::routing::get;
-use proa_core::BasePath;
-use proa_framework_axum::{robots_txt, RobotsTxt, Route};
+`try_build()` validates and renders these static documents once, then serves their shared bytes on each request. It returns a `DiscoveryError` for a missing public origin, cross-origin entry or invalid composed URL. The existing `build()` API also works, but panics on invalid discovery configuration. Axum's duplicate-route restrictions apply to both.
 
-async fn robots() -> impl axum::response::IntoResponse {
-    let base_path = BasePath::new(&std::env::var("PROA_BASE_PATH").unwrap_or_default())
-        .expect("PROA_BASE_PATH");
-    robots_txt(
-        &RobotsTxt::new()
-            .group("*")
-            .expect("user-agent")
-            .allow_path(&base_path, "/")
-            .expect("allow")
-            .disallow_path(&base_path, "/admin")
-            .expect("disallow")
-            .sitemap_path("https://example.com", &base_path, "/sitemap.xml")
-            .expect("sitemap"),
-    )
-}
+## Origin-root robots.txt
 
-Route::endpoint("/robots.txt", get(robots))
-```
+Crawlers fetch `https://example.com/robots.txt`, even when the app lives at `/apps/demo/`. They do not discover robots rules from `/apps/demo/robots.txt`.
 
-`allow_path`, `disallow_path`, and `sitemap_path` join the runtime base path the same way sitemap loc values are joined. With `PROA_BASE_PATH=/apps/demo`, that emits `Allow: /apps/demo/`, `Disallow: /apps/demo/admin`, and `Sitemap: https://example.com/apps/demo/sitemap.xml`. `robots_txt` sets `text/plain; charset=utf-8`. Rule paths must be empty or start with `/` or `*`, because crawlers ignore any other rule. Whitespace, `#`, and control characters are rejected in user-agent and path fields, so a value cannot inject another directive or be cut short by a comment. A group with no rules renders an empty `Disallow:` (allow everything), so it does not merge into the next group.
+Incoming Proa routes stay unprefixed. For a [prefix-stripping proxy](/docs/framework/deployment#serving-behind-a-url-path-prefix), forward origin-root `/robots.txt` to the builder's `/robots.txt` handler in addition to stripping `/apps/demo` for the app's other routes. Builder configuration cannot change the proxy's public routing.
+
+Root-relative robots rules supplied to `with_robots` are application-local paths: pass `/admin`, not `/apps/demo/admin`. Empty rules and wildcard-leading patterns such as `*.pdf$` remain unchanged; those patterns match public paths directly. To scope a wildcard to the mount, use a root-relative rule such as `/*.pdf$`.
+
+Whitespace, `#` and control characters are rejected in user-agent and rule fields. A group with no rules renders an empty `Disallow:` so it does not merge into the next group.
+
+## Custom and dynamic handlers
+
+The standalone `Sitemap`, `RobotsTxt`, `sitemap_xml` and `robots_txt` APIs remain available for applications that generate documents dynamically or use custom routing. In that mode, pass the application's configured origin and base path explicitly. Standalone robots `allow`/`disallow` rules are public patterns; use `allow_path`/`disallow_path` to prefix application-local paths. The response helpers use `application/xml` and `text/plain`, both with UTF-8.
+
+If a dynamically generated sitemap fails to render, `sitemap_xml` logs the cause and returns a generic 500. Builder-managed documents are validated at startup instead.
 
 ## Next steps
 
 - [Deployment](/docs/framework/deployment)
-  - Configure `PROA_BASE_PATH` for prefix-mounted hosts, and map origin-root `/robots.txt` when the proxy strips a prefix.
-- [Route handlers](/docs/framework/route-handlers)
-  - Register `/sitemap.xml` under the app mount and `/robots.txt` as the origin-root endpoint.
+  - Configure the app's public prefix and forward origin-root `/robots.txt`.
+- [Configuration](/docs/framework/configuration)
+  - Configure FrameworkBuilder and its router integrations.
 - [Environment](/docs/framework/environment)
-  - Choose the public origin for absolute URLs.
+  - Load the public origin and base path at startup.

@@ -21,6 +21,8 @@ pub enum DiscoveryError {
         "origin must be an http or https host (optional port) with no path, query, or fragment"
     )]
     InvalidOrigin,
+    #[error("a public origin is required when sitemap routes are enabled")]
+    MissingPublicOrigin,
     #[error("path must be a root-relative application path or an http(s) URL")]
     InvalidPath,
     #[error("lastmod must be a YYYY-MM-DD calendar date")]

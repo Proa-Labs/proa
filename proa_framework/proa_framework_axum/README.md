@@ -171,6 +171,33 @@ These lifecycle guarantees belong to this serve helper. An application that
 calls `axum::serve` itself owns its signal handling, deadline, task tracking,
 and streamed-body cancellation policy.
 
+### Sitemaps and robots.txt
+
+Configure discovery endpoints on the same builder so they share its public origin
+and mount prefix:
+
+```rust
+use proa_framework_axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
+
+let app = FrameworkBuilder::new(manifest)
+    .with_base_path(BasePath::new("/apps/demo")?)
+    .with_public_origin("https://example.com")?
+    .with_sitemap([SitemapUrl::new("/")?, SitemapUrl::new("/pricing")?])
+    .with_robots(RobotsTxt::new().disallow("/admin")?)
+    .try_build()?;
+```
+
+The sitemap contains `https://example.com/apps/demo/pricing`; robots.txt contains
+`Disallow: /apps/demo/admin` and advertises the prefixed sitemap automatically.
+Both endpoints are opt-in and rendered once at startup using the final builder
+configuration. `try_build()` returns discovery configuration errors; `build()`
+panics on them. Custom/dynamic handlers can still use the standalone document and
+response helpers.
+
+Incoming routes remain `/sitemap.xml` and `/robots.txt`. A prefix-stripping proxy
+must expose `/robots.txt` at the origin root in addition to forwarding mounted app
+paths. Do not register overlapping custom discovery handlers on this builder.
+
 ### Liveness and readiness
 
 Liveness and readiness should not share dependency policy:

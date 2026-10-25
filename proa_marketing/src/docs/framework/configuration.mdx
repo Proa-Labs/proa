@@ -46,6 +46,9 @@ let app = FrameworkBuilder::new(manifest)
 | `FrameworkBuilder::new(manifest)` | Create the builder with an island manifest and secure defaults. |
 | `.with_config(config)` | Override project paths, codegen flags, and server defaults. |
 | [`.with_base_path(base_path)`](#frameworkbuilder-base-paths-and-rsjs-assets) | Set the public URL prefix for a mounted application. |
+| [`.with_public_origin(origin)?`](/docs/framework/sitemaps) | Set the public HTTP(S) origin used by discovery endpoints. |
+| [`.with_sitemap(entries)`](/docs/framework/sitemaps) | Serve sitemap.xml using the final public origin and base path. |
+| [`.with_robots(robots)`](/docs/framework/sitemaps) | Serve origin-root robots.txt with prefixed app rules and the sitemap link. |
 | [`.with_rsjs_assets()`](#frameworkbuilder-base-paths-and-rsjs-assets) | Serve the linked RSJS runtimes and generated modules. |
 | `.with_static_service(router)` | Mount a router under `/static`. |
 | `.with_dynamic_routes(router)` | Merge an Axum router without a metadata map. |
@@ -61,6 +64,7 @@ let app = FrameworkBuilder::new(manifest)
 | `.with_catch_panic(bool)` | Convert panics into plain 500 responses instead of resetting the connection. |
 | `.config()` | Inspect the current `ProaConfig`. |
 | `.build()` | Produce the final Axum `Router`. |
+| `.try_build()?` | Build the router while returning invalid discovery configuration as an error. |
 
 ## FrameworkBuilder Base Paths and RSJS Assets
 
