@@ -203,7 +203,7 @@ for application route setup, environment configuration, listener binding, and `s
 Sitemap entries are explicit; registering a page route does not add it automatically.
 
 Use `.with_sitemaps(files)` for multiple documents. Each
-`SitemapFile::new("products-0", urls)?` is served at `/sitemap/products-0.xml`;
+`SitemapFile::new("products-0", urls)?` is served at `/sitemap-products-0.xml`;
 `/sitemap.xml` becomes an index linking to the documents, and robots.txt
 advertises that index. Supply an awaited application generator with
 `.with_sitemaps(generate_sitemaps(&db).await?)`. Generation and rendering happen

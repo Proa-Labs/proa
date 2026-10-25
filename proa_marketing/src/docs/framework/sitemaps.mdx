@@ -85,6 +85,8 @@ Output:
 
 Local paths receive the builder's base path exactly once. Absolute entries retain their spelling and are not prefixed. Absolute URLs must match the configured scheme, host, and effective port: HTTPS with no port matches `:443`, and HTTP matches `:80`. Scheme/host comparison is ASCII case-insensitive, and equivalent IPv6 spellings match.
 
+For prefix-mounted apps, keep absolute page URLs within the public mount too; pages outside it fall outside the sitemap's default directory scope.
+
 Query strings are XML-escaped. Paths and URLs reject ASCII controls and XML-forbidden characters. Each final loc must be shorter than 2048 bytes. Dates should reflect actual content changes, rather than the time the generator runs.
 
 ## Multiple sitemaps
@@ -115,15 +117,15 @@ Output:
 <?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <sitemap>
-    <loc>https://example.com/sitemap/pages.xml</loc>
+    <loc>https://example.com/sitemap-pages.xml</loc>
   </sitemap>
   <sitemap>
-    <loc>https://example.com/sitemap/products-0.xml</loc>
+    <loc>https://example.com/sitemap-products-0.xml</loc>
   </sitemap>
 </sitemapindex>
 ```
 
-```xml filename="example.com/sitemap/pages.xml"
+```xml filename="example.com/sitemap-pages.xml"
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
@@ -135,7 +137,7 @@ Output:
 </urlset>
 ```
 
-```xml filename="example.com/sitemap/products-0.xml"
+```xml filename="example.com/sitemap-products-0.xml"
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
@@ -149,7 +151,7 @@ Output:
 Sitemap: https://example.com/sitemap.xml
 ```
 
-`/sitemap.xml` now contains a `<sitemapindex>` linking to the two `<urlset>` documents. Robots.txt advertises the index. Incoming handler paths are `/sitemap.xml`, `/sitemap/pages.xml`, `/sitemap/products-0.xml`, and `/robots.txt`.
+`/sitemap.xml` now contains a `<sitemapindex>` linking to the two `<urlset>` documents. Robots.txt advertises the index. Named documents live alongside the index so their [default directory scope](https://www.sitemaps.org/protocol.html#location) includes the application's page paths. Incoming handler paths are `/sitemap.xml`, `/sitemap-pages.xml`, `/sitemap-products-0.xml`, and `/robots.txt`.
 
 IDs must be unique, nonempty, and contain only ASCII letters, digits, `-`, or `_`. An empty file list returns a startup error. `with_sitemap` and `with_sitemaps` select alternative modes; the last call replaces the previous configuration. One file passed to `with_sitemaps` still produces an index and a child document.
 
@@ -202,7 +204,7 @@ For one published product at `/products/1`, last changed on `2026-10-25`, the ge
 
 Output:
 
-```xml filename="example.com/sitemap/products-0.xml"
+```xml filename="example.com/sitemap-products-0.xml"
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>

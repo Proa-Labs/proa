@@ -244,7 +244,7 @@ impl Sitemap {
     }
 }
 
-/// One named document served at `/sitemap/{id}.xml` by `with_sitemaps`.
+/// One named document served at `/sitemap-{id}.xml` by `with_sitemaps`.
 ///
 /// IDs are literal path segments, not route patterns. Origin and mount prefix
 /// are supplied by the framework builder after application generation finishes.

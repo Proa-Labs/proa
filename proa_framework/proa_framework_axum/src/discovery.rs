@@ -82,7 +82,10 @@ pub(crate) fn discovery_routes(
                     if !ids.insert(file.id().to_owned()) {
                         return Err(DiscoveryError::DuplicateSitemapId);
                     }
-                    let path = format!("/sitemap/{}.xml", file.id());
+                    // A sitemap's directory bounds its default URL scope.
+                    // Keep child documents alongside the index so they cover
+                    // application pages: https://www.sitemaps.org/protocol.html#location
+                    let path = format!("/sitemap-{}.xml", file.id());
                     index = index.with_entry(SitemapIndexEntry::new(path.clone())?)?;
                     let xml = render_sitemap(origin, base_path, file.into_urls())?;
                     router = router.route(&path, xml_route(xml));

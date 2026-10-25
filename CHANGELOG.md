@@ -11,7 +11,7 @@ All notable public changes are tracked here.
   configure both endpoints with the builder's final base path. Static documents
   are validated and rendered at startup; `try_build` reports invalid discovery
   configuration. `with_sitemaps` accepts named `SitemapFile` documents, including
-  results from an awaited async generator, and serves `/sitemap/{id}.xml` plus
+  results from an awaited async generator, and serves `/sitemap-{id}.xml` plus
   an automatic index at `/sitemap.xml`. `SitemapIndex` and `sitemap_index_xml`
   support custom handlers. Sitemaps and indexes enforce the 50,000-entry and
   50 MiB uncompressed XML limits. Robots rules use application paths, and the

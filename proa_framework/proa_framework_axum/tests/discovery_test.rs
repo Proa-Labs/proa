@@ -128,14 +128,14 @@ async fn multiple_sitemaps_serve_an_index_and_separate_documents() {
         "application/xml; charset=utf-8"
     );
     assert!(index.contains("<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"));
-    assert!(index.contains("<loc>https://example.com/app/sitemap/pages.xml</loc>"));
-    assert!(index.contains("<loc>https://example.com/app/sitemap/products-0.xml</loc>"));
+    assert!(index.contains("<loc>https://example.com/app/sitemap-pages.xml</loc>"));
+    assert!(index.contains("<loc>https://example.com/app/sitemap-products-0.xml</loc>"));
     assert_eq!(index.matches("<sitemap>").count(), 2);
     assert!(!index.contains("<url>"));
     for (path, expected_loc) in [
-        ("/sitemap/pages.xml", "https://example.com/app/"),
+        ("/sitemap-pages.xml", "https://example.com/app/"),
         (
-            "/sitemap/products-0.xml",
+            "/sitemap-products-0.xml",
             "https://example.com/app/products/1?q=a&amp;b=c",
         ),
     ] {
@@ -170,19 +170,65 @@ async fn multiple_sitemaps_serve_an_index_and_separate_documents() {
             .unwrap()
             .is_empty());
     }
-    let products = fetch(&app, "/sitemap/products-0.xml").await.2;
+    let products = fetch(&app, "/sitemap-products-0.xml").await.2;
     assert!(products.contains("<lastmod>2026-10-25</lastmod>"));
     let robots = fetch(&app, "/robots.txt").await.2;
     assert_eq!(robots.matches("Sitemap:").count(), 1);
     assert!(robots.contains("Sitemap: https://example.com/app/sitemap.xml\n"));
     assert_eq!(
-        fetch(&app, "/sitemap/missing.xml").await.0,
+        fetch(&app, "/sitemap-missing.xml").await.0,
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        fetch(&app, "/app/sitemap/pages.xml").await.0,
+        fetch(&app, "/app/sitemap-pages.xml").await.0,
         StatusCode::NOT_FOUND
     );
+}
+
+#[tokio::test]
+async fn named_sitemaps_share_the_index_directory_and_cover_application_pages() {
+    fn locations(xml: &str) -> impl Iterator<Item = &str> {
+        xml.split("<loc>")
+            .skip(1)
+            .map(|entry| entry.split_once("</loc>").unwrap().0)
+    }
+
+    for mount in ["", "/apps/demo"] {
+        let app = builder()
+            .with_public_origin("https://example.com")
+            .unwrap()
+            .with_base_path(BasePath::new(mount).unwrap())
+            .with_sitemaps(generate_sitemaps().await.unwrap())
+            .build();
+        let index_url =
+            url::Url::parse(&format!("https://example.com{mount}/sitemap.xml")).unwrap();
+        let scope = index_url.join(".").unwrap();
+        let index = fetch(&app, "/sitemap.xml").await.2;
+        let children: Vec<_> = locations(&index).collect();
+        assert_eq!(children.len(), 2);
+        for loc in children {
+            let child = url::Url::parse(loc).unwrap();
+            assert_eq!(child.join(".").unwrap(), scope);
+            let path = child.path().strip_prefix(mount).unwrap();
+            let (status, _, xml) = fetch(&app, path).await;
+            assert_eq!(status, StatusCode::OK);
+            let mut count = 0;
+            for page in locations(&xml) {
+                let page = url::Url::parse(page).unwrap();
+                assert_eq!(page.origin(), child.origin());
+                assert!(
+                    page.path().starts_with(scope.path()),
+                    "{page} outside {scope}"
+                );
+                count += 1;
+            }
+            assert!(count > 0);
+        }
+        assert_eq!(
+            fetch(&app, "/sitemap/pages.xml").await.0,
+            StatusCode::NOT_FOUND
+        );
+    }
 }
 
 #[tokio::test]
@@ -227,7 +273,7 @@ async fn sitemap_setters_replace_previous_configuration() {
         .2
         .contains("<loc>https://example.com/single</loc>"));
     assert_eq!(
-        fetch(&app, "/sitemap/pages.xml").await.0,
+        fetch(&app, "/sitemap-pages.xml").await.0,
         StatusCode::NOT_FOUND
     );
     let app = builder()
@@ -240,7 +286,7 @@ async fn sitemap_setters_replace_previous_configuration() {
         .await
         .2
         .contains("<sitemapindex"));
-    assert_eq!(fetch(&app, "/sitemap/pages.xml").await.0, StatusCode::OK);
+    assert_eq!(fetch(&app, "/sitemap-pages.xml").await.0, StatusCode::OK);
     assert!(!fetch(&app, "/sitemap.xml").await.2.contains("/single"));
 }
 

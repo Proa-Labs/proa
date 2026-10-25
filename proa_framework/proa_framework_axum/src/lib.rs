@@ -229,7 +229,7 @@ impl FrameworkBuilder {
         self
     }
 
-    /// Serve multiple named sitemaps at `/sitemap/{id}.xml`, with a sitemap
+    /// Serve multiple named sitemaps at `/sitemap-{id}.xml`, with a sitemap
     /// index at `/sitemap.xml`. Robots advertises the index when enabled.
     ///
     /// Await an application-owned async generator before calling this method:
