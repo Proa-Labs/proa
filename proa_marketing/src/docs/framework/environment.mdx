@@ -130,7 +130,7 @@ pub fn build_app(config: RuntimeConfig) -> anyhow::Result<Router> {
 
 Configure discovery endpoints from these typed startup values:
 
-```rust filename="src/main.rs"
+```rust filename="src/main.rs" {13-14}
 use proa_core::BasePath;
 use proa_framework_axum::{FrameworkBuilder, RobotsTxt, SitemapUrl};
 

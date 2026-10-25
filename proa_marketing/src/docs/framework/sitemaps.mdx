@@ -9,7 +9,7 @@ Register sitemaps on `FrameworkBuilder`. Its public origin and runtime [base pat
 
 Configure discovery endpoints and start the HTTP server in `src/main.rs`. Route definitions are abbreviated below; replace the comment in `vec![]` with your application routes. The example loads the app's generated manifest from `dist/island-manifest.json`.
 
-```rust filename="src/main.rs"
+```rust filename="src/main.rs" {20-23}
 use std::time::Duration;
 
 use proa_framework_axum::{
@@ -68,7 +68,7 @@ Sitemap entries are explicit: registering a page with `Route::page` does not aut
 
 Each entry can also carry optional metadata:
 
-```rust
+```rust {4-6}
 use proa_framework_axum::{ChangeFreq, SitemapPriority, SitemapUrl};
 
 let pricing = SitemapUrl::new("/pricing")?
@@ -87,7 +87,7 @@ Query strings are XML-escaped. Paths and URLs reject ASCII controls and XML-forb
 
 Use `with_sitemaps` when the site needs separate page, product, or blog documents. Each `SitemapFile` contains page entries; its ID determines the document's route.
 
-```rust
+```rust {6-14}
 use proa_framework_axum::{FrameworkBuilder, RobotsTxt, SitemapFile, SitemapUrl};
 
 let app = FrameworkBuilder::new(manifest)
@@ -123,7 +123,7 @@ IDs must be nonempty and contain only ASCII letters, digits, `-`, or `_`. Duplic
 
 Await an application-owned `generate_sitemaps` function before building the router. It can query a database or CMS and return named documents. The example below assumes your application's `Database::published_products()` returns products with `path` and `last_modified` strings.
 
-```rust
+```rust {6,12,17,27}
 use proa_framework_axum::{
     DiscoveryError, FrameworkBuilder, RobotsTxt, SitemapFile, SitemapUrl, MAX_SITEMAP_ENTRIES,
 };

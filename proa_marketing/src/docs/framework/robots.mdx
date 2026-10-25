@@ -7,7 +7,7 @@ Configure `/robots.txt` on `FrameworkBuilder` to publish crawler rules. The buil
 
 ## Configure the builder
 
-```rust
+```rust {6}
 use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
 
 let app = FrameworkBuilder::new(manifest)
@@ -29,7 +29,7 @@ Use the same async generation pattern as [sitemaps](/docs/framework/sitemaps#asy
 
 `generate_robots` is application-owned code returning `Result<RobotsTxt, YourError>`. It can read configuration, a database, or a CMS before the router is built. For example, assuming your application's `Database::crawler_exclusions()` returns a list of application-local path strings:
 
-```rust
+```rust {4,7}
 use proa_framework_axum::RobotsTxt;
 
 async fn generate_robots(db: &Database) -> anyhow::Result<RobotsTxt> {
@@ -44,7 +44,7 @@ async fn generate_robots(db: &Database) -> anyhow::Result<RobotsTxt> {
 
 Pass the result to the same builder that configures the sitemap:
 
-```rust
+```rust {6}
 let app = FrameworkBuilder::new(manifest)
     .with_dynamic_routes_and_metadata(routes, metadata)
     .with_base_path(base_path)
@@ -60,7 +60,7 @@ Generation and text rendering happen **once at startup**, and requests serve cac
 
 As in [Next.js robots metadata](https://nextjs.org/docs/app/api-reference/file-conventions/metadata/robots), configure different groups for different bots, several sitemap links, and optional directives:
 
-```rust
+```rust {5,8-9,13-14}
 use std::time::Duration;
 use proa_framework_axum::RobotsTxt;
 
