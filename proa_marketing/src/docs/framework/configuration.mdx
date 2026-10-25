@@ -51,7 +51,7 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa_f
 | [`.with_public_origin(origin)?`](/docs/framework/sitemaps) | Set the public HTTP(S) origin used by discovery endpoints. |
 | [`.with_sitemap(entries)`](/docs/framework/sitemaps) | Serve one sitemap using the final public origin and base path. |
 | [`.with_sitemaps(files)`](/docs/framework/sitemaps#multiple-sitemaps) | Serve named sitemap documents plus a sitemap index; accepts results from an awaited async generator. |
-| [`.with_robots(robots)`](/docs/framework/sitemaps#generate-robots-txt) | Serve origin-root robots.txt from a document or awaited generator result, with bot-specific groups and automatic sitemap/index links. |
+| [`.with_robots(robots)`](/docs/framework/robots) | Serve origin-root robots.txt from a document or awaited generator result, with bot-specific groups and automatic sitemap/index links. |
 | [`.with_rsjs_assets()`](#frameworkbuilder-base-paths-and-rsjs-assets) | Serve the linked RSJS runtimes and generated modules. |
 | `.with_static_service(router)` | Mount a router under `/static`. |
 | `.with_dynamic_routes(router)` | Merge an Axum router without a metadata map. |

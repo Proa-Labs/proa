@@ -28,6 +28,7 @@
     "framework/linking",
     "framework/route-handlers",
     "framework/sitemaps",
+    "framework/robots",
     "framework/content-negotiation",
     "framework/page-caching",
     "framework/errors",

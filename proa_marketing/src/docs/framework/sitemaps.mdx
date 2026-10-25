@@ -1,9 +1,9 @@
 ---
-title: Sitemaps and robots.txt
-description: Configure discovery endpoints through FrameworkBuilder with one public origin and base path.
+title: Sitemaps
+description: Configure single or multiple sitemaps, async generation, and sitemap indexes through FrameworkBuilder.
 ---
 
-Register discovery endpoints on `FrameworkBuilder`. Its public origin and runtime [base path](/docs/framework/deployment) determine the URLs in both documents. Read environment variables once at startup; handlers do not need to repeat that configuration.
+Register sitemaps on `FrameworkBuilder`. Its public origin and runtime [base path](/docs/framework/deployment) determine the generated URLs. Read environment variables once at startup; handlers do not need to repeat that configuration. Configure crawler rules separately with [robots.txt](/docs/framework/robots).
 
 ## Run an application
 
@@ -54,11 +54,11 @@ Visit `http://127.0.0.1:3000/sitemap.xml` for the sitemap and `/robots.txt` for 
 
 ## Configure public URLs
 
-The public origin contains only a scheme, host and optional port: `https://example.com`, without the app prefix. With `PROA_BASE_PATH=/apps/demo`, the generated sitemap contains `https://example.com/apps/demo/pricing`. Robots rules become `Allow: /apps/demo/` and `Disallow: /apps/demo/admin`. When both endpoints are enabled, robots.txt automatically advertises `https://example.com/apps/demo/sitemap.xml`.
+The public origin contains only a scheme, host and optional port: `https://example.com`, without the app prefix. With `PROA_BASE_PATH=/apps/demo`, the generated sitemap contains `https://example.com/apps/demo/pricing`. When [robots.txt](/docs/framework/robots) is enabled on the same builder, it automatically advertises `https://example.com/apps/demo/sitemap.xml`.
 
 Configuration order does not matter. The documents use the final `with_base_path` and `with_public_origin` values when the router is built. Origins are explicit configuration; request `Host` and forwarded headers do not override them.
 
-The endpoints are individually opt-in. `with_sitemap` installs `/sitemap.xml`; `with_robots` installs `/robots.txt`. Do not register custom handlers at the same paths when using these methods. A robots-only document needs no public origin unless you also enable the sitemap. Existing absolute sitemap links added with `RobotsTxt::sitemap` are preserved; an identical automatic sitemap link is not duplicated.
+`with_sitemap` installs a single `/sitemap.xml` document; `with_sitemaps` installs an index and named documents. These endpoints are opt-in. Do not register custom handlers at the same paths when using these methods. To publish crawler rules and advertise the generated sitemap or index, enable [robots.txt](/docs/framework/robots) on the same builder.
 
 ## Sitemap entries
 
@@ -161,90 +161,16 @@ Generation runs **once at application startup**, followed by validation and XML 
 
 Both sitemaps and indexes enforce the [protocol limits](https://www.sitemaps.org/protocol.html#index): at most 50,000 entries and 50 MiB of uncompressed UTF-8 XML per document. The byte check includes XML escaping. Splitting by entry count alone may still exceed the byte limit for long URLs; use smaller batches in that case. An oversized document returns a `DiscoveryError` rather than silently serving invalid XML. Dates should reflect actual content changes, rather than the time the generator runs.
 
-## Generate robots.txt
-
-Use the same async generation pattern as sitemaps:
-
-```rust
-.with_robots(generate_robots(&db).await?)
-```
-
-`generate_robots` is application-owned code returning `Result<RobotsTxt, YourError>`. It can read configuration, a database, or a CMS before the router is built. For example, assuming your application's `Database::crawler_exclusions()` returns a list of application-local path strings:
-
-```rust
-use proa_framework_axum::RobotsTxt;
-
-async fn generate_robots(db: &Database) -> anyhow::Result<RobotsTxt> {
-    let paths = db.crawler_exclusions().await?;
-    let mut robots = RobotsTxt::new().group("*")?;
-    for path in paths {
-        robots = robots.disallow(&path)?;
-    }
-    Ok(robots)
-}
-```
-
-Pass the result to the same builder that configures the sitemap:
-
-```rust
-let app = FrameworkBuilder::new(manifest)
-    .with_dynamic_routes_and_metadata(routes, metadata)
-    .with_base_path(base_path)
-    .with_public_origin(&origin)?
-    .with_sitemaps(generate_sitemaps(&db).await?)
-    .with_robots(generate_robots(&db).await?)
-    .try_build()?;
-```
-
-Generation and text rendering happen **once at startup**, and requests serve cached bytes. The final builder base path applies to allow/disallow paths exactly once. Existing explicit sitemap links are preserved, and the generated sitemap or index is advertised automatically without an identical duplicate. Use a custom handler with `robots_txt` for request-time generation or application-managed refresh.
-
-### Bot-specific rules and optional directives
-
-As in [Next.js robots metadata](https://nextjs.org/docs/app/api-reference/file-conventions/metadata/robots), configure different groups for different bots, several sitemap links, and optional directives:
-
-```rust
-use std::time::Duration;
-use proa_framework_axum::RobotsTxt;
-
-let robots = RobotsTxt::new()
-    .group_agents(["Applebot", "Bingbot"])?
-    .allow("/")?
-    .disallow("/private/")?
-    .crawl_delay(Duration::from_millis(1500))
-    .directive("Clean-param", "ref /articles/")?
-    .group("*")?
-    .allow("/")?
-    .disallow("/private/")?
-    .host("https://example.com")?
-    .sitemap("https://example.com/news-sitemap.xml")?;
-```
-
-`group_agents` emits consecutive `User-agent` lines sharing one rule group. `group` starts a new group; subsequent allow/disallow rules, crawl delay, and custom directives apply to that group. Calling a rule or per-group option before starting a group creates a wildcard group. Repeating `directive` emits repeated fields, preserving their names and values. Specific matching groups have their own rules; the wildcard group is a fallback, rather than a set of rules automatically inherited by named bots.
-
-`crawl_delay` uses a Rust `Duration` and renders exact decimal seconds, so 1500 milliseconds becomes `Crawl-delay: 1.5`. `host` accepts a hostname with optional port, or an HTTP(S) origin; it is explicit document configuration. It is not inferred from request headers or automatically set by the public origin.
-
-`Host`, `Crawl-delay`, and custom fields are optional crawler extensions. Support depends on the crawler; for example, [Google ignores crawl-delay](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec). Custom directive names must start with an ASCII letter and contain only ASCII letters, digits, or `-`. Values can contain spaces but cannot contain `#` or control characters. Reserved names (`User-agent`, `Allow`, `Disallow`, `Host`, `Sitemap`, `Crawl-delay`) use the typed methods. Extension values render verbatim and do not receive the application's base path.
-
-There is still **one robots.txt document per origin**, containing all user-agent groups and sitemap links. Multiple sitemap documents do not create multiple robots files.
-
-## Origin-root robots.txt
-
-Crawlers fetch `https://example.com/robots.txt`, even when the app lives at `/apps/demo/`. They do not discover robots rules from `/apps/demo/robots.txt`.
-
-Incoming Proa routes stay unprefixed. For a [prefix-stripping proxy](/docs/framework/deployment#serving-behind-a-url-path-prefix), forward origin-root `/robots.txt` to the builder's `/robots.txt` handler in addition to stripping `/apps/demo` for the app's other routes. Builder configuration cannot change the proxy's public routing.
-
-Root-relative robots rules supplied to `with_robots` are application-local paths: pass `/admin`, not `/apps/demo/admin`. The builder's base path replaces any base path already set on the document, so rules are never prefixed twice. A root rule (`/` or `/$`) also renders an end-anchored rule for the bare mount URL, so `disallow("/")` blocks both `/apps/demo` and everything under `/apps/demo/`. Empty rules and wildcard-leading patterns such as `*.pdf$` remain unchanged; those patterns match public paths directly. To scope a wildcard to the mount, use a root-relative rule such as `/*.pdf$`.
-
-Whitespace, `#` and control characters are rejected in user-agent and rule fields. A group with no rules renders an empty `Disallow:` so it does not merge into the next group.
-
 ## Custom and dynamic handlers
 
-The standalone `Sitemap`, `SitemapIndex`, `RobotsTxt`, `sitemap_xml`, `sitemap_index_xml` and `robots_txt` APIs remain available for applications that generate documents dynamically or use custom routing. In that mode, pass the application's configured origin and base path explicitly. Standalone robots rules are application paths too; call `RobotsTxt::with_base_path` to render them under the mount prefix. The response helpers use `application/xml` and `text/plain`, both with UTF-8.
+The standalone `Sitemap`, `SitemapIndex`, `sitemap_xml` and `sitemap_index_xml` APIs remain available for applications that generate documents dynamically or use custom routing. In that mode, pass the application's configured origin and base path explicitly. The response helpers use `application/xml` with UTF-8.
 
 If a dynamically generated sitemap or index fails to render, its response helper logs the cause and returns a generic 500. Builder-managed documents are validated at startup instead.
 
 ## Next steps
 
+- [Robots.txt](/docs/framework/robots)
+  - Configure bot-specific crawler rules and advertise the sitemap or index.
 - [Deployment](/docs/framework/deployment)
   - Configure the app's public prefix and forward origin-root `/robots.txt`.
 - [Configuration](/docs/framework/configuration)

@@ -216,7 +216,8 @@ uncompressed XML. Use smaller batches for long URLs. For application-managed
 refresh or dynamic responses, use `SitemapIndex` and `sitemap_index_xml` alongside
 the existing standalone sitemap helpers.
 
-Robots uses the same application-owned async generation pattern:
+[Robots.txt](../../proa_marketing/src/docs/framework/robots.mdx) uses the same
+application-owned async generation pattern:
 `.with_robots(generate_robots(&db).await?)`. Generate a `RobotsTxt` at startup;
 requests serve its cached text, with the final builder mount applied once and
 an automatic sitemap/index link. There is one robots.txt per origin.
