@@ -39,6 +39,8 @@ let app = FrameworkBuilder::new(manifest)
 
 `with_dynamic_routes_and_metadata` is the common path for page routes because it installs both the Axum router and the precomputed metadata map used by response finalization.
 
+The builder returns an Axum router; bind a TCP listener and pass both to `proa_framework_axum::serve()` to run it. See [the complete application example](/docs/framework/sitemaps#run-an-application) for sample page routes, discovery endpoints, and server startup.
+
 ## FrameworkBuilder Methods
 
 | Method | Use it for |
