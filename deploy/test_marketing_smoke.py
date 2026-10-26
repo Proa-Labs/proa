@@ -15,6 +15,12 @@ import marketing_smoke
 EXPECTED_REVISION = "0123456789abcdef0123456789abcdef01234567"
 
 RESPONSES = {
+    "/llms.txt": ("text/plain", b"# Proa\n\n" + b"Public Rust framework documentation. " * 4 + b"[Docs](/docs)"),
+    "/docs/llms.txt": ("text/plain", b"# Proa docs\n\n" + b"Public documentation index. " * 4 + b"[Quickstart](/docs/index.md)"),
+    "/index.md": ("text/markdown", b"# Proa\n\n[Documentation](/docs)"),
+    "/.well-known/ard.json": ("application/ai-catalog+json", json.dumps({"specVersion": "1.0", "entries": [{"identifier": "urn:air:proa.so:mcp:docs", "displayName": "Proa docs", "type": "application/mcp-server-card+json", "url": "https://proa.so/mcp/server-card"}]}).encode()),
+    "/api/v1/search?q=render&limit=2": ("application/json", json.dumps({"results": [{"path": "/docs", "markdown_url": "/docs/index.md"}], "next_cursor": "2"}).encode()),
+    "/mcp/server-card": ("application/json", json.dumps({"name": "so.proa/docs", "version": "1.0.0", "remotes": [{"type": "streamable-http", "url": "https://proa.so/mcp"}]}).encode()),
     "/healthz": ("text/plain; charset=utf-8", b"ok"),
     "/readyz": ("text/plain; charset=utf-8", b"ready"),
     "/": ("text/html; charset=utf-8", b"<!doctype html><html><title>Proa</title></html>"),

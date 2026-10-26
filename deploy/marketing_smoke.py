@@ -158,6 +158,44 @@ def validate_openapi(body: bytes, content_type: str) -> None:
         raise SmokeError("OpenAPI document does not match the published 3.1 contract")
 
 
+def validate_agent_index(body: bytes, content_type: str) -> None:
+    if "text/plain" not in content_type or not body.startswith(b"# "):
+        raise SmokeError("agent index must be plain-text Markdown, not an HTML fallback")
+    if len(body) < 100 or b"](" not in body:
+        raise SmokeError("agent index must describe the site and link to documentation")
+
+
+def validate_markdown(body: bytes, content_type: str) -> None:
+    if "text/markdown" not in content_type or not body.startswith(b"# "):
+        raise SmokeError("expected a heading-led Markdown representation")
+
+
+def validate_agent_catalog(body: bytes, content_type: str) -> None:
+    payload = json.loads(body)
+    if "json" not in content_type or payload.get("specVersion") != "1.0":
+        raise SmokeError("expected an AI resource catalog")
+    entries = payload.get("entries", [])
+    if not entries or any(not all(entry.get(key) for key in ("identifier", "displayName", "type", "url")) for entry in entries):
+        raise SmokeError("catalog entries need identity, type, and a target URL")
+
+
+def validate_doc_search(body: bytes, content_type: str) -> None:
+    payload = json.loads(body)
+    results = payload.get("results", [])
+    if "application/json" not in content_type or not results or "next_cursor" not in payload:
+        raise SmokeError("documentation search must return results and pagination metadata")
+    if any(not result.get("path", "").startswith("/docs") or not result.get("markdown_url", "").endswith(".md") for result in results):
+        raise SmokeError("search results must identify public documentation and Markdown routes")
+
+
+def validate_mcp_card(body: bytes, content_type: str) -> None:
+    payload = json.loads(body)
+    if "json" not in content_type or not payload.get("name") or not payload.get("version"):
+        raise SmokeError("MCP server card must identify the server")
+    if not any(remote.get("type") == "streamable-http" and remote.get("url", "").endswith("/mcp") for remote in payload.get("remotes", [])):
+        raise SmokeError("MCP server card must advertise its Streamable HTTP endpoint")
+
+
 CHECKS = (
     Check("/healthz", validate_text(b"ok")),
     Check("/readyz", validate_text(b"ready")),
@@ -168,6 +206,12 @@ CHECKS = (
     Check("/images/airbnb/bedroom.jpg", validate_showcase_image),
     Check("/.well-known/proa-site.json", validate_service_metadata),
     Check("/openapi.json", validate_openapi),
+    Check("/llms.txt", validate_agent_index),
+    Check("/docs/llms.txt", validate_agent_index),
+    Check("/index.md", validate_markdown),
+    Check("/.well-known/ard.json", validate_agent_catalog),
+    Check("/api/v1/search?q=render&limit=2", validate_doc_search),
+    Check("/mcp/server-card", validate_mcp_card),
 )
 
 

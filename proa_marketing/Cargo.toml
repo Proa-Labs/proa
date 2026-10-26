@@ -27,6 +27,7 @@ proa_showcase_web = { workspace = true }
 # json to read the GitHub release metadata, stream so an 11MB archive is
 # forwarded to the client instead of buffered in memory.
 reqwest = { workspace = true, features = ["json", "stream"] }
+rmcp = { version = "=3.2.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
 rsjs = { workspace = true }
 rsjs_macros = { workspace = true }
 serde = { workspace = true }

@@ -115,6 +115,8 @@ jobs:
         run: |
           cargo run --locked -p proa-cli --bin proa -- \
             test --root . --locked -p proa_marketing --bin proa_marketing
+      - name: Test browser documentation tools
+        run: node --test proa_marketing/tests-js/agent-tools.test.mjs
 
   workflow-lint:
     name: GitHub Actions syntax and shell safety

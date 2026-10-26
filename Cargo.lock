@@ -3501,6 +3501,7 @@ dependencies = [
  "proa_showcase_web",
  "proa_third_party",
  "reqwest 0.12.24",
+ "rmcp",
  "rsjs",
  "rsjs_macros",
  "serde",

@@ -1,0 +1,75 @@
+---
+title: Proa documentation API and MCP
+description: Search and read official Proa documentation over HTTP, MCP, or browser tools without credentials.
+sidebar_title: API and MCP
+keywords: [Proa API, MCP, WebMCP, OpenAPI, authentication, pagination, rate limits]
+---
+
+The public Proa documentation API searches and reads the same compiled pages as this website. Use it when a coding agent needs current Rust APIs, render patterns, RSJS instructions, or deployment guidance. All operations are read-only. No account, API key, OAuth token, payment, or signup is required.
+
+Start with [/llms.txt](/llms.txt), the [documentation index](/docs/llms.txt), or the [OpenAPI 3.1 specification](/openapi.json). This service provides documentation; it does not build, host, or deploy your applications.
+
+## Search documentation
+
+```bash
+curl 'https://proa.so/api/v1/search?q=streaming&limit=5'
+```
+
+`q` is a case-insensitive phrase of 1–256 characters, matched against titles, descriptions, and Markdown. The response contains `results`, `total`, and `next_cursor`. Each result includes `title`, `description`, the canonical `path`, and a direct `markdown_url`.
+
+Pass the returned `next_cursor` as `cursor` with the same query to read the next page. A null cursor means there are no more results. `limit` defaults to 10 and accepts 1–50. Cursors belong to a result set on the current deployment; restart pagination if the documentation changes during retrieval.
+
+## Read and list pages
+
+```bash
+curl 'https://proa.so/api/v1/docs/page?path=/docs/core/html-rendering'
+curl 'https://proa.so/api/v1/docs?limit=20'
+curl 'https://proa.so/docs/core/html-rendering.md'
+curl -H 'Accept: text/markdown' 'https://proa.so/'
+```
+
+`GET /api/v1/docs/page` returns metadata plus the complete `markdown` field. Its `path` must identify a public documentation page; arbitrary URLs and filesystem paths are rejected. `GET /api/v1/docs` lists all public pages with the same pagination shape as search.
+
+Every documentation page has a `.md` representation. The homepage is also available at `/index.md` and `/?mode=agent`. HTML and negotiated Markdown responses carry `Vary: Accept` so caches can distinguish the representations. Use [/llms-full.txt](/llms-full.txt) only when you need the entire corpus.
+
+## Connect through MCP
+
+Configure a Streamable HTTP MCP connection to `https://proa.so/mcp`, with no credentials. The [server card](/mcp/server-card) and [agent resource catalog](/.well-known/ard.json) advertise this endpoint. The service is stateless, so connections do not depend on a particular server instance.
+
+- `search_docs` accepts `q`, optional `limit`, and optional `cursor`. It returns the same document list as HTTP search.
+- `get_doc` accepts `path` and returns a complete Markdown document with its metadata.
+- `resources/list` lists public Markdown resources with names, descriptions, media types, and pagination.
+- `resources/read` reads a URI returned by `resources/list`.
+
+For example, initialize a connection using a supported MCP protocol version:
+
+```bash
+curl 'https://proa.so/mcp' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"docs-reader","version":"1.0.0"}}}'
+```
+
+Use the negotiated protocol version on subsequent requests. Standard MCP clients manage initialization and protocol headers. The server accepts non-browser clients without an Origin header; browser clients must use the deployment's own origin. Requests are limited to 16 KiB. Tool failures return MCP error content and unknown methods return JSON-RPC errors.
+
+## Browser tools
+
+When the browser supports WebMCP, the website registers `search_docs` and `get_doc` through `document.modelContext`, with a compatibility fallback for `navigator.modelContext`. These tools use the same public HTTP endpoints. They do not navigate, submit forms, or alter the page. Browsers without WebMCP continue to use the normal website and search.
+
+## Limits, errors, and retries
+
+The HTTP API and MCP endpoint share a budget of 600 requests per minute per running server instance. It is a shared service budget, not a personal quota. Responses include `RateLimit-Policy`, `RateLimit`, and `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`. A 429 response includes `Retry-After` in seconds; wait that long before retrying. These responses use `Cache-Control: no-store` so a cached budget is not mistaken for a current one.
+
+Versioned REST failures use `application/problem+json` with `type`, `title`, `status`, `code`, `detail`, and `documentation`. Codes include `invalid_request` (400), `not_found` (404), `method_not_allowed` (405), and `rate_limited` (429). Correct invalid parameters; use the document index to recover from missing paths. For network failures or temporary 5xx responses, retry with exponential backoff.
+
+All documented operations are synchronous reads and safe to repeat. They do not expose write operations, asynchronous jobs, or idempotency keys. Do not send credentials or personal data in search queries. See [authentication policy](/auth.md).
+
+## Versions and compatibility
+
+The `/api/v1` URL prefix identifies the contract version. Additive response fields may appear within v1; clients should ignore fields they do not use. Breaking changes use a new major URL prefix. Any future removal will first be documented here, with `Deprecation` and `Sunset` headers on the affected routes. No routes are currently scheduled for removal.
+
+The existing `/api/search?q=...` and JSON-string `POST /api/search` remain available for older clients. They return at most eight results and use their original response format. New integrations should use `/api/v1/search` for pagination and typed errors.
+
+## Local development
+
+Run the marketing application locally with `cargo run -p proa_marketing`. Set `SITE_URL=http://localhost:5555` when testing absolute discovery URLs or browser-origin validation. The same public read-only operations work locally without credentials. For building applications with Proa, use the [CLI quickstart](/docs/cli) and [agent setup guide](/docs/agents).

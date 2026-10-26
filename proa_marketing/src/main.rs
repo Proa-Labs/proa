@@ -6,6 +6,7 @@
 use std::env;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use axum::http::header::{HeaderValue, CACHE_CONTROL, LINK, X_CONTENT_TYPE_OPTIONS};
 use axum::routing::{get, post};
@@ -26,6 +27,9 @@ mod layout;
 mod pages;
 mod static_assets;
 mod utils;
+
+#[cfg(test)]
+mod agent_tests;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -56,6 +60,35 @@ fn listen_addr(host: &str, port: u16) -> anyhow::Result<SocketAddr> {
 }
 
 fn app() -> Router {
+    let budget = Arc::new(Mutex::new(endpoints::api::RequestBudget::default()));
+    let agent_api = Router::new()
+        .route("/api", get(endpoints::agent_discovery::site_metadata))
+        .route("/api/v1", get(endpoints::agent_discovery::site_metadata))
+        .route(
+            "/api/v1/search",
+            get(endpoints::api::search_handler).fallback(endpoints::api::method_not_allowed),
+        )
+        .route(
+            "/api/v1/docs",
+            get(endpoints::api::list_handler).fallback(endpoints::api::method_not_allowed),
+        )
+        .route(
+            "/api/v1/docs/page",
+            get(endpoints::api::page_handler).fallback(endpoints::api::method_not_allowed),
+        )
+        .route(
+            "/api/v1/*path",
+            get(endpoints::api::not_found).fallback(endpoints::api::method_not_allowed),
+        )
+        .route(
+            "/api/search",
+            get(endpoints::search::handler).post(endpoints::search::post_handler),
+        )
+        .route_service("/mcp", endpoints::mcp::service())
+        .layer(axum::middleware::from_fn_with_state(
+            budget,
+            endpoints::api::rate_limit,
+        ));
     Router::new()
         .route(
             "/",
@@ -77,6 +110,8 @@ fn app() -> Router {
         )
         .route("/privacy", get(pages::legal::privacy_handler))
         .route("/terms", get(pages::legal::terms_handler))
+        .route("/about", get(pages::info::about))
+        .route("/contact", get(pages::info::contact))
         .route(
             "/demos/quantity-stepper",
             get(pages::demos::quantity_stepper_handler),
@@ -86,17 +121,49 @@ fn app() -> Router {
             post(pages::demos::quantity_stepper_cart_handler),
         )
         .route("/docs", get(pages::docs::handler))
+        .route(
+            "/docs/llms.txt",
+            get(endpoints::agent_discovery::docs_index),
+        )
         .route("/docs/*path", get(pages::docs::path_handler))
         .route(
             "/.well-known/proa-site.json",
             get(endpoints::agent_discovery::site_metadata),
         )
         .route("/openapi.json", get(endpoints::agent_discovery::openapi))
-        .route("/llms-full.txt", get(endpoints::llms::site_handler))
+        .route("/llms.txt", get(endpoints::agent_discovery::index))
         .route(
-            "/api/search",
-            get(endpoints::search::handler).post(endpoints::search::post_handler),
+            "/.well-known/llms.txt",
+            get(endpoints::agent_discovery::index),
         )
+        .route("/index.md", get(endpoints::agent_discovery::home))
+        .route("/auth.md", get(endpoints::agent_discovery::auth))
+        .route(
+            "/.well-known/ard.json",
+            get(endpoints::agent_discovery::catalog),
+        )
+        .route(
+            "/.well-known/ai-catalog.json",
+            get(endpoints::agent_discovery::catalog),
+        )
+        .route(
+            "/.well-known/api-catalog",
+            get(endpoints::agent_discovery::api_catalog),
+        )
+        .route(
+            "/.well-known/agent-skills/index.json",
+            get(endpoints::agent_discovery::skills),
+        )
+        .route(
+            "/.well-known/agent-skills/:name/SKILL.md",
+            get(endpoints::agent_discovery::skill),
+        )
+        .route(
+            "/mcp/server-card",
+            get(endpoints::agent_discovery::server_card),
+        )
+        .route("/llms-full.txt", get(endpoints::llms::site_handler))
+        .merge(agent_api)
         .route("/healthz", get(endpoints::health::healthz))
         .route("/readyz", get(endpoints::health::readyz))
         .route("/robots.txt", get(endpoints::robots::handler))
@@ -121,6 +188,7 @@ fn app() -> Router {
         .merge(proa_demo::playground::marketing_router())
         .merge(proa_showcase_web::router())
         .nest_service("/static", static_service())
+        .fallback(endpoints::not_found::handler)
         .layer(CompressionLayer::new().compress_when(compression_predicate()))
         .layer(TraceLayer::new_for_http())
 }

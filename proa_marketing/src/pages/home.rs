@@ -1,7 +1,11 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use axum::response::Html;
+use axum::{
+    extract::Query,
+    http::{header, HeaderMap, HeaderValue},
+    response::{IntoResponse, Response},
+};
 use proa_core::{DataLoader, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::html_sync;
 use rsjs::signal;
@@ -9,15 +13,31 @@ use rsjs_macros::rsjs;
 
 use crate::layout::{render_page, PageMeta};
 
-pub async fn handler() -> Html<String> {
-    render_page(
+#[derive(Default, serde::Deserialize)]
+pub struct HomeQuery {
+    mode: Option<String>,
+}
+
+pub async fn handler(headers: HeaderMap, Query(query): Query<HomeQuery>) -> Response {
+    let markdown = crate::endpoints::agent_discovery::home_markdown();
+    let mut response = if crate::utils::http::accepts_markdown(&headers)
+        || query.mode.as_deref() == Some("agent")
+    {
+        crate::endpoints::agent_discovery::text_response(markdown, "text/markdown; charset=utf-8")
+    } else {
+        render_page(
         PageMeta {
-            title: "Proa — The next era of web interfaces. Built in Rust.",
+            title: "Proa — Rust web framework for compiled HTML and interactive islands",
             description: "A batteries-included Rust web framework built around a new programming model for composable, multi-target rendering.",
             path: "/",
         },
         HomePage,
-    )
+        ).into_response()
+    };
+    response
+        .headers_mut()
+        .insert(header::VARY, HeaderValue::from_static("Accept"));
+    response
 }
 
 struct HomePage;
@@ -2381,14 +2401,17 @@ mod tests {
         assert!(html.contains("proa-hero-tabs"));
     }
 
-    #[test]
-    fn homepage_metadata_fits_social_preview_limits() {
-        use futures::FutureExt;
-
-        let html = super::handler()
-            .now_or_never()
-            .expect("homepage renders without I/O")
-            .0;
+    #[tokio::test]
+    async fn homepage_metadata_fits_social_preview_limits() {
+        let response = super::handler(
+            axum::http::HeaderMap::new(),
+            axum::extract::Query(super::HomeQuery::default()),
+        )
+        .await;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
         let head = html.split_once("</head>").unwrap().0;
         let title = head
             .split_once("<title>")
