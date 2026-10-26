@@ -1,8 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! `proa chunks`: inspect template consolidation for `html!` / `html_sync!`
-//! bodies.
+//! `proa chunks`: inspect template consolidation for HTML and XML macro bodies.
 
 use anyhow::Result;
 use clap::Args;

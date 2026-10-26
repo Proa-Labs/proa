@@ -27,7 +27,7 @@
 use crate::parse::{Attribute, Element, HtmlRoot, MarkupName, Node};
 use proc_macro2::TokenStream;
 use quote::quote;
-use std::cell::Cell;
+use std::{cell::Cell, fmt::Write as _};
 use syn::Expr;
 
 pub mod sink;
@@ -222,7 +222,7 @@ fn node_has_dynamic_content(node: &Node) -> bool {
         Node::Block(_) => true,
         Node::Fragment(children) => children.iter().any(node_has_dynamic_content),
         Node::Element(el) => el.children.iter().any(node_has_dynamic_content),
-        Node::Text(_) | Node::Doctype(_) => false,
+        Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => false,
     }
 }
 
@@ -483,7 +483,7 @@ fn validate_xml_node(node: &Node, errors: &mut Vec<syn::Error>) {
                 validate_xml_node(child, errors);
             }
         }
-        Node::Block(_) | Node::Doctype(_) => {}
+        Node::Block(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
     }
 }
 
@@ -1148,7 +1148,7 @@ fn validate_child_indentation(
                 );
             }
         }
-        Node::Text(_) | Node::Block(_) | Node::Doctype(_) => {}
+        Node::Text(_) | Node::Block(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
     }
 }
 
@@ -2566,7 +2566,7 @@ pub fn is_static_node(node: &Node) -> bool {
         Node::Element(el) => is_static_element(el),
         Node::Block(_) => false, // Expressions are never static
         Node::Fragment(children) => children.iter().all(is_static_node),
-        Node::Doctype(_) => true,
+        Node::Doctype(_) | Node::XmlDeclaration(_) => true,
     }
 }
 
@@ -2645,6 +2645,9 @@ pub fn render_static_node(node: &Node, out: &mut String, dialect: MarkupDialect)
             if dialect == MarkupDialect::Html {
                 out.push_str(PROA_DOCTYPE_MARKER);
             }
+        }
+        Node::XmlDeclaration(declaration) => {
+            write!(out, "{declaration}").expect("writing XML declaration to String cannot fail");
         }
         Node::Block(_) => unreachable!("Block nodes are not static"),
     }

@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! `proa chunks`: consolidation inspector for `html!` / `html_sync!` bodies.
+//! `proa chunks`: consolidation inspector for HTML and XML macro bodies.
 //!
 //! The macros compile a template into alternating static byte runs and
 //! dynamic slots. The number, size, and placement of those runs decide how
@@ -40,6 +40,7 @@ pub struct MacroChunkReport {
 
 #[derive(Default)]
 struct ChunkEstimator {
+    is_xml: bool,
     runs: Vec<usize>,
     current: usize,
     text_slots: usize,
@@ -83,6 +84,7 @@ impl ChunkEstimator {
             Node::Text(lit) => self.push_static(lit.value().len()),
             Node::Block(_) => self.break_run(false),
             Node::Doctype(doctype) => self.push_static(doctype.len() + 2),
+            Node::XmlDeclaration(declaration) => self.push_static(declaration.to_string().len()),
         }
     }
 
@@ -98,6 +100,9 @@ impl ChunkEstimator {
                 }
                 Attribute::Bool { name } => {
                     self.push_static(1 + name.as_markup_str().len());
+                    if self.is_xml {
+                        self.push_static(3); // `=""`
+                    }
                 }
                 Attribute::Dynamic { name, .. } => {
                     // ` name="` then the slot, then the closing quote.
@@ -113,8 +118,8 @@ impl ChunkEstimator {
         }
         self.push_static(1); // `>`
         self.walk_nodes(&el.children);
-        // Void elements emit no close tag.
-        if !crate::fmt::html_void_element(&tag) {
+        // Only HTML has void elements; XML vocabularies can reuse their names.
+        if self.is_xml || !crate::fmt::html_void_element(&tag) {
             // `</tag>`
             self.push_static(3 + tag.len());
         }
@@ -128,13 +133,16 @@ pub fn analyze_paths(paths: &[PathBuf]) -> Result<Vec<MacroChunkReport>> {
             .with_context(|| format!("failed to read {}", path.display()))?;
         let display = display_path(&path);
         for inv in find_macros(&source) {
-            if inv.dialect != MacroDialect::Html {
+            if inv.dialect == MacroDialect::Md {
                 continue;
             }
             let Ok(root) = crate::lint::parse_invocation(&source, &inv) else {
                 continue;
             };
-            let mut estimator = ChunkEstimator::default();
+            let mut estimator = ChunkEstimator {
+                is_xml: inv.dialect == MacroDialect::Xml,
+                ..Default::default()
+            };
             estimator.walk_nodes(&root.nodes);
             let (runs, text_slots, attr_slots) = estimator.finish();
             let static_bytes: usize = runs.iter().sum();
@@ -160,7 +168,7 @@ pub fn print_reports(reports: &[MacroChunkReport], json: bool) -> Result<()> {
         return Ok(());
     }
     if reports.is_empty() {
-        println!("no html!/html_sync! macro bodies found");
+        println!("no HTML or XML macro bodies found");
         return Ok(());
     }
     println!(
@@ -193,6 +201,32 @@ pub fn print_reports(reports: &[MacroChunkReport], json: bool) -> Result<()> {
 mod tests {
     use super::*;
     use crate::source::find_macros;
+
+    #[test]
+    fn xml_declaration_joins_the_opening_static_run() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("feed.rs");
+        std::fs::write(
+            &path,
+            r#"fn render() {
+                xml_sync! {
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <link enabled>{title}</link>
+                }
+            }"#,
+        )
+        .unwrap();
+        let reports = analyze_paths(&[path]).unwrap();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].macro_name, "xml_sync");
+        assert_eq!(reports[0].runs, 2);
+        assert_eq!(reports[0].text_slots, 1);
+        assert_eq!(reports[0].attr_slots, 0);
+        assert_eq!(
+            reports[0].largest_run,
+            r#"<?xml version="1.0" encoding="UTF-8"?><link enabled="">"#.len()
+        );
+    }
 
     #[test]
     fn estimates_runs_and_slots() {

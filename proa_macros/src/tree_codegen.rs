@@ -175,8 +175,8 @@ fn generate_node(node: &Node) -> TokenStream {
             }
         }
         Node::Block(expr) => generate_block_node(expr),
-        Node::Doctype(_) => {
-            // DOCTYPE is not part of the component tree for TS generation
+        Node::Doctype(_) | Node::XmlDeclaration(_) => {
+            // Document declarations are not part of the component tree for TS generation.
             quote! {
                 ::proa_ir::component_tree::TreeNode::Text(
                     ::proa_ir::component_tree::TextNode {

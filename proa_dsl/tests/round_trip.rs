@@ -325,6 +325,23 @@ fn xml_namespaced_tag_and_attribute_round_trip() {
 }
 
 #[test]
+fn xml_declaration_round_trips_optional_fields() {
+    for declaration in [
+        r#"<?xml version="1.0"?>"#,
+        r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+        r#"<?xml version="1.0" encoding="utf-8" standalone="yes"?>"#,
+        r#"<?xml version="1.0" standalone="no"?>"#,
+    ] {
+        let root = assert_xml_round_trip(&format!("{declaration}<feed/>"));
+        match &root.nodes[0] {
+            Node::XmlDeclaration(parsed) => assert_eq!(parsed.to_string(), declaration),
+            _ => panic!("expected XML declaration"),
+        }
+        assert!(matches!(&root.nodes[1], Node::Element(_)));
+    }
+}
+
+#[test]
 fn html_rejects_namespaced_tag_syntax() {
     assert!(syn::parse_str::<HtmlRoot>(r#"<svg:path/>"#).is_err());
 }

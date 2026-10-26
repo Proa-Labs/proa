@@ -4,6 +4,12 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- `xml!` and `xml_sync!` accept a leading `<?xml version="1.0" encoding="UTF-8"?>`
+  declaration and consolidate it with adjacent static markup. Declaration
+  fields are checked at compile time; formatting preserves their values.
+  Sitemap writers use this syntax directly, without a raw declaration string.
+  `proa chunks` also inspects XML templates and includes declarations in static runs.
+
 - `Sitemap` and `RobotsTxt` build sitemap.xml and robots.txt from a public
   origin, the runtime base path, and application paths. `sitemap_xml` and
   `robots_txt` return Axum responses with the matching content types.

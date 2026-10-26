@@ -205,6 +205,7 @@ pub fn text(input: TokenStream) -> TokenStream {
 /// XML escaping rules: U+00A0 passes through as UTF-8 and U+0000 is rejected.
 /// HTML-only validation is intentionally not applied because XML vocabularies
 /// are application-defined.
+/// XML declarations use the same syntax and restrictions as [`xml_sync!`].
 #[proc_macro]
 pub fn xml(input: TokenStream) -> TokenStream {
     let root = parse_macro_input!(input as XmlRoot).into_inner();
@@ -224,6 +225,26 @@ pub fn xml(input: TokenStream) -> TokenStream {
 /// Use this for non-async XML render paths. It preserves static consolidation
 /// and switches dynamic text/attribute escaping to XML while the fragment
 /// renders.
+///
+/// An optional XML declaration must be the first top-level node. Its fields
+/// must be string literals in XML order: `version`, optional `encoding`, then
+/// optional `standalone`. Proa supports version `1.0`, UTF-8 encoding, and
+/// `standalone="yes"` or `"no"`. The declaration joins the static byte run;
+/// arbitrary processing instructions are not supported.
+/// See [XML §2.8](https://www.w3.org/TR/xml/#sec-prolog-dtd) and
+/// [XML §4.3.3](https://www.w3.org/TR/xml/#charencoding).
+///
+/// ```
+/// use proa_core::render_to_string;
+/// use proa_macros::xml_sync;
+///
+/// let label = "Plans & pricing";
+/// let output = render_to_string(xml_sync! {
+///     <?xml version="1.0" encoding="UTF-8"?>
+///     <feed><title>{label}</title></feed>
+/// });
+/// assert!(output.contains("Plans &amp; pricing"));
+/// ```
 #[proc_macro]
 pub fn xml_sync(input: TokenStream) -> TokenStream {
     let root = parse_macro_input!(input as XmlRoot).into_inner();

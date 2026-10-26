@@ -25,7 +25,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, TokenStreamExt};
 use syn::{Ident, LitInt, Token};
 
-use crate::parse::{Attribute, Element, HtmlRoot, MarkupName, Node, XmlRoot};
+use crate::parse::{Attribute, Element, HtmlRoot, MarkupName, Node, XmlDeclaration, XmlRoot};
 
 impl ToTokens for HtmlRoot {
     fn to_tokens(&self, tokens: &mut TokenStream) {
@@ -64,7 +64,23 @@ impl ToTokens for Node {
                 // HTML5 form, so emit the canonical declaration.
                 tokens.append_all(quote::quote! { <!DOCTYPE html> });
             }
+            Node::XmlDeclaration(declaration) => declaration.to_tokens(tokens),
         }
+    }
+}
+
+impl ToTokens for XmlDeclaration {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let version = &self.version;
+        let encoding = self
+            .encoding
+            .as_ref()
+            .map(|value| quote::quote! { encoding = #value });
+        let standalone = self
+            .standalone
+            .as_ref()
+            .map(|value| quote::quote! { standalone = #value });
+        tokens.append_all(quote::quote! { <?xml version = #version #encoding #standalone ?> });
     }
 }
 

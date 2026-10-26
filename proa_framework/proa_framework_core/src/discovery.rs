@@ -12,7 +12,6 @@
 use std::{fmt::Write as _, time::Duration};
 
 use jiff::civil::Date;
-use proa_core::text::StaticRaw;
 use proa_core::{
     BasePath, DataLoader, OutputMeter, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
@@ -291,7 +290,8 @@ impl Sitemap {
             url.path.validate(&self.origin, &self.base_path)?;
         }
         xml_sync! {
-            {StaticRaw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")}
+            <?xml version="1.0" encoding="UTF-8"?>
+            "\n"
             <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
                 {for url in &self.urls {
                     xml_sync! {
@@ -464,7 +464,8 @@ impl SitemapIndex {
             entry.path.validate(&self.origin, &self.base_path)?;
         }
         xml_sync! {
-            {StaticRaw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")}
+            <?xml version="1.0" encoding="UTF-8"?>
+            "\n"
             <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
                 {for entry in &self.entries {
                     xml_sync! {

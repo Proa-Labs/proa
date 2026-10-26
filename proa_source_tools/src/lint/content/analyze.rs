@@ -380,7 +380,7 @@ impl Analyzer<'_> {
                         && static_nodes(&element.children)
                 }
                 Node::Fragment(children) => static_nodes(children),
-                Node::Doctype(_) => true,
+                Node::Doctype(_) | Node::XmlDeclaration(_) => true,
                 _ => false,
             })
         }
@@ -1188,7 +1188,7 @@ impl Analyzer<'_> {
                 Node::Text(t) => {
                     v.append(self.literal(&t.value(), self.range(t.span(), override_range)));
                 }
-                Node::Doctype(_) => {}
+                Node::Doctype(_) | Node::XmlDeclaration(_) => {}
             }
         }
         v

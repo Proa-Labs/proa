@@ -21,7 +21,7 @@ use super::{
     generate_optimized, generate_optimized_async, generate_optimized_async_xml,
     generate_optimized_xml, validate_security,
 };
-use crate::parse::HtmlRoot;
+use crate::parse::{HtmlRoot, XmlRoot};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -119,6 +119,7 @@ const CASES: &[Case] = &[
     Case {
         name: "xml_feed",
         template: r#"
+            <?xml version="1.0" encoding="UTF-8"?>
             <feed xmlns="http://www.w3.org/2005/Atom">
                 <title>{title}</title>
                 <entry_count>"3"</entry_count>
@@ -167,8 +168,12 @@ fn check(name: &str, actual: &str) -> Result<(), String> {
 fn expansion_matches_goldens() {
     let mut failures = Vec::new();
     for case in CASES {
-        let root: HtmlRoot = syn::parse_str(case.template)
-            .unwrap_or_else(|err| panic!("case `{}` failed to parse: {err}", case.name));
+        let root: HtmlRoot = if case.xml {
+            syn::parse_str::<XmlRoot>(case.template).map(XmlRoot::into_inner)
+        } else {
+            syn::parse_str(case.template)
+        }
+        .unwrap_or_else(|err| panic!("case `{}` failed to parse: {err}", case.name));
         let mut out = String::new();
         if case.xml {
             writeln!(out, "--- sync-xml ---").unwrap();

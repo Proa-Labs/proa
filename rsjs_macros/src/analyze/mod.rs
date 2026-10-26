@@ -298,7 +298,7 @@ fn collect_template_self_field_uses(
                 let mut counter = SelfFieldUseCounter { uses };
                 counter.visit_expr(expression);
             }
-            Node::Text(_) | Node::Doctype(_) => {}
+            Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
         }
     }
 }
