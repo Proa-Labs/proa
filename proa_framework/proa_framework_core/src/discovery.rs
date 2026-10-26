@@ -12,7 +12,7 @@
 use std::{fmt::Write as _, time::Duration};
 
 use jiff::civil::Date;
-use proa_core::text::UnsafeRaw;
+use proa_core::text::StaticRaw;
 use proa_core::{
     BasePath, DataLoader, OutputMeter, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
@@ -286,33 +286,33 @@ impl Sitemap {
             return Err(DiscoveryError::EmptySitemap);
         }
         validate_mount(&self.base_path)?;
-        WebRenderSync::render(
-            UnsafeRaw(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
-            ),
-            cx,
-        )?;
+        // Preserve discovery errors before entering the WriteError-only renderer.
         for url in &self.urls {
-            let (origin, mount, path) = url.path.parts(&self.origin, &self.base_path)?;
-            let changefreq = url.changefreq.map(ChangeFreq::as_str).unwrap_or("");
-            let priority = url.priority.map(SitemapPriority::as_str).unwrap_or("");
-            xml_sync! {
-                <url>
-                    <loc>{SitemapLoc([origin, mount, path])}</loc>
-                    {if let Some(lastmod) = url.lastmod {
-                        xml_sync! { <lastmod>{text!("{:}", lastmod)}</lastmod> }
-                    }}
-                    {if !changefreq.is_empty() {
-                        xml_sync! { <changefreq>{changefreq}</changefreq> }
-                    }}
-                    {if !priority.is_empty() {
-                        xml_sync! { <priority>{priority}</priority> }
-                    }}
-                </url>
-            }
-            .render(cx)?;
+            url.path.validate(&self.origin, &self.base_path)?;
         }
-        WebRenderSync::render(UnsafeRaw("</urlset>\n"), cx)?;
+        xml_sync! {
+            {StaticRaw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")}
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+                {for url in &self.urls {
+                    xml_sync! {
+                        <url>
+                            <loc>{url.path.xml(&self.origin, &self.base_path)}</loc>
+                            {if let Some(lastmod) = url.lastmod {
+                                xml_sync! { <lastmod>{text!("{:}", lastmod)}</lastmod> }
+                            }}
+                            {if let Some(changefreq) = url.changefreq {
+                                xml_sync! { <changefreq>{changefreq.as_str()}</changefreq> }
+                            }}
+                            {if let Some(priority) = url.priority {
+                                xml_sync! { <priority>{priority.as_str()}</priority> }
+                            }}
+                        </url>
+                    }
+                }}
+            </urlset>
+            "\n"
+        }
+        .render(cx)?;
         Ok(())
     }
 }
@@ -459,22 +459,27 @@ impl SitemapIndex {
             return Err(DiscoveryError::EmptySitemapIndex);
         }
         validate_mount(&self.base_path)?;
-        UnsafeRaw(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
-        ).render(cx)?;
+        // Preserve discovery errors before entering the WriteError-only renderer.
         for entry in &self.entries {
-            let (origin, mount, path) = entry.path.parts(&self.origin, &self.base_path)?;
-            xml_sync! {
-                <sitemap>
-                    <loc>{SitemapLoc([origin, mount, path])}</loc>
-                    {if let Some(lastmod) = entry.lastmod {
-                        xml_sync! { <lastmod>{text!("{:}", lastmod)}</lastmod> }
-                    }}
-                </sitemap>
-            }
-            .render(cx)?;
+            entry.path.validate(&self.origin, &self.base_path)?;
         }
-        UnsafeRaw("</sitemapindex>\n").render(cx)?;
+        xml_sync! {
+            {StaticRaw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")}
+            <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+                {for entry in &self.entries {
+                    xml_sync! {
+                        <sitemap>
+                            <loc>{entry.path.xml(&self.origin, &self.base_path)}</loc>
+                            {if let Some(lastmod) = entry.lastmod {
+                                xml_sync! { <lastmod>{text!("{:}", lastmod)}</lastmod> }
+                            }}
+                        </sitemap>
+                    }
+                }}
+            </sitemapindex>
+            "\n"
+        }
+        .render(cx)?;
         Ok(())
     }
 }
@@ -498,11 +503,7 @@ impl SitemapLocation {
         Ok(Self { spelling, absolute })
     }
 
-    fn parts<'a>(
-        &'a self,
-        origin: &'a str,
-        base_path: &'a BasePath,
-    ) -> Result<(&'a str, &'a str, &'a str), DiscoveryError> {
+    fn validate(&self, origin: &str, base_path: &BasePath) -> Result<(), DiscoveryError> {
         if self
             .absolute
             .as_ref()
@@ -510,7 +511,19 @@ impl SitemapLocation {
         {
             return Err(DiscoveryError::OutsideBasePath);
         }
-        loc_parts(origin, base_path, &self.spelling)
+        loc_parts(origin, base_path, &self.spelling)?;
+        Ok(())
+    }
+
+    /// Borrow components after `validate` has checked this origin and base path.
+    /// Rendering does not repeat scope/length checks or allocate a URL string.
+    fn xml<'a>(&'a self, origin: &'a str, base_path: &'a BasePath) -> SitemapLoc<'a> {
+        let (origin, mount) = if self.absolute.is_some() {
+            ("", "")
+        } else {
+            (origin, base_path.as_str())
+        };
+        SitemapLoc([origin, mount, &self.spelling])
     }
 }
 
