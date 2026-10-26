@@ -29,7 +29,8 @@ pub struct HtmlRootWithTopLevelSpans {
 ///
 /// XML uses the same node representation as `HtmlRoot`, but parses with XML
 /// name rules: `prefix:local` qualified names are accepted and HTML void
-/// element inference is disabled.
+/// element inference is disabled. An optional [`XmlDeclaration`] can appear
+/// only as the first top-level node.
 pub struct XmlRoot {
     pub nodes: Vec<Node>,
 }
@@ -56,6 +57,38 @@ pub enum Node {
     Block(Expr),
     /// A DOCTYPE declaration: `<!DOCTYPE html>`
     Doctype(String),
+    /// An XML declaration: `<?xml version="1.0" encoding="UTF-8"?>`.
+    XmlDeclaration(XmlDeclaration),
+}
+
+/// A static XML 1.0 declaration, permitted only at an XML template's start.
+/// Field order follows [XML §2.8](https://www.w3.org/TR/xml/#sec-prolog-dtd).
+/// Proa emits UTF-8 bytes, so another declared encoding would violate
+/// [XML §4.3.3](https://www.w3.org/TR/xml/#charencoding).
+pub struct XmlDeclaration {
+    pub(crate) version: LitStr,
+    pub(crate) encoding: Option<LitStr>,
+    pub(crate) standalone: Option<LitStr>,
+}
+
+impl XmlDeclaration {
+    /// Source location of the required version field.
+    pub fn span(&self) -> proc_macro2::Span {
+        self.version.span()
+    }
+}
+
+impl fmt::Display for XmlDeclaration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<?xml version=\"{}\"", self.version.value())?;
+        if let Some(encoding) = &self.encoding {
+            write!(f, " encoding=\"{}\"", encoding.value())?;
+        }
+        if let Some(standalone) = &self.standalone {
+            write!(f, " standalone=\"{}\"", standalone.value())?;
+        }
+        f.write_str("?>")
+    }
 }
 
 /// An HTML element
@@ -205,6 +238,9 @@ enum ParseMode {
 fn parse_root(input: ParseStream, mode: ParseMode) -> Result<Vec<Node>> {
     let mut nodes = Vec::new();
 
+    if mode == ParseMode::Xml && input.peek(Token![<]) && input.peek2(Token![?]) {
+        nodes.push(Node::XmlDeclaration(parse_xml_declaration(input)?));
+    }
     while !input.is_empty() {
         nodes.push(parse_node(input, mode)?);
     }
@@ -219,6 +255,14 @@ fn parse_node(input: ParseStream, mode: ParseMode) -> Result<Node> {
         // Check if this is a DOCTYPE, fragment, or regular element
         let fork = input.fork();
         fork.parse::<Token![<]>()?;
+
+        if fork.peek(Token![?]) {
+            return Err(input.error(if mode == ParseMode::Xml {
+                "an XML declaration must be the first top-level node of an XML template"
+            } else {
+                "XML declarations are only supported by xml! and xml_sync!"
+            }));
+        }
 
         // Check for `<!` (DOCTYPE)
         if fork.peek(Token![!]) {
@@ -244,6 +288,73 @@ fn parse_node(input: ParseStream, mode: ParseMode) -> Result<Node> {
     } else {
         Err(lookahead.error())
     }
+}
+
+fn parse_xml_declaration(input: ParseStream) -> Result<XmlDeclaration> {
+    input.parse::<Token![<]>()?;
+    input.parse::<Token![?]>()?;
+    let target = input.parse::<Ident>()?;
+    if target != "xml" {
+        return Err(syn::Error::new(
+            target.span(),
+            "only `<?xml ...?>` declarations are supported; other processing instructions are not",
+        ));
+    }
+    let version_name = input.parse::<Ident>()?;
+    if version_name != "version" {
+        return Err(syn::Error::new(
+            version_name.span(),
+            "an XML declaration must start with `version=\"1.0\"`",
+        ));
+    }
+    input.parse::<Token![=]>()?;
+    let version = input.parse::<LitStr>()?;
+    if version.value() != "1.0" {
+        return Err(syn::Error::new(
+            version.span(),
+            "Proa's XML renderer supports version \"1.0\"",
+        ));
+    }
+    let mut encoding = None;
+    let mut standalone = None;
+    while !input.peek(Token![?]) {
+        let name = input.parse::<Ident>()?;
+        input.parse::<Token![=]>()?;
+        let value = input.parse::<LitStr>()?;
+        match name.to_string().as_str() {
+            "encoding" if encoding.is_none() && standalone.is_none() => {
+                if !value.value().eq_ignore_ascii_case("UTF-8") {
+                    return Err(syn::Error::new(
+                        value.span(),
+                        "Proa emits UTF-8 bytes; an XML declaration must use encoding=\"UTF-8\"",
+                    ));
+                }
+                encoding = Some(value);
+            }
+            "standalone" if standalone.is_none() => {
+                if !matches!(value.value().as_str(), "yes" | "no") {
+                    return Err(syn::Error::new(
+                        value.span(),
+                        "XML standalone must be \"yes\" or \"no\"",
+                    ));
+                }
+                standalone = Some(value);
+            }
+            _ => {
+                return Err(syn::Error::new(
+                    name.span(),
+                    "XML declaration fields must occur once in order: version, optional encoding, optional standalone",
+                ));
+            }
+        }
+    }
+    input.parse::<Token![?]>()?;
+    input.parse::<Token![>]>()?;
+    Ok(XmlDeclaration {
+        version,
+        encoding,
+        standalone,
+    })
 }
 
 fn parse_doctype(input: ParseStream) -> Result<Node> {

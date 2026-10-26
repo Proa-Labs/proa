@@ -1,0 +1,337 @@
+---
+title: Sitemaps
+description: Generate sitemap.xml, add page metadata, and split large sites into multiple sitemaps.
+---
+
+A sitemap lists page URLs for search engines to discover. Configure one document with `with_sitemap`, or named documents and an index with `with_sitemaps`.
+
+The Rust filenames below show one way to organize your app. Register generators explicitly on `FrameworkBuilder`. XML output is formatted for readability.
+
+## Generating a sitemap using Rust
+
+Add the page entries to your application builder:
+
+```rust filename="src/main.rs" {5-8}
+use proa_framework_axum::{FrameworkBuilder, SitemapUrl};
+
+let app = FrameworkBuilder::new(manifest)
+    .with_public_origin("https://example.com")?
+    .with_sitemap([
+        SitemapUrl::new("/")?,
+        SitemapUrl::new("/pricing")?.lastmod("2026-10-25")?,
+    ])
+    .try_build()?;
+```
+
+Output:
+
+```xml filename="example.com/sitemap.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://example.com/</loc>
+  </url>
+  <url>
+    <loc>https://example.com/pricing</loc>
+    <lastmod>2026-10-25</lastmod>
+  </url>
+</urlset>
+```
+
+Each `SitemapUrl` is one page entry in this single document. The example includes the home page and pricing page; it does not create two sitemaps. Register the actual page routes separately. Adding a `Route::page` does not automatically add it to the sitemap.
+
+> **Good to know:** `try_build()` validates and renders the document once at startup. Requests serve cached bytes. Enable [robots.txt](/docs/framework/robots) on the same builder to advertise the generated sitemap automatically.
+
+## Sitemap entries
+
+An entry can include a modification date, expected change frequency, and priority:
+
+```rust filename="src/main.rs" {6-8}
+use proa_framework_axum::{
+    ChangeFreq, FrameworkBuilder, SitemapPriority, SitemapUrl,
+};
+
+let pricing = SitemapUrl::new("/pricing")?
+    .lastmod("2026-10-25")?
+    .changefreq(ChangeFreq::Weekly)
+    .priority(SitemapPriority::tenths(8).expect("priority within 0..=10"));
+
+let app = FrameworkBuilder::new(manifest)
+    .with_public_origin("https://example.com")?
+    .with_sitemap([pricing])
+    .try_build()?;
+```
+
+Output:
+
+```xml filename="example.com/sitemap.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://example.com/pricing</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+</urlset>
+```
+
+| Entry API | Meaning |
+|---|---|
+| `SitemapUrl::new(path)?` | An application-local path or a same-origin absolute HTTP(S) URL. |
+| `.lastmod(date)?` | The page's actual modification date as `YYYY-MM-DD`; valid calendar dates span years `0001` through `9999`, including leap years. |
+| `.lastmod_date(date)?` | The same modification date supplied as a `jiff::civil::Date`, without string conversion. |
+| `.changefreq(value)` | An optional `ChangeFreq` value, such as `Weekly`. |
+| `.priority(value)` | An optional `SitemapPriority`, stored in tenths from `0.0` to `1.0`. |
+
+Dates are validated and stored using Jiff. String inputs must be exactly `YYYY-MM-DD`; timestamps are rejected rather than silently truncated. If your app already uses Jiff, pass its date directly (add `jiff = "0.2"` to your app's dependencies):
+
+```rust filename="src/sitemap.rs" {4}
+use proa_framework_axum::SitemapUrl;
+
+let pricing = SitemapUrl::new("/pricing")?
+    .lastmod_date(jiff::civil::date(2026, 10, 25))?;
+```
+
+Output (`<lastmod>` element):
+
+```xml filename="example.com/sitemap.xml"
+<lastmod>2026-10-25</lastmod>
+```
+
+Both methods produce the same `<lastmod>` element shown above, and are also available on `SitemapIndexEntry` for the modification date of a sitemap document. Date formatting writes into the XML output without a temporary string.
+
+Local paths receive the builder's base path exactly once. Absolute entries retain their spelling and are not prefixed. Absolute URLs must match the configured scheme, host, and effective port: HTTPS with no port matches `:443`, and HTTP matches `:80`. Origin comparison uses canonical URL hosts, including case, internationalized domains/punycode, IPv6 spellings, and default ports.
+
+For prefix-mounted apps, absolute page and sitemap-index URLs must resolve inside the final mount directory ([Sitemaps: location](https://www.sitemaps.org/protocol.html#location)). With `/apps/demo`, `/apps/demo/page` and `/apps/demo/` are inside; `/apps/demo`, `/apps/demo2/page`, and `/apps/demo/../../secret` are outside. `try_build()` rejects them with `DiscoveryError::OutsideBasePath`. Standalone documents check scope when rendering. Use local `/` for the application root; it renders as `/apps/demo/`. Local paths cannot traverse above the application root, including through percent-encoded `..` segments.
+
+Query strings are XML-escaped. Paths and URLs reject fragments, malformed percent escapes, C0/C1 controls, XML-forbidden characters, and raw characters excluded from URI syntax such as quotes, angle brackets, and braces. Square brackets are allowed around IPv6 hosts, but must be percent-encoded in paths and queries. Origins and absolute URL hosts are parsed and validated as HTTP(S) URLs. Each final loc must be shorter than 2048 bytes. Dates should reflect actual content changes, rather than the time the generator runs.
+
+Supply URL-encoded components when needed; XML entity escaping is a separate step ([Sitemaps: escaping](https://www.sitemaps.org/protocol.html#escaping)). Non-ASCII hosts and paths remain accepted and are written as supplied; provide encoded URLs when required by your server or crawler. The XML writer handles all five listed entities without temporary URL strings. Parsed absolute URLs are retained for origin and scope checks, so rendering does not reparse them. Proa's upper byte limit is conservative for Unicode IRIs; the protocol states a character limit. Final locations also need at least 12 characters under the official XML schemas. The date-only `lastmod` API and priorities in tenths are supported subsets of the protocol.
+
+## Multiple sitemaps
+
+Use `with_sitemaps` to split pages, products, or other collections into separate documents. Each `SitemapFile` contains page entries; its ID determines the document's route:
+
+```rust filename="src/main.rs" {5-13}
+use proa_framework_axum::{FrameworkBuilder, RobotsTxt, SitemapFile, SitemapUrl};
+
+let app = FrameworkBuilder::new(manifest)
+    .with_public_origin("https://example.com")?
+    .with_sitemaps([
+        SitemapFile::new("pages", [
+            SitemapUrl::new("/")?,
+            SitemapUrl::new("/pricing")?,
+        ])?,
+        SitemapFile::new("products-0", [
+            SitemapUrl::new("/products/1")?.lastmod("2026-10-25")?,
+        ])?,
+    ])
+    .with_robots(RobotsTxt::new())
+    .try_build()?;
+```
+
+Output:
+
+```xml filename="example.com/sitemap.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>https://example.com/sitemap-pages.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://example.com/sitemap-products-0.xml</loc>
+  </sitemap>
+</sitemapindex>
+```
+
+```xml filename="example.com/sitemap-pages.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://example.com/</loc>
+  </url>
+  <url>
+    <loc>https://example.com/pricing</loc>
+  </url>
+</urlset>
+```
+
+```xml filename="example.com/sitemap-products-0.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://example.com/products/1</loc>
+    <lastmod>2026-10-25</lastmod>
+  </url>
+</urlset>
+```
+
+```text filename="example.com/robots.txt"
+Sitemap: https://example.com/sitemap.xml
+```
+
+`/sitemap.xml` now contains a `<sitemapindex>` linking to the two `<urlset>` documents. Robots.txt advertises the index. Named documents live alongside the index so their [default directory scope](https://www.sitemaps.org/protocol.html#location) includes the application's page paths. Incoming handler paths are `/sitemap.xml`, `/sitemap-pages.xml`, `/sitemap-products-0.xml`, and `/robots.txt`.
+
+IDs must be unique, nonempty, and contain only ASCII letters, digits, `-`, or `_`. An empty file list or sitemap with no page entries returns a startup error. `with_sitemap` and `with_sitemaps` select alternative modes; the last call replaces the previous configuration. One file passed to `with_sitemaps` still produces an index and a child document.
+
+### Async generation from application data
+
+An application-owned `generate_sitemaps` function can query a database or CMS and group the resulting URLs into named documents. This example assumes your app defines `crate::db::Database`, whose `published_products()` method returns products with `path` and `last_modified` strings:
+
+```rust filename="src/sitemap.rs" {7,13,18}
+use crate::db::Database;
+use proa_framework_axum::{
+    DiscoveryError, SitemapFile, SitemapUrl, MAX_SITEMAP_ENTRIES,
+};
+
+pub async fn generate_sitemaps(db: &Database) -> anyhow::Result<Vec<SitemapFile>> {
+    let products = db.published_products().await?;
+    let mut files = vec![SitemapFile::new("pages", [
+        SitemapUrl::new("/")?,
+        SitemapUrl::new("/pricing")?,
+    ])?];
+
+    for (id, products) in products.chunks(MAX_SITEMAP_ENTRIES).enumerate() {
+        let urls = products.iter().map(|product| {
+            SitemapUrl::new(product.path.as_str())?
+                .lastmod(product.last_modified.as_str())
+        }).collect::<Result<Vec<_>, DiscoveryError>>()?;
+        files.push(SitemapFile::new(format!("products-{id}"), urls)?);
+    }
+    Ok(files)
+}
+```
+
+Await the generator when configuring the builder:
+
+```rust filename="src/main.rs" {10}
+mod sitemap;
+
+use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
+
+// Inside async main, before binding the listener:
+let app = FrameworkBuilder::new(manifest)
+    .with_dynamic_routes_and_metadata(routes, metadata)
+    .with_base_path(base_path)
+    .with_public_origin(&origin)?
+    .with_sitemaps(sitemap::generate_sitemaps(&db).await?)
+    .with_robots(RobotsTxt::new())
+    .try_build()?;
+```
+
+For one published product at `/products/1`, last changed on `2026-10-25`, the generated product document is:
+
+Output:
+
+```xml filename="example.com/sitemap-products-0.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://example.com/products/1</loc>
+    <lastmod>2026-10-25</lastmod>
+  </url>
+</urlset>
+```
+
+The index and pages document follow the same structure as the preceding example. This uses the named-document approach of [Next.js generateSitemaps](https://nextjs.org/docs/app/api-reference/functions/generate-sitemaps), with each Proa result supplying both an ID and its entries.
+
+Generation runs once at startup, followed by validation and rendering. New content requires regenerating/restarting the app, or custom handlers with application-managed refresh.
+
+Sitemaps and indexes enforce the [protocol limits](https://www.sitemaps.org/protocol.html#index): at most 50,000 entries and 50 MiB of uncompressed UTF-8 XML per document, including escaping. Long URLs may require batches smaller than `MAX_SITEMAP_ENTRIES`. Oversized documents return a `DiscoveryError` during rendering, before the response buffer is flattened into a string.
+
+## Configure public URLs
+
+Set an explicit public origin and optional runtime [base path](/docs/framework/deployment). The origin contains only a scheme, host, and optional port; the mount prefix belongs in `with_base_path`:
+
+```rust filename="src/main.rs" {4-5}
+use proa_framework_axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
+
+let app = FrameworkBuilder::new(manifest)
+    .with_public_origin("https://example.com")?
+    .with_base_path(BasePath::new("/apps/demo")?)
+    .with_sitemap([SitemapUrl::new("/pricing")?])
+    .with_robots(RobotsTxt::new().allow("/")?.disallow("/admin")?)
+    .try_build()?;
+```
+
+Output:
+
+```xml filename="example.com/apps/demo/sitemap.xml"
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://example.com/apps/demo/pricing</loc>
+  </url>
+</urlset>
+```
+
+Configuration order does not matter: documents use the final origin and base path. Request `Host` and forwarded headers do not override that configuration. Index links receive the same prefix as page URLs.
+
+Incoming routes stay unprefixed behind a [prefix-stripping proxy](/docs/framework/deployment#serving-behind-a-url-path-prefix). Forward both the index and its child sitemap documents. Crawlers also need [robots.txt at the origin root](/docs/framework/robots#origin-root-robots-txt).
+
+## Run an application
+
+Configure discovery endpoints and start the HTTP server in `src/main.rs`. Route definitions are abbreviated below; replace the comment in `vec![]` with your application routes. The example loads the app's generated manifest from `dist/island-manifest.json`.
+
+```rust filename="src/main.rs" {20-23}
+use std::time::Duration;
+
+use proa_framework_axum::{
+    BasePath, FrameworkBuilder, IslandManifest, RobotsTxt, SitemapUrl,
+    router_from_spec, serve,
+};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let manifest = IslandManifest::load_from_path("dist/island-manifest.json")?;
+    let base_path = BasePath::new(&std::env::var("PROA_BASE_PATH").unwrap_or_default())?;
+    let origin = std::env::var("PUBLIC_BASE_URL")?;
+
+    let (routes, metadata) = router_from_spec(vec![/* your application routes */]);
+
+    let app = FrameworkBuilder::new(manifest)
+        .with_dynamic_routes_and_metadata(routes, metadata)
+        .with_base_path(base_path)
+        .with_public_origin(&origin)?
+        .with_sitemap([
+            SitemapUrl::new("/")?,
+            SitemapUrl::new("/pricing")?.lastmod("2026-10-25")?,
+        ])
+        .with_robots(RobotsTxt::new().allow("/")?.disallow("/admin")?)
+        .try_build()?;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+    serve(listener, app, Duration::from_secs(30)).await?;
+    Ok(())
+}
+```
+
+From the application crate, run with an empty base path for local development:
+
+```bash filename="Terminal"
+PUBLIC_BASE_URL=http://127.0.0.1:3000 PROA_BASE_PATH="" cargo run
+```
+
+Visit `http://127.0.0.1:3000/sitemap.xml` for the sitemap and `/robots.txt` for crawler rules. The example sitemap lists `/` and `/pricing`; register those page routes in the application route list.
+
+`try_build()` returns an Axum router. Pass it to `serve()` with a bound TCP listener to start accepting requests. The server runs until Ctrl+C or SIGTERM, then allows up to 30 seconds for in-flight requests to finish.
+
+## Custom and dynamic handlers
+
+`with_sitemap` and `with_sitemaps` install their routes explicitly. Do not register custom handlers at the same paths when using them.
+
+Use standalone `Sitemap`, `SitemapIndex`, `sitemap_xml`, and `sitemap_index_xml` for request-time generation or application-managed refresh. Pass the configured origin and base path explicitly. The response helpers return UTF-8 `application/xml`; render failures are logged and returned as a generic 500.
+
+`try_build()` returns invalid discovery configuration as a `DiscoveryError`. The existing `build()` API also works, but panics on invalid configuration. Axum's duplicate-route restrictions apply to both.
+
+## Next steps
+
+- [Robots.txt](/docs/framework/robots)
+  - Configure bot-specific crawler rules and advertise the sitemap or index.
+- [Deployment](/docs/framework/deployment)
+  - Configure the public prefix and proxy routes.
+- [Configuration](/docs/framework/configuration)
+  - Configure FrameworkBuilder and its router integrations.
+- [Environment](/docs/framework/environment)
+  - Load the public origin and base path at startup.

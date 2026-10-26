@@ -39,6 +39,8 @@ let app = FrameworkBuilder::new(manifest)
 
 `with_dynamic_routes_and_metadata` is the common path for page routes because it installs both the Axum router and the precomputed metadata map used by response finalization.
 
+The builder returns an Axum router; bind a TCP listener and pass both to `proa_framework_axum::serve()` to run it. See [the complete application example](/docs/framework/sitemaps#run-an-application) for route setup, discovery endpoints, and server startup.
+
 ## FrameworkBuilder Methods
 
 | Method | Use it for |
@@ -46,6 +48,10 @@ let app = FrameworkBuilder::new(manifest)
 | `FrameworkBuilder::new(manifest)` | Create the builder with an island manifest and secure defaults. |
 | `.with_config(config)` | Override project paths, codegen flags, and server defaults. |
 | [`.with_base_path(base_path)`](#frameworkbuilder-base-paths-and-rsjs-assets) | Set the public URL prefix for a mounted application. |
+| [`.with_public_origin(origin)?`](/docs/framework/sitemaps) | Set the public HTTP(S) origin used by discovery endpoints. |
+| [`.with_sitemap(entries)`](/docs/framework/sitemaps) | Serve one sitemap using the final public origin and base path. |
+| [`.with_sitemaps(files)`](/docs/framework/sitemaps#multiple-sitemaps) | Serve named sitemap documents plus a sitemap index; accepts results from an awaited async generator. |
+| [`.with_robots(robots)`](/docs/framework/robots) | Serve `/robots.txt` from a document or awaited generator result, with bot-specific groups and automatic sitemap/index links. Behind a prefix-stripping proxy, forward origin-root `/robots.txt` to this handler. |
 | [`.with_rsjs_assets()`](#frameworkbuilder-base-paths-and-rsjs-assets) | Serve the linked RSJS runtimes and generated modules. |
 | `.with_static_service(router)` | Mount a router under `/static`. |
 | `.with_dynamic_routes(router)` | Merge an Axum router without a metadata map. |
@@ -61,6 +67,7 @@ let app = FrameworkBuilder::new(manifest)
 | `.with_catch_panic(bool)` | Convert panics into plain 500 responses instead of resetting the connection. |
 | `.config()` | Inspect the current `ProaConfig`. |
 | `.build()` | Produce the final Axum `Router`. |
+| `.try_build()?` | Build the router while returning invalid discovery configuration as an error. |
 
 ## FrameworkBuilder Base Paths and RSJS Assets
 

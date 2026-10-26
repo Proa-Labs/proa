@@ -128,30 +128,24 @@ pub fn build_app(config: RuntimeConfig) -> anyhow::Result<Router> {
 }
 ```
 
-Prefer typed app state for values handlers need repeatedly:
+Configure discovery endpoints from these typed startup values:
 
-```rust filename="src/routes/robots.rs"
-use axum::{extract::State, routing::get, Router};
+```rust filename="src/main.rs" {13-14}
+use proa_core::BasePath;
+use proa_framework_axum::{FrameworkBuilder, RobotsTxt, SitemapUrl};
 
-#[derive(Clone)]
-pub struct AppState {
-    pub config: RuntimeConfig,
-}
+let config = RuntimeConfig::from_env()?;
+let origin = config.public_base_url.as_deref().unwrap_or("http://localhost:3000");
+let base_path = BasePath::new(
+    &std::env::var("PROA_BASE_PATH").unwrap_or_default(),
+)?;
 
-async fn robots(State(state): State<AppState>) -> String {
-    let origin = state
-        .config
-        .public_base_url
-        .as_deref()
-        .unwrap_or("http://localhost:3000");
-
-    format!("Sitemap: {origin}/sitemap.xml\n")
-}
-
-let state = AppState { config };
-let app = Router::new()
-    .route("/robots.txt", get(robots))
-    .with_state(state);
+let app = FrameworkBuilder::new(manifest)
+    .with_base_path(base_path)
+    .with_public_origin(origin)?
+    .with_sitemap([SitemapUrl::new("/")?])
+    .with_robots(RobotsTxt::new().allow("/")?)
+    .try_build()?;
 ```
 
 Optional values tolerate a fallback like this one. Secrets do not.

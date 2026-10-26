@@ -2137,7 +2137,7 @@ fn template_node_has_inbound_snapshot_at(
             .iter()
             .any(|child| template_node_has_inbound_snapshot_at(child, anchor)),
         Node::Block(expr) => expr_has_inbound_snapshot_at(expr, anchor),
-        Node::Text(_) | Node::Doctype(_) => false,
+        Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => false,
     }
 }
 
@@ -2490,7 +2490,7 @@ impl RsjsNamedClientLocalUsageCollector<'_> {
                     this.visit_expr(expr);
                 });
             }
-            Node::Text(_) | Node::Doctype(_) => {}
+            Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
         }
     }
 }
@@ -2930,7 +2930,7 @@ impl ConstructorUseCounter {
                 }
             }
             Node::Block(expr) => self.visit_expr(expr),
-            Node::Text(_) | Node::Doctype(_) => {}
+            Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
         }
     }
 }
@@ -3375,7 +3375,7 @@ fn html_node_any_slot(node: &Node, matches: &impl Fn(&Expr) -> bool) -> bool {
             .iter()
             .any(|child| html_node_any_slot(child, matches)),
         Node::Block(expr) => matches(expr),
-        Node::Text(_) | Node::Doctype(_) => false,
+        Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => false,
     }
 }
 
@@ -3570,7 +3570,7 @@ fn check_sync_child_in_async_template(
                     }
                 }
                 Node::Block(expr) => self.check_template_expr(expr),
-                Node::Text(_) | Node::Doctype(_) => {}
+                Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
             }
         }
 
@@ -3801,7 +3801,7 @@ impl DirectHelperCalls {
                 }
             }
             Node::Block(expr) => self.visit_expr(expr),
-            Node::Text(_) | Node::Doctype(_) => {}
+            Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
         }
     }
 }
@@ -3978,7 +3978,7 @@ fn lint_node_indentation(
                 lint_node_indentation(path, inv, child, diagnostics);
             }
         }
-        Node::Text(_) | Node::Block(_) | Node::Doctype(_) => {}
+        Node::Text(_) | Node::Block(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
     }
 }
 
@@ -4058,7 +4058,7 @@ fn validate_child_indentation(
                 );
             }
         }
-        Node::Text(_) | Node::Block(_) | Node::Doctype(_) => {}
+        Node::Text(_) | Node::Block(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
     }
 }
 
@@ -4175,7 +4175,7 @@ fn lint_node_perf(
                 diagnostics,
             );
         }
-        Node::Text(_) | Node::Doctype(_) => {}
+        Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
     }
 }
 
@@ -4254,7 +4254,7 @@ fn collect_listbox_accessibility(
                 collect_listbox_accessibility(child, listboxes, controlled_ids);
             }
         }
-        Node::Text(_) | Node::Block(_) | Node::Doctype(_) => {}
+        Node::Text(_) | Node::Block(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
     }
 }
 
@@ -4883,7 +4883,7 @@ impl RsjsVisitor<'_> {
                 }
             }
             Node::Block(expr) => self.check_rsjs_slot_expr(expr, false, true),
-            Node::Text(_) | Node::Doctype(_) => {}
+            Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
         }
     }
 
@@ -5615,7 +5615,7 @@ impl PerfVisitor<'_> {
                     self.check_template_attr_builder_node(child);
                 }
             }
-            Node::Text(_) | Node::Block(_) | Node::Doctype(_) => {}
+            Node::Text(_) | Node::Block(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
         }
     }
 

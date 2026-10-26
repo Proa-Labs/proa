@@ -27,6 +27,37 @@ fn formatting_is_idempotent() {
 }
 
 #[test]
+fn xml_declaration_formatting_preserves_fields_and_semantics() {
+    let source = r#"fn render() {
+    xml_sync! { < ? xml version = "1.0" encoding = "UTF-8" standalone = "no" ? > <Feed>{value}</Feed> }
+}"#;
+    let formatted = format_file(Path::new("sample.rs"), source).unwrap();
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert!(formatted
+        .output
+        .contains(r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"#));
+    assert!(verify_render_preserving(Path::new("sample.rs"), source, &formatted.output).is_empty());
+    assert_eq!(
+        format_file(Path::new("sample.rs"), &formatted.output)
+            .unwrap()
+            .output,
+        formatted.output
+    );
+    let changed = formatted
+        .output
+        .replace("standalone=\"no\"", "standalone=\"yes\"");
+    assert!(
+        verify_render_preserving(Path::new("sample.rs"), source, &changed)
+            .iter()
+            .any(|diagnostic| diagnostic.code == "format/verify")
+    );
+}
+
+#[test]
 fn verify_rejects_formatted_output_that_no_longer_parses() {
     let original = r#"fn render() {
     html_sync! { <div>"ok"</div> }

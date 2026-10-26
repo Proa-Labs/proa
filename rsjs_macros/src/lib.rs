@@ -3717,7 +3717,9 @@ fn collect_rsjs_source_ide_hints_from_nodes(
                     event_handler_names,
                 );
             }
-            proa_dsl::parse::Node::Text(_) | proa_dsl::parse::Node::Doctype(_) => {}
+            proa_dsl::parse::Node::Text(_)
+            | proa_dsl::parse::Node::Doctype(_)
+            | proa_dsl::parse::Node::XmlDeclaration(_) => {}
         }
     }
 }

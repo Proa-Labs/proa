@@ -171,6 +171,80 @@ These lifecycle guarantees belong to this serve helper. An application that
 calls `axum::serve` itself owns its signal handling, deadline, task tracking,
 and streamed-body cancellation policy.
 
+### Sitemaps and robots.txt
+
+Configure discovery endpoints on the same builder so they share its public origin
+and mount prefix:
+
+```rust
+use proa_framework_axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
+
+let app = FrameworkBuilder::new(manifest)
+    .with_base_path(BasePath::new("/apps/demo")?)
+    .with_public_origin("https://example.com")?
+    .with_sitemap([SitemapUrl::new("/")?, SitemapUrl::new("/pricing")?])
+    .with_robots(RobotsTxt::new().disallow("/admin")?)
+    .try_build()?;
+```
+
+The sitemap contains `https://example.com/apps/demo/pricing`; robots.txt contains
+`Disallow: /apps/demo/admin` and advertises the prefixed sitemap automatically.
+Both endpoints are opt-in and rendered once at startup using the final builder
+configuration. `try_build()` returns discovery configuration errors; `build()`
+panics on them. Custom/dynamic handlers can still use the standalone document and
+response helpers.
+
+Absolute sitemap and index entries must resolve inside the final base path
+directory. `try_build()` returns `DiscoveryError::OutsideBasePath` for an
+out-of-mount URL, including one that escapes through literal or encoded `..`.
+Local paths cannot traverse above the application root. Discovery URLs reject
+fragments, controls, and raw excluded URI characters; percent-encode URL data
+before passing it to the API. Robots sitemap links may still use other origins.
+
+Incoming routes remain `/sitemap.xml` and `/robots.txt`. A prefix-stripping proxy
+must expose `/robots.txt` at the origin root in addition to forwarding mounted app
+paths. Do not register overlapping custom discovery handlers on this builder.
+
+See the [complete application example](../../proa_marketing/src/docs/framework/sitemaps.mdx#run-an-application)
+for application route setup, environment configuration, listener binding, and `serve()`.
+Sitemap entries are explicit; registering a page route does not add it automatically.
+
+Use `.with_sitemaps(files)` for multiple documents. Each
+`SitemapFile::new("products-0", urls)?` is served at `/sitemap-products-0.xml`;
+`/sitemap.xml` becomes an index linking to the documents, and robots.txt
+advertises that index. Supply an awaited application generator with
+`.with_sitemaps(generate_sitemaps(&db).await?)`. Generation and rendering happen
+once at startup; requests serve cached bytes. The last `with_sitemap` or
+`with_sitemaps` call replaces the previous configuration.
+
+IDs must be unique, nonempty ASCII letters/digits/`-`/`_`; an empty file list is
+an error. Each sitemap and index is limited to 50,000 entries and 50 MiB of
+uncompressed XML. Use smaller batches for long URLs. For application-managed
+refresh or dynamic responses, use `SitemapIndex` and `sitemap_index_xml` alongside
+the existing standalone sitemap helpers.
+
+[Robots.txt](../../proa_marketing/src/docs/framework/robots.mdx) uses the same
+application-owned async generation pattern:
+`.with_robots(generate_robots(&db).await?)`. Generate a `RobotsTxt` at startup;
+requests serve its cached text, with the final builder mount applied once and
+an automatic sitemap/index link. There is one robots.txt per origin.
+
+`RobotsTxt::group_agents(["Applebot", "Bingbot"])?` shares rules across bots.
+Per-group options include `.crawl_delay(Duration::from_millis(1500))` for exact
+seconds and `.directive("Request-Rate", "10/1m")?` for crawler extensions.
+`.host("https://example.com")?` sets an optional explicit host; repeated
+`.sitemap(...)` calls add sitemap links. Extension support depends on the bot;
+Google ignores crawl delay. Application-wide rules cover the bare mount and
+its query variants; literal `*`/`$` in a mount are escaped independently of rule
+operators. Custom directives reject comments, control
+characters, malformed names, and reserved fields, while permitting spaces in
+values. Only allow/disallow rules receive the base path.
+
+User-agent tokens follow [RFC 9309 §2.2.1](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.1).
+The builder and response helper reject robots documents above
+[Google's 500 KiB limit](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#file-format).
+Other adapters can use `RobotsTxt::try_render_txt()` for the same check.
+
 ### Liveness and readiness
 
 Liveness and readiness should not share dependency policy:

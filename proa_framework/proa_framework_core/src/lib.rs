@@ -12,6 +12,7 @@
 #![forbid(unsafe_code)]
 
 pub mod bootstrap;
+pub mod discovery;
 pub mod manifest;
 pub mod markdown;
 pub mod metadata;
@@ -20,6 +21,11 @@ pub mod route_snapshot;
 pub mod route_spec;
 
 pub use bootstrap::render_bootstrap_for_islands;
+pub use discovery::{
+    absolute_http_url, ChangeFreq, DiscoveryError, RobotsGroup, RobotsRule, RobotsTxt, Sitemap,
+    SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
+    MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
+};
 pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
 };
