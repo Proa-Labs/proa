@@ -64,7 +64,7 @@ tower = { workspace = true, features = ["limit", "util"] }
 # Enable only the middleware used by the builder; avoid unrelated codecs.
 tower-http = { workspace = true, features = ["catch-panic", "fs", "set-header", "timeout"] }
 tracing = { workspace = true }
-url = { version = "2.5" }
+url = { workspace = true }
 
 [dev-dependencies]
 http-body-util = { workspace = true }

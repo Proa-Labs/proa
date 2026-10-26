@@ -10,56 +10,25 @@ All notable public changes are tracked here.
   Sitemap writers use this syntax directly, without a raw declaration string.
   `proa chunks` also inspects XML templates and includes declarations in static runs.
 
-- `Sitemap` and `RobotsTxt` build sitemap.xml and robots.txt from a public
-  origin, the runtime base path, and application paths. `sitemap_xml` and
-  `robots_txt` return Axum responses with the matching content types.
-  `FrameworkBuilder::with_public_origin`, `with_sitemap`, and `with_robots`
-  configure both endpoints with the builder's final base path. Static documents
-  are validated and rendered at startup; `try_build` reports invalid discovery
-  configuration. `with_sitemaps` accepts named `SitemapFile` documents, including
-  results from an awaited async generator, and serves `/sitemap-{id}.xml` plus
-  an automatic index at `/sitemap.xml`. `SitemapIndex` and `sitemap_index_xml`
-  support custom handlers. Sitemaps and indexes enforce the 50,000-entry and
-  50 MiB uncompressed XML limits. Robots rules use application paths, and the
-  generated sitemap link is advertised automatically when both endpoints are enabled.
-  Query strings are XML-escaped, `lastmod` must be a real calendar date, and
-  sitemap paths, absolute URLs, and origins reject XML-forbidden control
-  characters. Modification dates use Jiff's `civil::Date`; `lastmod` accepts
-  strict `YYYY-MM-DD` strings and `lastmod_date` accepts typed dates. Both
-  write dates without temporary strings. Absolute sitemap entries must use the
-  sitemap origin, and `sitemap_xml` answers render failures with a logged, generic 500. Robots
-  fields reject whitespace, `#`, and control characters, rule paths must be
-  empty or start with `/` or `*`, and rule-less groups render an empty
-  `Disallow:` instead of merging into the next group. `RobotsTxt::with_base_path`
-  renders root-relative rules under the public mount prefix exactly once, and
-  a root rule also matches the bare mount URL (`/apps/demo$`); crawlers still
-  fetch `/robots.txt` at the origin root. Robots documents also support shared
-  user-agent groups, exact `Duration` crawl delays, an optional explicit host,
-  and validated custom per-group directives. An awaited application-owned
-  `generate_robots` function can supply the document at startup; requests serve
-  cached bytes, preserving explicit sitemap links and adding the generated
-  sitemap/index link automatically. Robots text uses `md_sync!` with validated
-  fields kept verbatim, preserving wildcard operators and exact line endings.
-  Discovery validation shares `url::Url` parsing and caches canonical origins
-  for entry checks, including IDNA and default ports; malformed hosts/percent
-  escapes remain rejected. Empty sitemaps and year-zero dates are rejected;
-  a stack-owned output meter stops
-  oversized XML before flattening without rescanning earlier buffer pages.
-  XML render loops write borrowed URL components directly, avoiding temporary
-  URL strings and repeated URL parsing per entry.
-  Sitemap locations escape all five protocol entities, including quotes, and
-  enforce the XML schemas' 12-character minimum.
-  Robots user-agent tokens follow RFC 9309's grammar. Builder-managed robots
-  documents and the response helper enforce Google's 500 KiB processing limit;
-  `try_render_txt` exposes the check to other adapters. Doc comments link the
-  relevant specification sections and distinguish protocol rules from Proa policy.
-  Discovery URLs reject fragments, raw excluded URI characters, and C1 controls.
-  Sitemap and index entries must remain inside the final mount directory after
-  URL normalization; parsed absolute URLs are retained for allocation-free
-  scope checks, including literal and percent-encoded traversal.
-  Literal Unicode mount paths match their equivalent percent-encoded URLs.
-  Mounted robots root rules cover query variants, and
-  literal pattern operators in the mount prefix are escaped.
+- `Sitemap`, `SitemapIndex`, and `RobotsTxt` build sitemap.xml, sitemap
+  indexes, and robots.txt from a public origin, the runtime base path, and
+  application paths; `sitemap_xml`, `sitemap_index_xml`, and `robots_txt`
+  return Axum responses. `FrameworkBuilder::with_public_origin`,
+  `with_sitemap`, `with_sitemaps`, and `with_robots` validate and render the
+  documents once at startup with the builder's final base path, and
+  `try_build` reports invalid configuration as a `DiscoveryError`.
+  `with_sitemaps` serves named `SitemapFile` documents at `/sitemap-{id}.xml`
+  with an index at `/sitemap.xml`, and robots.txt advertises the generated
+  sitemap or index automatically. Documents enforce the 50,000-entry and
+  50 MiB sitemap limits and Google's 500 KiB robots.txt limit. Entries are
+  validated as URLs: fragments, excluded URI characters, controls, malformed
+  percent escapes, port 0, cross-origin hosts, and locations outside the final
+  mount directory are rejected, while origin comparison honors IDNA and
+  default ports. `lastmod` accepts `YYYY-MM-DD` strings and `lastmod_date`
+  accepts `jiff::civil::Date` values. Robots documents support shared
+  user-agent groups, `Duration` crawl delays, an explicit host, custom
+  directives, and mount-prefixed rules that also cover the bare mount URL and
+  its query variants.
 
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.

@@ -160,6 +160,7 @@ tower-http = { version = "0.6.6" }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3" }
 trybuild = { version = "1" }
+url = { version = "2.5" }
 walkdir = { version = "2.4" }
 
 # Register cfgs that proc macros in the workspace emit so check-cfg
