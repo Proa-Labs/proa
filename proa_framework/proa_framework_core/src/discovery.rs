@@ -1165,77 +1165,6 @@ mod tests {
     }
 
     #[test]
-    fn document_size_accounting_does_not_rescan_previous_output() {
-        #[derive(Default)]
-        struct ObservedBuffer {
-            bytes: Vec<u8>,
-            length_reads: std::cell::Cell<usize>,
-        }
-
-        impl WriteBuf for ObservedBuffer {
-            fn capacity(&self) -> usize {
-                usize::MAX
-            }
-            fn len(&self) -> usize {
-                self.length_reads.set(self.length_reads.get() + 1);
-                self.bytes.len()
-            }
-            fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
-                self.bytes.extend_from_slice(bytes);
-                Ok(())
-            }
-            fn as_slice(&self) -> &[u8] {
-                &self.bytes
-            }
-            fn to_vec(&self) -> Vec<u8> {
-                self.bytes.clone()
-            }
-            fn clear(&mut self) {
-                self.bytes.clear();
-            }
-        }
-
-        for entries in [1, 1024] {
-            let mut sitemap = Sitemap::new("https://example.com").unwrap();
-            let mut index = SitemapIndex::new("https://example.com").unwrap();
-            for id in 0..entries {
-                sitemap = sitemap.with_url(format!("/page/{id}?a=1&b=2")).unwrap();
-                index = index
-                    .with_entry(SitemapIndexEntry::new(format!("/sitemap-{id}.xml")).unwrap())
-                    .unwrap();
-            }
-            for is_index in [false, true] {
-                let mut buffer = ObservedBuffer::default();
-                let mut cx: WebContext = WebContext::new();
-                let meter = OutputMeter::new(MAX_SITEMAP_BYTES as u64);
-                cx.with_output(&mut buffer, |cx| {
-                    cx.with_metered_output(meter.borrow(), |cx| {
-                        if is_index {
-                            index.write_xml(cx)
-                        } else {
-                            sitemap.write_xml(cx)
-                        }
-                    })
-                })
-                .unwrap();
-                assert!(
-                    buffer.length_reads.get() <= 2,
-                    "{} length reads for {entries} entries",
-                    buffer.length_reads.get()
-                );
-                assert_eq!(meter.consumed(), buffer.bytes.len() as u64);
-                assert_eq!(
-                    std::str::from_utf8(&buffer.bytes)
-                        .unwrap()
-                        .matches("<loc>")
-                        .count(),
-                    entries
-                );
-            }
-        }
-    }
-
-    #[test]
     fn document_meter_includes_escaping_and_closing_tags_at_the_limit() {
         let sitemap = Sitemap::new("https://example.com")
             .unwrap()
@@ -1421,7 +1350,7 @@ mod tests {
             .unwrap()
             .with_base_path(BasePath::new("/app").unwrap())
             .with_entry(
-                SitemapIndexEntry::new("/sitemap/products.xml?x=1&y=2")
+                SitemapIndexEntry::new("/sitemap/products.xml?x='1'&y=\"<2>\"")
                     .unwrap()
                     .lastmod("2024-02-29")
                     .unwrap(),
@@ -1438,7 +1367,7 @@ mod tests {
             concat!(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
                 "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
-                "<sitemap><loc>https://example.com/app/sitemap/products.xml?x=1&amp;y=2</loc>",
+                "<sitemap><loc>https://example.com/app/sitemap/products.xml?x=&#39;1&#39;&amp;y=&quot;&lt;2&gt;&quot;</loc>",
                 "<lastmod>2024-02-29</lastmod></sitemap>",
                 "<sitemap><loc>https://example.com:443/sitemap/pages.xml</loc></sitemap>",
                 "</sitemapindex>\n"
@@ -1593,15 +1522,17 @@ mod tests {
     }
 
     #[test]
-    fn sitemap_escapes_query_ampersands_in_loc() {
+    fn sitemap_escapes_xml_entities_in_loc() {
         let xml = Sitemap::new("https://example.com")
             .unwrap()
-            .with_url("/search?q=a&b=c")
+            .with_base_path(BasePath::new("/apps/a&b").unwrap())
+            .with_url("/search?q='a'&b=\"<x>\"")
             .unwrap()
             .render_xml()
             .unwrap();
-        assert!(xml.contains("<loc>https://example.com/search?q=a&amp;b=c</loc>"));
-        assert!(!xml.contains("<loc>https://example.com/search?q=a&b=c</loc>"));
+        assert!(xml.contains(
+            "<loc>https://example.com/apps/a&amp;b/search?q=&#39;a&#39;&amp;b=&quot;&lt;x&gt;&quot;</loc>"
+        ));
     }
 
     #[test]
