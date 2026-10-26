@@ -211,7 +211,8 @@ impl Sitemap {
     ///
     /// Allocates an owned XML body outside HTML page rendering. The framework
     /// builder calls this once at startup; custom handlers control their own refresh.
-    // proa-perf-ok: sitemap XML is emitted once per request outside Proa HTML rendering
+    /// Validated URL components are escaped directly into the output without
+    /// allocating temporary URL strings or reparsing URLs for each entry.
     pub fn render_xml(&self) -> Result<String, DiscoveryError> {
         let mut cx = WebContext::new();
         let meter = OutputMeter::new(MAX_SITEMAP_BYTES as u64);
@@ -234,13 +235,13 @@ impl Sitemap {
             cx,
         )?;
         for url in &self.urls {
-            let loc = absolute_http_url(&self.origin, &self.base_path, &url.path)?;
+            let (origin, mount, path) = loc_parts(&self.origin, &self.base_path, &url.path)?;
             let lastmod = url.lastmod.as_deref().unwrap_or("");
             let changefreq = url.changefreq.map(ChangeFreq::as_str).unwrap_or("");
             let priority = url.priority.map(SitemapPriority::as_str).unwrap_or("");
             xml_sync! {
                 <url>
-                    <loc>{loc.as_str()}</loc>
+                    <loc>{origin}{mount}{path}</loc>
                     {if !lastmod.is_empty() {
                         xml_sync! { <lastmod>{lastmod}</lastmod> }
                     }}
@@ -372,6 +373,7 @@ impl SitemapIndex {
     }
 
     /// Render and validate the index once, outside the HTML render hot path.
+    /// Validated URL components are written directly without temporary strings.
     pub fn render_xml(&self) -> Result<String, DiscoveryError> {
         let mut cx = WebContext::new();
         let meter = OutputMeter::new(MAX_SITEMAP_BYTES as u64);
@@ -391,11 +393,11 @@ impl SitemapIndex {
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
         ).render(cx)?;
         for entry in &self.entries {
-            let loc = absolute_http_url(&self.origin, &self.base_path, &entry.path)?;
+            let (origin, mount, path) = loc_parts(&self.origin, &self.base_path, &entry.path)?;
             let lastmod = entry.lastmod.as_deref().unwrap_or("");
             xml_sync! {
                 <sitemap>
-                    <loc>{loc.as_str()}</loc>
+                    <loc>{origin}{mount}{path}</loc>
                     {if !lastmod.is_empty() {
                         xml_sync! { <lastmod>{lastmod}</lastmod> }
                     }}
@@ -745,21 +747,40 @@ pub fn absolute_http_url(
     base_path: &BasePath,
     path: &str,
 ) -> Result<String, DiscoveryError> {
-    if is_absolute_http_url(path) {
+    let origin = if is_absolute_http_url(path) {
         validate_absolute_http_url(path)?;
-        if path.len() >= MAX_LOC_BYTES {
-            return Err(DiscoveryError::LocTooLong);
-        }
-        return Ok(path.to_string());
-    }
+        ""
+    } else {
+        let origin = normalize_origin(origin)?;
+        validate_local_path(path)?;
+        origin
+    };
 
-    let origin = normalize_origin(origin)?;
-    validate_entry_path(path)?;
-    let composed = format!("{}{}", origin, base_path.url(path));
-    if composed.len() >= MAX_LOC_BYTES {
+    let (origin, mount, path) = loc_parts(origin, base_path, path)?;
+    let mut composed = String::with_capacity(origin.len() + mount.len() + path.len());
+    composed.push_str(origin);
+    composed.push_str(mount);
+    composed.push_str(path);
+    Ok(composed)
+}
+
+/// Borrow the parts of a location without constructing or reparsing a URL.
+/// The caller must already have validated the origin and entry path, as the
+/// document constructors do. Only the composed length depends on the final mount.
+fn loc_parts<'a>(
+    origin: &'a str,
+    base_path: &'a BasePath,
+    path: &'a str,
+) -> Result<(&'a str, &'a str, &'a str), DiscoveryError> {
+    let (origin, mount) = if is_absolute_http_url(path) {
+        ("", "")
+    } else {
+        (origin, base_path.as_str())
+    };
+    if origin.len() + mount.len() + path.len() >= MAX_LOC_BYTES {
         return Err(DiscoveryError::LocTooLong);
     }
-    Ok(composed)
+    Ok((origin, mount, path))
 }
 
 fn normalize_origin(origin: &str) -> Result<&str, DiscoveryError> {

@@ -34,6 +34,8 @@ All notable public changes are tracked here.
   parsing (including IDNA) and rejects malformed hosts/percent escapes. Empty
   sitemaps and year-zero dates are rejected; a stack-owned output meter stops
   oversized XML before flattening without rescanning earlier buffer pages.
+  XML render loops write borrowed URL components directly, avoiding temporary
+  URL strings and repeated URL parsing per entry.
   Mounted robots root rules cover query variants, and
   literal pattern operators in the mount prefix are escaped.
 
