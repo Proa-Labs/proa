@@ -194,6 +194,13 @@ configuration. `try_build()` returns discovery configuration errors; `build()`
 panics on them. Custom/dynamic handlers can still use the standalone document and
 response helpers.
 
+Absolute sitemap and index entries must resolve inside the final base path
+directory. `try_build()` returns `DiscoveryError::OutsideBasePath` for an
+out-of-mount URL, including one that escapes through literal or encoded `..`.
+Local paths cannot traverse above the application root. Discovery URLs reject
+fragments, controls, and raw excluded URI characters; percent-encode URL data
+before passing it to the API. Robots sitemap links may still use other origins.
+
 Incoming routes remain `/sitemap.xml` and `/robots.txt`. A prefix-stripping proxy
 must expose `/robots.txt` at the origin root in addition to forwarding mounted app
 paths. Do not register overlapping custom discovery handlers on this builder.

@@ -24,7 +24,7 @@ fn builder() -> FrameworkBuilder {
     })
 }
 
-fn entries() -> Vec<SitemapUrl> {
+fn entries(base: &str) -> Vec<SitemapUrl> {
     vec![
         SitemapUrl::new("/").unwrap(),
         SitemapUrl::new("/pricing?q=1&lang=en")
@@ -33,7 +33,7 @@ fn entries() -> Vec<SitemapUrl> {
             .unwrap()
             .changefreq(ChangeFreq::Weekly)
             .priority(SitemapPriority::HALF),
-        SitemapUrl::new("https://example.com:443/docs").unwrap(),
+        SitemapUrl::new(format!("https://example.com:443{base}/docs")).unwrap(),
     ]
 }
 
@@ -396,7 +396,7 @@ async fn builder_uses_one_origin_and_mount_for_both_documents() {
         .with_public_origin("https://example.com/")
         .unwrap()
         .with_base_path(BasePath::new("/apps/demo").unwrap())
-        .with_sitemap(entries())
+        .with_sitemap(entries("/apps/demo"))
         .with_robots(robots())
         .with_dynamic_routes(Router::new().route("/pricing", get(|| async { "pricing" })))
         .try_build()
@@ -411,7 +411,7 @@ async fn builder_uses_one_origin_and_mount_for_both_documents() {
     assert_eq!(headers[header::CACHE_CONTROL], "no-store");
     assert!(xml.contains("<loc>https://example.com/apps/demo/</loc>"));
     assert!(xml.contains("<loc>https://example.com/apps/demo/pricing?q=1&amp;lang=en</loc>"));
-    assert!(xml.contains("<loc>https://example.com:443/docs</loc>"));
+    assert!(xml.contains("<loc>https://example.com:443/apps/demo/docs</loc>"));
     assert!(xml.contains("<lastmod>2026-10-25</lastmod>"));
     assert!(xml.contains("<changefreq>weekly</changefreq>"));
     assert!(xml.contains("<priority>0.5</priority>"));
@@ -442,7 +442,7 @@ async fn discovery_uses_final_configuration_independently_of_setter_order() {
         .with_public_origin("https://example.com")
         .unwrap()
         .with_base_path(BasePath::new("/final").unwrap())
-        .with_sitemap(entries())
+        .with_sitemap(entries("/final"))
         .with_robots(robots())
         .try_build()
         .unwrap();
@@ -451,7 +451,7 @@ async fn discovery_uses_final_configuration_independently_of_setter_order() {
         .unwrap()
         .with_base_path(BasePath::new("/old").unwrap())
         .with_robots(robots())
-        .with_sitemap(entries())
+        .with_sitemap(entries("/final"))
         .with_base_path(BasePath::new("/final").unwrap())
         .with_public_origin("https://example.com")
         .unwrap()
@@ -471,7 +471,7 @@ async fn discovery_routes_are_individually_opt_in() {
     let sitemap_only = builder()
         .with_public_origin("https://example.com")
         .unwrap()
-        .with_sitemap(entries())
+        .with_sitemap(entries(""))
         .build();
     assert_eq!(fetch(&sitemap_only, "/sitemap.xml").await.0, StatusCode::OK);
     assert_eq!(
@@ -512,7 +512,7 @@ async fn builder_preserves_special_rules_groups_and_additional_sitemaps() {
     let app = builder()
         .with_public_origin("https://example.com")
         .unwrap()
-        .with_sitemap(entries())
+        .with_sitemap(entries("/mount"))
         .with_robots(robots)
         .with_base_path(BasePath::new("/mount").unwrap())
         .build();
@@ -549,7 +549,7 @@ async fn discovery_supports_head_and_keeps_framework_security_headers() {
     let app = builder()
         .with_public_origin("https://example.com")
         .unwrap()
-        .with_sitemap(entries())
+        .with_sitemap(entries(""))
         .with_robots(robots())
         .build();
     for path in ["/sitemap.xml", "/robots.txt"] {
@@ -579,7 +579,7 @@ async fn discovery_supports_head_and_keeps_framework_security_headers() {
 #[test]
 fn builder_reports_missing_or_invalid_public_origin() {
     assert!(matches!(
-        builder().with_sitemap(entries()).try_build(),
+        builder().with_sitemap(entries("")).try_build(),
         Err(DiscoveryError::MissingPublicOrigin)
     ));
     assert!(matches!(
@@ -589,7 +589,7 @@ fn builder_reports_missing_or_invalid_public_origin() {
 }
 
 #[test]
-fn builder_rejects_cross_origin_entries_after_final_configuration() {
+fn builder_rejects_entries_outside_the_final_origin_and_mount() {
     assert!(matches!(
         builder()
             .with_sitemap([SitemapUrl::new("https://other.example/page").unwrap()])
@@ -598,6 +598,33 @@ fn builder_rejects_cross_origin_entries_after_final_configuration() {
             .try_build(),
         Err(DiscoveryError::CrossOrigin)
     ));
+    for path in [
+        "/other/page",
+        "/apps/demo",
+        "/apps/demo/../../secret",
+        "/apps/demo/%2e%2E/secret",
+    ] {
+        let url = SitemapUrl::new(format!("https://example.com{path}")).unwrap();
+        for multiple in [false, true] {
+            let app = builder()
+                .with_public_origin("https://example.com")
+                .unwrap()
+                .with_base_path(BasePath::new("/old").unwrap());
+            let app = if multiple {
+                app.with_sitemaps([SitemapFile::new("pages", [url.clone()]).unwrap()])
+            } else {
+                app.with_sitemap([url.clone()])
+            };
+            assert!(
+                matches!(
+                    app.with_base_path(BasePath::new("/apps/demo").unwrap())
+                        .try_build(),
+                    Err(DiscoveryError::OutsideBasePath)
+                ),
+                "{path}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -611,5 +638,16 @@ fn builder_validates_composed_urls_before_serving() {
             .with_base_path(BasePath::new(&format!("/{}", "p".repeat(100))).unwrap())
             .try_build(),
         Err(DiscoveryError::LocTooLong)
+    ));
+    // BasePath is a general routing type; discovery applies URI validation too.
+    let base = BasePath::new("/app^name").unwrap();
+    assert!(matches!(
+        builder()
+            .with_public_origin("https://example.com")
+            .unwrap()
+            .with_sitemap([SitemapUrl::new("/").unwrap()])
+            .with_base_path(base)
+            .try_build(),
+        Err(DiscoveryError::InvalidPath)
     ));
 }

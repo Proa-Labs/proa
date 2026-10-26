@@ -202,7 +202,8 @@ impl FrameworkBuilder {
     /// Serve `/sitemap.xml` from these entries using the builder's final public
     /// origin and base path. Configuration order does not matter.
     ///
-    /// Entries are application-local paths or same-origin absolute URLs. The
+    /// Entries are application-local paths or same-origin absolute URLs inside
+    /// the final base path directory (checked after URL normalization). The
     /// document is validated and rendered once at startup. Do not also register
     /// a custom `/sitemap.xml` handler. Requires `with_public_origin`.
     /// Replaces any previous `with_sitemap` or `with_sitemaps` configuration.

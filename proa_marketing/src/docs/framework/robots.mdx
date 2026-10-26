@@ -191,6 +191,8 @@ Sitemap: https://example.com/apps/demo/sitemap.xml
 
 The sitemap link includes `/apps/demo`; robots.txt itself must still be publicly available at `https://example.com/robots.txt`.
 
+Explicit `sitemap` links may point to another origin. They reject fragments, malformed percent escapes, controls, and raw characters excluded from URL syntax. Use `%23` for a literal hash in a URL: an unescaped `#` starts a robots comment ([RFC 9309 §2.2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.3)).
+
 ## Document size
 
 The builder and `robots_txt` response helper reject documents above [Google's 500 KiB processing limit](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#file-format), including mount expansion and automatically added sitemap links. `try_build()` returns `DiscoveryError::RobotsTooLarge`; a custom `robots_txt` handler returns a logged, generic 500. Rules are never silently truncated.

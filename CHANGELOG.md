@@ -42,6 +42,10 @@ All notable public changes are tracked here.
   documents and the response helper enforce Google's 500 KiB processing limit;
   `try_render_txt` exposes the check to other adapters. Doc comments link the
   relevant specification sections and distinguish protocol rules from Proa policy.
+  Discovery URLs reject fragments, raw excluded URI characters, and C1 controls.
+  Sitemap and index entries must remain inside the final mount directory after
+  URL normalization; parsed absolute URLs are retained for allocation-free
+  scope checks, including literal and percent-encoded traversal.
   Mounted robots root rules cover query variants, and
   literal pattern operators in the mount prefix are escaped.
 

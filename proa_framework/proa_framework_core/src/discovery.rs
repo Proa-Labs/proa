@@ -62,12 +62,14 @@ pub enum DiscoveryError {
     TooManySitemapEntries,
     #[error("a sitemap or index cannot exceed 50 MiB of uncompressed XML")]
     SitemapTooLarge,
-    #[error("path must be a root-relative application path or an http(s) URL")]
+    #[error("path must be a root-relative application path or an http(s) URL without fragments or invalid URL characters")]
     InvalidPath,
     #[error("lastmod must be a YYYY-MM-DD calendar date")]
     InvalidLastmod,
     #[error("absolute sitemap URL must use the sitemap origin")]
     CrossOrigin,
+    #[error("sitemap URL must be inside the base path directory that serves the document")]
+    OutsideBasePath,
     #[error("sitemap loc must be shorter than 2048 bytes")]
     LocTooLong,
     #[error("sitemap loc must contain at least 12 characters, as required by the XML schemas")]
@@ -143,9 +145,12 @@ impl SitemapPriority {
 /// One URL in a sitemap.
 /// See [Sitemaps: loc](https://www.sitemaps.org/protocol.html#locdef).
 /// Supply URL-encoded paths; XML escaping is applied separately when rendering.
+/// Fragments and raw characters excluded from URI/IRI syntax are rejected.
+/// Local paths must not traverse above the application root. Absolute URLs
+/// retain their spelling; their parsed path determines directory scope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SitemapUrl {
-    path: String,
+    path: SitemapLocation,
     lastmod: Option<String>,
     changefreq: Option<ChangeFreq>,
     priority: Option<SitemapPriority>,
@@ -153,8 +158,7 @@ pub struct SitemapUrl {
 
 impl SitemapUrl {
     pub fn new(path: impl Into<String>) -> Result<Self, DiscoveryError> {
-        let path = path.into();
-        validate_entry_path(&path)?;
+        let path = SitemapLocation::new(path.into())?;
         Ok(Self {
             path,
             lastmod: None,
@@ -186,7 +190,7 @@ impl SitemapUrl {
     }
 
     pub fn path(&self) -> &str {
-        &self.path
+        &self.path.spelling
     }
 }
 
@@ -220,12 +224,18 @@ impl Sitemap {
     /// Add an entry. Absolute entries must use the sitemap origin, because the
     /// default [sitemap scope](https://www.sitemaps.org/protocol.html#location)
     /// is same-origin. Ownership-verified cross-submission is outside this API.
-    /// Custom handlers must also respect their document's directory scope.
+    /// Rendering checks the normalized URL path against the final base path.
+    /// Custom handlers must set the base path to the document's directory.
     pub fn with_entry(mut self, url: SitemapUrl) -> Result<Self, DiscoveryError> {
         if self.urls.len() >= MAX_SITEMAP_ENTRIES {
             return Err(DiscoveryError::TooManySitemapEntries);
         }
-        if is_absolute_http_url(&url.path) && !has_origin(&url.path, &self.origin) {
+        if url
+            .path
+            .absolute
+            .as_ref()
+            .is_some_and(|url| !has_origin(url, &self.origin))
+        {
             return Err(DiscoveryError::CrossOrigin);
         }
         self.urls.push(url);
@@ -261,6 +271,7 @@ impl Sitemap {
         if self.urls.is_empty() {
             return Err(DiscoveryError::EmptySitemap);
         }
+        validate_mount(&self.base_path)?;
         WebRenderSync::render(
             UnsafeRaw(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
@@ -268,7 +279,7 @@ impl Sitemap {
             cx,
         )?;
         for url in &self.urls {
-            let (origin, mount, path) = loc_parts(&self.origin, &self.base_path, &url.path)?;
+            let (origin, mount, path) = url.path.parts(&self.origin, &self.base_path)?;
             let lastmod = url.lastmod.as_deref().unwrap_or("");
             let changefreq = url.changefreq.map(ChangeFreq::as_str).unwrap_or("");
             let priority = url.priority.map(SitemapPriority::as_str).unwrap_or("");
@@ -346,14 +357,13 @@ impl SitemapFile {
 /// See [Sitemaps: index loc](https://www.sitemaps.org/protocol.html#sitemapIndex_loc).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SitemapIndexEntry {
-    path: String,
+    path: SitemapLocation,
     lastmod: Option<String>,
 }
 
 impl SitemapIndexEntry {
     pub fn new(path: impl Into<String>) -> Result<Self, DiscoveryError> {
-        let path = path.into();
-        validate_entry_path(&path)?;
+        let path = SitemapLocation::new(path.into())?;
         Ok(Self {
             path,
             lastmod: None,
@@ -396,11 +406,18 @@ impl SitemapIndex {
         self
     }
 
+    /// Add a same-origin document. Rendering checks its normalized path against
+    /// the final base path, following [Google's index-directory requirements](https://developers.google.com/search/docs/crawling-indexing/sitemaps/large-sitemaps).
     pub fn with_entry(mut self, entry: SitemapIndexEntry) -> Result<Self, DiscoveryError> {
         if self.entries.len() >= MAX_SITEMAP_ENTRIES {
             return Err(DiscoveryError::TooManySitemapEntries);
         }
-        if is_absolute_http_url(&entry.path) && !has_origin(&entry.path, &self.origin) {
+        if entry
+            .path
+            .absolute
+            .as_ref()
+            .is_some_and(|url| !has_origin(url, &self.origin))
+        {
             return Err(DiscoveryError::CrossOrigin);
         }
         self.entries.push(entry);
@@ -424,11 +441,12 @@ impl SitemapIndex {
         if self.entries.is_empty() {
             return Err(DiscoveryError::EmptySitemapIndex);
         }
+        validate_mount(&self.base_path)?;
         UnsafeRaw(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
         ).render(cx)?;
         for entry in &self.entries {
-            let (origin, mount, path) = loc_parts(&self.origin, &self.base_path, &entry.path)?;
+            let (origin, mount, path) = entry.path.parts(&self.origin, &self.base_path)?;
             let lastmod = entry.lastmod.as_deref().unwrap_or("");
             xml_sync! {
                 <sitemap>
@@ -442,6 +460,41 @@ impl SitemapIndex {
         }
         UnsafeRaw("</sitemapindex>\n").render(cx)?;
         Ok(())
+    }
+}
+
+/// Preserve caller spelling while retaining the parsed absolute URL for origin
+/// and directory checks. Parsing happens at construction, never during rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SitemapLocation {
+    spelling: String,
+    absolute: Option<url::Url>,
+}
+
+impl SitemapLocation {
+    fn new(spelling: String) -> Result<Self, DiscoveryError> {
+        let absolute = if is_absolute_http_url(&spelling) {
+            Some(parse_http_url(&spelling).ok_or(DiscoveryError::InvalidPath)?)
+        } else {
+            validate_local_path(&spelling)?;
+            None
+        };
+        Ok(Self { spelling, absolute })
+    }
+
+    fn parts<'a>(
+        &'a self,
+        origin: &'a str,
+        base_path: &'a BasePath,
+    ) -> Result<(&'a str, &'a str, &'a str), DiscoveryError> {
+        if self
+            .absolute
+            .as_ref()
+            .is_some_and(|url| !is_within_base_path(url.path(), base_path.as_str()))
+        {
+            return Err(DiscoveryError::OutsideBasePath);
+        }
+        loc_parts(origin, base_path, &self.spelling)
     }
 }
 
@@ -821,6 +874,8 @@ fn is_application_wide_rule(path: &str) -> bool {
 /// Join a public origin, runtime base path, and application path into an
 /// absolute `http` or `https` URL.
 /// The result must fit the sitemap location bounds; see [`SitemapUrl`].
+/// Absolute input passes through, including other origins. Sitemap documents
+/// separately enforce origin and directory scope; robots sitemap links may be external.
 pub fn absolute_http_url(
     origin: &str,
     base_path: &BasePath,
@@ -831,6 +886,7 @@ pub fn absolute_http_url(
         ""
     } else {
         let origin = normalize_origin(origin)?;
+        validate_mount(base_path)?;
         validate_local_path(path)?;
         origin
     };
@@ -904,8 +960,8 @@ fn is_valid_authority(authority: &str) -> bool {
 }
 
 /// Compare canonical tuple origins, including IDNA, IPv6 and default ports.
-fn has_origin(url: &str, origin: &str) -> bool {
-    let (Some(url), Some(origin)) = (parse_http_url(url), parse_http_url(origin)) else {
+fn has_origin(url: &url::Url, origin: &str) -> bool {
+    let Some(origin) = parse_http_url(origin) else {
         return false;
     };
     url.origin() == origin.origin()
@@ -917,7 +973,11 @@ fn parse_http_url(value: &str) -> Option<url::Url> {
     }
     let rest = strip_http_scheme(value)?;
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    if authority.is_empty() || authority.contains('@') || authority.ends_with(':') {
+    if authority.is_empty()
+        || authority.contains('@')
+        || authority.ends_with(':')
+        || rest[authority.len()..].contains(['[', ']'])
+    {
         return None;
     }
     let parsed = url::Url::parse(value).ok()?;
@@ -944,31 +1004,98 @@ fn has_invalid_percent_escape(value: &str) -> bool {
 }
 
 /// A root-relative application path (`/...`, not protocol-relative `//...`).
+/// Proa's application-local paths must not traverse above the mount. Dot segments
+/// are interpreted as in [URL parsing](https://url.spec.whatwg.org/#path-state),
+/// including percent-encoded dots; query text is not a path.
 fn validate_local_path(path: &str) -> Result<(), DiscoveryError> {
     if !path.starts_with('/')
         || path.starts_with("//")
         || contains_invalid_url_char(path)
+        || path.contains(['[', ']'])
         || has_invalid_percent_escape(path)
     {
         return Err(DiscoveryError::InvalidPath);
     }
+    let mut depth = 0usize;
+    for segment in path.split('?').next().unwrap_or(path).split('/').skip(1) {
+        if segment == "." || segment.eq_ignore_ascii_case("%2e") {
+            continue;
+        }
+        if ["..", ".%2e", "%2e.", "%2e%2e"]
+            .iter()
+            .any(|dot| segment.eq_ignore_ascii_case(dot))
+        {
+            depth = depth.checked_sub(1).ok_or(DiscoveryError::InvalidPath)?;
+        } else {
+            depth += 1;
+        }
+    }
     Ok(())
 }
 
-fn validate_entry_path(path: &str) -> Result<(), DiscoveryError> {
-    if is_absolute_http_url(path) {
-        return validate_absolute_http_url(path);
+fn validate_mount(base_path: &BasePath) -> Result<(), DiscoveryError> {
+    if !base_path.as_str().is_empty() {
+        validate_local_path(base_path.as_str())?;
     }
-    validate_local_path(path)
+    Ok(())
 }
 
-/// Space, ASCII controls, backslash, and XML 1.0 non-Char values (including
-/// U+FFFE and U+FFFF). XmlPolicy only rejects NUL, so these must be caught
-/// before a `<loc>` is written.
+/// Check the normalized absolute path against the document's directory, per
+/// [Sitemaps: location](https://www.sitemaps.org/protocol.html#location).
+/// The URL parser has already removed literal and encoded dot segments. Compare
+/// whole segments so sibling names and encoded slashes cannot cross the boundary.
+fn is_within_base_path(path: &str, base: &str) -> bool {
+    if base.is_empty() {
+        return true;
+    }
+    let mut segments = path[1..].split('/');
+    for segment in base[1..].split('/') {
+        let Some(candidate) = segments.next() else {
+            return false;
+        };
+        if !normalized_segment_bytes(candidate).eq(normalized_segment_bytes(segment)) {
+            return false;
+        }
+    }
+    // The bare mount is outside its directory; a trailing slash is inside.
+    segments.next().is_some()
+}
+
+/// Percent-triplet case and unreserved escapes are equivalent under
+/// [RFC 3986 §6.2.2](https://www.rfc-editor.org/rfc/rfc3986.html#section-6.2.2).
+/// Keep escaped reserved bytes distinct from their literal forms. Both inputs
+/// have already passed percent-escape validation.
+fn normalized_segment_bytes(segment: &str) -> impl Iterator<Item = (u8, bool)> + '_ {
+    let mut bytes = segment.bytes();
+    std::iter::from_fn(move || {
+        let byte = bytes.next()?;
+        if byte != b'%' {
+            return Some((byte, false));
+        }
+        let high = char::from(bytes.next()?).to_digit(16)? as u8;
+        let low = char::from(bytes.next()?).to_digit(16)? as u8;
+        let byte = high * 16 + low;
+        let unreserved = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
+        Some((byte, !unreserved))
+    })
+}
+
+/// Reject raw characters excluded from URI/IRI syntax, controls, and XML
+/// non-Char values: [Sitemaps: escaping](https://www.sitemaps.org/protocol.html#escaping)
+/// and [RFC 3986 §2](https://www.rfc-editor.org/rfc/rfc3986.html#section-2).
+/// Fragment-free discovery URLs are Proa policy; `#` also starts a robots comment
+/// ([RFC 9309 §2.2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.3)).
+/// Other non-ASCII text remains accepted and is written as supplied.
 fn contains_invalid_url_char(value: &str) -> bool {
-    value
-        .chars()
-        .any(|ch| ch <= ' ' || ch == '\u{7F}' || ch == '\\' || !is_xml10_char(ch))
+    value.chars().any(|ch| {
+        ch <= ' '
+            || ch.is_control()
+            || matches!(
+                ch,
+                '"' | '<' | '>' | '\\' | '^' | '`' | '{' | '|' | '}' | '#'
+            )
+            || !is_xml10_char(ch)
+    })
 }
 
 fn is_xml10_char(ch: char) -> bool {
@@ -1350,14 +1477,14 @@ mod tests {
             .unwrap()
             .with_base_path(BasePath::new("/app").unwrap())
             .with_entry(
-                SitemapIndexEntry::new("/sitemap/products.xml?x='1'&y=\"<2>\"")
+                SitemapIndexEntry::new("/sitemap/products.xml?x='1'&y=%22%3C2%3E%22")
                     .unwrap()
                     .lastmod("2024-02-29")
                     .unwrap(),
             )
             .unwrap()
             .with_entry(
-                SitemapIndexEntry::new("https://example.com:443/sitemap/pages.xml").unwrap(),
+                SitemapIndexEntry::new("https://example.com:443/app/sitemap/pages.xml").unwrap(),
             )
             .unwrap()
             .render_xml()
@@ -1367,9 +1494,9 @@ mod tests {
             concat!(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
                 "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
-                "<sitemap><loc>https://example.com/app/sitemap/products.xml?x=&#39;1&#39;&amp;y=&quot;&lt;2&gt;&quot;</loc>",
+                "<sitemap><loc>https://example.com/app/sitemap/products.xml?x=&#39;1&#39;&amp;y=%22%3C2%3E%22</loc>",
                 "<lastmod>2024-02-29</lastmod></sitemap>",
-                "<sitemap><loc>https://example.com:443/sitemap/pages.xml</loc></sitemap>",
+                "<sitemap><loc>https://example.com:443/app/sitemap/pages.xml</loc></sitemap>",
                 "</sitemapindex>\n"
             )
         );
@@ -1522,32 +1649,80 @@ mod tests {
     }
 
     #[test]
-    fn sitemap_escapes_xml_entities_in_loc() {
+    fn sitemap_escapes_xml_without_reencoding_urls() {
         let xml = Sitemap::new("https://example.com")
             .unwrap()
             .with_base_path(BasePath::new("/apps/a&b").unwrap())
-            .with_url("/search?q='a'&b=\"<x>\"")
+            .with_url("/search?q='a'&b=%22%3Cx%3E%22")
             .unwrap()
             .render_xml()
             .unwrap();
         assert!(xml.contains(
-            "<loc>https://example.com/apps/a&amp;b/search?q=&#39;a&#39;&amp;b=&quot;&lt;x&gt;&quot;</loc>"
+            "<loc>https://example.com/apps/a&amp;b/search?q=&#39;a&#39;&amp;b=%22%3Cx%3E%22</loc>"
         ));
     }
 
     #[test]
-    fn sitemap_keeps_same_origin_absolute_entries() {
+    fn sitemap_and_index_check_normalized_scope_without_rewriting_entries() {
+        for (base, path, allowed) in [
+            ("", "", true),
+            ("", "?q=1", true),
+            ("/apps/demo", "/apps/demo/", true),
+            ("/apps/demo", "/apps/demo/docs?q=/../../secret", true),
+            ("/apps/demo", "/apps/demo/a/../docs", true),
+            ("/apps/demo", "/apps/demo/a/%2e%2E/docs", true),
+            ("/apps/demo", "/apps/%64emo/docs", true),
+            ("/apps/%64emo", "/apps/demo/docs", true),
+            ("/apps/%E2%9C%93", "/apps/%e2%9c%93/docs", true),
+            ("/apps/%E2%9C%93", "/apps/✓/docs", true),
+            ("/apps/a%3Ab", "/apps/a%3ab/docs", true),
+            ("/apps/demo", "/other/page", false),
+            ("/apps/demo", "/apps/demo", false),
+            ("/apps/demo", "/apps/demo?q=1", false),
+            ("/apps/demo", "/apps/demo2/page", false),
+            ("/apps/demo", "/apps/demo/../../secret", false),
+            ("/apps/demo", "/apps/demo/%2e%2E/%2E./secret", false),
+            ("/apps/demo", "/apps%2Fdemo/page", false),
+            ("/apps/demo", "/apps/demo%2Fpage", false),
+            ("/apps/a:b", "/apps/a%3Ab/page", false),
+        ] {
+            let url = format!("https://EXAMPLE.com:443{path}");
+            let base = BasePath::new(base).unwrap();
+            let sitemap = Sitemap::new("https://example.com")
+                .unwrap()
+                .with_url(url.clone())
+                .unwrap()
+                .with_base_path(base.clone());
+            let index = SitemapIndex::new("https://example.com")
+                .unwrap()
+                .with_base_path(base.clone())
+                .with_entry(SitemapIndexEntry::new(url.clone()).unwrap())
+                .unwrap();
+            for result in [sitemap.render_xml(), index.render_xml()] {
+                if allowed {
+                    assert!(result.unwrap().contains(&format!("<loc>{url}</loc>")));
+                } else {
+                    assert_eq!(
+                        result,
+                        Err(DiscoveryError::OutsideBasePath),
+                        "{base:?}: {url}"
+                    );
+                }
+            }
+        }
+
+        // Local paths compose under the mount; safe internal dot segments stay valid.
         let xml = Sitemap::new("https://example.com")
             .unwrap()
             .with_base_path(BasePath::new("/apps/demo").unwrap())
-            .with_url("https://example.com/docs")
+            .with_url("/a/../docs")
             .unwrap()
-            .with_url("https://EXAMPLE.com")
+            .with_url("/")
             .unwrap()
             .render_xml()
             .unwrap();
-        assert!(xml.contains("<loc>https://example.com/docs</loc>"));
-        assert!(xml.contains("<loc>https://EXAMPLE.com</loc>"));
+        assert!(xml.contains("<loc>https://example.com/apps/demo/a/../docs</loc>"));
+        assert!(xml.contains("<loc>https://example.com/apps/demo/</loc>"));
     }
 
     #[test]
@@ -1732,24 +1907,72 @@ mod tests {
     }
 
     #[test]
-    fn discovery_urls_reject_unescaped_del() {
-        assert_eq!(
-            Sitemap::new("https://exam\u{7F}ple.com").unwrap_err(),
-            DiscoveryError::InvalidOrigin
-        );
-        for path in ["/a\u{7F}", "https://example.com/a\u{7F}"] {
+    fn discovery_urls_reject_fragments_controls_and_excluded_characters() {
+        for ch in [
+            '#', '"', '<', '>', '\\', '^', '`', '{', '|', '}', '[', ']', '\u{7F}', '\u{85}',
+        ] {
+            let local = format!("/a{ch}b");
+            let absolute = format!("https://example.com{local}");
+            for path in [&local, &absolute] {
+                assert_eq!(
+                    SitemapUrl::new(path).unwrap_err(),
+                    DiscoveryError::InvalidPath
+                );
+                assert_eq!(
+                    SitemapIndexEntry::new(path).unwrap_err(),
+                    DiscoveryError::InvalidPath
+                );
+                assert_eq!(
+                    absolute_http_url("https://example.com", &BasePath::default(), path),
+                    Err(DiscoveryError::InvalidPath)
+                );
+                assert_eq!(
+                    RobotsTxt::new()
+                        .sitemap_path("https://example.com", &BasePath::default(), path)
+                        .unwrap_err(),
+                    DiscoveryError::InvalidPath
+                );
+            }
             assert_eq!(
-                SitemapUrl::new(path).unwrap_err(),
+                RobotsTxt::new().sitemap(&absolute).unwrap_err(),
                 DiscoveryError::InvalidPath
             );
+            assert_eq!(
+                Sitemap::new(&format!("https://exam{ch}ple.com")).unwrap_err(),
+                DiscoveryError::InvalidOrigin
+            );
         }
-        assert_eq!(
-            RobotsTxt::new()
-                .sitemap("https://example.com/a\u{7F}")
-                .unwrap_err(),
-            DiscoveryError::InvalidPath
-        );
-        assert!(SitemapUrl::new("/a%7F").is_ok());
+        for path in [
+            "/a%7F",
+            "/a%23b",
+            "/%22%3C%3E%5B%5D",
+            "/café",
+            "/a'&b",
+            "/a/../b",
+            "/?q=../../x",
+        ] {
+            assert!(SitemapUrl::new(path).is_ok(), "{path}");
+        }
+        for path in [
+            "/../secret",
+            "/%2e%2e/secret",
+            "/a/../../secret",
+            "/a/.%2E/%2E./secret",
+        ] {
+            assert_eq!(
+                SitemapUrl::new(path).unwrap_err(),
+                DiscoveryError::InvalidPath,
+                "{path}"
+            );
+            assert_eq!(
+                SitemapIndexEntry::new(path).unwrap_err(),
+                DiscoveryError::InvalidPath,
+                "{path}"
+            );
+        }
+        assert!(RobotsTxt::new()
+            .sitemap("https://cdn.example/sitemap.xml?q=%23")
+            .is_ok());
     }
 
     #[test]
