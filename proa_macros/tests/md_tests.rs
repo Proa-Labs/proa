@@ -84,7 +84,7 @@ fn raw_template_composes_control_flow_without_escaped_newlines() {
         ## Items
 
         {for item in items {
-        - {item}
+            - {item}
         }}
         "###
     });
@@ -238,12 +238,43 @@ fn template_dedent_applies_inside_control_flow() {
         # Items
 
         {for item in items.iter() {
-        - {item}
+            - {item}
         }}
         "
     });
     // The newline after `}}` is part of the template, as in `template_nested_for`.
     assert_eq!(out, "# Items\n\n- alpha\n- beta\n\n");
+}
+
+#[test]
+fn nested_body_dedent_preserves_markdown_and_branch_selection() {
+    let items = [Some("alpha"), None];
+    for fallback in [false, true] {
+        let out = r(md_sync! { r###"
+            {for item in items {
+                {if let Some(item) = item {
+                    - {item}
+                      - nested
+
+                        indented_code();
+                } else if fallback {
+                    Missing
+                } else {
+                    ~~~rust
+                    Value { field: "literal braces" }
+                    ~~~
+                }}}}"###
+        });
+        let suffix = if fallback {
+            "Missing\n"
+        } else {
+            "~~~rust\nValue { field: \"literal braces\" }\n~~~\n"
+        };
+        assert_eq!(
+            out,
+            format!("- alpha\n  - nested\n\n    indented_code();\n{suffix}")
+        );
+    }
 }
 
 #[test]
@@ -443,7 +474,7 @@ async fn async_md_supports_template_control_flow() {
     let show_footer = true;
     let out = proa_core::render_md_to_string_async(md!("
 {for item in items.iter() {
-- {item}
+    - {item}
 }}
 {if show_footer {Done}}
 "))

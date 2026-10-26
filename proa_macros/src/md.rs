@@ -18,7 +18,7 @@
 //! # {data.title}
 //!
 //! {for highlight in &data.highlights {
-//! - **{highlight.title}** — {highlight.description}
+//!     - **{highlight.title}** — {highlight.description}
 //! }}
 //! "###
 //! }
@@ -37,7 +37,10 @@
 //!
 //! Physically multiline raw templates remove their common source indentation,
 //! preserving relative indentation without leaking the surrounding Rust block's
-//! alignment into the rendered Markdown:
+//! alignment into the rendered Markdown. Each multiline `for`, `if`, `else if`,
+//! and `else` body removes its own common indentation too, so nested control flow
+//! can be indented normally. Deeper Markdown indentation within a body remains
+//! content. Inline bodies and newlines after closing delimiters are unchanged:
 //!
 //! ```rust,ignore
 //! md_sync! { r###"
