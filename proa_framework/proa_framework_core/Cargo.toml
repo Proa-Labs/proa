@@ -25,6 +25,7 @@ async-stream = { version = "0.3" }
 bytes = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
+jiff = { workspace = true }
 proa_core = { workspace = true }
 proa_macros = { workspace = true }
 proa_react = { workspace = true }

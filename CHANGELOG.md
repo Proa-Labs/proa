@@ -18,8 +18,10 @@ All notable public changes are tracked here.
   generated sitemap link is advertised automatically when both endpoints are enabled.
   Query strings are XML-escaped, `lastmod` must be a real calendar date, and
   sitemap paths, absolute URLs, and origins reject XML-forbidden control
-  characters. Absolute sitemap entries must use the sitemap origin, and
-  `sitemap_xml` answers render failures with a logged, generic 500. Robots
+  characters. Modification dates use Jiff's `civil::Date`; `lastmod` accepts
+  strict `YYYY-MM-DD` strings and `lastmod_date` accepts typed dates. Both
+  write dates without temporary strings. Absolute sitemap entries must use the
+  sitemap origin, and `sitemap_xml` answers render failures with a logged, generic 500. Robots
   fields reject whitespace, `#`, and control characters, rule paths must be
   empty or start with `/` or `*`, and rule-less groups render an empty
   `Disallow:` instead of merging into the next group. `RobotsTxt::with_base_path`

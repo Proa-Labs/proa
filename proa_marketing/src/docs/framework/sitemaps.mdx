@@ -80,8 +80,26 @@ Output:
 |---|---|
 | `SitemapUrl::new(path)?` | An application-local path or a same-origin absolute HTTP(S) URL. |
 | `.lastmod(date)?` | The page's actual modification date as `YYYY-MM-DD`; valid calendar dates span years `0001` through `9999`, including leap years. |
+| `.lastmod_date(date)?` | The same modification date supplied as a `jiff::civil::Date`, without string conversion. |
 | `.changefreq(value)` | An optional `ChangeFreq` value, such as `Weekly`. |
 | `.priority(value)` | An optional `SitemapPriority`, stored in tenths from `0.0` to `1.0`. |
+
+Dates are validated and stored using Jiff. String inputs must be exactly `YYYY-MM-DD`; timestamps are rejected rather than silently truncated. If your app already uses Jiff, pass its date directly (add `jiff = "0.2"` to your app's dependencies):
+
+```rust filename="src/sitemap.rs" {4}
+use proa_framework_axum::SitemapUrl;
+
+let pricing = SitemapUrl::new("/pricing")?
+    .lastmod_date(jiff::civil::date(2026, 10, 25))?;
+```
+
+Output (`<lastmod>` element):
+
+```xml filename="example.com/sitemap.xml"
+<lastmod>2026-10-25</lastmod>
+```
+
+Both methods produce the same `<lastmod>` element shown above, and are also available on `SitemapIndexEntry` for the modification date of a sitemap document. Date formatting writes into the XML output without a temporary string.
 
 Local paths receive the builder's base path exactly once. Absolute entries retain their spelling and are not prefixed. Absolute URLs must match the configured scheme, host, and effective port: HTTPS with no port matches `:443`, and HTTP matches `:80`. Origin comparison uses canonical URL hosts, including case, internationalized domains/punycode, IPv6 spellings, and default ports.
 

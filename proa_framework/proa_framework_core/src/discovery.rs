@@ -11,11 +11,12 @@
 
 use std::{fmt::Write as _, time::Duration};
 
+use jiff::civil::Date;
 use proa_core::text::UnsafeRaw;
 use proa_core::{
     BasePath, DataLoader, OutputMeter, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_macros::xml_sync;
+use proa_macros::{text, xml_sync};
 use thiserror::Error;
 
 // Conservative UTF-8 byte bound for the protocol's character limit:
@@ -151,7 +152,7 @@ impl SitemapPriority {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SitemapUrl {
     path: SitemapLocation,
-    lastmod: Option<String>,
+    lastmod: Option<Date>,
     changefreq: Option<ChangeFreq>,
     priority: Option<SitemapPriority>,
 }
@@ -170,12 +171,25 @@ impl SitemapUrl {
     /// Page modification date, using the protocol's permitted date-only form.
     /// See [Sitemaps: lastmod](https://www.sitemaps.org/protocol.html#lastmoddef).
     /// This API supports `YYYY-MM-DD`, not the specification's optional timestamps.
-    pub fn lastmod(mut self, lastmod: impl Into<String>) -> Result<Self, DiscoveryError> {
-        let lastmod = lastmod.into();
-        if !is_calendar_date(&lastmod) {
-            return Err(DiscoveryError::InvalidLastmod);
-        }
-        self.lastmod = Some(lastmod);
+    /// Jiff validates and stores the date without retaining an owned string.
+    pub fn lastmod(self, lastmod: impl AsRef<str>) -> Result<Self, DiscoveryError> {
+        self.lastmod_date(parse_lastmod(lastmod.as_ref())?)
+    }
+
+    /// Page modification date supplied as a Jiff calendar date.
+    /// Proa supports years `0001` through `9999`; the
+    /// [sitemap schema](https://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd)
+    /// uses XML Schema 1.0 dates, which exclude year zero.
+    ///
+    /// ```
+    /// use proa_framework_core::discovery::SitemapUrl;
+    ///
+    /// let page = SitemapUrl::new("/pricing")?
+    ///     .lastmod_date(jiff::civil::date(2026, 10, 25))?;
+    /// # Ok::<(), proa_framework_core::discovery::DiscoveryError>(())
+    /// ```
+    pub fn lastmod_date(mut self, lastmod: Date) -> Result<Self, DiscoveryError> {
+        self.lastmod = Some(validate_lastmod_date(lastmod)?);
         Ok(self)
     }
 
@@ -280,14 +294,13 @@ impl Sitemap {
         )?;
         for url in &self.urls {
             let (origin, mount, path) = url.path.parts(&self.origin, &self.base_path)?;
-            let lastmod = url.lastmod.as_deref().unwrap_or("");
             let changefreq = url.changefreq.map(ChangeFreq::as_str).unwrap_or("");
             let priority = url.priority.map(SitemapPriority::as_str).unwrap_or("");
             xml_sync! {
                 <url>
                     <loc>{SitemapLoc([origin, mount, path])}</loc>
-                    {if !lastmod.is_empty() {
-                        xml_sync! { <lastmod>{lastmod}</lastmod> }
+                    {if let Some(lastmod) = url.lastmod {
+                        xml_sync! { <lastmod>{text!("{:}", lastmod)}</lastmod> }
                     }}
                     {if !changefreq.is_empty() {
                         xml_sync! { <changefreq>{changefreq}</changefreq> }
@@ -358,7 +371,7 @@ impl SitemapFile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SitemapIndexEntry {
     path: SitemapLocation,
-    lastmod: Option<String>,
+    lastmod: Option<Date>,
 }
 
 impl SitemapIndexEntry {
@@ -372,12 +385,16 @@ impl SitemapIndexEntry {
 
     /// When this sitemap document last changed, not the index generation date.
     /// See [Sitemaps: index lastmod](https://www.sitemaps.org/protocol.html#sitemapIndex_lastmod).
-    pub fn lastmod(mut self, lastmod: impl Into<String>) -> Result<Self, DiscoveryError> {
-        let lastmod = lastmod.into();
-        if !is_calendar_date(&lastmod) {
-            return Err(DiscoveryError::InvalidLastmod);
-        }
-        self.lastmod = Some(lastmod);
+    /// Accepts only `YYYY-MM-DD`; Jiff validates and stores the calendar date.
+    pub fn lastmod(self, lastmod: impl AsRef<str>) -> Result<Self, DiscoveryError> {
+        self.lastmod_date(parse_lastmod(lastmod.as_ref())?)
+    }
+
+    /// When this sitemap document last changed, supplied as a Jiff calendar date.
+    /// Uses the same year range as [`SitemapUrl::lastmod_date`].
+    /// See [Sitemaps: index lastmod](https://www.sitemaps.org/protocol.html#sitemapIndex_lastmod).
+    pub fn lastmod_date(mut self, lastmod: Date) -> Result<Self, DiscoveryError> {
+        self.lastmod = Some(validate_lastmod_date(lastmod)?);
         Ok(self)
     }
 }
@@ -447,12 +464,11 @@ impl SitemapIndex {
         ).render(cx)?;
         for entry in &self.entries {
             let (origin, mount, path) = entry.path.parts(&self.origin, &self.base_path)?;
-            let lastmod = entry.lastmod.as_deref().unwrap_or("");
             xml_sync! {
                 <sitemap>
                     <loc>{SitemapLoc([origin, mount, path])}</loc>
-                    {if !lastmod.is_empty() {
-                        xml_sync! { <lastmod>{lastmod}</lastmod> }
+                    {if let Some(lastmod) = entry.lastmod {
+                        xml_sync! { <lastmod>{text!("{:}", lastmod)}</lastmod> }
                     }}
                 </sitemap>
             }
@@ -1107,48 +1123,31 @@ fn is_xml10_char(ch: char) -> bool {
     )
 }
 
-/// Date-only subset of `xsd:date` in the [sitemap schema](https://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd).
-fn is_calendar_date(value: &str) -> bool {
+/// Keep Proa's date-only input grammar: Jiff also accepts datetimes and discards
+/// their time when parsing a `Date`. Calendar validation belongs to Jiff.
+/// See [Sitemaps: lastmod](https://www.sitemaps.org/protocol.html#lastmoddef).
+fn parse_lastmod(value: &str) -> Result<Date, DiscoveryError> {
     let bytes = value.as_bytes();
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
-        return false;
+        return Err(DiscoveryError::InvalidLastmod);
     }
     if !bytes
         .iter()
         .enumerate()
         .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
     {
-        return false;
+        return Err(DiscoveryError::InvalidLastmod);
     }
-    let year = parse_four_digits(&bytes[0..4]);
-    let month = parse_two_digits(&bytes[5..7]);
-    let day = parse_two_digits(&bytes[8..10]);
-    year >= 1 && day >= 1 && day <= days_in_month(year, month)
+    value.parse().map_err(|_| DiscoveryError::InvalidLastmod)
 }
 
-fn days_in_month(year: u16, month: u8) -> u8 {
-    match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        _ => 0,
+/// Proa's four-digit, positive-year subset of `xsd:date` in the
+/// [sitemap schema](https://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd).
+fn validate_lastmod_date(date: Date) -> Result<Date, DiscoveryError> {
+    if !(1..=9999).contains(&date.year()) {
+        return Err(DiscoveryError::InvalidLastmod);
     }
-}
-
-fn is_leap_year(year: u16) -> bool {
-    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
-}
-
-fn parse_four_digits(bytes: &[u8]) -> u16 {
-    u16::from(bytes[0] - b'0') * 1000
-        + u16::from(bytes[1] - b'0') * 100
-        + u16::from(bytes[2] - b'0') * 10
-        + u16::from(bytes[3] - b'0')
-}
-
-fn parse_two_digits(bytes: &[u8]) -> u8 {
-    (bytes[0] - b'0') * 10 + (bytes[1] - b'0')
+    Ok(date)
 }
 
 /// Proa rejects controls/whitespace instead of repairing fields. `#` is syntax:
@@ -1861,28 +1860,106 @@ mod tests {
     }
 
     #[test]
-    fn lastmod_rejects_nonexistent_calendar_dates() {
-        let url = || SitemapUrl::new("/ok").unwrap();
-        assert_eq!(
-            url().lastmod("2026-02-30").unwrap_err(),
-            DiscoveryError::InvalidLastmod
-        );
-        assert_eq!(
-            url().lastmod("2026-04-31").unwrap_err(),
-            DiscoveryError::InvalidLastmod
-        );
-        assert_eq!(
-            url().lastmod("2026-02-29").unwrap_err(),
-            DiscoveryError::InvalidLastmod
-        );
-        assert_eq!(
-            url().lastmod("1900-02-29").unwrap_err(),
-            DiscoveryError::InvalidLastmod
-        );
-        assert!(url().lastmod("2026-01-31").is_ok());
-        assert!(url().lastmod("2026-04-30").is_ok());
-        assert!(url().lastmod("2024-02-29").is_ok());
-        assert!(url().lastmod("2000-02-29").is_ok());
+    fn lastmod_rejects_invalid_dates_and_non_date_inputs() {
+        for value in [
+            "2026-02-30",
+            "2026-04-31",
+            "2026-02-29",
+            "1900-02-29",
+            "0000-01-01",
+            "-000001-01-01",
+            "10000-01-01",
+            "2026-1-01",
+            "2026-01-1",
+            "2026/01/01",
+            " 2026-01-01",
+            "2026-01-01 ",
+            "2026-01-01Z",
+            "2026-01-01T12:00:00Z",
+            "2026-01-01[America/New_York]",
+            "２０２６-01-01",
+            "",
+        ] {
+            assert_eq!(
+                SitemapUrl::new("/ok").unwrap().lastmod(value).unwrap_err(),
+                DiscoveryError::InvalidLastmod,
+                "page lastmod: {value}"
+            );
+            assert_eq!(
+                SitemapIndexEntry::new("/sitemap-0.xml")
+                    .unwrap()
+                    .lastmod(value)
+                    .unwrap_err(),
+                DiscoveryError::InvalidLastmod,
+                "index lastmod: {value}"
+            );
+        }
+        for year in [-9999, -1, 0] {
+            let date = Date::new(year, 1, 1).unwrap();
+            assert_eq!(
+                SitemapUrl::new("/ok")
+                    .unwrap()
+                    .lastmod_date(date)
+                    .unwrap_err(),
+                DiscoveryError::InvalidLastmod
+            );
+            assert_eq!(
+                SitemapIndexEntry::new("/sitemap-0.xml")
+                    .unwrap()
+                    .lastmod_date(date)
+                    .unwrap_err(),
+                DiscoveryError::InvalidLastmod
+            );
+        }
+    }
+
+    #[test]
+    fn lastmod_string_and_jiff_dates_render_the_supported_year_range() {
+        for value in [
+            "0001-01-01",
+            "0099-12-31",
+            "0100-01-01",
+            "2000-02-29",
+            "2024-02-29",
+            "2026-01-31",
+            "2026-04-30",
+            "9999-12-31",
+        ] {
+            let date = value.parse::<Date>().unwrap();
+            let pages = [
+                SitemapUrl::new("/ok").unwrap().lastmod(value).unwrap(),
+                SitemapUrl::new("/ok").unwrap().lastmod_date(date).unwrap(),
+            ];
+            let documents = [
+                SitemapIndexEntry::new("/sitemap-0.xml")
+                    .unwrap()
+                    .lastmod(value)
+                    .unwrap(),
+                SitemapIndexEntry::new("/sitemap-0.xml")
+                    .unwrap()
+                    .lastmod_date(date)
+                    .unwrap(),
+            ];
+            let expected = format!("<lastmod>{value}</lastmod>");
+            for page in pages {
+                let xml = Sitemap::new("https://example.com")
+                    .unwrap()
+                    .with_entry(page)
+                    .unwrap()
+                    .render_xml()
+                    .unwrap();
+                assert_eq!(xml.matches(&expected).count(), 1, "{xml}");
+            }
+            for document in documents {
+                let xml = SitemapIndex::new("https://example.com")
+                    .unwrap()
+                    .with_entry(document)
+                    .unwrap()
+                    .render_xml()
+                    .unwrap();
+                assert_eq!(xml.matches(&expected).count(), 1, "{xml}");
+            }
+        }
     }
 
     #[test]
