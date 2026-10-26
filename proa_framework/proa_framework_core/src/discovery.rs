@@ -9,13 +9,14 @@
 //! [Google's interpretation](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec),
 //! and the [Sitemaps protocol](https://www.sitemaps.org/protocol.html).
 
-use std::{fmt::Write as _, time::Duration};
+use std::time::Duration;
 
 use jiff::civil::Date;
 use proa_core::{
-    BasePath, DataLoader, OutputMeter, WebContext, WebRenderSync, WriteBuf, WriteError,
+    BasePath, DataLoader, MdRenderSync, OutputMeter, TrustedMarkdown, WebContext, WebRenderSync,
+    WriteBuf, WriteError,
 };
-use proa_macros::{text, xml_sync};
+use proa_macros::{md_sync, text, xml_sync};
 use thiserror::Error;
 
 // Conservative UTF-8 byte bound for the protocol's character limit:
@@ -212,14 +213,17 @@ impl SitemapUrl {
 #[derive(Debug, Clone)]
 pub struct Sitemap {
     origin: String,
+    canonical_origin: url::Origin,
     base_path: BasePath,
     urls: Vec<SitemapUrl>,
 }
 
 impl Sitemap {
     pub fn new(origin: &str) -> Result<Self, DiscoveryError> {
+        let (origin, canonical_origin) = parse_origin(origin)?;
         Ok(Self {
-            origin: normalize_origin(origin)?.to_string(),
+            origin: origin.to_owned(),
+            canonical_origin,
             base_path: BasePath::default(),
             urls: Vec::new(),
         })
@@ -247,7 +251,7 @@ impl Sitemap {
             .path
             .absolute
             .as_ref()
-            .is_some_and(|url| !has_origin(url, &self.origin))
+            .is_some_and(|url| url.origin() != self.canonical_origin)
         {
             return Err(DiscoveryError::CrossOrigin);
         }
@@ -405,14 +409,17 @@ impl SitemapIndexEntry {
 #[derive(Debug, Clone)]
 pub struct SitemapIndex {
     origin: String,
+    canonical_origin: url::Origin,
     base_path: BasePath,
     entries: Vec<SitemapIndexEntry>,
 }
 
 impl SitemapIndex {
     pub fn new(origin: &str) -> Result<Self, DiscoveryError> {
+        let (origin, canonical_origin) = parse_origin(origin)?;
         Ok(Self {
-            origin: normalize_origin(origin)?.to_owned(),
+            origin: origin.to_owned(),
+            canonical_origin,
             base_path: BasePath::default(),
             entries: Vec::new(),
         })
@@ -433,7 +440,7 @@ impl SitemapIndex {
             .path
             .absolute
             .as_ref()
-            .is_some_and(|url| !has_origin(url, &self.origin))
+            .is_some_and(|url| url.origin() != self.canonical_origin)
         {
             return Err(DiscoveryError::CrossOrigin);
         }
@@ -495,11 +502,11 @@ struct SitemapLocation {
 
 impl SitemapLocation {
     fn new(spelling: String) -> Result<Self, DiscoveryError> {
-        let absolute = if is_absolute_http_url(&spelling) {
-            Some(parse_http_url(&spelling).ok_or(DiscoveryError::InvalidPath)?)
-        } else {
+        let absolute = if spelling.starts_with('/') {
             validate_local_path(&spelling)?;
             None
+        } else {
+            Some(parse_http_url(&spelling)?)
         };
         Ok(Self { spelling, absolute })
     }
@@ -709,10 +716,17 @@ impl RobotsTxt {
     /// explicit document configuration, not inferred from request headers.
     /// Google does not support it: [Google: syntax](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#syntax).
     pub fn host(mut self, host: &str) -> Result<Self, DiscoveryError> {
-        let host = if is_absolute_http_url(host) {
-            normalize_origin(host).map_err(|_| DiscoveryError::InvalidRobotsHost)?
+        let host = if host.contains("://") && !host.starts_with(char::is_whitespace) {
+            parse_origin(host)
+                .map_err(|_| DiscoveryError::InvalidRobotsHost)?
+                .0
         } else {
-            if contains_invalid_url_char(host) || !is_valid_authority(host) {
+            // Host is configuration-time data; use the same origin parser.
+            // The borrowed spelling below must not trim or accept path suffixes.
+            let candidate = format!("https://{host}");
+            let (origin, _) =
+                parse_origin(&candidate).map_err(|_| DiscoveryError::InvalidRobotsHost)?;
+            if origin != candidate || host.is_empty() {
                 return Err(DiscoveryError::InvalidRobotsHost);
             }
             host
@@ -740,10 +754,7 @@ impl RobotsTxt {
     /// This document-level extension is independent of user-agent groups:
     /// [Google: sitemap](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#sitemap).
     pub fn sitemap(mut self, loc: &str) -> Result<Self, DiscoveryError> {
-        if !is_absolute_http_url(loc) {
-            return Err(DiscoveryError::InvalidPath);
-        }
-        validate_absolute_http_url(loc)?;
+        parse_http_url(loc)?;
         if loc.len() >= MAX_LOC_BYTES {
             return Err(DiscoveryError::LocTooLong);
         }
@@ -774,78 +785,64 @@ impl RobotsTxt {
     /// Render UTF-8 text with LF separators ([RFC 9309 §2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.3)).
     /// This low-level serializer has no size cap; use [`Self::try_render_txt`]
     /// for Google's limit, as the builder and Axum response helper do.
-    // proa-perf-ok: owned output document, rendered once at startup by the builder
     pub fn render_txt(&self) -> String {
-        let mut out = String::new();
-        for (index, group) in self.groups.iter().enumerate() {
-            if index > 0 {
-                out.push('\n');
-            }
-            for agent in &group.user_agents {
-                out.push_str("User-agent: ");
-                out.push_str(agent);
-                out.push('\n');
-            }
-            if group.rules.is_empty() {
-                // Preserve empty group boundaries (blank lines do not do so):
-                // https://www.rfc-editor.org/rfc/rfc9309.html#section-2.1
-                out.push_str("Disallow:\n");
-            }
-            for rule in &group.rules {
-                let (field, path) = match rule {
-                    RobotsRule::Allow(path) => ("Allow: ", path.as_str()),
-                    RobotsRule::Disallow(path) => ("Disallow: ", path.as_str()),
-                };
-                let base = if path.starts_with('/') {
-                    self.base_path.as_str()
-                } else {
-                    ""
-                };
-                let app_wide = is_application_wide_rule(path);
-                if !base.is_empty() && (app_wide || path == "/$") {
-                    push_robots_line(&mut out, field, base, "$");
-                    if app_wide {
-                        // The bare mount can also be requested with a query.
-                        push_robots_line(&mut out, field, base, "?");
-                    }
-                }
-                push_robots_line(&mut out, field, base, path);
-            }
-            if let Some(delay) = group.crawl_delay {
-                write!(out, "Crawl-delay: {}", delay.as_secs())
-                    .expect("String writes are infallible");
-                let mut fraction = delay.subsec_nanos();
-                if fraction != 0 {
-                    let mut width = 9;
-                    while fraction.is_multiple_of(10) {
-                        fraction /= 10;
-                        width -= 1;
-                    }
-                    write!(out, ".{fraction:0width$}").expect("String writes are infallible");
-                }
-                out.push('\n');
-            }
-            for (name, value) in &group.directives {
-                out.push_str(name);
-                out.push_str(": ");
-                out.push_str(value);
-                out.push('\n');
-            }
+        let mut cx = WebContext::new();
+        // Fields have already passed robots validation. TrustedMarkdown preserves
+        // protocol punctuation (including `*`, `$`, and URL query separators).
+        // An empty Disallow preserves empty group boundaries; blank lines do not:
+        // https://www.rfc-editor.org/rfc/rfc9309.html#section-2.1
+        md_sync! { r###"
+            {for (index, group) in self.groups.iter().enumerate() {
+            {if index > 0 {
+
+            }}{for agent in &group.user_agents {
+            User-agent: {TrustedMarkdown(agent)}
+            }}{if group.rules.is_empty() {
+            Disallow:
+            }}{for (field, base, path) in self.rule_lines(group) {
+            {TrustedMarkdown(field)}{RobotsMount(base)}{TrustedMarkdown(path)}
+            }}{if let Some(delay) = group.crawl_delay {
+            Crawl-delay: {RobotsCrawlDelay(delay)}
+            }}{for (name, value) in &group.directives {
+            {TrustedMarkdown(name)}: {TrustedMarkdown(value)}
+            }}}}{if !self.groups.is_empty() && (self.host.is_some() || !self.sitemaps.is_empty()) {
+
+            }}{if let Some(host) = &self.host {
+            Host: {TrustedMarkdown(host)}
+            }}{for loc in &self.sitemaps {
+            Sitemap: {TrustedMarkdown(loc)}
+            }}"###
         }
-        if (self.host.is_some() || !self.sitemaps.is_empty()) && !out.is_empty() {
-            out.push('\n');
-        }
-        if let Some(host) = &self.host {
-            out.push_str("Host: ");
-            out.push_str(host);
-            out.push('\n');
-        }
-        for loc in &self.sitemaps {
-            out.push_str("Sitemap: ");
-            out.push_str(loc);
-            out.push('\n');
-        }
-        out
+        .render_md(&mut cx)
+        .expect("validated robots.txt renders into an owned buffer");
+        cx.into_output().into_string()
+    }
+
+    /// Borrow the final rules, including the bare mount and its query variants.
+    fn rule_lines<'a>(
+        &'a self,
+        group: &'a RobotsGroup,
+    ) -> impl Iterator<Item = (&'static str, &'a str, &'a str)> {
+        group.rules.iter().flat_map(move |rule| {
+            let (field, path) = match rule {
+                RobotsRule::Allow(path) => ("Allow: ", path.as_str()),
+                RobotsRule::Disallow(path) => ("Disallow: ", path.as_str()),
+            };
+            let base = if path.starts_with('/') {
+                self.base_path.as_str()
+            } else {
+                ""
+            };
+            let app_wide = is_application_wide_rule(path);
+            [
+                (!base.is_empty() && (app_wide || path == "/$")).then_some("$"),
+                (!base.is_empty() && app_wide).then_some("?"),
+                Some(path),
+            ]
+            .into_iter()
+            .flatten()
+            .map(move |path| (field, base, path))
+        })
     }
 
     /// Render and reject documents whose trailing rules Google would ignore.
@@ -877,17 +874,44 @@ impl RobotsTxt {
     }
 }
 
-fn push_robots_line(out: &mut String, field: &str, base: &str, path: &str) {
-    out.push_str(field);
-    for ch in base.chars() {
-        match ch {
-            '*' => out.push_str("%2A"),
-            '$' => out.push_str("%24"),
-            _ => out.push(ch),
+/// A borrowed mount with literal robots operators escaped, without a temporary string.
+struct RobotsMount<'a>(&'a str);
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RobotsMount<'_> {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        for part in self.0.split_inclusive(['*', '$']) {
+            let (prefix, escaped) = if let Some(prefix) = part.strip_suffix('*') {
+                (prefix, "%2A")
+            } else if let Some(prefix) = part.strip_suffix('$') {
+                (prefix, "%24")
+            } else {
+                (part, "")
+            };
+            TrustedMarkdown(prefix).render_md(cx)?;
+            TrustedMarkdown(escaped).render_md(cx)?;
         }
+        Ok(())
     }
-    out.push_str(path);
-    out.push('\n');
+}
+
+/// Stream exact decimal seconds through Proa's numeric and formatting adapters.
+struct RobotsCrawlDelay(Duration);
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RobotsCrawlDelay {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        self.0.as_secs().render_md(cx)?;
+        let mut fraction = self.0.subsec_nanos();
+        if fraction != 0 {
+            let mut width = 9;
+            while fraction.is_multiple_of(10) {
+                fraction /= 10;
+                width -= 1;
+            }
+            proa_core::md::FmtBuf::new(cx.output_mut())
+                .write_fmt(format_args!(".{fraction:0width$}"))?;
+        }
+        Ok(())
+    }
 }
 
 fn is_application_wide_rule(path: &str) -> bool {
@@ -911,14 +935,14 @@ pub fn absolute_http_url(
     base_path: &BasePath,
     path: &str,
 ) -> Result<String, DiscoveryError> {
-    let origin = if is_absolute_http_url(path) {
-        validate_absolute_http_url(path)?;
-        ""
-    } else {
-        let origin = normalize_origin(origin)?;
+    let origin = if path.starts_with('/') {
+        let (origin, _) = parse_origin(origin)?;
         validate_mount(base_path)?;
         validate_local_path(path)?;
         origin
+    } else {
+        parse_http_url(path)?;
+        ""
     };
 
     let (origin, mount, path) = loc_parts(origin, base_path, path)?;
@@ -938,10 +962,10 @@ fn loc_parts<'a>(
     base_path: &'a BasePath,
     path: &'a str,
 ) -> Result<(&'a str, &'a str, &'a str), DiscoveryError> {
-    let (origin, mount) = if is_absolute_http_url(path) {
-        ("", "")
-    } else {
+    let (origin, mount) = if path.starts_with('/') {
         (origin, base_path.as_str())
+    } else {
+        ("", "")
     };
     if origin.len() + mount.len() + path.len() >= MAX_LOC_BYTES {
         return Err(DiscoveryError::LocTooLong);
@@ -960,64 +984,41 @@ fn loc_parts<'a>(
 
 /// Origin-only configuration is Proa policy; scheme/host/port matching serves
 /// [Sitemaps: location](https://www.sitemaps.org/protocol.html#location).
-fn normalize_origin(origin: &str) -> Result<&str, DiscoveryError> {
+fn parse_origin(origin: &str) -> Result<(&str, url::Origin), DiscoveryError> {
     let origin = origin.trim();
     let origin = origin.strip_suffix('/').unwrap_or(origin);
-    let authority = strip_http_scheme(origin).ok_or(DiscoveryError::InvalidOrigin)?;
-    if authority.contains(['/', '?', '#']) || parse_http_url(origin).is_none() {
+    let parsed = parse_http_url(origin).map_err(|_| DiscoveryError::InvalidOrigin)?;
+    // Inspect the supplied path before URL normalization can erase `/a/..`.
+    let (_, authority) = origin
+        .split_once("://")
+        .ok_or(DiscoveryError::InvalidOrigin)?;
+    if authority.contains(['/', '?']) {
         return Err(DiscoveryError::InvalidOrigin);
     }
-    Ok(origin)
+    Ok((origin, parsed.origin()))
 }
 
-fn strip_http_scheme(url: &str) -> Option<&str> {
-    split_http_scheme(url).map(|(_, rest)| rest)
-}
-
-fn split_http_scheme(url: &str) -> Option<(&str, &str)> {
-    let (scheme, rest) = url.split_once("://")?;
-    (scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http"))
-        .then_some((scheme, rest))
-}
-
-fn is_absolute_http_url(path: &str) -> bool {
-    strip_http_scheme(path).is_some()
-}
-
-fn is_valid_authority(authority: &str) -> bool {
-    !authority.contains(['/', '?', '#'])
-        && parse_http_url(&format!("https://{authority}")).is_some()
-}
-
-/// Compare canonical tuple origins, including IDNA, IPv6 and default ports.
-fn has_origin(url: &url::Url, origin: &str) -> bool {
-    let Some(origin) = parse_http_url(origin) else {
-        return false;
-    };
-    url.origin() == origin.origin()
-}
-
-fn parse_http_url(value: &str) -> Option<url::Url> {
+/// Delegate URL grammar, IDNA, ports, and normalization to `url`.
+/// Keep the spelling checks shared with local paths: `Url::parse` repairs some
+/// malformed inputs, but discovery documents retain the supplied spelling.
+fn parse_http_url(value: &str) -> Result<url::Url, DiscoveryError> {
     if contains_invalid_url_char(value) || has_invalid_percent_escape(value) {
-        return None;
+        return Err(DiscoveryError::InvalidPath);
     }
-    let rest = strip_http_scheme(value)?;
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let (_, rest) = value.split_once("://").ok_or(DiscoveryError::InvalidPath)?;
+    let authority = rest.split(['/', '?']).next().unwrap_or("");
     if authority.is_empty()
         || authority.contains('@')
         || authority.ends_with(':')
         || rest[authority.len()..].contains(['[', ']'])
     {
-        return None;
+        return Err(DiscoveryError::InvalidPath);
     }
-    let parsed = url::Url::parse(value).ok()?;
-    parsed.has_host().then_some(parsed)
-}
-
-fn validate_absolute_http_url(value: &str) -> Result<(), DiscoveryError> {
-    parse_http_url(value)
-        .map(|_| ())
-        .ok_or(DiscoveryError::InvalidPath)
+    let parsed = url::Url::parse(value).map_err(|_| DiscoveryError::InvalidPath)?;
+    if !matches!(parsed.scheme(), "http" | "https") || !parsed.has_host() {
+        return Err(DiscoveryError::InvalidPath);
+    }
+    Ok(parsed)
 }
 
 fn has_invalid_percent_escape(value: &str) -> bool {
@@ -2111,7 +2112,7 @@ mod tests {
             .crawl_delay(Duration::from_millis(1500))
             .directive("Clean-param", "ref /articles/")
             .unwrap()
-            .directive("Clean-param", "sort /products/")
+            .directive("Clean-param", "sort /products_[v2]/*?a=1&b=2$")
             .unwrap()
             .group("SeznamBot")
             .unwrap()
@@ -2136,7 +2137,7 @@ mod tests {
             robots.render_txt(),
             concat!(
                 "User-agent: Applebot\nUser-agent: Bingbot\nDisallow: /private/\n",
-                "Crawl-delay: 1.5\nClean-param: ref /articles/\nClean-param: sort /products/\n\n",
+                "Crawl-delay: 1.5\nClean-param: ref /articles/\nClean-param: sort /products_[v2]/*?a=1&b=2$\n\n",
                 "User-agent: SeznamBot\nAllow: /\nRequest-Rate: 10/1m\n\n",
                 "Host: https://example.com\nSitemap: https://example.com/pages.xml\nSitemap: https://example.com/products.xml\n"
             )
@@ -2248,7 +2249,10 @@ mod tests {
         for host in [
             "",
             "example.com/app",
+            "example.com/",
             "https://example.com/app",
+            "https://example.com/a/..",
+            " https://example.com",
             "example.com#comment",
             "user@example.com",
             "https://example.com?x=1",
@@ -2320,7 +2324,15 @@ mod tests {
     }
 
     #[test]
-    fn robots_txt_keeps_empty_groups_separate() {
+    fn robots_txt_separates_groups_without_extra_blank_lines() {
+        assert_eq!(RobotsTxt::new().render_txt(), "");
+        assert_eq!(
+            RobotsTxt::new()
+                .sitemap("https://example.com/sitemap.xml?a=1&b=2")
+                .unwrap()
+                .render_txt(),
+            "Sitemap: https://example.com/sitemap.xml?a=1&b=2\n"
+        );
         let body = RobotsTxt::new()
             .group("GoodBot")
             .unwrap()

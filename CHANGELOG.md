@@ -38,9 +38,12 @@ All notable public changes are tracked here.
   and validated custom per-group directives. An awaited application-owned
   `generate_robots` function can supply the document at startup; requests serve
   cached bytes, preserving explicit sitemap links and adding the generated
-  sitemap/index link automatically. Origin validation uses canonical URL host
-  parsing (including IDNA) and rejects malformed hosts/percent escapes. Empty
-  sitemaps and year-zero dates are rejected; a stack-owned output meter stops
+  sitemap/index link automatically. Robots text uses `md_sync!` with validated
+  fields kept verbatim, preserving wildcard operators and exact line endings.
+  Discovery validation shares `url::Url` parsing and caches canonical origins
+  for entry checks, including IDNA and default ports; malformed hosts/percent
+  escapes remain rejected. Empty sitemaps and year-zero dates are rejected;
+  a stack-owned output meter stops
   oversized XML before flattening without rescanning earlier buffer pages.
   XML render loops write borrowed URL components directly, avoiding temporary
   URL strings and repeated URL parsing per entry.
