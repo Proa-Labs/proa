@@ -41,7 +41,10 @@ const PRIORITY_TEXT: [&str; 11] = [
 ];
 
 /// Failure while building a sitemap or robots.txt document.
+///
+/// New variants may be added as validation grows; match with a wildcard arm.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum DiscoveryError {
     #[error(
         "origin must be an http or https host (optional port) with no path, query, or fragment"
@@ -1015,7 +1018,11 @@ fn parse_http_url(value: &str) -> Result<url::Url, DiscoveryError> {
         return Err(DiscoveryError::InvalidPath);
     }
     let parsed = url::Url::parse(value).map_err(|_| DiscoveryError::InvalidPath)?;
-    if !matches!(parsed.scheme(), "http" | "https") || !parsed.has_host() {
+    // Port 0 is reserved and never a public listener.
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.has_host()
+        || parsed.port() == Some(0)
+    {
         return Err(DiscoveryError::InvalidPath);
     }
     Ok(parsed)
@@ -1165,12 +1172,13 @@ fn validate_lastmod_date(date: Date) -> Result<Date, DiscoveryError> {
     Ok(date)
 }
 
-/// Proa rejects controls/whitespace instead of repairing fields. `#` is syntax:
+/// Proa rejects whitespace and control characters, including Unicode ones,
+/// instead of repairing fields. `#` is syntax:
 /// [RFC 9309 §2.2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.3).
-fn has_invalid_robots_byte(value: &str) -> bool {
+fn has_invalid_robots_char(value: &str) -> bool {
     value
-        .bytes()
-        .any(|byte| byte <= b' ' || byte == b'#' || byte == 0x7F)
+        .chars()
+        .any(|ch| ch == '#' || ch.is_control() || ch.is_whitespace())
 }
 
 fn validate_robots_user_agent(value: &str) -> Result<(), DiscoveryError> {
@@ -1213,7 +1221,7 @@ fn validate_robots_directive(name: &str, value: &str) -> Result<(), DiscoveryErr
 /// explicitly allows `*` to match that slash. Prefer `/`-leading patterns for
 /// portability. Rejecting `//...` is Proa's application-path policy.
 fn checked_robots_path(value: &str) -> Result<String, DiscoveryError> {
-    if has_invalid_robots_byte(value) {
+    if has_invalid_robots_char(value) {
         return Err(DiscoveryError::InvalidRobotsField);
     }
     if !value.is_empty() && !value.starts_with(['/', '*']) {
@@ -1819,6 +1827,8 @@ mod tests {
             "https://[1:2:3:4:5:6:7:8:9]",
             "https://example.com:",
             "https://example.com:65536",
+            "https://example.com:0",
+            "https://example.com:00000",
             "https://:443",
         ] {
             assert_eq!(
@@ -1841,6 +1851,10 @@ mod tests {
         );
         assert_eq!(
             SitemapUrl::new("https://[abcd]/docs").unwrap_err(),
+            DiscoveryError::InvalidPath
+        );
+        assert_eq!(
+            SitemapUrl::new("https://example.com:0/docs").unwrap_err(),
             DiscoveryError::InvalidPath
         );
         assert_eq!(
@@ -2385,10 +2399,13 @@ mod tests {
             RobotsTxt::new().group("Bot\u{7F}").unwrap_err(),
             DiscoveryError::InvalidRobotsUserAgent
         );
-        assert_eq!(
-            RobotsTxt::new().disallow("/a\u{7F}").unwrap_err(),
-            DiscoveryError::InvalidRobotsField
-        );
+        for path in ["/a\u{7F}", "/a\u{85}b", "/a\u{2028}b", "/a\u{A0}b", "/a\tb"] {
+            assert_eq!(
+                RobotsTxt::new().disallow(path).unwrap_err(),
+                DiscoveryError::InvalidRobotsField,
+                "{path:?}"
+            );
+        }
         assert_eq!(
             RobotsTxt::new().group("*\nGooglebot").unwrap_err(),
             DiscoveryError::InvalidRobotsUserAgent
