@@ -32,8 +32,9 @@ All notable public changes are tracked here.
   cached bytes, preserving explicit sitemap links and adding the generated
   sitemap/index link automatically. Origin validation uses canonical URL host
   parsing (including IDNA) and rejects malformed hosts/percent escapes. Empty
-  sitemaps and year-zero dates are rejected; oversized XML stops rendering
-  before flattening. Mounted robots root rules cover query variants, and
+  sitemaps and year-zero dates are rejected; a stack-owned output meter stops
+  oversized XML before flattening without rescanning earlier buffer pages.
+  Mounted robots root rules cover query variants, and
   literal pattern operators in the mount prefix are escaped.
 
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.

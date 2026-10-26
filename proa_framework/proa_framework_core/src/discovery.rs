@@ -7,7 +7,9 @@
 use std::{fmt::Write as _, time::Duration};
 
 use proa_core::text::UnsafeRaw;
-use proa_core::{BasePath, DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
+use proa_core::{
+    BasePath, DataLoader, OutputMeter, WebContext, WebRenderSync, WriteBuf, WriteError,
+};
 use proa_macros::xml_sync;
 use thiserror::Error;
 
@@ -55,7 +57,9 @@ pub enum DiscoveryError {
     InvalidRobotsField,
     #[error("robots host must be a hostname with optional port, or an HTTP(S) origin")]
     InvalidRobotsHost,
-    #[error("custom robots directive must have a non-reserved ASCII field name and a value without comments or control characters")]
+    #[error(
+        "custom robots directive must have a non-reserved ASCII field name and a value without comments or control characters"
+    )]
     InvalidRobotsDirective,
     #[error("robots rule path must be empty or start with `/` or `*`")]
     InvalidRobotsPath,
@@ -210,11 +214,16 @@ impl Sitemap {
     // proa-perf-ok: sitemap XML is emitted once per request outside Proa HTML rendering
     pub fn render_xml(&self) -> Result<String, DiscoveryError> {
         let mut cx = WebContext::new();
-        self.write_xml(&mut cx)?;
+        let meter = OutputMeter::new(MAX_SITEMAP_BYTES as u64);
+        cx.with_metered_output(meter.borrow(), |cx| self.write_xml(cx))
+            .map_err(document_write_error)?;
         checked_document(cx)
     }
 
-    fn write_xml<L: DataLoader>(&self, cx: &mut WebContext<L>) -> Result<(), DiscoveryError> {
+    fn write_xml<L: DataLoader, B: WriteBuf>(
+        &self,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), DiscoveryError> {
         if self.urls.is_empty() {
             return Err(DiscoveryError::EmptySitemap);
         }
@@ -244,7 +253,6 @@ impl Sitemap {
                 </url>
             }
             .render(cx)?;
-            check_document_size(cx.output().len())?;
         }
         WebRenderSync::render(UnsafeRaw("</urlset>\n"), cx)?;
         Ok(())
@@ -365,13 +373,23 @@ impl SitemapIndex {
 
     /// Render and validate the index once, outside the HTML render hot path.
     pub fn render_xml(&self) -> Result<String, DiscoveryError> {
+        let mut cx = WebContext::new();
+        let meter = OutputMeter::new(MAX_SITEMAP_BYTES as u64);
+        cx.with_metered_output(meter.borrow(), |cx| self.write_xml(cx))
+            .map_err(document_write_error)?;
+        checked_document(cx)
+    }
+
+    fn write_xml<L: DataLoader, B: WriteBuf>(
+        &self,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), DiscoveryError> {
         if self.entries.is_empty() {
             return Err(DiscoveryError::EmptySitemapIndex);
         }
-        let mut cx = WebContext::new();
         UnsafeRaw(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
-        ).render(&mut cx)?;
+        ).render(cx)?;
         for entry in &self.entries {
             let loc = absolute_http_url(&self.origin, &self.base_path, &entry.path)?;
             let lastmod = entry.lastmod.as_deref().unwrap_or("");
@@ -383,11 +401,19 @@ impl SitemapIndex {
                     }}
                 </sitemap>
             }
-            .render(&mut cx)?;
-            check_document_size(cx.output().len())?;
+            .render(cx)?;
         }
-        UnsafeRaw("</sitemapindex>\n").render(&mut cx)?;
-        checked_document(cx)
+        UnsafeRaw("</sitemapindex>\n").render(cx)?;
+        Ok(())
+    }
+}
+
+fn document_write_error(error: DiscoveryError) -> DiscoveryError {
+    match error {
+        DiscoveryError::Write(WriteError::OutputLimitExceeded { .. }) => {
+            DiscoveryError::SitemapTooLarge
+        }
+        other => other,
     }
 }
 
@@ -942,6 +968,122 @@ mod tests {
     use super::*;
 
     #[test]
+    fn document_size_accounting_does_not_rescan_previous_output() {
+        #[derive(Default)]
+        struct ObservedBuffer {
+            bytes: Vec<u8>,
+            length_reads: std::cell::Cell<usize>,
+        }
+
+        impl WriteBuf for ObservedBuffer {
+            fn capacity(&self) -> usize {
+                usize::MAX
+            }
+            fn len(&self) -> usize {
+                self.length_reads.set(self.length_reads.get() + 1);
+                self.bytes.len()
+            }
+            fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+                self.bytes.extend_from_slice(bytes);
+                Ok(())
+            }
+            fn as_slice(&self) -> &[u8] {
+                &self.bytes
+            }
+            fn to_vec(&self) -> Vec<u8> {
+                self.bytes.clone()
+            }
+            fn clear(&mut self) {
+                self.bytes.clear();
+            }
+        }
+
+        for entries in [1, 1024] {
+            let mut sitemap = Sitemap::new("https://example.com").unwrap();
+            let mut index = SitemapIndex::new("https://example.com").unwrap();
+            for id in 0..entries {
+                sitemap = sitemap.with_url(format!("/page/{id}?a=1&b=2")).unwrap();
+                index = index
+                    .with_entry(SitemapIndexEntry::new(format!("/sitemap-{id}.xml")).unwrap())
+                    .unwrap();
+            }
+            for is_index in [false, true] {
+                let mut buffer = ObservedBuffer::default();
+                let mut cx: WebContext = WebContext::new();
+                let meter = OutputMeter::new(MAX_SITEMAP_BYTES as u64);
+                cx.with_output(&mut buffer, |cx| {
+                    cx.with_metered_output(meter.borrow(), |cx| {
+                        if is_index {
+                            index.write_xml(cx)
+                        } else {
+                            sitemap.write_xml(cx)
+                        }
+                    })
+                })
+                .unwrap();
+                assert!(
+                    buffer.length_reads.get() <= 2,
+                    "{} length reads for {entries} entries",
+                    buffer.length_reads.get()
+                );
+                assert_eq!(meter.consumed(), buffer.bytes.len() as u64);
+                assert_eq!(
+                    std::str::from_utf8(&buffer.bytes)
+                        .unwrap()
+                        .matches("<loc>")
+                        .count(),
+                    entries
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn document_meter_includes_escaping_and_closing_tags_at_the_limit() {
+        let sitemap = Sitemap::new("https://example.com")
+            .unwrap()
+            .with_entry(
+                SitemapUrl::new("/search?a=1&b=2")
+                    .unwrap()
+                    .lastmod("2026-10-25")
+                    .unwrap(),
+            )
+            .unwrap();
+        let index = SitemapIndex::new("https://example.com")
+            .unwrap()
+            .with_entry(SitemapIndexEntry::new("/sitemap-pages.xml?a=1&b=2").unwrap())
+            .unwrap();
+        for is_index in [false, true] {
+            let expected = if is_index {
+                index.render_xml()
+            } else {
+                sitemap.render_xml()
+            }
+            .unwrap();
+            for limit in [expected.len(), expected.len() - 1] {
+                let mut cx: WebContext = WebContext::new();
+                let meter = OutputMeter::new(limit as u64);
+                let result = cx
+                    .with_metered_output(meter.borrow(), |cx| {
+                        if is_index {
+                            index.write_xml(cx)
+                        } else {
+                            sitemap.write_xml(cx)
+                        }
+                    })
+                    .map_err(document_write_error);
+                if limit == expected.len() {
+                    result.unwrap();
+                    assert_eq!(cx.into_output().into_string(), expected);
+                } else {
+                    assert_eq!(result.unwrap_err(), DiscoveryError::SitemapTooLarge);
+                    assert!(cx.output().len() <= limit);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn urls_reject_malformed_hosts_and_percent_escapes() {
         for origin in [
             "https://bad^host.example",
@@ -1207,11 +1349,16 @@ mod tests {
             DiscoveryError::SitemapTooLarge
         );
         let mut cx = WebContext::new();
+        let meter = OutputMeter::new(MAX_SITEMAP_BYTES as u64);
         assert_eq!(
-            sitemap.write_xml(&mut cx).unwrap_err(),
+            document_write_error(
+                cx.with_metered_output(meter.borrow(), |cx| sitemap.write_xml(cx))
+                    .unwrap_err()
+            ),
             DiscoveryError::SitemapTooLarge
         );
-        assert!(cx.output().len() < MAX_SITEMAP_BYTES + MAX_LOC_BYTES * 6 + 256);
+        assert!(cx.output().len() <= MAX_SITEMAP_BYTES);
+        assert_eq!(meter.consumed(), cx.output().len() as u64);
         let mut index = SitemapIndex::new("https://example.com").unwrap();
         index.entries = vec![SitemapIndexEntry::new(path).unwrap(); MAX_SITEMAP_ENTRIES];
         assert_eq!(
@@ -1535,12 +1682,15 @@ mod tests {
             Some(Duration::from_millis(1500))
         );
         assert_eq!(robots.groups()[0].directives().len(), 2);
-        assert_eq!(robots.render_txt(), concat!(
-            "User-agent: Applebot\nUser-agent: Bingbot\nDisallow: /private/\n",
-            "Crawl-delay: 1.5\nClean-param: ref /articles/\nClean-param: sort /products/\n\n",
-            "User-agent: SeznamBot\nAllow: /\nRequest-Rate: 10/1m\n\n",
-            "Host: https://example.com\nSitemap: https://example.com/pages.xml\nSitemap: https://example.com/products.xml\n"
-        ));
+        assert_eq!(
+            robots.render_txt(),
+            concat!(
+                "User-agent: Applebot\nUser-agent: Bingbot\nDisallow: /private/\n",
+                "Crawl-delay: 1.5\nClean-param: ref /articles/\nClean-param: sort /products/\n\n",
+                "User-agent: SeznamBot\nAllow: /\nRequest-Rate: 10/1m\n\n",
+                "Host: https://example.com\nSitemap: https://example.com/pages.xml\nSitemap: https://example.com/products.xml\n"
+            )
+        );
     }
 
     #[test]
@@ -1560,9 +1710,12 @@ mod tests {
                 .unwrap()
                 .disallow("/private")
                 .unwrap();
-            assert_eq!(robots.render_txt(), format!(
-                "User-agent: *\nDisallow:\nCrawl-delay: {seconds}\n\nUser-agent: OtherBot\nDisallow: /private\n"
-            ));
+            assert_eq!(
+                robots.render_txt(),
+                format!(
+                    "User-agent: *\nDisallow:\nCrawl-delay: {seconds}\n\nUser-agent: OtherBot\nDisallow: /private\n"
+                )
+            );
         }
     }
 
