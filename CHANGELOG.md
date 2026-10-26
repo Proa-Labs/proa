@@ -46,6 +46,7 @@ All notable public changes are tracked here.
   Sitemap and index entries must remain inside the final mount directory after
   URL normalization; parsed absolute URLs are retained for allocation-free
   scope checks, including literal and percent-encoded traversal.
+  Literal Unicode mount paths match their equivalent percent-encoded URLs.
   Mounted robots root rules cover query variants, and
   literal pattern operators in the mount prefix are escaped.
 

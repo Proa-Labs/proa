@@ -438,27 +438,29 @@ async fn builder_uses_one_origin_and_mount_for_both_documents() {
 
 #[tokio::test]
 async fn discovery_uses_final_configuration_independently_of_setter_order() {
-    let early = builder()
-        .with_public_origin("https://example.com")
-        .unwrap()
-        .with_base_path(BasePath::new("/final").unwrap())
-        .with_sitemap(entries("/final"))
-        .with_robots(robots())
-        .try_build()
-        .unwrap();
-    let late = builder()
-        .with_public_origin("https://old.example")
-        .unwrap()
-        .with_base_path(BasePath::new("/old").unwrap())
-        .with_robots(robots())
-        .with_sitemap(entries("/final"))
-        .with_base_path(BasePath::new("/final").unwrap())
-        .with_public_origin("https://example.com")
-        .unwrap()
-        .try_build()
-        .unwrap();
-    for path in ["/sitemap.xml", "/robots.txt"] {
-        assert_eq!(fetch(&early, path).await, fetch(&late, path).await);
+    for mount in ["/final", "/café", "/apps/✓"] {
+        let early = builder()
+            .with_public_origin("https://example.com")
+            .unwrap()
+            .with_base_path(BasePath::new(mount).unwrap())
+            .with_sitemap(entries(mount))
+            .with_robots(robots())
+            .try_build()
+            .unwrap();
+        let late = builder()
+            .with_public_origin("https://old.example")
+            .unwrap()
+            .with_base_path(BasePath::new("/old").unwrap())
+            .with_robots(robots())
+            .with_sitemap(entries(mount))
+            .with_base_path(BasePath::new(mount).unwrap())
+            .with_public_origin("https://example.com")
+            .unwrap()
+            .try_build()
+            .unwrap();
+        for path in ["/sitemap.xml", "/robots.txt"] {
+            assert_eq!(fetch(&early, path).await, fetch(&late, path).await);
+        }
     }
 }
 

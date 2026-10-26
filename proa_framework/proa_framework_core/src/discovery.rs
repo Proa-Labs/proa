@@ -1063,8 +1063,10 @@ fn is_within_base_path(path: &str, base: &str) -> bool {
 
 /// Percent-triplet case and unreserved escapes are equivalent under
 /// [RFC 3986 §6.2.2](https://www.rfc-editor.org/rfc/rfc3986.html#section-6.2.2).
-/// Keep escaped reserved bytes distinct from their literal forms. Both inputs
-/// have already passed percent-escape validation.
+/// UTF-8 bytes also match their percent-encoded IRI form under
+/// [RFC 3987 §3.1](https://www.rfc-editor.org/rfc/rfc3987.html#section-3.1).
+/// Keep escaped ASCII reserved bytes distinct from their literal forms. Both
+/// inputs have already passed percent-escape validation.
 fn normalized_segment_bytes(segment: &str) -> impl Iterator<Item = (u8, bool)> + '_ {
     let mut bytes = segment.bytes();
     std::iter::from_fn(move || {
@@ -1076,7 +1078,7 @@ fn normalized_segment_bytes(segment: &str) -> impl Iterator<Item = (u8, bool)> +
         let low = char::from(bytes.next()?).to_digit(16)? as u8;
         let byte = high * 16 + low;
         let unreserved = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
-        Some((byte, !unreserved))
+        Some((byte, byte.is_ascii() && !unreserved))
     })
 }
 
@@ -1675,6 +1677,10 @@ mod tests {
             ("/apps/%64emo", "/apps/demo/docs", true),
             ("/apps/%E2%9C%93", "/apps/%e2%9c%93/docs", true),
             ("/apps/%E2%9C%93", "/apps/✓/docs", true),
+            ("/café", "/café/docs", true),
+            ("/café", "/caf%C3%A9/docs", true),
+            ("/apps/✓", "/apps/%e2%9c%93/docs", true),
+            ("/🙂", "/%F0%9F%99%82/docs", true),
             ("/apps/a%3Ab", "/apps/a%3ab/docs", true),
             ("/apps/demo", "/other/page", false),
             ("/apps/demo", "/apps/demo", false),
@@ -1685,6 +1691,8 @@ mod tests {
             ("/apps/demo", "/apps%2Fdemo/page", false),
             ("/apps/demo", "/apps/demo%2Fpage", false),
             ("/apps/a:b", "/apps/a%3Ab/page", false),
+            ("/café", "/cafe/docs", false),
+            ("/café", "/caf%C3%A9x/docs", false),
         ] {
             let url = format!("https://EXAMPLE.com:443{path}");
             let base = BasePath::new(base).unwrap();
