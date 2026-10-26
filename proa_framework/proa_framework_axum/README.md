@@ -233,6 +233,11 @@ operators. Custom directives reject comments, control
 characters, malformed names, and reserved fields, while permitting spaces in
 values. Only allow/disallow rules receive the base path.
 
+User-agent tokens follow [RFC 9309 §2.2.1](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.1).
+The builder and response helper reject robots documents above
+[Google's 500 KiB limit](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#file-format).
+Other adapters can use `RobotsTxt::try_render_txt()` for the same check.
+
 ### Liveness and readiness
 
 Liveness and readiness should not share dependency policy:

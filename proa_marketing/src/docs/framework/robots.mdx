@@ -64,6 +64,8 @@ Disallow: /
 
 `group_agents` emits consecutive `User-agent` lines sharing the rules that follow. `group` starts an independent group. Named bots use their matching rules; the wildcard group is a fallback rather than an inherited set of rules.
 
+Use a product token such as `Googlebot`, not a full HTTP User-Agent header or versioned name. Proa follows [RFC 9309 §2.2.1](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.1): tokens are `*` or ASCII letters, underscores, and hyphens. Google tolerates some malformed names; Proa rejects them when constructing groups.
+
 Calling a rule or per-group option before starting a group creates a wildcard group. A group with no allow/disallow rules renders an empty `Disallow:` so it does not merge into the next group.
 
 ## Nonstandard directives
@@ -160,7 +162,7 @@ Incoming Proa routes stay unprefixed. For a [prefix-stripping proxy](/docs/frame
 
 Root-relative robots rules supplied to `with_robots` are application-local paths: pass `/admin`, not `/apps/demo/admin`. The builder's base path replaces any base path already set on the document, so rules are never prefixed twice. Application-wide rules such as `/` or `/*` also cover the bare mount URL and its query variants, so `disallow("/")` blocks `/apps/demo`, `/apps/demo?query`, and everything under `/apps/demo/`. The exact-root rule `/$` covers only the bare mount and slash root, without query variants. Literal `*` and `$` characters in the mount prefix are percent-escaped so they cannot become robots pattern operators. Empty rules and wildcard-leading patterns such as `*.pdf$` remain unchanged; those patterns match public paths directly. To scope a wildcard to the mount, use a root-relative rule such as `/*.pdf$`.
 
-Whitespace, `#` and control characters are rejected in user-agent and rule fields. A group with no rules renders an empty `Disallow:` so it does not merge into the next group.
+Wildcard-leading rules follow the example in [RFC 9309 §5.1](https://www.rfc-editor.org/rfc/rfc9309.html#section-5.1), despite the slash-leading grammar in §2.2. Prefer `/*.pdf$` for Google's [documented path syntax](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#syntax). Whitespace, `#` and control characters are rejected in rule fields.
 
 Show the mount behavior with a concrete configuration:
 
@@ -189,6 +191,12 @@ Sitemap: https://example.com/apps/demo/sitemap.xml
 
 The sitemap link includes `/apps/demo`; robots.txt itself must still be publicly available at `https://example.com/robots.txt`.
 
+## Document size
+
+The builder and `robots_txt` response helper reject documents above [Google's 500 KiB processing limit](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#file-format), including mount expansion and automatically added sitemap links. `try_build()` returns `DiscoveryError::RobotsTooLarge`; a custom `robots_txt` handler returns a logged, generic 500. Rules are never silently truncated.
+
+This is a Google compatibility limit, not an RFC maximum. Use `RobotsTxt::try_render_txt()` for the same check in another adapter. The low-level `render_txt()` serializer remains uncapped for applications targeting other crawlers.
+
 ## API reference
 
 | API | Purpose |
@@ -199,6 +207,7 @@ The sitemap link includes `/apps/demo`; robots.txt itself must still be publicly
 | `directive` | Add a validated custom field to the current group. |
 | `host` | Set an optional explicit document-level host. |
 | `sitemap` / `sitemap_path` | Add an absolute sitemap link, or compose one from origin, base path, and application path. |
+| `try_render_txt` | Render text with the Google-compatible 500 KiB size check. |
 
 ## Custom and dynamic handlers
 

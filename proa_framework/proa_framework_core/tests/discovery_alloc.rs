@@ -72,7 +72,7 @@ fn single_page_xml_needs_no_allocations_beyond_its_output_context() {
         for count in [1, 16] {
             let origin = "https://example.com";
             let mount = "/apps/a&b";
-            let path = "/search?q=a&b=<x>";
+            let path = "/search?q='a'&b=\"<x>\"";
             let full_path = format!("{origin}{mount}{path}");
             let entry = if absolute { &full_path } else { path };
             let mut sitemap = Sitemap::new(origin)
@@ -100,7 +100,7 @@ fn single_page_xml_needs_no_allocations_beyond_its_output_context() {
                 assert_eq!(xml.matches("<loc>").count(), count);
                 assert_eq!(
                     xml.matches(
-                        "<loc>https://example.com/apps/a&amp;b/search?q=a&amp;b=&lt;x&gt;</loc>"
+                        "<loc>https://example.com/apps/a&amp;b/search?q=&#39;a&#39;&amp;b=&quot;&lt;x&gt;&quot;</loc>"
                     )
                     .count(),
                     count

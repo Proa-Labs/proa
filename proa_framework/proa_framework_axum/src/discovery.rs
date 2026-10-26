@@ -16,7 +16,10 @@ use proa_framework_core::{
 };
 
 const XML_UTF_8: HeaderValue = HeaderValue::from_static("application/xml; charset=utf-8");
+// Media type and encoding: https://www.rfc-editor.org/rfc/rfc9309.html#section-2.3
 const TEXT_PLAIN_UTF_8: HeaderValue = HeaderValue::from_static("text/plain; charset=utf-8");
+// Proa's HTTP caching policy is separate from the startup byte cache.
+// Crawler cache guidance: https://www.rfc-editor.org/rfc/rfc9309.html#section-2.4
 const NO_STORE: HeaderValue = HeaderValue::from_static("no-store");
 
 pub(crate) enum SitemapConfig {
@@ -30,20 +33,27 @@ pub(crate) enum SitemapConfig {
 /// that pushes a loc past the length limit), so it returns a generic 500 and
 /// logs the cause instead of exposing it to the client.
 pub fn sitemap_xml(sitemap: &Sitemap) -> Response {
-    sitemap_response(sitemap.render_xml())
+    document_response(sitemap.render_xml(), XML_UTF_8)
 }
 
 /// Render a sitemap index as `application/xml` for a custom/dynamic handler.
 /// Render errors are logged and returned as a generic 500.
 pub fn sitemap_index_xml(index: &SitemapIndex) -> Response {
-    sitemap_response(index.render_xml())
+    document_response(index.render_xml(), XML_UTF_8)
 }
 
-fn sitemap_response(xml: Result<String, DiscoveryError>) -> Response {
-    match xml {
-        Ok(body) => ([(CONTENT_TYPE, XML_UTF_8), (CACHE_CONTROL, NO_STORE)], body).into_response(),
+fn document_response(
+    document: Result<String, DiscoveryError>,
+    content_type: HeaderValue,
+) -> Response {
+    match document {
+        Ok(body) => (
+            [(CONTENT_TYPE, content_type), (CACHE_CONTROL, NO_STORE)],
+            body,
+        )
+            .into_response(),
         Err(error) => {
-            tracing::error!(%error, "failed to render sitemap XML");
+            tracing::error!(%error, "failed to render discovery document");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 [(CONTENT_TYPE, TEXT_PLAIN_UTF_8), (CACHE_CONTROL, NO_STORE)],
@@ -55,12 +65,11 @@ fn sitemap_response(xml: Result<String, DiscoveryError>) -> Response {
 }
 
 /// Render robots.txt as `text/plain`.
+/// See [RFC 9309 §2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.3).
+/// Exceeding [Google's processing limit](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#file-format)
+/// logs the error and returns a generic 500, rather than silently losing rules.
 pub fn robots_txt(robots: &RobotsTxt) -> Response {
-    (
-        [(CONTENT_TYPE, TEXT_PLAIN_UTF_8), (CACHE_CONTROL, NO_STORE)],
-        robots.render_txt(),
-    )
-        .into_response()
+    document_response(robots.try_render_txt(), TEXT_PLAIN_UTF_8)
 }
 
 /// Bind the builder's final configuration and cache static documents at startup.
@@ -109,7 +118,7 @@ pub(crate) fn discovery_routes(
                 robots = robots.sitemap(&loc)?;
             }
         }
-        let body = Bytes::from(robots.render_txt());
+        let body = Bytes::from(robots.try_render_txt()?);
         router = router.route(
             "/robots.txt",
             get(move || {

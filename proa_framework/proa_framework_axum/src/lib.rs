@@ -38,8 +38,8 @@ pub use manifest::{
 pub use proa_core::{AppUrl, BasePath, CspNonce, InvalidBasePath};
 pub use proa_framework_core::{
     absolute_http_url, ChangeFreq, DiscoveryError, RobotsGroup, RobotsRule, RobotsTxt, Sitemap,
-    SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_SITEMAP_BYTES,
-    MAX_SITEMAP_ENTRIES,
+    SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
+    MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
 };
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
@@ -238,6 +238,8 @@ impl FrameworkBuilder {
     /// New database content requires regeneration/restart, or custom handlers.
     /// Requires `with_public_origin`. IDs must be unique; an empty set is an error.
     /// This replaces a previous `with_sitemap` or `with_sitemaps` configuration.
+    /// Siblings share the [index directory's scope](https://www.sitemaps.org/protocol.html#location);
+    /// limits follow the [sitemap-index specification](https://www.sitemaps.org/protocol.html#index).
     ///
     /// ```
     /// use proa_framework_axum::{
@@ -282,6 +284,8 @@ impl FrameworkBuilder {
     /// prefix-stripping proxy must explicitly forward origin-root `/robots.txt`.
     /// Do not also register a custom `/robots.txt` handler. Existing absolute
     /// sitemap links in `robots` pass through unchanged.
+    /// Root routing follows [RFC 9309 §2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.3).
+    /// Startup rejects documents exceeding [Google's 500 KiB limit](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#file-format).
     ///
     /// Await an application-owned async function to generate rules from data.
     /// Generation and rendering run at startup; HTTP requests serve cached bytes.

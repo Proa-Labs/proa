@@ -3,6 +3,11 @@
 
 //! Sitemap and robots.txt documents that honor the public origin and runtime
 //! base path.
+//!
+//! This module generates documents; crawler matching and fetch behavior belong
+//! to clients. References: [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html),
+//! [Google's interpretation](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec),
+//! and the [Sitemaps protocol](https://www.sitemaps.org/protocol.html).
 
 use std::{fmt::Write as _, time::Duration};
 
@@ -13,11 +18,23 @@ use proa_core::{
 use proa_macros::xml_sync;
 use thiserror::Error;
 
+// Conservative UTF-8 byte bound for the protocol's character limit:
+// https://www.sitemaps.org/protocol.html#locdef
 const MAX_LOC_BYTES: usize = 2048;
+// The schemas impose this lower bound in addition to the protocol's upper bound:
+// https://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd
+// https://www.sitemaps.org/schemas/sitemap/0.9/siteindex.xsd
+const MIN_LOC_CHARACTERS: usize = 12;
 /// Maximum number of URLs in a sitemap, or sitemaps in an index.
+/// See [Sitemaps: index limits](https://www.sitemaps.org/protocol.html#index).
 pub const MAX_SITEMAP_ENTRIES: usize = 50_000;
 /// Maximum uncompressed UTF-8 document size permitted by the sitemap protocol.
+/// See [Sitemaps: index limits](https://www.sitemaps.org/protocol.html#index).
 pub const MAX_SITEMAP_BYTES: usize = 50 * 1024 * 1024;
+/// Google's robots.txt processing limit, not an RFC maximum document size.
+/// See [Google: file format](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#file-format)
+/// and [RFC 9309 §2.5](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.5).
+pub const MAX_ROBOTS_BYTES: usize = 500 * 1024;
 const PRIORITY_TEXT: [&str; 11] = [
     "0.0", "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0",
 ];
@@ -53,8 +70,14 @@ pub enum DiscoveryError {
     CrossOrigin,
     #[error("sitemap loc must be shorter than 2048 bytes")]
     LocTooLong,
+    #[error("sitemap loc must contain at least 12 characters, as required by the XML schemas")]
+    LocTooShort,
     #[error("robots field cannot contain whitespace, `#`, or control characters")]
     InvalidRobotsField,
+    #[error("robots user agent must be `*` or contain only ASCII letters, `_`, and `-`")]
+    InvalidRobotsUserAgent,
+    #[error("robots.txt exceeds Google's 500 KiB processing limit")]
+    RobotsTooLarge,
     #[error("robots host must be a hostname with optional port, or an HTTP(S) origin")]
     InvalidRobotsHost,
     #[error(
@@ -68,6 +91,7 @@ pub enum DiscoveryError {
 }
 
 /// How often a sitemap URL is expected to change.
+/// Values are crawler hints: [Sitemaps: changefreq](https://www.sitemaps.org/protocol.html#changefreqdef).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeFreq {
     Always,
@@ -94,6 +118,7 @@ impl ChangeFreq {
 }
 
 /// Sitemap priority in tenths from 0.0 through 1.0.
+/// Tenths are Proa's subset of the [priority range](https://www.sitemaps.org/protocol.html#prioritydef).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SitemapPriority(u8);
 
@@ -116,6 +141,8 @@ impl SitemapPriority {
 }
 
 /// One URL in a sitemap.
+/// See [Sitemaps: loc](https://www.sitemaps.org/protocol.html#locdef).
+/// Supply URL-encoded paths; XML escaping is applied separately when rendering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SitemapUrl {
     path: String,
@@ -136,6 +163,9 @@ impl SitemapUrl {
         })
     }
 
+    /// Page modification date, using the protocol's permitted date-only form.
+    /// See [Sitemaps: lastmod](https://www.sitemaps.org/protocol.html#lastmoddef).
+    /// This API supports `YYYY-MM-DD`, not the specification's optional timestamps.
     pub fn lastmod(mut self, lastmod: impl Into<String>) -> Result<Self, DiscoveryError> {
         let lastmod = lastmod.into();
         if !is_calendar_date(&lastmod) {
@@ -161,6 +191,7 @@ impl SitemapUrl {
 }
 
 /// A sitemap.xml document.
+/// Element order follows the [official schema](https://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd).
 #[derive(Debug, Clone)]
 pub struct Sitemap {
     origin: String,
@@ -187,7 +218,9 @@ impl Sitemap {
     }
 
     /// Add an entry. Absolute entries must use the sitemap origin, because the
-    /// sitemap protocol only covers URLs on the host that serves the sitemap.
+    /// default [sitemap scope](https://www.sitemaps.org/protocol.html#location)
+    /// is same-origin. Ownership-verified cross-submission is outside this API.
+    /// Custom handlers must also respect their document's directory scope.
     pub fn with_entry(mut self, url: SitemapUrl) -> Result<Self, DiscoveryError> {
         if self.urls.len() >= MAX_SITEMAP_ENTRIES {
             return Err(DiscoveryError::TooManySitemapEntries);
@@ -241,7 +274,7 @@ impl Sitemap {
             let priority = url.priority.map(SitemapPriority::as_str).unwrap_or("");
             xml_sync! {
                 <url>
-                    <loc>{origin}{mount}{path}</loc>
+                    <loc>{SitemapLoc([origin, mount, path])}</loc>
                     {if !lastmod.is_empty() {
                         xml_sync! { <lastmod>{lastmod}</lastmod> }
                     }}
@@ -310,6 +343,7 @@ impl SitemapFile {
 }
 
 /// A reference to a sitemap document, rather than a page URL.
+/// See [Sitemaps: index loc](https://www.sitemaps.org/protocol.html#sitemapIndex_loc).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SitemapIndexEntry {
     path: String,
@@ -327,6 +361,7 @@ impl SitemapIndexEntry {
     }
 
     /// When this sitemap document last changed, not the index generation date.
+    /// See [Sitemaps: index lastmod](https://www.sitemaps.org/protocol.html#sitemapIndex_lastmod).
     pub fn lastmod(mut self, lastmod: impl Into<String>) -> Result<Self, DiscoveryError> {
         let lastmod = lastmod.into();
         if !is_calendar_date(&lastmod) {
@@ -397,7 +432,7 @@ impl SitemapIndex {
             let lastmod = entry.lastmod.as_deref().unwrap_or("");
             xml_sync! {
                 <sitemap>
-                    <loc>{origin}{mount}{path}</loc>
+                    <loc>{SitemapLoc([origin, mount, path])}</loc>
                     {if !lastmod.is_empty() {
                         xml_sync! { <lastmod>{lastmod}</lastmod> }
                     }}
@@ -406,6 +441,19 @@ impl SitemapIndex {
             .render(cx)?;
         }
         UnsafeRaw("</sitemapindex>\n").render(cx)?;
+        Ok(())
+    }
+}
+
+/// Escape quotes too, as required by [Sitemaps: entity escaping](https://www.sitemaps.org/protocol.html#escaping),
+/// even though ordinary XML text permits them. Borrow all parts to avoid temporary strings.
+struct SitemapLoc<'a>([&'a str; 3]);
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SitemapLoc<'_> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        for part in self.0 {
+            proa_core::shared::escape::escape_attr_value_xml(cx.output_mut(), part)?;
+        }
         Ok(())
     }
 }
@@ -433,6 +481,7 @@ fn check_document_size(bytes: usize) -> Result<(), DiscoveryError> {
 }
 
 /// One `User-agent` group in robots.txt.
+/// See [RFC 9309 §2.1](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RobotsGroup {
     user_agents: Vec<String>,
@@ -466,6 +515,7 @@ impl RobotsGroup {
 }
 
 /// An `Allow` or `Disallow` rule.
+/// Crawlers resolve precedence: [RFC 9309 §2.2.2](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RobotsRule {
     Allow(String),
@@ -479,6 +529,8 @@ pub enum RobotsRule {
 /// proxy must forward that origin-root URL to the handler. Root-relative rules
 /// are application paths that render under `with_base_path`, and
 /// `sitemap_path` joins sitemap locs with the public mount prefix.
+/// See [RFC 9309 §2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.3).
+/// Rules are not authorization: [RFC 9309 §3](https://www.rfc-editor.org/rfc/rfc9309.html#section-3).
 #[derive(Debug, Clone, Default)]
 pub struct RobotsTxt {
     base_path: BasePath,
@@ -501,6 +553,8 @@ impl RobotsTxt {
     /// the mount prefix are escaped, while rule operators remain unchanged.
     /// Empty and `*`-leading rules render unchanged. The prefix replaces any
     /// earlier one; it is never applied twice.
+    /// Mount composition is Proa policy; literal operator escaping follows
+    /// [RFC 9309 §2.2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.3).
     pub fn with_base_path(mut self, base_path: BasePath) -> Self {
         self.base_path = base_path;
         self
@@ -510,12 +564,15 @@ impl RobotsTxt {
         &self.base_path
     }
 
+    /// Start an independent group; repeated matching tokens are combined by crawlers.
+    /// See [RFC 9309 §2.2.1](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.1).
     pub fn group(self, user_agent: &str) -> Result<Self, DiscoveryError> {
         self.group_agents([user_agent])
     }
 
     /// Start a group whose rules apply to all supplied user agents.
-    /// At least one nonempty user agent is required.
+    /// Tokens follow [RFC 9309 §2.2.1](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.1):
+    /// `*`, or ASCII letters, `_`, and `-`. At least one token is required.
     pub fn group_agents<I, S>(mut self, user_agents: I) -> Result<Self, DiscoveryError>
     where
         I: IntoIterator<Item = S>,
@@ -524,11 +581,11 @@ impl RobotsTxt {
         let mut agents = Vec::new();
         for agent in user_agents {
             let agent = agent.into();
-            validate_robots_field(&agent)?;
+            validate_robots_user_agent(&agent)?;
             agents.push(agent);
         }
         if agents.is_empty() {
-            return Err(DiscoveryError::InvalidRobotsField);
+            return Err(DiscoveryError::InvalidRobotsUserAgent);
         }
         self.groups.push(RobotsGroup {
             user_agents: agents,
@@ -542,7 +599,7 @@ impl RobotsTxt {
     /// Set a crawler-specific delay for the current group, in seconds.
     /// `Duration` supports fractional seconds without negative or nonfinite values.
     /// This extension is not supported by every crawler;
-    /// [Google ignores it](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec).
+    /// [Google ignores it](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#syntax).
     /// Creates a wildcard group when called before `group` or `group_agents`.
     pub fn crawl_delay(mut self, delay: Duration) -> Self {
         self.current_group_mut().crawl_delay = Some(delay);
@@ -555,6 +612,7 @@ impl RobotsTxt {
     /// Values may contain spaces, but not `#` or control characters. Values
     /// render verbatim: the base path is applied only to allow/disallow rules.
     /// Reserved fields must use their typed methods instead.
+    /// Extension handling: [RFC 9309 §2.2.4](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.4).
     pub fn directive(mut self, name: &str, value: &str) -> Result<Self, DiscoveryError> {
         validate_robots_directive(name, value)?;
         self.current_group_mut()
@@ -566,6 +624,7 @@ impl RobotsTxt {
     /// Set the optional, nonstandard `Host` directive.
     /// Accepts a hostname with an optional port, or an HTTP(S) origin. It is
     /// explicit document configuration, not inferred from request headers.
+    /// Google does not support it: [Google: syntax](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#syntax).
     pub fn host(mut self, host: &str) -> Result<Self, DiscoveryError> {
         let host = if is_absolute_http_url(host) {
             normalize_origin(host).map_err(|_| DiscoveryError::InvalidRobotsHost)?
@@ -581,16 +640,22 @@ impl RobotsTxt {
 
     /// Add an `Allow` rule. The path must be empty, start with `*`, or be a
     /// root-relative application path (not protocol-relative `//...`).
+    /// See [RFC 9309 §2.2.2](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.2)
+    /// and its [wildcard-leading example (§5.1)](https://www.rfc-editor.org/rfc/rfc9309.html#section-5.1).
     pub fn allow(self, path: &str) -> Result<Self, DiscoveryError> {
         self.push_rule(RobotsRule::Allow(checked_robots_path(path)?))
     }
 
     /// Add a `Disallow` rule. The path must be empty, start with `*`, or be a
     /// root-relative application path (not protocol-relative `//...`).
+    /// See [`Self::allow`] for the applicable RFC sections.
     pub fn disallow(self, path: &str) -> Result<Self, DiscoveryError> {
         self.push_rule(RobotsRule::Disallow(checked_robots_path(path)?))
     }
 
+    /// Advertise an absolute sitemap URL, optionally on another host.
+    /// This document-level extension is independent of user-agent groups:
+    /// [Google: sitemap](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#sitemap).
     pub fn sitemap(mut self, loc: &str) -> Result<Self, DiscoveryError> {
         if !is_absolute_http_url(loc) {
             return Err(DiscoveryError::InvalidPath);
@@ -623,8 +688,10 @@ impl RobotsTxt {
         &self.sitemaps
     }
 
-    /// Render robots.txt as UTF-8 text.
-    // proa-perf-ok: robots.txt is emitted once per request outside Proa HTML rendering
+    /// Render UTF-8 text with LF separators ([RFC 9309 §2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.3)).
+    /// This low-level serializer has no size cap; use [`Self::try_render_txt`]
+    /// for Google's limit, as the builder and Axum response helper do.
+    // proa-perf-ok: owned output document, rendered once at startup by the builder
     pub fn render_txt(&self) -> String {
         let mut out = String::new();
         for (index, group) in self.groups.iter().enumerate() {
@@ -637,8 +704,8 @@ impl RobotsTxt {
                 out.push('\n');
             }
             if group.rules.is_empty() {
-                // An empty `Disallow` allows everything. Without a rule line, this
-                // `User-agent` merges into the next group (RFC 9309 section 2.1).
+                // Preserve empty group boundaries (blank lines do not do so):
+                // https://www.rfc-editor.org/rfc/rfc9309.html#section-2.1
                 out.push_str("Disallow:\n");
             }
             for rule in &group.rules {
@@ -698,6 +765,17 @@ impl RobotsTxt {
         out
     }
 
+    /// Render and reject documents whose trailing rules Google would ignore.
+    /// See [Google: file format](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#file-format).
+    /// The check includes final mount expansion and all extension records.
+    pub fn try_render_txt(&self) -> Result<String, DiscoveryError> {
+        let text = self.render_txt();
+        if text.len() > MAX_ROBOTS_BYTES {
+            return Err(DiscoveryError::RobotsTooLarge);
+        }
+        Ok(text)
+    }
+
     fn push_rule(mut self, rule: RobotsRule) -> Result<Self, DiscoveryError> {
         self.current_group_mut().rules.push(rule);
         Ok(self)
@@ -742,6 +820,7 @@ fn is_application_wide_rule(path: &str) -> bool {
 
 /// Join a public origin, runtime base path, and application path into an
 /// absolute `http` or `https` URL.
+/// The result must fit the sitemap location bounds; see [`SitemapUrl`].
 pub fn absolute_http_url(
     origin: &str,
     base_path: &BasePath,
@@ -767,6 +846,7 @@ pub fn absolute_http_url(
 /// Borrow the parts of a location without constructing or reparsing a URL.
 /// The caller must already have validated the origin and entry path, as the
 /// document constructors do. Only the composed length depends on the final mount.
+/// The lower bound comes from the [schema](https://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd).
 fn loc_parts<'a>(
     origin: &'a str,
     base_path: &'a BasePath,
@@ -780,9 +860,20 @@ fn loc_parts<'a>(
     if origin.len() + mount.len() + path.len() >= MAX_LOC_BYTES {
         return Err(DiscoveryError::LocTooLong);
     }
+    if [origin, mount, path]
+        .into_iter()
+        .flat_map(str::chars)
+        .take(MIN_LOC_CHARACTERS)
+        .count()
+        < MIN_LOC_CHARACTERS
+    {
+        return Err(DiscoveryError::LocTooShort);
+    }
     Ok((origin, mount, path))
 }
 
+/// Origin-only configuration is Proa policy; scheme/host/port matching serves
+/// [Sitemaps: location](https://www.sitemaps.org/protocol.html#location).
 fn normalize_origin(origin: &str) -> Result<&str, DiscoveryError> {
     let origin = origin.trim();
     let origin = origin.strip_suffix('/').unwrap_or(origin);
@@ -887,6 +978,7 @@ fn is_xml10_char(ch: char) -> bool {
     )
 }
 
+/// Date-only subset of `xsd:date` in the [sitemap schema](https://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd).
 fn is_calendar_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
@@ -930,17 +1022,22 @@ fn parse_two_digits(bytes: &[u8]) -> u8 {
     (bytes[0] - b'0') * 10 + (bytes[1] - b'0')
 }
 
-/// RFC 9309 values exclude controls (including DEL), space, and `#`, which
-/// starts a comment and would silently truncate the value.
+/// Proa rejects controls/whitespace instead of repairing fields. `#` is syntax:
+/// [RFC 9309 §2.2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.3).
 fn has_invalid_robots_byte(value: &str) -> bool {
     value
         .bytes()
         .any(|byte| byte <= b' ' || byte == b'#' || byte == 0x7F)
 }
 
-fn validate_robots_field(value: &str) -> Result<(), DiscoveryError> {
-    if value.is_empty() || has_invalid_robots_byte(value) {
-        return Err(DiscoveryError::InvalidRobotsField);
+fn validate_robots_user_agent(value: &str) -> Result<(), DiscoveryError> {
+    if value != "*"
+        && (value.is_empty()
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'-')))
+    {
+        return Err(DiscoveryError::InvalidRobotsUserAgent);
     }
     Ok(())
 }
@@ -968,9 +1065,10 @@ fn validate_robots_directive(name: &str, value: &str) -> Result<(), DiscoveryErr
     Ok(())
 }
 
-/// Crawlers ignore rules whose path does not start with `/` or `*`, so such a
-/// rule would leave the intended path crawlable. Empty means "match nothing".
-/// A protocol-relative `//...` rule is not an application path.
+/// [RFC 9309 §2.2](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2)
+/// specifies `/`-leading paths, but [§5.1](https://www.rfc-editor.org/rfc/rfc9309.html#section-5.1)
+/// explicitly allows `*` to match that slash. Prefer `/`-leading patterns for
+/// portability. Rejecting `//...` is Proa's application-path policy.
 fn checked_robots_path(value: &str) -> Result<String, DiscoveryError> {
     if has_invalid_robots_byte(value) {
         return Err(DiscoveryError::InvalidRobotsField);
@@ -987,6 +1085,84 @@ fn checked_robots_path(value: &str) -> Result<String, DiscoveryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composed_sitemap_locations_obey_the_schema_minimum_length() {
+        for path in ["/", "http://a.io", "http://é.xy"] {
+            assert_eq!(
+                absolute_http_url("http://a.io", &BasePath::default(), path),
+                if path == "/" {
+                    Ok("http://a.io/".to_owned())
+                } else {
+                    Err(DiscoveryError::LocTooShort)
+                }
+            );
+        }
+        let sitemap = Sitemap::new("http://a").unwrap().with_url("/").unwrap();
+        assert_eq!(sitemap.render_xml(), Err(DiscoveryError::LocTooShort));
+        let index = SitemapIndex::new("http://a")
+            .unwrap()
+            .with_entry(SitemapIndexEntry::new("/").unwrap())
+            .unwrap();
+        assert_eq!(index.render_xml(), Err(DiscoveryError::LocTooShort));
+        assert!(sitemap
+            .with_base_path(BasePath::new("/app").unwrap())
+            .render_xml()
+            .is_ok());
+        assert!(index
+            .with_base_path(BasePath::new("/app").unwrap())
+            .render_xml()
+            .is_ok());
+    }
+
+    #[test]
+    fn robots_user_agents_follow_rfc_product_token_grammar() {
+        for agent in ["*", "Googlebot", "Bot_Name-test", "A"] {
+            assert_eq!(
+                RobotsTxt::new().group(agent).unwrap().groups()[0].user_agent(),
+                agent
+            );
+        }
+        for agent in ["", "Bot1", "Googlebot/2.1", "Googlebot*", "é", "a:b"] {
+            assert_eq!(
+                RobotsTxt::new().group(agent).unwrap_err(),
+                DiscoveryError::InvalidRobotsUserAgent,
+                "{agent}"
+            );
+            assert_eq!(
+                RobotsTxt::new()
+                    .group_agents(["ValidBot", agent])
+                    .unwrap_err(),
+                DiscoveryError::InvalidRobotsUserAgent
+            );
+        }
+    }
+
+    #[test]
+    fn checked_robots_size_counts_utf8_bytes_and_final_mount() {
+        let overhead = RobotsTxt::new().disallow("/").unwrap().render_txt().len();
+        let payload_bytes = MAX_ROBOTS_BYTES - overhead;
+        let mut path = format!("/{}", "é".repeat(payload_bytes / 2));
+        if !payload_bytes.is_multiple_of(2) {
+            path.push('x');
+        }
+        let robots = RobotsTxt::new().disallow(&path).unwrap();
+        assert_eq!(robots.try_render_txt().unwrap().len(), MAX_ROBOTS_BYTES);
+        assert_eq!(
+            robots
+                .with_base_path(BasePath::new("/app").unwrap())
+                .try_render_txt(),
+            Err(DiscoveryError::RobotsTooLarge)
+        );
+        path.push('x');
+        let oversized = RobotsTxt::new().disallow(&path).unwrap();
+        assert_eq!(
+            oversized.try_render_txt(),
+            Err(DiscoveryError::RobotsTooLarge)
+        );
+        // The low-level serializer may still target crawlers with larger limits.
+        assert_eq!(oversized.render_txt().len(), MAX_ROBOTS_BYTES + 1);
+    }
 
     #[test]
     fn document_size_accounting_does_not_rescan_previous_output() {
@@ -1746,13 +1922,13 @@ mod tests {
             RobotsTxt::new()
                 .group_agents(std::iter::empty::<&str>())
                 .unwrap_err(),
-            DiscoveryError::InvalidRobotsField
+            DiscoveryError::InvalidRobotsUserAgent
         );
         assert_eq!(
             RobotsTxt::new()
                 .group_agents(["GoodBot", "Bad\nBot"])
                 .unwrap_err(),
-            DiscoveryError::InvalidRobotsField
+            DiscoveryError::InvalidRobotsUserAgent
         );
         for name in [
             "",
@@ -1942,7 +2118,7 @@ mod tests {
     fn robots_txt_rejects_control_characters() {
         assert_eq!(
             RobotsTxt::new().group("Bot\u{7F}").unwrap_err(),
-            DiscoveryError::InvalidRobotsField
+            DiscoveryError::InvalidRobotsUserAgent
         );
         assert_eq!(
             RobotsTxt::new().disallow("/a\u{7F}").unwrap_err(),
@@ -1950,7 +2126,7 @@ mod tests {
         );
         assert_eq!(
             RobotsTxt::new().group("*\nGooglebot").unwrap_err(),
-            DiscoveryError::InvalidRobotsField
+            DiscoveryError::InvalidRobotsUserAgent
         );
         assert_eq!(
             RobotsTxt::new()

@@ -36,6 +36,12 @@ All notable public changes are tracked here.
   oversized XML before flattening without rescanning earlier buffer pages.
   XML render loops write borrowed URL components directly, avoiding temporary
   URL strings and repeated URL parsing per entry.
+  Sitemap locations escape all five protocol entities, including quotes, and
+  enforce the XML schemas' 12-character minimum.
+  Robots user-agent tokens follow RFC 9309's grammar. Builder-managed robots
+  documents and the response helper enforce Google's 500 KiB processing limit;
+  `try_render_txt` exposes the check to other adapters. Doc comments link the
+  relevant specification sections and distinguish protocol rules from Proa policy.
   Mounted robots root rules cover query variants, and
   literal pattern operators in the mount prefix are escaped.
 

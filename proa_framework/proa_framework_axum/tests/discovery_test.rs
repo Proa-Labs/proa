@@ -10,8 +10,8 @@ use axum::{
     Router,
 };
 use proa_framework_axum::{
-    BasePath, ChangeFreq, DiscoveryError, FrameworkBuilder, IslandManifest, ManifestAssets,
-    RobotsTxt, SitemapFile, SitemapPriority, SitemapUrl,
+    robots_txt, BasePath, ChangeFreq, DiscoveryError, FrameworkBuilder, IslandManifest,
+    ManifestAssets, RobotsTxt, SitemapFile, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
 };
 use tower::ServiceExt;
 
@@ -45,6 +45,46 @@ fn robots() -> RobotsTxt {
         .unwrap()
         .disallow("/admin")
         .unwrap()
+}
+
+#[tokio::test]
+async fn oversized_robots_are_rejected_before_http_serving() {
+    let overhead = RobotsTxt::new().disallow("/").unwrap().render_txt().len();
+    let robots = RobotsTxt::new()
+        .disallow(&format!("/{}", "a".repeat(MAX_ROBOTS_BYTES - overhead)))
+        .unwrap();
+    assert_eq!(robots.try_render_txt().unwrap().len(), MAX_ROBOTS_BYTES);
+    // The builder must include its automatically advertised sitemap link.
+    assert!(matches!(
+        builder()
+            .with_robots(robots.clone())
+            .with_public_origin("https://example.com")
+            .unwrap()
+            .with_sitemap([SitemapUrl::new("/").unwrap()])
+            .try_build(),
+        Err(DiscoveryError::RobotsTooLarge)
+    ));
+    let oversized = robots.with_base_path(BasePath::new("/app").unwrap());
+    assert!(matches!(
+        builder()
+            .with_robots(oversized.clone())
+            .with_base_path(BasePath::new("/app").unwrap())
+            .try_build(),
+        Err(DiscoveryError::RobotsTooLarge)
+    ));
+    let response = robots_txt(&oversized);
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/plain; charset=utf-8"
+    );
+    assert_eq!(
+        to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .as_ref(),
+        b"Internal Server Error"
+    );
 }
 
 async fn generate_sitemaps() -> Result<Vec<SitemapFile>, DiscoveryError> {
