@@ -793,24 +793,24 @@ impl RobotsTxt {
         // https://www.rfc-editor.org/rfc/rfc9309.html#section-2.1
         md_sync! { r###"
             {for (index, group) in self.groups.iter().enumerate() {
-                {if index > 0 {
+            {if index > 0 {
 
-                }}{for agent in &group.user_agents {
-                    User-agent: {TrustedMarkdown(agent)}
-                }}{if group.rules.is_empty() {
-                    Disallow:
-                }}{for (field, base, path) in self.rule_lines(group) {
-                    {TrustedMarkdown(field)}{RobotsMount(base)}{TrustedMarkdown(path)}
-                }}{if let Some(delay) = group.crawl_delay {
-                    Crawl-delay: {RobotsCrawlDelay(delay)}
-                }}{for (name, value) in &group.directives {
-                    {TrustedMarkdown(name)}: {TrustedMarkdown(value)}
-                }}}}{if !self.groups.is_empty() && (self.host.is_some() || !self.sitemaps.is_empty()) {
+            }}{for agent in &group.user_agents {
+            User-agent: {TrustedMarkdown(agent)}
+            }}{if group.rules.is_empty() {
+            Disallow:
+            }}{for (field, base, path) in self.rule_lines(group) {
+            {TrustedMarkdown(field)}{RobotsMount(base)}{TrustedMarkdown(path)}
+            }}{if let Some(delay) = group.crawl_delay {
+            Crawl-delay: {RobotsCrawlDelay(delay)}
+            }}{for (name, value) in &group.directives {
+            {TrustedMarkdown(name)}: {TrustedMarkdown(value)}
+            }}}}{if !self.groups.is_empty() && (self.host.is_some() || !self.sitemaps.is_empty()) {
 
             }}{if let Some(host) = &self.host {
-                Host: {TrustedMarkdown(host)}
+            Host: {TrustedMarkdown(host)}
             }}{for loc in &self.sitemaps {
-                Sitemap: {TrustedMarkdown(loc)}
+            Sitemap: {TrustedMarkdown(loc)}
             }}"###
         }
         .render_md(&mut cx)

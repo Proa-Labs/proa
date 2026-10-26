@@ -498,7 +498,11 @@ fn split_body(text: &str) -> Result<(&str, &str), String> {
             '}' => {
                 depth -= 1;
                 if depth == 0 {
-                    return Ok((&text[inner_start..pos], &text[pos + clen..]));
+                    let mut body = &text[inner_start..pos];
+                    if body.starts_with('\n') {
+                        body = &body[1..];
+                    }
+                    return Ok((body, &text[pos + clen..]));
                 }
                 pos += clen;
             }
@@ -528,7 +532,7 @@ fn parse_for(content: &str, base: usize) -> Result<TplNode, String> {
     let iter_expr =
         syn::parse_str::<Expr>(iter_s).map_err(|e| format!("bad for iterator `{iter_s}`: {e}"))?;
     let (body_str, _) = split_body(&rest[brace..])?;
-    let body = source::parse_body(body_str, base + subslice_offset(content, body_str))?;
+    let body = parse_tpl_at(body_str, base + subslice_offset(content, body_str))?;
     let iter_start = base + subslice_offset(content, iter_s);
     Ok(TplNode::For {
         pat: Box::new(pat),
@@ -563,7 +567,7 @@ fn parse_if(content: &str, base: usize) -> Result<TplNode, String> {
         } else if t.starts_with("else") {
             let after = t.strip_prefix("else").unwrap().trim_start();
             let (body_str, _) = split_body(after)?;
-            let body = source::parse_body(body_str, base + subslice_offset(content, body_str))?;
+            let body = parse_tpl_at(body_str, base + subslice_offset(content, body_str))?;
             branches.push(IfBranch { cond: None, body });
             break;
         } else {
@@ -579,7 +583,7 @@ fn parse_if_branch(text: &str, base: usize) -> Result<(TemplateExpr, Vec<TplNode
     let cond =
         syn::parse_str::<Expr>(cond_s).map_err(|e| format!("bad if condition `{cond_s}`: {e}"))?;
     let (body_str, rest) = split_body(&text[brace..])?;
-    let body = source::parse_body(body_str, base + subslice_offset(text, body_str))?;
+    let body = parse_tpl_at(body_str, base + subslice_offset(text, body_str))?;
     let start = base + subslice_offset(text, cond_s);
     Ok((
         TemplateExpr {

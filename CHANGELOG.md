@@ -4,11 +4,6 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
-- Multiline `md!` and `md_sync!` loop and branch bodies strip their own common
-  source indentation. Nested control flow can be indented normally while
-  relative Markdown indentation and expression source locations are preserved.
-  The robots.txt template uses this layout without changing its output bytes.
-
 - `xml!` and `xml_sync!` accept a leading `<?xml version="1.0" encoding="UTF-8"?>`
   declaration and consolidate it with adjacent static markup. Declaration
   fields are checked at compile time; formatting preserves their values.

@@ -12,8 +12,6 @@
 //! This module is the single definition of that rule. `proa_macros` applies it
 //! when lowering a template, and `proa-cli` applies it when formatting one, so
 //! re-indenting a template can never change what it renders.
-//! Multiline loop and branch bodies apply this same common-prefix rule locally;
-//! their source mappings are maintained by `md::source`.
 
 /// Whether a template literal carries layout indentation.
 ///

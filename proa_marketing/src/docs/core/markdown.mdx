@@ -112,7 +112,7 @@ let summary = md_sync! { r###"
     ## Features
 
     {for feature in features.iter() {
-        - {feature}
+    - {feature}
     }}
     {if in_stock {In stock} else {Backordered}}
     "###
@@ -120,8 +120,6 @@ let summary = md_sync! { r###"
 ```
 
 The body of a loop or branch is Markdown, not a quoted string, so `- {feature}` is a literal list item with one interpolated value. Both macros share this grammar; in `md!` the interpolated children may await.
-
-Indent multiline `for`, `if`, `else if`, and `else` bodies like Rust blocks. Each body strips its own common source indentation, preserving extra indentation for nested Markdown lists and code blocks. Inline bodies keep their spaces, and a newline after `}}` still renders a newline.
 
 > **Good to know**: Interpolation, slots, and children follow the same rules as the HTML macros. See [Components](/docs/core/components) for the composition model; the difference here is that a Markdown template is one string literal, so control flow lives inside it.
 
@@ -156,7 +154,7 @@ impl<L: DataLoader> MdRenderSync<L> for &SearchPage {
             ---
 
             {for listing in self.listings.iter() {
-                {listing}
+            {listing}
             }}
             "###
         }

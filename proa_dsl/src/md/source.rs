@@ -8,74 +8,6 @@ use proc_macro2::Span;
 use std::ops::Range;
 use syn::LitStr;
 
-/// Visit source ranges without changing the parsed Rust expressions.
-fn visit_expressions(nodes: &mut [TplNode], visit: &mut impl FnMut(&mut TemplateExpr)) {
-    for node in nodes {
-        match node {
-            TplNode::Text(_) => {}
-            TplNode::Expr(expr) => visit(expr),
-            TplNode::For { iter, body, .. } => {
-                visit(iter);
-                visit_expressions(body, visit);
-            }
-            TplNode::If { branches } => {
-                for branch in branches {
-                    if let Some(cond) = &mut branch.cond {
-                        visit(cond);
-                    }
-                    visit_expressions(&mut branch.body, visit);
-                }
-            }
-        }
-    }
-}
-
-/// Share the literal's dedenting rule with multiline loop and branch bodies.
-/// Ranges refer to the original text, so nested expressions keep their spans.
-fn layout_ranges(value: &str, mut append: impl FnMut(Range<usize>)) {
-    let body = value.strip_prefix('\n').expect("multiline template");
-    let common = crate::md_layout::layout_indent(body);
-    let mut offset = 1;
-    for line in body.split_inclusive('\n') {
-        let prefix = common
-            .chars()
-            .zip(line.chars())
-            .take_while(|(a, b)| a == b)
-            .map(|(ch, _)| ch.len_utf8())
-            .sum::<usize>();
-        append(offset + prefix..offset + line.len());
-        offset += line.len();
-    }
-}
-
-pub(super) fn parse_body(value: &str, base: usize) -> Result<Vec<TplNode>, String> {
-    if !value.starts_with('\n') {
-        return super::parse_tpl_at(value, base);
-    }
-    // The closing delimiter's indentation is source layout, even in a body
-    // containing only blank lines. Keep the preceding newline itself.
-    let trailing = value.rsplit('\n').next().unwrap_or("");
-    let value = if trailing.trim().is_empty() {
-        &value[..value.len() - trailing.len()]
-    } else {
-        value
-    };
-    let mut text = String::with_capacity(value.len());
-    let mut kept = Vec::with_capacity(value.len());
-    layout_ranges(value, |range| {
-        text.push_str(&value[range.clone()]);
-        kept.extend(range);
-    });
-    let mut nodes = super::parse_tpl(&text)?;
-    visit_expressions(&mut nodes, &mut |expr| {
-        if let ExprLocation::Decoded(range) = &expr.location {
-            expr.location =
-                ExprLocation::Decoded(base + kept[range.start]..base + kept[range.end - 1] + 1);
-        }
-    });
-    Ok(nodes)
-}
-
 pub(super) struct MappedLiteral {
     pub text: String,
     ranges: Option<Vec<Range<usize>>>,
@@ -95,8 +27,19 @@ impl MappedLiteral {
             text.push_str(&value[range.clone()]);
             kept.extend(range);
         };
-        if value.starts_with('\n') {
-            layout_ranges(&value, &mut append);
+        if let Some(body) = value.strip_prefix('\n') {
+            let common = crate::md_layout::layout_indent(body);
+            let mut offset = 1;
+            for line in body.split_inclusive('\n') {
+                let prefix = common
+                    .chars()
+                    .zip(line.chars())
+                    .take_while(|(a, b)| a == b)
+                    .map(|(ch, _)| ch.len_utf8())
+                    .sum::<usize>();
+                append(offset + prefix..offset + line.len());
+                offset += line.len();
+            }
         } else if super::is_multiline_raw_literal(lit) {
             let common = value
                 .split('\n')
@@ -138,7 +81,24 @@ impl MappedLiteral {
     }
 
     pub fn map_nodes(&self, nodes: &mut [TplNode], span: Span) {
-        visit_expressions(nodes, &mut |expr| self.map_expr(expr, span));
+        for node in nodes {
+            match node {
+                TplNode::Text(_) => {}
+                TplNode::Expr(expr) => self.map_expr(expr, span),
+                TplNode::For { iter, body, .. } => {
+                    self.map_expr(iter, span);
+                    self.map_nodes(body, span);
+                }
+                TplNode::If { branches } => {
+                    for branch in branches {
+                        if let Some(cond) = &mut branch.cond {
+                            self.map_expr(cond, span);
+                        }
+                        self.map_nodes(&mut branch.body, span);
+                    }
+                }
+            }
+        }
     }
 
     fn map_expr(&self, expr: &mut TemplateExpr, span: Span) {
@@ -275,7 +235,7 @@ mod tests {
 
     #[test]
     fn nested_conditions_and_loops_keep_ranges() {
-        let input = "r###\"\n    {if self.ready {\n        {for item in &self.items {\n            {item.title}\n        }}\n    }}\n    \"###";
+        let input = "r###\"\n    {if self.ready {\n    {for item in &self.items {\n    {item.title}\n    }}\n    }}\n    \"###";
         let template: MdTemplateInput = syn::parse_str(input).unwrap();
         let nodes = template.semantic_nodes().unwrap();
         let TplNode::If { branches } = &nodes[0] else {
