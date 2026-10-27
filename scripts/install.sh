@@ -52,7 +52,7 @@ set_defaults() {
     # Bump this when the installer itself changes. It is the only thing in a
     # pasted log that identifies which installer produced it, since the script
     # is served from a URL and carries no other version.
-    INSTALLER_REVISION="2026-10-23"
+    INSTALLER_REVISION="2026-10-26"
 
     # Tailwind is an optional companion install. Keep the version and hashes
     # pinned together: changing the version without updating every hash below
@@ -1974,7 +1974,7 @@ resolve_bin_dir() {
             *) break ;;
         esac
     done
-    if [ "${BIN_DIR##*/}" = ".." ]; then
+    if [ -d "$BIN_DIR" ] || [ "${BIN_DIR##*/}" = ".." ]; then
         BIN_DIR=$(CDPATH='' cd "$BIN_DIR" && pwd -P) || err "could not resolve the installation directory"
     fi
     [ -n "${BIN_DIR##*/}" ] || err "choose a dedicated installation directory below the filesystem root"

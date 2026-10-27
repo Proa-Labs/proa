@@ -38,6 +38,18 @@ pub(crate) fn install_self(args: InstallSelfArgs) -> Result<()> {
             .file_name()
             .context("invalid installation directory")?,
     );
+    // Unix keeps a normal bin directory: an alias to it must use the same
+    // bundle root. Windows' visible directory is itself our mutable junction.
+    #[cfg(unix)]
+    let bin_dir = if bin_dir.is_dir() {
+        bin_dir.canonicalize()?
+    } else {
+        bin_dir
+    };
+    ensure!(
+        bin_dir.file_name().is_some(),
+        "installation directory must be below the filesystem root"
+    );
     let root = installation::root_for_bin(&bin_dir);
     fs::create_dir_all(&root)?;
     let lock = fs::OpenOptions::new()

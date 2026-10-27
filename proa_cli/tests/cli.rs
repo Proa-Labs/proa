@@ -549,18 +549,37 @@ fn standalone_bundles_switch_together_while_the_previous_binary_is_running() {
         let script = format!(
             "{definitions}\nset_defaults\nINSTALL_DIR=\"$1\"\nresolve_bin_dir\nVERSION=1.2.3\nTMP_DIR=\"$2\"\nOS_NAME=Linux\nif install_bundle \"$3\"; then exit 0; else exit 0; fi\n"
         );
+        let alias = temp.path().join("bin-alias");
+        std::os::unix::fs::symlink(&public, &alias).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_proa"))
+            .args(["install-self", "--allow-downgrade", "--source"])
+            .arg(&sources[0])
+            .arg("--bin-dir")
+            .arg(&alias)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", stderr(&output));
+        assert!(!alias.with_file_name("bin-alias.proa").exists());
         let selected = public.join(&names[0]).canonicalize().unwrap();
-        for suffix in ["", "/.", "//"] {
+        for destination in [
+            public.display().to_string(),
+            format!("{}/.", public.display()),
+            format!("{}//", public.display()),
+            alias.display().to_string(),
+        ] {
             let output = Command::new("sh")
                 .args(["-c", &script, "--"])
-                .arg(format!("{}{suffix}", public.display()))
+                .arg(&destination)
                 .arg(temp.path())
                 .arg(&sources[0])
                 .env_remove("PROA_INSTALL_HELPER")
                 .current_dir(temp.path())
                 .output()
                 .unwrap();
-            assert!(!output.status.success(), "legacy copy accepted {suffix:?}");
+            assert!(
+                !output.status.success(),
+                "legacy copy accepted {destination:?}"
+            );
             assert!(stderr(&output).contains("current managed CLI"));
             assert_eq!(public.join(&names[0]).canonicalize().unwrap(), selected);
         }
