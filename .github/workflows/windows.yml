@@ -53,6 +53,11 @@ jobs:
         run: cargo test --locked -p proa-cli --lib cli::tests
       - name: Test artifact replacement
         run: cargo test --locked -p proa-cli --lib artifact_export_replaces_the_destination_and_preserves_permissions
+      - name: Test installation ownership and versioned bundle switching
+        run: |
+          cargo test --locked -p proa-cli --lib commands::update
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p proa-cli --test cli standalone_bundles_
       - name: Test platform-specific dependency guidance
         run: cargo test --locked -p proa-cli --lib missing_tailwind_cli_message_offers_platform_installation
       - name: Test installed Cargo dispatch and release startup

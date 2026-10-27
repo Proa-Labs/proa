@@ -46,6 +46,9 @@ Install the latest stable CLI through Cargo using a current Rust toolchain:
 cargo install proa-cli --locked
 ```
 
+Once installed, update with `proa update`, or preview the latest stable version
+with `proa update --check`.
+
 Follow the [quickstart](https://proa.so/docs) to install the styling tools,
 create a site, edit its first route, and run Proa's checks.
 

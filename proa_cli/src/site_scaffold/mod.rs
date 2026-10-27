@@ -307,7 +307,7 @@ fn operation_report<'a>(
 }
 
 fn run_child(root: &Path, args: &[&str]) -> Result<()> {
-    let executable = env::current_exe().context("locate the running Proa CLI")?;
+    let executable = crate::util::current_executable().context("locate the running Proa CLI")?;
     let status = Command::new(executable)
         .args(args)
         .current_dir(root)
