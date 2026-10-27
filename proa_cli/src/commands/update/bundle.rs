@@ -61,7 +61,8 @@ pub(crate) fn install_self(args: InstallSelfArgs) -> Result<()> {
     lock.try_lock()
         .context("another Proa installation/update is running; retry after it finishes")?;
     let manifest_path = root.join(MANIFEST);
-    if manifest_path.exists() {
+    let has_manifest = manifest_path.exists();
+    if has_manifest {
         let manifest: Manifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
         let same_directory = manifest.bin_dir == bin_dir
             || manifest
@@ -113,15 +114,33 @@ pub(crate) fn install_self(args: InstallSelfArgs) -> Result<()> {
     let distribution = args
         .distribution_version
         .unwrap_or_else(|| version.to_string());
-    if !args.allow_downgrade && bin_dir.join(&names[0]).exists() {
-        let installed = binary_version(&bin_dir.join(&names[0]))?;
-        let selected_distribution = fs::read_to_string(root.join("current/distribution-version"))
-            .unwrap_or_else(|_| installed.to_string());
-        if installed > version
-            || (managed && installed == version && selected_distribution.trim() == distribution)
-        {
-            println!("Proa {installed} is already installed; no update needed.");
-            return Ok(());
+    if !args.allow_downgrade {
+        let selected_distribution = has_manifest
+            .then(|| fs::read_to_string(root.join("current/distribution-version")).ok())
+            .flatten();
+        // A broken executable must not prevent repair. Its recorded release
+        // still protects against a stale automatic update; snapshot IDs use
+        // their base version as a conservative bound when the binary cannot run.
+        let installed = binary_version(&bin_dir.join(&names[0])).ok().or_else(|| {
+            selected_distribution
+                .as_deref()
+                .and_then(|recorded| Version::parse(recorded.trim().split("-main.").next()?).ok())
+        });
+        if let Some(installed) = installed {
+            if installed > version {
+                println!("Keeping Proa {installed}: candidate {version} is older. Select an explicit version to reinstall or downgrade.");
+                return Ok(());
+            }
+            let selected_distribution =
+                selected_distribution.unwrap_or_else(|| installed.to_string());
+            if managed
+                && installed == version
+                && selected_distribution.trim() == distribution
+                && installed_bundle_is_complete(&bin_dir, &root, &names, &version)
+            {
+                println!("Proa {installed} is already installed; no update needed.");
+                return Ok(());
+            }
         }
     }
     fs::write(staged.path().join("distribution-version"), &distribution)?;
@@ -182,6 +201,38 @@ fn binary_version(executable: &Path) -> Result<Version> {
             .context("unrecognized Proa version output")?,
     )
     .map_err(Into::into)
+}
+
+fn installed_bundle_is_complete(
+    bin_dir: &Path,
+    root: &Path,
+    names: &[String; 2],
+    version: &Version,
+) -> bool {
+    let current = root.join("current");
+    let Ok(release) = current.canonicalize() else {
+        return false;
+    };
+    #[cfg(windows)]
+    if !is_junction(&current).unwrap_or(false)
+        || !is_junction(bin_dir).unwrap_or(false)
+        || !fs::read_link(bin_dir)
+            .is_ok_and(|target| installation::external_path(&target) == current)
+    {
+        return false;
+    }
+    names.iter().all(|name| {
+        let visible = bin_dir.join(name);
+        #[cfg(unix)]
+        if !fs::read_link(&visible).is_ok_and(|target| target == current.join(name)) {
+            return false;
+        }
+        fs::symlink_metadata(release.join(name)).is_ok_and(|meta| meta.file_type().is_file())
+            && visible
+                .canonicalize()
+                .is_ok_and(|path| path == release.join(name))
+            && binary_version(&visible).is_ok_and(|installed| &installed == version)
+    })
 }
 
 #[cfg(unix)]
@@ -272,21 +323,36 @@ fn publish(
     current: &Path,
     names: &[String; 2],
 ) -> Result<()> {
-    use std::os::windows::fs::MetadataExt;
     // PowerShell can launch this helper from the destination itself. Windows
     // keeps a handle to the process's working directory, blocking its rename.
     std::env::set_current_dir(root)
         .context("leave the installation directory before replacing it")?;
     // Dedicated bin directories can migrate; shared directories must never be
     // replaced by an installer-owned junction.
-    let is_junction = |path: &Path| {
-        fs::symlink_metadata(path).is_ok_and(|meta| meta.file_attributes() & 0x400 != 0)
-    };
     let legacy = root.join("legacy-bin");
     let had_current = fs::symlink_metadata(current).is_ok();
-    let had_visible_junction = is_junction(bin_dir);
+    let had_visible_junction = is_junction(bin_dir)?;
+    let old_visible_target = had_visible_junction
+        .then(|| fs::read_link(bin_dir))
+        .transpose()?;
+    if had_current {
+        ensure!(
+            is_junction(current)?
+                && current
+                    .canonicalize()?
+                    .starts_with(root.join("releases").canonicalize()?),
+            "current junction belongs to another installation"
+        );
+    }
     let mut moved_legacy = false;
-    if bin_dir.exists() && !is_junction(bin_dir) {
+    if had_visible_junction {
+        ensure!(
+            bin_dir
+                .canonicalize()?
+                .starts_with(root.join("releases").canonicalize()?),
+            "bin junction belongs to another installation"
+        );
+    } else if bin_dir.exists() {
         for entry in fs::read_dir(bin_dir)? {
             let name = entry?.file_name();
             ensure!(
@@ -302,27 +368,14 @@ fn publish(
         fs::rename(bin_dir, &legacy)
             .context("close Proa before migrating this legacy installation")?;
         moved_legacy = true;
-    } else if bin_dir.exists() {
-        ensure!(
-            bin_dir
-                .canonicalize()?
-                .starts_with(root.join("releases").canonicalize()?),
-            "bin junction belongs to another installation"
-        );
     }
     let result = (|| -> Result<()> {
-        if current.exists() {
-            ensure!(
-                is_junction(current)
-                    && current
-                        .canonicalize()?
-                        .starts_with(root.join("releases").canonicalize()?),
-                "current junction belongs to another installation"
-            );
-        }
-        // Establish the visible junction before switching current. Existing
-        // installations keep both executable entry points untouched.
-        if !is_junction(bin_dir) {
+        // Repair an owned junction that points directly to a release, too.
+        // It must follow current before selection changes to the new bundle.
+        if old_visible_target
+            .as_ref()
+            .is_none_or(|target| installation::external_path(target) != current)
+        {
             set_junction(bin_dir, current)?;
         }
         set_junction(current, release)?;
@@ -332,7 +385,9 @@ fn publish(
         if !had_current {
             let _ = fs::remove_dir(current);
         }
-        if !had_visible_junction {
+        if let Some(target) = old_visible_target {
+            set_junction(bin_dir, &target).context("restore public bin junction")?;
+        } else {
             let _ = fs::remove_dir(bin_dir);
         }
         if moved_legacy {
@@ -341,6 +396,48 @@ fn publish(
         return Err(error);
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn is_junction(path: &Path) -> Result<bool> {
+    use std::os::windows::{fs::MetadataExt, fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileAttributeTagInfo, GetFileInformationByHandleEx, FILE_ATTRIBUTE_TAG_INFO,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    };
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.file_attributes() & 0x400 == 0 {
+        return Ok(false);
+    }
+    let file = fs::OpenOptions::new()
+        .access_mode(0)
+        .share_mode(7)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?;
+    let mut info = FILE_ATTRIBUTE_TAG_INFO::default();
+    // Query the link itself: the reparse-point attribute alone also includes
+    // symbolic links and other types that cannot be retargeted as junctions.
+    let result = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileAttributeTagInfo,
+            (&mut info as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+            std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+        )
+    };
+    if result == 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    ensure!(
+        info.ReparseTag == 0xA0000003,
+        "refusing to replace a non-junction reparse point at {}",
+        path.display()
+    );
+    Ok(true)
 }
 
 #[cfg(windows)]

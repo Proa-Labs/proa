@@ -675,6 +675,130 @@ if (-not (Publish-ProaBundle $Source $BinDir $RequestedVersion)) { throw 'unexpe
 }
 
 #[test]
+fn standalone_bundles_repair_incomplete_installations_without_downgrading() {
+    let temp = tempfile::tempdir().unwrap();
+    let public = temp.path().join("bin");
+    let root = temp.path().join("bin.proa");
+    let names =
+        ["proa", "cargo-proa"].map(|name| format!("{name}{}", std::env::consts::EXE_SUFFIX));
+    let source = temp.path().join("source");
+    let newer = temp.path().join("newer");
+    let fixture = temp.path().join("fixture.rs");
+    fs::write(
+        &fixture,
+        "fn main() { println!(\"proa {}\", env!(\"FIXTURE_VERSION\")); }",
+    )
+    .unwrap();
+    for (directory, version) in [(&source, env!("CARGO_PKG_VERSION")), (&newer, "999.0.0")] {
+        fs::create_dir(directory).unwrap();
+        let compiled = Command::new("rustc")
+            .arg(&fixture)
+            .arg("-o")
+            .arg(directory.join(&names[0]))
+            .env("FIXTURE_VERSION", version)
+            .output()
+            .unwrap();
+        assert!(compiled.status.success(), "{}", stderr(&compiled));
+        fs::copy(directory.join(&names[0]), directory.join(&names[1])).unwrap();
+    }
+    let install = |candidate: &Path| {
+        Command::new(env!("CARGO_BIN_EXE_proa"))
+            .args(["install-self", "--source"])
+            .arg(candidate)
+            .arg("--bin-dir")
+            .arg(&public)
+            .output()
+            .unwrap()
+    };
+    let assert_pair = |version: &str| {
+        let selected = root.join("current").canonicalize().unwrap();
+        for name in &names {
+            assert_eq!(
+                public.join(name).canonicalize().unwrap(),
+                selected.join(name)
+            );
+            let output = Command::new(public.join(name))
+                .arg("--version")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", stderr(&output));
+            assert_eq!(stdout(&output).trim(), format!("proa {version}"));
+        }
+    };
+    let output = install(&source);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let selected = root.join("current").canonicalize().unwrap();
+    let output = install(&source);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(root.join("current").canonicalize().unwrap(), selected);
+    for damage in [
+        #[cfg(unix)]
+        "missing-public-companion",
+        "missing-bundle-companion",
+        "mismatched-companion",
+        "broken-primary",
+        "missing-primary",
+    ] {
+        let selected = root.join("current").canonicalize().unwrap();
+        match damage {
+            "missing-public-companion" => fs::remove_file(public.join(&names[1])).unwrap(),
+            "missing-bundle-companion" => fs::remove_file(selected.join(&names[1])).unwrap(),
+            "mismatched-companion" => {
+                fs::copy(newer.join(&names[1]), selected.join(&names[1])).unwrap();
+            }
+            "broken-primary" => fs::write(selected.join(&names[0]), b"broken executable").unwrap(),
+            "missing-primary" => fs::remove_file(selected.join(&names[0])).unwrap(),
+            _ => unreachable!(),
+        }
+        let output = install(&source);
+        assert!(output.status.success(), "{damage}: {}", stderr(&output));
+        assert_ne!(root.join("current").canonicalize().unwrap(), selected);
+        assert_pair(env!("CARGO_PKG_VERSION"));
+    }
+    #[cfg(windows)]
+    {
+        // A manually recreated public junction may bypass current. Repair it
+        // even on a same-version install so subsequent upgrades still work.
+        let selected = root.join("current").canonicalize().unwrap();
+        fs::remove_dir(&public).unwrap();
+        let output = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction -Path $env:PROA_TEST_BIN -Target $env:PROA_TEST_RELEASE | Out-Null",
+            ])
+            .env("PROA_TEST_BIN", &public)
+            .env(
+                "PROA_TEST_RELEASE",
+                root.join("releases").join(selected.file_name().unwrap()),
+            )
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", stderr(&output));
+        let output = install(&source);
+        assert!(output.status.success(), "{}", stderr(&output));
+        assert_pair(env!("CARGO_PKG_VERSION"));
+    }
+    let output = install(&newer);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_pair("999.0.0");
+    let selected = root.join("current").canonicalize().unwrap();
+    // Even an unreadable primary must not let a stale updater silently
+    // downgrade it. The recorded release remains authoritative for that guard.
+    fs::write(selected.join(&names[0]), b"broken executable").unwrap();
+    let output = install(&source);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(root.join("current").canonicalize().unwrap(), selected);
+    assert_eq!(
+        fs::read(selected.join(&names[0])).unwrap(),
+        b"broken executable"
+    );
+    let output = install(&newer);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_pair("999.0.0");
+}
+
+#[test]
 fn dev_exposes_live_reload_controls_and_rejects_an_unhonourable_debounce() {
     let temp = tempfile::tempdir().unwrap();
     let help = proa(&["dev", "--help"], temp.path());
