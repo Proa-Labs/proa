@@ -2494,6 +2494,18 @@ function Get-BinaryVersionForDistribution {
 
 function Publish-ProaBundle {
     param([string]$Source, [string]$BinDir, [string]$VersionText)
+    # Use the shell's location (which can differ from the process directory in
+    # Windows PowerShell 5.1), and keep staging beside the visible bin directory
+    # even when -To ends in a separator or names the current directory.
+    $provider = $null; $drive = $null
+    $BinDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+        $BinDir, [ref]$provider, [ref]$drive)
+    if ($provider.Name -ne 'FileSystem') { Stop-Install 'the installation directory must be a filesystem path' }
+    $pathRoot = [IO.Path]::GetPathRoot($BinDir)
+    $BinDir = $BinDir.TrimEnd('\', '/')
+    if ($BinDir -eq $pathRoot.TrimEnd('\', '/')) {
+        Stop-Install 'choose a dedicated installation directory below the filesystem root'
+    }
     $helper = Get-EnvValue 'PROA_INSTALL_HELPER'
     $binaryVersion = Get-BinaryVersionForDistribution $VersionText
     $bootstrap = ''

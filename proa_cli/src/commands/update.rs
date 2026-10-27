@@ -8,7 +8,7 @@ use clap::Args;
 use reqwest::blocking::Client;
 use semver::Version;
 use serde::Deserialize;
-use std::{fs, io::Read, path::Path, process::Command, time::Duration};
+use std::{ffi::OsString, fs, io::Read, path::Path, process::Command, time::Duration};
 
 mod bundle;
 mod installation;
@@ -181,9 +181,7 @@ fn run_installer(
         Some(version) => parse_requested_version(version)?,
         None => latest_version(client)?,
     };
-    let staging = tempfile::Builder::new()
-        .prefix(".update-")
-        .tempdir_in(root)?;
+    let staging = installation::private_tempdir(root, ".update-")?;
     let filename = if cfg!(windows) {
         "install.ps1"
     } else {
@@ -219,6 +217,10 @@ fn run_installer(
         .env("PROA_YES", "1")
         .env("PROA_TAILWIND", "skip")
         .env(
+            "PROA_LOG",
+            installer_log_setting(root, std::env::var_os("PROA_LOG"))?,
+        )
+        .env(
             "PROA_BUILD_FROM_SOURCE",
             if args.build_from_source { "1" } else { "" },
         )
@@ -241,4 +243,33 @@ fn run_installer(
         "the Proa installer failed; see its output above"
     );
     Ok(())
+}
+
+fn installer_log_setting(root: &Path, requested: Option<OsString>) -> Result<OsString> {
+    let requested = requested.unwrap_or_default();
+    // Match the PowerShell installer's handling of whitespace in PROA_LOG.
+    #[cfg(windows)]
+    let requested = requested
+        .to_str()
+        .map(|value| OsString::from(value.trim()))
+        .unwrap_or(requested);
+    if requested.is_empty() {
+        // TEMP points into disposable executable staging on Windows. Keep the
+        // diagnostic log beside it so the printed path survives cleanup.
+        let path = tempfile::Builder::new()
+            .prefix("update-")
+            .suffix(".log")
+            .tempfile_in(root)?
+            .into_temp_path()
+            .keep()?;
+        return Ok(path.into_os_string());
+    }
+    if requested
+        .to_str()
+        .is_some_and(|value| value.eq_ignore_ascii_case("off"))
+    {
+        return Ok(requested);
+    }
+    // Resolve caller-supplied relative paths before entering private staging.
+    Ok(std::path::absolute(requested)?.into_os_string())
 }

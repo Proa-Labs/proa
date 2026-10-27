@@ -25,6 +25,17 @@ pub(super) struct Manifest {
 
 pub(super) const MANIFEST: &str = "proa-install.json";
 
+pub(super) fn private_tempdir(parent: &Path, prefix: &str) -> Result<tempfile::TempDir> {
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(prefix);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    Ok(builder.tempdir_in(parent)?)
+}
+
 /// External installers, including PowerShell 5.1, do not consistently accept
 /// the verbatim prefixes returned by Rust's Windows filesystem APIs.
 pub(super) fn external_path(path: &Path) -> PathBuf {

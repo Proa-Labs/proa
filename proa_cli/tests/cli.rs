@@ -349,6 +349,15 @@ fn standalone_bundles_switch_together_while_the_previous_binary_is_running() {
         sources.push(source);
     }
     let install = |source: &Path, downgrade: bool| {
+        #[cfg(unix)]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command
+                .args(["-c", "umask 077; exec \"$@\"", "--"])
+                .arg(env!("CARGO_BIN_EXE_proa"));
+            command
+        };
+        #[cfg(not(unix))]
         let mut command = Command::new(env!("CARGO_BIN_EXE_proa"));
         command
             .args(["install-self", "--source"])
@@ -365,11 +374,50 @@ fn standalone_bundles_switch_together_while_the_previous_binary_is_running() {
     for name in &names {
         fs::copy(sources[0].join(name), public.join(name)).unwrap();
     }
+    // Retry a migration into an existing shared root under a restrictive umask.
+    // Access to retained executables must not depend on the updater's umask.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let root = public.with_file_name("bin.proa");
+        fs::create_dir_all(root.join("releases")).unwrap();
+        for path in [&root, &root.join("releases")] {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
     let legacy_path = public.join(&names[0]).canonicalize().unwrap();
     let output = install(&sources[0], false);
     assert!(output.status.success(), "{}", stderr(&output));
     let previous = public.join(&names[0]).canonicalize().unwrap();
     assert_ne!(previous, legacy_path);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let legacy = fs::read_dir(public.with_file_name("bin.proa"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("legacy-")
+            })
+            .unwrap();
+        // Shared installations must retain access for users already running
+        // the old CLI, which reopens its renamed executable during builds.
+        assert_eq!(
+            fs::metadata(&legacy).unwrap().permissions().mode() & 0o111,
+            0o111
+        );
+        for name in &names {
+            let output = Command::new(legacy.join(name))
+                .arg("--version")
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            assert_eq!(stdout(&output).trim(), "proa 1.2.3");
+        }
+    }
     struct Running(std::process::Child);
     impl Drop for Running {
         fn drop(&mut self) {
@@ -439,6 +487,122 @@ fn standalone_bundles_switch_together_while_the_previous_binary_is_running() {
             .output()
             .unwrap();
         assert_eq!(stdout(&output).trim(), "proa 1.2.3");
+    }
+
+    // Equivalent Unix destination paths must not bypass the managed-install
+    // guard and fall back to copying old binaries through the public links.
+    #[cfg(unix)]
+    {
+        let installer =
+            fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/install.sh"))
+                .unwrap();
+        let definitions = installer.rsplit_once("\nmain \"$@\"").unwrap().0;
+        let script = format!(
+            "{definitions}\nset_defaults\nINSTALL_DIR=\"$1\"\nresolve_bin_dir\nVERSION=1.2.3\nTMP_DIR=\"$2\"\nOS_NAME=Linux\nif install_bundle \"$3\"; then exit 0; else exit 0; fi\n"
+        );
+        let selected = public.join(&names[0]).canonicalize().unwrap();
+        for suffix in ["", "/.", "//"] {
+            let output = Command::new("sh")
+                .args(["-c", &script, "--"])
+                .arg(format!("{}{suffix}", public.display()))
+                .arg(temp.path())
+                .arg(&sources[0])
+                .env_remove("PROA_INSTALL_HELPER")
+                .current_dir(temp.path())
+                .output()
+                .unwrap();
+            assert!(!output.status.success(), "legacy copy accepted {suffix:?}");
+            assert!(stderr(&output).contains("current managed CLI"));
+            assert_eq!(public.join(&names[0]).canonicalize().unwrap(), selected);
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn standalone_bundles_bootstrap_from_powershell_with_equivalent_paths() {
+    let temp = tempfile::Builder::new()
+        .prefix("proa installer with spaces ")
+        .tempdir()
+        .unwrap();
+    let source = temp.path().join("source");
+    fs::create_dir(&source).unwrap();
+    for name in ["proa.exe", "cargo-proa.exe"] {
+        fs::copy(env!("CARGO_BIN_EXE_proa"), source.join(name)).unwrap();
+    }
+    let harness = temp.path().join("bootstrap.ps1");
+    fs::write(
+        &harness,
+        r#"param($Installer, $Source, $Location, $BinDir, $RequestedVersion)
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Installer, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw ($errors | Out-String) }
+# Load the real installer without its network, toolchain, or PATH setup.
+$entry = $ast.EndBlock.Statements[-1]
+Invoke-Expression ([IO.File]::ReadAllText($Installer).Substring(0, $entry.Extent.StartOffset))
+Set-StrictMode -Version Latest
+$script:BundleAllowDowngrade = $false
+Set-Location -LiteralPath $Location
+if (-not (Publish-ProaBundle $Source $BinDir $RequestedVersion)) { throw 'unexpected legacy fallback' }
+"#,
+    )
+    .unwrap();
+    let installer = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/install.ps1");
+    for (index, (input, leaf)) in [
+        (r".\bin\", "bin"),
+        ("./bin/", "bin"),
+        (r".\bin\.", "bin"),
+        (".", ""),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let location = temp.path().join(format!("shell location {index}"));
+        fs::create_dir(&location).unwrap();
+        let public = location.join(leaf);
+        let output = Command::new("powershell.exe")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(&harness)
+            .arg(&installer)
+            .arg(&source)
+            .arg(&location)
+            .arg(input)
+            .arg(env!("CARGO_PKG_VERSION"))
+            .env_remove("PROA_INSTALL_HELPER")
+            // PowerShell's Set-Location must win over the process directory.
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            stdout(&output),
+            stderr(&output)
+        );
+        for name in ["proa.exe", "cargo-proa.exe"] {
+            let installed = Command::new(public.join(name))
+                .arg("--version")
+                .output()
+                .unwrap();
+            assert!(installed.status.success());
+            assert_eq!(
+                stdout(&installed).trim(),
+                concat!("proa ", env!("CARGO_PKG_VERSION"))
+            );
+        }
+        assert!(!public.join(".proa").exists());
+        let selected = public.join("proa.exe").canonicalize().unwrap();
+        assert_eq!(
+            selected
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .file_name()
+                .unwrap(),
+            "releases"
+        );
     }
 }
 

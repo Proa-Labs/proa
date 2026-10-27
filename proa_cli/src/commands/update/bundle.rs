@@ -76,9 +76,7 @@ pub(crate) fn install_self(args: InstallSelfArgs) -> Result<()> {
     }
     let releases = root.join("releases");
     fs::create_dir_all(&releases)?;
-    let staged = tempfile::Builder::new()
-        .prefix("release-")
-        .tempdir_in(&releases)?;
+    let staged = installation::private_tempdir(&releases, "release-")?;
     for name in &names {
         let source = args.source.join(name);
         ensure!(
@@ -119,7 +117,7 @@ pub(crate) fn install_self(args: InstallSelfArgs) -> Result<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         // The published directory must remain traversable for shared installs;
-        // tempfile deliberately starts private while validation is in progress.
+        // Staging stays private while validation is in progress.
         fs::set_permissions(staged.path(), fs::Permissions::from_mode(0o755))?;
     }
     // Preserve the optional companion tool when Windows' visible bin directory
@@ -182,7 +180,7 @@ fn publish(
     current: &Path,
     names: &[String; 2],
 ) -> Result<()> {
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{symlink, PermissionsExt};
     fs::create_dir_all(bin_dir)?;
     ensure!(
         fs::symlink_metadata(current).map_or(true, |meta| meta.file_type().is_symlink()),
@@ -191,6 +189,9 @@ fn publish(
     let transaction = tempfile::Builder::new()
         .prefix("legacy-")
         .tempdir_in(root)?;
+    // Running users must still be able to reopen migrated executables, even
+    // when the updater has a restrictive umask. Set access before moving them.
+    fs::set_permissions(transaction.path(), fs::Permissions::from_mode(0o755))?;
     let old_current = fs::read_link(current).ok();
     let mut replaced = Vec::new();
     let mut keep_legacy = false;

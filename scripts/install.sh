@@ -1961,11 +1961,23 @@ resolve_bin_dir() {
         BIN_DIR="$PROA_ROOT/bin"
     fi
 
-    # Strip a trailing slash so PATH comparisons and profile lines are stable.
+    # The bundle root is a sibling of this directory. Resolve equivalent path
+    # spellings before adding .proa, including a relative path or final '/.'.
     case "$BIN_DIR" in
-        */) BIN_DIR="${BIN_DIR%/}" ;;
+        /*) ;;
+        *) BIN_DIR="$(pwd -P)/$BIN_DIR" ;;
     esac
-    [ -n "$BIN_DIR" ] || err "the install directory resolved to an empty path"
+    while :; do
+        case "$BIN_DIR" in
+            */) BIN_DIR="${BIN_DIR%/}" ;;
+            */.) BIN_DIR="${BIN_DIR%/.}" ;;
+            *) break ;;
+        esac
+    done
+    if [ "${BIN_DIR##*/}" = ".." ]; then
+        BIN_DIR=$(CDPATH='' cd "$BIN_DIR" && pwd -P) || err "could not resolve the installation directory"
+    fi
+    [ -n "${BIN_DIR##*/}" ] || err "choose a dedicated installation directory below the filesystem root"
 
     if [ -n "$DIR_WAS_EXPLICIT" ]; then
         log_info "install directory: $BIN_DIR (named explicitly)"
