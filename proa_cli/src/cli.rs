@@ -22,6 +22,7 @@ pub struct Cli {
 
 /// Run the `proa` / `cargo proa` command-line interface.
 pub fn run() -> Result<()> {
+    crate::util::current_executable()?;
     if rsjs_build::rustc_wrapper_dispatch_requested() {
         let status = match rsjs_build::run_rustc_wrapper_from_env(std::env::args_os()) {
             Ok(status) => status,

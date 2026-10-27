@@ -261,6 +261,10 @@ fn publish(
     names: &[String; 2],
 ) -> Result<()> {
     use std::os::windows::fs::MetadataExt;
+    // PowerShell can launch this helper from the destination itself. Windows
+    // keeps a handle to the process's working directory, blocking its rename.
+    std::env::set_current_dir(root)
+        .context("leave the installation directory before replacing it")?;
     // Dedicated bin directories can migrate; shared directories must never be
     // replaced by an installer-owned junction.
     let is_junction = |path: &Path| {

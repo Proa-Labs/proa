@@ -321,11 +321,28 @@ fn standalone_bundles_switch_together_while_the_previous_binary_is_running() {
         .unwrap();
     let public = temp.path().join("bin");
     let fixture = temp.path().join("fixture.rs");
+    let executable_module = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/util/executable.rs");
     fs::write(
         &fixture,
-        r#"fn main() {
-        if std::env::args().any(|arg| arg == "--hold") {
-            std::thread::sleep(std::time::Duration::from_secs(120));
+        format!("#[path={executable_module:?}] mod executable;\n")
+            + r#"fn main() {
+        executable::current_executable().unwrap();
+        let mut args = std::env::args_os().skip(1);
+        if args.next().as_deref() == Some(std::ffi::OsStr::new("--hold")) {
+            let ready = args.next().unwrap();
+            let resume = std::path::PathBuf::from(args.next().unwrap());
+            std::fs::write(ready, b"ready").unwrap();
+            for _ in 0..1200 {
+                if resume.exists() {
+                    let output = std::process::Command::new(executable::current_executable().unwrap())
+                        .arg("--version").output().unwrap();
+                    assert!(output.status.success());
+                    print!("{}", String::from_utf8(output.stdout).unwrap());
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            panic!("resume signal timed out");
         }
         println!("proa {}", env!("FIXTURE_VERSION"));
     }"#,
@@ -425,13 +442,45 @@ fn standalone_bundles_switch_together_while_the_previous_binary_is_running() {
             let _ = self.0.wait();
         }
     }
-    let mut running = Running(Command::new(&previous).arg("--hold").spawn().unwrap());
+    let ready = temp.path().join("ready");
+    let resume = temp.path().join("resume");
+    let mut running = Running(
+        Command::new(public.join(&names[0]))
+            .arg("--hold")
+            .arg(&ready)
+            .arg(&resume)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    for _ in 0..500 {
+        if ready.exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(ready.exists(), "old process did not start");
     let output = install(&sources[1], false);
     assert!(output.status.success(), "{}", stderr(&output));
     let selected = public.join(&names[0]).canonicalize().unwrap();
     assert_ne!(previous, selected);
     assert!(previous.exists());
     assert!(running.0.try_wait().unwrap().is_none());
+    // Reopening a public launcher after selection changes must still use the
+    // running process's original bundle, as later dev rebuilds do.
+    fs::write(&resume, b"resume").unwrap();
+    let mut status = None;
+    for _ in 0..500 {
+        status = running.0.try_wait().unwrap();
+        if status.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(status.is_some_and(|status| status.success()));
+    let mut reopened = String::new();
+    std::io::Read::read_to_string(&mut running.0.stdout.take().unwrap(), &mut reopened).unwrap();
+    assert_eq!(reopened.trim(), "proa 1.2.3");
     for name in &names {
         let output = Command::new(public.join(name))
             .arg("--version")
@@ -576,7 +625,7 @@ if (-not (Publish-ProaBundle $Source $BinDir $RequestedVersion)) { throw 'unexpe
             .unwrap();
         assert!(
             output.status.success(),
-            "{}\n{}",
+            "installer input {input:?}:\n{}\n{}",
             stdout(&output),
             stderr(&output)
         );

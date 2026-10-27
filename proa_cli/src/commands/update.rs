@@ -64,7 +64,7 @@ pub(crate) fn run(args: UpdateArgs) -> Result<()> {
         );
         return Ok(());
     }
-    let executable = installation::external_path(&std::env::current_exe()?.canonicalize()?);
+    let executable = installation::external_path(&crate::util::current_executable()?);
     match installation::detect(&executable)? {
         installation::Installation::Cargo { root } => cargo_update(&root, requested.as_ref()),
         installation::Installation::Standalone { root, bin_dir } => {

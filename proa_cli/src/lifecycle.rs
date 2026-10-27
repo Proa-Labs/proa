@@ -1805,7 +1805,8 @@ fn prepare_linked_cargo_with_environment(
     action: LinkedCargoAction,
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<PreparedLinkedCargo> {
-    let wrapper = std::env::current_exe().context("resolve the cargo-proa wrapper executable")?;
+    let wrapper =
+        crate::util::current_executable().context("resolve the cargo-proa wrapper executable")?;
     prepare_linked_cargo_with_wrapper_and_environment(root, command, action, wrapper, environment)
 }
 
