@@ -78,7 +78,7 @@ fn walk_node<S: ConsolidationSink>(
             }
         }
         _ => {
-            // Text and Doctype are always static, handled above.
+            // Text and document declarations are always static, handled above.
         }
     }
 }

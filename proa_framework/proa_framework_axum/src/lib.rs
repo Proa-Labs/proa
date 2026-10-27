@@ -9,6 +9,7 @@ pub mod config;
 pub mod csp;
 pub mod csrf;
 pub mod dev_reload;
+pub mod discovery;
 pub mod external;
 pub mod manifest;
 pub mod process_manager;
@@ -29,11 +30,17 @@ pub use config::{CodegenConfig, PathsConfig, ProaConfig, ServerConfig};
 pub use csp::{CspNonceLayer, CspPolicy};
 pub use csrf::CrossOriginProtectionLayer;
 pub use dev_reload::{DevReloadLayer, RELOAD_PORT_ENV, RELOAD_TOKEN_ENV};
+pub use discovery::{robots_txt, sitemap_index_xml, sitemap_xml};
 pub use external::{ExternalApp, ExternalAppStrategy};
 pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
 };
 pub use proa_core::{AppUrl, BasePath, CspNonce, InvalidBasePath};
+pub use proa_framework_core::{
+    absolute_http_url, ChangeFreq, DiscoveryError, RobotsGroup, RobotsRule, RobotsTxt, Sitemap,
+    SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
+    MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
+};
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
     app_url, css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
@@ -108,6 +115,9 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct FrameworkBuilder {
     manifest: Arc<IslandManifest>,
     base_path: BasePath,
+    public_origin: Option<String>,
+    sitemaps: Option<discovery::SitemapConfig>,
+    robots: Option<RobotsTxt>,
     rsjs_assets: bool,
     config: ProaConfig,
     static_router: Option<Router>,
@@ -146,6 +156,9 @@ impl FrameworkBuilder {
         Self {
             manifest: Arc::new(manifest),
             base_path: BasePath::default(),
+            public_origin: None,
+            sitemaps: None,
+            robots: None,
             rsjs_assets: false,
             config: ProaConfig::default(),
             static_router: None,
@@ -172,6 +185,141 @@ impl FrameworkBuilder {
     /// redirects use `app_url` or `cx.request().url` explicitly.
     pub fn with_base_path(mut self, base_path: BasePath) -> Self {
         self.base_path = base_path;
+        self
+    }
+
+    /// Set the public HTTP(S) origin used by discovery routes.
+    ///
+    /// Supply only the scheme, host and optional port, for example
+    /// `https://example.com`. The mount prefix comes from `with_base_path`.
+    /// This is explicit configuration; request headers are not used to infer it.
+    pub fn with_public_origin(mut self, origin: &str) -> Result<Self, DiscoveryError> {
+        let validated = Sitemap::new(origin)?;
+        self.public_origin = Some(validated.origin().to_owned());
+        Ok(self)
+    }
+
+    /// Serve `/sitemap.xml` from these entries using the builder's final public
+    /// origin and base path. Configuration order does not matter.
+    ///
+    /// Entries are application-local paths or same-origin absolute URLs inside
+    /// the final base path directory (checked after URL normalization). The
+    /// document is validated and rendered once at startup. Do not also register
+    /// a custom `/sitemap.xml` handler. Requires `with_public_origin`.
+    /// Replaces any previous `with_sitemap` or `with_sitemaps` configuration.
+    ///
+    /// ```
+    /// use proa_framework_axum::{
+    ///     BasePath, DiscoveryError, FrameworkBuilder, IslandManifest,
+    ///     ManifestAssets, RobotsTxt, SitemapUrl,
+    /// };
+    /// # let manifest = IslandManifest {
+    /// #     islands: Default::default(), assets: ManifestAssets::default(),
+    /// #     import_map: Default::default(), ssr_bundle: None,
+    /// # };
+    /// let app = FrameworkBuilder::new(manifest)
+    ///     .with_base_path(BasePath::new("/apps/demo").unwrap())
+    ///     .with_public_origin("https://example.com")?
+    ///     .with_sitemap([SitemapUrl::new("/")?, SitemapUrl::new("/pricing")?])
+    ///     .with_robots(RobotsTxt::new().disallow("/admin")?)
+    ///     .try_build()?;
+    /// # Ok::<(), DiscoveryError>(())
+    /// ```
+    pub fn with_sitemap(mut self, urls: impl IntoIterator<Item = SitemapUrl>) -> Self {
+        self.sitemaps = Some(discovery::SitemapConfig::Single(urls.into_iter().collect()));
+        self
+    }
+
+    /// Serve multiple named sitemaps at `/sitemap-{id}.xml`, with a sitemap
+    /// index at `/sitemap.xml`. Robots advertises the index when enabled.
+    ///
+    /// Await an application-owned async generator before calling this method:
+    /// `.with_sitemaps(generate_sitemaps(&db).await?)`. All documents are
+    /// validated and rendered at startup using the final origin and base path.
+    /// New database content requires regeneration/restart, or custom handlers.
+    /// Requires `with_public_origin`. IDs must be unique; an empty set is an error.
+    /// This replaces a previous `with_sitemap` or `with_sitemaps` configuration.
+    /// Siblings share the [index directory's scope](https://www.sitemaps.org/protocol.html#location);
+    /// limits follow the [sitemap-index specification](https://www.sitemaps.org/protocol.html#index).
+    ///
+    /// ```
+    /// use proa_framework_axum::{
+    ///     DiscoveryError, FrameworkBuilder, IslandManifest, ManifestAssets,
+    ///     RobotsTxt, SitemapFile, SitemapUrl,
+    /// };
+    /// # let manifest = IslandManifest {
+    /// #     islands: Default::default(), assets: ManifestAssets::default(),
+    /// #     import_map: Default::default(), ssr_bundle: None,
+    /// # };
+    /// async fn generate_sitemaps() -> Result<Vec<SitemapFile>, DiscoveryError> {
+    ///     // Application code can await database or CMS queries here.
+    ///     Ok(vec![
+    ///         SitemapFile::new("pages", [SitemapUrl::new("/")?])?,
+    ///         SitemapFile::new("products-0", [SitemapUrl::new("/products/1")?])?,
+    ///     ])
+    /// }
+    /// # let run = async move {
+    /// let app = FrameworkBuilder::new(manifest)
+    ///     .with_public_origin("https://example.com")?
+    ///     .with_sitemaps(generate_sitemaps().await?)
+    ///     .with_robots(RobotsTxt::new())
+    ///     .try_build()?;
+    /// # Ok::<(), DiscoveryError>(())
+    /// # };
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(run).unwrap();
+    /// ```
+    pub fn with_sitemaps(mut self, files: impl IntoIterator<Item = SitemapFile>) -> Self {
+        self.sitemaps = Some(discovery::SitemapConfig::Multiple(
+            files.into_iter().collect(),
+        ));
+        self
+    }
+
+    /// Serve `/robots.txt`, prefixing root-relative application rules using the
+    /// final `with_base_path` (it replaces any base path already set on
+    /// `robots`). Empty and wildcard-leading rules remain unchanged; a root rule
+    /// also matches the bare mount URL. If a sitemap is enabled, advertise its
+    /// public URL automatically.
+    ///
+    /// Crawlers still need this handler exposed at the origin root: a
+    /// prefix-stripping proxy must explicitly forward origin-root `/robots.txt`.
+    /// Do not also register a custom `/robots.txt` handler. Existing absolute
+    /// sitemap links in `robots` pass through unchanged.
+    /// Root routing follows [RFC 9309 §2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.3).
+    /// Startup rejects documents exceeding [Google's 500 KiB limit](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#file-format).
+    ///
+    /// Await an application-owned async function to generate rules from data.
+    /// Generation and rendering run at startup; HTTP requests serve cached bytes.
+    /// Shared user-agent groups, optional crawl delays, host, and custom
+    /// directives are configured on `RobotsTxt` before passing it here.
+    ///
+    /// ```
+    /// use proa_framework_axum::{
+    ///     DiscoveryError, FrameworkBuilder, IslandManifest, ManifestAssets, RobotsTxt,
+    /// };
+    /// use std::time::Duration;
+    ///
+    /// async fn generate_robots() -> Result<RobotsTxt, DiscoveryError> {
+    ///     // Application code can await database or CMS queries here.
+    ///     Ok(RobotsTxt::new()
+    ///         .group("*")?.allow("/")?.disallow("/private/")?
+    ///         .group_agents(["Applebot", "Bingbot"])?.disallow("/admin/")?
+    ///         .crawl_delay(Duration::from_millis(1500)))
+    /// }
+    /// # let run = async {
+    /// # let manifest = IslandManifest {
+    /// #     islands: Default::default(), assets: ManifestAssets::default(),
+    /// #     import_map: Default::default(), ssr_bundle: None,
+    /// # };
+    /// let app = FrameworkBuilder::new(manifest)
+    ///     .with_robots(generate_robots().await?)
+    ///     .try_build()?;
+    /// # Ok::<(), DiscoveryError>(())
+    /// # };
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(run).unwrap();
+    /// ```
+    pub fn with_robots(mut self, robots: RobotsTxt) -> Self {
+        self.robots = Some(robots);
         self
     }
 
@@ -383,9 +531,22 @@ impl FrameworkBuilder {
     }
 
     pub fn build(self) -> Router {
+        self.try_build()
+            .expect("invalid framework discovery configuration")
+    }
+
+    /// Build the router, returning invalid discovery configuration as an error.
+    ///
+    /// Unlike `build`, this reports a missing public origin, cross-origin entry
+    /// or invalid composed URL without panicking. Axum's existing duplicate-route
+    /// restrictions still apply.
+    pub fn try_build(self) -> Result<Router, DiscoveryError> {
         let FrameworkBuilder {
             manifest,
             base_path,
+            public_origin,
+            sitemaps,
+            robots,
             rsjs_assets,
             config,
             static_router,
@@ -406,7 +567,8 @@ impl FrameworkBuilder {
 
         let body_limit_bytes = body_limit.unwrap_or(DEFAULT_BODY_LIMIT_BYTES);
 
-        let mut app = Router::new();
+        let mut app =
+            discovery::discovery_routes(public_origin.as_deref(), &base_path, sitemaps, robots)?;
         if rsjs_assets {
             app = app.merge(rsjs_assets_router(&base_path));
         }
@@ -498,7 +660,7 @@ impl FrameworkBuilder {
         if let Some(policy) = csp {
             app = app.layer(CspNonceLayer::new(policy));
         }
-        app.layer(Extension(manifest))
+        Ok(app.layer(Extension(manifest)))
     }
 }
 

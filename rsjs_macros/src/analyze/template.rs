@@ -484,8 +484,8 @@ impl Analyzer {
                     // the generated `html_sync!` body.
                     self.builder.text_node_static(parent, &lit.value());
                 }
-                Node::Doctype(_) => {
-                    // Islands never contain doctypes; just skip.
+                Node::Doctype(_) | Node::XmlDeclaration(_) => {
+                    // Document declarations are not island children.
                 }
                 Node::Element(e) => {
                     if let Err(err) = self.walk_element(e, Some(parent)) {
@@ -2496,7 +2496,7 @@ impl Analyzer {
                          template stays a single tree",
                     ));
                 }
-                Node::Doctype(_) => {
+                Node::Doctype(_) | Node::XmlDeclaration(_) => {
                     return Err(syn::Error::new(
                         el.name.span(),
                         "doctype declarations cannot appear inside a keyed list body",
@@ -2688,6 +2688,12 @@ impl Analyzer {
                     return Err(syn::Error::new(
                         doctype.span(),
                         "doctype declarations cannot appear inside a conditional branch",
+                    ));
+                }
+                Node::XmlDeclaration(declaration) => {
+                    return Err(syn::Error::new(
+                        declaration.span(),
+                        "XML declarations cannot appear inside a conditional branch",
                     ));
                 }
             }
@@ -2901,7 +2907,7 @@ fn static_slot_node(node: &Node) -> bool {
         Node::Element(element) => static_slot_element(element),
         Node::Fragment(nodes) => nodes.iter().all(static_slot_node),
         Node::Text(_) => true,
-        Node::Block(_) | Node::Doctype(_) => false,
+        Node::Block(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => false,
     }
 }
 

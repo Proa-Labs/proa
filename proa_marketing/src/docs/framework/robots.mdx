@@ -1,0 +1,227 @@
+---
+title: robots.txt
+description: Generate robots.txt, configure specific user agents, and publish optional crawler directives.
+---
+
+Robots.txt tells crawlers which URLs they may access. Configure one document at the origin root with `FrameworkBuilder::with_robots`; it can contain several user-agent groups and sitemap links.
+
+The Rust filenames below show one way to organize your app. Register generators explicitly on the builder; filenames do not automatically install routes.
+
+## Generating robots.txt using Rust
+
+Add crawler rules to your application builder:
+
+```rust filename="src/main.rs" {4}
+use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
+
+let app = FrameworkBuilder::new(manifest)
+    .with_robots(RobotsTxt::new().allow("/")?.disallow("/private/")?)
+    .try_build()?;
+```
+
+Output:
+
+```text filename="example.com/robots.txt"
+User-agent: *
+Allow: /
+Disallow: /private/
+```
+
+`with_robots` is opt-in and needs no public origin unless you also enable sitemap generation. For listener binding and `serve()`, see the [complete application example](/docs/framework/sitemaps#run-an-application).
+
+> **Good to know:** The builder renders robots.txt once at startup, then serves cached bytes. When a [sitemap or sitemap index](/docs/framework/sitemaps) is enabled on the same builder, it automatically adds its public `Sitemap` link. Existing links are preserved, without adding an identical automatic link twice.
+
+## Customizing specific user agents
+
+Use `group` for one bot or `group_agents` to share a rule group between several bots:
+
+```rust filename="src/main.rs" {4,7}
+use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
+
+let robots = RobotsTxt::new()
+    .group("Googlebot")?
+    .allow("/")?
+    .disallow("/private/")?
+    .group_agents(["Applebot", "Bingbot"])?
+    .disallow("/")?;
+
+let app = FrameworkBuilder::new(manifest)
+    .with_robots(robots)
+    .try_build()?;
+```
+
+Output:
+
+```text filename="example.com/robots.txt"
+User-agent: Googlebot
+Allow: /
+Disallow: /private/
+
+User-agent: Applebot
+User-agent: Bingbot
+Disallow: /
+```
+
+`group_agents` emits consecutive `User-agent` lines sharing the rules that follow. `group` starts an independent group. Named bots use their matching rules; the wildcard group is a fallback rather than an inherited set of rules.
+
+Use a product token such as `Googlebot`, not a full HTTP User-Agent header or versioned name. Proa follows [RFC 9309 §2.2.1](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.1): tokens are `*` or ASCII letters, underscores, and hyphens. Google tolerates some malformed names; Proa rejects them when constructing groups.
+
+Calling a rule or per-group option before starting a group creates a wildcard group. A group with no allow/disallow rules renders an empty `Disallow:` so it does not merge into the next group.
+
+## Nonstandard directives
+
+As in [Next.js robots metadata](https://nextjs.org/docs/app/api-reference/file-conventions/metadata/robots), configure optional crawler-specific directives alongside the standard rules:
+
+```rust filename="src/main.rs" {7-10}
+use std::time::Duration;
+use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
+
+let robots = RobotsTxt::new()
+    .group("SeznamBot")?
+    .allow("/")?
+    .crawl_delay(Duration::from_millis(1500))
+    .directive("Request-Rate", "10/1m")?
+    .host("https://example.com")?
+    .sitemap("https://example.com/news-sitemap.xml")?;
+
+let app = FrameworkBuilder::new(manifest)
+    .with_robots(robots)
+    .try_build()?;
+```
+
+Output:
+
+```text filename="example.com/robots.txt"
+User-agent: SeznamBot
+Allow: /
+Crawl-delay: 1.5
+Request-Rate: 10/1m
+
+Host: https://example.com
+Sitemap: https://example.com/news-sitemap.xml
+```
+
+`crawl_delay` uses a Rust `Duration` and renders exact decimal seconds. Repeating `directive` emits repeated fields, preserving their names and values. `host` accepts a hostname with optional port, or an HTTP(S) origin; it is explicit and is not inferred from request headers or set automatically by the public origin.
+
+Extension support depends on the crawler; for example, [Google ignores crawl-delay](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec). Custom directive names must start with an ASCII letter and contain only ASCII letters, digits, or `-`. Values can contain spaces, but not `#` or control characters. Reserved fields use the typed methods. Extension values render verbatim and do not receive the application's base path.
+
+## Async generation
+
+An application-owned `generate_robots` function can read configuration, a database, or a CMS. This example assumes your app defines `crate::db::Database`, whose `crawler_exclusions()` method returns application-local path strings:
+
+```rust filename="src/robots.rs" {5,8}
+use crate::db::Database;
+use proa_framework_axum::RobotsTxt;
+
+pub async fn generate_robots(db: &Database) -> anyhow::Result<RobotsTxt> {
+    let paths = db.crawler_exclusions().await?;
+    let mut robots = RobotsTxt::new().group("*")?;
+    for path in paths {
+        robots = robots.disallow(&path)?;
+    }
+    Ok(robots)
+}
+```
+
+Await the result when configuring the same builder as the [sitemap generator](/docs/framework/sitemaps#async-generation-from-application-data):
+
+```rust filename="src/main.rs" {12}
+mod robots;
+mod sitemap;
+
+use proa_framework_axum::FrameworkBuilder;
+
+// Inside async main, before binding the listener:
+let app = FrameworkBuilder::new(manifest)
+    .with_dynamic_routes_and_metadata(routes, metadata)
+    .with_base_path(base_path)
+    .with_public_origin(&origin)?
+    .with_sitemaps(sitemap::generate_sitemaps(&db).await?)
+    .with_robots(robots::generate_robots(&db).await?)
+    .try_build()?;
+```
+
+For a database containing the exclusion `/private/`, an empty base path, and public origin `https://example.com`:
+
+Output:
+
+```text filename="example.com/robots.txt"
+User-agent: *
+Disallow: /private/
+
+Sitemap: https://example.com/sitemap.xml
+```
+
+The generator runs once at startup, followed by text rendering. New configuration requires regenerating/restarting the app, or a custom handler with application-managed refresh. Multiple sitemap documents still use this one origin-root robots.txt.
+
+## Origin-root robots.txt
+
+Crawlers fetch `https://example.com/robots.txt`, even when the app lives at `/apps/demo/`. They do not discover robots rules from `/apps/demo/robots.txt`.
+
+Incoming Proa routes stay unprefixed. For a [prefix-stripping proxy](/docs/framework/deployment#serving-behind-a-url-path-prefix), forward origin-root `/robots.txt` to the builder's `/robots.txt` handler in addition to stripping `/apps/demo` for the app's other routes. Builder configuration cannot change the proxy's public routing.
+
+Root-relative robots rules supplied to `with_robots` are application-local paths: pass `/admin`, not `/apps/demo/admin`. The builder's base path replaces any base path already set on the document, so rules are never prefixed twice. Application-wide rules such as `/` or `/*` also cover the bare mount URL and its query variants, so `disallow("/")` blocks `/apps/demo`, `/apps/demo?query`, and everything under `/apps/demo/`. The exact-root rule `/$` covers only the bare mount and slash root, without query variants. Literal `*` and `$` characters in the mount prefix are percent-escaped so they cannot become robots pattern operators. Empty rules and wildcard-leading patterns such as `*.pdf$` remain unchanged; those patterns match public paths directly. To scope a wildcard to the mount, use a root-relative rule such as `/*.pdf$`.
+
+Wildcard-leading rules follow the example in [RFC 9309 §5.1](https://www.rfc-editor.org/rfc/rfc9309.html#section-5.1), despite the slash-leading grammar in §2.2. Prefer `/*.pdf$` for Google's [documented path syntax](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#syntax). Whitespace, `#` and control characters are rejected in rule fields.
+
+Show the mount behavior with a concrete configuration:
+
+```rust filename="src/main.rs" {5,7}
+use proa_framework_axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
+
+let app = FrameworkBuilder::new(manifest)
+    .with_public_origin("https://example.com")?
+    .with_base_path(BasePath::new("/apps/demo")?)
+    .with_sitemap([SitemapUrl::new("/pricing")?])
+    .with_robots(RobotsTxt::new().allow("/")?.disallow("/admin")?)
+    .try_build()?;
+```
+
+Output:
+
+```text filename="example.com/robots.txt"
+User-agent: *
+Allow: /apps/demo$
+Allow: /apps/demo?
+Allow: /apps/demo/
+Disallow: /apps/demo/admin
+
+Sitemap: https://example.com/apps/demo/sitemap.xml
+```
+
+The sitemap link includes `/apps/demo`; robots.txt itself must still be publicly available at `https://example.com/robots.txt`.
+
+Explicit `sitemap` links may point to another origin. They reject fragments, malformed percent escapes, controls, and raw characters excluded from URL syntax. Use `%23` for a literal hash in a URL: an unescaped `#` starts a robots comment ([RFC 9309 §2.2.3](https://www.rfc-editor.org/rfc/rfc9309.html#section-2.2.3)).
+
+## Document size
+
+The builder and `robots_txt` response helper reject documents above [Google's 500 KiB processing limit](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec#file-format), including mount expansion and automatically added sitemap links. `try_build()` returns `DiscoveryError::RobotsTooLarge`; a custom `robots_txt` handler returns a logged, generic 500. Rules are never silently truncated.
+
+This is a Google compatibility limit, not an RFC maximum. Use `RobotsTxt::try_render_txt()` for the same check in another adapter. The low-level `render_txt()` serializer remains uncapped for applications targeting other crawlers.
+
+## API reference
+
+| API | Purpose |
+|---|---|
+| `group` / `group_agents` | Start rules for one bot or several bots. |
+| `allow` / `disallow` | Add a path rule to the current group. |
+| `crawl_delay` | Set an optional per-group `Duration`. |
+| `directive` | Add a validated custom field to the current group. |
+| `host` | Set an optional explicit document-level host. |
+| `sitemap` / `sitemap_path` | Add an absolute sitemap link, or compose one from origin, base path, and application path. |
+| `try_render_txt` | Render text with the Google-compatible 500 KiB size check. |
+
+## Custom and dynamic handlers
+
+Use standalone `RobotsTxt` and `robots_txt` for request-time generation or application-managed refresh. Pass the application's base path to `RobotsTxt::with_base_path` before rendering. `robots_txt(&robots)` returns a UTF-8 `text/plain` response.
+
+Configure sitemap links explicitly in custom handlers. Do not register a custom `/robots.txt` handler when using the builder's `with_robots` method.
+
+## Next steps
+
+- [Sitemaps](/docs/framework/sitemaps)
+  - Generate single or multiple sitemap documents and their index.
+- [Configuration](/docs/framework/configuration)
+  - Configure FrameworkBuilder and its router integrations.
+- [Deployment](/docs/framework/deployment)
+  - Set the public prefix and forward origin-root `/robots.txt`.

@@ -4,6 +4,32 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- `xml!` and `xml_sync!` accept a leading `<?xml version="1.0" encoding="UTF-8"?>`
+  declaration and consolidate it with adjacent static markup. Declaration
+  fields are checked at compile time; formatting preserves their values.
+  Sitemap writers use this syntax directly, without a raw declaration string.
+  `proa chunks` also inspects XML templates and includes declarations in static runs.
+
+- `Sitemap`, `SitemapIndex`, and `RobotsTxt` build sitemap.xml, sitemap
+  indexes, and robots.txt from a public origin, the runtime base path, and
+  application paths; `sitemap_xml`, `sitemap_index_xml`, and `robots_txt`
+  return Axum responses. `FrameworkBuilder::with_public_origin`,
+  `with_sitemap`, `with_sitemaps`, and `with_robots` validate and render the
+  documents once at startup with the builder's final base path, and
+  `try_build` reports invalid configuration as a `DiscoveryError`.
+  `with_sitemaps` serves named `SitemapFile` documents at `/sitemap-{id}.xml`
+  with an index at `/sitemap.xml`, and robots.txt advertises the generated
+  sitemap or index automatically. Documents enforce the 50,000-entry and
+  50 MiB sitemap limits and Google's 500 KiB robots.txt limit. Entries are
+  validated as URLs: fragments, excluded URI characters, controls, malformed
+  percent escapes, port 0, cross-origin hosts, and locations outside the final
+  mount directory are rejected, while origin comparison honors IDNA and
+  default ports. `lastmod` accepts `YYYY-MM-DD` strings and `lastmod_date`
+  accepts `jiff::civil::Date` values. Robots documents support shared
+  user-agent groups, `Duration` crawl delays, an explicit host, custom
+  directives, and mount-prefixed rules that also cover the bare mount URL and
+  its query variants.
+
 - Prepare the initial crates.io release of the reusable Proa stack and CLI.
   Generated projects use crates.io versions and require no GitHub credentials.
   The JSON and Tailwind helpers publish under Proa-prefixed package names while

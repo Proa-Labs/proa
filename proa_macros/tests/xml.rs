@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use proa_core::{
-    render_to_string, ContentMode, NoLoader, WebContext, WebRender, WebRenderSync, WriteError,
+    render_to_string, render_to_string_async, ContentMode, WebContext, WebRenderSync, WriteError,
 };
 use proa_macros::{xml, xml_sync};
 
 #[test]
 fn xml_sync_static_uses_xml_escaping() {
     let output = render_to_string(xml_sync! {
+        <?xml version="1.0" encoding="UTF-8"?>
         <Feed enabled>
             <Item name="a\u{00A0}b & <c>">"x\u{00A0}<&>"</Item>
             <br />
@@ -17,7 +18,7 @@ fn xml_sync_static_uses_xml_escaping() {
 
     assert_eq!(
         output,
-        "<Feed enabled=\"\"><Item name=\"a\u{00A0}b &amp; &lt;c&gt;\">x\u{00A0}&lt;&amp;&gt;</Item><br/></Feed>"
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Feed enabled=\"\"><Item name=\"a\u{00A0}b &amp; &lt;c&gt;\">x\u{00A0}&lt;&amp;&gt;</Item><br/></Feed>"
     );
 }
 
@@ -27,12 +28,13 @@ fn xml_sync_dynamic_text_and_attrs_use_xml_policy() {
     let attr = "x\u{00A0}\"&";
 
     let output = render_to_string(xml_sync! {
+        <?xml version="1.0" standalone="no"?>
         <Feed value={attr}>{label}</Feed>
     });
 
     assert_eq!(
         output,
-        "<Feed value=\"x\u{00A0}&quot;&amp;\">A\u{00A0}&amp;&lt;</Feed>"
+        "<?xml version=\"1.0\" standalone=\"no\"?><Feed value=\"x\u{00A0}&quot;&amp;\">A\u{00A0}&amp;&lt;</Feed>"
     );
 }
 
@@ -108,13 +110,16 @@ fn xml_sync_dynamic_null_rejects() {
     assert_eq!(err, WriteError::InvalidCharForDialect);
 }
 
-fn assert_async_renderable<R: WebRender<NoLoader>>(_renderable: R) {}
-
-#[test]
-fn xml_async_macro_is_renderable() {
-    let label = "dynamic";
-
-    assert_async_renderable(xml! {
-        <Feed>"Static "{label}</Feed>
-    });
+#[tokio::test]
+async fn xml_async_declaration_and_dynamic_text_render() {
+    let label = "A\u{00A0}&<";
+    let output = render_to_string_async(xml! {
+        <?xml version="1.0" encoding="utf-8" standalone="yes"?>
+        <Feed>{label}</Feed>
+    })
+    .await;
+    assert_eq!(
+        output,
+        "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?><Feed>A\u{00A0}&amp;&lt;</Feed>"
+    );
 }

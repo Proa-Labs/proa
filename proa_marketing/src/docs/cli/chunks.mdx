@@ -3,7 +3,9 @@ title: proa chunks
 description: Inspect static runs and dynamic slots.
 ---
 
-`proa chunks` estimates how `html!` and `html_sync!` macro bodies split into consolidated static byte runs and dynamic slots. Use it when tuning hot SSR routes or reviewing a template that changed unexpectedly.
+`proa chunks` estimates how `html!`, `html_sync!`, `xml!`, and `xml_sync!` macro bodies split into consolidated static byte runs and dynamic slots. Use it when tuning hot SSR routes or reviewing a template that changed unexpectedly.
+
+A leading `<?xml version="1.0" encoding="UTF-8"?>` declaration joins the adjacent static markup; it does not add a dynamic slot.
 
 ```bash
 proa chunks src/pages/home.rs

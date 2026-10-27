@@ -1,0 +1,71 @@
+error: an XML declaration must start with `version="1.0"`
+ --> tests/ui/fail/xml_declaration.rs:7:31
+  |
+7 |     let _ = xml_sync! { <?xml encoding="UTF-8"?> <Feed/> };
+  |                               ^^^^^^^^
+
+error: Proa's XML renderer supports version "1.0"
+ --> tests/ui/fail/xml_declaration.rs:8:39
+  |
+8 |     let _ = xml_sync! { <?xml version="1.1"?> <Feed/> };
+  |                                       ^^^^^
+
+error: Proa emits UTF-8 bytes; an XML declaration must use encoding="UTF-8"
+ --> tests/ui/fail/xml_declaration.rs:9:49
+  |
+9 |     let _ = xml! { <?xml version="1.0" encoding="UTF-16"?> <Feed/> };
+  |                                                 ^^^^^^^^
+
+error: XML declaration fields must occur once in order: version, optional encoding, optional standalone
+  --> tests/ui/fail/xml_declaration.rs:10:62
+   |
+10 |     let _ = xml_sync! { <?xml version="1.0" standalone="yes" encoding="UTF-8"?> <Feed/> };
+   |                                                              ^^^^^^^^
+
+error: XML declaration fields must occur once in order: version, optional encoding, optional standalone
+  --> tests/ui/fail/xml_declaration.rs:11:45
+   |
+11 |     let _ = xml_sync! { <?xml version="1.0" version="1.0"?> <Feed/> };
+   |                                             ^^^^^^^
+
+error: XML standalone must be "yes" or "no"
+  --> tests/ui/fail/xml_declaration.rs:12:56
+   |
+12 |     let _ = xml_sync! { <?xml version="1.0" standalone="true"?> <Feed/> };
+   |                                                        ^^^^^^
+
+error: expected string literal
+  --> tests/ui/fail/xml_declaration.rs:14:54
+   |
+14 |     let _ = xml_sync! { <?xml version="1.0" encoding={encoding}?> <Feed/> };
+   |                                                      ^
+
+error: an XML declaration must be the first top-level node of an XML template
+  --> tests/ui/fail/xml_declaration.rs:15:31
+   |
+15 |     let _ = xml_sync! { <Feed><?xml version="1.0"?></Feed> };
+   |                               ^
+
+error: an XML declaration must be the first top-level node of an XML template
+  --> tests/ui/fail/xml_declaration.rs:16:47
+   |
+16 |     let _ = xml_sync! { <?xml version="1.0"?> <?xml version="1.0"?> <Feed/> };
+   |                                               ^
+
+error: an XML declaration must be the first top-level node of an XML template
+  --> tests/ui/fail/xml_declaration.rs:17:30
+   |
+17 |     let _ = xml_sync! { "\n" <?xml version="1.0"?> <Feed/> };
+   |                              ^
+
+error: XML declarations are only supported by xml! and xml_sync!
+  --> tests/ui/fail/xml_declaration.rs:18:26
+   |
+18 |     let _ = html_sync! { <?xml version="1.0"?> <div/> };
+   |                          ^
+
+error: only `<?xml ...?>` declarations are supported; other processing instructions are not
+  --> tests/ui/fail/xml_declaration.rs:19:27
+   |
+19 |     let _ = xml_sync! { <?stylesheet href="style.xsl"?> <Feed/> };
+   |                           ^^^^^^^^^^

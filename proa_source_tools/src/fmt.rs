@@ -387,6 +387,13 @@ fn node_equal(a: &Node, b: &Node, allow_legacy_names: bool) -> std::result::Resu
                 Err("doctype changed".to_string())
             }
         }
+        (Node::XmlDeclaration(da), Node::XmlDeclaration(db)) => {
+            if da.to_string() == db.to_string() {
+                Ok(())
+            } else {
+                Err("XML declaration changed".to_string())
+            }
+        }
         _ => Err("node kind changed".to_string()),
     }
 }
@@ -766,7 +773,7 @@ fn node_has_noncanonical_expression_layout(
             format_block_expr(&mut canonical, source, expr, indent, preserve_legacy_names);
             canonical != authored
         }
-        Node::Text(_) | Node::Doctype(_) => false,
+        Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => false,
     }
 }
 
@@ -800,6 +807,10 @@ fn format_node(
             } else {
                 out.push_str(content);
             }
+        }
+        Node::XmlDeclaration(declaration) => {
+            push_spaces(out, indent);
+            write!(out, "{declaration}").expect("writing XML declaration to String cannot fail");
         }
     }
 }
@@ -971,7 +982,9 @@ fn inline_children(
                 out.push_str(expr.trim());
                 out.push('}');
             }
-            Node::Element(_) | Node::Fragment(_) | Node::Doctype(_) => return None,
+            Node::Element(_) | Node::Fragment(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {
+                return None
+            }
         }
     }
     Some(out)
@@ -1227,7 +1240,7 @@ fn node_requires_source_fallback(source: &SourceMap<'_>, node: &Node) -> bool {
             .iter()
             .any(|child| node_requires_source_fallback(source, child)),
         Node::Block(expr) => expr_requires_source_fallback(source, expr),
-        Node::Text(_) | Node::Doctype(_) => false,
+        Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => false,
     }
 }
 
