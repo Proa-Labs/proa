@@ -491,6 +491,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                                         "Ecosystem"
                                     </a>
                                 </li>
+                                <li><a href="/about" class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50">"About"</a></li>
+                                <li><a href="/contact" class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50">"Contact"</a></li>
                             </ul>
                         </div>
                         <div>
@@ -512,6 +514,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                                         "Sitemap"
                                     </a>
                                 </li>
+                                <li><a href="/docs/api" class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50">"API and MCP"</a></li>
+                                <li><a href="/llms.txt" class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50">"For agents"</a></li>
+                                <li><a href="/privacy" class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50">"Privacy"</a></li>
                             </ul>
                         </div>
                     </nav>

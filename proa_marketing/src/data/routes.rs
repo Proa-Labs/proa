@@ -12,4 +12,6 @@ pub const STATIC_ROUTES: &[&str] = &[
     "/ecosystem/registry",
     "/privacy",
     "/terms",
+    "/about",
+    "/contact",
 ];

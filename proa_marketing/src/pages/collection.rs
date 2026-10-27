@@ -28,7 +28,10 @@ pub(crate) fn response_for_collection_path(
     }
 
     let Some(page) = docs.page_for_path(path) else {
-        return (StatusCode::NOT_FOUND, "Not found").into_response();
+        if accepts_markdown(request_headers) || path.ends_with(".md") {
+            return crate::endpoints::not_found::markdown();
+        }
+        return crate::endpoints::not_found::html();
     };
 
     if accepts_markdown(request_headers) {

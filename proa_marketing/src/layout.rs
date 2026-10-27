@@ -137,6 +137,10 @@ pub(crate) const DOCS_SCRIPT_SRC: &str =
 /// is deferred and its `?v=` carries through to the modules it imports.
 pub(crate) const SEARCH_SCRIPT_SRC: &str =
     concat!("/static/search.mjs?v=", env!("MARKETING_ASSET_VERSION"));
+const AGENT_TOOLS_SCRIPT_SRC: &str = concat!(
+    "/static/agent-tools.mjs?v=",
+    env!("MARKETING_ASSET_VERSION")
+);
 
 /// Emit the rsjs runtime and island module tags for every hydrated island
 /// this response has rendered so far.
@@ -186,6 +190,20 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
                 <title>{raw_text_ok(text(self.meta.title))}</title>
                 <meta name="description" content={self.meta.description} />
                 <meta name="proa-route" content={self.meta.path} />
+                <link rel="describedby" type="text/plain" href="/llms.txt" />
+                <link
+                    rel="service-desc"
+                    type="application/vnd.oai.openapi+json"
+                    href="/openapi.json"
+                />
+                <link rel="ard" type="application/ai-catalog+json" href="/.well-known/ard.json" />
+                {if self.meta.path == "/" {
+                    html_sync! {
+                        <link rel="alternate" type="text/markdown" href="/index.md" />
+                        <script type="application/ld+json">{StaticRaw(crate::endpoints::agent_discovery::structured_data())}</script>
+                    }
+                }}
+                <script type="module" src={AGENT_TOOLS_SCRIPT_SRC}></script>
                 <link
                     rel="canonical"
                     href={display_attr(format_args!("{origin}{}", self.meta.path))}

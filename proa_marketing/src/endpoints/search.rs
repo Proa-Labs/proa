@@ -35,6 +35,7 @@ struct SearchResult {
 #[derive(Debug)]
 struct SearchRecord {
     result: SearchResult,
+    page: &'static proa_docs::DocPage,
     haystack: String,
 }
 
@@ -91,6 +92,15 @@ fn search_index() -> &'static [SearchRecord] {
     })
 }
 
+pub(super) fn matching_pages(
+    needle: &str,
+) -> impl Iterator<Item = &'static proa_docs::DocPage> + '_ {
+    search_index()
+        .iter()
+        .filter(move |record| record.haystack.contains(needle))
+        .map(|record| record.page)
+}
+
 fn collect_documents(
     records: &mut Vec<SearchRecord>,
     collection: &'static str,
@@ -113,6 +123,7 @@ fn collect_documents(
         push_lowercase_segment(&mut haystack, page.markdown);
 
         records.push(SearchRecord {
+            page,
             result: SearchResult {
                 title: page.title,
                 url: page.route_path,
