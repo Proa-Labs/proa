@@ -1,8 +1,16 @@
 ---
+name: add-component
 description: Scaffold or modify an opaque Proa Rust render component owned by the current crate or application. Use for component structs, generic children, variants, ClassList styling, and render tests. Use the island skill when RSJS composition analysis or browser behavior is required.
 ---
 
 # Add a Proa render component
+
+For authored HTML, Markdown, XML, plain-text, or JSON documents, read
+[`docs/agent/document-rendering.md`](../../../docs/agent/document-rendering.md).
+Use the matching macro or typed serializer in handlers and cached documents as
+well as components. Give relevant page types an `MdRenderSync` implementation;
+do not substitute parallel Markdown files, string replacement, or hand-built
+markup. Keep runtime JSON typed; use `const_json!` for literal JSON.
 
 Read [`docs/agent/components.md`](../../../docs/agent/components.md) before
 editing. This skill targets components owned by this standalone repository or

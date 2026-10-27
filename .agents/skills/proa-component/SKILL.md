@@ -5,6 +5,13 @@ description: Author or modify optimized Proa Rust render components in this work
 
 # Proa Component
 
+For authored HTML, Markdown, XML, plain-text, or JSON documents, read
+[`docs/agent/document-rendering.md`](../../../docs/agent/document-rendering.md).
+Use the matching macro or typed serializer in handlers and cached documents as
+well as components. Give relevant page types an `MdRenderSync` implementation;
+do not substitute parallel Markdown files, string replacement, or hand-built
+markup. Keep runtime JSON typed; use `const_json!` for literal JSON.
+
 Use this workflow for components owned by the current Proa crate or
 application. Do not assume a component-library repository, catalog, theme
 module, or sibling checkout.

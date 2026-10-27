@@ -12,6 +12,7 @@ component-library and catalog changes belong in its owning repository.
 | Task | Doc |
 |---|---|
 | Add a local render component | [`docs/agent/components.md`](docs/agent/components.md) |
+| Render HTML, Markdown, XML, text, or JSON | [`docs/agent/document-rendering.md`](docs/agent/document-rendering.md) |
 | Add an analyzed `#[rsjs(component...)]` component | [`docs/agent/rsjs-islands.md`](docs/agent/rsjs-islands.md) |
 | Recipe for a specific common task | [`docs/agent/cookbook.md`](docs/agent/cookbook.md) |
 | Diagnose a `#[rsjs(...)]` / `html_sync!` compile error | [`docs/agent/footguns.md`](docs/agent/footguns.md) |
@@ -81,6 +82,16 @@ complete page, loader, and layout in context.
 | `proa_bench` | Proa-only render and streaming regression benchmarks |
 
 ## Core patterns
+
+### Document authoring
+
+Use the matching macros for substantial authored output: `html_sync!`/`html!`,
+`md_sync!`/`md!`, `xml_sync!`/`xml!`, and `const_json!` for literal JSON. Use typed
+`Serialize` models for runtime JSON. This applies to handlers, error pages, and
+cached/startup documents too. HTML and Markdown representations belong on the
+same page/component types, with shared data and typed children. See
+[`docs/agent/document-rendering.md`](docs/agent/document-rendering.md) for format
+selection, escaping, source-data boundaries, and verification.
 
 ### Render traits
 

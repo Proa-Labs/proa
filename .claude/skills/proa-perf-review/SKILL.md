@@ -1,8 +1,16 @@
 ---
+name: proa-perf-review
 description: Review Proa Rust changes for render-path allocation regressions and zero-allocation SSR violations. Use after editing Proa components, rsjs islands, html_sync/html templates, recipes, catalog pages, or when the user asks about performance, allocations, ClassList, tw_join, or optimized Proa code.
 ---
 
 # Proa perf review
+
+For authored HTML, Markdown, XML, plain-text, or JSON documents, read
+[`docs/agent/document-rendering.md`](../../../docs/agent/document-rendering.md).
+Use the matching macro or typed serializer in handlers and cached documents as
+well as components. Give relevant page types an `MdRenderSync` implementation;
+do not substitute parallel Markdown files, string replacement, or hand-built
+markup. Keep runtime JSON typed; use `const_json!` for literal JSON.
 
 Run the deterministic lint before finalizing Proa Rust changes:
 

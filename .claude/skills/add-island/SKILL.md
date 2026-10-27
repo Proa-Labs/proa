@@ -1,8 +1,16 @@
 ---
+name: add-island
 description: Scaffold a new rsjs island (interactive client-hydrated component) following docs/agent/rsjs-islands.md. Use when the user asks to add interactivity, hydration, signals, bind_value forms, or an RSJS-analyzed render impl.
 ---
 
 # Add an rsjs island
+
+For authored HTML, Markdown, XML, plain-text, or JSON documents, read
+[`docs/agent/document-rendering.md`](../../../docs/agent/document-rendering.md).
+Use the matching macro or typed serializer in handlers and cached documents as
+well as components. Give relevant page types an `MdRenderSync` implementation;
+do not substitute parallel Markdown files, string replacement, or hand-built
+markup. Keep runtime JSON typed; use `const_json!` for literal JSON.
 
 When the user wants interactivity — a click handler, a signal-driven
 update, a bind_value form input, anything that needs JS in the browser —

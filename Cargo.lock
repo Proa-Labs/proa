@@ -3237,6 +3237,7 @@ name = "proa_const_json"
 version = "0.1.2"
 dependencies = [
  "proa_const_json_macros",
+ "serde_json",
 ]
 
 [[package]]
@@ -3245,6 +3246,7 @@ version = "0.1.2"
 dependencies = [
  "proc-macro2",
  "quote",
+ "serde_json",
  "syn 2.0.119",
 ]
 
@@ -3494,6 +3496,7 @@ dependencies = [
  "anyhow",
  "axum",
  "futures",
+ "proa_const_json",
  "proa_core",
  "proa_demo",
  "proa_docs",

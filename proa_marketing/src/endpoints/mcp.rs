@@ -9,11 +9,14 @@ use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
 };
 use rmcp::{model::*, service::RequestContext, ErrorData as McpError, RoleServer, ServerHandler};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::api;
 use crate::utils::site_url::public_site_url;
 
+/// Reverse-DNS namespace for proa.so, followed by the server identifier.
+/// This is an MCP identity, not a hostname or endpoint URL.
+/// See https://github.com/modelcontextprotocol/ext-server-card/blob/main/docs/discovery.md
 pub const SERVER_NAME: &str = "so.proa/docs";
 pub const SERVER_VERSION: &str = "1.0.0";
 pub const SERVER_TITLE: &str = "Proa documentation";
@@ -28,17 +31,11 @@ fn tools() -> &'static [Tool] {
         let annotations = ToolAnnotations::new().read_only(true).destructive(false).idempotent(true).open_world(false);
         vec![
             Tool::new("search_docs", "Search official Proa Rust framework documentation by a case-insensitive phrase. Use this to find current APIs, render patterns, RSJS guidance, and deployment instructions. Returns titles, routes, Markdown URLs, and a pagination cursor; call get_doc with a returned path for the complete page.",
-                json!({"type":"object","properties":{
-                    "q":{"type":"string","minLength":1,"maxLength":256,"description":"Phrase to find in document titles, descriptions, or Markdown."},
-                    "limit":{"type":"integer","minimum":1,"maximum":50,"description":"Maximum results per page; defaults to 10."},
-                    "cursor":{"type":"string","description":"next_cursor from a preceding search with the same q."}
-                },"required":["q"],"additionalProperties":false}).as_object().unwrap().clone())
+                serde_json::from_str::<JsonObject>(crate::agent::schemas::SEARCH_INPUT).expect("compiler-validated search schema"))
                 .with_raw_output_schema(output_schema("DocumentList"))
                 .with_annotations(annotations.clone()),
             Tool::new("get_doc", "Read a complete official Proa documentation page as Markdown with its title, description, and canonical route. Supply a path returned by search_docs or resources/list. Only published documentation is accessible; arbitrary URLs and filesystem paths are not fetched.",
-                json!({"type":"object","properties":{
-                    "path":{"type":"string","description":"Published route or Markdown path, for example /docs/core/html-rendering."}
-                },"required":["path"],"additionalProperties":false}).as_object().unwrap().clone())
+                serde_json::from_str::<JsonObject>(crate::agent::schemas::GET_INPUT).expect("compiler-validated document schema"))
                 .with_raw_output_schema(output_schema("Document"))
                 .with_annotations(annotations),
         ]
@@ -48,11 +45,11 @@ fn tools() -> &'static [Tool] {
 /// Reuse the public output contract, resolving refs within the tool's schema.
 fn output_schema(name: &str) -> Arc<JsonObject> {
     let spec: Value = serde_json::from_str(
-        &include_str!("../agent/openapi.json").replace("#/components/schemas/", "#/$defs/"),
+        &crate::agent::openapi::DOCUMENT.replace("#/components/schemas/", "#/$defs/"),
     )
     .unwrap();
     let mut schema = spec["components"]["schemas"][name].clone();
-    schema["type"] = json!("object");
+    schema["type"] = Value::from("object");
     schema["$defs"] = spec["components"]["schemas"].clone();
     Arc::new(schema.as_object().unwrap().clone())
 }

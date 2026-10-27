@@ -5,6 +5,13 @@ description: "Author or modify optimized Proa #[rsjs(component...)] islands. Use
 
 # Proa Island
 
+For authored HTML, Markdown, XML, plain-text, or JSON documents, read
+[`docs/agent/document-rendering.md`](../../../docs/agent/document-rendering.md).
+Use the matching macro or typed serializer in handlers and cached documents as
+well as components. Give relevant page types an `MdRenderSync` implementation;
+do not substitute parallel Markdown files, string replacement, or hand-built
+markup. Keep runtime JSON typed; use `const_json!` for literal JSON.
+
 ## Overview
 
 Use this workflow for Proa interactive islands. Keep the server render path sync

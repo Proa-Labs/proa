@@ -19,6 +19,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
+mod agent;
 mod analytics;
 mod components;
 mod data;
@@ -116,7 +117,9 @@ fn app() -> Router {
         .route("/privacy", get(pages::legal::privacy_handler))
         .route("/terms", get(pages::legal::terms_handler))
         .route("/about", get(pages::info::about))
+        .route("/about.md", get(pages::info::about_markdown))
         .route("/contact", get(pages::info::contact))
+        .route("/contact.md", get(pages::info::contact_markdown))
         .route(
             "/demos/quantity-stepper",
             get(pages::demos::quantity_stepper_handler),

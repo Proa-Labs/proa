@@ -17,7 +17,6 @@ use axum::{
 };
 use proa_docs::DocPage;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use crate::{pages::docs, utils::site_url::public_site_url};
 
@@ -102,11 +101,31 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let mut response = (self.status, Json(json!({
-            "type":"about:blank", "title":self.status.canonical_reason().unwrap_or("Request failed"),
-            "status":self.status.as_u16(), "code":self.code, "detail":self.detail,
-            "documentation":format!("{}/docs/api", public_site_url())
-        }))).into_response();
+        #[derive(Serialize)]
+        struct Problem<'a> {
+            #[serde(rename = "type")]
+            kind: &'static str,
+            title: &'static str,
+            status: u16,
+            code: &'static str,
+            detail: &'static str,
+            documentation: crate::utils::document::SiteUrl<'a>,
+        }
+        let mut response = (
+            self.status,
+            Json(Problem {
+                kind: "about:blank",
+                title: self.status.canonical_reason().unwrap_or("Request failed"),
+                status: self.status.as_u16(),
+                code: self.code,
+                detail: self.detail,
+                documentation: crate::utils::document::SiteUrl {
+                    origin: public_site_url(),
+                    path: "/docs/api",
+                },
+            }),
+        )
+            .into_response();
         response.headers_mut().insert(
             header::CONTENT_TYPE,
             HeaderValue::from_static("application/problem+json"),

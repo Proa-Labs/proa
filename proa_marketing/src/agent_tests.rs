@@ -77,6 +77,36 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
 }
 
 #[tokio::test]
+async fn info_pages_share_html_and_markdown_routes() {
+    let app = super::app();
+    for (path, markdown_path) in [("/about", "/about.md"), ("/contact", "/contact.md")] {
+        let (status, headers, html) = fetch(&app, path, "text/html").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(headers[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/html"));
+        assert_eq!(headers[header::VARY], "Accept");
+        assert!(html.contains("data-info-page"));
+
+        let (status, headers, markdown) = fetch(&app, path, "text/markdown").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers[header::CONTENT_TYPE],
+            "text/markdown; charset=utf-8"
+        );
+        assert_eq!(headers[header::VARY], "Accept");
+        assert!(markdown.starts_with("# "));
+        assert!(!markdown.contains("<html"));
+        assert_eq!(markdown, fetch(&app, markdown_path, "*/*").await.2);
+        assert_eq!(
+            html,
+            fetch(&app, path, "text/markdown;q=0, text/html").await.2
+        );
+    }
+}
+
+#[tokio::test]
 async fn discovery_links_resolve_and_do_not_advertise_hidden_docs() {
     let app = super::app();
     let origin = super::utils::site_url::public_site_url();

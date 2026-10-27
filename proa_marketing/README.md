@@ -4,6 +4,12 @@ Rust SSR marketing site for Proa.
 
 ## Agent interfaces
 
+Authored document output uses typed Proa components and format-specific macros.
+The homepage and About/Contact pages implement both HTML and Markdown; the
+agent/auth/index documents use `MdRenderSync`. OpenAPI and MCP input schemas
+use `const_json!` literals, while runtime discovery URLs use typed serializers.
+Sitemaps use `xml_sync!`, and 404 pages use `html_sync!` / `md_sync!`.
+
 The homepage supports `Accept: text/markdown`, `/index.md`, and `?mode=agent`.
 `/llms.txt` links to the focused `/docs/llms.txt` index and the existing full
 corpus. Agent catalogs live at `/.well-known/ard.json` and

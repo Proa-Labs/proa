@@ -10,6 +10,25 @@
 //!
 //! It also provides compile-time JSON parsing via `const fn`.
 
+/// Serialize literal JSON at compile time, returning a compact `&'static str`.
+///
+/// Supports objects, arrays, strings, JSON numbers, booleans, and null. Object
+/// keys must be string literals. Runtime expressions and duplicate keys are
+/// rejected; use `ConstJson` or a runtime serializer for typed values instead.
+/// Rust raw strings, comments, and trailing commas are accepted in the input.
+/// Integers must fit `i64`/`u64`; floating-point literals must fit finite `f64`.
+///
+/// ```
+/// use const_json::const_json;
+/// const SCHEMA: &str = const_json!({"type": "object", "required": ["name"]});
+/// assert_eq!(SCHEMA, r#"{"required":["name"],"type":"object"}"#);
+/// ```
+///
+/// ```compile_fail
+/// let name = "runtime";
+/// let json = const_json::const_json!({"name": name});
+/// ```
+pub use const_json_macros::const_json;
 pub use const_json_macros::ConstJson;
 
 mod buffer;

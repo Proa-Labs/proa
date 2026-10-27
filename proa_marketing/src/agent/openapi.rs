@@ -1,3 +1,7 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+pub const DOCUMENT: &str = const_json::const_json! {
 {
   "openapi": "3.1.0",
   "info": {
@@ -921,3 +925,4 @@
     }
   }
 }
+};

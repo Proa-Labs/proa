@@ -10,11 +10,20 @@ use axum::{
     routing::get,
     Router,
 };
-use serde_json::json;
-use sha2::{Digest, Sha256};
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::{pages::docs, utils::site_url::public_site_url};
+use crate::{
+    agent::discovery,
+    pages::{
+        agent::{AgentIndex, Authentication, DocumentationIndex},
+        docs,
+        home::HomePage,
+    },
+    utils::{
+        document::{render_markdown, SiteUrl},
+        site_url::public_site_url,
+    },
+};
 
 /// Public metadata can be read by browser discovery clients. The MCP transport
 /// is registered separately and keeps its strict Host and Origin validation.
@@ -86,96 +95,50 @@ struct Documents {
 
 static DOCUMENTS: OnceLock<Documents> = OnceLock::new();
 
-fn skill_digest(body: &str) -> String {
-    use std::fmt::Write;
-    let mut digest = String::with_capacity(71);
-    digest.push_str("sha256:");
-    for byte in Sha256::digest(body.as_bytes()) {
-        write!(digest, "{byte:02x}").expect("write to a String");
-    }
-    digest
-}
-
 fn openapi_document(origin: &str) -> serde_json::Value {
+    #[derive(serde::Serialize)]
+    struct Server<'a> {
+        url: &'a str,
+    }
+
+    // The literal is checked and encoded by const_json! during compilation.
+    // Only deployment-specific fields are supplied at startup.
     let mut document: serde_json::Value =
-        serde_json::from_str(include_str!("../agent/openapi.json")).expect("valid OpenAPI");
-    document["servers"] = json!([{"url":origin}]);
-    document["externalDocs"]["url"] = json!(format!("{origin}/docs/api"));
-    document["info"]["contact"]["url"] = json!(format!("{origin}/contact"));
+        serde_json::from_str(crate::agent::openapi::DOCUMENT).expect("compiler-validated OpenAPI");
+    document["servers"] = serde_json::to_value([Server { url: origin }]).unwrap();
+    document["externalDocs"]["url"] = serde_json::to_value(SiteUrl {
+        origin,
+        path: "/docs/api",
+    })
+    .unwrap();
+    document["info"]["contact"]["url"] = serde_json::to_value(SiteUrl {
+        origin,
+        path: "/contact",
+    })
+    .unwrap();
     document
 }
 
-// proa-perf-ok(scope): immutable discovery documents serialize once per process, outside rendering
+// The response/cache boundary owns the finished documents. Renderers compose
+// typed children; serialization and rendering happen once per deployment.
 fn documents() -> &'static Documents {
     DOCUMENTS.get_or_init(|| {
         let origin = public_site_url();
-        let url = |path: &str| format!("{origin}{path}");
-        let expand = |source: &str| source.replace("{{ORIGIN}}", origin);
-        let mut docs_index = String::from("# Proa documentation\n\n> Public documentation for the Proa Rust web framework. Fetch the linked Markdown for focused context.\n\n## Pages\n\n");
-        for page in docs::docs().pages.iter().filter(|page| !page.frontmatter.hidden) {
-            use std::fmt::Write;
-            writeln!(docs_index, "- [{}]({}): {}", page.title, url(page.markdown_path), page.description.unwrap_or("Proa documentation")).unwrap();
-        }
-        let entries = vec![
-            json!({"identifier":"urn:air:proa.so:mcp:docs", "displayName":"Proa documentation MCP", "type":"application/mcp-server-card+json", "url":url("/mcp/server-card")}),
-            json!({"identifier":"urn:air:proa.so:api:docs", "displayName":"Proa documentation API", "type":"application/vnd.oai.openapi+json", "url":url("/openapi.json")}),
-            json!({"identifier":"urn:air:proa.so:skills:authoring", "displayName":"Proa authoring skills", "type":"application/json", "url":url("/.well-known/agent-skills/index.json")}),
-        ];
-        let catalog = json!({"specVersion":"1.0", "host":{"displayName":"Proa Labs, Inc."}, "entries":entries}).to_string();
-        let api_catalog = json!({"linkset":[{
-            "anchor":url("/.well-known/api-catalog"),
-            "item":[{"href":url("/api/v1"),"type":"application/json"}]
-        }, {
-            "anchor":url("/api/v1"),
-            "service-desc":[{"href":url("/openapi.json"),"type":"application/vnd.oai.openapi+json"}],
-            "service-doc":[{"href":url("/docs/api"),"type":"text/html"}]
-        }]}).to_string();
-        let skills = json!({"$schema":"https://schemas.agentskills.io/discovery/0.2.0/schema.json", "skills": SKILLS.iter().map(|(name, description, body)| json!({
-            "name":name, "description":description,
-            "type":"skill-md",
-            "url":url(&format!("/.well-known/agent-skills/{name}/SKILL.md")),
-            "digest":skill_digest(body)
-        })).collect::<Vec<_>>()}).to_string();
-        let site = json!({
-            "format":"proa-site", "version":"0.1", "status":"experimental",
-            "site":{"name":"Proa", "description":"A Rust web framework for compiled, composable HTML and Markdown rendering with RSJS browser islands.", "homepage":url("/")},
-            "interfaces":[
-                {"kind":"agent-instructions","url":"/llms.txt","media_type":"text/plain"},
-                {"kind":"documentation-corpus","url":"/llms-full.txt","media_type":"text/plain"},
-                {"kind":"openapi","url":"/openapi.json","media_type":"application/vnd.oai.openapi+json"},
-                {"kind":"mcp","url":"/mcp","transport":"streamable-http"}
-            ], "authentication":{"required":false}
-        }).to_string();
-        let server_card = json!({
-            "$schema":"https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
-            "name":super::mcp::SERVER_NAME, "title":super::mcp::SERVER_TITLE, "version":super::mcp::SERVER_VERSION,
-            "description":super::mcp::SERVER_DESCRIPTION,
-            "websiteUrl":url("/docs/api"),
-            "remotes":[{"type":"streamable-http","url":url("/mcp")}]
-        }).to_string();
-        let openapi = openapi_document(origin);
-        let json_ld = json!({"@context":"https://schema.org", "@graph":[
-            {"@type":"Organization", "@id":url("/#organization"), "name":"Proa Labs, Inc.", "url":url("/"),
-             "description":"Publisher of Proa, a Rust web framework for composable, multi-target rendering.",
-             "logo":url("/static/apple-touch-icon.png"), "sameAs":["https://github.com/proa-labs"],
-             "address":{"@type":"PostalAddress","addressCountry":"US"},
-             "contactPoint":[{"@type":"ContactPoint","contactType":"privacy","email":"privacy@proa.so"},
-                             {"@type":"ContactPoint","contactType":"licensing","email":"legal@proa.so"}]},
-            {"@type":"WebSite", "@id":url("/#website"), "name":"Proa", "url":url("/"),
-             "description":"Proa Rust framework documentation, examples, and developer tools.",
-             "publisher":{"@id":url("/#organization")}, "inLanguage":"en"},
-            {"@type":"SoftwareApplication", "@id":url("/#proa"), "name":"Proa", "url":url("/"),
-             "description":"A Rust web framework with compiled HTML templates, streaming SSR, typed Markdown, and RSJS browser islands.",
-             "applicationCategory":"DeveloperApplication", "operatingSystem":"Linux, macOS, Windows",
-             "publisher":{"@id":url("/#organization")}, "sameAs":["https://github.com/proa-labs/proa"]},
-            {"@type":"SoftwareSourceCode", "name":"Proa source code", "codeRepository":"https://github.com/proa-labs/proa",
-             "programmingLanguage":"Rust", "targetProduct":{"@id":url("/#proa")},
-             "license":"https://github.com/proa-labs/proa/blob/main/LICENSING.md"}
-        ]}).to_string().replace('<', "\\u003c").replace('>', "\\u003e").replace('&', "\\u0026");
         Documents {
-            home:expand(include_str!("../agent/home.md")), index:expand(include_str!("../agent/index.md")),
-            auth:expand(include_str!("../agent/auth.md")), docs_index, catalog, api_catalog, skills,
-            site, server_card, openapi:openapi.to_string(), json_ld,
+            home: render_markdown(HomePage),
+            index: render_markdown(AgentIndex { origin }),
+            auth: render_markdown(Authentication { origin }),
+            docs_index: render_markdown(DocumentationIndex {
+                origin,
+                pages: docs::docs().pages,
+            }),
+            catalog: discovery::catalog(origin),
+            api_catalog: discovery::api_catalog(origin),
+            skills: discovery::skills(origin, SKILLS),
+            site: discovery::site(origin),
+            server_card: discovery::server_card(origin),
+            openapi: openapi_document(origin).to_string(),
+            json_ld: discovery::structured_data(origin),
         }
     })
 }

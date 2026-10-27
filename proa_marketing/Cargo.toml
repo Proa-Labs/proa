@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+const_json = { package = "proa_const_json", path = "../const_json/const_json", version = "0.1.2" }
 futures = { workspace = true }
 proa_core = { workspace = true }
 proa_demo = { workspace = true, features = ["server"] }

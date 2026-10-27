@@ -5,6 +5,13 @@ description: Review Proa Rust changes for render-path allocation regressions and
 
 # Proa Perf Review
 
+For authored HTML, Markdown, XML, plain-text, or JSON documents, read
+[`docs/agent/document-rendering.md`](../../../docs/agent/document-rendering.md).
+Use the matching macro or typed serializer in handlers and cached documents as
+well as components. Give relevant page types an `MdRenderSync` implementation;
+do not substitute parallel Markdown files, string replacement, or hand-built
+markup. Keep runtime JSON typed; use `const_json!` for literal JSON.
+
 ## Overview
 
 Use Proa CLI lint/check as the first reviewer and the focused perf lint as the
