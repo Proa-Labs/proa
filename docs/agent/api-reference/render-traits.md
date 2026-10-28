@@ -4,6 +4,10 @@ Proa has a compatibility pair for ordinary component trees and an opt-in
 `Send` pair for render graphs that may migrate between executor threads. Pick
 the surface explicitly; the choice is not auto-detected.
 
+Both surfaces write into the context's output and return completion. For the
+ownership/self-reference and heterogeneous branch-type reasons behind that
+contract, see [Why components write directly to the output buffer](direct-buffer-rendering.md).
+
 ## The compatibility traits
 
 ```rust

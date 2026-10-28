@@ -18,6 +18,7 @@ per task rather than skimming the whole thing.
 | Add an RSJS-analyzed/composable component (with or without browser origins) | [`rsjs-islands.md`](rsjs-islands.md) |
 | Check HTML → Markdown content coverage | [`content-coverage.md`](content-coverage.md) |
 | Pick `WebRenderSync` vs `WebRender` | [`api-reference/render-traits.md`](api-reference/render-traits.md) |
+| Understand why components write directly to a buffer instead of returning a retained tree | [`api-reference/direct-buffer-rendering.md`](api-reference/direct-buffer-rendering.md) |
 | Understand the `Send` / local-future streaming policy | [`../../proa_framework/proa_framework_core/README.md#send-policy-and-runtime-portability`](../../proa_framework/proa_framework_core/README.md#send-policy-and-runtime-portability) |
 | Pick `md_sync!` vs `md!` | [`api-reference/render-traits.md#markdown-has-the-same-split`](api-reference/render-traits.md#markdown-has-the-same-split) |
 | Read or write a signal inside an island | [`api-reference/signals.md`](api-reference/signals.md) |
