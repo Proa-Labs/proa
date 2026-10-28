@@ -5,6 +5,28 @@ description: "Author or modify optimized Proa #[rsjs(component...)] islands. Use
 
 # Proa Island
 
+For authored HTML, Markdown, XML, plain-text, or JSON documents, read
+[`docs/agent/document-rendering.md`](../../../docs/agent/document-rendering.md).
+Use the matching macro or typed serializer in handlers and cached documents as
+well as components. Give relevant page types an `MdRenderSync` implementation;
+do not substitute parallel Markdown files, string replacement, or hand-built
+markup. Keep runtime JSON typed; use `const_json!` for literal JSON.
+For multiple render targets, read the guide's shared-content workflow first.
+Keep both implementations with the owning page/component, not in a separate
+agent-facing page. Put copy, labels, URLs, and collections in shared props or
+one content constructor before writing either renderer. Compose explicit
+Markdown sections for the core page structure; do not duplicate literals or
+convert the entire HTML view. Preserve existing copy and `PageMeta`. The
+linter is a backstop, not proof that separately written strings stay in sync.
+
+## Browser behavior defaults
+
+Use RSJS for application browser behavior whenever supported. Check existing
+bindings, client helpers, and integration components before writing raw
+JavaScript. A compile error or a shorter script is not evidence that RSJS
+cannot do the job. Only a necessary, documented gap justifies a minimal raw
+JavaScript bridge; follow the [RSJS-first policy](../../../docs/agent/rsjs-islands.md#prefer-rsjs-for-browser-behavior).
+
 ## Overview
 
 Use this workflow for Proa interactive islands. Keep the server render path sync

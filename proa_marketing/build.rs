@@ -54,6 +54,7 @@ fn static_asset_version(manifest_dir: &Path) -> io::Result<String> {
         "public/proa-ui-rail.css",
         "public/docs.js",
         "public/search.mjs",
+        "public/agent-tools.mjs",
         "public/search-index.mjs",
         "public/vendor/orama.mjs",
     ] {

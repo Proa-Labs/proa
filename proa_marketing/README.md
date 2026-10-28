@@ -2,6 +2,58 @@
 
 Rust SSR marketing site for Proa.
 
+## Agent interfaces
+
+Authored document output uses typed Proa components and format-specific macros.
+Each page owns its HTML and Markdown implementations and shares content fields
+between them. The homepage composes explicit Markdown sections for the hero,
+render examples, showcase comparison, benchmark charts, UI catalog, capabilities,
+and quickstart. Markdown exposes all benchmark cases together and omits visual
+demo fixtures and controls. Only the existing HTML-only highlighted code
+fragments use the native converter. About/Contact pages also share their data;
+authentication and the documentation index live in the docs module.
+OpenAPI and MCP input schemas
+use `const_json!` literals, while runtime discovery URLs use typed serializers.
+Sitemaps use `xml_sync!`, and 404 pages use `html_sync!` / `md_sync!`.
+
+The homepage supports `Accept: text/markdown`, `/index.md`, and `?mode=agent`.
+`/llms.txt` and `/.well-known/llms.txt` export that same page renderer; the
+focused documentation index is `/docs/llms.txt`. Agent catalogs live at `/.well-known/ard.json` and
+`/.well-known/ai-catalog.json`; the RFC 9727 API catalog is at
+`/.well-known/api-catalog`. These documents use the resolved public site URL,
+including Railway preview origins.
+
+Public discovery files allow cross-origin browser reads and conditional-request
+preflights. The `/mcp` transport retains separate Host and Origin checks. Its
+experimental server card uses the same identity as the runtime handshake.
+
+The skills index at `/.well-known/agent-skills/index.json` uses the draft
+Agent Skills Discovery 0.2 format with SHA-256 digests for the served
+`SKILL.md` files. These instructions describe workflows in a Proa source
+checkout and reference its documentation and scripts.
+
+`/api/v1/search`, `/api/v1/docs`, and `/api/v1/docs/page` provide typed,
+paginated access to public documents. `/mcp` exposes the same source through
+the official Rust MCP SDK's stateless Streamable HTTP transport, with two
+read-only tools and paginated Markdown resources. `/mcp/server-card` describes
+the connection. No credentials or writes are exposed. API and MCP responses
+advertise an enforced shared per-instance budget of 600 requests per minute.
+
+The optional `/static/agent-tools.mjs` registers the search and retrieval
+operations with WebMCP. Its tests run with
+`node --test proa_marketing/tests-js/agent-tools.test.mjs`. HTTP and MCP tests
+run through the linked pipeline:
+
+```bash
+cargo proa test --root . --locked -p proa_marketing --bin proa_marketing
+```
+
+See [the public API guide](src/docs/api.mdx) for the external contract. The
+deployment smoke check also verifies the discovery index, Markdown homepage,
+catalog, search response, and MCP server card. An Ora score only updates after
+deployment and a new external scan; search indexing and directory listings
+are outside the application's control.
+
 ## Proa UI homepage rail
 
 The homepage includes the complete `home-rail-section` from Proa UI's

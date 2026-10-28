@@ -1,37 +1,74 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use axum::response::Html;
-use proa_core::{DataLoader, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError};
-use proa_macros::html_sync;
+use crate::data::{routes, site};
+
+use axum::{
+    extract::Query,
+    http::{header, HeaderMap, HeaderValue},
+    response::{IntoResponse, Response},
+};
+use proa_core::{
+    DataLoader, MdRenderSync, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
+};
+use proa_macros::{content_part, html_sync, md_sync, omit};
 use rsjs::signal;
 use rsjs_macros::rsjs;
 
-use crate::layout::{render_page, PageMeta};
+use crate::{
+    components::landing_shell::DOCUMENTATION_LINKS,
+    layout::{render_page, PageMeta},
+    utils::document::Url,
+};
 
-pub async fn handler() -> Html<String> {
-    render_page(
-        PageMeta {
-            title: "Proa — The next era of web interfaces. Built in Rust.",
-            description: "A batteries-included Rust web framework built around a new programming model for composable, multi-target rendering.",
-            path: "/",
-        },
-        HomePage,
-    )
+#[derive(Default, serde::Deserialize)]
+pub struct HomeQuery {
+    mode: Option<String>,
 }
 
-struct HomePage;
+/// Read the Proa homepage as HTML or Markdown using the Accept header.
+///
+/// Request text/markdown for the same page's Markdown representation. Responses
+/// include Vary: Accept so caches can distinguish the representations.
+#[utoipa::path(get, path = routes::HOME, operation_id = "getHomePage",
+    responses((status = 200, description = "Homepage in the requested representation.", content((String = "text/html"), (String = "text/markdown")))))]
+// This route renders with NoLoader. DataLoader below is only a generic
+// component bound; the homepage performs no data fetches.
+pub async fn handler(headers: HeaderMap, Query(query): Query<HomeQuery>) -> Response {
+    let mut response = if crate::utils::http::accepts_markdown(&headers)
+        || query.mode.as_deref() == Some("agent")
+    {
+        crate::endpoints::agent_discovery::text_response(markdown(), "text/markdown; charset=utf-8")
+    } else {
+        render_page(
+        PageMeta {
+            title: site::HOME_TITLE,
+            description: "A batteries-included Rust web framework built around a new programming model for composable, multi-target rendering.",
+            path: routes::HOME,
+        },
+        HomePage,
+        ).into_response()
+    };
+    response
+        .headers_mut()
+        .insert(header::VARY, HeaderValue::from_static("Accept"));
+    response
+}
 
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
-enum BarWidth {
-    Pct1,
-    Pct3,
-    Pct4,
-    Pct12,
-    Pct72,
-    Pct86,
-    Full,
+pub(crate) struct HomePage;
+
+/// Both Markdown aliases and content negotiation export the same page renderer.
+/// The immutable response is cached at this page's HTTP boundary.
+pub(crate) fn markdown() -> &'static str {
+    static MARKDOWN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    MARKDOWN.get_or_init(|| {
+        crate::utils::document::render_markdown(md_sync! { r###"
+            {HomePage}
+
+            {DOCUMENTATION_LINKS}
+            "###
+        })
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -45,78 +82,6 @@ struct TextCard {
     title: &'static str,
     detail: &'static str,
 }
-
-/*
-const USE_CASES: &[TextCard] = &[
-    TextCard {
-        title: "Merch drops that stay live under load.",
-        detail: "Fresh product, inventory, and cart HTML at the moment traffic spikes.",
-    },
-    TextCard {
-        title: "Live odds, not a cached shell.",
-        detail: "Prediction markets and dashboards can render current data in the request path.",
-    },
-    TextCard {
-        title: "Seat maps that survive the onsale.",
-        detail:
-            "High-fanout transactional pages get native render cost without a separate SSR fleet.",
-    },
-];
-*/
-
-#[allow(dead_code)]
-struct FrameworkRow {
-    name: &'static str,
-    runtime: &'static str,
-    latency: &'static str,
-    width: BarWidth,
-}
-
-#[allow(dead_code)]
-const FRAMEWORK_ROWS: &[FrameworkRow] = &[
-    FrameworkRow {
-        name: "Proa",
-        runtime: "Rust",
-        latency: "0.46 us",
-        width: BarWidth::Pct1,
-    },
-    FrameworkRow {
-        name: "Askama",
-        runtime: "Rust",
-        latency: "1.90 us",
-        width: BarWidth::Pct3,
-    },
-    FrameworkRow {
-        name: "Sailfish",
-        runtime: "Rust",
-        latency: "2.55 us",
-        width: BarWidth::Pct4,
-    },
-    FrameworkRow {
-        name: "Leptos",
-        runtime: "Rust",
-        latency: "19.50 us",
-        width: BarWidth::Pct12,
-    },
-    FrameworkRow {
-        name: "React (Bun)",
-        runtime: "JavaScript",
-        latency: "583.06 us",
-        width: BarWidth::Pct72,
-    },
-    FrameworkRow {
-        name: "React (Deno)",
-        runtime: "JavaScript",
-        latency: "707.17 us",
-        width: BarWidth::Pct86,
-    },
-    FrameworkRow {
-        name: "React (Node)",
-        runtime: "JavaScript",
-        latency: "816.41 us",
-        width: BarWidth::Full,
-    },
-];
 
 struct CapabilityColumn {
     variant: CapabilityVariant,
@@ -350,114 +315,11 @@ const CAPABILITY_INTEGRATION_HTML: &str = r##"<div class="relative h-56 overflow
     </div>
 </div>"##;
 
-#[allow(dead_code)]
-const CONVERSION_LATENCY_GRAPH_HTML: &str = r##"<div class="mt-8 grid gap-4 lg:grid-cols-[minmax(0,1.18fr)_minmax(280px,0.82fr)]">
-    <div class="overflow-hidden rounded-[26px] border border-black/10 bg-white/88 shadow-[0_28px_80px_-58px_rgba(24,24,27,0.38)] dark:border-white/10 dark:bg-zinc-950/70">
-        <div class="flex items-center justify-between gap-4 border-b border-black/10 px-5 py-4 dark:border-white/10">
-            <p class="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500 dark:text-zinc-400">Load time -> session survival</p>
-            <p class="font-mono text-[10px] uppercase tracking-[0.22em] text-[#9b5a24] dark:text-[#ffb070]">3s cliff</p>
-        </div>
-        <div class="relative h-[340px] px-4 pb-4 pt-5 sm:px-6">
-            <svg viewBox="0 0 760 300" class="h-full w-full overflow-visible" fill="none" role="img" aria-label="Graph showing session survival falling as page load time rises">
-                <defs>
-                    <linearGradient id="conversionDrop" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stop-color="#dd7627" stop-opacity="0.24" />
-                        <stop offset="100%" stop-color="#dd7627" stop-opacity="0" />
-                    </linearGradient>
-                    <linearGradient id="slowZone" x1="0" x2="1" y1="0" y2="0">
-                        <stop offset="0%" stop-color="#dd7627" stop-opacity="0.08" />
-                        <stop offset="100%" stop-color="#ff5f57" stop-opacity="0.18" />
-                    </linearGradient>
-                </defs>
-                <rect x="520" y="24" width="188" height="220" rx="18" fill="url(#slowZone)" />
-                <g stroke="#18181b" stroke-opacity="0.1" stroke-width="1">
-                    <path d="M72 24H708" />
-                    <path d="M72 80H708" />
-                    <path d="M72 136H708" />
-                    <path d="M72 192H708" />
-                    <path d="M72 244H708" />
-                </g>
-                <g fill="currentColor" class="text-zinc-400 dark:text-zinc-500" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">
-                    <text x="26" y="28">100%</text>
-                    <text x="34" y="140">50%</text>
-                    <text x="42" y="248">0%</text>
-                    <text x="72" y="280">0s</text>
-                    <text x="252" y="280">1s</text>
-                    <text x="430" y="280">2s</text>
-                    <text x="604" y="280">3s+</text>
-                </g>
-                <path d="M72 36 C168 42 224 58 300 82 C386 110 450 143 520 170 C592 198 650 220 708 232 L708 244 L72 244 Z" fill="url(#conversionDrop)" />
-                <path d="M72 36 C168 42 224 58 300 82 C386 110 450 143 520 170 C592 198 650 220 708 232" stroke="#dd7627" stroke-width="4" stroke-linecap="round" />
-                <path d="M520 24V244" stroke="#dd7627" stroke-opacity="0.42" stroke-width="1.5" stroke-dasharray="6 6" />
-                <g fill="#f7f4ee" stroke="#dd7627" stroke-width="3">
-                    <circle cx="72" cy="36" r="6" />
-                    <circle cx="300" cy="82" r="6" />
-                    <circle cx="520" cy="170" r="6" />
-                    <circle cx="708" cy="232" r="6" />
-                </g>
-            </svg>
-            <div class="absolute right-6 top-16 max-w-[180px] rounded-[18px] border border-[#dd7627]/35 bg-[#fff7ed]/95 p-4 shadow-[0_18px_48px_-36px_rgba(24,24,27,0.35)] dark:bg-[#1d140c]/95">
-                <p class="font-mono text-[10px] uppercase tracking-[0.2em] text-[#9b5a24] dark:text-[#ffb070]">After 3 seconds</p>
-                <p class="mt-2 font-display text-4xl font-semibold tracking-[-0.04em] text-zinc-950 dark:text-zinc-50">53%</p>
-                <p class="mt-1 text-xs leading-5 text-zinc-600 dark:text-zinc-300">likely to abandon</p>
-            </div>
-        </div>
-    </div>
-    <div class="rounded-[26px] border border-zinc-950 bg-zinc-950 p-5 text-white shadow-[0_30px_90px_-62px_rgba(0,0,0,0.9)] dark:border-white/10">
-        <p class="font-mono text-[10px] uppercase tracking-[0.22em] text-white/50">Route JavaScript</p>
-        <div class="mt-5 space-y-5">
-            <div>
-                <div class="flex items-baseline justify-between gap-4">
-                    <span class="text-sm text-white/65">Client-rendered route</span>
-                    <span class="font-mono text-sm text-white">200 KB</span>
-                </div>
-                <div class="mt-2 h-4 rounded-full bg-white/10">
-                    <div class="h-full rounded-full bg-[#ff5f57]" style="width: 100%;"></div>
-                </div>
-            </div>
-            <div>
-                <div class="flex items-baseline justify-between gap-4">
-                    <span class="text-sm text-white/65">Proa route</span>
-                    <span class="font-mono text-sm text-[#ffb070]">2.6 KB</span>
-                </div>
-                <div class="mt-2 h-4 rounded-full bg-white/10">
-                    <div class="h-full min-w-[4px] rounded-full bg-[#dd7627]" style="width: 1.3%;"></div>
-                </div>
-            </div>
-        </div>
-        <div class="mt-7 border-t border-white/10 pt-5">
-            <p class="font-display text-5xl font-semibold tracking-[-0.05em] text-[#ffb070]">~77x</p>
-            <p class="mt-2 text-sm leading-6 text-white/68">less script to download, parse, compile, and hydrate on low-end devices.</p>
-        </div>
-    </div>
-</div>"##;
-
-#[allow(dead_code)]
-const SIMPLIFICATION_CARDS: &[TextCard] = &[
-    TextCard {
-        title: "No ISR or PPR as survival tactics",
-        detail: "Prerender when it helps the product, not because request-time rendering collapses under real traffic.",
-    },
-    TextCard {
-        title: "No HTML page cache dependency",
-        detail: "Fresh renders get cheap enough that cache invalidation stops being the architecture.",
-    },
-    TextCard {
-        title: "No streaming shell to hide latency",
-        detail: "Stream when the experience wants it, not because the renderer is too slow to send a full page.",
-    },
-    TextCard {
-        title: "No dedicated SSR fleet or regen queue",
-        detail: "A native render call replaces workers, warm pools, and background rebuild plumbing.",
-    },
-];
-
 /// One header treatment for every band on the page.
 ///
 /// The hero states the page's claim centered on the fold; each section below
 /// repeats that shape one step down the scale, so an eyebrow, a heading, and
 /// a lead paragraph read the same wherever they appear.
-const BENCHMARKS_URL: &str = "https://github.com/Proa-Labs/proa-benchmarks";
 const SHADCN_URL: &str = "https://ui.shadcn.com";
 const LEAD_LINK: &str = "underline decoration-[#dd7627]/45 underline-offset-[6px] transition-colors hover:text-[#dd7627] hover:decoration-[#dd7627]";
 const HERO_TITLE: &str = "text-balance font-display text-[42px] font-semibold leading-[0.95] tracking-[-0.045em] text-black dark:text-zinc-50 sm:text-[64px] lg:text-[80px]";
@@ -532,21 +394,81 @@ const COMPOSABLE_CONNECTORS_HTML: &str = r##"<svg data-composable-connectors cla
 struct ArrowRightIcon;
 struct ArrowUpRightIcon;
 struct PlayIcon;
-struct ComposableSourceCode;
-struct ComposableMdRenderCode;
-struct ComposableWebRenderCode;
-struct ComposableMdChildCode;
-struct ComposableWebChildCode;
 struct ComposableConnectorLayer;
-#[allow(dead_code)]
-struct ConversionLatencyGraph;
 struct CapabilityIllustration {
     variant: CapabilityVariant,
 }
-struct InterfaceLayerHero;
+#[derive(Clone, Copy)]
+struct InterfaceLayerHero {
+    title: &'static str,
+    lead_prefix: &'static str,
+    performance_label: &'static str,
+    lead_suffix: &'static str,
+    start_label: &'static str,
+    start_url: &'static str,
+    video_label: &'static str,
+    video_url: &'static str,
+    video_aria: &'static str,
+    benchmarks_url: &'static str,
+}
 struct Direction18Hero;
-struct Direction18HeroPreview;
-struct BenchmarkHighlights;
+#[derive(Clone, Copy)]
+struct Direction18HeroPreview {
+    tabs_label: &'static str,
+    proa_travel: &'static str,
+    proa_repo: &'static str,
+    proa_sentry: &'static str,
+    peer_travel: &'static str,
+    peer_repo: &'static str,
+    peer_sentry: &'static str,
+    speedup_travel: &'static str,
+    speedup_repo: &'static str,
+    speedup_sentry: &'static str,
+    repo_label: &'static str,
+    sentry_label: &'static str,
+    travel_label: &'static str,
+    proa_label: &'static str,
+    peer_label: &'static str,
+    multiplier_label: &'static str,
+    note: &'static str,
+}
+
+impl Direction18HeroPreview {
+    const fn new() -> Self {
+        Self {
+            tabs_label: "Benchmark page previews",
+            proa_travel: "11.5 us",
+            proa_repo: "23.5 us",
+            proa_sentry: "155 us",
+            peer_travel: "598 us",
+            peer_repo: "5.56 ms",
+            peer_sentry: "25.4 ms",
+            speedup_travel: "52x",
+            speedup_repo: "237x",
+            speedup_sentry: "163x",
+            repo_label: "GitHub",
+            sentry_label: "Sentry",
+            travel_label: "Airbnb",
+            proa_label: "Proa render p50",
+            peer_label: "React renderToString p50",
+            multiplier_label: "faster",
+            note: "Warm production p50s measured on an 8-vCPU AMD EPYC-Milan VPS.",
+        }
+    }
+}
+#[derive(Clone, Copy)]
+struct BenchmarkHighlights {
+    tabs_label: &'static str,
+    title: &'static str,
+    environment: &'static str,
+    scroll_hint: &'static str,
+    open_label: &'static str,
+    link_label: &'static str,
+    benchmarks_url: &'static str,
+    render: BenchmarkChart,
+    http: BenchmarkChart,
+    load: BenchmarkChart,
+}
 struct HeroTravelPanel;
 struct HeroRepoPanel;
 struct HeroSentryPanel;
@@ -760,6 +682,23 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PlayIcon {
 
 /// The opening statement of the page: one centered claim, one supporting
 /// sentence, and the quickstart or introduction video for first-time visitors.
+impl InterfaceLayerHero {
+    const fn new() -> Self {
+        Self {
+            title: site::TAGLINE,
+            lead_prefix: "An ",
+            performance_label: "extremely performant",
+            lead_suffix: ", batteries-included Rust web framework built around a new programming model for composable, multi-target rendering.",
+            start_label: "Get started",
+            start_url: routes::DOCS,
+            video_label: "Watch intro",
+            video_url: "https://youtu.be/-CfCyvIKYyo?si=l1-0A5BsuLU2Bc9T",
+            video_aria: "Watch intro on YouTube (opens in a new tab)",
+            benchmarks_url: site::BENCHMARKS_URL,
+        }
+    }
+}
+
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
@@ -768,43 +707,42 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
                 class="bg-[oklch(1_0_0)] px-4 pb-16 pt-20 dark:bg-transparent sm:px-6 sm:pb-24 sm:pt-28 lg:px-8"
             >
                 <div class="mx-auto flex max-w-[1000px] flex-col items-center text-center">
-                    <h1 class={HERO_TITLE}>"The next era of web interfaces. Built in Rust."</h1>
+                    <h1 class={HERO_TITLE}>{self.title}</h1>
                     <p class={HERO_LEAD}>
-                        "An "
+                        {self.lead_prefix}
                         <a
-                            href={BENCHMARKS_URL}
+                            href={content_part!("benchmarks-url", self.benchmarks_url)}
                             rel="noreferrer noopener"
                             target="_blank"
                             class={LEAD_LINK}
                         >
-                            "extremely performant"
+                            {self.performance_label}
                         </a>
-                        ", batteries-included Rust web framework built around a new programming model for composable, multi-target rendering."
+                        {self.lead_suffix}
                     </p>
                     <div class="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
                         <a
-                            href="/docs"
+                            href={content_part!("start-url", self.start_url)}
                             class={CTA_PRIMARY}
                         >
-                            "Get started"
+                            {self.start_label}
                             {ArrowRightIcon}
                         </a>
                         <a
-                            href="https://youtu.be/-CfCyvIKYyo?si=l1-0A5BsuLU2Bc9T"
+                            href={content_part!("video-url", self.video_url)}
                             data-video-cta="intro"
                             target="_blank"
                             rel="noopener noreferrer"
-                            aria-label="Watch intro on YouTube (opens in a new tab)"
+                            aria-label={self.video_aria}
                             class={CTA_VIDEO}
                         >
                             {PlayIcon}
-                            "Watch intro"
+                            {self.video_label}
                         </a>
                     </div>
                 </div>
             </section>
-        }
-        .render(cx)
+        }.render(cx)
     }
 }
 
@@ -817,39 +755,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18Hero {
                 aria-labelledby="performance-heading"
             >
                 <div data-hero-inner class={SECTION_CONTAINER}>
-                    <div class={SECTION_HEADER}>
-                        <h2 id="performance-heading" class={SECTION_TITLE}>
-                            "Build fast, "
-                            <span class="text-[#dd7627]">"information-dense apps."</span>
-                        </h2>
-                        <p class={SECTION_LEAD}>
-                            "Explore re-creations of GitHub, Sentry, and Airbnb, built in Proa with fast server rendering and selective interactivity."
-                        </p>
-                        <div class={SECTION_ACTIONS}>
-                            <a
-                                href="/ecosystem/apps#reference-showcases"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class={CTA_PRIMARY}
-                            >
-                                "View Showcase"
-                                {ArrowRightIcon}
-                            </a>
-                            <a
-                                href={BENCHMARKS_URL}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class={CTA_SECONDARY}
-                            >
-                                "Benchmarks"
-                                {ArrowUpRightIcon}
-                            </a>
-                        </div>
-                    </div>
-                    <div class="mt-12 min-w-0 sm:mt-14">{Direction18HeroPreview}</div>
-                    <p class="mx-auto mt-5 max-w-[70ch] text-center text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-                        "Independent demos. Not affiliated with or endorsed by GitHub, Sentry, or Airbnb."
-                    </p>
+                    {ShowcaseHeading::new()}
+                    <div class="mt-12 min-w-0 sm:mt-14">{Direction18HeroPreview::new()}</div>
+                    {ShowcaseDisclaimer::new()}
                 </div>
             </section>
         }
@@ -857,85 +765,99 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18Hero {
     }
 }
 
+#[derive(Clone, Copy, rsjs::ClientProps)]
+struct BenchmarkChart {
+    title: &'static str,
+    url: &'static str,
+    description: &'static str,
+    height: &'static str,
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkChart {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <div class="min-w-[800px]">
+                <img
+                    src={content_part!("url", self.url)}
+                    alt={self.description}
+                    width="980"
+                    height={self.height}
+                    loading="lazy"
+                    class="block h-auto w-full"
+                />
+            </div>
+        }
+        .render(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkChart {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            ### {self.title}
+
+            ![{self.description}]({content_part!("url", Url(self.url))})
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl BenchmarkHighlights {
+    const fn new() -> Self {
+        Self {
+            tabs_label: "Benchmark charts",
+            title: "The numbers behind the speed.",
+            environment: "Apple M4 Max · September 2026",
+            scroll_hint: "Scroll horizontally to explore each chart.",
+            open_label: "Open full-size SVG",
+            link_label: "View benchmarks",
+            benchmarks_url: site::BENCHMARKS_URL,
+            render: BenchmarkChart {
+                title: "Render speed",
+                url: "/static/images/benchmarks/01-canonical-scoreboard.svg",
+                description: "Server-render latency across 17 renderers and three workloads. Proa leads the component frameworks; React takes 13.2 to 35.4 times as long.",
+                height: "480",
+            },
+            http: BenchmarkChart {
+                title: "HTTP capacity",
+                url: "/static/images/benchmarks/21-canonical-pages-http.svg",
+                description: "HTTP throughput, CPU per response, and peak memory for Proa, React, Marko, and Go. Proa serves 16,100 product-grid responses per second with 9.4 MiB peak memory.",
+                height: "615",
+            },
+            load: BenchmarkChart {
+                title: "Suspense under load",
+                url: "/static/images/benchmarks/20-suspense-load.svg",
+                description: "Suspense streaming under increasing load: throughput, memory, and response latency for Proa, Marko, and React. Proa sustains about 5,000 responses per second before queueing rises at 6,000 offered requests per second.",
+                height: "743",
+            },
+        }
+    }
+}
+
 /// Original benchmark SVGs, served locally and switched by one tab signal.
 #[rsjs(component, client)]
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let title = self.title;
+        let render_title = self.render.title;
+        let http_title = self.http.title;
+        let load_title = self.load.title;
+        let environment = self.environment;
+        let scroll_hint = self.scroll_hint;
+        let open_label = self.open_label;
+        let link_label = self.link_label;
         let selected = signal("render");
+        // The chart markup is static; only panel visibility and the full-size
+        // link are reactive. Do not bind the chart value as browser text.
+        let render_chart = rsjs::server_only(self.render);
+        let http_chart = rsjs::server_only(self.http);
+        let load_chart = rsjs::server_only(self.load);
         let render_tab = rsjs::node_ref::<rsjs::HtmlElement>();
         let http_tab = rsjs::node_ref::<rsjs::HtmlElement>();
         let load_tab = rsjs::node_ref::<rsjs::HtmlElement>();
         let full_size_icon = ArrowUpRightIcon;
         let methodology_icon = ArrowUpRightIcon;
-        let select_render = rsjs::event_handler(|_: rsjs::Event| selected.set("render"));
-        let key_render = rsjs::event_handler(|event: rsjs::KeyboardEvent| {
-            if event.key() == "ArrowRight" {
-                event.prevent_default();
-                selected.set("http");
-                http_tab.focus();
-            }
-            if event.key() == "ArrowLeft" {
-                event.prevent_default();
-                selected.set("load");
-                load_tab.focus();
-            }
-            if event.key() == "Home" {
-                event.prevent_default();
-                selected.set("render");
-                render_tab.focus();
-            }
-            if event.key() == "End" {
-                event.prevent_default();
-                selected.set("load");
-                load_tab.focus();
-            }
-        });
-        let select_http = rsjs::event_handler(|_: rsjs::Event| selected.set("http"));
-        let key_http = rsjs::event_handler(|event: rsjs::KeyboardEvent| {
-            if event.key() == "ArrowRight" {
-                event.prevent_default();
-                selected.set("load");
-                load_tab.focus();
-            }
-            if event.key() == "ArrowLeft" {
-                event.prevent_default();
-                selected.set("render");
-                render_tab.focus();
-            }
-            if event.key() == "Home" {
-                event.prevent_default();
-                selected.set("render");
-                render_tab.focus();
-            }
-            if event.key() == "End" {
-                event.prevent_default();
-                selected.set("load");
-                load_tab.focus();
-            }
-        });
-        let select_load = rsjs::event_handler(|_: rsjs::Event| selected.set("load"));
-        let key_load = rsjs::event_handler(|event: rsjs::KeyboardEvent| {
-            if event.key() == "ArrowRight" {
-                event.prevent_default();
-                selected.set("render");
-                render_tab.focus();
-            }
-            if event.key() == "ArrowLeft" {
-                event.prevent_default();
-                selected.set("http");
-                http_tab.focus();
-            }
-            if event.key() == "Home" {
-                event.prevent_default();
-                selected.set("render");
-                render_tab.focus();
-            }
-            if event.key() == "End" {
-                event.prevent_default();
-                selected.set("load");
-                load_tab.focus();
-            }
-        });
 
         html_sync! {
             <section
@@ -946,13 +868,11 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
             >
                 <div class={BENCHMARK_CONTAINER}>
                     <div class={SECTION_HEADER}>
-                        <h2 id="benchmark-highlights-heading" class={SECTION_TITLE}>
-                            "The numbers behind the speed."
-                        </h2>
+                        <h2 id="benchmark-highlights-heading" class={SECTION_TITLE}>{title}</h2>
                     </div>
                     <div
                         role="tablist"
-                        aria-label="Benchmark charts"
+                        aria-label={self.tabs_label}
                         class="mx-auto mb-5 mt-12 grid w-full max-w-[42rem] grid-cols-3 gap-1 rounded-[14px] border border-black/10 bg-[#efedea] p-1 dark:border-white/10 dark:bg-white/5 sm:mt-14"
                     >
                         <button
@@ -965,10 +885,31 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                             tabindex={if selected.get() == "render" { "0" } else { "-1" }}
                             data_state={if selected.get() == "render" { "active" } else { "inactive" }}
                             class={BENCHMARK_TAB}
-                            on_click={select_render()}
-                            on_keydown={key_render()}
+                            on_click={|_: rsjs::Event| selected.set("render")}
+                            on_keydown={|event: rsjs::KeyboardEvent| {
+            if event.key() == "ArrowRight" {
+                event.prevent_default();
+                selected.set("http");
+                http_tab.focus();
+            }
+            if event.key() == "ArrowLeft" {
+                event.prevent_default();
+                selected.set("load");
+                load_tab.focus();
+            }
+            if event.key() == "Home" {
+                event.prevent_default();
+                selected.set("render");
+                render_tab.focus();
+            }
+            if event.key() == "End" {
+                event.prevent_default();
+                selected.set("load");
+                load_tab.focus();
+            }
+        }}
                         >
-                            "Render speed"
+                            {render_title}
                         </button>
                         <button
                             ref={http_tab}
@@ -980,10 +921,31 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                             tabindex={if selected.get() == "http" { "0" } else { "-1" }}
                             data_state={if selected.get() == "http" { "active" } else { "inactive" }}
                             class={BENCHMARK_TAB}
-                            on_click={select_http()}
-                            on_keydown={key_http()}
+                            on_click={|_: rsjs::Event| selected.set("http")}
+                            on_keydown={|event: rsjs::KeyboardEvent| {
+            if event.key() == "ArrowRight" {
+                event.prevent_default();
+                selected.set("load");
+                load_tab.focus();
+            }
+            if event.key() == "ArrowLeft" {
+                event.prevent_default();
+                selected.set("render");
+                render_tab.focus();
+            }
+            if event.key() == "Home" {
+                event.prevent_default();
+                selected.set("render");
+                render_tab.focus();
+            }
+            if event.key() == "End" {
+                event.prevent_default();
+                selected.set("load");
+                load_tab.focus();
+            }
+        }}
                         >
-                            "HTTP capacity"
+                            {http_title}
                         </button>
                         <button
                             ref={load_tab}
@@ -995,10 +957,31 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                             tabindex={if selected.get() == "load" { "0" } else { "-1" }}
                             data_state={if selected.get() == "load" { "active" } else { "inactive" }}
                             class={BENCHMARK_TAB}
-                            on_click={select_load()}
-                            on_keydown={key_load()}
+                            on_click={|_: rsjs::Event| selected.set("load")}
+                            on_keydown={|event: rsjs::KeyboardEvent| {
+            if event.key() == "ArrowRight" {
+                event.prevent_default();
+                selected.set("render");
+                render_tab.focus();
+            }
+            if event.key() == "ArrowLeft" {
+                event.prevent_default();
+                selected.set("http");
+                http_tab.focus();
+            }
+            if event.key() == "Home" {
+                event.prevent_default();
+                selected.set("render");
+                render_tab.focus();
+            }
+            if event.key() == "End" {
+                event.prevent_default();
+                selected.set("load");
+                load_tab.focus();
+            }
+        }}
                         >
-                            "Suspense under load"
+                            {load_title}
                         </button>
                     </div>
                     <div
@@ -1009,16 +992,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                         tabindex="0"
                         class={BENCHMARK_PANEL}
                     >
-                        <div class="min-w-[800px]">
-                            <img
-                                src="/static/images/benchmarks/01-canonical-scoreboard.svg"
-                                alt="Server-render latency across 17 renderers and three workloads. Proa leads the component frameworks; React takes 13.2 to 35.4 times as long."
-                                width="980"
-                                height="480"
-                                loading="lazy"
-                                class="block h-auto w-full"
-                            />
-                        </div>
+                        {content_part!("render-chart", render_chart)}
                     </div>
                     <div
                         id="benchmark-panel-http"
@@ -1028,16 +1002,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                         tabindex="0"
                         class={BENCHMARK_PANEL}
                     >
-                        <div class="min-w-[800px]">
-                            <img
-                                src="/static/images/benchmarks/21-canonical-pages-http.svg"
-                                alt="HTTP throughput, CPU per response, and peak memory for Proa, React, Marko, and Go. Proa serves 16,100 product-grid responses per second with 9.4 MiB peak memory."
-                                width="980"
-                                height="615"
-                                loading="lazy"
-                                class="block h-auto w-full"
-                            />
-                        </div>
+                        {content_part!("http-chart", http_chart)}
                     </div>
                     <div
                         id="benchmark-panel-load"
@@ -1047,41 +1012,30 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                         tabindex="0"
                         class={BENCHMARK_PANEL}
                     >
-                        <div class="min-w-[800px]">
-                            <img
-                                src="/static/images/benchmarks/20-suspense-load.svg"
-                                alt="Suspense streaming under increasing load: throughput, memory, and response latency for Proa, Marko, and React. Proa sustains about 5,000 responses per second before queueing rises at 6,000 offered requests per second."
-                                width="980"
-                                height="743"
-                                loading="lazy"
-                                class="block h-auto w-full"
-                            />
-                        </div>
+                        {content_part!("load-chart", load_chart)}
                     </div>
                     <div class="mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
                         <p class="text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-                            "Apple M4 Max · September 2026"
-                            <span class="block lg:hidden">
-                                "Scroll horizontally to explore each chart."
-                            </span>
+                            {environment}
+                            <span class="block lg:hidden">{scroll_hint}</span>
                         </p>
                         <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
                             <a
-                                href={if selected.get() == "http" { "/static/images/benchmarks/21-canonical-pages-http.svg" } else if selected.get() == "load" { "/static/images/benchmarks/20-suspense-load.svg" } else { "/static/images/benchmarks/01-canonical-scoreboard.svg" }}
+                                href={if selected.get() == "http" { self.http.url } else if selected.get() == "load" { self.load.url } else { self.render.url }}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class={CTA_SECONDARY}
                             >
-                                "Open full-size SVG"
+                                {open_label}
                                 {full_size_icon}
                             </a>
                             <a
-                                href={BENCHMARKS_URL}
+                                href={content_part!("benchmarks-url", self.benchmarks_url)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class={CTA_PRIMARY}
                             >
-                                "View benchmarks"
+                                {link_label}
                                 {methodology_icon}
                             </a>
                         </div>
@@ -1105,6 +1059,13 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
 #[rsjs(component, client)]
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let repo_label = self.repo_label;
+        let sentry_label = self.sentry_label;
+        let travel_label = self.travel_label;
+        let proa_label = self.proa_label;
+        let peer_label = self.peer_label;
+        let multiplier_label = self.multiplier_label;
+        let note = self.note;
         let value = signal("repo");
 
         let travel_tab = rsjs::node_ref::<rsjs::HtmlElement>();
@@ -1128,7 +1089,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
                 >
                     <div
                         role="tablist"
-                        aria-label="Benchmark page previews"
+                        aria-label={self.tabs_label}
                         class="mb-3 flex h-auto w-full gap-1 !rounded-[14px] border border-black/10 bg-[#efedea] p-1 text-[#777169] dark:border-white/10 dark:bg-white/5 dark:text-zinc-400"
                     >
                         <button
@@ -1167,7 +1128,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
                                 }
                             }}
                         >
-                            "GitHub"
+                            {repo_label}
                         </button>
                         <button
                             ref={sentry_tab}
@@ -1205,7 +1166,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
                                 }
                             }}
                         >
-                            "Sentry"
+                            {sentry_label}
                         </button>
                         <button
                             ref={travel_tab}
@@ -1243,7 +1204,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
                                 }
                             }}
                         >
-                            "Airbnb"
+                            {travel_label}
                         </button>
                     </div>
                     <div
@@ -1293,13 +1254,13 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
                             data-hero-metric-value="proa"
                             class="font-mono text-[22px] font-medium tracking-[-0.02em] text-[#dd7627]"
                         >
-                            {if value.get() == "travel" { "11.5 us" } else if value.get() == "repo" { "23.5 us" } else { "155 us" }}
+                            {if value.get() == "travel" { self.proa_travel } else if value.get() == "repo" { self.proa_repo } else { self.proa_sentry }}
                         </p>
                         <p
                             data-hero-metric-label="proa"
                             class="mt-1 font-mono text-[11px] tracking-[0.02em] text-[#a59f97]"
                         >
-                            "Proa render p50"
+                            {proa_label}
                         </p>
                     </div>
                     <div class="border-t border-black/10 px-5 py-4 dark:border-white/10 sm:border-l sm:border-t-0">
@@ -1307,13 +1268,13 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
                             data-hero-metric-value="peer"
                             class="font-mono text-[22px] font-medium tracking-[-0.02em] text-[#777169] dark:text-zinc-300"
                         >
-                            {if value.get() == "travel" { "598 us" } else if value.get() == "repo" { "5.56 ms" } else { "25.4 ms" }}
+                            {if value.get() == "travel" { self.peer_travel } else if value.get() == "repo" { self.peer_repo } else { self.peer_sentry }}
                         </p>
                         <p
                             data-hero-metric-label="peer"
                             class="mt-1 font-mono text-[11px] tracking-[0.02em] text-[#a59f97]"
                         >
-                            "React renderToString p50"
+                            {peer_label}
                         </p>
                     </div>
                     <div class="relative border-t border-black/10 px-5 py-4 dark:border-white/10 sm:border-l sm:border-t-0">
@@ -1328,19 +1289,19 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
                                 data-hero-metric-value="mult"
                                 class="relative z-10 font-mono text-[22px] font-medium tracking-[-0.02em] text-[#dd7627] drop-shadow-[0_0_14px_rgba(221,118,39,0.85)]"
                             >
-                                {if value.get() == "travel" { "52x" } else if value.get() == "repo" { "237x" } else { "163x" }}
+                                {if value.get() == "travel" { self.speedup_travel } else if value.get() == "repo" { self.speedup_repo } else { self.speedup_sentry }}
                             </p>
                             <p
                                 data-hero-metric-label="mult"
                                 class="relative z-10 mt-1 font-mono text-[11px] tracking-[0.02em] text-[#a59f97]"
                             >
-                                "faster"
+                                {multiplier_label}
                             </p>
                         </div>
                     </div>
                 </div>
                 <p class="mt-2 font-mono text-[11px] leading-relaxed text-[#8f877e] dark:text-zinc-500">
-                    "Warm production p50s measured on an 8-vCPU AMD EPYC-Milan VPS."
+                    {note}
                 </p>
             </div>
         }
@@ -1879,86 +1840,24 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ArrowUpRightIcon {
     }
 }
 
-#[allow(dead_code)]
-struct BarView {
-    class: &'static str,
-    width: BarWidth,
-}
+/// Existing highlighted HTML is the source for both views of a code example.
+struct CodeExample(&'static str);
 
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BarView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CodeExample {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        match self.width {
-            BarWidth::Pct1 => html_sync! {
-                <div class={self.class} style="width: 1%;"></div>
-            }
-            .render(cx),
-            BarWidth::Pct3 => html_sync! {
-                <div class={self.class} style="width: 3%;"></div>
-            }
-            .render(cx),
-            BarWidth::Pct4 => html_sync! {
-                <div class={self.class} style="width: 4%;"></div>
-            }
-            .render(cx),
-            BarWidth::Pct12 => html_sync! {
-                <div class={self.class} style="width: 12%;"></div>
-            }
-            .render(cx),
-            BarWidth::Pct72 => html_sync! {
-                <div class={self.class} style="width: 72%;"></div>
-            }
-            .render(cx),
-            BarWidth::Pct86 => html_sync! {
-                <div class={self.class} style="width: 86%;"></div>
-            }
-            .render(cx),
-            BarWidth::Full => html_sync! {
-                <div class={self.class} style="width: 100%;"></div>
-            }
-            .render(cx),
-        }
+        content_part!("content", StaticRaw(self.0)).render(cx)
     }
 }
 
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableSourceCode {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        StaticRaw(COMPOSABLE_SOURCE_HTML).render(cx)
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableMdRenderCode {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        StaticRaw(COMPOSABLE_MD_RENDER_HTML).render(cx)
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableWebRenderCode {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        StaticRaw(COMPOSABLE_WEB_RENDER_HTML).render(cx)
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableMdChildCode {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        StaticRaw(COMPOSABLE_MD_CHILD_HTML).render(cx)
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableWebChildCode {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        StaticRaw(COMPOSABLE_WEB_CHILD_HTML).render(cx)
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CodeExample {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        content_part!("content", proa_core::to_markdown(self)).render_md(cx)
     }
 }
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableConnectorLayer {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         StaticRaw(COMPOSABLE_CONNECTORS_HTML).render(cx)
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ConversionLatencyGraph {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        StaticRaw(CONVERSION_LATENCY_GRAPH_HTML).render(cx)
     }
 }
 
@@ -1969,58 +1868,6 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CapabilityIllustration 
             CapabilityVariant::Islands => StaticRaw(CAPABILITY_ISLANDS_HTML).render(cx),
             CapabilityVariant::Integration => StaticRaw(CAPABILITY_INTEGRATION_HTML).render(cx),
         }
-    }
-}
-
-/*
-struct UseCaseCardView {
-    card: &'static TextCard,
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for UseCaseCardView {
-
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        let card = self.card;
-        html_sync! {
-            <div class="rounded-[24px] border border-white/10 bg-white/[0.045] p-5">
-                <p class="text-[10px] uppercase tracking-[0.22em] text-white/55">"High-traffic surface"</p>
-                <h3 class="mt-3 font-display text-2xl font-semibold tracking-[-0.03em] text-white">{card.title}</h3>
-                <p class="mt-3 text-sm leading-7 text-white/65">{card.detail}</p>
-            </div>
-        }
-        .render(cx)
-    }
-}
-*/
-
-#[allow(dead_code)]
-struct FrameworkRowView {
-    row: &'static FrameworkRow,
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FrameworkRowView {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        let row = self.row;
-        html_sync! {
-            <div>
-                <div class="mb-2 flex items-end justify-between gap-4">
-                    <div>
-                        <p class="text-sm font-medium">{row.name}</p>
-                        <p class="text-xs text-zinc-500 dark:text-zinc-400">{row.runtime}</p>
-                    </div>
-                    <p class="font-display text-xl font-semibold tracking-[-0.04em] tabular-nums">
-                        {row.latency}
-                    </p>
-                </div>
-                <div class="h-3 rounded-full bg-zinc-200/80 dark:bg-white/10">
-                    {BarView {
-                        class: "h-full rounded-full bg-[var(--color-brand)]",
-                        width: row.width,
-                    }}
-                </div>
-            </div>
-        }
-        .render(cx)
     }
 }
 
@@ -2071,31 +1918,41 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CapabilityColumnView {
     }
 }
 
-#[allow(dead_code)]
-struct SimplificationCardView {
-    card: &'static TextCard,
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SimplificationCardView {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        let card = self.card;
-        html_sync! {
-            <div class="rounded-[24px] border border-white/10 bg-white/[0.045] p-5">
-                <p class="text-[11px] uppercase tracking-[0.18em] text-white/55">"Optional now"</p>
-                <h3 class="mt-3 font-display text-2xl font-semibold tracking-[-0.03em] text-white">
-                    {card.title}
-                </h3>
-                <p class="mt-3 text-sm leading-7 text-white/65">{card.detail}</p>
-            </div>
-        }
-        .render(cx)
-    }
-}
-
 /// The source rail's inert, server-rendered component previews are imported as
 /// static HTML so this workspace does not depend on the downstream UI library.
 /// Refresh the complete rail with `scripts/import-proa-ui-rail.mjs`.
-struct ProaUiSection;
+#[derive(Clone, Copy)]
+struct ProaUiSection {
+    title: &'static str,
+    lead_prefix: &'static str,
+    lead_link_label: &'static str,
+    lead_suffix: &'static str,
+    link_label: &'static str,
+    link_url: &'static str,
+    shadcn_url: &'static str,
+}
+
+// The imported preview markup is source data. Resolve its origin at compile
+// time so every catalog tile follows the same destination as the section link.
+const PROA_UI_RAIL_HTML: &str = const_format::str_replace!(
+    include_str!("home/proa_ui_rail.html"),
+    "{{UI_ORIGIN}}",
+    site::UI_URL,
+);
+
+impl ProaUiSection {
+    const fn new() -> Self {
+        Self {
+            title: "Build your design system.",
+            lead_prefix: "Proa UI offers ",
+            lead_link_label: "Shadcn",
+            lead_suffix: " style Proa components. Source in your repo, in typed Rust. Theme it, compose it, ship it.",
+            link_label: "Browse Components",
+            link_url: site::UI_COMPONENTS_URL,
+            shadcn_url: SHADCN_URL,
+        }
+    }
+}
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -2108,42 +1965,39 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
             >
                 <link
                     rel="stylesheet"
-                    href={concat!("/static/proa-ui-rail.css?v=", env!("MARKETING_ASSET_VERSION"))}
+                    href={content_part!("rail-styles", concat!("/static/proa-ui-rail.css?v=", env!("MARKETING_ASSET_VERSION")))}
                 />
                 <div class={SECTION_CONTAINER}>
                     <div class={SECTION_HEADER}>
-                        <h2 id="proa-ui-heading" class={SECTION_TITLE}>
-                            "Build your design system."
-                        </h2>
+                        <h2 id="proa-ui-heading" class={SECTION_TITLE}>{self.title}</h2>
                         <p class={SECTION_LEAD}>
-                            "Proa UI offers "
+                            {self.lead_prefix}
                             <a
-                                href={SHADCN_URL}
+                                href={content_part!("shadcn-url", self.shadcn_url)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class={LEAD_LINK}
                             >
-                                "Shadcn"
+                                {self.lead_link_label}
                             </a>
-                            " style Proa components. Source in your repo, in typed Rust. Theme it, compose it, ship it."
+                            {self.lead_suffix}
                         </p>
                         <div class={SECTION_ACTIONS}>
                             <a
-                                href="https://ui.proa.so/components"
+                                href={content_part!("link-url", self.link_url)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class={CTA_PRIMARY}
                             >
-                                "Browse Components"
+                                {self.link_label}
                                 {ArrowUpRightIcon}
                             </a>
                         </div>
                     </div>
                 </div>
-                {StaticRaw(include_str!("home/proa_ui_rail.html"))}
+                {content_part!("component-previews", StaticRaw(PROA_UI_RAIL_HTML))}
             </section>
-        }
-        .render(cx)
+        }.render(cx)
     }
 }
 
@@ -2151,115 +2005,872 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomePage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div data-page="home" class="overflow-hidden">
-                {InterfaceLayerHero}
-                <section
-                    id="render-targets"
-                    class={SECTION_SHELL}
-                >
-                    <div class={SECTION_CONTAINER}>
-                        <div class={SECTION_HEADER}>
-                            <h2 class={SECTION_TITLE}>"One object. Every render target."</h2>
-                            <p class={SECTION_LEAD}>
-                                "HTML, Markdown, and other render targets, from one typed component."
-                            </p>
-                            <div class={SECTION_ACTIONS}>
-                                <a
-                                    href="https://youtu.be/pJx84jdBDKU?si=z3pK3vvzYmSo-Sz_"
-                                    data-video-cta="render-targets"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label="Watch multi-target rendering on YouTube (opens in a new tab)"
-                                    class={CTA_VIDEO}
-                                >
-                                    {PlayIcon}
-                                    "Watch multi-target rendering"
-                                </a>
-                            </div>
-                        </div>
-                        <div
-                            data-composable-flow
-                            class="relative isolate mt-12 grid gap-3 sm:mt-14 lg:grid-cols-[minmax(190px,0.65fr)_minmax(0,1.25fr)_minmax(0,0.9fr)] lg:grid-rows-2 lg:items-center lg:gap-x-16 lg:gap-y-12"
-                        >
-                            {ComposableConnectorLayer}
-                            <div
-                                data-flow-node="source"
-                                class="relative z-10 min-w-0 lg:row-span-2 lg:self-center"
-                            >
-                                {ComposableSourceCode}
-                            </div>
-                            <div data-flow-node="md-render" class="relative z-10 min-w-0">
-                                {ComposableMdRenderCode}
-                            </div>
-                            <div data-flow-node="md-child" class="relative z-10 min-w-0">
-                                {ComposableMdChildCode}
-                            </div>
-                            <div data-flow-node="web-render" class="relative z-10 min-w-0">
-                                {ComposableWebRenderCode}
-                            </div>
-                            <div data-flow-node="web-child" class="relative z-10 min-w-0">
-                                {ComposableWebChildCode}
-                            </div>
-                        </div>
-                    </div>
-                </section>
+                {InterfaceLayerHero::new()}
+                {RenderTargetsSection}
                 {Direction18Hero}
-                {BenchmarkHighlights}
-                {ProaUiSection}
-                <script>{StaticRaw(COMPOSABLE_CONNECTORS_SCRIPT)}</script>
-                <section class={SECTION_SHELL}>
-                    <div class={SECTION_CONTAINER}>
-                        <div class={SECTION_HEADER}>
-                            <h2 class={SECTION_TITLE}>
-                                "Everything people want from a modern web app, without the render tax underneath it."
-                            </h2>
-                            <p class={SECTION_LEAD}>
-                                "A component system and a framework surface, not a templating engine."
-                            </p>
-                        </div>
-                        <div class="mt-12 grid gap-4 sm:mt-14 lg:grid-cols-3">
-                            {for column in CAPABILITY_COLUMNS {
-                                CapabilityColumnView { column }
-                            }}
-                        </div>
-                    </div>
-                </section>
-                <section class={SECTION_SHELL}>
-                    <div class={SECTION_CONTAINER}>
-                        <div class="rounded-[36px] border border-black/10 bg-[#f4f0e8] p-6 dark:border-white/10 dark:bg-[#111215] sm:p-10">
-                            <div class={SECTION_HEADER}>
-                                <h2 class={SECTION_TITLE}>"Start building with Proa."</h2>
-                                <div class={SECTION_ACTIONS}>
-                                    <a href="/docs" class={CTA_PRIMARY}>
-                                        "Read the quickstart"
-                                        {ArrowRightIcon}
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+                {BenchmarkHighlights::new()}
+                {ProaUiSection::new()}
+                {ConnectorScript}
+                {content_part!("capabilities", CapabilitiesSection { columns: CAPABILITY_COLUMNS })}
+                {GetStartedSection::new()}
             </div>
         }
         .render(cx)
     }
 }
 
+struct RenderTargetsSection;
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderTargetsSection {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <section
+                id="render-targets"
+                class={SECTION_SHELL}
+            >
+                <div class={SECTION_CONTAINER}>
+                    {RenderTargetsHeading::new()}
+                    <div
+                        data-composable-flow
+                        class="relative isolate mt-12 grid gap-3 sm:mt-14 lg:grid-cols-[minmax(190px,0.65fr)_minmax(0,1.25fr)_minmax(0,0.9fr)] lg:grid-rows-2 lg:items-center lg:gap-x-16 lg:gap-y-12"
+                    >
+                        {ComposableConnectorLayer}
+                        <div
+                            data-flow-node="source"
+                            class="relative z-10 min-w-0 lg:row-span-2 lg:self-center"
+                        >
+                            {content_part!("source-code", CodeExample(COMPOSABLE_SOURCE_HTML))}
+                        </div>
+                        <div data-flow-node="md-render" class="relative z-10 min-w-0">
+                            {content_part!("md-render-code", CodeExample(COMPOSABLE_MD_RENDER_HTML))}
+                        </div>
+                        <div data-flow-node="md-child" class="relative z-10 min-w-0">
+                            {content_part!("md-child-code", CodeExample(COMPOSABLE_MD_CHILD_HTML))}
+                        </div>
+                        <div data-flow-node="web-render" class="relative z-10 min-w-0">
+                            {content_part!("web-render-code", CodeExample(COMPOSABLE_WEB_RENDER_HTML))}
+                        </div>
+                        <div data-flow-node="web-child" class="relative z-10 min-w-0">
+                            {content_part!("web-child-code", CodeExample(COMPOSABLE_WEB_CHILD_HTML))}
+                        </div>
+                    </div>
+                </div>
+            </section>
+        }.render(cx)
+    }
+}
+
+struct CapabilitiesSection {
+    columns: &'static [CapabilityColumn],
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CapabilitiesSection {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <section class={SECTION_SHELL}>
+                <div class={SECTION_CONTAINER}>
+                    {CapabilitiesHeading::new()}
+                    <div class="mt-12 grid gap-4 sm:mt-14 lg:grid-cols-3">
+                        {for column in self.columns {
+                            CapabilityColumnView { column }
+                        }}
+                    </div>
+                </div>
+            </section>
+        }
+        .render(cx)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct GetStartedSection {
+    title: &'static str,
+    link_label: &'static str,
+    link_url: &'static str,
+}
+
+impl GetStartedSection {
+    const fn new() -> Self {
+        Self {
+            title: "Start building with Proa.",
+            link_label: "Read the quickstart",
+            link_url: routes::DOCS,
+        }
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GetStartedSection {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <section class={SECTION_SHELL}>
+                <div class={SECTION_CONTAINER}>
+                    <div class="rounded-[36px] border border-black/10 bg-[#f4f0e8] p-6 dark:border-white/10 dark:bg-[#111215] sm:p-10">
+                        <div class={SECTION_HEADER}>
+                            <h2 class={SECTION_TITLE}>{self.title}</h2>
+                            <div class={SECTION_ACTIONS}>
+                                <a
+                                    href={content_part!("link-url", self.link_url)}
+                                    class={CTA_PRIMARY}
+                                >
+                                    {self.link_label}
+                                    {ArrowRightIcon}
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        }.render(cx)
+    }
+}
+
+struct ConnectorScript;
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ConnectorScript {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <script>{StaticRaw(COMPOSABLE_CONNECTORS_SCRIPT)}</script>
+        }
+        .render(cx)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RenderTargetsHeading {
+    title: &'static str,
+    description: &'static str,
+    video_label: &'static str,
+    video_url: &'static str,
+    video_aria: &'static str,
+}
+
+impl RenderTargetsHeading {
+    const fn new() -> Self {
+        Self {
+            title: "One object. Every render target.",
+            description: "HTML, Markdown, and other render targets, from one typed component.",
+            video_label: "Watch multi-target rendering",
+            video_url: "https://youtu.be/pJx84jdBDKU?si=z3pK3vvzYmSo-Sz_",
+            video_aria: "Watch multi-target rendering on YouTube (opens in a new tab)",
+        }
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderTargetsHeading {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <div class={SECTION_HEADER}>
+                <h2 class={SECTION_TITLE}>{self.title}</h2>
+                <p class={SECTION_LEAD}>{self.description}</p>
+                <div class={SECTION_ACTIONS}>
+                    <a
+                        href={content_part!("video-url", self.video_url)}
+                        data-video-cta="render-targets"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={self.video_aria}
+                        class={CTA_VIDEO}
+                    >
+                        {PlayIcon}
+                        {self.video_label}
+                    </a>
+                </div>
+            </div>
+        }
+        .render(cx)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CapabilitiesHeading {
+    title: &'static str,
+    description: &'static str,
+}
+
+impl CapabilitiesHeading {
+    const fn new() -> Self {
+        Self {
+            title: "Everything people want from a modern web app, without the render tax underneath it.",
+            description: "A component system and a framework surface, not a templating engine.",
+        }
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CapabilitiesHeading {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <div class={SECTION_HEADER}>
+                <h2 class={SECTION_TITLE}>{self.title}</h2>
+                <p class={SECTION_LEAD}>{self.description}</p>
+            </div>
+        }
+        .render(cx)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ShowcaseHeading {
+    title_prefix: &'static str,
+    title_suffix: &'static str,
+    description: &'static str,
+    link_label: &'static str,
+    link_url: &'static str,
+    benchmark_label: &'static str,
+    benchmarks_url: &'static str,
+}
+
+impl ShowcaseHeading {
+    const fn new() -> Self {
+        Self {
+            title_prefix: "Build fast, ",
+            title_suffix: "information-dense apps.",
+            description: "Explore re-creations of GitHub, Sentry, and Airbnb, built in Proa with fast server rendering and selective interactivity.",
+            link_label: "View Showcase",
+            link_url: routes::SHOWCASES,
+            benchmark_label: "Benchmarks",
+            benchmarks_url: site::BENCHMARKS_URL,
+        }
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShowcaseHeading {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <div class={SECTION_HEADER}>
+                <h2 id="performance-heading" class={SECTION_TITLE}>
+                    {self.title_prefix}
+                    <span class="text-[#dd7627]">{self.title_suffix}</span>
+                </h2>
+                <p class={SECTION_LEAD}>{self.description}</p>
+                <div class={SECTION_ACTIONS}>
+                    <a
+                        href={content_part!("link-url", self.link_url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class={CTA_PRIMARY}
+                    >
+                        {self.link_label}
+                        {ArrowRightIcon}
+                    </a>
+                    <a
+                        href={content_part!("benchmarks-url", self.benchmarks_url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class={CTA_SECONDARY}
+                    >
+                        {self.benchmark_label}
+                        {ArrowUpRightIcon}
+                    </a>
+                </div>
+            </div>
+        }
+        .render(cx)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ShowcaseDisclaimer {
+    text: &'static str,
+}
+
+impl ShowcaseDisclaimer {
+    const fn new() -> Self {
+        Self {
+            text:
+                "Independent demos. Not affiliated with or endorsed by GitHub, Sentry, or Airbnb.",
+        }
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShowcaseDisclaimer {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <p class="mx-auto mt-5 max-w-[70ch] text-center text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                {self.text}
+            </p>
+        }.render(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for InterfaceLayerHero {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        omit!(ArrowRightIcon, "Decorative arrow");
+        omit!(PlayIcon, "Decorative play icon");
+        omit!(self.video_aria, "HTML announces the new-tab behavior");
+        md_sync! { r###"
+            # {self.title}
+
+            {self.lead_prefix}[{self.performance_label}]({content_part!("benchmarks-url", Url(self.benchmarks_url))}){self.lead_suffix}
+
+            - [{self.start_label}]({content_part!("start-url", Url(self.start_url))})
+            - [{self.video_label}]({content_part!("video-url", Url(self.video_url))})
+            "###
+        }.render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RenderTargetsHeading {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        omit!(PlayIcon, "Decorative play icon");
+        omit!(self.video_aria, "HTML announces the new-tab behavior");
+        md_sync! { r###"
+            ## {self.title}
+
+            {self.description}
+
+            [{self.video_label}]({content_part!("video-url", Url(self.video_url))})
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilitiesHeading {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            ## {self.title}
+
+            {self.description}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for GetStartedSection {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        omit!(ArrowRightIcon, "Decorative arrow");
+        md_sync! { r###"
+            ## {self.title}
+
+            [{self.link_label}]({content_part!("link-url", Url(self.link_url))})
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ShowcaseHeading {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        omit!(ArrowRightIcon, "Decorative arrow");
+        omit!(ArrowUpRightIcon, "Decorative external-link icon");
+        md_sync! { r###"
+            ## {self.title_prefix}{self.title_suffix}
+
+            {self.description}
+
+            - [{self.link_label}]({content_part!("link-url", Url(self.link_url))})
+            - [{self.benchmark_label}]({content_part!("benchmarks-url", Url(self.benchmarks_url))})
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ShowcaseDisclaimer {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        md_sync! { r###"{self.text}"### }.render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ProaUiSection {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        omit!(ArrowUpRightIcon, "Decorative external-link icon");
+        omit!(
+            "component-previews",
+            "Imported interactive UI previews; the catalog link is the Markdown entry point"
+        );
+        omit!(
+            "rail-styles",
+            "Stylesheet for the visual component previews"
+        );
+        md_sync! { r###"
+            ## {self.title}
+
+            {self.lead_prefix}[{self.lead_link_label}]({content_part!("shadcn-url", Url(self.shadcn_url))}){self.lead_suffix}
+
+            [{self.link_label}]({content_part!("link-url", Url(self.link_url))})
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkHighlights {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        omit!(
+            self.tabs_label,
+            "HTML tab controls; Markdown exposes all entries together"
+        );
+        omit!(
+            self.scroll_hint,
+            "Markdown exposes all charts without a horizontal scroller"
+        );
+        omit!(
+            self.open_label,
+            "Each Markdown image already links to the full-size SVG"
+        );
+        omit!(ArrowUpRightIcon, "Decorative link icons");
+        omit!(
+            self.render.title,
+            "The chart child renders this tab label as its Markdown heading"
+        );
+        omit!(
+            self.render.url,
+            "The chart child exposes this asset unconditionally in Markdown"
+        );
+        omit!(
+            self.http.title,
+            "The chart child renders this tab label as its Markdown heading"
+        );
+        omit!(
+            self.http.url,
+            "The chart child exposes this asset unconditionally in Markdown"
+        );
+        omit!(
+            self.load.title,
+            "The chart child renders this tab label as its Markdown heading"
+        );
+        omit!(
+            self.load.url,
+            "The chart child exposes this asset unconditionally in Markdown"
+        );
+        md_sync! { r###"
+            ## {self.title}
+
+            {content_part!("render-chart", self.render)}
+
+            {content_part!("http-chart", self.http)}
+
+            {content_part!("load-chart", self.load)}
+
+            {self.environment}
+
+            [{self.link_label}]({content_part!("benchmarks-url", Url(self.benchmarks_url))})
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Direction18HeroPreview {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        omit!(
+            self.tabs_label,
+            "HTML tab controls; Markdown exposes all entries together"
+        );
+        omit!(
+            HeroRepoPanel,
+            "Visual recreation; the showcase link opens the full app"
+        );
+        omit!(
+            HeroSentryPanel,
+            "Visual recreation; the showcase link opens the full app"
+        );
+        omit!(
+            HeroTravelPanel,
+            "Visual recreation; the showcase link opens the full app"
+        );
+        omit!(PenCircle, "Decorative metric annotation");
+        // Markdown lists every case; HTML selects one case at a time.
+        omit!(
+            self.proa_repo,
+            "Rendered unconditionally in the comparison table below"
+        );
+        omit!(
+            self.proa_sentry,
+            "Rendered unconditionally in the comparison table below"
+        );
+        omit!(
+            self.proa_travel,
+            "Rendered unconditionally in the comparison table below"
+        );
+        omit!(
+            self.peer_repo,
+            "Rendered unconditionally in the comparison table below"
+        );
+        omit!(
+            self.peer_sentry,
+            "Rendered unconditionally in the comparison table below"
+        );
+        omit!(
+            self.peer_travel,
+            "Rendered unconditionally in the comparison table below"
+        );
+        omit!(
+            self.speedup_repo,
+            "Rendered unconditionally in the comparison table below"
+        );
+        omit!(
+            self.speedup_sentry,
+            "Rendered unconditionally in the comparison table below"
+        );
+        omit!(
+            self.speedup_travel,
+            "Rendered unconditionally in the comparison table below"
+        );
+        md_sync! { r###"
+            | | {self.proa_label} | {self.peer_label} | {self.multiplier_label} |
+            | --- | --- | --- | --- |
+            | {self.repo_label} | {self.proa_repo} | {self.peer_repo} | {self.speedup_repo} |
+            | {self.sentry_label} | {self.proa_sentry} | {self.peer_sentry} | {self.speedup_sentry} |
+            | {self.travel_label} | {self.proa_travel} | {self.peer_travel} | {self.speedup_travel} |
+
+            {self.note}
+            "###
+        }.render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for HomePage {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        omit!(
+            ConnectorScript,
+            "Positions decorative SVG connectors in the browser"
+        );
+        md_sync! { r###"
+            {InterfaceLayerHero::new()}
+
+            {RenderTargetsSection}
+
+            {Direction18Hero}
+
+            {BenchmarkHighlights::new()}
+
+            {ProaUiSection::new()}
+
+            {content_part!("capabilities", CapabilitiesSection { columns: CAPABILITY_COLUMNS })}
+
+            {GetStartedSection::new()}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RenderTargetsSection {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        omit!(
+            ComposableConnectorLayer,
+            "Decorative SVG arrows between the same code examples"
+        );
+        md_sync! { r###"
+            {RenderTargetsHeading::new()}
+
+            {content_part!("source-code", CodeExample(COMPOSABLE_SOURCE_HTML))}
+
+            {content_part!("md-render-code", CodeExample(COMPOSABLE_MD_RENDER_HTML))}
+
+            {content_part!("md-child-code", CodeExample(COMPOSABLE_MD_CHILD_HTML))}
+
+            {content_part!("web-render-code", CodeExample(COMPOSABLE_WEB_RENDER_HTML))}
+
+            {content_part!("web-child-code", CodeExample(COMPOSABLE_WEB_CHILD_HTML))}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Direction18Hero {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            {ShowcaseHeading::new()}
+
+            {Direction18HeroPreview::new()}
+
+            {ShowcaseDisclaimer::new()}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilitiesSection {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            {CapabilitiesHeading::new()}
+
+            {for column in self.columns {
+            {CapabilityColumnView { column }}
+
+            }}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilityColumnView {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let column = self.column;
+        omit!(
+            column.variant,
+            "Selects an aria-hidden decorative illustration"
+        );
+        md_sync! { r###"
+            {column.label}
+
+            ### {column.title}
+
+            {column.detail}
+
+            {for item in column.supporting {
+            {CapabilitySupportView { card: item }}
+
+            }}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilitySupportView {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let card = self.card;
+        md_sync! { r###"
+            #### {card.title}
+
+            {card.detail}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Direction18HeroPreview;
+    use crate::utils::document::render_markdown;
     use proa_core::{RenderBuffer, WebContext, WebRenderSync};
+    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+
+    /// Compare rendered meaning rather than Markdown whitespace or escaped
+    /// punctuation. Include link/image destinations so copy parity cannot hide
+    /// dropped or changed navigation and assets.
+    fn markdown_content(markdown: &str) -> (String, Vec<String>) {
+        let mut text = String::new();
+        let mut destinations = Vec::new();
+        for event in Parser::new_ext(markdown, Options::ENABLE_TABLES) {
+            match event {
+                Event::Text(value) | Event::Code(value) => text.push_str(&value),
+                Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                    destinations.push(dest_url.into_string());
+                }
+                Event::SoftBreak | Event::HardBreak => text.push(' '),
+                Event::End(
+                    TagEnd::Paragraph
+                    | TagEnd::Heading(_)
+                    | TagEnd::Item
+                    | TagEnd::CodeBlock
+                    | TagEnd::TableCell
+                    | TagEnd::TableRow,
+                ) => text.push(' '),
+                _ => {}
+            }
+        }
+        (
+            text.split_whitespace().collect::<Vec<_>>().join(" "),
+            destinations,
+        )
+    }
+
+    #[test]
+    fn homepage_markdown_preserves_core_structure_and_all_benchmark_cases() {
+        let markdown = render_markdown(super::HomePage);
+        let events: Vec<_> = Parser::new_ext(&markdown, Options::ENABLE_TABLES).collect();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(
+                    event,
+                    Event::Start(Tag::Heading {
+                        level: pulldown_cmark::HeadingLevel::H1,
+                        ..
+                    })
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Start(Tag::CodeBlock(_))))
+                .count(),
+            5
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Start(Tag::Table(_))))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Start(Tag::TableRow)))
+                .count(),
+            3
+        );
+        let images: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Start(Tag::Image { dest_url, .. }) => Some(dest_url.as_ref()),
+                _ => None,
+            })
+            .collect();
+        let benchmarks = super::BenchmarkHighlights::new();
+        assert_eq!(
+            images,
+            [
+                benchmarks.render.url,
+                benchmarks.http.url,
+                benchmarks.load.url
+            ]
+        );
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, Event::Html(_) | Event::InlineHtml(_))));
+    }
+
+    #[test]
+    fn hero_copy_and_destinations_are_shared_and_escaped_in_both_views() {
+        let hero = super::InterfaceLayerHero {
+            title: "[Changed] <script>heading</script>",
+            performance_label: "Performance & <value>",
+            start_label: "Read [this]",
+            start_url: "/new/docs?x=1&y=2",
+            video_label: "Watch *this*",
+            video_url: "/new/video",
+            ..super::InterfaceLayerHero::new()
+        };
+        let html = proa_core::render_to_string(hero);
+        let markdown = render_markdown(hero);
+        let (text, destinations) = markdown_content(&markdown);
+        for value in [
+            hero.title,
+            hero.performance_label,
+            hero.start_label,
+            hero.video_label,
+        ] {
+            assert!(text.contains(value));
+        }
+        assert!(html.contains("&lt;script&gt;heading&lt;/script&gt;"));
+        assert!(!html.contains("<script>heading"));
+        assert!(destinations.iter().any(|url| url == hero.start_url));
+        assert!(destinations.iter().any(|url| url == hero.video_url));
+        assert!(html.contains("/new/docs?x=1&amp;y=2"));
+        assert!(!Parser::new(&markdown)
+            .any(|event| matches!(event, Event::Html(_) | Event::InlineHtml(_))));
+    }
+
+    #[test]
+    fn benchmark_markdown_uses_the_same_mutable_content_props_as_html() {
+        let mut charts = super::BenchmarkHighlights::new();
+        charts.render.title = "[Changed render title]";
+        charts.render.description = "Changed <chart> description";
+        charts.render.url = "/new/chart.svg";
+        charts.http.description = "Changed HTTP chart";
+        charts.load.description = "Changed load chart";
+        let html = proa_core::render_to_string(charts);
+        let markdown = render_markdown(charts);
+        let (text, destinations) = markdown_content(&markdown);
+        for value in [charts.render.title, charts.http.title, charts.load.title] {
+            assert!(html.contains(value));
+            assert!(text.contains(value));
+        }
+        for chart in [charts.render, charts.http, charts.load] {
+            assert!(text.contains(chart.description));
+            assert!(destinations.iter().any(|url| url == chart.url));
+            assert!(html.contains(chart.url));
+        }
+        assert!(html.contains("Changed &lt;chart&gt; description"));
+    }
+
+    #[test]
+    fn showcase_markdown_reads_all_cases_from_the_html_props() {
+        let mut showcase = super::Direction18HeroPreview::new();
+        showcase.proa_repo = "changed repo";
+        showcase.proa_sentry = "changed sentry";
+        showcase.proa_travel = "changed travel";
+        let markdown = render_markdown(showcase);
+        let html = proa_core::render_to_string(showcase);
+        let (text, _) = markdown_content(&markdown);
+        for value in [
+            showcase.proa_repo,
+            showcase.proa_sentry,
+            showcase.proa_travel,
+        ] {
+            assert!(text.contains(value));
+        }
+        // SSR selects the first tab; the other shared props are available to
+        // the browser bindings and all three rows are present in Markdown.
+        assert!(html.contains(">changed repo<"));
+        assert!(!html.contains(">changed sentry<"));
+        assert!(!html.contains(">changed travel<"));
+    }
+
+    #[test]
+    fn homepage_markdown_composes_its_section_markdown_implementations() {
+        let page = render_markdown(super::HomePage);
+        let mut remaining = page.as_str();
+        for section in [
+            render_markdown(super::InterfaceLayerHero::new()),
+            render_markdown(super::RenderTargetsSection),
+            render_markdown(super::Direction18Hero),
+            render_markdown(super::BenchmarkHighlights::new()),
+            render_markdown(super::ProaUiSection::new()),
+            render_markdown(super::CapabilitiesSection {
+                columns: super::CAPABILITY_COLUMNS,
+            }),
+            render_markdown(super::GetStartedSection::new()),
+        ] {
+            let section = section.trim();
+            assert!(!section.is_empty());
+            let (_, rest) = remaining
+                .split_once(section)
+                .expect("page must compose each child's Markdown in HTML order");
+            remaining = rest;
+        }
+    }
+
+    #[test]
+    fn capability_markdown_uses_the_same_props_and_escapes_them() {
+        static CARDS: [super::TextCard; 2] = [
+            super::TextCard {
+                title: "[dynamic] <b>title</b>",
+                detail: "Literal *stars*, _underscores_, and &amp; text.",
+            },
+            super::TextCard {
+                title: "A second title",
+                detail: "[Not a link](javascript:alert(1))",
+            },
+        ];
+        for card in &CARDS {
+            let html = render_markdown(proa_core::to_markdown(super::CapabilitySupportView {
+                card,
+            }));
+            let markdown = render_markdown(super::CapabilitySupportView { card });
+            assert_eq!(markdown_content(&markdown), markdown_content(&html));
+            assert!(markdown_content(&markdown).1.is_empty());
+            assert!(!Parser::new(&markdown)
+                .any(|event| matches!(event, Event::Html(_) | Event::InlineHtml(_))));
+        }
+    }
 
     #[test]
     fn proa_ui_rail_preserves_inert_previews_and_catalog_links() {
         let mut cx = WebContext::new();
-        super::ProaUiSection.render(&mut cx).unwrap();
+        super::ProaUiSection::new().render(&mut cx).unwrap();
         let html = cx.into_output().into_string();
 
         assert_eq!(html.matches("class=\"home-rail-item").count(), 11);
         assert_eq!(html.matches(" inert").count(), 11);
         assert_eq!(html.matches("class=\"home-rail-name\"").count(), 11);
         assert_eq!(
-            html.matches("href=\"https://ui.proa.so/components").count(),
+            html.matches(&format!("href=\"{}", super::site::UI_COMPONENTS_URL))
+                .count(),
             12
         );
         assert_eq!(html.matches("target=\"_blank\"").count(), 13);
@@ -2269,6 +2880,7 @@ mod tests {
         assert!(html.contains("aria-describedby=\"home-rail-help\""));
         assert!(html.contains("id=\"home-rail-help\""));
         assert!(!html.contains("data-rsjs-"));
+        assert!(!html.contains("{{UI_ORIGIN}}"));
         assert!(!html.contains("<script"));
     }
 
@@ -2277,7 +2889,7 @@ mod tests {
         let mut output = RenderBuffer::new();
         let mut cx = WebContext::with_buffer(&mut output);
 
-        Direction18HeroPreview.render(&mut cx).unwrap();
+        Direction18HeroPreview::new().render(&mut cx).unwrap();
 
         let html = output.into_string();
         assert_eq!(html.matches(r#"role="tab""#).count(), 3);
@@ -2324,7 +2936,7 @@ mod tests {
     #[test]
     fn benchmark_charts_preserve_tabs_and_local_svg_links() {
         let mut cx = WebContext::new();
-        super::BenchmarkHighlights.render(&mut cx).unwrap();
+        super::BenchmarkHighlights::new().render(&mut cx).unwrap();
         let html = cx.into_output().into_string();
 
         assert_eq!(html.matches(r#"role="tab""#).count(), 3);
@@ -2381,14 +2993,17 @@ mod tests {
         assert!(html.contains("proa-hero-tabs"));
     }
 
-    #[test]
-    fn homepage_metadata_fits_social_preview_limits() {
-        use futures::FutureExt;
-
-        let html = super::handler()
-            .now_or_never()
-            .expect("homepage renders without I/O")
-            .0;
+    #[tokio::test]
+    async fn homepage_metadata_fits_social_preview_limits() {
+        let response = super::handler(
+            axum::http::HeaderMap::new(),
+            axum::extract::Query(super::HomeQuery::default()),
+        )
+        .await;
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
         let head = html.split_once("</head>").unwrap().0;
         let title = head
             .split_once("<title>")

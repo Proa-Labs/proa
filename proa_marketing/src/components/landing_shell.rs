@@ -1,8 +1,12 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
-use proa_macros::html_sync;
+use crate::data::{routes, site};
+
+use proa_core::{DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError};
+use proa_macros::{content_part, html_sync, md_sync};
+
+use crate::utils::document::Url;
 
 use super::brand::ProaBrand;
 use super::search_trigger::SearchTrigger;
@@ -23,9 +27,9 @@ pub enum MarketingNavActive {
 
 impl MarketingNavActive {
     pub fn for_path(path: &str) -> Self {
-        if path == "/docs" || path.starts_with("/docs/") {
+        if path == routes::DOCS || path.starts_with(routes::DOCS_PREFIX) {
             Self::Docs
-        } else if path == "/ecosystem" || path.starts_with("/ecosystem/") {
+        } else if path == routes::ECOSYSTEM || path.starts_with(routes::ECOSYSTEM_PREFIX) {
             Self::Ecosystem
         } else {
             Self::None
@@ -54,13 +58,13 @@ struct EcosystemNavEntry {
 
 const ECOSYSTEM_NAV_ITEMS: &[EcosystemNavEntry] = &[
     EcosystemNavEntry {
-        href: "/ecosystem/apps",
+        href: routes::APPS,
         title: "Apps",
         description: "Products shipped on Proa",
         kind: EcosystemNavKind::Apps,
     },
     EcosystemNavEntry {
-        href: "/ecosystem/developer-tools",
+        href: routes::DEVELOPER_TOOLS,
         title: "Developer tools",
         description: "Components, adapters, and more",
         kind: EcosystemNavKind::DeveloperTools,
@@ -122,7 +126,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingNav {
         html_sync! {
             <nav class={nav_class} aria-label="Main navigation">
                 {MarketingNavLink {
-                    href: "/docs",
+                    href: routes::DOCS,
                     label: "Docs",
                     active: self.active == MarketingNavActive::Docs,
                     variant: self.variant,
@@ -132,7 +136,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingNav {
                     variant: self.variant,
                 }}
                 {MarketingNavLink {
-                    href: "https://ui.proa.so",
+                    href: site::UI_URL,
                     label: "Proa UI",
                     active: false,
                     variant: self.variant,
@@ -301,7 +305,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingHeader {
                     class="mx-auto flex max-w-[1400px] items-center justify-between gap-6 px-4 py-3 sm:px-6 lg:px-8"
                 >
                     <div class="flex min-w-0 items-center gap-8 lg:gap-10">
-                        <a href="/" class="shrink-0 text-zinc-950 dark:text-zinc-100">
+                        <a href={routes::HOME} class="shrink-0 text-zinc-950 dark:text-zinc-100">
                             {ProaBrand}
                         </a>
                         {MarketingNav {
@@ -313,7 +317,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingHeader {
                         {SearchTrigger::new()}
                         {ThemeToggle::new()}
                         <a
-                            href="https://github.com/proa-labs/proa"
+                            href={site::GITHUB_URL}
                             rel="noreferrer noopener"
                             target="_blank"
                             aria-label="GitHub"
@@ -329,7 +333,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingHeader {
                             </svg>
                         </a>
                         <a
-                            href="https://proa.so/discord"
+                            href={site::DISCORD_URL}
                             rel="noreferrer noopener"
                             target="_blank"
                             aria-label="Discord"
@@ -345,7 +349,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingHeader {
                             </svg>
                         </a>
                         <a
-                            href="https://www.reddit.com/r/proa_rs/"
+                            href={site::REDDIT_URL}
                             rel="noreferrer noopener"
                             target="_blank"
                             aria-label="Reddit"
@@ -368,6 +372,54 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingHeader {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct FooterLinks {
+    title: &'static str,
+    links: &'static [(&'static str, &'static str)],
+}
+
+pub(crate) const DOCUMENTATION_LINKS: FooterLinks = FooterLinks {
+    title: "Documentation tools",
+    links: &[
+        ("Documentation index", routes::DOCS_INDEX),
+        ("API guide", routes::API_GUIDE),
+        ("OpenAPI definition", routes::OPENAPI),
+        ("MCP server card", routes::MCP_CARD),
+        ("Authentication", routes::AUTH),
+        ("Authoring skills", routes::SKILLS_INDEX),
+    ],
+};
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FooterLinks {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <div data-footer-links>
+                <p class="font-medium text-zinc-950 dark:text-zinc-100">{self.title}</p>
+                <ul class="mt-4 space-y-3 text-zinc-600 dark:text-zinc-400">
+                    {for (label, href) in self.links {
+                        html_sync! {
+                            <li><a href={content_part!("link-url", *href)} class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50">{content_part!("link-label", *label)}</a></li>
+                        }
+                    }}
+                </ul>
+            </div>
+        }.render(cx)
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for FooterLinks {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            ## {self.title}
+
+            {for (label, href) in self.links {
+            - [{content_part!("link-label", *label)}]({content_part!("link-url", Url(href))})
+            }}"###
+        }
+        .render_md(cx)
+    }
+}
+
 pub struct LandingFooter;
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
@@ -379,11 +431,11 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
             >
                 <div class="mx-auto grid max-w-[1400px] gap-10 px-4 py-12 sm:px-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:px-8">
                     <div class="max-w-md">
-                        <a href="/" class="inline-flex text-zinc-950 dark:text-zinc-100">
+                        <a href={routes::HOME} class="inline-flex text-zinc-950 dark:text-zinc-100">
                             {ProaBrand}
                         </a>
                         <p class="mt-4 text-sm leading-7 text-zinc-600 dark:text-zinc-300">
-                            "The next era of web interfaces. Built in Rust."
+                            {site::TAGLINE}
                         </p>
                         <nav
                             data-footer-socials
@@ -391,7 +443,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                             class="mt-5 flex items-center gap-2"
                         >
                             <a
-                                href="https://github.com/proa-labs/proa"
+                                href={site::GITHUB_URL}
                                 rel="noreferrer noopener"
                                 target="_blank"
                                 aria-label="GitHub"
@@ -407,7 +459,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                                 </svg>
                             </a>
                             <a
-                                href="https://proa.so/discord"
+                                href={site::DISCORD_URL}
                                 rel="noreferrer noopener"
                                 target="_blank"
                                 aria-label="Discord"
@@ -423,7 +475,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                                 </svg>
                             </a>
                             <a
-                                href="https://x.com/drewhariri"
+                                href={site::SOCIAL_URL}
                                 rel="noreferrer noopener"
                                 target="_blank"
                                 aria-label="X"
@@ -439,7 +491,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                                 </svg>
                             </a>
                             <a
-                                href="https://www.reddit.com/r/proa_rs/"
+                                href={site::REDDIT_URL}
                                 rel="noreferrer noopener"
                                 target="_blank"
                                 aria-label="Reddit"
@@ -458,67 +510,44 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                         // Temporarily hidden until the legal pages are ready.
                         /* <div class="mt-6 flex flex-col items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
                             <a
-                                href="/privacy"
+                                href={routes::PRIVACY}
                                 class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50"
                             >
                                 "Privacy Policy"
                             </a>
                             <a
-                                href="/terms"
+                                href={routes::TERMS}
                                 class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50"
                             >
                                 "Terms and Conditions"
                             </a>
                         </div> */
                     </div>
-                    <nav aria-label="Footer navigation" class="grid gap-8 text-sm sm:grid-cols-2">
-                        <div>
-                            <p class="font-medium text-zinc-950 dark:text-zinc-100">"Explore"</p>
-                            <ul class="mt-4 space-y-3 text-zinc-600 dark:text-zinc-400">
-                                <li>
-                                    <a
-                                        href="/ecosystem/apps"
-                                        class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50"
-                                    >
-                                        "Apps"
-                                    </a>
-                                </li>
-                                <li>
-                                    <a
-                                        href="/ecosystem"
-                                        class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50"
-                                    >
-                                        "Ecosystem"
-                                    </a>
-                                </li>
-                            </ul>
-                        </div>
-                        <div>
-                            <p class="font-medium text-zinc-950 dark:text-zinc-100">"Resources"</p>
-                            <ul class="mt-4 space-y-3 text-zinc-600 dark:text-zinc-400">
-                                <li>
-                                    <a
-                                        href="/docs"
-                                        class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50"
-                                    >
-                                        "Docs"
-                                    </a>
-                                </li>
-                                <li>
-                                    <a
-                                        href="/sitemap.xml"
-                                        class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50"
-                                    >
-                                        "Sitemap"
-                                    </a>
-                                </li>
-                            </ul>
-                        </div>
+                    <nav aria-label="Footer navigation" class="grid grid-cols-2 gap-8 text-sm sm:grid-cols-3">
+                        {FooterLinks {
+                            title: "Explore",
+                            links: &[
+                                ("Apps", routes::APPS),
+                                ("Ecosystem", routes::ECOSYSTEM),
+                                ("About", routes::ABOUT),
+                                ("Contact", routes::CONTACT),
+                            ],
+                        }}
+                        {FooterLinks {
+                            title: "Resources",
+                            links: &[
+                                ("Docs", routes::DOCS),
+                                ("Sitemap", routes::SITEMAP),
+                                ("For agents", routes::AGENT_INDEX),
+                                ("Privacy", routes::PRIVACY),
+                            ],
+                        }}
+                        {DOCUMENTATION_LINKS}
                     </nav>
                 </div>
                 <div class="border-t border-black/10 dark:border-white/10">
                     <div class="mx-auto flex max-w-[1400px] flex-col gap-3 px-4 py-5 text-xs text-zinc-500 dark:text-zinc-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-                        <p>"© Proa Labs, Inc. All rights reserved."</p>
+                        <p>"© "{site::ORGANIZATION}" All rights reserved."</p>
                         <p>"Rendered by Proa."</p>
                     </div>
                 </div>
@@ -534,6 +563,7 @@ mod tests {
         LandingFooter, LandingHeader, MarketingEcosystemNav, MarketingNav, MarketingNavActive,
         MarketingNavVariant,
     };
+    use crate::data::site;
     use proa_core::{RenderBuffer, WebContext, WebRenderSync};
 
     #[test]
@@ -606,8 +636,9 @@ mod tests {
             .unwrap();
 
             let html = output.into_string();
-            assert_eq!(html.matches(r#"href="https://ui.proa.so""#).count(), 1);
-            assert!(html.contains(r#"href="https://ui.proa.so" class="marketing-nav-link">"#));
+            let href = format!("href=\"{}\"", site::UI_URL);
+            assert_eq!(html.matches(&href).count(), 1);
+            assert!(html.contains(&format!("{href} class=\"marketing-nav-link\">")));
             assert!(html.contains(r#"href="/docs" class="marketing-nav-link" data-active="true">"#));
         }
     }
@@ -624,15 +655,42 @@ mod tests {
         .unwrap();
 
         let html = output.into_string();
-        assert!(html.contains(
-            r#"href="https://github.com/proa-labs/proa" rel="noreferrer noopener" target="_blank" aria-label="GitHub""#
-        ));
-        assert!(html.contains(
-            r#"href="https://proa.so/discord" rel="noreferrer noopener" target="_blank" aria-label="Discord""#
-        ));
-        assert!(html.contains(
-            r#"href="https://www.reddit.com/r/proa_rs/" rel="noreferrer noopener" target="_blank" aria-label="Reddit""#
-        ));
+        for (href, label) in [
+            (site::GITHUB_URL, "GitHub"),
+            (site::DISCORD_URL, "Discord"),
+            (site::REDDIT_URL, "Reddit"),
+        ] {
+            assert!(html.contains(&format!(
+                r#"href="{href}" rel="noreferrer noopener" target="_blank" aria-label="{label}""#
+            )));
+        }
+    }
+
+    #[test]
+    fn footer_links_share_changed_content_and_destinations() {
+        use pulldown_cmark::{Event, Parser, Tag};
+        let section = super::FooterLinks {
+            title: "Changed <tools>",
+            links: &[("Read [this]", "/changed/docs?x=1&y=2")],
+        };
+        let html = proa_core::render_to_string(section);
+        let markdown = crate::utils::document::render_markdown(section);
+        let mut text = String::new();
+        let mut destinations = Vec::new();
+        for event in Parser::new(&markdown) {
+            match event {
+                Event::Text(value) => text.push_str(&value),
+                Event::Start(Tag::Link { dest_url, .. }) => {
+                    destinations.push(dest_url.into_string())
+                }
+                _ => {}
+            }
+        }
+        assert!(html.contains("Changed &lt;tools&gt;"));
+        assert!(text.contains(section.title));
+        assert!(text.contains(section.links[0].0));
+        assert_eq!(destinations, [section.links[0].1]);
+        assert!(html.contains("href=\"/changed/docs?x=1&amp;y=2\""));
     }
 
     #[test]
@@ -645,10 +703,10 @@ mod tests {
         let html = output.into_string();
         assert!(html.contains(r#"data-footer-socials aria-label="Social links""#));
         for (href, label) in [
-            ("https://github.com/proa-labs/proa", "GitHub"),
-            ("https://proa.so/discord", "Discord"),
-            ("https://x.com/drewhariri", "X"),
-            ("https://www.reddit.com/r/proa_rs/", "Reddit"),
+            (site::GITHUB_URL, "GitHub"),
+            (site::DISCORD_URL, "Discord"),
+            (site::SOCIAL_URL, "X"),
+            (site::REDDIT_URL, "Reddit"),
         ] {
             let link_contract = format!(
                 r#"href="{href}" rel="noreferrer noopener" target="_blank" aria-label="{label}""#

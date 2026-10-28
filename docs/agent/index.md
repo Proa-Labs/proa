@@ -14,6 +14,7 @@ per task rather than skimming the whole thing.
 | You want to ... | Start here |
 |---|---|
 | Add a local render component | [`components.md`](components.md) |
+| Render HTML, Markdown, XML, plain text, or JSON | [`document-rendering.md`](document-rendering.md) |
 | Add an RSJS-analyzed/composable component (with or without browser origins) | [`rsjs-islands.md`](rsjs-islands.md) |
 | Check HTML → Markdown content coverage | [`content-coverage.md`](content-coverage.md) |
 | Pick `WebRenderSync` vs `WebRender` | [`api-reference/render-traits.md`](api-reference/render-traits.md) |

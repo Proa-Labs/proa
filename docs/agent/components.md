@@ -7,6 +7,10 @@ theme system, or neighboring checkout.
 The `proa_ui` design-system library is a downstream consumer of Proa. Its
 components and catalog follow the instructions in that repository.
 
+Before authoring a page, discovery document, or error response, read
+[`document-rendering.md`](document-rendering.md). It covers format-specific
+macros and shared HTML/Markdown implementations, including cached documents.
+
 ## Pick the render path
 
 Use `WebRenderSync` and `html_sync!` unless rendering must await data. Author

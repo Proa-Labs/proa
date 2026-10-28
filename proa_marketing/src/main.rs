@@ -3,12 +3,15 @@
 
 //! Marketing site server binary deployed through Railway.
 
+use crate::data::routes;
+
 use std::env;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use axum::http::header::{HeaderValue, CACHE_CONTROL, LINK, X_CONTENT_TYPE_OPTIONS};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use axum::Router;
 use tower::ServiceBuilder;
 use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
@@ -18,6 +21,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
+mod agent;
 mod analytics;
 mod components;
 mod data;
@@ -26,6 +30,9 @@ mod layout;
 mod pages;
 mod static_assets;
 mod utils;
+
+#[cfg(test)]
+mod agent_tests;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -56,27 +63,62 @@ fn listen_addr(host: &str, port: u16) -> anyhow::Result<SocketAddr> {
 }
 
 fn app() -> Router {
+    let budget = Arc::new(Mutex::new(endpoints::api::RequestBudget::default()));
+    let agent_api = Router::new()
+        .route(
+            routes::API,
+            get(endpoints::agent_discovery::site_metadata)
+                .fallback(endpoints::api::method_not_allowed),
+        )
+        .route(
+            routes::API_V1,
+            get(endpoints::agent_discovery::site_metadata)
+                .fallback(endpoints::api::method_not_allowed),
+        )
+        .route(
+            routes::API_SEARCH,
+            get(endpoints::api::search_handler).fallback(endpoints::api::method_not_allowed),
+        )
+        .route(
+            routes::API_DOCS,
+            get(endpoints::api::list_handler).fallback(endpoints::api::method_not_allowed),
+        )
+        .route(
+            routes::API_PAGE,
+            get(endpoints::api::page_handler).fallback(endpoints::api::method_not_allowed),
+        )
+        .route(routes::API_PATTERN, any(endpoints::api::not_found))
+        .route(
+            routes::LEGACY_SEARCH,
+            get(endpoints::search::handler).post(endpoints::search::post_handler),
+        )
+        .route_service(routes::MCP, endpoints::mcp::service())
+        .layer(axum::middleware::from_fn_with_state(
+            budget,
+            endpoints::api::rate_limit,
+        ));
     Router::new()
         .route(
-            "/",
+            routes::HOME,
             get(pages::home::handler).layer(SetResponseHeaderLayer::if_not_present(
                 LINK,
                 HeaderValue::from_static(endpoints::agent_discovery::DISCOVERY_LINKS),
             )),
         )
         .route("/showcase", get(pages::showcase::handler))
-        .route("/ecosystem", get(pages::ecosystem::handler))
-        .route("/ecosystem/apps", get(pages::ecosystem::apps_handler))
+        .route(routes::ECOSYSTEM, get(pages::ecosystem::handler))
+        .route(routes::APPS, get(pages::ecosystem::apps_handler))
         .route(
-            "/ecosystem/developer-tools",
+            routes::DEVELOPER_TOOLS,
             get(pages::ecosystem::developer_tools_handler),
         )
-        .route(
-            "/ecosystem/registry",
-            get(pages::ecosystem::registry_handler),
-        )
-        .route("/privacy", get(pages::legal::privacy_handler))
-        .route("/terms", get(pages::legal::terms_handler))
+        .route(routes::REGISTRY, get(pages::ecosystem::registry_handler))
+        .route(routes::PRIVACY, get(pages::legal::privacy_handler))
+        .route(routes::TERMS, get(pages::legal::terms_handler))
+        .route(routes::ABOUT, get(pages::info::about))
+        .route(routes::ABOUT_MARKDOWN, get(pages::info::about_markdown))
+        .route(routes::CONTACT, get(pages::info::contact))
+        .route(routes::CONTACT_MARKDOWN, get(pages::info::contact_markdown))
         .route(
             "/demos/quantity-stepper",
             get(pages::demos::quantity_stepper_handler),
@@ -85,22 +127,15 @@ fn app() -> Router {
             "/demos/quantity-stepper/cart",
             post(pages::demos::quantity_stepper_cart_handler),
         )
-        .route("/docs", get(pages::docs::handler))
-        .route("/docs/*path", get(pages::docs::path_handler))
-        .route(
-            "/.well-known/proa-site.json",
-            get(endpoints::agent_discovery::site_metadata),
-        )
-        .route("/openapi.json", get(endpoints::agent_discovery::openapi))
-        .route("/llms-full.txt", get(endpoints::llms::site_handler))
-        .route(
-            "/api/search",
-            get(endpoints::search::handler).post(endpoints::search::post_handler),
-        )
+        .route(routes::DOCS, get(pages::docs::handler))
+        .route(routes::DOCS_PATTERN, get(pages::docs::path_handler))
+        .route(routes::DOCS_CORPUS, get(endpoints::llms::site_handler))
+        .merge(endpoints::agent_discovery::router())
+        .merge(agent_api)
         .route("/healthz", get(endpoints::health::healthz))
         .route("/readyz", get(endpoints::health::readyz))
         .route("/robots.txt", get(endpoints::robots::handler))
-        .route("/sitemap.xml", get(endpoints::sitemap::handler))
+        .route(routes::SITEMAP, get(endpoints::sitemap::handler))
         .route(
             "/schema/proa.config.json",
             get(endpoints::schemas::project_config),
@@ -121,6 +156,7 @@ fn app() -> Router {
         .merge(proa_demo::playground::marketing_router())
         .merge(proa_showcase_web::router())
         .nest_service("/static", static_service())
+        .fallback(endpoints::not_found::handler)
         .layer(CompressionLayer::new().compress_when(compression_predicate()))
         .layer(TraceLayer::new_for_http())
 }
@@ -237,8 +273,14 @@ mod tests {
         let html = std::str::from_utf8(&body).unwrap();
         let head = html.split_once("</head>").unwrap().0;
         assert!(head.contains(r#"name="twitter:card" content="summary_large_image""#));
-        assert!(head.contains(r#"name="twitter:site" content="@drewhariri""#));
-        assert!(head.contains(r#"property="og:site_name" content="Proa""#));
+        assert!(head.contains(&format!(
+            r#"name="twitter:site" content="{}""#,
+            data::site::SOCIAL_HANDLE
+        )));
+        assert!(head.contains(&format!(
+            r#"property="og:site_name" content="{}""#,
+            data::site::NAME
+        )));
         let image = head
             .split_once(r#"name="twitter:image" content=""#)
             .unwrap()
@@ -271,20 +313,13 @@ mod tests {
 
     #[tokio::test]
     async fn generated_project_schema_urls_are_served() {
-        for (path, expected_id) in [
-            (
-                "/schema/proa.config.json",
-                "https://proa.so/schema/proa.config.json",
-            ),
-            (
-                "/schema/proa.lock.json",
-                "https://proa.so/schema/proa.lock.json",
-            ),
-            (
-                "/schema/ui-component-manifest-v1.json",
-                "https://proa.so/schema/ui-component-manifest-v1.json",
-            ),
+        for path in [
+            "/schema/proa.config.json",
+            "/schema/proa.lock.json",
+            "/schema/ui-component-manifest-v1.json",
         ] {
+            // Schema IDs remain canonical even when served from a preview.
+            let expected_id = format!("{}{path}", data::site::CANONICAL_ORIGIN);
             let response = app()
                 .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
                 .await

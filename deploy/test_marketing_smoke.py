@@ -15,6 +15,12 @@ import marketing_smoke
 EXPECTED_REVISION = "0123456789abcdef0123456789abcdef01234567"
 
 RESPONSES = {
+    "/llms.txt": ("text/plain", b"# Proa\n\n" + b"Public Rust framework documentation. " * 4 + b"[Docs](/docs)"),
+    "/docs/llms.txt": ("text/plain", b"# Proa docs\n\n" + b"Public documentation index. " * 4 + b"[Quickstart](/docs/index.md)"),
+    "/index.md": ("text/markdown", b"# Proa\n\n[Documentation](/docs)"),
+    "/.well-known/ard.json": ("application/ai-catalog+json", json.dumps({"specVersion": "1.0", "entries": [{"identifier": "urn:air:proa.so:mcp:docs", "displayName": "Proa docs", "type": "application/mcp-server-card+json", "url": "https://proa.so/mcp/server-card"}]}).encode()),
+    "/api/v1/search?q=render&limit=2": ("application/json", json.dumps({"results": [{"path": "/docs", "markdown_url": "/docs/index.md"}], "next_cursor": "2"}).encode()),
+    "/mcp/server-card": ("application/json", json.dumps({"name": "so.proa/docs", "version": "1.0.0", "remotes": [{"type": "streamable-http", "url": "https://proa.so/mcp"}]}).encode()),
     "/healthz": ("text/plain; charset=utf-8", b"ok"),
     "/readyz": ("text/plain; charset=utf-8", b"ready"),
     "/": ("text/html; charset=utf-8", b"<!doctype html><html><title>Proa</title></html>"),
@@ -40,6 +46,34 @@ RESPONSES = {
         json.dumps({"openapi": "3.1.0", "paths": {"/api/search": {}}}).encode(),
     ),
 }
+
+
+class AgentDiscoveryValidatorTests(unittest.TestCase):
+    def test_non_object_json_is_a_retryable_smoke_failure(self) -> None:
+        for validator in (
+            marketing_smoke.validate_agent_catalog,
+            marketing_smoke.validate_doc_search,
+            marketing_smoke.validate_mcp_card,
+        ):
+            for body in (b"[]", b"null", b"true", b'"unexpected"'):
+                with self.subTest(validator=validator.__name__, body=body):
+                    with self.assertRaises(marketing_smoke.SmokeError):
+                        validator(body, "application/json")
+
+    def test_malformed_nested_fields_are_retryable_smoke_failures(self) -> None:
+        cases = (
+            (marketing_smoke.validate_agent_catalog, {"specVersion": "1.0", "entries": [None]}),
+            (marketing_smoke.validate_agent_catalog, {"specVersion": "1.0", "entries": True}),
+            (marketing_smoke.validate_doc_search, {"results": [None], "next_cursor": None}),
+            (marketing_smoke.validate_doc_search, {"results": [{"path": 1}], "next_cursor": None}),
+            (marketing_smoke.validate_doc_search, {"results": [{"path": "/docs", "markdown_url": []}], "next_cursor": None}),
+            (marketing_smoke.validate_mcp_card, {"name": "docs", "version": "1", "remotes": [None]}),
+            (marketing_smoke.validate_mcp_card, {"name": "docs", "version": "1", "remotes": [{"type": "streamable-http", "url": 1}]}),
+        )
+        for validator, payload in cases:
+            with self.subTest(validator=validator.__name__, payload=payload):
+                with self.assertRaises(marketing_smoke.SmokeError):
+                    validator(json.dumps(payload).encode(), "application/json")
 
 
 class MarketingHandler(BaseHTTPRequestHandler):

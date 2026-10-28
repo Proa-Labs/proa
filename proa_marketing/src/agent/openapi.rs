@@ -1,0 +1,163 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+//! OpenAPI is derived from the handlers and their actual request/response types.
+//! Only cross-cutting HTTP middleware metadata and the deployment origin live here.
+
+use crate::data::{routes, site};
+
+use std::collections::BTreeMap;
+
+use utoipa::{
+    openapi::{
+        external_docs::ExternalDocsBuilder, info::ContactBuilder, response::ResponseBuilder,
+        Content, Header, OpenApi as Document, Ref, RefOr, Response, Server,
+    },
+    IntoResponses, OpenApi, PartialSchema, ToSchema,
+};
+
+use crate::endpoints::{agent_discovery, api, health, llms, search};
+use crate::pages::home;
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "Proa public documentation API",
+        version = "1.0.0",
+        description = const_format::concatcp!("Read-only Proa Rust framework documentation. No authentication is required. The ", routes::API_V1, " prefix is the compatibility boundary: breaking changes receive a new prefix; deprecations are announced in ", routes::API_GUIDE, " before removal. Pagination cursors are opaque and valid only for the same result set and deployment.")
+    ),
+    paths(
+        api::search_handler,
+        api::list_handler,
+        api::page_handler,
+        search::handler,
+        search::post_handler,
+        agent_discovery::site_metadata,
+        agent_discovery::index,
+        llms::site_handler,
+        health::healthz,
+        home::handler
+    ),
+    components(schemas(api::Problem))
+)]
+struct DocumentationApi;
+
+impl IntoResponses for api::ApiError {
+    fn responses() -> BTreeMap<String, RefOr<Response>> {
+        [
+            ("400", "Invalid parameters. Correct the query and retry."),
+            ("404", "Unknown public document or API route."),
+            ("405", "Unsupported HTTP method."),
+            (
+                "429",
+                "Shared per-instance budget exhausted. Wait for Retry-After before retrying.",
+            ),
+        ]
+        .into_iter()
+        .map(|(status, description)| {
+            let response = ResponseBuilder::new()
+                .description(description)
+                .content(
+                    "application/problem+json",
+                    Content::new(Some(Ref::from_schema_name(api::Problem::name()))),
+                )
+                .build();
+            (status.into(), response.into())
+        })
+        .collect()
+    }
+}
+
+fn header<T: PartialSchema>(description: &str) -> Header {
+    let mut header = Header::new(T::schema());
+    header.description = Some(description.into());
+    header
+}
+
+fn rate_limit_headers() -> [(&'static str, Header); 5] {
+    [
+        (
+            "RateLimit",
+            header::<String>("Remaining shared per-instance budget and seconds until reset."),
+        ),
+        (
+            "RateLimit-Policy",
+            header::<String>("Shared documentation budget per sixty-second window."),
+        ),
+        (
+            "RateLimit-Limit",
+            header::<u32>("Requests per sixty-second window."),
+        ),
+        (
+            "RateLimit-Remaining",
+            header::<u32>("Requests remaining in this window."),
+        ),
+        (
+            "RateLimit-Reset",
+            header::<u64>("Seconds until the budget resets."),
+        ),
+    ]
+}
+
+pub fn document(origin: &str) -> Document {
+    let mut document = DocumentationApi::openapi();
+    document.servers = Some(vec![Server::new(origin)]);
+    document.external_docs = Some(
+        ExternalDocsBuilder::new()
+            .url(format!("{origin}{}", routes::API_GUIDE))
+            .description(Some("Documentation API and MCP usage guide."))
+            .build(),
+    );
+    document.info.contact = Some(
+        ContactBuilder::new()
+            .name(Some(site::ORGANIZATION))
+            .url(Some(format!("{origin}{}", routes::CONTACT)))
+            .build(),
+    );
+    document.security = Some(Vec::new());
+
+    // The same middleware wraps versioned reads and legacy browser search.
+    // Describe its headers once, including on error responses.
+    for (path, item) in &mut document.paths.paths {
+        if !path.starts_with(routes::API_PREFIX) {
+            continue;
+        }
+        for operation in [item.get.as_mut(), item.post.as_mut()]
+            .into_iter()
+            .flatten()
+        {
+            for (status, response) in &mut operation.responses.responses {
+                if let RefOr::T(response) = response {
+                    response.headers.extend(
+                        rate_limit_headers().map(|(name, value)| (name.into(), value.into())),
+                    );
+                    if status == "429" {
+                        response.headers.insert(
+                            "Retry-After".into(),
+                            header::<u64>("Seconds to wait before retrying.").into(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    document
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn deployment_urls_are_serialized_without_json_injection() {
+        let origin = "https://preview.example/\"</script>&";
+        let document = serde_json::to_value(super::document(origin)).unwrap();
+        assert_eq!(document["servers"][0]["url"], origin);
+        assert_eq!(
+            document["externalDocs"]["url"],
+            format!("{origin}{}", super::routes::API_GUIDE)
+        );
+        assert_eq!(
+            document["info"]["contact"]["url"],
+            format!("{origin}{}", super::routes::CONTACT)
+        );
+    }
+}

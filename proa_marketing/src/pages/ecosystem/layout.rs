@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::{routes, site};
+
 use proa_core::{
     DataLoader, RenderOutcome, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
@@ -235,15 +237,17 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemMockFooter {
                 <div class="mx-auto flex max-w-[1400px] flex-col items-center justify-between gap-6 px-4 sm:flex-row sm:px-6 lg:px-8">
                     <span class="flex items-center text-[16px] font-semibold">
                         {EcosystemMockLogo { class: "mr-[7px] h-[22px] w-[22px]" }}
-                        "Proa"
+                        {site::NAME}
                     </span>
                     <div class="flex flex-wrap justify-center gap-6">
-                        <a class="text-[13.5px] text-[#7b746b]" href="/docs">"Docs"</a>
-                        <a class="text-[13.5px] text-[#7b746b]" href="/ecosystem">"Ecosystem"</a>
+                        <a class="text-[13.5px] text-[#7b746b]" href={routes::DOCS}>"Docs"</a>
+                        <a class="text-[13.5px] text-[#7b746b]" href={routes::ECOSYSTEM}>
+                            "Ecosystem"
+                        </a>
                         <a class="text-[13.5px] text-[#7b746b]" href="/#bench">"Benchmarks"</a>
                         <a
                             class="text-[13.5px] text-[#7b746b]"
-                            href="https://github.com/proa-labs/proa"
+                            href={site::GITHUB_URL}
                             rel="noreferrer noopener"
                             target="_blank"
                         >
@@ -251,7 +255,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemMockFooter {
                         </a>
                     </div>
                     <span class="font-mono text-[11px] text-[#a59f97]">
-                        "© Proa Labs, Inc. · Rust · Islands"
+                        "© "
+                        {site::ORGANIZATION}
+                        " · Rust · Islands"
                     </span>
                 </div>
             </footer>

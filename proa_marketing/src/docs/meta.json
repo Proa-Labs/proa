@@ -104,6 +104,7 @@
     },
     "agents",
     "llms",
+    "api",
     {
       "separator": "When stuck",
       "icon": "LifeBuoy"

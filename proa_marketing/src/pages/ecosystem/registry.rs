@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::{routes, site};
+
 use axum::response::Html;
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::html_sync;
@@ -17,7 +19,7 @@ pub(crate) fn render() -> Html<String> {
             title: "Ecosystem Registry - Proa",
             description:
                 "The Proa registry wishlist for components, adapters, data packages, and tooling.",
-            path: "/ecosystem/registry",
+            path: routes::REGISTRY,
         },
         content: EcosystemRegistryPage {
             data: ecosystem_data(),
@@ -195,7 +197,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RegistryRequestAction<'
         } else {
             html_sync! {
                 <a
-                    href="https://github.com/proa-labs/proa"
+                    href={site::GITHUB_URL}
                     rel="noreferrer noopener"
                     target="_blank"
                     class="shrink-0 rounded-full border border-[#00000014] px-4 py-2.5 font-mono text-[12px] text-[#18181b] transition-colors hover:border-[#18181b] max-[560px]:ml-[76px]"
@@ -334,7 +336,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemRegistryPage<'
                             <div class="relative flex flex-wrap justify-center gap-3">
                                 <a
                                     class="inline-flex items-center gap-[7px] whitespace-nowrap rounded-full border border-[#dd7627] bg-[#dd7627] px-[17px] py-[9px] text-sm font-medium text-[#1a0f06]"
-                                    href="https://github.com/proa-labs/proa"
+                                    href={site::GITHUB_URL}
                                     rel="noreferrer noopener"
                                     target="_blank"
                                 >
@@ -342,7 +344,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemRegistryPage<'
                                 </a>
                                 <a
                                     class="inline-flex items-center gap-[7px] whitespace-nowrap rounded-full border border-[#ffffff26] bg-[#ffffff12] px-[17px] py-[9px] text-sm font-medium text-white"
-                                    href="/docs"
+                                    href={routes::DOCS}
                                 >
                                     "Contributor guide"
                                 </a>

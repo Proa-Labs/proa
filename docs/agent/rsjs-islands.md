@@ -15,6 +15,43 @@ This is the agent-facing authoring guide. For a quick intro, see
 signatures live in
 [`rsjs_macros/src/parse.rs`](../../rsjs_macros/src/parse.rs).
 
+## Prefer RSJS for browser behavior
+
+Author application-owned browser behavior with RSJS whenever it can express
+the requirement. Use typed state, handlers, bindings, node refs, and
+`#[rsjs::client]` helpers; reuse existing integration components. Keep purely
+server-rendered content on the ordinary render path without adding hydration.
+
+Before choosing raw JavaScript, check the documented and implemented RSJS
+surface: this guide, the [slot grammar](api-reference/slot-grammar.md), the
+[signal API](api-reference/signals.md), and existing bindings/helpers in the
+owning crate. Diagnose compile errors with [the footguns guide](footguns.md)
+and use supported composition patterns. An unfamiliar API, a compile error,
+or a shorter JavaScript implementation does not establish a capability gap.
+
+Only use raw JavaScript when necessary behavior cannot be expressed through
+the supported RSJS surface or an existing integration. This includes an
+unavoidable third-party/bootstrap boundary only when no supported integration
+covers it. Add a nearby source comment naming the missing capability, why the
+RSJS alternatives do not cover it, and what the bridge owns. Keep only the
+unsupported part in JavaScript; keep supported state and behavior in RSJS.
+Do not give both implementations ownership of the same state or DOM updates.
+Verify the integration in a linked build and browser, including cleanup of
+listeners, timers, or observers when applicable.
+
+This rule covers executable Rust string constants, concatenated/generated
+application script text, inline `<script>` blocks, string-valued event
+handlers, and hand-written `.js`/`.mjs` assets. Moving a string into a file or
+wrapping it in `html_sync!` / `StaticRaw` does not make it RSJS. When touching
+existing application scripts, assess the changed behavior for migration; do
+not launch an unrelated rewrite of all scripts.
+
+Compiler/runtime output, vendored libraries, build/test tooling, JSON data
+(including JSON-LD and hydration seeds), and displayed code examples are
+separate concerns. Preserve their owning pipeline; do not rewrite them merely
+because they contain JavaScript syntax. Application glue around a vendor
+library still follows the rule above.
+
 ## Anatomy of a working island
 
 ```rust

@@ -158,6 +158,84 @@ def validate_openapi(body: bytes, content_type: str) -> None:
         raise SmokeError("OpenAPI document does not match the published 3.1 contract")
 
 
+def validate_agent_index(body: bytes, content_type: str) -> None:
+    if "text/plain" not in content_type or not body.startswith(b"# "):
+        raise SmokeError("agent index must be plain-text Markdown, not an HTML fallback")
+    if len(body) < 100 or b"](" not in body:
+        raise SmokeError("agent index must describe the site and link to documentation")
+
+
+def validate_markdown(body: bytes, content_type: str) -> None:
+    if "text/markdown" not in content_type or not body.startswith(b"# "):
+        raise SmokeError("expected a heading-led Markdown representation")
+
+
+def json_object(body: bytes) -> dict:
+    payload = json.loads(body)
+    if not isinstance(payload, dict):
+        raise SmokeError("expected a JSON object")
+    return payload
+
+
+def validate_agent_catalog(body: bytes, content_type: str) -> None:
+    payload = json_object(body)
+    if "json" not in content_type or payload.get("specVersion") != "1.0":
+        raise SmokeError("expected an AI resource catalog")
+    entries = payload.get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise SmokeError("catalog must contain entries")
+    for entry in entries:
+        if not isinstance(entry, dict) or any(
+            not isinstance(entry.get(key), str) or not entry[key]
+            for key in ("identifier", "displayName", "type", "url")
+        ):
+            raise SmokeError("catalog entries need identity, type, and a target URL")
+
+
+def validate_doc_search(body: bytes, content_type: str) -> None:
+    payload = json_object(body)
+    results = payload.get("results")
+    if (
+        "application/json" not in content_type
+        or not isinstance(results, list)
+        or not results
+        or "next_cursor" not in payload
+        or not isinstance(payload["next_cursor"], (str, type(None)))
+    ):
+        raise SmokeError("documentation search must return results and pagination metadata")
+    for result in results:
+        if not isinstance(result, dict):
+            raise SmokeError("search results must be JSON objects")
+        path = result.get("path")
+        markdown_url = result.get("markdown_url")
+        if (
+            not isinstance(path, str)
+            or not (path == "/docs" or path.startswith("/docs/"))
+            or not isinstance(markdown_url, str)
+            or not markdown_url.startswith("/docs/")
+            or not markdown_url.endswith(".md")
+        ):
+            raise SmokeError("search results must identify public documentation and Markdown routes")
+
+
+def validate_mcp_card(body: bytes, content_type: str) -> None:
+    payload = json_object(body)
+    if "json" not in content_type or any(
+        not isinstance(payload.get(key), str) or not payload[key]
+        for key in ("name", "version")
+    ):
+        raise SmokeError("MCP server card must identify the server")
+    remotes = payload.get("remotes")
+    if not isinstance(remotes, list) or not any(
+        isinstance(remote, dict)
+        and remote.get("type") == "streamable-http"
+        and isinstance(remote.get("url"), str)
+        and remote["url"].endswith("/mcp")
+        for remote in remotes
+    ):
+        raise SmokeError("MCP server card must advertise its Streamable HTTP endpoint")
+
+
 CHECKS = (
     Check("/healthz", validate_text(b"ok")),
     Check("/readyz", validate_text(b"ready")),
@@ -168,6 +246,12 @@ CHECKS = (
     Check("/images/airbnb/bedroom.jpg", validate_showcase_image),
     Check("/.well-known/proa-site.json", validate_service_metadata),
     Check("/openapi.json", validate_openapi),
+    Check("/llms.txt", validate_agent_index),
+    Check("/docs/llms.txt", validate_agent_index),
+    Check("/index.md", validate_markdown),
+    Check("/.well-known/ard.json", validate_agent_catalog),
+    Check("/api/v1/search?q=render&limit=2", validate_doc_search),
+    Check("/mcp/server-card", validate_mcp_card),
 )
 
 

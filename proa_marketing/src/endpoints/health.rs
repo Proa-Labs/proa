@@ -5,6 +5,11 @@ use axum::http::{header, HeaderMap, HeaderValue};
 
 const REVISION_HEADER: &str = "x-proa-revision";
 
+/// Check whether the site process is healthy.
+///
+/// Returns plain text when the HTTP process can respond. No credentials are required.
+#[utoipa::path(get, path = "/healthz", operation_id = "getHealth",
+    responses((status = 200, description = "Healthy process.", body = String, content_type = "text/plain")))]
 pub async fn healthz() -> impl axum::response::IntoResponse {
     ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], "ok")
 }

@@ -6,5 +6,6 @@ pub mod demos;
 pub mod docs;
 pub mod ecosystem;
 pub mod home;
+pub mod info;
 pub mod legal;
 pub mod showcase;

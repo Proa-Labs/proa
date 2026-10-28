@@ -12,6 +12,7 @@ component-library and catalog changes belong in its owning repository.
 | Task | Doc |
 |---|---|
 | Add a local render component | [`docs/agent/components.md`](docs/agent/components.md) |
+| Render HTML, Markdown, XML, text, or JSON | [`docs/agent/document-rendering.md`](docs/agent/document-rendering.md) |
 | Add an analyzed `#[rsjs(component...)]` component | [`docs/agent/rsjs-islands.md`](docs/agent/rsjs-islands.md) |
 | Recipe for a specific common task | [`docs/agent/cookbook.md`](docs/agent/cookbook.md) |
 | Diagnose a `#[rsjs(...)]` / `html_sync!` compile error | [`docs/agent/footguns.md`](docs/agent/footguns.md) |
@@ -67,6 +68,31 @@ For example, the `proa_framework_axum` package sources are under
 | `rsjs_web` | Generated zero-cost DOM markers, capabilities, and event-interface witnesses for RSJS JavaScript lowering |
 
 ## Core patterns
+
+### Document authoring
+
+Use the matching macros for substantial authored output: `html_sync!`/`html!`,
+`md_sync!`/`md!`, `xml_sync!`/`xml!`, and `const_json!` for literal JSON. Use typed
+`Serialize` models for runtime JSON. This applies to handlers, error pages, and
+cached/startup documents too. HTML and Markdown representations belong on the
+same page/component module, with copy, labels, URLs, and collections defined
+once in shared props or a content constructor. Compose dedicated Markdown
+sections for the core page structure; do not duplicate prose in both templates,
+create a separate agent-facing page, or default to converting the HTML tree.
+Preserve HTML copy and `PageMeta` unless editorial changes are explicitly
+requested. See
+[`docs/agent/document-rendering.md`](docs/agent/document-rendering.md) for format
+selection, escaping, source-data boundaries, and verification.
+
+### Browser behavior
+
+Use RSJS for application browser behavior whenever supported: typed signals,
+event handlers, bindings, node refs, and client helpers. Do not default to
+JavaScript strings, inline scripts, or hand-written JavaScript assets. Raw
+JavaScript requires a necessary, verified capability gap, a nearby explanation,
+and a minimal bridge. See the
+[RSJS-first policy](docs/agent/rsjs-islands.md#prefer-rsjs-for-browser-behavior)
+for the decision process and scope.
 
 ### Render traits
 

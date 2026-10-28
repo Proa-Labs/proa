@@ -4,6 +4,8 @@
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::html_sync;
 
+use crate::data::site;
+
 pub struct ProaBrand;
 
 pub struct ProaLogoMark {
@@ -74,7 +76,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaBrand {
                     viewBox="0 0 64 64"
                     class="size-9 shrink-0"
                     role="img"
-                    aria-label="Proa"
+                    aria-label={site::NAME}
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
                 >
@@ -110,7 +112,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaBrand {
                         opacity="0.6"
                     />
                 </svg>
-                <span class="font-display text-base font-semibold tracking-tight">"Proa"</span>
+                <span class="font-display text-base font-semibold tracking-tight">
+                    {site::NAME}
+                </span>
             </span>
         }
         .render(cx)

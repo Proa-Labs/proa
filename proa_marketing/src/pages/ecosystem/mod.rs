@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::routes;
+
 use axum::response::Html;
 
 mod apps;
@@ -10,11 +12,11 @@ mod layout;
 mod registry;
 
 pub async fn handler() -> Html<String> {
-    apps::render("/ecosystem")
+    apps::render(routes::ECOSYSTEM)
 }
 
 pub async fn apps_handler() -> Html<String> {
-    apps::render("/ecosystem/apps")
+    apps::render(routes::APPS)
 }
 
 pub async fn developer_tools_handler() -> Html<String> {

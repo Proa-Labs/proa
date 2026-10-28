@@ -4,7 +4,7 @@
 use std::env;
 use std::sync::OnceLock;
 
-const DEFAULT_SITE_URL: &str = "https://proa.so";
+use crate::data::site;
 
 static PUBLIC_SITE_URL: OnceLock<String> = OnceLock::new();
 
@@ -47,7 +47,7 @@ fn resolve_public_site_url(
         return railway_site_url(domain);
     }
 
-    DEFAULT_SITE_URL.to_owned()
+    site::CANONICAL_ORIGIN.to_owned()
 }
 
 fn railway_site_url(domain: &str) -> String {

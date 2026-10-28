@@ -1,6 +1,10 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::{routes, site};
+
+mod structured_data;
+
 use axum::response::Html;
 use proa_core::shared::attr_value::display_attr;
 use proa_core::text::text;
@@ -137,6 +141,10 @@ pub(crate) const DOCS_SCRIPT_SRC: &str =
 /// is deferred and its `?v=` carries through to the modules it imports.
 pub(crate) const SEARCH_SCRIPT_SRC: &str =
     concat!("/static/search.mjs?v=", env!("MARKETING_ASSET_VERSION"));
+const AGENT_TOOLS_SCRIPT_SRC: &str = concat!(
+    "/static/agent-tools.mjs?v=",
+    env!("MARKETING_ASSET_VERSION")
+);
 
 /// Emit the rsjs runtime and island module tags for every hydrated island
 /// this response has rendered so far.
@@ -186,11 +194,25 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
                 <title>{raw_text_ok(text(self.meta.title))}</title>
                 <meta name="description" content={self.meta.description} />
                 <meta name="proa-route" content={self.meta.path} />
+                <link rel="describedby" type="text/plain" href={routes::AGENT_INDEX} />
+                <link
+                    rel="service-desc"
+                    type="application/vnd.oai.openapi+json"
+                    href={routes::OPENAPI}
+                />
+                <link rel="ard" type="application/ai-catalog+json" href={routes::ARD_CATALOG} />
+                {if self.meta.path == routes::HOME {
+                    html_sync! {
+                        <link rel="alternate" type="text/markdown" href={routes::HOME_MARKDOWN} />
+                        <script type="application/ld+json">{StaticRaw(structured_data::document())}</script>
+                    }
+                }}
+                <script type="module" src={AGENT_TOOLS_SCRIPT_SRC}></script>
                 <link
                     rel="canonical"
                     href={display_attr(format_args!("{origin}{}", self.meta.path))}
                 />
-                <meta name="og:site_name" property="og:site_name" content="Proa" />
+                <meta name="og:site_name" property="og:site_name" content={site::NAME} />
                 <meta name="og:locale" property="og:locale" content="en_US" />
                 <meta name="og:type" property="og:type" content="website" />
                 <meta name="og:title" property="og:title" content={self.meta.title} />
@@ -219,7 +241,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
                 <meta name="og:image:height" property="og:image:height" content="1024" />
                 <meta name="og:image:alt" property="og:image:alt" content={SOCIAL_IMAGE_ALT} />
                 <meta name="twitter:card" content="summary_large_image" />
-                <meta name="twitter:site" content="@drewhariri" />
+                <meta name="twitter:site" content={site::SOCIAL_HANDLE} />
                 <meta name="twitter:title" content={self.meta.title} />
                 <meta name="twitter:description" content={self.meta.description} />
                 <meta
@@ -362,7 +384,7 @@ mod tests {
     #[test]
     fn document_metadata_emits_absolute_urls_and_escapes_page_values() {
         for (origin, path) in [
-            ("https://proa.so", "/"),
+            (site::CANONICAL_ORIGIN, routes::HOME),
             ("https://pr-123.example.test", "/docs/core/markdown"),
             ("http://localhost:5555", "/ecosystem/apps"),
         ] {

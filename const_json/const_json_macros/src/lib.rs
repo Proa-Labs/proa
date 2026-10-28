@@ -6,6 +6,16 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use syn::{parse_macro_input, spanned::Spanned, Data, DeriveInput, Expr, Fields, Type};
 
+mod literal;
+
+/// Compile JSON literals to a validated, compact `&'static str`.
+#[proc_macro]
+pub fn const_json(input: TokenStream) -> TokenStream {
+    let literal = parse_macro_input!(input as literal::JsonLiteral);
+    let output = syn::LitStr::new(&literal.0.to_string(), Span::call_site());
+    quote!(#output).into()
+}
+
 #[proc_macro_derive(ConstJson, attributes(const_json))]
 pub fn derive_const_json(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

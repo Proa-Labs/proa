@@ -105,7 +105,12 @@ try {
       }
     }
     for (const link of copy.querySelectorAll("a[href]")) {
-      link.setAttribute("href", new URL(link.getAttribute("href"), "https://ui.proa.so").href);
+      const destination = new URL(link.getAttribute("href"), document.baseURI);
+      if (destination.pathname !== "/components" && !destination.pathname.startsWith("/components/")) {
+        throw new Error("The rail gained a link outside the component catalog; review it before importing.");
+      }
+      // The host resolves the origin from data/site.rs at compile time.
+      link.setAttribute("href", `{{UI_ORIGIN}}${destination.pathname}${destination.search}${destination.hash}`);
       link.setAttribute("target", "_blank");
       link.setAttribute("rel", "noopener noreferrer");
     }
