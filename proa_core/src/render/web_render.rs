@@ -21,6 +21,57 @@
 //!
 //! Sibling module [`super::dyn_web_render`] hosts the dyn-friendly
 //! erasure adapter for [`WebRender`].
+//!
+//! # Why components write directly to the output buffer
+//!
+//! The render methods return completion, keeping locally owned data alive
+//! until its borrowed children have rendered. Replacing this with a returned,
+//! retained view introduces two independent constraints:
+//!
+//! **Ownership / self-reference:** returning both an owner and a child borrowing
+//! it is not an ordinary movable Rust value. `move` around an already-borrowed
+//! template, or a `Box` containing that template, does not repair its lifetime.
+//!
+//! ```compile_fail,E0505,E0515
+//! struct Label<'a>(&'a str);
+//! struct Prepared<'a> {
+//!     title: String,
+//!     child: Label<'a>,
+//! }
+//! fn prepare(title: String) -> Prepared<'static> {
+//!     let child = Label(title.as_str());
+//!     Prepared { title, child }
+//! }
+//! ```
+//!
+//! **Control flow / heterogeneous return types:** each dynamic `html_sync!`
+//! invocation has its own closure type. An ordinary `if` / `else` cannot return
+//! both under one `impl WebRenderSync`; it needs an enum, erasure, or a compiler
+//! transformation. Rendering in each branch instead gives both the same
+//! `Result<(), WriteError>` type.
+//!
+//! ```compile_fail,E0308
+//! use proa_core::WebRenderSync;
+//! use proa_macros::html_sync;
+//!
+//! fn label(title: &str, compact: bool) -> impl WebRenderSync + '_ {
+//!     if compact {
+//!         html_sync! { <h1>{title}</h1> }
+//!     } else {
+//!         html_sync! { <p>{title}</p> }
+//!     }
+//! }
+//! ```
+//!
+//! These constraints do not forbid returned views. An owning closure can create
+//! and render borrowed children inside its invocation, and boxed erasure can
+//! unify different closure types. Such a closure still hides child discovery
+//! inside executable code. The current macros already return renderable values;
+//! they do not return an inspectable tree. Buffer writes also do not imply
+//! immediate network delivery: the response adapter controls delivery.
+//!
+//! See `docs/agent/api-reference/direct-buffer-rendering.md` in the repository
+//! for the rationale, working example, alternatives, and performance caveats.
 
 use std::future::Future;
 
@@ -65,6 +116,9 @@ pub mod __private {
 /// Most user components should implement `WebRenderSync`. Async components
 /// that need to `.await` data fetches implement [`WebRender`] instead.
 ///
+/// See the [direct-buffer rendering rationale](self#why-components-write-directly-to-the-output-buffer)
+/// for why this returns completion rather than a retained child tree.
+///
 /// This trait is generic first over the request-scoped loader type `L`, then
 /// over the output type `B`. Both have common defaults, so ordinary components
 /// can write `WebRenderSync`, or `WebRenderSync<MyLoader>` when they load data,
@@ -107,6 +161,10 @@ pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 /// future type. That keeps component-level async rendering on the stack
 /// under static dispatch; Proa only boxes futures at erased API boundaries
 /// (see [`super::dyn_web_render::DynWebRender`]).
+///
+/// Like [`WebRenderSync`], this returns completion rather than a retained child
+/// tree; local data stays alive inside the rendering future while borrowed
+/// children render. See the [direct-buffer rendering rationale](self#why-components-write-directly-to-the-output-buffer).
 ///
 /// # `Send` and executor portability
 ///

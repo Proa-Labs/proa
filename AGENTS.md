@@ -18,6 +18,7 @@ component-library and catalog changes belong in its owning repository.
 | Diagnose a `#[rsjs(...)]` / `html_sync!` compile error | [`docs/agent/footguns.md`](docs/agent/footguns.md) |
 | Signal API (`.get` / `.set` / `.update`) | [`docs/agent/api-reference/signals.md`](docs/agent/api-reference/signals.md) |
 | `WebRenderSync` vs `WebRender` decision | [`docs/agent/api-reference/render-traits.md`](docs/agent/api-reference/render-traits.md) |
+| Why rendering writes directly to a buffer: ownership, self-reference, and branch types | [`docs/agent/api-reference/direct-buffer-rendering.md`](docs/agent/api-reference/direct-buffer-rendering.md) |
 | `Send` / local-future streaming decision | [`proa_framework/proa_framework_core/README.md#send-policy-and-runtime-portability`](proa_framework/proa_framework_core/README.md#send-policy-and-runtime-portability) |
 | What's allowed inside `{ ... }` slots | [`docs/agent/api-reference/slot-grammar.md`](docs/agent/api-reference/slot-grammar.md) |
 | Naming, classes, data attributes, conventions | [`docs/agent/api-reference/conventions.md`](docs/agent/api-reference/conventions.md) |
