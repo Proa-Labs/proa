@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::{routes, site};
+
 use axum::response::Html;
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::html_sync;
@@ -12,12 +14,12 @@ pub async fn privacy_handler() -> Html<String> {
         PageMeta {
             title: "Privacy Policy - Proa",
             description: "Privacy policy for the Proa website, documentation, blog, and related public pages.",
-            path: "/privacy",
+            path: routes::PRIVACY,
         },
         LegalPage {
             eyebrow: "Privacy",
             title: "Privacy Policy",
-            intro: "This Privacy Policy explains how Proa Labs handles information when you use Proa websites, documentation, downloads, playgrounds, search, demos, waitlists, and related public pages.",
+            intro: const_format::concatcp!("This Privacy Policy explains how ", site::ORGANIZATION_NAME, " handles information when you use Proa websites, documentation, downloads, playgrounds, search, demos, waitlists, and related public pages."),
             sections: PRIVACY_SECTIONS,
             analytics_disclosure: true,
         },
@@ -29,7 +31,7 @@ pub async fn terms_handler() -> Html<String> {
         PageMeta {
             title: "Terms and Conditions - Proa",
             description: "Terms and conditions for using the Proa website, documentation, blog, and related public pages.",
-            path: "/terms",
+            path: routes::TERMS,
         },
         LegalPage {
             eyebrow: "Terms",
@@ -102,7 +104,7 @@ const PRIVACY_SECTIONS: &[LegalSection] = &[
         title: "Your choices and rights",
         body: &[
             "Depending on where you live, you may have rights to request access, correction, deletion, portability, restriction, objection, or other handling of personal information. These rights may be subject to limits under applicable law.",
-            "You can contact us at privacy@proa.so to make a request. We may need to verify your request before responding.",
+            const_format::concatcp!("You can contact us at ", site::PRIVACY_EMAIL, " to make a request. We may need to verify your request before responding."),
             "You can control cookies and similar technologies through your browser settings, but some site features may not work as intended if they are disabled.",
         ],
     },
@@ -134,7 +136,7 @@ const PRIVACY_SECTIONS: &[LegalSection] = &[
     LegalSection {
         title: "Contact",
         body: &[
-            "For privacy questions or requests, contact us at privacy@proa.so.",
+            const_format::concatcp!("For privacy questions or requests, contact us at ", site::PRIVACY_EMAIL, "."),
         ],
     },
 ];
@@ -171,7 +173,7 @@ const TERMS_SECTIONS: &[LegalSection] = &[
     LegalSection {
         title: "Intellectual property",
         body: &[
-            "The website, documentation, examples, logos, text, and other materials are owned by Proa Labs or its licensors unless otherwise stated.",
+            const_format::concatcp!("The website, documentation, examples, logos, text, and other materials are owned by ", site::ORGANIZATION_NAME, " or its licensors unless otherwise stated."),
             "No rights are granted except as expressly provided in these terms, a repository license, or a separate written agreement.",
             "Source code repositories, packages, and downloadable software may be governed by their own license terms. If those terms conflict with these website terms for that software, the software-specific terms control.",
         ],
@@ -179,7 +181,7 @@ const TERMS_SECTIONS: &[LegalSection] = &[
     LegalSection {
         title: "Feedback",
         body: &[
-            "If you provide feedback, ideas, bug reports, suggestions, or other comments, you grant Proa Labs a non-exclusive, worldwide, royalty-free, irrevocable license to use, reproduce, modify, publish, and otherwise exploit that feedback without restriction or compensation.",
+            const_format::concatcp!("If you provide feedback, ideas, bug reports, suggestions, or other comments, you grant ", site::ORGANIZATION_NAME, " a non-exclusive, worldwide, royalty-free, irrevocable license to use, reproduce, modify, publish, and otherwise exploit that feedback without restriction or compensation."),
             "Do not send confidential information unless we have a separate written agreement covering it.",
         ],
     },
@@ -194,20 +196,20 @@ const TERMS_SECTIONS: &[LegalSection] = &[
         title: "No warranties",
         body: &[
             "The public website and materials are provided as-is and as-available.",
-            "To the maximum extent permitted by law, Proa Labs disclaims warranties of merchantability, fitness for a particular purpose, non-infringement, availability, and accuracy.",
+            const_format::concatcp!("To the maximum extent permitted by law, ", site::ORGANIZATION_NAME, " disclaims warranties of merchantability, fitness for a particular purpose, non-infringement, availability, and accuracy."),
         ],
     },
     LegalSection {
         title: "Limitation of liability",
         body: &[
-            "To the maximum extent permitted by law, Proa Labs will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages arising from use of the public website or materials.",
-            "To the maximum extent permitted by law, Proa Labs' total liability for claims arising from or relating to the public website or materials will not exceed one hundred U.S. dollars.",
+            const_format::concatcp!("To the maximum extent permitted by law, ", site::ORGANIZATION_NAME, " will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages arising from use of the public website or materials."),
+            const_format::concatcp!("To the maximum extent permitted by law, ", site::ORGANIZATION_NAME, "' total liability for claims arising from or relating to the public website or materials will not exceed one hundred U.S. dollars."),
         ],
     },
     LegalSection {
         title: "Indemnity",
         body: &[
-            "You agree to defend, indemnify, and hold harmless Proa Labs from claims, liabilities, damages, losses, and expenses arising from your misuse of the public website or materials, your violation of these terms, or your violation of applicable law or third-party rights.",
+            const_format::concatcp!("You agree to defend, indemnify, and hold harmless ", site::ORGANIZATION_NAME, " from claims, liabilities, damages, losses, and expenses arising from your misuse of the public website or materials, your violation of these terms, or your violation of applicable law or third-party rights."),
         ],
     },
     LegalSection {
@@ -226,7 +228,7 @@ const TERMS_SECTIONS: &[LegalSection] = &[
     LegalSection {
         title: "Contact",
         body: &[
-            "For questions about these terms, contact us at legal@proa.so.",
+            const_format::concatcp!("For questions about these terms, contact us at ", site::LEGAL_EMAIL, "."),
         ],
     },
 ];
@@ -271,7 +273,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GoogleAnalyticsDisclosu
                 </h2>
                 <div class="mt-4 space-y-4 text-base leading-8 text-zinc-700 dark:text-zinc-300">
                     <p>
-                        "We use Google Analytics to understand visits and interactions on our website. Google Analytics uses cookies and similar technologies to collect information such as pages viewed, referring sites, browser and device details, and interactions. Google processes this information to provide usage reports to Proa Labs, Inc. We disable Google Signals and advertising personalization signals in our website's Analytics configuration."
+                        "We use Google Analytics to understand visits and interactions on our website. Google Analytics uses cookies and similar technologies to collect information such as pages viewed, referring sites, browser and device details, and interactions. Google processes this information to provide usage reports to "
+                        {site::ORGANIZATION}
+                        " We disable Google Signals and advertising personalization signals in our website's Analytics configuration."
                     </p>
                     <p>
                         "Learn "

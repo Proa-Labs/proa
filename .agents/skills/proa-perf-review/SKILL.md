@@ -25,6 +25,15 @@ Use Proa CLI lint/check as the first reviewer and the focused perf lint as the
 render-path backstop. Treat findings as bugs unless the allocation is
 intentionally outside the SSR hot path.
 
+## Browser code review
+
+Inspect changed executable JavaScript strings, inline scripts/handlers, and
+hand-written `.js`/`.mjs` assets for behavior RSJS can express. Prefer the
+existing typed RSJS patterns. Any necessary raw JavaScript bridge must explain
+the concrete unsupported requirement beside its source and stay minimal.
+Apply the [RSJS-first policy](../../../docs/agent/rsjs-islands.md#prefer-rsjs-for-browser-behavior); distinguish executable application code from JSON
+data, generated output, vendored code, tooling, and displayed examples.
+
 ## Quick Start
 
 Run the CLI check on changed files when possible:

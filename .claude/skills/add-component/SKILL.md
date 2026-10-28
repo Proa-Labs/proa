@@ -27,6 +27,11 @@ a theme module, or a neighboring checkout.
 If the user explicitly asks for a component in a downstream component-library
 repository, follow that repository's own instructions.
 
+Use the island workflow for application browser behavior. Prefer RSJS state,
+typed handlers, bindings, and client helpers over executable JavaScript strings,
+inline scripts, or hand-written JavaScript assets. Raw JavaScript is a last
+resort for a verified, documented RSJS gap; follow the [RSJS-first policy](../../../docs/agent/rsjs-islands.md#prefer-rsjs-for-browser-behavior).
+
 ## Workflow
 
 1. Find the owning crate and its nearest component.
@@ -60,8 +65,10 @@ behavior.
 - Do not render a child into an intermediate `String`.
 - Dynamic text and attributes are escaped by default.
 - Never pass user content to `UnsafeRaw`.
-- Keep dynamic JavaScript or CSS data outside raw `<script>`/`<style>` text;
-  prefer a data attribute plus static script.
+- Pass browser values through typed RSJS props, signals, and bindings. For a
+  justified raw JavaScript bridge, transport dynamic values as data rather
+  than interpolating executable source. Keep dynamic CSS data out of raw
+  `<style>` text too.
 - Render numeric and boolean values directly.
 
 ## Minimal component

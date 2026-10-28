@@ -87,6 +87,20 @@ Keep the distinction between shared **content** and format-specific **structure*
 Do not create a universal document tree solely to remove HTML/Markdown layout
 syntax. Small fields, existing data types, and typed children usually suffice.
 
+### Give shared values one owner
+
+Before adding a URL, organization name, contact address, tagline, route, or
+other shared value, search for its existing owner and reuse it. Values that
+must change together belong in shared constants or a small typed model, even
+when their consumers are in different modules (navigation, JSON-LD, discovery,
+OpenAPI, and page content). Derive child URLs, mailto links, and composed copy
+from those values; copying the same base into several constants still drifts.
+Use compile-time composition for static strings and the deployment-origin
+resolver for runtime absolute URLs. Keep section-specific copy with its owning
+component. Do not group unrelated values solely because their text happens to
+match. See the marketing application's [`data/site.rs`](../../proa_marketing/src/data/site.rs)
+and [`data/routes.rs`](../../proa_marketing/src/data/routes.rs).
+
 ### Existing HTML-only source data
 
 Use Proa's explicit `to_markdown(...)` adapter only at a narrow boundary for
@@ -114,6 +128,11 @@ See [the marketing homepage](../../proa_marketing/src/pages/home.rs),
   or values are supplied at runtime. Do not construct large runtime JSON trees
   with `serde_json::json!` when the shape is known. Tests and genuinely dynamic
   schema transformation may use `serde_json::Value`.
+- Generate application API/tool contracts from the request and response types
+  with the owning protocol's tooling (for example, Utoipa for OpenAPI and
+  Schemars/RMCP for MCP). Do not maintain a parallel literal schema for a Rust
+  model, or rewrite one protocol's serialized schema strings into another.
+  Keep operation annotations with handlers and serialization at the cache boundary.
 - Preserve format-specific escaping. Ordinary Markdown slots escape prose;
   link destinations use a small typed leaf calling `write_md_url`. XML uses
   `xml_sync!` escaping, not HTML escaping or concatenated XML strings.
@@ -127,6 +146,11 @@ Existing content collections, imported source documents, skill files, and
 generated artifacts remain data. Keep their established build/validation
 pipeline; this rule does not require rewriting every `.md`, `.mdx`, `.json`,
 or static asset in the repository as Rust.
+
+Executable browser code follows the
+[RSJS-first policy](rsjs-islands.md#prefer-rsjs-for-browser-behavior).
+An HTML macro around a raw JavaScript string does not satisfy that policy;
+use RSJS for supported behavior and document any necessary bridge.
 
 ## Review before finishing
 

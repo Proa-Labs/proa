@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::{routes, site};
+
 use axum::{
     extract::Query,
     http::{header, HeaderMap, HeaderValue},
@@ -14,6 +16,7 @@ use rsjs::signal;
 use rsjs_macros::rsjs;
 
 use crate::{
+    components::landing_shell::DOCUMENTATION_LINKS,
     layout::{render_page, PageMeta},
     utils::document::Url,
 };
@@ -23,6 +26,14 @@ pub struct HomeQuery {
     mode: Option<String>,
 }
 
+/// Read the Proa homepage as HTML or Markdown using the Accept header.
+///
+/// Request text/markdown for the same page's Markdown representation. Responses
+/// include Vary: Accept so caches can distinguish the representations.
+#[utoipa::path(get, path = routes::HOME, operation_id = "getHomePage",
+    responses((status = 200, description = "Homepage in the requested representation.", content((String = "text/html"), (String = "text/markdown")))))]
+// This route renders with NoLoader. DataLoader below is only a generic
+// component bound; the homepage performs no data fetches.
 pub async fn handler(headers: HeaderMap, Query(query): Query<HomeQuery>) -> Response {
     let mut response = if crate::utils::http::accepts_markdown(&headers)
         || query.mode.as_deref() == Some("agent")
@@ -31,9 +42,9 @@ pub async fn handler(headers: HeaderMap, Query(query): Query<HomeQuery>) -> Resp
     } else {
         render_page(
         PageMeta {
-            title: "Proa — The next era of web interfaces. Built in Rust.",
+            title: site::HOME_TITLE,
             description: "A batteries-included Rust web framework built around a new programming model for composable, multi-target rendering.",
-            path: "/",
+            path: routes::HOME,
         },
         HomePage,
         ).into_response()
@@ -50,19 +61,14 @@ pub(crate) struct HomePage;
 /// The immutable response is cached at this page's HTTP boundary.
 pub(crate) fn markdown() -> &'static str {
     static MARKDOWN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    MARKDOWN.get_or_init(|| crate::utils::document::render_markdown(HomePage))
-}
+    MARKDOWN.get_or_init(|| {
+        crate::utils::document::render_markdown(md_sync! { r###"
+            {HomePage}
 
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
-enum BarWidth {
-    Pct1,
-    Pct3,
-    Pct4,
-    Pct12,
-    Pct72,
-    Pct86,
-    Full,
+            {DOCUMENTATION_LINKS}
+            "###
+        })
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -76,78 +82,6 @@ struct TextCard {
     title: &'static str,
     detail: &'static str,
 }
-
-/*
-const USE_CASES: &[TextCard] = &[
-    TextCard {
-        title: "Merch drops that stay live under load.",
-        detail: "Fresh product, inventory, and cart HTML at the moment traffic spikes.",
-    },
-    TextCard {
-        title: "Live odds, not a cached shell.",
-        detail: "Prediction markets and dashboards can render current data in the request path.",
-    },
-    TextCard {
-        title: "Seat maps that survive the onsale.",
-        detail:
-            "High-fanout transactional pages get native render cost without a separate SSR fleet.",
-    },
-];
-*/
-
-#[allow(dead_code)]
-struct FrameworkRow {
-    name: &'static str,
-    runtime: &'static str,
-    latency: &'static str,
-    width: BarWidth,
-}
-
-#[allow(dead_code)]
-const FRAMEWORK_ROWS: &[FrameworkRow] = &[
-    FrameworkRow {
-        name: "Proa",
-        runtime: "Rust",
-        latency: "0.46 us",
-        width: BarWidth::Pct1,
-    },
-    FrameworkRow {
-        name: "Askama",
-        runtime: "Rust",
-        latency: "1.90 us",
-        width: BarWidth::Pct3,
-    },
-    FrameworkRow {
-        name: "Sailfish",
-        runtime: "Rust",
-        latency: "2.55 us",
-        width: BarWidth::Pct4,
-    },
-    FrameworkRow {
-        name: "Leptos",
-        runtime: "Rust",
-        latency: "19.50 us",
-        width: BarWidth::Pct12,
-    },
-    FrameworkRow {
-        name: "React (Bun)",
-        runtime: "JavaScript",
-        latency: "583.06 us",
-        width: BarWidth::Pct72,
-    },
-    FrameworkRow {
-        name: "React (Deno)",
-        runtime: "JavaScript",
-        latency: "707.17 us",
-        width: BarWidth::Pct86,
-    },
-    FrameworkRow {
-        name: "React (Node)",
-        runtime: "JavaScript",
-        latency: "816.41 us",
-        width: BarWidth::Full,
-    },
-];
 
 struct CapabilityColumn {
     variant: CapabilityVariant,
@@ -381,114 +315,11 @@ const CAPABILITY_INTEGRATION_HTML: &str = r##"<div class="relative h-56 overflow
     </div>
 </div>"##;
 
-#[allow(dead_code)]
-const CONVERSION_LATENCY_GRAPH_HTML: &str = r##"<div class="mt-8 grid gap-4 lg:grid-cols-[minmax(0,1.18fr)_minmax(280px,0.82fr)]">
-    <div class="overflow-hidden rounded-[26px] border border-black/10 bg-white/88 shadow-[0_28px_80px_-58px_rgba(24,24,27,0.38)] dark:border-white/10 dark:bg-zinc-950/70">
-        <div class="flex items-center justify-between gap-4 border-b border-black/10 px-5 py-4 dark:border-white/10">
-            <p class="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500 dark:text-zinc-400">Load time -> session survival</p>
-            <p class="font-mono text-[10px] uppercase tracking-[0.22em] text-[#9b5a24] dark:text-[#ffb070]">3s cliff</p>
-        </div>
-        <div class="relative h-[340px] px-4 pb-4 pt-5 sm:px-6">
-            <svg viewBox="0 0 760 300" class="h-full w-full overflow-visible" fill="none" role="img" aria-label="Graph showing session survival falling as page load time rises">
-                <defs>
-                    <linearGradient id="conversionDrop" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stop-color="#dd7627" stop-opacity="0.24" />
-                        <stop offset="100%" stop-color="#dd7627" stop-opacity="0" />
-                    </linearGradient>
-                    <linearGradient id="slowZone" x1="0" x2="1" y1="0" y2="0">
-                        <stop offset="0%" stop-color="#dd7627" stop-opacity="0.08" />
-                        <stop offset="100%" stop-color="#ff5f57" stop-opacity="0.18" />
-                    </linearGradient>
-                </defs>
-                <rect x="520" y="24" width="188" height="220" rx="18" fill="url(#slowZone)" />
-                <g stroke="#18181b" stroke-opacity="0.1" stroke-width="1">
-                    <path d="M72 24H708" />
-                    <path d="M72 80H708" />
-                    <path d="M72 136H708" />
-                    <path d="M72 192H708" />
-                    <path d="M72 244H708" />
-                </g>
-                <g fill="currentColor" class="text-zinc-400 dark:text-zinc-500" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">
-                    <text x="26" y="28">100%</text>
-                    <text x="34" y="140">50%</text>
-                    <text x="42" y="248">0%</text>
-                    <text x="72" y="280">0s</text>
-                    <text x="252" y="280">1s</text>
-                    <text x="430" y="280">2s</text>
-                    <text x="604" y="280">3s+</text>
-                </g>
-                <path d="M72 36 C168 42 224 58 300 82 C386 110 450 143 520 170 C592 198 650 220 708 232 L708 244 L72 244 Z" fill="url(#conversionDrop)" />
-                <path d="M72 36 C168 42 224 58 300 82 C386 110 450 143 520 170 C592 198 650 220 708 232" stroke="#dd7627" stroke-width="4" stroke-linecap="round" />
-                <path d="M520 24V244" stroke="#dd7627" stroke-opacity="0.42" stroke-width="1.5" stroke-dasharray="6 6" />
-                <g fill="#f7f4ee" stroke="#dd7627" stroke-width="3">
-                    <circle cx="72" cy="36" r="6" />
-                    <circle cx="300" cy="82" r="6" />
-                    <circle cx="520" cy="170" r="6" />
-                    <circle cx="708" cy="232" r="6" />
-                </g>
-            </svg>
-            <div class="absolute right-6 top-16 max-w-[180px] rounded-[18px] border border-[#dd7627]/35 bg-[#fff7ed]/95 p-4 shadow-[0_18px_48px_-36px_rgba(24,24,27,0.35)] dark:bg-[#1d140c]/95">
-                <p class="font-mono text-[10px] uppercase tracking-[0.2em] text-[#9b5a24] dark:text-[#ffb070]">After 3 seconds</p>
-                <p class="mt-2 font-display text-4xl font-semibold tracking-[-0.04em] text-zinc-950 dark:text-zinc-50">53%</p>
-                <p class="mt-1 text-xs leading-5 text-zinc-600 dark:text-zinc-300">likely to abandon</p>
-            </div>
-        </div>
-    </div>
-    <div class="rounded-[26px] border border-zinc-950 bg-zinc-950 p-5 text-white shadow-[0_30px_90px_-62px_rgba(0,0,0,0.9)] dark:border-white/10">
-        <p class="font-mono text-[10px] uppercase tracking-[0.22em] text-white/50">Route JavaScript</p>
-        <div class="mt-5 space-y-5">
-            <div>
-                <div class="flex items-baseline justify-between gap-4">
-                    <span class="text-sm text-white/65">Client-rendered route</span>
-                    <span class="font-mono text-sm text-white">200 KB</span>
-                </div>
-                <div class="mt-2 h-4 rounded-full bg-white/10">
-                    <div class="h-full rounded-full bg-[#ff5f57]" style="width: 100%;"></div>
-                </div>
-            </div>
-            <div>
-                <div class="flex items-baseline justify-between gap-4">
-                    <span class="text-sm text-white/65">Proa route</span>
-                    <span class="font-mono text-sm text-[#ffb070]">2.6 KB</span>
-                </div>
-                <div class="mt-2 h-4 rounded-full bg-white/10">
-                    <div class="h-full min-w-[4px] rounded-full bg-[#dd7627]" style="width: 1.3%;"></div>
-                </div>
-            </div>
-        </div>
-        <div class="mt-7 border-t border-white/10 pt-5">
-            <p class="font-display text-5xl font-semibold tracking-[-0.05em] text-[#ffb070]">~77x</p>
-            <p class="mt-2 text-sm leading-6 text-white/68">less script to download, parse, compile, and hydrate on low-end devices.</p>
-        </div>
-    </div>
-</div>"##;
-
-#[allow(dead_code)]
-const SIMPLIFICATION_CARDS: &[TextCard] = &[
-    TextCard {
-        title: "No ISR or PPR as survival tactics",
-        detail: "Prerender when it helps the product, not because request-time rendering collapses under real traffic.",
-    },
-    TextCard {
-        title: "No HTML page cache dependency",
-        detail: "Fresh renders get cheap enough that cache invalidation stops being the architecture.",
-    },
-    TextCard {
-        title: "No streaming shell to hide latency",
-        detail: "Stream when the experience wants it, not because the renderer is too slow to send a full page.",
-    },
-    TextCard {
-        title: "No dedicated SSR fleet or regen queue",
-        detail: "A native render call replaces workers, warm pools, and background rebuild plumbing.",
-    },
-];
-
 /// One header treatment for every band on the page.
 ///
 /// The hero states the page's claim centered on the fold; each section below
 /// repeats that shape one step down the scale, so an eyebrow, a heading, and
 /// a lead paragraph read the same wherever they appear.
-const BENCHMARKS_URL: &str = "https://github.com/Proa-Labs/proa-benchmarks";
 const SHADCN_URL: &str = "https://ui.shadcn.com";
 const LEAD_LINK: &str = "underline decoration-[#dd7627]/45 underline-offset-[6px] transition-colors hover:text-[#dd7627] hover:decoration-[#dd7627]";
 const HERO_TITLE: &str = "text-balance font-display text-[42px] font-semibold leading-[0.95] tracking-[-0.045em] text-black dark:text-zinc-50 sm:text-[64px] lg:text-[80px]";
@@ -563,14 +394,7 @@ const COMPOSABLE_CONNECTORS_HTML: &str = r##"<svg data-composable-connectors cla
 struct ArrowRightIcon;
 struct ArrowUpRightIcon;
 struct PlayIcon;
-struct ComposableSourceCode;
-struct ComposableMdRenderCode;
-struct ComposableWebRenderCode;
-struct ComposableMdChildCode;
-struct ComposableWebChildCode;
 struct ComposableConnectorLayer;
-#[allow(dead_code)]
-struct ConversionLatencyGraph;
 struct CapabilityIllustration {
     variant: CapabilityVariant,
 }
@@ -861,16 +685,16 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PlayIcon {
 impl InterfaceLayerHero {
     const fn new() -> Self {
         Self {
-            title: "The next era of web interfaces. Built in Rust.",
+            title: site::TAGLINE,
             lead_prefix: "An ",
             performance_label: "extremely performant",
             lead_suffix: ", batteries-included Rust web framework built around a new programming model for composable, multi-target rendering.",
             start_label: "Get started",
-            start_url: "/docs",
+            start_url: routes::DOCS,
             video_label: "Watch intro",
             video_url: "https://youtu.be/-CfCyvIKYyo?si=l1-0A5BsuLU2Bc9T",
             video_aria: "Watch intro on YouTube (opens in a new tab)",
-            benchmarks_url: BENCHMARKS_URL,
+            benchmarks_url: site::BENCHMARKS_URL,
         }
     }
 }
@@ -988,7 +812,7 @@ impl BenchmarkHighlights {
             scroll_hint: "Scroll horizontally to explore each chart.",
             open_label: "Open full-size SVG",
             link_label: "View benchmarks",
-            benchmarks_url: BENCHMARKS_URL,
+            benchmarks_url: site::BENCHMARKS_URL,
             render: BenchmarkChart {
                 title: "Render speed",
                 url: "/static/images/benchmarks/01-canonical-scoreboard.svg",
@@ -2016,86 +1840,24 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ArrowUpRightIcon {
     }
 }
 
-#[allow(dead_code)]
-struct BarView {
-    class: &'static str,
-    width: BarWidth,
-}
+/// Existing highlighted HTML is the source for both views of a code example.
+struct CodeExample(&'static str);
 
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BarView {
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CodeExample {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        match self.width {
-            BarWidth::Pct1 => html_sync! {
-                <div class={self.class} style="width: 1%;"></div>
-            }
-            .render(cx),
-            BarWidth::Pct3 => html_sync! {
-                <div class={self.class} style="width: 3%;"></div>
-            }
-            .render(cx),
-            BarWidth::Pct4 => html_sync! {
-                <div class={self.class} style="width: 4%;"></div>
-            }
-            .render(cx),
-            BarWidth::Pct12 => html_sync! {
-                <div class={self.class} style="width: 12%;"></div>
-            }
-            .render(cx),
-            BarWidth::Pct72 => html_sync! {
-                <div class={self.class} style="width: 72%;"></div>
-            }
-            .render(cx),
-            BarWidth::Pct86 => html_sync! {
-                <div class={self.class} style="width: 86%;"></div>
-            }
-            .render(cx),
-            BarWidth::Full => html_sync! {
-                <div class={self.class} style="width: 100%;"></div>
-            }
-            .render(cx),
-        }
+        content_part!("content", StaticRaw(self.0)).render(cx)
     }
 }
 
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableSourceCode {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", StaticRaw(COMPOSABLE_SOURCE_HTML)).render(cx)
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableMdRenderCode {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", StaticRaw(COMPOSABLE_MD_RENDER_HTML)).render(cx)
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableWebRenderCode {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", StaticRaw(COMPOSABLE_WEB_RENDER_HTML)).render(cx)
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableMdChildCode {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", StaticRaw(COMPOSABLE_MD_CHILD_HTML)).render(cx)
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableWebChildCode {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", StaticRaw(COMPOSABLE_WEB_CHILD_HTML)).render(cx)
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CodeExample {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        content_part!("content", proa_core::to_markdown(self)).render_md(cx)
     }
 }
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ComposableConnectorLayer {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         StaticRaw(COMPOSABLE_CONNECTORS_HTML).render(cx)
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ConversionLatencyGraph {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        StaticRaw(CONVERSION_LATENCY_GRAPH_HTML).render(cx)
     }
 }
 
@@ -2106,58 +1868,6 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CapabilityIllustration 
             CapabilityVariant::Islands => StaticRaw(CAPABILITY_ISLANDS_HTML).render(cx),
             CapabilityVariant::Integration => StaticRaw(CAPABILITY_INTEGRATION_HTML).render(cx),
         }
-    }
-}
-
-/*
-struct UseCaseCardView {
-    card: &'static TextCard,
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for UseCaseCardView {
-
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        let card = self.card;
-        html_sync! {
-            <div class="rounded-[24px] border border-white/10 bg-white/[0.045] p-5">
-                <p class="text-[10px] uppercase tracking-[0.22em] text-white/55">"High-traffic surface"</p>
-                <h3 class="mt-3 font-display text-2xl font-semibold tracking-[-0.03em] text-white">{card.title}</h3>
-                <p class="mt-3 text-sm leading-7 text-white/65">{card.detail}</p>
-            </div>
-        }
-        .render(cx)
-    }
-}
-*/
-
-#[allow(dead_code)]
-struct FrameworkRowView {
-    row: &'static FrameworkRow,
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FrameworkRowView {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        let row = self.row;
-        html_sync! {
-            <div>
-                <div class="mb-2 flex items-end justify-between gap-4">
-                    <div>
-                        <p class="text-sm font-medium">{row.name}</p>
-                        <p class="text-xs text-zinc-500 dark:text-zinc-400">{row.runtime}</p>
-                    </div>
-                    <p class="font-display text-xl font-semibold tracking-[-0.04em] tabular-nums">
-                        {row.latency}
-                    </p>
-                </div>
-                <div class="h-3 rounded-full bg-zinc-200/80 dark:bg-white/10">
-                    {BarView {
-                        class: "h-full rounded-full bg-[var(--color-brand)]",
-                        width: row.width,
-                    }}
-                </div>
-            </div>
-        }
-        .render(cx)
     }
 }
 
@@ -2208,27 +1918,6 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CapabilityColumnView {
     }
 }
 
-#[allow(dead_code)]
-struct SimplificationCardView {
-    card: &'static TextCard,
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SimplificationCardView {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        let card = self.card;
-        html_sync! {
-            <div class="rounded-[24px] border border-white/10 bg-white/[0.045] p-5">
-                <p class="text-[11px] uppercase tracking-[0.18em] text-white/55">"Optional now"</p>
-                <h3 class="mt-3 font-display text-2xl font-semibold tracking-[-0.03em] text-white">
-                    {card.title}
-                </h3>
-                <p class="mt-3 text-sm leading-7 text-white/65">{card.detail}</p>
-            </div>
-        }
-        .render(cx)
-    }
-}
-
 /// The source rail's inert, server-rendered component previews are imported as
 /// static HTML so this workspace does not depend on the downstream UI library.
 /// Refresh the complete rail with `scripts/import-proa-ui-rail.mjs`.
@@ -2243,6 +1932,14 @@ struct ProaUiSection {
     shadcn_url: &'static str,
 }
 
+// The imported preview markup is source data. Resolve its origin at compile
+// time so every catalog tile follows the same destination as the section link.
+const PROA_UI_RAIL_HTML: &str = const_format::str_replace!(
+    include_str!("home/proa_ui_rail.html"),
+    "{{UI_ORIGIN}}",
+    site::UI_URL,
+);
+
 impl ProaUiSection {
     const fn new() -> Self {
         Self {
@@ -2251,7 +1948,7 @@ impl ProaUiSection {
             lead_link_label: "Shadcn",
             lead_suffix: " style Proa components. Source in your repo, in typed Rust. Theme it, compose it, ship it.",
             link_label: "Browse Components",
-            link_url: "https://ui.proa.so/components",
+            link_url: site::UI_COMPONENTS_URL,
             shadcn_url: SHADCN_URL,
         }
     }
@@ -2298,7 +1995,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
                         </div>
                     </div>
                 </div>
-                {content_part!("component-previews", StaticRaw(include_str!("home/proa_ui_rail.html")))}
+                {content_part!("component-previews", StaticRaw(PROA_UI_RAIL_HTML))}
             </section>
         }.render(cx)
     }
@@ -2342,19 +2039,19 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderTargetsSection {
                             data-flow-node="source"
                             class="relative z-10 min-w-0 lg:row-span-2 lg:self-center"
                         >
-                            {ComposableSourceCode}
+                            {content_part!("source-code", CodeExample(COMPOSABLE_SOURCE_HTML))}
                         </div>
                         <div data-flow-node="md-render" class="relative z-10 min-w-0">
-                            {ComposableMdRenderCode}
+                            {content_part!("md-render-code", CodeExample(COMPOSABLE_MD_RENDER_HTML))}
                         </div>
                         <div data-flow-node="md-child" class="relative z-10 min-w-0">
-                            {ComposableMdChildCode}
+                            {content_part!("md-child-code", CodeExample(COMPOSABLE_MD_CHILD_HTML))}
                         </div>
                         <div data-flow-node="web-render" class="relative z-10 min-w-0">
-                            {ComposableWebRenderCode}
+                            {content_part!("web-render-code", CodeExample(COMPOSABLE_WEB_RENDER_HTML))}
                         </div>
                         <div data-flow-node="web-child" class="relative z-10 min-w-0">
-                            {ComposableWebChildCode}
+                            {content_part!("web-child-code", CodeExample(COMPOSABLE_WEB_CHILD_HTML))}
                         </div>
                     </div>
                 </div>
@@ -2397,7 +2094,7 @@ impl GetStartedSection {
         Self {
             title: "Start building with Proa.",
             link_label: "Read the quickstart",
-            link_url: "/docs",
+            link_url: routes::DOCS,
         }
     }
 }
@@ -2529,9 +2226,9 @@ impl ShowcaseHeading {
             title_suffix: "information-dense apps.",
             description: "Explore re-creations of GitHub, Sentry, and Airbnb, built in Proa with fast server rendering and selective interactivity.",
             link_label: "View Showcase",
-            link_url: "/ecosystem/apps#reference-showcases",
+            link_url: routes::SHOWCASES,
             benchmark_label: "Benchmarks",
-            benchmarks_url: BENCHMARKS_URL,
+            benchmarks_url: site::BENCHMARKS_URL,
         }
     }
 }
@@ -2699,41 +2396,6 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ProaUiSection {
     }
 }
 
-// Reuse the existing content; discovery caches the converted Markdown once.
-impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ComposableSourceCode {
-    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", proa_core::to_markdown(self)).render_md(cx)
-    }
-}
-
-// Reuse the existing content; discovery caches the converted Markdown once.
-impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ComposableMdRenderCode {
-    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", proa_core::to_markdown(self)).render_md(cx)
-    }
-}
-
-// Reuse the existing content; discovery caches the converted Markdown once.
-impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ComposableWebRenderCode {
-    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", proa_core::to_markdown(self)).render_md(cx)
-    }
-}
-
-// Reuse the existing content; discovery caches the converted Markdown once.
-impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ComposableMdChildCode {
-    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", proa_core::to_markdown(self)).render_md(cx)
-    }
-}
-
-// Reuse the existing content; discovery caches the converted Markdown once.
-impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ComposableWebChildCode {
-    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", proa_core::to_markdown(self)).render_md(cx)
-    }
-}
-
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkHighlights {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         omit!(
@@ -2895,15 +2557,15 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RenderTargetsSection {
         md_sync! { r###"
             {RenderTargetsHeading::new()}
 
-            {ComposableSourceCode}
+            {content_part!("source-code", CodeExample(COMPOSABLE_SOURCE_HTML))}
 
-            {ComposableMdRenderCode}
+            {content_part!("md-render-code", CodeExample(COMPOSABLE_MD_RENDER_HTML))}
 
-            {ComposableMdChildCode}
+            {content_part!("md-child-code", CodeExample(COMPOSABLE_MD_CHILD_HTML))}
 
-            {ComposableWebRenderCode}
+            {content_part!("web-render-code", CodeExample(COMPOSABLE_WEB_RENDER_HTML))}
 
-            {ComposableWebChildCode}
+            {content_part!("web-child-code", CodeExample(COMPOSABLE_WEB_CHILD_HTML))}
             "###
         }
         .render_md(cx)
@@ -3207,7 +2869,8 @@ mod tests {
         assert_eq!(html.matches(" inert").count(), 11);
         assert_eq!(html.matches("class=\"home-rail-name\"").count(), 11);
         assert_eq!(
-            html.matches("href=\"https://ui.proa.so/components").count(),
+            html.matches(&format!("href=\"{}", super::site::UI_COMPONENTS_URL))
+                .count(),
             12
         );
         assert_eq!(html.matches("target=\"_blank\"").count(), 13);
@@ -3217,6 +2880,7 @@ mod tests {
         assert!(html.contains("aria-describedby=\"home-rail-help\""));
         assert!(html.contains("id=\"home-rail-help\""));
         assert!(!html.contains("data-rsjs-"));
+        assert!(!html.contains("{{UI_ORIGIN}}"));
         assert!(!html.contains("<script"));
     }
 

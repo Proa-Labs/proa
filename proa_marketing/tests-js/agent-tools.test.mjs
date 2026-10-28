@@ -18,7 +18,9 @@ test("browser tools use fixed public routes, encode inputs, and propagate cancel
   });
   const result = JSON.parse(await tools[0].execute({ q: "&limit=500", limit: 2 }, { signal }));
   assert.deepEqual(result.results, []);
-  const url = new URL(calls[0].url, "https://proa.so");
+  const origin = "https://preview.example.test";
+  const url = new URL(calls[0].url, origin);
+  assert.equal(url.origin, origin);
   assert.equal(url.pathname, "/api/v1/search");
   assert.equal(url.searchParams.get("q"), "&limit=500");
   assert.equal(url.searchParams.get("limit"), "2");

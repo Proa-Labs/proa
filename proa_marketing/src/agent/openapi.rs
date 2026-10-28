@@ -1,928 +1,163 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-pub const DOCUMENT: &str = const_json::const_json! {
-{
-  "openapi": "3.1.0",
-  "info": {
-    "title": "Proa public documentation API",
-    "version": "1.0.0",
-    "description": "Read-only documentation search and retrieval. No authentication required. The versioned /api/v1 contract adds fields compatibly; breaking changes use a new major URL prefix. Deprecations are announced in /docs/api before a route is removed, and deprecated routes advertise Deprecation and Sunset dates. All documented operations are synchronous reads, safe to retry; no write operations or asynchronous jobs are exposed. Pagination cursors belong to one result set and deployment; restart pagination after a deployment.",
-    "contact": {
-      "name": "Proa Labs",
-      "url": "https://proa.so/contact"
-    }
-  },
-  "externalDocs": {
-    "description": "Authentication, pagination, MCP, errors, limits, and examples",
-    "url": "https://proa.so/docs/api"
-  },
-  "servers": [
-    {
-      "url": "https://proa.so"
-    }
-  ],
-  "security": [],
-  "paths": {
-    "/api/v1/search": {
-      "get": {
-        "operationId": "searchDocs",
-        "summary": "Search Proa documentation by a case-insensitive phrase.",
-        "description": "Search Proa documentation by a case-insensitive phrase. Public and read-only; no authentication required.",
-        "parameters": [
-          {
-            "name": "q",
-            "in": "query",
-            "required": true,
-            "description": "Text to find in titles, descriptions, or Markdown.",
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "description": "Maximum documents to return.",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 50,
-              "default": 10
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "description": "Use next_cursor from the previous response, keeping the same query and deployment.",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DocumentList"
-                }
-              }
-            },
-            "headers": {
-              "RateLimit": {
-                "description": "Remaining shared per-instance budget and seconds until reset: \"docs\";r=599;t=60.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "RateLimit-Policy": {
-                "description": "Shared documentation budget: \"docs\";q=600;w=60.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "RateLimit-Limit": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Requests per sixty-second window."
-              },
-              "RateLimit-Remaining": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Requests remaining in this window."
-              },
-              "RateLimit-Reset": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Seconds until the budget resets."
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/400"
-          },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
-          "405": {
-            "$ref": "#/components/responses/405"
-          },
-          "429": {
-            "$ref": "#/components/responses/429"
-          }
-        }
-      }
+//! OpenAPI is derived from the handlers and their actual request/response types.
+//! Only cross-cutting HTTP middleware metadata and the deployment origin live here.
+
+use crate::data::{routes, site};
+
+use std::collections::BTreeMap;
+
+use utoipa::{
+    openapi::{
+        external_docs::ExternalDocsBuilder, info::ContactBuilder, response::ResponseBuilder,
+        Content, Header, OpenApi as Document, Ref, RefOr, Response, Server,
     },
-    "/api/v1/docs": {
-      "get": {
-        "operationId": "listDocs",
-        "summary": "List public Proa documentation with cursor pagination.",
-        "description": "List public Proa documentation with cursor pagination. Public and read-only; no authentication required.",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "description": "Maximum documents to return.",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 50,
-              "default": 10
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "description": "Use next_cursor from the previous response, keeping the same query and deployment.",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DocumentList"
-                }
-              }
-            },
-            "headers": {
-              "RateLimit": {
-                "description": "Remaining shared per-instance budget and seconds until reset: \"docs\";r=599;t=60.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "RateLimit-Policy": {
-                "description": "Shared documentation budget: \"docs\";q=600;w=60.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "RateLimit-Limit": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Requests per sixty-second window."
-              },
-              "RateLimit-Remaining": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Requests remaining in this window."
-              },
-              "RateLimit-Reset": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Seconds until the budget resets."
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/400"
-          },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
-          "405": {
-            "$ref": "#/components/responses/405"
-          },
-          "429": {
-            "$ref": "#/components/responses/429"
-          }
-        }
-      }
-    },
-    "/api/v1/docs/page": {
-      "get": {
-        "operationId": "getDoc",
-        "summary": "Retrieve one public Proa document as metadata and Markdown.",
-        "description": "Retrieve one public Proa document as metadata and Markdown. Public and read-only; no authentication required.",
-        "parameters": [
-          {
-            "name": "path",
-            "in": "query",
-            "required": true,
-            "description": "Canonical route or Markdown path returned by searchDocs or listDocs.",
-            "schema": {
-              "type": "string",
-              "example": "/docs/core/html-rendering"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Document"
-                }
-              }
-            },
-            "headers": {
-              "RateLimit": {
-                "description": "Remaining shared per-instance budget and seconds until reset: \"docs\";r=599;t=60.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "RateLimit-Policy": {
-                "description": "Shared documentation budget: \"docs\";q=600;w=60.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "RateLimit-Limit": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Requests per sixty-second window."
-              },
-              "RateLimit-Remaining": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Requests remaining in this window."
-              },
-              "RateLimit-Reset": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Seconds until the budget resets."
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/400"
-          },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
-          "405": {
-            "$ref": "#/components/responses/405"
-          },
-          "429": {
-            "$ref": "#/components/responses/429"
-          }
-        }
-      }
-    },
-    "/api/search": {
-      "get": {
-        "operationId": "searchProaDocumentation",
-        "summary": "Legacy search returning at most eight documents.",
-        "description": "Legacy search returning at most eight documents. Public and read-only; no authentication required.",
-        "parameters": [
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "description": "Search phrase; empty returns no matches.",
-            "schema": {
-              "type": "string",
-              "default": ""
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LegacySearchResponse"
-                }
-              }
-            },
-            "headers": {
-              "RateLimit": {
-                "description": "Remaining shared per-instance budget and seconds until reset: \"docs\";r=599;t=60.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "RateLimit-Policy": {
-                "description": "Shared documentation budget: \"docs\";q=600;w=60.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "RateLimit-Limit": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Requests per sixty-second window."
-              },
-              "RateLimit-Remaining": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Requests remaining in this window."
-              },
-              "RateLimit-Reset": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Seconds until the budget resets."
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed legacy query. Use /api/v1/search for typed errors.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
-          "405": {
-            "description": "The legacy endpoint does not support this HTTP method. See Allow for supported methods.",
-            "headers": {
-              "Allow": {
-                "description": "Supported HTTP methods.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "429": {
-            "$ref": "#/components/responses/429"
-          }
-        }
-      },
-      "post": {
-        "operationId": "searchProaDocumentationPost",
-        "summary": "Search documentation using a JSON string request body.",
-        "description": "Search documentation using a JSON string request body. Public and read-only; no authentication required.",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LegacySearchResponse"
-                }
-              }
-            },
-            "headers": {
-              "RateLimit": {
-                "description": "Remaining shared per-instance budget and seconds until reset: \"docs\";r=599;t=60.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "RateLimit-Policy": {
-                "description": "Shared documentation budget: \"docs\";q=600;w=60.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "RateLimit-Limit": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Requests per sixty-second window."
-              },
-              "RateLimit-Remaining": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Requests remaining in this window."
-              },
-              "RateLimit-Reset": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Seconds until the budget resets."
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed legacy query. Use /api/v1/search for typed errors.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "404": {
-            "$ref": "#/components/responses/404"
-          },
-          "405": {
-            "description": "The legacy endpoint does not support this HTTP method. See Allow for supported methods.",
-            "headers": {
-              "Allow": {
-                "description": "Supported HTTP methods.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "429": {
-            "$ref": "#/components/responses/429"
-          },
-          "413": {
-            "description": "Invalid legacy JSON string body.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "Invalid legacy JSON string body.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Invalid legacy JSON string body.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "string",
-                "example": "streaming"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/.well-known/proa-site.json": {
-      "get": {
-        "operationId": "getProaSiteMetadata",
-        "summary": "Describe the public machine-readable interfaces.",
-        "description": "Describe the public machine-readable interfaces. Public and read-only; no authentication required.",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SiteMetadata"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/llms-full.txt": {
-      "get": {
-        "operationId": "getDocumentationCorpus",
-        "summary": "Read the complete public Proa documentation corpus.",
-        "description": "Read the complete public Proa documentation corpus. Public and read-only; no authentication required.",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/llms.txt": {
-      "get": {
-        "operationId": "getAgentIndex",
-        "summary": "Read the Proa documentation and integration navigation index.",
-        "description": "Read the Proa documentation and integration navigation index. Public and read-only; no authentication required.",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/healthz": {
-      "get": {
-        "operationId": "getHealth",
-        "summary": "Check whether the site process is healthy.",
-        "description": "Check whether the site process is healthy. Public and read-only; no authentication required.",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string",
-                  "const": "ok"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/": {
-      "get": {
-        "operationId": "getHomePage",
-        "summary": "Fetch the server-rendered Proa home page.",
-        "description": "Fetch the server-rendered Proa home page. Public and read-only; no authentication required.",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "text/markdown": {
-                "schema": {
-                  "type": "string"
-                },
-                "example": "# Proa: Rust web framework"
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "DocumentSummary": {
-        "type": "object",
-        "required": [
-          "title",
-          "path",
-          "markdown_url",
-          "description"
-        ],
-        "properties": {
-          "title": {
-            "type": "string",
-            "description": "Document title."
-          },
-          "path": {
-            "type": "string",
-            "description": "Canonical HTML route, also accepted by get_doc."
-          },
-          "markdown_url": {
-            "type": "string",
-            "description": "Direct Markdown route."
-          },
-          "description": {
-            "type": "string",
-            "description": "Document summary."
-          }
-        }
-      },
-      "Document": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/DocumentSummary"
-          },
-          {
-            "type": "object",
-            "required": [
-              "markdown"
-            ],
-            "properties": {
-              "markdown": {
-                "type": "string",
-                "description": "The complete published Markdown source."
-              }
-            }
-          }
-        ]
-      },
-      "DocumentList": {
-        "type": "object",
-        "required": [
-          "results",
-          "total",
-          "next_cursor"
-        ],
-        "properties": {
-          "results": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DocumentSummary"
-            }
-          },
-          "total": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "next_cursor": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Pass as cursor on the next request with the same query. Null ends pagination."
-          }
-        }
-      },
-      "Problem": {
-        "type": "object",
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "detail",
-          "documentation"
-        ],
-        "properties": {
-          "type": {
-            "type": "string",
-            "format": "uri"
-          },
-          "title": {
-            "type": "string",
-            "description": "HTTP error category."
-          },
-          "status": {
-            "type": "integer",
-            "minimum": 400,
-            "maximum": 599
-          },
-          "code": {
-            "type": "string",
-            "enum": [
-              "invalid_request",
-              "not_found",
-              "method_not_allowed",
-              "rate_limited"
-            ]
-          },
-          "detail": {
-            "type": "string",
-            "description": "Explanation and corrective action."
-          },
-          "documentation": {
-            "type": "string",
-            "format": "uri"
-          }
-        }
-      },
-      "SiteMetadata": {
-        "type": "object",
-        "required": [
-          "format",
-          "version",
-          "status",
-          "site",
-          "interfaces",
-          "authentication"
-        ],
-        "properties": {
-          "format": {
-            "const": "proa-site"
-          },
-          "version": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "site": {
-            "type": "object",
-            "required": [
-              "name",
-              "description",
-              "homepage"
-            ],
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "homepage": {
-                "type": "string",
-                "format": "uri"
-              }
-            }
-          },
-          "interfaces": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "kind",
-                "url"
-              ],
-              "properties": {
-                "kind": {
-                  "type": "string"
-                },
-                "url": {
-                  "type": "string"
-                },
-                "media_type": {
-                  "type": "string"
-                },
-                "transport": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "authentication": {
-            "type": "object",
-            "required": [
-              "required"
-            ],
-            "properties": {
-              "required": {
-                "const": false
-              }
-            }
-          }
-        }
-      },
-      "LegacySearchResult": {
-        "type": "object",
-        "required": [
-          "title",
-          "url",
-          "description",
-          "collection"
-        ],
-        "properties": {
-          "title": {
-            "type": "string"
-          },
-          "url": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "collection": {
-            "type": "string"
-          }
-        }
-      },
-      "LegacySearchResponse": {
-        "type": "object",
-        "required": [
-          "query",
-          "has_results",
-          "first_url",
-          "results"
-        ],
-        "properties": {
-          "query": {
-            "type": "string"
-          },
-          "has_results": {
-            "type": "boolean"
-          },
-          "first_url": {
-            "type": "string"
-          },
-          "results": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LegacySearchResult"
-            }
-          }
-        }
-      }
-    },
-    "responses": {
-      "400": {
-        "description": "Invalid parameters. Correct the query and retry.",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/Problem"
-            }
-          }
-        }
-      },
-      "404": {
-        "description": "Unknown public document or API route.",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/Problem"
-            }
-          }
-        }
-      },
-      "405": {
-        "description": "Unsupported HTTP method.",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/Problem"
-            }
-          }
-        }
-      },
-      "429": {
-        "description": "Shared per-instance budget exhausted. Wait for Retry-After before retrying.",
-        "content": {
-          "application/problem+json": {
-            "schema": {
-              "$ref": "#/components/schemas/Problem"
-            }
-          }
-        },
-        "headers": {
-          "RateLimit": {
-            "description": "Remaining shared per-instance budget and seconds until reset: \"docs\";r=599;t=60.",
-            "schema": {
-              "type": "string"
-            }
-          },
-          "RateLimit-Policy": {
-            "description": "Shared documentation budget: \"docs\";q=600;w=60.",
-            "schema": {
-              "type": "string"
-            }
-          },
-          "RateLimit-Limit": {
-            "schema": {
-              "type": "integer"
-            },
-            "description": "Requests per sixty-second window."
-          },
-          "RateLimit-Remaining": {
-            "schema": {
-              "type": "integer"
-            },
-            "description": "Requests remaining in this window."
-          },
-          "RateLimit-Reset": {
-            "schema": {
-              "type": "integer"
-            },
-            "description": "Seconds until the budget resets."
-          },
-          "Retry-After": {
-            "schema": {
-              "type": "integer"
-            },
-            "description": "Seconds to wait before retrying."
-          }
-        }
-      }
-    }
-  }
-}
+    IntoResponses, OpenApi, PartialSchema, ToSchema,
 };
+
+use crate::endpoints::{agent_discovery, api, health, llms, search};
+use crate::pages::home;
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "Proa public documentation API",
+        version = "1.0.0",
+        description = const_format::concatcp!("Read-only Proa Rust framework documentation. No authentication is required. The ", routes::API_V1, " prefix is the compatibility boundary: breaking changes receive a new prefix; deprecations are announced in ", routes::API_GUIDE, " before removal. Pagination cursors are opaque and valid only for the same result set and deployment.")
+    ),
+    paths(
+        api::search_handler,
+        api::list_handler,
+        api::page_handler,
+        search::handler,
+        search::post_handler,
+        agent_discovery::site_metadata,
+        agent_discovery::index,
+        llms::site_handler,
+        health::healthz,
+        home::handler
+    ),
+    components(schemas(api::Problem))
+)]
+struct DocumentationApi;
+
+impl IntoResponses for api::ApiError {
+    fn responses() -> BTreeMap<String, RefOr<Response>> {
+        [
+            ("400", "Invalid parameters. Correct the query and retry."),
+            ("404", "Unknown public document or API route."),
+            ("405", "Unsupported HTTP method."),
+            (
+                "429",
+                "Shared per-instance budget exhausted. Wait for Retry-After before retrying.",
+            ),
+        ]
+        .into_iter()
+        .map(|(status, description)| {
+            let response = ResponseBuilder::new()
+                .description(description)
+                .content(
+                    "application/problem+json",
+                    Content::new(Some(Ref::from_schema_name(api::Problem::name()))),
+                )
+                .build();
+            (status.into(), response.into())
+        })
+        .collect()
+    }
+}
+
+fn header<T: PartialSchema>(description: &str) -> Header {
+    let mut header = Header::new(T::schema());
+    header.description = Some(description.into());
+    header
+}
+
+fn rate_limit_headers() -> [(&'static str, Header); 5] {
+    [
+        (
+            "RateLimit",
+            header::<String>("Remaining shared per-instance budget and seconds until reset."),
+        ),
+        (
+            "RateLimit-Policy",
+            header::<String>("Shared documentation budget per sixty-second window."),
+        ),
+        (
+            "RateLimit-Limit",
+            header::<u32>("Requests per sixty-second window."),
+        ),
+        (
+            "RateLimit-Remaining",
+            header::<u32>("Requests remaining in this window."),
+        ),
+        (
+            "RateLimit-Reset",
+            header::<u64>("Seconds until the budget resets."),
+        ),
+    ]
+}
+
+pub fn document(origin: &str) -> Document {
+    let mut document = DocumentationApi::openapi();
+    document.servers = Some(vec![Server::new(origin)]);
+    document.external_docs = Some(
+        ExternalDocsBuilder::new()
+            .url(format!("{origin}{}", routes::API_GUIDE))
+            .description(Some("Documentation API and MCP usage guide."))
+            .build(),
+    );
+    document.info.contact = Some(
+        ContactBuilder::new()
+            .name(Some(site::ORGANIZATION))
+            .url(Some(format!("{origin}{}", routes::CONTACT)))
+            .build(),
+    );
+    document.security = Some(Vec::new());
+
+    // The same middleware wraps versioned reads and legacy browser search.
+    // Describe its headers once, including on error responses.
+    for (path, item) in &mut document.paths.paths {
+        if !path.starts_with(routes::API_PREFIX) {
+            continue;
+        }
+        for operation in [item.get.as_mut(), item.post.as_mut()]
+            .into_iter()
+            .flatten()
+        {
+            for (status, response) in &mut operation.responses.responses {
+                if let RefOr::T(response) = response {
+                    response.headers.extend(
+                        rate_limit_headers().map(|(name, value)| (name.into(), value.into())),
+                    );
+                    if status == "429" {
+                        response.headers.insert(
+                            "Retry-After".into(),
+                            header::<u64>("Seconds to wait before retrying.").into(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    document
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn deployment_urls_are_serialized_without_json_injection() {
+        let origin = "https://preview.example/\"</script>&";
+        let document = serde_json::to_value(super::document(origin)).unwrap();
+        assert_eq!(document["servers"][0]["url"], origin);
+        assert_eq!(
+            document["externalDocs"]["url"],
+            format!("{origin}{}", super::routes::API_GUIDE)
+        );
+        assert_eq!(
+            document["info"]["contact"]["url"],
+            format!("{origin}{}", super::routes::CONTACT)
+        );
+    }
+}

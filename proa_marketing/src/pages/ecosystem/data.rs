@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::{routes, site};
+
 #[derive(Clone, Copy)]
 pub(crate) struct EcosystemFilter<'a> {
     pub(crate) key: &'a str,
@@ -251,7 +253,7 @@ const ECOSYSTEM_TOOLS: &[EcosystemTool<'static>] = &[
     },
     EcosystemTool {
         category: "ui",
-        href: "https://ui.proa.so",
+        href: site::UI_URL,
         name: "Proa UI",
         version: "v0.2.2",
         version_tone: ToolVersionTone::Default,
@@ -263,7 +265,7 @@ const ECOSYSTEM_TOOLS: &[EcosystemTool<'static>] = &[
     },
     EcosystemTool {
         category: "islands",
-        href: "/docs/framework",
+        href: routes::FRAMEWORK_DOCS,
         name: "rsjs",
         version: "v0.2.0",
         version_tone: ToolVersionTone::Default,
@@ -275,7 +277,7 @@ const ECOSYSTEM_TOOLS: &[EcosystemTool<'static>] = &[
     },
     EcosystemTool {
         category: "framework",
-        href: "/docs/framework",
+        href: routes::FRAMEWORK_DOCS,
         name: "proa_framework_axum",
         version: "v0.3.0",
         version_tone: ToolVersionTone::Default,
@@ -316,7 +318,7 @@ const ECOSYSTEM_TOOLS: &[EcosystemTool<'static>] = &[
     },
     EcosystemTool {
         category: "tooling",
-        href: "/docs/framework",
+        href: routes::FRAMEWORK_DOCS,
         name: "proa_codegen",
         version: "v0.2.0",
         version_tone: ToolVersionTone::Default,
@@ -331,7 +333,7 @@ const ECOSYSTEM_TOOLS: &[EcosystemTool<'static>] = &[
     },
     EcosystemTool {
         category: "interop",
-        href: "/docs/framework",
+        href: routes::FRAMEWORK_DOCS,
         name: "proa_react",
         version: "v0.3.0",
         version_tone: ToolVersionTone::Default,
@@ -361,7 +363,7 @@ const ECOSYSTEM_TOOLS: &[EcosystemTool<'static>] = &[
     },
     EcosystemTool {
         category: "interop",
-        href: "/docs",
+        href: routes::DOCS,
         name: "proa_og",
         version: "v0.1.2",
         version_tone: ToolVersionTone::Default,

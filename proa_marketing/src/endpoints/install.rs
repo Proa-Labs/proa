@@ -9,10 +9,10 @@
 
 use axum::http::header;
 
-/// Body of `curl -fsSL https://proa.so/install.sh | sh`.
+/// POSIX shell installer, embedded verbatim from its standalone source.
 const INSTALL_SH: &str = include_str!("../../../scripts/install.sh");
 
-/// Body of `irm https://proa.so/install.ps1 | iex`.
+/// PowerShell installer, embedded verbatim from its standalone source.
 const INSTALL_PS1: &str = include_str!("../../../scripts/install.ps1");
 
 /// Short on purpose: an installer that caches for a day is an installer you

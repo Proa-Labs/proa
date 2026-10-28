@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::{routes, site};
+
 use crate::utils::document::Url;
 use axum::{
     extract::Path,
@@ -21,11 +23,11 @@ pub(crate) fn docs() -> &'static Docs {
 }
 
 pub async fn handler(headers: HeaderMap) -> Response {
-    response_for_path("/docs", &headers)
+    response_for_path(routes::DOCS, &headers)
 }
 
 pub async fn path_handler(headers: HeaderMap, Path(path): Path<String>) -> Response {
-    let path = collection_route_path("/docs", &path);
+    let path = collection_route_path(routes::DOCS, &path);
     response_for_path(&path, &headers)
 }
 
@@ -39,11 +41,11 @@ fn response_for_path(path: &str, headers: &HeaderMap) -> Response {
 
 fn proa_ui_redirect_url(path: &str) -> Option<String> {
     if path == "/docs/ui" {
-        return Some("https://ui.proa.so/docs".to_string());
+        return Some(site::UI_DOCS_URL.to_string());
     }
 
     path.strip_prefix("/docs/ui/")
-        .map(|suffix| format!("https://ui.proa.so/docs/{suffix}"))
+        .map(|suffix| format!("{}/{suffix}", site::UI_DOCS_URL))
 }
 
 pub struct Authentication<'a> {
@@ -58,7 +60,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Authentication<'_> {
 
             ## Discover
 
-            The documentation API on {Url(origin)} and the Streamable HTTP MCP endpoint at {Url(origin)}/mcp are public and read-only. Their specification is at [openapi.json]({Url(origin)}/openapi.json), and usage examples are in the [API guide]({Url(origin)}/docs/api.md).
+            The documentation API on {Url(origin)} and the Streamable HTTP MCP endpoint at {Url(origin)}{Url(routes::MCP)} are public and read-only. Their specification is at [openapi.json]({Url(origin)}{Url(routes::OPENAPI)}), and usage examples are in the [API guide]({Url(origin)}{Url(routes::API_GUIDE_MARKDOWN)}).
 
             ## Choose a method
 
@@ -68,7 +70,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Authentication<'_> {
 
             {RequestExamples { origin }}
 
-            For MCP, configure a Streamable HTTP connection to {Url(origin)}/mcp without credentials. Initialize the connection, list tools, and call search_docs or get_doc. Browser clients must originate from this deployment; non-browser clients may omit the Origin header.
+            For MCP, configure a Streamable HTTP connection to {Url(origin)}{Url(routes::MCP)} without credentials. Initialize the connection, list tools, and call search_docs or get_doc. Browser clients must originate from this deployment; non-browser clients may omit the Origin header.
 
             ## Errors and retries
 
@@ -92,8 +94,8 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RequestExamples<'_> {
         // Raw Markdown templates keep expressions inside fences literal.
         md_sync! {
             "```bash\n"
-            "curl '" {Url(self.origin)} "/api/v1/search?q=streaming&limit=5'\n"
-            "curl '" {Url(self.origin)} "/api/v1/docs/page?path=/docs/core/streaming-ssr'\n"
+            "curl '" {Url(self.origin)} {Url(routes::API_SEARCH)} "?q=streaming&limit=5'\n"
+            "curl '" {Url(self.origin)} {Url(routes::API_PAGE)} "?path=/docs/core/streaming-ssr'\n"
             "curl -H 'Accept: text/markdown' '" {Url(self.origin)} "/'\n"
             "```"
         }

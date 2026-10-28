@@ -5,6 +5,8 @@ use axum::http::header;
 use proa_core::{DataLoader, MdRenderSync, WebContext, WriteBuf, WriteError};
 use proa_macros::md_sync;
 
+use crate::data::routes;
+use crate::utils::document::Url;
 use crate::utils::site_url::public_site_url;
 
 struct Robots<'a> {
@@ -16,7 +18,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Robots<'_> {
         md_sync! { r###"
             User-agent: *
             Allow: /
-            Sitemap: {crate::utils::document::Url(self.origin)}/sitemap.xml
+            Sitemap: {Url(self.origin)}{Url(routes::SITEMAP)}
             "###
         }
         .render_md(cx)

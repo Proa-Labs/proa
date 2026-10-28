@@ -1,11 +1,19 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::routes;
+
 use axum::http::header;
 use proa_docs::{DocPage, Docs};
 
 use crate::pages::docs;
 
+/// Read the complete public Proa documentation corpus.
+///
+/// Returns all public documentation in one response. Use /docs/llms.txt to
+/// find a focused page when the entire corpus is unnecessary.
+#[utoipa::path(get, path = routes::DOCS_CORPUS, operation_id = "getDocumentationCorpus",
+    responses((status = 200, description = "Complete public documentation corpus.", body = String, content_type = "text/plain")))]
 pub async fn site_handler() -> impl axum::response::IntoResponse {
     let collections = [("Docs", docs::docs())];
     llms_full_text(&collections)

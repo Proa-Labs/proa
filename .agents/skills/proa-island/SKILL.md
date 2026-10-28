@@ -19,6 +19,14 @@ Markdown sections for the core page structure; do not duplicate literals or
 convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
+## Browser behavior defaults
+
+Use RSJS for application browser behavior whenever supported. Check existing
+bindings, client helpers, and integration components before writing raw
+JavaScript. A compile error or a shorter script is not evidence that RSJS
+cannot do the job. Only a necessary, documented gap justifies a minimal raw
+JavaScript bridge; follow the [RSJS-first policy](../../../docs/agent/rsjs-islands.md#prefer-rsjs-for-browser-behavior).
+
 ## Overview
 
 Use this workflow for Proa interactive islands. Keep the server render path sync

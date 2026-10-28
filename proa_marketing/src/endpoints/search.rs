@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::routes;
+
 use std::sync::OnceLock;
 
 use axum::extract::Query;
@@ -10,21 +12,25 @@ use serde::Serialize;
 
 use crate::pages::docs;
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct SearchQuery {
     #[serde(default)]
+    #[param(default = "")]
     q: String,
 }
 
-#[derive(Debug, Serialize)]
-struct SearchResponse {
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[schema(as = LegacySearchResponse)]
+pub(super) struct SearchResponse {
     query: String,
     has_results: bool,
     first_url: &'static str,
     results: Vec<SearchResult>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, utoipa::ToSchema)]
+#[schema(as = LegacySearchResult)]
 struct SearchResult {
     title: &'static str,
     url: &'static str,
@@ -41,10 +47,32 @@ struct SearchRecord {
 
 static SEARCH_INDEX: OnceLock<Vec<SearchRecord>> = OnceLock::new();
 
+/// Legacy browser search. Prefer /api/v1/search for paginated agent reads.
+///
+/// Returns at most eight matches. Empty queries return no results.
+#[utoipa::path(get, path = routes::LEGACY_SEARCH, operation_id = "searchProaDocumentation",
+    params(SearchQuery), responses(super::api::ApiError,
+        (status = 200, description = "Up to eight search matches.", body = SearchResponse),
+        (status = 400, description = "Malformed query parameters.", body = String, content_type = "text/plain"),
+        (status = 405, description = "Unsupported HTTP method.", headers(("Allow" = String, description = "GET,HEAD,POST")))
+    ))]
 pub async fn handler(Query(query): Query<SearchQuery>) -> impl axum::response::IntoResponse {
     search_response(query.q)
 }
 
+/// Legacy browser search accepting a JSON string.
+///
+/// Returns the same eight-result format as GET /api/search. The body is a
+/// JSON string, not an object containing a query field.
+#[utoipa::path(post, path = routes::LEGACY_SEARCH, operation_id = "searchProaDocumentationPost",
+    request_body(content = String, content_type = "application/json"), responses(super::api::ApiError,
+        (status = 200, description = "Up to eight search matches.", body = SearchResponse),
+        (status = 400, description = "Malformed JSON.", body = String, content_type = "text/plain"),
+        (status = 405, description = "Unsupported HTTP method.", headers(("Allow" = String, description = "GET,HEAD,POST"))),
+        (status = 413, description = "Request body too large.", body = String, content_type = "text/plain"),
+        (status = 415, description = "Expected application/json.", body = String, content_type = "text/plain"),
+        (status = 422, description = "Expected a JSON string.", body = String, content_type = "text/plain")
+    ))]
 pub async fn post_handler(Json(query): Json<String>) -> impl axum::response::IntoResponse {
     search_response(query)
 }
@@ -107,7 +135,7 @@ fn collect_documents(
     docs: &'static proa_docs::Docs,
 ) {
     for page in docs.pages {
-        if page.frontmatter.hidden {
+        if page.frontmatter.hidden || page.frontmatter.search == Some(false) {
             continue;
         }
         let mut haystack = String::with_capacity(

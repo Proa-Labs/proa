@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::routes;
+
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_docs::{DocPage, Docs, DocsNav, DocsSectionMenu};
 use proa_macros::html_sync;
@@ -19,7 +21,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSidebar {
         html_sync! {
             <div data-component="docs-sidebar" class="docs-sidebar-inner">
                 <div class="docs-sidebar-header">
-                    <a href="/" class="docs-sidebar-brand" aria-label="Proa home">
+                    <a href={routes::HOME} class="docs-sidebar-brand" aria-label="Proa home">
                         <span class="docs-sidebar-mark" aria-hidden="true">
                             {ProaLogoMark { class: "docs-sidebar-logo-svg" }}
                         </span>
@@ -42,7 +44,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSidebar {
                     }}
                 </div>
                 <div class="docs-sidebar-footer">
-                    <a href="/" class="docs-sidebar-footer-link">"Back to site"</a>
+                    <a href={routes::HOME} class="docs-sidebar-footer-link">"Back to site"</a>
                     {ThemeToggle::new()}
                 </div>
             </div>

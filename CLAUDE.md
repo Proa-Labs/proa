@@ -98,6 +98,16 @@ requested. See
 [`docs/agent/document-rendering.md`](docs/agent/document-rendering.md) for format
 selection, escaping, source-data boundaries, and verification.
 
+### Browser behavior
+
+Use RSJS for application browser behavior whenever supported: typed signals,
+event handlers, bindings, node refs, and client helpers. Do not default to
+JavaScript strings, inline scripts, or hand-written JavaScript assets. Raw
+JavaScript requires a necessary, verified capability gap, a nearby explanation,
+and a minimal bridge. See the
+[RSJS-first policy](docs/agent/rsjs-islands.md#prefer-rsjs-for-browser-behavior)
+for the decision process and scope.
+
 ### Render traits
 
 Application sync components normally implement `WebRenderSync<L>`. The full

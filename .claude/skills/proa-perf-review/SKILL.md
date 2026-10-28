@@ -19,6 +19,15 @@ Markdown sections for the core page structure; do not duplicate literals or
 convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
+## Browser code review
+
+Inspect changed executable JavaScript strings, inline scripts/handlers, and
+hand-written `.js`/`.mjs` assets for behavior RSJS can express. Prefer the
+existing typed RSJS patterns. Any necessary raw JavaScript bridge must explain
+the concrete unsupported requirement beside its source and stay minimal.
+Apply the [RSJS-first policy](../../../docs/agent/rsjs-islands.md#prefer-rsjs-for-browser-behavior); distinguish executable application code from JSON
+data, generated output, vendored code, tooling, and displayed examples.
+
 Run the deterministic lint before finalizing Proa Rust changes:
 
 ```bash

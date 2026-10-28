@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::{routes, site};
+
 use axum::{
     http::{header, HeaderMap, HeaderValue},
     response::{IntoResponse, Response},
@@ -12,22 +14,22 @@ use crate::layout::{render_page, PageMeta};
 
 fn about_content() -> (PageMeta, InfoPage) {
     (PageMeta {
-        title: "About Proa: Rust web framework by Proa Labs",
+        title: const_format::concatcp!("About Proa: Rust web framework by ", site::ORGANIZATION_NAME),
         description: "What Proa builds, who it is for, and where to find its source, documentation, and community.",
-        path: "/about",
+        path: routes::ABOUT,
     }, InfoPage {
         title: "About Proa",
         paragraphs: &[
-            "Proa is a Rust web framework published by Proa Labs, Inc. It is built for developers creating server-rendered websites, documentation, and interactive applications. Proa compiles Rust-authored templates into optimized output and supports composable HTML and Markdown rendering.",
+            const_format::concatcp!("Proa is a Rust web framework published by ", site::ORGANIZATION, " It is built for developers creating server-rendered websites, documentation, and interactive applications. Proa compiles Rust-authored templates into optimized output and supports composable HTML and Markdown rendering."),
             "The framework combines typed components, request-scoped data loading, streaming server rendering, routing, and response metadata. RSJS islands let developers author browser state and event handlers in Rust, with the build producing the JavaScript used for interactivity. Applications can adopt Proa one route at a time alongside an existing stack.",
             "This website publishes the framework documentation, installation instructions, examples, and a playground. Its public search API and MCP server help coding agents find and read the same documentation available to people. These tools are read-only and do not require an account.",
-            "Proa Labs operates from the United States. Source code, release downloads, contribution information, and licensing terms are maintained in the official Proa repository. Check the repository's licensing documents for the terms that apply to a particular package or release.",
+            const_format::concatcp!(site::ORGANIZATION_NAME, " operates from the United States. Source code, release downloads, contribution information, and licensing terms are maintained in the official Proa repository. Check the repository's licensing documents for the terms that apply to a particular package or release."),
         ],
         links: &[
-            ("/docs", "Read the Proa quickstart"),
-            ("https://github.com/proa-labs/proa", "Official Proa source repository"),
-            ("/docs/api", "API and MCP documentation"),
-            ("/contact", "Contact and community"),
+            (routes::DOCS, "Read the Proa quickstart"),
+            (site::GITHUB_URL, "Official Proa source repository"),
+            (routes::API_GUIDE, "API and MCP documentation"),
+            (routes::CONTACT, "Contact and community"),
         ],
     })
 }
@@ -35,24 +37,24 @@ fn about_content() -> (PageMeta, InfoPage) {
 fn contact_content() -> (PageMeta, InfoPage) {
     (PageMeta {
         title: "Contact Proa: Support, community, and licensing",
-        description: "Find Proa's community, report a reproducible issue, and contact Proa Labs about privacy or licensing.",
-        path: "/contact",
+        description: const_format::concatcp!("Find Proa's community, report a reproducible issue, and contact ", site::ORGANIZATION_NAME, " about privacy or licensing."),
+        path: routes::CONTACT,
     }, InfoPage {
         title: "Contact Proa",
         paragraphs: &[
             "For help building with Proa, start with the quickstart and troubleshooting documentation. The guides cover component rendering, RSJS islands, application routing, deployment, and compiler diagnostics. Search the documentation using the website search or the public documentation API to find the relevant reference.",
-            "For reproducible bugs or documentation issues, use the issue tracker in the official proa-labs/proa GitHub repository. Include the Proa version, operating system, relevant compiler output, and a minimal example when possible. Remove secrets, credentials, and private application data before posting a public issue.",
+            const_format::concatcp!("For reproducible bugs or documentation issues, use the issue tracker in the official ", site::GITHUB_REPOSITORY_SLUG, " GitHub repository. Include the Proa version, operating system, relevant compiler output, and a minimal example when possible. Remove secrets, credentials, and private application data before posting a public issue."),
             "The Proa community is also available through the Discord link below. Use community channels for questions and discussion; they are public or shared spaces, so avoid including confidential project information. The repository is the source of truth for code, releases, and contribution guidance.",
-            "For privacy questions or requests about this website, email privacy@proa.so and consult the published privacy policy. For licensing questions and questions about the website terms, email legal@proa.so. These contacts are operated by Proa Labs, Inc., the publisher of Proa.",
+            const_format::concatcp!("For privacy questions or requests about this website, email ", site::PRIVACY_EMAIL, " and consult the published privacy policy. For licensing questions and questions about the website terms, email ", site::LEGAL_EMAIL, ". These contacts are operated by ", site::ORGANIZATION, ", the publisher of Proa."),
         ],
         links: &[
             ("/docs/guides/troubleshooting", "Troubleshooting guide"),
-            ("https://github.com/proa-labs/proa/issues", "Proa issue tracker"),
-            ("https://proa.so/discord", "Proa Discord community"),
-            ("mailto:privacy@proa.so", "privacy@proa.so"),
-            ("mailto:legal@proa.so", "legal@proa.so"),
-            ("/privacy", "Privacy policy"),
-            ("/terms", "Website terms"),
+            (site::ISSUES_URL, "Proa issue tracker"),
+            (site::DISCORD_URL, "Proa Discord community"),
+            (site::PRIVACY_MAILTO, site::PRIVACY_EMAIL),
+            (site::LEGAL_MAILTO, site::LEGAL_EMAIL),
+            (routes::PRIVACY, "Privacy policy"),
+            (routes::TERMS, "Website terms"),
         ],
     })
 }

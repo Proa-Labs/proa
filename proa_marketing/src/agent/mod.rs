@@ -3,4 +3,3 @@
 
 pub(crate) mod discovery;
 pub(crate) mod openapi;
-pub(crate) mod schemas;

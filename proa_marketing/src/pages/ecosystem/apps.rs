@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::{routes, site};
+
 use axum::response::Html;
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::html_sync;
@@ -598,7 +600,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemAppsPage<'_> {
                             <div class="relative flex flex-wrap justify-center gap-3">
                                 <a
                                     class="inline-flex items-center gap-[7px] whitespace-nowrap rounded-full border border-[#dd7627] bg-[#dd7627] px-[17px] py-[9px] text-sm font-medium text-[#1a0f06]"
-                                    href="https://github.com/proa-labs/proa"
+                                    href={site::GITHUB_URL}
                                     rel="noreferrer noopener"
                                     target="_blank"
                                 >
@@ -606,7 +608,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for EcosystemAppsPage<'_> {
                                 </a>
                                 <a
                                     class="inline-flex items-center gap-[7px] whitespace-nowrap rounded-full border border-[#ffffff26] bg-[#ffffff12] px-[17px] py-[9px] text-sm font-medium text-white"
-                                    href="/docs"
+                                    href={routes::DOCS}
                                 >
                                     "Submission guidelines"
                                 </a>

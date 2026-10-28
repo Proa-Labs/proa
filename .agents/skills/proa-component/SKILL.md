@@ -26,6 +26,11 @@ module, or sibling checkout.
 The downstream `proa_ui` library owns its own component and catalog workflow.
 When work is explicitly scoped there, follow that repository's skill instead.
 
+Use the island workflow for application browser behavior. Prefer RSJS state,
+typed handlers, bindings, and client helpers over executable JavaScript strings,
+inline scripts, or hand-written JavaScript assets. Raw JavaScript is a last
+resort for a verified, documented RSJS gap; follow the [RSJS-first policy](../../../docs/agent/rsjs-islands.md#prefer-rsjs-for-browser-behavior).
+
 ## Workflow
 
 1. Read `docs/agent/components.md` and the nearest component in the owning

@@ -3,6 +3,8 @@
 
 use axum::response::Redirect;
 
+use crate::data::routes;
+
 pub async fn handler() -> Redirect {
-    Redirect::permanent("/ecosystem/apps#reference-showcases")
+    Redirect::permanent(routes::SHOWCASES)
 }

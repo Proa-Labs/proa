@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::routes;
+
 use crate::utils::http::accepts_markdown;
 use axum::{
     http::{header, HeaderMap, StatusCode},
@@ -25,9 +27,9 @@ impl NotFoundPage {
             title: "Page not found",
             message: "This URL does not identify a public Proa page. Visit the ",
             docs_label: "documentation",
-            docs_url: "/docs",
+            docs_url: routes::DOCS,
             home_label: "homepage",
-            home_url: "/",
+            home_url: routes::HOME,
             conjunction: " or ",
         }
     }

@@ -10,6 +10,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tower_test::ServiceExt;
 
+use crate::data::site;
+
 async fn fetch(app: &Router, path: &str, accept: &str) -> (StatusCode, HeaderMap, String) {
     let response = app
         .clone()
@@ -55,6 +57,23 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         fetch(&app, "/.well-known/llms.txt", "*/*").await.2
     );
     assert_eq!(markdown, fetch(&app, "/?mode=agent", "text/html").await.2);
+    // Every homepage alias retains the tool entry points from the footer;
+    // they must not return to the main landing-page content.
+    let (before_footer, footer) = html.split_once("<footer").unwrap();
+    assert!(!before_footer.contains("data-footer-links"));
+    assert_eq!(footer.matches("data-footer-links").count(), 3);
+    for path in [
+        "/docs/llms.txt",
+        "/docs/api",
+        "/openapi.json",
+        "/mcp/server-card",
+        "/auth.md",
+        "/.well-known/agent-skills/index.json",
+    ] {
+        assert!(markdown.contains(&format!("]({path})")), "{path}");
+        assert!(footer.contains(&format!("href=\"{path}\"")), "{path}");
+        assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
+    }
     assert_eq!(
         html,
         fetch(&app, "/", "text/markdown;q=0, text/html").await.2
@@ -75,6 +94,25 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
     assert!(graph
         .iter()
         .any(|entity| entity["@type"] == "SoftwareApplication" && entity["sameAs"].is_array()));
+    let source = graph
+        .iter()
+        .find(|entity| entity["@type"] == "SoftwareSourceCode")
+        .unwrap();
+    assert_eq!(source["codeRepository"], site::GITHUB_URL);
+    assert_eq!(source["license"], site::LICENSE_URL);
+    let repository_link = format!("href=\"{}\"", site::GITHUB_URL);
+    assert!(before_footer.contains(&repository_link));
+    assert!(footer.contains(&repository_link));
+    let organization = graph
+        .iter()
+        .find(|entity| entity["@type"] == "Organization")
+        .unwrap();
+    assert_eq!(organization["name"], site::ORGANIZATION);
+    assert_eq!(
+        organization["contactPoint"][0]["email"],
+        site::PRIVACY_EMAIL
+    );
+    assert_eq!(organization["contactPoint"][1]["email"], site::LEGAL_EMAIL);
     for path in ["/about", "/contact", "/docs/api", "/llms.txt"] {
         assert!(html.contains(&format!("href=\"{path}\"")));
         assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
@@ -108,6 +146,20 @@ async fn info_pages_share_html_and_markdown_routes() {
             html,
             fetch(&app, path, "text/markdown;q=0, text/html").await.2
         );
+        let links: &[&str] = if path == "/about" {
+            &[site::GITHUB_URL]
+        } else {
+            &[
+                site::ISSUES_URL,
+                site::DISCORD_URL,
+                site::PRIVACY_MAILTO,
+                site::LEGAL_MAILTO,
+            ]
+        };
+        for href in links {
+            assert!(html.contains(&format!("href=\"{href}\"")));
+            assert!(markdown.contains(&format!("]({href})")));
+        }
     }
 }
 
@@ -279,6 +331,171 @@ async fn public_discovery_supports_browser_reads_and_conditional_request_preflig
         assert_eq!(
             response.headers()[header::ACCESS_CONTROL_ALLOW_METHODS],
             "GET,HEAD"
+        );
+    }
+}
+
+#[tokio::test]
+async fn generated_contracts_keep_operation_ids_errors_and_resolvable_schemas() {
+    fn check_refs(value: &Value, root: &Value) {
+        match value {
+            Value::Object(object) => {
+                if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
+                    let pointer = reference.strip_prefix('#').expect("local schema reference");
+                    assert!(
+                        root.pointer(pointer).is_some(),
+                        "unresolved reference: {reference}"
+                    );
+                }
+                for child in object.values() {
+                    check_refs(child, root);
+                }
+            }
+            Value::Array(array) => {
+                for child in array {
+                    check_refs(child, root);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let app = super::app();
+    let spec: Value =
+        serde_json::from_str(&fetch(&app, "/openapi.json", "application/json").await.2).unwrap();
+    assert_eq!(spec["openapi"], "3.1.0");
+    assert!(spec["externalDocs"]["description"].is_string());
+    for path in spec["paths"].as_object().unwrap().values() {
+        for operation in path.as_object().unwrap().values() {
+            if let Some(responses) = operation["responses"].as_object() {
+                for response in responses.values() {
+                    if response.get("$ref").is_none() {
+                        assert!(
+                            response["description"].is_string(),
+                            "OpenAPI 3.1 requires response descriptions"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        spec["paths"]["/api/search"]["post"]["requestBody"]["content"]["application/json"]
+            ["schema"]["type"],
+        "string"
+    );
+    check_refs(&spec, &spec);
+    for (path, method, operation_id) in [
+        ("/api/v1/search", "get", "searchDocs"),
+        ("/api/v1/docs", "get", "listDocs"),
+        ("/api/v1/docs/page", "get", "getDoc"),
+        ("/api/search", "get", "searchProaDocumentation"),
+        ("/api/search", "post", "searchProaDocumentationPost"),
+    ] {
+        let operation = &spec["paths"][path][method];
+        assert_eq!(operation["operationId"], operation_id);
+        assert!(operation["description"].is_string());
+        for status in ["200", "400", "404", "405", "429"] {
+            assert!(operation["responses"][status]["headers"]["RateLimit"].is_object());
+        }
+        assert!(operation["responses"]["429"]["headers"]["Retry-After"].is_object());
+        assert!(operation["responses"]["429"]["content"]["application/problem+json"].is_object());
+    }
+    // Axum's legacy extractor errors differ from the typed v1 problem response.
+    for (path, content_type) in [
+        ("/api/v1/search", "application/problem+json"),
+        ("/api/search", "text/plain"),
+    ] {
+        assert!(
+            spec["paths"][path]["get"]["responses"]["400"]["content"][content_type].is_object()
+        );
+    }
+    let tools = rpc(&app, "tools/list", json!({})).await;
+    for tool in tools["result"]["tools"].as_array().unwrap() {
+        let input = &tool["inputSchema"];
+        assert_eq!(input["additionalProperties"], false);
+        check_refs(input, input);
+        check_refs(&tool["outputSchema"], &tool["outputSchema"]);
+        if tool["name"] == "search_docs" {
+            let required = |schema: &Value| {
+                schema["required"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|field| field.as_str().unwrap().to_owned())
+                    .collect::<std::collections::BTreeSet<_>>()
+            };
+            assert_eq!(
+                required(&tool["outputSchema"]),
+                required(&spec["components"]["schemas"]["DocumentList"])
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn retired_documents_are_readable_but_not_searchable_over_http_or_mcp() {
+    let app = super::app();
+    let retired: Vec<_> = super::pages::docs::docs()
+        .pages
+        .iter()
+        .filter(|page| !page.frontmatter.hidden && page.frontmatter.search == Some(false))
+        .collect();
+    assert!(
+        !retired.is_empty(),
+        "exercise the compiled retired-guide fixtures"
+    );
+    for page in retired {
+        let mut query = reqwest::Url::parse("http://localhost/").unwrap();
+        query
+            .query_pairs_mut()
+            .append_pair("q", page.title)
+            .append_pair("limit", "50");
+        let response: Value = serde_json::from_str(
+            &fetch(
+                &app,
+                &format!("/api/v1/search?{}", query.query().unwrap()),
+                "application/json",
+            )
+            .await
+            .2,
+        )
+        .unwrap();
+        assert!(response["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|doc| doc["path"] != page.route_path));
+        let tools = rpc(
+            &app,
+            "tools/call",
+            json!({"name":"search_docs", "arguments":{"q":page.title,"limit":50}}),
+        )
+        .await;
+        assert!(tools["result"]["structuredContent"]["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|doc| doc["path"] != page.route_path));
+        let legacy: Value = serde_json::from_str(
+            &fetch(
+                &app,
+                &format!("/api/search?{}", query.query().unwrap()),
+                "application/json",
+            )
+            .await
+            .2,
+        )
+        .unwrap();
+        assert!(legacy["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|doc| doc["url"] != page.route_path));
+        // Search exclusion is not access control: an existing link still works.
+        assert_eq!(
+            fetch(&app, page.markdown_path, "text/markdown").await.0,
+            StatusCode::OK
         );
     }
 }

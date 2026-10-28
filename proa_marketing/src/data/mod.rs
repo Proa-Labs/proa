@@ -3,3 +3,4 @@
 
 pub mod benchmarks;
 pub mod routes;
+pub mod site;

@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::routes;
+
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_docs::{DocPage, Docs, DocsPager, DocsToc};
 use proa_macros::html_sync;
@@ -34,7 +36,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsPageView {
                 aria-hidden="true"
             />
             <header class="docs-mobile-topbar" aria-label="Docs mobile header">
-                <a class="docs-mobile-logo" href="/" aria-label="Proa home">
+                <a class="docs-mobile-logo" href={routes::HOME} aria-label="Proa home">
                     <span aria-hidden="true">
                         {ProaLogoMark { class: "docs-sidebar-logo-svg" }}
                     </span>

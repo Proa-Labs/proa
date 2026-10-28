@@ -3,6 +3,8 @@
 
 //! Public, read-only documentation operations shared by HTTP and MCP.
 
+use crate::data::routes;
+
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -16,7 +18,9 @@ use axum::{
     Json,
 };
 use proa_docs::DocPage;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
 
 use crate::{pages::docs, utils::site_url::public_site_url};
 
@@ -24,27 +28,43 @@ const DEFAULT_LIMIT: usize = 10;
 const MAX_LIMIT: usize = 50;
 pub const REQUESTS_PER_MINUTE: u32 = 600;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams, JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[into_params(parameter_in = Query)]
 pub struct SearchInput {
+    /// Phrase to find in document titles, descriptions, or Markdown.
+    #[param(min_length = 1, max_length = 256)]
+    #[schemars(length(min = 1, max = 256))]
     pub q: String,
+    /// Maximum results per page; defaults to 10.
+    #[param(minimum = 1, maximum = 50, default = 10, nullable = false)]
+    #[schemars(range(min = 1, max = MAX_LIMIT))]
     pub limit: Option<usize>,
+    /// next_cursor from a preceding search with the same q.
+    #[param(nullable = false)]
     pub cursor: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct Pagination {
+    /// Maximum results per page; defaults to 10.
+    #[param(minimum = 1, maximum = 50, default = 10, nullable = false)]
     pub limit: Option<usize>,
+    /// next_cursor from the preceding response. Restart after a deployment.
+    #[param(nullable = false)]
     pub cursor: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams, JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[into_params(parameter_in = Query)]
 pub struct PageInput {
+    /// Published route or Markdown path, for example /docs/core/html-rendering.
     pub path: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema, JsonSchema)]
 pub struct DocumentSummary {
     pub title: &'static str,
     pub path: &'static str,
@@ -63,18 +83,32 @@ impl From<&'static DocPage> for DocumentSummary {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema, JsonSchema)]
 pub struct DocumentList {
     pub results: Vec<DocumentSummary>,
     pub total: usize,
+    /// Opaque cursor for the next page, or null when the result set is complete.
+    #[schema(required)]
     pub next_cursor: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema, JsonSchema)]
 pub struct Document {
     #[serde(flatten)]
     pub summary: DocumentSummary,
     pub markdown: &'static str,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct Problem<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    title: &'static str,
+    status: u16,
+    code: &'static str,
+    detail: &'static str,
+    #[schema(value_type = String, format = "uri")]
+    documentation: crate::utils::document::SiteUrl<'a>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -95,22 +129,20 @@ impl ApiError {
     }
 
     pub fn not_found() -> Self {
-        Self { status:StatusCode::NOT_FOUND, code:"not_found", detail:"No public document or API route matches this request. Use /api/v1/docs to list documents." }
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "not_found",
+            detail: const_format::concatcp!(
+                "No public document or API route matches this request. Use ",
+                routes::API_DOCS,
+                " to list documents."
+            ),
+        }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        #[derive(Serialize)]
-        struct Problem<'a> {
-            #[serde(rename = "type")]
-            kind: &'static str,
-            title: &'static str,
-            status: u16,
-            code: &'static str,
-            detail: &'static str,
-            documentation: crate::utils::document::SiteUrl<'a>,
-        }
         let mut response = (
             self.status,
             Json(Problem {
@@ -121,7 +153,7 @@ impl IntoResponse for ApiError {
                 detail: self.detail,
                 documentation: crate::utils::document::SiteUrl {
                     origin: public_site_url(),
-                    path: "/docs/api",
+                    path: routes::API_GUIDE,
                 },
             }),
         )
@@ -219,24 +251,44 @@ pub fn get(input: PageInput) -> Result<Document, ApiError> {
 
 fn query<T>(input: Result<Query<T>, QueryRejection>) -> Result<T, ApiError> {
     input.map(|Query(value)| value).map_err(|_| {
-        ApiError::invalid(
-            "Malformed query parameters. Check the endpoint parameters in /openapi.json.",
-        )
+        ApiError::invalid(const_format::concatcp!(
+            "Malformed query parameters. Check the endpoint parameters in ",
+            routes::OPENAPI,
+            "."
+        ))
     })
 }
 
+/// Search public Proa documentation.
+///
+/// Match a case-insensitive phrase in searchable public pages. Continue with
+/// next_cursor and the same query; restart pagination after a deployment.
+#[utoipa::path(get, path = routes::API_SEARCH, operation_id = "searchDocs",
+    params(SearchInput), responses((status = 200, description = "A page of public document summaries.", body = DocumentList), ApiError))]
 pub async fn search_handler(
     input: Result<Query<SearchInput>, QueryRejection>,
 ) -> Result<Json<DocumentList>, ApiError> {
     search(query(input)?).map(Json)
 }
 
+/// List public documentation with stable paths and Markdown URLs.
+///
+/// Includes public pages excluded from search. Use next_cursor to continue
+/// reading this deployment's registry. Hidden pages are never listed.
+#[utoipa::path(get, path = routes::API_DOCS, operation_id = "listDocs",
+    params(Pagination), responses((status = 200, description = "A page of public document summaries.", body = DocumentList), ApiError))]
 pub async fn list_handler(
     input: Result<Query<Pagination>, QueryRejection>,
 ) -> Result<Json<DocumentList>, ApiError> {
     list(query(input)?).map(Json)
 }
 
+/// Read a complete public document as Markdown.
+///
+/// Accepts a published route or Markdown path from search or the document list.
+/// Arbitrary URLs and filesystem paths are not fetched.
+#[utoipa::path(get, path = routes::API_PAGE, operation_id = "getDoc",
+    params(PageInput), responses((status = 200, description = "Document metadata and complete Markdown.", body = Document), ApiError))]
 pub async fn page_handler(
     input: Result<Query<PageInput>, QueryRejection>,
 ) -> Result<Json<Document>, ApiError> {
@@ -248,7 +300,15 @@ pub async fn not_found() -> ApiError {
 }
 
 pub async fn method_not_allowed() -> ApiError {
-    ApiError { status:StatusCode::METHOD_NOT_ALLOWED, code:"method_not_allowed", detail:"This documentation endpoint supports GET and HEAD. See /openapi.json for supported operations." }
+    ApiError {
+        status: StatusCode::METHOD_NOT_ALLOWED,
+        code: "method_not_allowed",
+        detail: const_format::concatcp!(
+            "This documentation endpoint supports GET and HEAD. See ",
+            routes::OPENAPI,
+            " for supported operations."
+        ),
+    }
 }
 
 #[derive(Debug)]

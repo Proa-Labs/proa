@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::data::routes;
+
 use std::{sync::OnceLock, time::Duration};
 
 use axum::{
@@ -18,29 +20,26 @@ use crate::{
         docs::{self, Authentication, DocumentationIndex},
         home,
     },
-    utils::{
-        document::{render_markdown, SiteUrl},
-        site_url::public_site_url,
-    },
+    utils::{document::render_markdown, site_url::public_site_url},
 };
 
 /// Public metadata can be read by browser discovery clients. The MCP transport
 /// is registered separately and keeps its strict Host and Origin validation.
 pub fn router() -> Router {
     Router::new()
-        .route("/.well-known/proa-site.json", get(site_metadata))
-        .route("/openapi.json", get(openapi))
-        .route("/llms.txt", get(index))
-        .route("/.well-known/llms.txt", get(index))
-        .route("/docs/llms.txt", get(docs_index))
-        .route("/index.md", get(home))
-        .route("/auth.md", get(auth))
-        .route("/.well-known/ard.json", get(catalog))
-        .route("/.well-known/ai-catalog.json", get(catalog))
-        .route("/.well-known/api-catalog", get(api_catalog))
-        .route("/.well-known/agent-skills/index.json", get(skills))
-        .route("/.well-known/agent-skills/:name/SKILL.md", get(skill))
-        .route("/mcp/server-card", get(server_card))
+        .route(routes::SITE_METADATA, get(site_metadata))
+        .route(routes::OPENAPI, get(openapi))
+        .route(routes::AGENT_INDEX, get(index))
+        .route(routes::WELL_KNOWN_AGENT_INDEX, get(index))
+        .route(routes::DOCS_INDEX, get(docs_index))
+        .route(routes::HOME_MARKDOWN, get(home))
+        .route(routes::AUTH, get(auth))
+        .route(routes::ARD_CATALOG, get(catalog))
+        .route(routes::AI_CATALOG, get(catalog))
+        .route(routes::API_CATALOG, get(api_catalog))
+        .route(routes::SKILLS_INDEX, get(skills))
+        .route(routes::SKILL_PATTERN, get(skill))
+        .route(routes::MCP_CARD, get(server_card))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -51,13 +50,14 @@ pub fn router() -> Router {
         )
 }
 
-pub const DISCOVERY_LINKS: &str = concat!(
-    "</.well-known/proa-site.json>; rel=\"service-meta\"; type=\"application/json\", ",
-    "</openapi.json>; rel=\"service-desc\"; type=\"application/vnd.oai.openapi+json\", ",
-    "</.well-known/ard.json>; rel=\"ard\"; type=\"application/ai-catalog+json\", ",
-    "</.well-known/api-catalog>; rel=\"api-catalog\"; type=\"application/linkset+json\", ",
-    "</index.md>; rel=\"alternate\"; type=\"text/markdown\", ",
-    "</llms.txt>; rel=\"describedby\"; type=\"text/plain\""
+pub const DISCOVERY_LINKS: &str = const_format::formatcp!(
+    "<{}>; rel=\"service-meta\"; type=\"application/json\", <{}>; rel=\"service-desc\"; type=\"application/vnd.oai.openapi+json\", <{}>; rel=\"ard\"; type=\"application/ai-catalog+json\", <{}>; rel=\"api-catalog\"; type=\"application/linkset+json\", <{}>; rel=\"alternate\"; type=\"text/markdown\", <{}>; rel=\"describedby\"; type=\"text/plain\"",
+    routes::SITE_METADATA,
+    routes::OPENAPI,
+    routes::ARD_CATALOG,
+    routes::API_CATALOG,
+    routes::HOME_MARKDOWN,
+    routes::AGENT_INDEX,
 );
 
 const SKILLS: &[(&str, &str, &str)] = &[
@@ -87,34 +87,9 @@ struct Documents {
     site: String,
     server_card: String,
     openapi: String,
-    json_ld: String,
 }
 
 static DOCUMENTS: OnceLock<Documents> = OnceLock::new();
-
-fn openapi_document(origin: &str) -> serde_json::Value {
-    #[derive(serde::Serialize)]
-    struct Server<'a> {
-        url: &'a str,
-    }
-
-    // The literal is checked and encoded by const_json! during compilation.
-    // Only deployment-specific fields are supplied at startup.
-    let mut document: serde_json::Value =
-        serde_json::from_str(crate::agent::openapi::DOCUMENT).expect("compiler-validated OpenAPI");
-    document["servers"] = serde_json::to_value([Server { url: origin }]).unwrap();
-    document["externalDocs"]["url"] = serde_json::to_value(SiteUrl {
-        origin,
-        path: "/docs/api",
-    })
-    .unwrap();
-    document["info"]["contact"]["url"] = serde_json::to_value(SiteUrl {
-        origin,
-        path: "/contact",
-    })
-    .unwrap();
-    document
-}
 
 // The response/cache boundary owns the finished documents. Renderers compose
 // typed children; serialization and rendering happen once per deployment.
@@ -132,14 +107,11 @@ fn documents() -> &'static Documents {
             skills: discovery::skills(origin, SKILLS),
             site: discovery::site(origin),
             server_card: discovery::server_card(origin),
-            openapi: openapi_document(origin).to_string(),
-            json_ld: discovery::structured_data(origin),
+            openapi: crate::agent::openapi::document(origin)
+                .to_json()
+                .expect("serialize generated OpenAPI"),
         }
     })
-}
-
-pub fn structured_data() -> &'static str {
-    &documents().json_ld
 }
 
 pub fn text_response(body: &'static str, content_type: &'static str) -> Response {
@@ -153,6 +125,11 @@ pub fn text_response(body: &'static str, content_type: &'static str) -> Response
         .into_response()
 }
 
+/// Read the homepage Markdown and links to documentation tools.
+///
+/// Shares the homepage content with /index.md and negotiated Markdown at /.
+#[utoipa::path(get, path = routes::AGENT_INDEX, operation_id = "getAgentIndex",
+    responses((status = 200, description = "Homepage Markdown with documentation tool links.", body = String, content_type = "text/plain")))]
 pub async fn index() -> Response {
     text_response(home::markdown(), "text/plain; charset=utf-8")
 }
@@ -175,15 +152,22 @@ pub async fn api_catalog() -> Response {
     );
     response.headers_mut().insert(
         header::LINK,
-        axum::http::HeaderValue::from_static(
-            "</.well-known/api-catalog>; rel=\"api-catalog\"; type=\"application/linkset+json\"",
-        ),
+        axum::http::HeaderValue::from_static(const_format::formatcp!(
+            "<{}>; rel=\"api-catalog\"; type=\"application/linkset+json\"",
+            routes::API_CATALOG
+        )),
     );
     response
 }
 pub async fn skills() -> Response {
     text_response(&documents().skills, "application/json; charset=utf-8")
 }
+/// Describe the public machine-readable interfaces.
+///
+/// Proa-specific experimental metadata links to the documentation corpus,
+/// OpenAPI definition, and MCP transport. No authentication is required.
+#[utoipa::path(get, path = routes::SITE_METADATA, operation_id = "getProaSiteMetadata",
+    responses((status = 200, description = "Public interface metadata.", body = discovery::SiteMetadata)))]
 pub async fn site_metadata() -> Response {
     text_response(&documents().site, "application/json; charset=utf-8")
 }
@@ -204,23 +188,5 @@ pub async fn skill(Path(name): Path<String>) -> Response {
     match SKILLS.iter().find(|(skill, _, _)| *skill == name) {
         Some((_, _, body)) => text_response(body, "text/markdown; charset=utf-8"),
         None => super::not_found::markdown(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn openapi_document_uses_the_deployment_origin_for_local_links() {
-        let origin = "https://pr-54.example.test";
-        let document = super::openapi_document(origin);
-        assert_eq!(document["servers"][0]["url"], origin);
-        assert_eq!(
-            document["externalDocs"]["url"],
-            format!("{origin}/docs/api")
-        );
-        assert_eq!(
-            document["info"]["contact"]["url"],
-            format!("{origin}/contact")
-        );
     }
 }

@@ -48,7 +48,7 @@ use tokio::sync::{Mutex, RwLock};
 
 /// Repository that publishes the releases. Overridable so a staging deployment
 /// can point at a fork without a rebuild.
-const DEFAULT_REPO: &str = "Proa-Labs/proa";
+const DEFAULT_REPO: &str = crate::data::site::GITHUB_REPOSITORY;
 
 /// Every proa-cli release tag starts with this. The monorepo tags other crates
 /// too, which is why `/releases/latest` is unusable here: it answers with the
@@ -63,7 +63,7 @@ const REQUIRED_RELEASE_ASSET_SUFFIXES: [&str; 2] =
     ["x86_64-unknown-linux-gnu.tar.gz", "SHA256SUMS"];
 
 const GITHUB_API: &str = "https://api.github.com";
-const GITHUB_WEB: &str = "https://github.com";
+const GITHUB_WEB: &str = crate::data::site::GITHUB_ORIGIN;
 
 /// GitHub rejects API requests without a User-Agent.
 const USER_AGENT: &str = "proa.so-download-bridge";

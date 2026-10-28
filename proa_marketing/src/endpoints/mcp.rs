@@ -5,6 +5,7 @@
 
 use std::sync::{Arc, OnceLock};
 
+use rmcp::handler::server::common::schema_for_input;
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
 };
@@ -12,6 +13,7 @@ use rmcp::{model::*, service::RequestContext, ErrorData as McpError, RoleServer,
 use serde_json::Value;
 
 use super::api;
+use crate::data::{routes, site};
 use crate::utils::site_url::public_site_url;
 
 /// Reverse-DNS namespace for proa.so, followed by the server identifier.
@@ -19,7 +21,7 @@ use crate::utils::site_url::public_site_url;
 /// See https://github.com/modelcontextprotocol/ext-server-card/blob/main/docs/discovery.md
 pub const SERVER_NAME: &str = "so.proa/docs";
 pub const SERVER_VERSION: &str = "1.0.0";
-pub const SERVER_TITLE: &str = "Proa documentation";
+pub const SERVER_TITLE: &str = const_format::concatcp!(site::NAME, " documentation");
 pub const SERVER_DESCRIPTION: &str = "Search and read official Proa Rust framework documentation.";
 
 #[derive(Clone)]
@@ -31,36 +33,44 @@ fn tools() -> &'static [Tool] {
         let annotations = ToolAnnotations::new().read_only(true).destructive(false).idempotent(true).open_world(false);
         vec![
             Tool::new("search_docs", "Search official Proa Rust framework documentation by a case-insensitive phrase. Use this to find current APIs, render patterns, RSJS guidance, and deployment instructions. Returns titles, routes, Markdown URLs, and a pagination cursor; call get_doc with a returned path for the complete page.",
-                serde_json::from_str::<JsonObject>(crate::agent::schemas::SEARCH_INPUT).expect("compiler-validated search schema"))
-                .with_raw_output_schema(output_schema("DocumentList"))
+                schema_for_input::<api::SearchInput>().expect("search input is an object"))
+                .with_raw_output_schema(output_schema::<api::DocumentList>())
                 .with_annotations(annotations.clone()),
             Tool::new("get_doc", "Read a complete official Proa documentation page as Markdown with its title, description, and canonical route. Supply a path returned by search_docs or resources/list. Only published documentation is accessible; arbitrary URLs and filesystem paths are not fetched.",
-                serde_json::from_str::<JsonObject>(crate::agent::schemas::GET_INPUT).expect("compiler-validated document schema"))
-                .with_raw_output_schema(output_schema("Document"))
+                schema_for_input::<api::PageInput>().expect("document input is an object"))
+                .with_raw_output_schema(output_schema::<api::Document>())
                 .with_annotations(annotations),
         ]
     })
 }
 
-/// Reuse the public output contract, resolving refs within the tool's schema.
-fn output_schema(name: &str) -> Arc<JsonObject> {
-    let spec: Value = serde_json::from_str(
-        &crate::agent::openapi::DOCUMENT.replace("#/components/schemas/", "#/$defs/"),
+// Outputs describe serialization: an Option without skip_serializing_if is
+// present even when null. RMCP's default helper describes deserialization.
+fn output_schema<T: schemars::JsonSchema>() -> Arc<JsonObject> {
+    use schemars::generate::{Contract, SchemaSettings};
+    let schema = SchemaSettings::draft2020_12()
+        .with(|settings| settings.contract = Contract::Serialize)
+        .into_generator()
+        .into_root_schema_for::<T>();
+    Arc::new(
+        schema
+            .as_object()
+            .expect("documentation output is an object")
+            .clone(),
     )
-    .unwrap();
-    let mut schema = spec["components"]["schemas"][name].clone();
-    schema["type"] = Value::from("object");
-    schema["$defs"] = spec["components"]["schemas"].clone();
-    Arc::new(schema.as_object().unwrap().clone())
+}
+
+pub(crate) fn server_info(origin: &str) -> Implementation {
+    Implementation::new(SERVER_NAME, SERVER_VERSION)
+        .with_title(SERVER_TITLE)
+        .with_description(SERVER_DESCRIPTION)
+        .with_website_url(format!("{origin}{}", routes::API_GUIDE))
 }
 
 impl ServerHandler for DocumentationServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().enable_resources().build())
-            .with_server_info(Implementation::new(SERVER_NAME, SERVER_VERSION)
-                .with_title(SERVER_TITLE)
-                .with_description(SERVER_DESCRIPTION)
-                .with_website_url(format!("{}/docs/api", public_site_url())))
+            .with_server_info(server_info(public_site_url()))
             .with_instructions("Public Proa Rust framework documentation. Search for a focused phrase, then read the returned page. All tools and resources are read-only and require no credentials. Cite the returned canonical documentation paths. Pagination cursors apply to this deployment; restart after an update.")
     }
 
