@@ -34,6 +34,7 @@ pub const BENCHMARKS_URL: &str =
 // This community redirect stays on the canonical site, including in previews.
 pub const DISCORD_URL: &str = concatcp!(CANONICAL_ORIGIN, "/discord");
 pub const REDDIT_URL: &str = "https://www.reddit.com/r/proa_rs/";
+pub const YOUTUBE_URL: &str = "https://www.youtube.com/@proa-web";
 pub const SOCIAL_USERNAME: &str = "drewhariri";
 pub const SOCIAL_HANDLE: &str = concatcp!("@", SOCIAL_USERNAME);
 pub const SOCIAL_URL: &str = concatcp!("https://x.com/", SOCIAL_USERNAME);

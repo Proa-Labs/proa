@@ -24,8 +24,24 @@ use crate::pages::home;
     info(
         title = "Proa public documentation API",
         version = "1.0.0",
-        description = const_format::concatcp!("Read-only Proa Rust framework documentation. No authentication is required. The ", routes::API_V1, " prefix is the compatibility boundary: breaking changes receive a new prefix; deprecations are announced in ", routes::API_GUIDE, " before removal. Pagination cursors are opaque and valid only for the same result set and deployment.")
+        description = const_format::concatcp!("Public, synchronous, read-only Proa Rust framework documentation. Every operation is a GET and returns JSON. No authentication is required. Requests are safe to retry; there are no writes requiring Idempotency-Key or long-running jobs requiring 202/polling. The ", routes::API_V1, " prefix is the compatibility boundary: breaking changes receive a new prefix; deprecations are announced in ", routes::API_GUIDE, " before removal. Pagination cursors are opaque and valid only for the same result set and deployment. The complete website and legacy search contract is at ", routes::SITE_OPENAPI, ".")
     ),
+    paths(
+        api::search_handler,
+        api::list_handler,
+        api::page_handler,
+        agent_discovery::site_metadata
+    ),
+    components(schemas(api::Problem))
+)]
+struct DocumentationApi;
+
+/// Non-JSON content representations and legacy browser search have their own
+/// contract. Tool generators can consume the v1 JSON API without accidentally
+/// treating an HTML page, text corpus, or legacy scalar body as an agent tool.
+#[derive(OpenApi)]
+#[openapi(
+    info(title = "Proa website and legacy interfaces", version = "1.0.0"),
     paths(
         api::search_handler,
         api::list_handler,
@@ -40,7 +56,7 @@ use crate::pages::home;
     ),
     components(schemas(api::Problem))
 )]
-struct DocumentationApi;
+struct WebsiteApi;
 
 impl IntoResponses for api::ApiError {
     fn responses() -> BTreeMap<String, RefOr<Response>> {
@@ -100,7 +116,14 @@ fn rate_limit_headers() -> [(&'static str, Header); 5] {
 }
 
 pub fn document(origin: &str) -> Document {
-    let mut document = DocumentationApi::openapi();
+    configure(DocumentationApi::openapi(), origin)
+}
+
+pub fn website_document(origin: &str) -> Document {
+    configure(WebsiteApi::openapi(), origin)
+}
+
+fn configure(mut document: Document, origin: &str) -> Document {
     document.servers = Some(vec![Server::new(origin)]);
     document.external_docs = Some(
         ExternalDocsBuilder::new()

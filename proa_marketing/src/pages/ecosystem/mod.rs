@@ -3,7 +3,10 @@
 
 use crate::data::routes;
 
+use crate::utils::document::Url;
 use axum::response::Html;
+use proa_core::{DataLoader, MdRenderSync, WebContext, WriteBuf, WriteError};
+use proa_macros::md_sync;
 
 mod apps;
 mod data;
@@ -25,4 +28,31 @@ pub async fn developer_tools_handler() -> Html<String> {
 
 pub async fn registry_handler() -> Html<String> {
     registry::render()
+}
+
+/// The index uses the same application and tool records as the HTML catalog.
+pub(crate) struct EcosystemIndex;
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for EcosystemIndex {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let data = data::ecosystem_data();
+        md_sync! { r###"
+            # Proa ecosystem
+
+            > Applications, reference showcases, and developer tools built with Proa.
+
+            ## Applications and showcases
+
+            {for app in data.apps {
+            - [{app.name}]({Url(app.href)}): {app.product_kind}
+            }}
+
+            ## Developer tools
+
+            {for tool in data.tools {
+            - [{tool.name}]({Url(tool.href)}): {tool.description}
+            }}"###
+        }
+        .render_md(cx)
+    }
 }
