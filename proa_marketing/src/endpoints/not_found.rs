@@ -9,7 +9,29 @@ use axum::{
 use proa_core::{DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::{content_part, html_sync, md_sync, omit};
 
-struct NotFoundPage;
+struct NotFoundPage {
+    title: &'static str,
+    message: &'static str,
+    docs_label: &'static str,
+    docs_url: &'static str,
+    home_label: &'static str,
+    home_url: &'static str,
+    conjunction: &'static str,
+}
+
+impl NotFoundPage {
+    const fn new() -> Self {
+        Self {
+            title: "Page not found",
+            message: "This URL does not identify a public Proa page. Visit the ",
+            docs_label: "documentation",
+            docs_url: "/docs",
+            home_label: "homepage",
+            home_url: "/",
+            conjunction: " or ",
+        }
+    }
+}
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for NotFoundPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -17,19 +39,21 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for NotFoundPage {
             <!DOCTYPE html>
             <html lang="en">
                 <head>
-                    <title>"Page not found - Proa"</title>
+                    <title>
+                        {content_part!("browser-title", html_sync! { {self.title} " - Proa" })}
+                    </title>
                     <meta name="viewport" content="width=device-width, initial-scale=1" />
                 </head>
                 <body>
                     <main data-not-found-page>
-                        <h1>"Page not found"</h1>
-                        {content_part!("recovery", html_sync! { <p>
-                            "This URL does not identify a public Proa page. Visit the "
-                            <a href="/docs">"documentation"</a>
-                            " or "
-                            <a href="/">"homepage"</a>
+                        <h1>{self.title}</h1>
+                        <p>
+                            {self.message}
+                            <a href={content_part!("docs-url", self.docs_url)}>{self.docs_label}</a>
+                            {self.conjunction}
+                            <a href={content_part!("home-url", self.home_url)}>{self.home_label}</a>
                             "."
-                        </p> })}
+                        </p>
                     </main>
                 </body>
             </html>
@@ -40,14 +64,15 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for NotFoundPage {
 
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for NotFoundPage {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        use crate::utils::document::Url;
         omit!(
-            "Page not found - Proa",
+            "browser-title",
             "The browser-tab title repeats the page heading"
         );
         md_sync! { r###"
-            # Page not found
+            # {self.title}
 
-            {content_part!("recovery", md_sync! { r##"This URL does not identify a public Proa page. Visit the [documentation](/docs) or [homepage](/)."## })}
+            {self.message}[{self.docs_label}]({content_part!("docs-url", Url(self.docs_url))}){self.conjunction}[{self.home_label}]({content_part!("home-url", Url(self.home_url))}).
 
             Find machine-readable resources in the [agent index](/llms.txt), or browse the [sitemap](/sitemap.xml).
             "###
@@ -62,7 +87,7 @@ pub fn markdown() -> Response {
             (header::CONTENT_TYPE, "text/markdown; charset=utf-8"),
             (header::VARY, "Accept"),
         ],
-        crate::utils::document::render_markdown(NotFoundPage),
+        crate::utils::document::render_markdown(NotFoundPage::new()),
     )
         .into_response()
 }
@@ -74,7 +99,7 @@ pub fn html() -> Response {
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::VARY, "Accept"),
         ],
-        proa_core::render_to_string(NotFoundPage),
+        proa_core::render_to_string(NotFoundPage::new()),
     )
         .into_response()
 }

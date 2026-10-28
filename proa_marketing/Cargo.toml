@@ -19,7 +19,7 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 const_json = { package = "proa_const_json", path = "../const_json/const_json", version = "0.1.2" }
 futures = { workspace = true }
-proa_core = { workspace = true }
+proa_core = { workspace = true, features = ["html-to-markdown"] }
 proa_demo = { workspace = true, features = ["server"] }
 proa_docs = { workspace = true }
 proa_macros = { workspace = true }
@@ -45,6 +45,7 @@ tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
 proa_docs_build = { workspace = true }
 
 [dev-dependencies]
+pulldown-cmark = { workspace = true }
 tower-test = { package = "tower", version = "0.5", features = ["util"] }
 
 [lints]

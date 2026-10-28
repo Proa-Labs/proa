@@ -15,9 +15,8 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::{
     agent::discovery,
     pages::{
-        agent::{AgentIndex, Authentication, DocumentationIndex},
-        docs,
-        home::HomePage,
+        docs::{self, Authentication, DocumentationIndex},
+        home,
     },
     utils::{
         document::{render_markdown, SiteUrl},
@@ -80,8 +79,6 @@ const SKILLS: &[(&str, &str, &str)] = &[
 ];
 
 struct Documents {
-    home: String,
-    index: String,
     auth: String,
     docs_index: String,
     catalog: String,
@@ -125,8 +122,6 @@ fn documents() -> &'static Documents {
     DOCUMENTS.get_or_init(|| {
         let origin = public_site_url();
         Documents {
-            home: render_markdown(HomePage),
-            index: render_markdown(AgentIndex { origin }),
             auth: render_markdown(Authentication { origin }),
             docs_index: render_markdown(DocumentationIndex {
                 origin,
@@ -143,9 +138,6 @@ fn documents() -> &'static Documents {
     })
 }
 
-pub fn home_markdown() -> &'static str {
-    &documents().home
-}
 pub fn structured_data() -> &'static str {
     &documents().json_ld
 }
@@ -162,7 +154,7 @@ pub fn text_response(body: &'static str, content_type: &'static str) -> Response
 }
 
 pub async fn index() -> Response {
-    text_response(&documents().index, "text/plain; charset=utf-8")
+    text_response(home::markdown(), "text/plain; charset=utf-8")
 }
 pub async fn docs_index() -> Response {
     text_response(&documents().docs_index, "text/plain; charset=utf-8")
@@ -171,7 +163,7 @@ pub async fn auth() -> Response {
     text_response(&documents().auth, "text/markdown; charset=utf-8")
 }
 pub async fn home() -> Response {
-    text_response(home_markdown(), "text/markdown; charset=utf-8")
+    text_response(home::markdown(), "text/markdown; charset=utf-8")
 }
 pub async fn catalog() -> Response {
     text_response(&documents().catalog, "application/ai-catalog+json")

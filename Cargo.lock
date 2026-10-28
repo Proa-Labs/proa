@@ -3504,6 +3504,7 @@ dependencies = [
  "proa_macros",
  "proa_showcase_web",
  "proa_third_party",
+ "pulldown-cmark",
  "reqwest 0.12.24",
  "rmcp",
  "rsjs",

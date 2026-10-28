@@ -49,6 +49,11 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
     assert!(markdown.starts_with("# "));
     assert!(!markdown.contains("<html"));
     assert_eq!(markdown, fetch(&app, "/index.md", "*/*").await.2);
+    assert_eq!(markdown, fetch(&app, "/llms.txt", "*/*").await.2);
+    assert_eq!(
+        markdown,
+        fetch(&app, "/.well-known/llms.txt", "*/*").await.2
+    );
     assert_eq!(markdown, fetch(&app, "/?mode=agent", "text/html").await.2);
     assert_eq!(
         html,
@@ -120,7 +125,11 @@ async fn discovery_links_resolve_and_do_not_advertise_hidden_docs() {
             .split("](")
             .skip(1)
             .filter_map(|part| part.split_once(')').map(|p| p.0))
-            .filter_map(|url| url.strip_prefix(origin))
+            .filter_map(|url| {
+                url.strip_prefix(origin)
+                    .or_else(|| url.starts_with('/').then_some(url))
+            })
+            .map(|path| path.split('#').next().unwrap())
         {
             assert_eq!(
                 fetch(&app, link, "*/*").await.0,

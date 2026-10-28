@@ -1,7 +1,6 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-pub(crate) mod agent;
 pub(crate) mod collection;
 pub mod demos;
 pub mod docs;

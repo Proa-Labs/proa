@@ -75,7 +75,12 @@ Use the matching macros for substantial authored output: `html_sync!`/`html!`,
 `md_sync!`/`md!`, `xml_sync!`/`xml!`, and `const_json!` for literal JSON. Use typed
 `Serialize` models for runtime JSON. This applies to handlers, error pages, and
 cached/startup documents too. HTML and Markdown representations belong on the
-same page/component types, with shared data and typed children. See
+same page/component module, with copy, labels, URLs, and collections defined
+once in shared props or a content constructor. Compose dedicated Markdown
+sections for the core page structure; do not duplicate prose in both templates,
+create a separate agent-facing page, or default to converting the HTML tree.
+Preserve HTML copy and `PageMeta` unless editorial changes are explicitly
+requested. See
 [`docs/agent/document-rendering.md`](docs/agent/document-rendering.md) for format
 selection, escaping, source-data boundaries, and verification.
 

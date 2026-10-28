@@ -11,6 +11,13 @@ Use the matching macro or typed serializer in handlers and cached documents as
 well as components. Give relevant page types an `MdRenderSync` implementation;
 do not substitute parallel Markdown files, string replacement, or hand-built
 markup. Keep runtime JSON typed; use `const_json!` for literal JSON.
+For multiple render targets, read the guide's shared-content workflow first.
+Keep both implementations with the owning page/component, not in a separate
+agent-facing page. Put copy, labels, URLs, and collections in shared props or
+one content constructor before writing either renderer. Compose explicit
+Markdown sections for the core page structure; do not duplicate literals or
+convert the entire HTML view. Preserve existing copy and `PageMeta`. The
+linter is a backstop, not proof that separately written strings stay in sync.
 
 Use this workflow for components owned by the current Proa crate or
 application. Do not assume a component-library repository, catalog, theme
@@ -59,7 +66,8 @@ python3 scripts/proa_perf_lint.py
 - Do not use `format!`, `String`, `.to_string()`, `.to_owned()`, `.collect()`,
   `.join()`, `Vec::new`, or `push_str` in a render hot path.
 - Render numbers and booleans directly.
-- Put literal text directly in templates: `"Save"`, not `{"Save"}`.
+- Put single-target literal text directly in templates: `"Save"`, not `{"Save"}`.
+  Copy shared by HTML and Markdown belongs in shared content fields.
 - Never use `UnsafeRaw` for user-provided content.
 - Do not render a child to an intermediate `String`; compose typed children.
 - Treat linter findings as API or render-shape feedback before suppressing
