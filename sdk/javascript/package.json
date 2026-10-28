@@ -1,0 +1,20 @@
+{
+  "name": "@proa-labs/docs",
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.2",
+  "description": "Official Proa Rust framework documentation SDK and CLI: search and read public documentation without credentials.",
+  "type": "module",
+  "exports": { ".": { "types": "./index.d.ts", "default": "./index.mjs" } },
+  "types": "./index.d.ts",
+  "bin": { "proa-docs": "./cli.mjs" },
+  "files": ["index.mjs", "index.d.ts", "cli.mjs", "README.md", "LICENSE"],
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "homepage": "https://proa.so/docs/api",
+  "repository": { "type": "git", "url": "git+https://github.com/Proa-Labs/proa.git", "directory": "sdk/javascript" },
+  "bugs": "https://github.com/Proa-Labs/proa/issues",
+  "author": "Proa Labs, Inc.",
+  "license": "Apache-2.0",
+  "keywords": ["proa", "rust", "documentation", "sdk", "cli", "agents", "mcp"],
+  "publishConfig": { "access": "public" }
+}

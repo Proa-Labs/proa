@@ -64,6 +64,9 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
     assert_eq!(footer.matches("data-footer-links").count(), 3);
     for path in [
         "/docs/llms.txt",
+        "/docs/framework/llms.txt",
+        "/docs/rsjs/llms.txt",
+        "/ecosystem/llms.txt",
         "/docs/api",
         "/openapi.json",
         "/mcp/server-card",
@@ -113,9 +116,103 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         site::PRIVACY_EMAIL
     );
     assert_eq!(organization["contactPoint"][1]["email"], site::LEGAL_EMAIL);
+    let faq = graph
+        .iter()
+        .find(|entity| entity["@type"] == "FAQPage")
+        .unwrap();
+    let questions = faq["mainEntity"].as_array().unwrap();
+    assert_eq!(questions.len(), crate::pages::home::faq::FAQS.len());
+    let markdown_text: String = pulldown_cmark::Parser::new(&markdown)
+        .filter_map(|event| {
+            if let pulldown_cmark::Event::Text(text) = event {
+                Some(text.into_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    for question in questions {
+        assert!(html.contains(question["name"].as_str().unwrap()));
+        assert!(markdown_text.contains(question["acceptedAnswer"]["text"].as_str().unwrap()));
+    }
     for path in ["/about", "/contact", "/docs/api", "/llms.txt"] {
         assert!(html.contains(&format!("href=\"{path}\"")));
         assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
+    }
+}
+
+#[tokio::test]
+async fn tool_openapi_only_advertises_typed_json_reads() {
+    let app = super::app();
+    let spec: Value =
+        serde_json::from_str(&fetch(&app, "/openapi.json", "application/json").await.2).unwrap();
+    let paths = spec["paths"].as_object().unwrap();
+    assert_eq!(paths.len(), 4);
+    for (path, item) in paths {
+        let methods = item.as_object().unwrap();
+        assert_eq!(methods.len(), 1, "only GET is part of the JSON API: {path}");
+        let operation = &item["get"];
+        assert!(operation["operationId"].is_string());
+        assert!(operation["responses"]["200"]["content"]["application/json"]["schema"].is_object());
+    }
+    assert!(paths.contains_key("/api/v1/search"));
+    assert!(paths.contains_key("/api/v1/docs/page"));
+    assert_eq!(
+        fetch(&app, "/openapi/site.json", "*/*").await.0,
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn documentation_exposes_its_own_article_and_navigation_metadata() {
+    let app = super::app();
+    for (path, kind) in [
+        ("/docs/api", "APIReference"),
+        ("/docs/rsjs/signals", "TechArticle"),
+    ] {
+        let (status, _, html) = fetch(&app, path, "text/html").await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        let json = html
+            .split_once("<script type=\"application/ld+json\">")
+            .unwrap()
+            .1
+            .split_once("</script>")
+            .unwrap()
+            .0;
+        let data: Value = serde_json::from_str(json).unwrap();
+        let page = crate::endpoints::api::page(path).unwrap();
+        assert_eq!(data["@graph"][0]["@type"], kind);
+        assert_eq!(data["@graph"][0]["headline"], page.title);
+        assert!(data["@graph"][0]["url"].as_str().unwrap().ends_with(path));
+        let crumbs = data["@graph"][1]["itemListElement"].as_array().unwrap();
+        assert_eq!(crumbs.last().unwrap()["name"], page.title);
+        for (position, crumb) in crumbs.iter().enumerate() {
+            assert_eq!(crumb["position"], position + 1);
+        }
+    }
+}
+
+#[tokio::test]
+async fn section_indexes_only_link_their_public_documentation() {
+    let app = super::app();
+    for prefix in ["/docs/framework", "/docs/rsjs"] {
+        let (status, _, index) = fetch(&app, &format!("{prefix}/llms.txt"), "text/plain").await;
+        assert_eq!(status, StatusCode::OK);
+        let expected = crate::pages::docs::docs().pages.iter().filter(|page| {
+            !page.frontmatter.hidden
+                && (page.route_path == prefix
+                    || page
+                        .route_path
+                        .strip_prefix(prefix)
+                        .is_some_and(|tail| tail.starts_with('/')))
+        });
+        let mut count = 0;
+        for page in expected {
+            assert!(index.contains(page.markdown_path));
+            count += 1;
+        }
+        assert!(count > 1);
+        assert_eq!(index.matches("\n- [").count(), count);
     }
 }
 
@@ -361,8 +458,12 @@ async fn generated_contracts_keep_operation_ids_errors_and_resolvable_schemas() 
     }
 
     let app = super::app();
-    let spec: Value =
-        serde_json::from_str(&fetch(&app, "/openapi.json", "application/json").await.2).unwrap();
+    let spec: Value = serde_json::from_str(
+        &fetch(&app, "/openapi/site.json", "application/json")
+            .await
+            .2,
+    )
+    .unwrap();
     assert_eq!(spec["openapi"], "3.1.0");
     assert!(spec["externalDocs"]["description"].is_string());
     for path in spec["paths"].as_object().unwrap().values() {
@@ -669,6 +770,11 @@ async fn mcp_initializes_lists_searches_reads_and_rejects_invalid_inputs() {
         "application/mcp-server-card+json; charset=utf-8"
     );
     let card: Value = serde_json::from_str(&card).unwrap();
+    let registry_manifest: Value = serde_json::from_str(include_str!("../server.json")).unwrap();
+    assert_eq!(
+        registry_manifest["version"], initialized["result"]["serverInfo"]["version"],
+        "the published MCP manifest must describe the running server version"
+    );
     for field in ["name", "version", "title", "description", "websiteUrl"] {
         assert!(card[field].is_string(), "{field}");
         assert_eq!(
