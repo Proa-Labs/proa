@@ -67,6 +67,20 @@ If a render-path change allocates intentionally, explain why.
 
 Some agents support reusable `SKILL.md` files. Use one when you want the Proa authoring rules to follow the agent across projects.
 
+The [source repository](https://github.com/Proa-Labs/proa/tree/main/.agents/skills) includes five focused skills:
+
+| Skill | Use it for |
+| --- | --- |
+| `proa-component` | Typed server-rendered components and allocation-conscious styling |
+| `proa-island` | RSJS signals, handlers, and browser islands |
+| `proa-perf-review` | Render-path performance checks |
+| `proa-markdown` | Typed Markdown and shared HTML/Markdown content |
+| `proa-docs-api` | Retrieving current documentation through HTTP or MCP |
+
+Use your agent's skill installer with that repository, or discover the downloadable instructions and integrity hashes in the [public skills index](/.well-known/agent-skills/index.json). The authoring skills use the repository's `docs/agent/` reference; the API skill works without a source checkout. A skill supplements the owning project's instructions.
+
+For a project-specific skill, start with this outline:
+
 ```md filename="SKILL.md"
 # Proa Site Authoring
 

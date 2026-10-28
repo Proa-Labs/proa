@@ -207,6 +207,11 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
                         <script type="application/ld+json">{StaticRaw(structured_data::document())}</script>
                     }
                 }}
+                {if let Some(data) = structured_data::for_documentation(self.meta.path) {
+                    html_sync! {
+                        <script type="application/ld+json">{StaticRaw(data)}</script>
+                    }
+                }}
                 <script type="module" src={AGENT_TOOLS_SCRIPT_SRC}></script>
                 <link
                     rel="canonical"

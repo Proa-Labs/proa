@@ -3,6 +3,8 @@
 
 use crate::data::{routes, site};
 
+pub(crate) mod faq;
+
 use axum::{
     extract::Query,
     http::{header, HeaderMap, HeaderValue},
@@ -2012,6 +2014,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomePage {
                 {ProaUiSection::new()}
                 {ConnectorScript}
                 {content_part!("capabilities", CapabilitiesSection { columns: CAPABILITY_COLUMNS })}
+                {content_part!("faq", faq::FaqSection { entries: faq::FAQS })}
                 {GetStartedSection::new()}
             </div>
         }
@@ -2540,6 +2543,8 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for HomePage {
             {ProaUiSection::new()}
 
             {content_part!("capabilities", CapabilitiesSection { columns: CAPABILITY_COLUMNS })}
+
+            {content_part!("faq", faq::FaqSection { entries: faq::FAQS })}
 
             {GetStartedSection::new()}
             "###

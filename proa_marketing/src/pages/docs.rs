@@ -106,18 +106,23 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RequestExamples<'_> {
 pub struct DocumentationIndex<'a> {
     pub origin: &'a str,
     pub pages: &'a [proa_docs::DocPage],
+    pub section: Option<(&'a str, &'a str)>,
 }
 
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for DocumentationIndex<'_> {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         md_sync! { r###"
-            # Proa documentation
+            # Proa {self.section.map(|(title, _)| (title, " "))}documentation
 
             > Public documentation for the Proa Rust web framework. Fetch the linked Markdown for focused context.
 
             ## Pages
 
-            {for page in self.pages.iter().filter(|page| !page.frontmatter.hidden) {
+            {for page in self.pages.iter().filter(|page| {
+                !page.frontmatter.hidden && self.section.is_none_or(|(_, prefix)| {
+                    page.route_path == prefix || page.route_path.strip_prefix(prefix).is_some_and(|tail| tail.starts_with('/'))
+                })
+            }) {
             - [{page.title}]({Url(self.origin)}{Url(page.markdown_path)}): {page.description.unwrap_or("Proa documentation")}
             }}"###
         }.render_md(cx)
@@ -159,6 +164,7 @@ mod tests {
         let output = render_markdown(DocumentationIndex {
             origin: "https://preview.example.test",
             pages: &[page],
+            section: None,
         });
         assert!(output.contains(r"[\[Title\]]"));
         assert!(output.contains(r"\*Description\*"));

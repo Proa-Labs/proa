@@ -9,7 +9,9 @@ The public Proa documentation API searches and reads the same compiled pages as 
 
 Start with [/llms.txt](/llms.txt), the [documentation index](/docs/llms.txt), or the [OpenAPI 3.1 specification](/openapi.json). This service provides documentation; it does not build, host, or deploy your applications.
 
-The [authoring skills index](/.well-known/agent-skills/index.json) follows the draft Agent Skills Discovery 0.2 format. Each entry identifies a `skill-md` artifact and its SHA-256 digest so clients can verify the downloaded instructions. These authoring workflows reference files and scripts in the [Proa source repository](https://github.com/proa-labs/proa); use them with a source checkout.
+The OpenAPI definition contains the typed JSON read API for tool generators and SDK clients. HTML, plain-text exports, health checks, and legacy browser search are described separately in the [complete website OpenAPI contract](/openapi/site.json). Those routes remain available.
+
+The [authoring skills index](/.well-known/agent-skills/index.json) follows the draft Agent Skills Discovery 0.2 format. Each entry identifies a `skill-md` artifact and its SHA-256 digest so clients can verify the downloaded instructions. The component, island, performance, and Markdown authoring workflows reference the [Proa source repository](https://github.com/proa-labs/proa); the documentation API skill also works without a checkout. Focused indexes cover [the framework](/docs/framework/llms.txt), [RSJS](/docs/rsjs/llms.txt), and [the ecosystem](/ecosystem/llms.txt).
 
 ## Search documentation
 
@@ -34,9 +36,40 @@ curl -H 'Accept: text/markdown' 'https://proa.so/'
 
 Every documentation page has a `.md` representation. The homepage is also available at `/index.md` and `/?mode=agent`. HTML and negotiated Markdown responses carry `Vary: Accept` so caches can distinguish the representations. Use [/llms-full.txt](/llms-full.txt) only when you need the entire corpus.
 
+## JavaScript, TypeScript, and Python clients
+
+The repository contains dependency-free [JavaScript/TypeScript](https://github.com/Proa-Labs/proa/tree/main/sdk/javascript) and [Python](https://github.com/Proa-Labs/proa/tree/main/sdk/python) documentation clients. Each includes a `proa-docs` CLI for search, listing, and Markdown retrieval. These clients read documentation; the [Proa build CLI](/docs/cli) scaffolds and builds applications.
+
+The [Python package is available on PyPI](https://pypi.org/project/proa-docs/). Install the library with `pip install proa-docs`, or run its CLI without a source checkout:
+
+```bash
+uvx --from proa-docs proa-docs search streaming --limit 5
+uvx --from proa-docs proa-docs get /docs/core/html-rendering --markdown
+```
+
+The [JavaScript and TypeScript package is available on npm](https://www.npmjs.com/package/@proa-labs/docs). Install the library with `npm install @proa-labs/docs`, or run its CLI with npx:
+
+```bash
+npx --yes --package @proa-labs/docs proa-docs search streaming --limit 5
+npx --yes --package @proa-labs/docs proa-docs get /docs/core/html-rendering --markdown
+```
+
+Both clients can also run from a source checkout:
+
+```bash
+node sdk/javascript/cli.mjs search streaming --limit 5
+uv run --directory sdk/python proa-docs get /docs/core/html-rendering --markdown
+```
+
+JavaScript requires Node.js 22 or newer. Python requires 3.11 or newer. Both clients provide `search`, `list`, `get`, and a paginated `documents` iterator, configurable timeouts and base URLs, typed response definitions, and structured errors with the server's retry delay. They do not retry automatically.
+
+The package READMEs contain library examples. Publication and verification steps are in the [SDK release guide](https://github.com/Proa-Labs/proa/tree/main/sdk#releasing).
+
 ## Connect through MCP
 
 Configure a Streamable HTTP MCP connection to `https://proa.so/mcp`, with no credentials. The experimental [server card](/mcp/server-card) and [agent resource catalog](/.well-known/ard.json) advertise this endpoint. Public discovery files support cross-origin browser reads; the MCP transport itself accepts browser calls only from this deployment's origin. The service is stateless, so connections do not depend on a particular server instance.
+
+The server is published in the [official MCP Registry as `io.github.proa-web/docs`](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs). Its listing points to this documentation and the same hosted endpoint; no local server installation is required.
 
 - `search_docs` accepts `q`, optional `limit`, and optional `cursor`. It returns the same document list as HTTP search.
 - `get_doc` accepts `path` and returns a complete Markdown document with its metadata.
@@ -64,7 +97,7 @@ The HTTP API and MCP endpoint share a budget of 600 requests per minute per runn
 
 Versioned REST failures use `application/problem+json` with `type`, `title`, `status`, `code`, `detail`, and `documentation`. Codes include `invalid_request` (400), `not_found` (404), `method_not_allowed` (405), and `rate_limited` (429). Correct invalid parameters; use the document index to recover from missing paths. For network failures or temporary 5xx responses, retry with exponential backoff.
 
-All documented operations are synchronous reads and safe to repeat. They do not expose write operations, asynchronous jobs, or idempotency keys. Do not send credentials or personal data in search queries. See [authentication policy](/auth.md).
+All documented operations are synchronous reads and safe to repeat. There are no state-changing operations requiring an `Idempotency-Key` and no long-running operations requiring a `202 Accepted` job or polling URL. Even legacy `POST /api/search` only searches documents; it creates no record or side effect. Do not send credentials or personal data in search queries. See [authentication policy](/auth.md).
 
 ## Versions and compatibility
 

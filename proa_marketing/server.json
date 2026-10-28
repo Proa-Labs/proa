@@ -1,0 +1,19 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.proa-web/docs",
+  "title": "Proa documentation",
+  "description": "Search and read official Proa Rust framework documentation. Public, read-only, no credentials.",
+  "version": "1.0.0",
+  "websiteUrl": "https://proa.so/docs/api",
+  "repository": {
+    "url": "https://github.com/Proa-Labs/proa",
+    "source": "github",
+    "subfolder": "proa_marketing"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://proa.so/mcp"
+    }
+  ]
+}

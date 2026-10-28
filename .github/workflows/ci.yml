@@ -117,6 +117,22 @@ jobs:
             test --root . --locked -p proa_marketing --bin proa_marketing
       - name: Test browser documentation tools
         run: node --test proa_marketing/tests-js/agent-tools.test.mjs
+      - name: Test JavaScript documentation SDK and CLI
+        run: node --test sdk/javascript/test/*.test.mjs
+      - name: Install Python documentation SDK tooling
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.6"
+          python-version: "3.11"
+          enable-cache: false
+      - name: Check Python documentation SDK and CLI
+        working-directory: sdk/python
+        run: |
+          uv run --locked pytest
+          uv run --locked ruff check
+          uv run --locked ruff format --check
+          uv run --locked ty check src
+          uv build --out-dir "$RUNNER_TEMP/proa-docs-dist"
 
   workflow-lint:
     name: GitHub Actions syntax and shell safety
