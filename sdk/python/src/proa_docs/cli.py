@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from http.client import HTTPException
 from urllib.error import URLError
 
 from . import __version__
@@ -48,7 +49,7 @@ def main() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
-    except (URLError, OSError, ValueError) as error:
+    except (HTTPException, URLError, OSError, ValueError) as error:
         print(json.dumps({"error": str(error)}), file=sys.stderr)
         sys.exit(1)
 

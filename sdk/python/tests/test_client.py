@@ -29,6 +29,14 @@ def api():
             parsed = urlsplit(self.path)
             query = parse_qs(parsed.query)
             requests.append((parsed.path, query, self.headers))
+            if query.get("q") == ["truncated"]:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "100")
+                self.end_headers()
+                self.wfile.write(b'{"results":')
+                self.close_connection = True
+                return
             if parsed.path == "/api/v1/search" and query.get("q") == ["limited"]:
                 self.send_response(429)
                 self.send_header("Content-Type", "application/problem+json")
@@ -119,6 +127,19 @@ def test_cli_json_markdown_and_errors(api):
     assert result.returncode == 1
     assert result.stdout == ""
     assert json.loads(result.stderr)["retry_after"] == 12
+
+
+def test_cli_truncated_response_is_a_json_error(api):
+    base, _ = api
+    result = subprocess.run(
+        [sys.executable, "-m", "proa_docs.cli", "--base-url", base, "search", "truncated"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert isinstance(json.loads(result.stderr)["error"], str)
 
 
 @pytest.mark.parametrize(

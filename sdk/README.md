@@ -7,18 +7,24 @@ pagination operations, plus a `proa-docs` terminal command.
 
 | Language | Source | Public package |
 | --- | --- | --- |
-| JavaScript / TypeScript (Node 22+) | [javascript](javascript/README.md) | `@proa-labs/docs` on npm (publication pending) |
+| JavaScript / TypeScript (Node 22+) | [javascript](javascript/README.md) | [@proa-labs/docs on npm](https://www.npmjs.com/package/@proa-labs/docs) |
 | Python (3.11+) | [python](python/README.md) | [proa-docs on PyPI](https://pypi.org/project/proa-docs/) |
 
-Python version 0.1.0 is published and verified with a fresh installation. Install
+Python version 0.1.1 is published and verified with a fresh installation. Install
 the library with `pip install proa-docs` or run its CLI with uv:
 
 ```sh
 uvx --from proa-docs proa-docs search streaming --limit 5
 ```
 
-JavaScript publication is pending npm authentication. Its README's npm install
-commands apply after publication; both CLIs can also run from source:
+JavaScript version 0.1.0 is also published and verified. Install the library with
+`npm install @proa-labs/docs`, or run the CLI with npx:
+
+```sh
+npx --yes --package @proa-labs/docs proa-docs search streaming --limit 5
+```
+
+Both CLIs can also run from source:
 
 ```sh
 node sdk/javascript/cli.mjs search streaming --limit 5
@@ -63,10 +69,10 @@ structured failures, and CLI behavior. No live credentials are needed.
    `uv publish <wheel> <sdist>`. Use the organization's PyPI publishing identity
    or configured trusted publisher. Enter credentials directly in the tool's
    secure prompt; never put them in source, release notes, or chat.
-5. Verify both public package pages, fresh installations, and their links to
-   `https://proa.so/docs/api` and the source repository. Replace the first-release
-   notices in this file and the website's API guide with registry links and
-   verified install commands only after both publications succeed.
+5. Verify the public package pages, fresh installations, and their links to
+   `https://proa.so/docs/api` and the source repository. Update the release
+   versions here only after publication and verification succeed. Revoke any
+   temporary upload token after the release.
 
 For local-site smoke tests, set `--base-url http://localhost:5555`. Python's
 global options come before the subcommand; JavaScript accepts either order.
@@ -77,18 +83,25 @@ documentation. Do not include private source code or secrets in search terms.
 
 The hosted MCP server is separate from these HTTP client packages. Its validated
 [server manifest](../proa_marketing/server.json) publishes `https://proa.so/mcp`
-under `so.proa/docs` and needs no npm/PyPI server package.
+under `io.github.proa-web/docs` and needs no npm/PyPI server package. The
+[official listing](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs)
+is active at version 1.0.0. The registry distribution name and the runtime MCP
+implementation name (`so.proa/docs`) are separate identities.
 
 Use the official [registry publishing guide](https://modelcontextprotocol.io/registry/quickstart)
 and [authentication guide](https://modelcontextprotocol.io/registry/authentication).
-The `so.proa` namespace requires ownership verification for `proa.so` using DNS
-or HTTP. Keep the private signing key outside the repository and deploy only
-its public verification record. Then validate and publish:
+Sign in with the `proa-web` GitHub account, then validate and publish. Keep
+publisher credentials outside the repository:
 
 ```sh
+mcp-publisher login github
 mcp-publisher validate proa_marketing/server.json
 mcp-publisher publish proa_marketing/server.json
 ```
+
+If migrating to `so.proa/docs`, verify ownership of `proa.so` through DNS or
+HTTP first. Keep its private signing key outside the repository; publish only
+the public verification record.
 
 If choosing the `io.github.Proa-Labs` namespace instead, update the manifest name
 and use organization-capable authentication. Interactive GitHub login currently

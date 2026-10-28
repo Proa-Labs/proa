@@ -6,4 +6,4 @@
 from .client import Document, DocumentList, DocumentSummary, ProaApiError, ProaDocs
 
 __all__ = ["Document", "DocumentList", "DocumentSummary", "ProaApiError", "ProaDocs"]
-__version__ = "0.1.0"
+__version__ = "0.1.1"

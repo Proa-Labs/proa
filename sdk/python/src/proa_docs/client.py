@@ -61,7 +61,7 @@ class ProaDocs:
         query = urlencode({key: value for key, value in parameters.items() if value is not None})
         request = Request(
             f"{self.base_url}/{endpoint}?{query}",
-            headers={"Accept": "application/json", "User-Agent": "proa-docs-python/0.1.0"},
+            headers={"Accept": "application/json", "User-Agent": "proa-docs-python/0.1.1"},
             method="GET",
         )
         try:

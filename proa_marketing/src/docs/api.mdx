@@ -47,7 +47,14 @@ uvx --from proa-docs proa-docs search streaming --limit 5
 uvx --from proa-docs proa-docs get /docs/core/html-rendering --markdown
 ```
 
-JavaScript registry publication is pending. Run either client from a source checkout:
+The [JavaScript and TypeScript package is available on npm](https://www.npmjs.com/package/@proa-labs/docs). Install the library with `npm install @proa-labs/docs`, or run its CLI with npx:
+
+```bash
+npx --yes --package @proa-labs/docs proa-docs search streaming --limit 5
+npx --yes --package @proa-labs/docs proa-docs get /docs/core/html-rendering --markdown
+```
+
+Both clients can also run from a source checkout:
 
 ```bash
 node sdk/javascript/cli.mjs search streaming --limit 5
@@ -61,6 +68,8 @@ The package READMEs contain library examples. Publication and verification steps
 ## Connect through MCP
 
 Configure a Streamable HTTP MCP connection to `https://proa.so/mcp`, with no credentials. The experimental [server card](/mcp/server-card) and [agent resource catalog](/.well-known/ard.json) advertise this endpoint. Public discovery files support cross-origin browser reads; the MCP transport itself accepts browser calls only from this deployment's origin. The service is stateless, so connections do not depend on a particular server instance.
+
+The server is published in the [official MCP Registry as `io.github.proa-web/docs`](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs). Its listing points to this documentation and the same hosted endpoint; no local server installation is required.
 
 - `search_docs` accepts `q`, optional `limit`, and optional `cursor`. It returns the same document list as HTTP search.
 - `get_doc` accepts `path` and returns a complete Markdown document with its metadata.
