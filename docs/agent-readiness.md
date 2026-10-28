@@ -1,13 +1,20 @@
 # Agent-readiness rollout
 
-Snapshot: 2026-10-28. A fresh [Ora scan](https://ora.ai/score/proa.so) scored
-**89/100**, up from 86/100 on October 27, before this PR was deployed. Site
-changes cannot affect the score until deployment and another scan.
-A perfect score is not guaranteed:
-some checks depend on indexing, third-party adoption, or whether Ora treats
-read-only APIs as exempt from write/job features.
+Snapshot: 2026-10-28 at 18:19 UTC. After PR #56 merged and production revision
+`5e4422dd59200e25118652f6ec7c458a8cee75d7` deployed, a forced
+[Ora scan](https://ora.ai/score/proa.so) completed at **91/100**, up from
+89/100 before deployment. Response-schema coverage and function-calling
+compatibility now pass. A perfect score is not guaranteed: some checks depend
+on search results, registry recognition, or whether Ora treats read-only APIs
+as exempt from write/job features.
 
-## Changes ready for review
+Ora's [check catalog](https://ora.ai/api/checks) marks the skills-install check
+as **emerging**, which is excluded from the canonical score. Its 200-install
+target does not block 100/100. Tranco top-50,000 rank is a separate
+[leaderboard eligibility criterion](https://ora.ai/leaderboard/criteria),
+not a readiness-score deduction.
+
+## Deployed changes
 
 | Report finding | Implementation |
 | --- | --- |
@@ -32,10 +39,10 @@ and consistent HTML/Markdown discovery links.
 | PyPI | Published [proa-docs 0.1.1](https://pypi.org/project/proa-docs/0.1.1/) as `proa`, with wheel and source distribution. A fresh registry installation searched the live API. Both temporary release tokens were revoked and deletion confirmed by PyPI. | Complete. |
 | Smithery | Created the Proa Labs workspace (`proa-labs`); attempted `proa-docs` registration. The final step returned 403: "Updating servers has been removed." No listing was confirmed. | Resume when Smithery supports publication, or resolve through its support process. |
 | Glama | Submitted “Proa documentation” with hosted endpoint `https://proa.so/mcp`. Glama's email receipt confirms it is pending review. | Wait for approval, verify the public listing, then add its exact URL to the API guide. |
-| Official MCP Registry | Published [io.github.proa-web/docs 1.0.0](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs) using the Proa GitHub identity. The registry reports it active. | Deploy the API guide's reciprocal link with this PR. |
+| Official MCP Registry | Published [io.github.proa-web/docs 1.0.0](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs) using the Proa GitHub identity. The registry reports it active and the API guide's reciprocal link is deployed. | Ora still does not recognize the listing. |
 | PulseMCP | Site states that new submissions are paused. | Resume when submissions reopen; no submission was made. |
 | MCP.so | Submission flow requires a $39 one-time payment. | Optional paid submission needs a spending decision; no payment or submission was made. |
-| Google Search Console | Verified the Proa account's domain ownership using an additional Cloudflare TXT record. Google processed `https://proa.so/sitemap.xml` successfully and discovered 125 pages. | Allow indexing and recheck the report after deployment. |
+| Google Search Console | Verified the Proa account's domain ownership using an additional Cloudflare TXT record. Google processed `https://proa.so/sitemap.xml` successfully and discovered 125 pages. Indexing requests for `/docs/api` and `/docs/agents` were accepted; the latter was already indexed. | Allow recrawling and recheck Ora's name-based search sample. |
 
 Publisher credentials stay outside the repository. Temporary PyPI release
 tokens are revoked after publication; no secrets belong in this document or
@@ -44,25 +51,40 @@ source control.
 The October 28 scan recognizes the npm SDK (1/1) and CLI (3/3). It still
 detects only npm for multi-language SDKs (1/3), despite the verified PyPI
 publication, and has not recognized the official MCP listing (0/1). The
-deployed API guide needs the package and registry links from this PR before
-retesting discovery. Search indexing and skills.sh adoption remain external
-dependencies.
+deployed API guide already links both packages and the official registry.
+A web search during the follow-up also surfaced `/docs/api`, despite Ora's
+name-search warning. Search providers and sampled queries can differ.
+
+## Follow-up fixes
+
+- Put the API guide before subsection indexes in the shared homepage footer.
+  The deployed scan inspected only `/docs`, `/docs/llms.txt`, and
+  `/docs/framework/llms.txt`, reducing public API documentation to 2/3.
+- Link the published Python SDK, TypeScript SDK, and official MCP entry
+  directly from homepage HTML and Markdown.
+- Describe the homepage's existing videos and three benchmark charts with
+  `VideoObject`, `ItemList`, and `ImageObject`, sharing their URLs and chart
+  content with the visible page.
+
+Ora's live `POST /api/scan/checks` against a temporary public preview passed
+both changed checks under contract 1.37.0: public API documentation **3/3**
+(`API/docs link found on homepage and resolves: /docs/api`) and schema breadth
+**2/2** (`FAQPage, VideoObject, ItemList`). This selected check run did not
+update the canonical production score. All 161 marketing tests, Proa format
+and lint checks, and the render-allocation lint passed.
 
 ## Deployment and rescan
 
-1. Review [PR #56](https://github.com/Proa-Labs/proa/pull/56). The current
-   authorization covers committing, pushing, and opening the PR only; merging
-   and production deployment remain separate actions.
-2. Deploy the reviewed marketing changes through the normal release workflow
-   after merge/deployment authorization.
-3. Verify production's new indexes, five-skill catalog, FAQ/article metadata,
-   and both OpenAPI documents. Check that API reads and MCP tools still work.
-4. Confirm the published MCP listing and deployed API guide identify each other.
-5. Allow search engines and skills.sh to reindex after deployment. The
-   reported skills.sh maximum also requires 200+ genuine installs; adding two
-   skills alone cannot satisfy that adoption threshold.
-6. Request a fresh Ora scan, compare individual checks, and investigate any
-   remaining failures using the deployed responses rather than assumed points.
+1. Review and merge the follow-up PR. The current authorization permits
+   committing, pushing, and opening a PR; the user performs the merge.
+2. Wait for the normal production release and verify `/readyz` reports the
+   expected `x-proa-revision`.
+3. Recheck homepage links and structured data, then request a fresh Ora scan.
+   `POST /api/scan` with `force: true` bypasses scan freshness; forced scans are
+   limited to six per day. Selected live checks use `POST /api/scan/checks`
+   and do not update the canonical score without an account key.
+4. Confirm remaining deductions against live evidence. Registry publication,
+   correct schemas, and local tests do not themselves prove a score increase.
 
 ## Read-only service constraints
 

@@ -4,6 +4,7 @@
 use crate::data::{routes, site};
 
 pub(crate) mod faq;
+pub(crate) mod media;
 
 use axum::{
     extract::Query,
@@ -694,7 +695,7 @@ impl InterfaceLayerHero {
             start_label: "Get started",
             start_url: routes::DOCS,
             video_label: "Watch intro",
-            video_url: "https://youtu.be/-CfCyvIKYyo?si=l1-0A5BsuLU2Bc9T",
+            video_url: media::INTRO.url,
             video_aria: "Watch intro on YouTube (opens in a new tab)",
             benchmarks_url: site::BENCHMARKS_URL,
         }
@@ -768,10 +769,10 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18Hero {
 }
 
 #[derive(Clone, Copy, rsjs::ClientProps)]
-struct BenchmarkChart {
-    title: &'static str,
-    url: &'static str,
-    description: &'static str,
+pub(crate) struct BenchmarkChart {
+    pub(crate) title: &'static str,
+    pub(crate) url: &'static str,
+    pub(crate) description: &'static str,
     height: &'static str,
 }
 
@@ -835,6 +836,15 @@ impl BenchmarkHighlights {
             },
         }
     }
+}
+
+/// The same chart collection supplies the visible tabs and their metadata.
+pub(crate) fn benchmark_charts() -> (&'static str, [BenchmarkChart; 3]) {
+    let highlights = BenchmarkHighlights::new();
+    (
+        highlights.title,
+        [highlights.render, highlights.http, highlights.load],
+    )
 }
 
 /// Original benchmark SVGs, served locally and switched by one tab signal.
@@ -2153,7 +2163,7 @@ impl RenderTargetsHeading {
             title: "One object. Every render target.",
             description: "HTML, Markdown, and other render targets, from one typed component.",
             video_label: "Watch multi-target rendering",
-            video_url: "https://youtu.be/pJx84jdBDKU?si=z3pK3vvzYmSo-Sz_",
+            video_url: media::RENDER_TARGETS.url,
             video_aria: "Watch multi-target rendering on YouTube (opens in a new tab)",
         }
     }
@@ -3125,7 +3135,7 @@ mod tests {
 
         for (section, url) in [(hero_section, intro_video), (render_section, render_video)] {
             assert!(url.starts_with("https://youtu.be/"));
-            assert_eq!(html.matches(&url).count(), 1);
+            assert_eq!(html.matches(&format!("href=\"{url}\"")).count(), 1);
             let link = section
                 .split_once(&url)
                 .unwrap()

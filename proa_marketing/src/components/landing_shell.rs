@@ -381,11 +381,14 @@ pub(crate) struct FooterLinks {
 pub(crate) const DOCUMENTATION_LINKS: FooterLinks = FooterLinks {
     title: "Documentation tools",
     links: &[
+        ("API guide", routes::API_GUIDE),
+        ("Python SDK on PyPI", site::PYTHON_SDK_URL),
+        ("TypeScript SDK on npm", site::TYPESCRIPT_SDK_URL),
+        ("Official MCP Registry", site::MCP_REGISTRY_URL),
         ("Documentation index", routes::DOCS_INDEX),
         ("Framework documentation index", routes::FRAMEWORK_INDEX),
         ("RSJS documentation index", routes::RSJS_INDEX),
         ("Ecosystem index", routes::ECOSYSTEM_INDEX),
-        ("API guide", routes::API_GUIDE),
         ("OpenAPI definition", routes::OPENAPI),
         ("MCP server card", routes::MCP_CARD),
         ("Authentication", routes::AUTH),

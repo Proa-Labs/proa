@@ -44,6 +44,9 @@ struct StructuredData<'a> {
         Application<'a>,
         SourceCode<'a>,
         FaqPage<'a>,
+        VideoObject<'a>,
+        VideoObject<'a>,
+        ChartCollection<'a>,
     ),
 }
 
@@ -159,6 +162,56 @@ struct Answer<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoObject<'a> {
+    #[serde(rename = "@type")]
+    kind: &'static str,
+    name: &'static str,
+    url: &'static str,
+    thumbnail_url: &'static str,
+    embed_url: &'static str,
+    publisher: Identity<'a>,
+}
+
+fn video_object<'a>(origin: &'a str, video: &crate::pages::home::media::Video) -> VideoObject<'a> {
+    VideoObject {
+        kind: "VideoObject",
+        name: video.name,
+        url: video.url,
+        thumbnail_url: video.thumbnail_url,
+        embed_url: video.embed_url,
+        publisher: Identity {
+            id: SiteUrl {
+                origin,
+                path: ORGANIZATION_ID,
+            },
+        },
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChartCollection<'a> {
+    #[serde(rename = "@type")]
+    kind: &'static str,
+    name: &'static str,
+    item_list_order: &'static str,
+    number_of_items: usize,
+    item_list_element: [ChartImage<'a>; 3],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChartImage<'a> {
+    #[serde(rename = "@type")]
+    kind: &'static str,
+    name: &'static str,
+    description: &'static str,
+    content_url: SiteUrl<'a>,
+    encoding_format: &'static str,
+}
+
+#[derive(Serialize)]
 struct Documentation<'a> {
     #[serde(rename = "@context")]
     context: &'static str,
@@ -250,6 +303,7 @@ fn documentation(origin: &str, page: &proa_docs::DocPage) -> String {
 
 fn serialize(origin: &str) -> String {
     let url = |path| SiteUrl { origin, path };
+    let (chart_title, charts) = crate::pages::home::benchmark_charts();
     let document = StructuredData {
         context: "https://schema.org",
         graph: (
@@ -303,6 +357,21 @@ fn serialize(origin: &str) -> String {
                     name: entry.question,
                     accepted_answer: Answer { kind: "Answer", text: entry.answer },
                 }).collect(),
+            },
+            video_object(origin, &crate::pages::home::media::INTRO),
+            video_object(origin, &crate::pages::home::media::RENDER_TARGETS),
+            ChartCollection {
+                kind: "ItemList",
+                name: chart_title,
+                item_list_order: "https://schema.org/ItemListUnordered",
+                number_of_items: charts.len(),
+                item_list_element: charts.map(|chart| ChartImage {
+                    kind: "ImageObject",
+                    name: chart.title,
+                    description: chart.description,
+                    content_url: url(chart.url),
+                    encoding_format: "image/svg+xml",
+                }),
             },
         ),
     };
