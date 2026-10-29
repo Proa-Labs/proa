@@ -39,6 +39,7 @@ pub const YOUTUBE_URL: &str = "https://www.youtube.com/@proa-web";
 pub const LINKEDIN_URL: &str = "https://www.linkedin.com/company/proa-labs/";
 pub const PYTHON_SDK_URL: &str = "https://pypi.org/project/proa-docs/";
 pub const TYPESCRIPT_SDK_URL: &str = "https://www.npmjs.com/package/@proa-labs/docs";
+pub const GO_SDK_URL: &str = "https://pkg.go.dev/github.com/Proa-Labs/proa/sdk/go";
 pub const MCP_REGISTRY_URL: &str =
     "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs";
 pub const MCP_GLAMA_URL: &str = "https://glama.ai/mcp/connectors/so.proa/proa-documentation";

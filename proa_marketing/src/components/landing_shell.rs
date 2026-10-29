@@ -395,6 +395,8 @@ pub(crate) const DOCUMENTATION_LINKS: FooterLinks = FooterLinks {
         ("API guide", routes::API_GUIDE),
         ("Python SDK on PyPI", site::PYTHON_SDK_URL),
         ("TypeScript SDK on npm", site::TYPESCRIPT_SDK_URL),
+        ("Go SDK on pkg.go.dev", site::GO_SDK_URL),
+        ("API sandbox", routes::SANDBOX),
         ("Official MCP Registry", site::MCP_REGISTRY_URL),
         ("MCP on Glama", site::MCP_GLAMA_URL),
         ("Documentation index", routes::DOCS_INDEX),

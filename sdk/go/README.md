@@ -7,7 +7,7 @@ does not scaffold or build applications; use the Proa Rust CLI for that.
 Requires Go 1.23 or newer. Install the module with:
 
 ```sh
-go get github.com/Proa-Labs/proa/sdk/go
+go get github.com/Proa-Labs/proa/sdk/go@v0.0.0-20261029004544-c75fce01a7f4
 ```
 
 ```go

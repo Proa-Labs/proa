@@ -2,7 +2,7 @@
 title: Proa documentation API and MCP
 description: Search and read official Proa documentation over HTTP, MCP, or browser tools without credentials.
 sidebar_title: API and MCP
-keywords: [Proa API, MCP, WebMCP, OpenAPI, authentication, pagination, rate limits, idempotency]
+keywords: [Proa API, MCP, WebMCP, OpenAPI, authentication, pagination, rate limits, idempotency, sandbox, Go SDK, background exports]
 ---
 
 The public Proa documentation API searches and reads the same compiled pages as this website. Use it when a coding agent needs current Rust APIs, render patterns, RSJS instructions, or deployment guidance. All operations are read-only. No account, API key, OAuth token, payment, or signup is required.
@@ -53,7 +53,40 @@ curl -H 'Accept: text/markdown' 'https://proa.so/'
 
 Every documentation page has a `.md` representation. The homepage is also available at `/index.md` and `/?mode=agent`. HTML and negotiated Markdown responses carry `Vary: Accept` so caches can distinguish the representations. Use [/llms-full.txt](/llms-full.txt) only when you need the entire corpus.
 
-## JavaScript, TypeScript, and Python clients
+## Sandbox
+
+The public [API sandbox](https://proa.so/sandbox) is an isolated test environment at `https://proa.so/sandbox`. It serves three synthetic fixture documents through the same versioned search, list, get, and export routes. It does not contain production documentation or user data. No account, credentials, payment, or manual setup is required.
+
+```bash
+curl 'https://proa.so/sandbox/health'
+curl 'https://proa.so/sandbox/api/v1/search?q=fixture&limit=1'
+curl 'https://proa.so/sandbox/api/v1/docs?limit=1'
+curl 'https://proa.so/sandbox/api/v1/docs/page?path=/sandbox/docs/fixture-alpha'
+```
+
+Use `next_cursor` to exercise pagination, and the escaping fixture to test Unicode and Markdown handling. Set an SDK's base URL to `https://proa.so/sandbox`; switch it to `https://proa.so` for actual framework documentation. The [sandbox OpenAPI definition](/sandbox/openapi.json) describes its routes. Responses carry `X-Proa-Environment: sandbox`. The sandbox has its own request budget, replay cache, and export jobs, separate from production. Fixtures are examples for testing clients, not framework guidance.
+
+## Background documentation exports
+
+Use `POST /api/v1/exports` when you want a JSON bundle of complete documents prepared by a background worker. Ordinary search and page retrieval stay synchronous. The request accepts an object with optional `paths` (1–50 public page paths); omit it to export all public documentation. No authentication is required.
+
+```bash
+curl -i 'https://proa.so/api/v1/exports' \
+  -H 'Content-Type: application/json' \
+  -d '{"paths":["/docs/core/html-rendering"]}'
+```
+
+New jobs return `202 Accepted`, with a `Location` status URL, `Retry-After: 1`, and a JSON body containing `job_id`, `status`, `status_url`, `result_url`, `expires_in`, and `error`. A matching retained job that has already completed or failed returns 200 with its current status. Follow the returned URLs:
+
+1. GET `status_url`. Queued or running jobs return 202 and `Retry-After`; wait that many seconds before polling again.
+2. A terminal status returns 200. If `status` is `completed`, GET `result_url` for `{ "documents": [...], "total": ... }`. Each document contains its metadata and complete Markdown.
+3. If `status` is `failed`, inspect `error`. `export_too_large` means retry with fewer paths. Other worker failures can be retried later; synchronous page reads remain available.
+
+The worker performs real serialization, so a small export may finish before the first poll. Matching selections reuse a job while it is retained. Each environment on each serving instance retains at most eight jobs for fifteen minutes from submission, runs two workers at a time, and limits each result to 4 MiB. A full service returns 503 with code `export_capacity`; it does not evict active jobs. The JSON request limit is 16 KiB.
+
+Jobs are ephemeral and local to the serving instance. A restart, deployment, expiry, or request reaching another replica can produce 404 with code `export_not_found`; safely resubmit the same read-only request. A result URL returns 202 while pending and 409 if its job failed. The sandbox supports this same workflow using only its fixtures, for example `POST https://proa.so/sandbox/api/v1/exports` with `{}`.
+
+## JavaScript, TypeScript, Python, and Go clients
 
 The repository contains dependency-free [JavaScript/TypeScript](https://github.com/Proa-Labs/proa/tree/main/sdk/javascript) and [Python](https://github.com/Proa-Labs/proa/tree/main/sdk/python) documentation clients. Each includes a `proa-docs` CLI for search, listing, and Markdown retrieval. These clients read documentation; the [Proa build CLI](/docs/cli) scaffolds and builds applications.
 
@@ -79,6 +112,14 @@ uv run --directory sdk/python proa-docs get /docs/core/html-rendering --markdown
 ```
 
 JavaScript requires Node.js 22 or newer. Python requires 3.11 or newer. Both clients provide `search`, `list`, `get`, and a paginated `documents` iterator, configurable timeouts and base URLs, typed response definitions, and structured errors with the server's retry delay. They do not retry automatically.
+
+The official [Go SDK on pkg.go.dev](https://pkg.go.dev/github.com/Proa-Labs/proa/sdk/go) requires Go 1.23 or newer and uses only the standard library:
+
+```bash
+go get github.com/Proa-Labs/proa/sdk/go@v0.0.0-20261029004544-c75fce01a7f4
+```
+
+Import it as `proadocs "github.com/Proa-Labs/proa/sdk/go"`. Create a client with `proadocs.NewClient(proadocs.Options{})`, then call `Search`, `List`, `Get`, or `WalkDocuments` with a Go context. Set `Options.BaseURL` for the sandbox and `Options.Timeout` for per-request deadlines. `APIError` preserves the HTTP status, structured problem, and retry delay. The client does not retry automatically. Its [README](https://github.com/Proa-Labs/proa/tree/main/sdk/go) contains a complete example.
 
 The package READMEs contain library examples. Publication and verification steps are in the [SDK release guide](https://github.com/Proa-Labs/proa/tree/main/sdk#releasing).
 
@@ -116,7 +157,7 @@ The HTTP API and MCP endpoint share a budget of 600 requests per minute per runn
 
 Versioned REST failures use `application/problem+json` with `type`, `title`, `status`, `code`, `detail`, and `documentation`. Codes include `invalid_request` (400), `not_found` (404), `method_not_allowed` (405), and `rate_limited` (429). JSON POST search also reports `payload_too_large` (413), `unsupported_media_type` (415), `idempotency_key_reused` (422), and `replay_unavailable` (503). Correct invalid parameters; use the document index to recover from missing paths. For network failures or temporary 5xx responses, retry with exponential backoff.
 
-All documented operations are synchronous reads and safe to repeat. JSON POST search supports the optional response replay described above; no operation requires an `Idempotency-Key`. There are no long-running operations requiring a `202 Accepted` job or polling URL. Even legacy `POST /api/search` only searches documents; it creates no record or side effect. Do not send credentials or personal data in search queries. See [authentication policy](/auth.md).
+Document retrieval and search are synchronous reads and safe to repeat. JSON POST search supports optional response replay; no operation requires an `Idempotency-Key`. The optional export workflow creates only bounded, temporary jobs over public documents and exposes the polling contract described above. Even legacy `POST /api/search` only searches documents; it creates no record or side effect. Do not send credentials or personal data in search queries. See [authentication policy](/auth.md).
 
 ## Versions and compatibility
 

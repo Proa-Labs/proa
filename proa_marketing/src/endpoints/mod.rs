@@ -5,6 +5,7 @@ pub mod agent_discovery;
 pub mod api;
 pub mod downloads;
 pub mod health;
+pub mod indexnow;
 pub mod install;
 pub mod llms;
 pub mod mcp;

@@ -24,13 +24,16 @@ use crate::pages::home;
     info(
         title = "Proa public documentation API",
         version = "1.0.0",
-        description = const_format::concatcp!("Public, synchronous, read-only Proa Rust framework documentation. Operations return JSON using GET or JSON POST search. No authentication is required. POST search supports optional Idempotency-Key response replay for fifteen minutes on the serving instance, with bounded capacity; the cache is not shared between replicas or across restarts. All reads are safe to repeat. There are no long-running jobs requiring 202/polling. The ", routes::API_V1, " prefix is the compatibility boundary: breaking changes receive a new prefix; deprecations are announced in ", routes::API_GUIDE, " before removal. Pagination cursors are opaque and valid only for the same result set and deployment. The complete website and legacy search contract is at ", routes::SITE_OPENAPI, ".")
+        description = const_format::concatcp!("Public Proa Rust framework documentation. Search and retrieval are synchronous reads. Optional JSON exports run in background jobs: POST ", routes::API_EXPORTS, " returns 202 with Location and job_id; poll status_url, then retrieve result_url. No authentication is required. The sandbox server at ", routes::SANDBOX, " has isolated synthetic documents and the same versioned API contract for safe integration tests, with no credentials or production data. POST search supports optional Idempotency-Key response replay for fifteen minutes on the serving instance, with bounded capacity; replay and export job state are not shared between replicas or across restarts. All document reads are safe to repeat. The ", routes::API_V1, " prefix is the compatibility boundary: breaking changes receive a new prefix; deprecations are announced in ", routes::API_GUIDE, " before removal. Pagination cursors are opaque and valid only for the same result set and deployment. The complete website and legacy search contract is at ", routes::SITE_OPENAPI, ".")
     ),
     paths(
         api::search_handler,
         api::search_post_handler,
         api::list_handler,
         api::page_handler,
+        api::exports::create,
+        api::exports::status,
+        api::exports::result,
         agent_discovery::site_metadata
     ),
     components(schemas(api::Problem))
@@ -48,6 +51,9 @@ struct DocumentationApi;
         api::search_post_handler,
         api::list_handler,
         api::page_handler,
+        api::exports::create,
+        api::exports::status,
+        api::exports::result,
         search::handler,
         search::post_handler,
         agent_discovery::site_metadata,
@@ -118,7 +124,40 @@ fn rate_limit_headers() -> [(&'static str, Header); 5] {
 }
 
 pub fn document(origin: &str) -> Document {
-    configure(DocumentationApi::openapi(), origin)
+    let mut document = configure(DocumentationApi::openapi(), origin);
+    document.servers = Some(api_servers(origin));
+    // Site metadata describes the production site; the sandbox's metadata has
+    // its own explicitly synthetic shape and is not this operation.
+    if let Some(item) = document.paths.paths.get_mut(routes::SITE_METADATA) {
+        if let Some(operation) = &mut item.get {
+            operation.servers = Some(vec![Server::new(origin)]);
+        }
+    }
+    document
+}
+
+pub fn sandbox_document(origin: &str) -> Document {
+    let mut document = document(origin);
+    document.info.title = "Proa documentation API sandbox".into();
+    document.servers = Some(vec![Server::new(format!("{origin}{}", routes::SANDBOX))]);
+    document.paths.paths.remove(routes::SITE_METADATA);
+    for item in document.paths.paths.values_mut() {
+        for operation in [item.get.as_mut(), item.post.as_mut()]
+            .into_iter()
+            .flatten()
+        {
+            operation.servers = None;
+        }
+    }
+    document
+}
+
+fn api_servers(origin: &str) -> Vec<Server> {
+    let mut production = Server::new(origin);
+    production.description = Some("Production: public documentation, no credentials.".into());
+    let mut sandbox = Server::new(format!("{origin}{}", routes::SANDBOX));
+    sandbox.description = Some("Sandbox / test environment: isolated synthetic fixture documents, no credentials or production data.".into());
+    vec![production, sandbox]
 }
 
 pub fn website_document(origin: &str) -> Document {
@@ -151,6 +190,9 @@ fn configure(mut document: Document, origin: &str) -> Document {
             .into_iter()
             .flatten()
         {
+            if path.starts_with(routes::API_V1) {
+                operation.servers = Some(api_servers(origin));
+            }
             for (status, response) in &mut operation.responses.responses {
                 if let RefOr::T(response) = response {
                     response.headers.extend(

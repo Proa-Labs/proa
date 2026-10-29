@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::http::header::{HeaderValue, CACHE_CONTROL, LINK, X_CONTENT_TYPE_OPTIONS};
-use axum::routing::{any, get, post};
+use axum::routing::{get, post};
 use axum::Router;
 use tower::ServiceBuilder;
 use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
@@ -64,7 +64,6 @@ fn listen_addr(host: &str, port: u16) -> anyhow::Result<SocketAddr> {
 
 fn app() -> Router {
     let budget = Arc::new(Mutex::new(endpoints::api::RequestBudget::default()));
-    let search_replay = Arc::new(endpoints::api::SearchReplayCache::default());
     let agent_api = Router::new()
         .route(
             routes::API,
@@ -76,23 +75,7 @@ fn app() -> Router {
             get(endpoints::agent_discovery::site_metadata)
                 .fallback(endpoints::api::method_not_allowed),
         )
-        .route(
-            routes::API_SEARCH,
-            get(endpoints::api::search_handler)
-                .post(endpoints::api::search_post_handler)
-                .fallback(endpoints::api::method_not_allowed)
-                .with_state(search_replay)
-                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024)),
-        )
-        .route(
-            routes::API_DOCS,
-            get(endpoints::api::list_handler).fallback(endpoints::api::method_not_allowed),
-        )
-        .route(
-            routes::API_PAGE,
-            get(endpoints::api::page_handler).fallback(endpoints::api::method_not_allowed),
-        )
-        .route(routes::API_PATTERN, any(endpoints::api::not_found))
+        .merge(endpoints::api::router(endpoints::api::Source::Production))
         .route(
             routes::LEGACY_SEARCH,
             get(endpoints::search::handler).post(endpoints::search::post_handler),
@@ -103,6 +86,7 @@ fn app() -> Router {
             endpoints::api::rate_limit,
         ));
     Router::new()
+        .nest(routes::SANDBOX, endpoints::api::sandbox::router())
         .route(
             routes::HOME,
             get(pages::home::handler).layer(SetResponseHeaderLayer::if_not_present(
@@ -140,6 +124,7 @@ fn app() -> Router {
         .route("/healthz", get(endpoints::health::healthz))
         .route("/readyz", get(endpoints::health::readyz))
         .route("/robots.txt", get(endpoints::robots::handler))
+        .route(routes::INDEXNOW_KEY, get(endpoints::indexnow::key))
         .route(routes::SITEMAP, get(endpoints::sitemap::handler))
         .route(
             "/schema/proa.config.json",

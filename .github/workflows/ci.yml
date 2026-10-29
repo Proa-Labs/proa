@@ -93,6 +93,10 @@ jobs:
           RAILWAY_ENVIRONMENT_ID: 9348508f-a2a4-48bb-b18b-803ccb33dd9a
           RAILWAY_READY_URL: https://proa.so/readyz
         run: python3 deploy/marketing/release.py deploy
+      - name: Notify search engines of the deployed sitemap
+        # Search indexing is asynchronous and must not undo a healthy release.
+        continue-on-error: true
+        run: python3 deploy/marketing/indexnow.py
 
   marketing-tests:
     name: Marketing linked tests
@@ -117,8 +121,21 @@ jobs:
             test --root . --locked -p proa_marketing --bin proa_marketing
       - name: Test browser documentation tools
         run: node --test proa_marketing/tests-js/agent-tools.test.mjs
+      - name: Test search-engine notification boundaries
+        run: python3 -m unittest discover -s deploy/marketing -p 'test_indexnow.py'
       - name: Test JavaScript documentation SDK and CLI
         run: node --test sdk/javascript/test/*.test.mjs
+      - name: Install Go documentation SDK tooling
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: stable
+          cache: false
+      - name: Check Go documentation SDK
+        working-directory: sdk/go
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race ./...
       - name: Install Python documentation SDK tooling
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:

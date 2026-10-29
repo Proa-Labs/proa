@@ -32,6 +32,243 @@ async fn fetch(app: &Router, path: &str, accept: &str) -> (StatusCode, HeaderMap
     (status, headers, String::from_utf8(body.to_vec()).unwrap())
 }
 
+async fn post_json(app: &Router, path: &str, input: Value) -> (StatusCode, HeaderMap, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(path)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&input).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = serde_json::from_slice(
+        &to_bytes(response.into_body(), 4 * 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    (status, headers, body)
+}
+
+#[tokio::test]
+async fn sandbox_is_reachable_and_isolates_documents_budgets_and_replay() {
+    let app = super::app();
+    for path in ["/sandbox", "/sandbox/health"] {
+        let (status, headers, body) = fetch(&app, path, "application/json").await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+        assert_eq!(headers["x-proa-environment"], "sandbox");
+        let info: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(info["synthetic_data"], true);
+        assert_eq!(info["authentication_required"], false);
+    }
+    let spec: Value = serde_json::from_str(
+        &fetch(&app, "/sandbox/openapi.json", "application/json")
+            .await
+            .2,
+    )
+    .unwrap();
+    assert_eq!(spec["servers"].as_array().unwrap().len(), 1);
+    assert!(spec["servers"][0]["url"]
+        .as_str()
+        .unwrap()
+        .ends_with("/sandbox"));
+    assert!(spec["paths"].get("/.well-known/proa-site.json").is_none());
+    let mut cursor = String::new();
+    let mut paths = std::collections::HashSet::new();
+    for index in 0..3 {
+        let url = format!("/sandbox/api/v1/docs?limit=1{cursor}");
+        let (status, _, body) = fetch(&app, &url, "application/json").await;
+        assert_eq!(status, StatusCode::OK);
+        let page: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(page["total"], 3);
+        assert_eq!(page["results"].as_array().unwrap().len(), 1);
+        let path = page["results"][0]["path"].as_str().unwrap();
+        assert!(path.starts_with("/sandbox/docs/"));
+        assert!(paths.insert(path.to_owned()));
+        let markdown_path = page["results"][0]["markdown_url"].as_str().unwrap();
+        let (status, _, markdown) = fetch(&app, markdown_path, "text/markdown").await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _, body) = fetch(
+            &app,
+            &format!("/sandbox/api/v1/docs/page?path={path}"),
+            "application/json",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            serde_json::from_str::<Value>(&body).unwrap()["markdown"],
+            markdown
+        );
+        if index < 2 {
+            cursor = format!("&cursor={}", page["next_cursor"].as_str().unwrap());
+        } else {
+            assert!(page["next_cursor"].is_null());
+        }
+        assert_eq!(
+            fetch(
+                &app,
+                &format!("/api/v1/docs/page?path={path}"),
+                "application/json"
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    let production_path = crate::endpoints::api::list(crate::endpoints::api::Pagination::default())
+        .unwrap()
+        .results[0]
+        .path;
+    assert_eq!(
+        fetch(
+            &app,
+            &format!("/sandbox/api/v1/docs/page?path={production_path}"),
+            "application/json"
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    // Same replay key starts independent entries in each environment.
+    for prefix in ["", "/sandbox"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("{prefix}/api/v1/search"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("Idempotency-Key", "\"environment-isolation\"")
+                    .body(Body::from(r#"{"q":"fixture"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["idempotency-replayed"], "false");
+    }
+    let production_remaining =
+        fetch(&app, "/api/v1/docs", "application/json").await.1["ratelimit-remaining"].clone();
+    for _ in 0..3 {
+        fetch(&app, "/sandbox/api/v1/docs", "application/json").await;
+    }
+    let next = fetch(&app, "/api/v1/docs", "application/json").await.1;
+    assert_eq!(
+        next["ratelimit-remaining"]
+            .to_str()
+            .unwrap()
+            .parse::<u32>()
+            .unwrap()
+            + 1,
+        production_remaining
+            .to_str()
+            .unwrap()
+            .parse::<u32>()
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn background_exports_return_pollable_jobs_and_real_isolated_bundles() {
+    let app = super::app();
+    for prefix in ["", "/sandbox"] {
+        let (status, headers, created) =
+            post_json(&app, &format!("{prefix}/api/v1/exports"), json!({})).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(
+            headers[header::LOCATION],
+            created["status_url"].as_str().unwrap()
+        );
+        assert_eq!(headers[header::RETRY_AFTER], "1");
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        let id = created["job_id"].as_str().unwrap();
+        let status_path = format!("{prefix}/api/v1/exports/{id}");
+        let completed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let (status, headers, body) = fetch(&app, &status_path, "application/json").await;
+                let job: Value = serde_json::from_str(&body).unwrap();
+                if status == StatusCode::OK {
+                    assert_eq!(job["status"], "completed", "{job}");
+                    break job;
+                }
+                assert_eq!(status, StatusCode::ACCEPTED);
+                assert_eq!(headers[header::RETRY_AFTER], "1");
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(completed["result_url"]
+            .as_str()
+            .unwrap()
+            .ends_with(&format!("{status_path}/result")));
+        let (status, headers, body) =
+            fetch(&app, &format!("{status_path}/result"), "application/json").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(headers.contains_key(header::CONTENT_DISPOSITION));
+        let bundle: Value = serde_json::from_str(&body).unwrap();
+        let source = if prefix.is_empty() {
+            crate::endpoints::api::Source::Production
+        } else {
+            crate::endpoints::api::Source::Sandbox
+        };
+        let expected: Vec<_> = source
+            .pages()
+            .iter()
+            .filter(|p| !p.frontmatter.hidden)
+            .collect();
+        assert_eq!(bundle["total"], expected.len());
+        for document in bundle["documents"].as_array().unwrap() {
+            let page = expected
+                .iter()
+                .find(|p| p.route_path == document["path"].as_str().unwrap())
+                .unwrap();
+            assert_eq!(document["markdown"], page.markdown);
+            assert_eq!(document["title"], page.title);
+        }
+        let retry = post_json(&app, &format!("{prefix}/api/v1/exports"), json!({})).await;
+        assert_eq!(retry.0, StatusCode::OK);
+        assert_eq!(retry.2["job_id"], id);
+        let other = if prefix.is_empty() { "/sandbox" } else { "" };
+        assert_eq!(
+            fetch(
+                &app,
+                &format!("{other}/api/v1/exports/{id}"),
+                "application/json"
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    for suffix in ["%FF", "%FF/result", "bad-id"] {
+        let (status, headers, _) = fetch(
+            &app,
+            &format!("/api/v1/exports/{suffix}"),
+            "application/json",
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(headers[header::CONTENT_TYPE], "application/problem+json");
+    }
+    for (input, expected) in [
+        (json!({"paths": []}), StatusCode::BAD_REQUEST),
+        (json!({"paths": ["/etc/passwd"]}), StatusCode::NOT_FOUND),
+        (json!({"unexpected": true}), StatusCode::BAD_REQUEST),
+    ] {
+        let (status, headers, problem) = post_json(&app, "/api/v1/exports", input).await;
+        assert_eq!(status, expected);
+        assert_eq!(headers[header::CONTENT_TYPE], "application/problem+json");
+        assert_eq!(problem["status"], expected.as_u16());
+    }
+}
+
 #[tokio::test]
 async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
     let app = super::app();
@@ -96,6 +333,7 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         site::LINKEDIN_URL,
         site::PYTHON_SDK_URL,
         site::TYPESCRIPT_SDK_URL,
+        site::GO_SDK_URL,
         site::MCP_REGISTRY_URL,
         site::MCP_GLAMA_URL,
     ] {
@@ -205,23 +443,33 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
 }
 
 #[tokio::test]
-async fn tool_openapi_only_advertises_typed_json_reads() {
+async fn tool_openapi_advertises_typed_json_reads_and_background_exports() {
     let app = super::app();
     let spec: Value =
         serde_json::from_str(&fetch(&app, "/openapi.json", "application/json").await.2).unwrap();
     let paths = spec["paths"].as_object().unwrap();
-    assert_eq!(paths.len(), 4);
+    assert_eq!(paths.len(), 7);
     let mut ids = std::collections::HashSet::new();
     for (path, item) in paths {
         for (method, operation) in item.as_object().unwrap() {
-            assert!(method == "get" || (path == "/api/v1/search" && method == "post"));
-            assert!(ids.insert(operation["operationId"].as_str().unwrap()));
             assert!(
-                operation["responses"]["200"]["content"]["application/json"]["schema"].is_object()
+                method == "get"
+                    || (matches!(path.as_str(), "/api/v1/search" | "/api/v1/exports")
+                        && method == "post")
+            );
+            assert!(ids.insert(operation["operationId"].as_str().unwrap()));
+            let success = if path == "/api/v1/exports" {
+                "202"
+            } else {
+                "200"
+            };
+            assert!(
+                operation["responses"][success]["content"]["application/json"]["schema"]
+                    .is_object()
             );
         }
     }
-    assert_eq!(ids.len(), 5);
+    assert_eq!(ids.len(), 8);
     let post = &paths["/api/v1/search"]["post"];
     let input_ref = post["requestBody"]["content"]["application/json"]["schema"]["$ref"]
         .as_str()
@@ -250,6 +498,19 @@ async fn tool_openapi_only_advertises_typed_json_reads() {
     }
     assert!(paths.contains_key("/api/v1/search"));
     assert!(paths.contains_key("/api/v1/docs/page"));
+    let export = &paths["/api/v1/exports"]["post"];
+    assert_eq!(export["operationId"], "exportDocs");
+    assert!(export["responses"]["202"]["headers"]["Location"].is_object());
+    assert!(export["responses"]["202"]["headers"]["Retry-After"].is_object());
+    assert_eq!(
+        spec["components"]["schemas"]["ExportInput"]["additionalProperties"],
+        false
+    );
+    assert!(paths["/api/v1/exports/{id}"]["get"]["parameters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["in"] == "path" && p["name"] == "id" && p["required"] == true));
     assert_eq!(
         fetch(&app, "/openapi/site.json", "*/*").await.0,
         StatusCode::OK
