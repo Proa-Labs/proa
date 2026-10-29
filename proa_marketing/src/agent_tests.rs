@@ -32,6 +32,243 @@ async fn fetch(app: &Router, path: &str, accept: &str) -> (StatusCode, HeaderMap
     (status, headers, String::from_utf8(body.to_vec()).unwrap())
 }
 
+async fn post_json(app: &Router, path: &str, input: Value) -> (StatusCode, HeaderMap, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(path)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&input).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = serde_json::from_slice(
+        &to_bytes(response.into_body(), 4 * 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    (status, headers, body)
+}
+
+#[tokio::test]
+async fn sandbox_is_reachable_and_isolates_documents_budgets_and_replay() {
+    let app = super::app();
+    for path in ["/sandbox", "/sandbox/health"] {
+        let (status, headers, body) = fetch(&app, path, "application/json").await;
+        assert_eq!(status, StatusCode::OK, "{path}: {body}");
+        assert_eq!(headers["x-proa-environment"], "sandbox");
+        let info: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(info["synthetic_data"], true);
+        assert_eq!(info["authentication_required"], false);
+    }
+    let spec: Value = serde_json::from_str(
+        &fetch(&app, "/sandbox/openapi.json", "application/json")
+            .await
+            .2,
+    )
+    .unwrap();
+    assert_eq!(spec["servers"].as_array().unwrap().len(), 1);
+    assert!(spec["servers"][0]["url"]
+        .as_str()
+        .unwrap()
+        .ends_with("/sandbox"));
+    assert!(spec["paths"].get("/.well-known/proa-site.json").is_none());
+    let mut cursor = String::new();
+    let mut paths = std::collections::HashSet::new();
+    for index in 0..3 {
+        let url = format!("/sandbox/api/v1/docs?limit=1{cursor}");
+        let (status, _, body) = fetch(&app, &url, "application/json").await;
+        assert_eq!(status, StatusCode::OK);
+        let page: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(page["total"], 3);
+        assert_eq!(page["results"].as_array().unwrap().len(), 1);
+        let path = page["results"][0]["path"].as_str().unwrap();
+        assert!(path.starts_with("/sandbox/docs/"));
+        assert!(paths.insert(path.to_owned()));
+        let markdown_path = page["results"][0]["markdown_url"].as_str().unwrap();
+        let (status, _, markdown) = fetch(&app, markdown_path, "text/markdown").await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _, body) = fetch(
+            &app,
+            &format!("/sandbox/api/v1/docs/page?path={path}"),
+            "application/json",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            serde_json::from_str::<Value>(&body).unwrap()["markdown"],
+            markdown
+        );
+        if index < 2 {
+            cursor = format!("&cursor={}", page["next_cursor"].as_str().unwrap());
+        } else {
+            assert!(page["next_cursor"].is_null());
+        }
+        assert_eq!(
+            fetch(
+                &app,
+                &format!("/api/v1/docs/page?path={path}"),
+                "application/json"
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    let production_path = crate::endpoints::api::list(crate::endpoints::api::Pagination::default())
+        .unwrap()
+        .results[0]
+        .path;
+    assert_eq!(
+        fetch(
+            &app,
+            &format!("/sandbox/api/v1/docs/page?path={production_path}"),
+            "application/json"
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    // Same replay key starts independent entries in each environment.
+    for prefix in ["", "/sandbox"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("{prefix}/api/v1/search"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("Idempotency-Key", "\"environment-isolation\"")
+                    .body(Body::from(r#"{"q":"fixture"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["idempotency-replayed"], "false");
+    }
+    let production_remaining =
+        fetch(&app, "/api/v1/docs", "application/json").await.1["ratelimit-remaining"].clone();
+    for _ in 0..3 {
+        fetch(&app, "/sandbox/api/v1/docs", "application/json").await;
+    }
+    let next = fetch(&app, "/api/v1/docs", "application/json").await.1;
+    assert_eq!(
+        next["ratelimit-remaining"]
+            .to_str()
+            .unwrap()
+            .parse::<u32>()
+            .unwrap()
+            + 1,
+        production_remaining
+            .to_str()
+            .unwrap()
+            .parse::<u32>()
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn background_exports_return_pollable_jobs_and_real_isolated_bundles() {
+    let app = super::app();
+    for prefix in ["", "/sandbox"] {
+        let (status, headers, created) =
+            post_json(&app, &format!("{prefix}/api/v1/exports"), json!({})).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(
+            headers[header::LOCATION],
+            created["status_url"].as_str().unwrap()
+        );
+        assert_eq!(headers[header::RETRY_AFTER], "1");
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        let id = created["job_id"].as_str().unwrap();
+        let status_path = created["status_url"].as_str().unwrap();
+        assert_eq!(status_path, format!("{prefix}/api/v1/exports/{id}"));
+        let completed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let (status, headers, body) = fetch(&app, status_path, "application/json").await;
+                let job: Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(job["status_url"], status_path);
+                if status == StatusCode::OK {
+                    assert_eq!(job["status"], "completed", "{job}");
+                    break job;
+                }
+                assert_eq!(status, StatusCode::ACCEPTED);
+                assert_eq!(headers[header::LOCATION], status_path);
+                assert_eq!(headers[header::RETRY_AFTER], "1");
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let result_path = completed["result_url"].as_str().unwrap();
+        assert_eq!(result_path, format!("{status_path}/result"));
+        let (status, headers, body) = fetch(&app, result_path, "application/json").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(headers.contains_key(header::CONTENT_DISPOSITION));
+        let bundle: Value = serde_json::from_str(&body).unwrap();
+        let source = if prefix.is_empty() {
+            crate::endpoints::api::Source::Production
+        } else {
+            crate::endpoints::api::Source::Sandbox
+        };
+        let expected: Vec<_> = source
+            .pages()
+            .iter()
+            .filter(|p| !p.frontmatter.hidden)
+            .collect();
+        assert_eq!(bundle["total"], expected.len());
+        for document in bundle["documents"].as_array().unwrap() {
+            let page = expected
+                .iter()
+                .find(|p| p.route_path == document["path"].as_str().unwrap())
+                .unwrap();
+            assert_eq!(document["markdown"], page.markdown);
+            assert_eq!(document["title"], page.title);
+        }
+        let retry = post_json(&app, &format!("{prefix}/api/v1/exports"), json!({})).await;
+        assert_eq!(retry.0, StatusCode::OK);
+        assert_eq!(retry.2["job_id"], id);
+        let other = if prefix.is_empty() { "/sandbox" } else { "" };
+        assert_eq!(
+            fetch(
+                &app,
+                &format!("{other}/api/v1/exports/{id}"),
+                "application/json"
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    for suffix in ["%FF", "%FF/result", "bad-id"] {
+        let (status, headers, _) = fetch(
+            &app,
+            &format!("/api/v1/exports/{suffix}"),
+            "application/json",
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(headers[header::CONTENT_TYPE], "application/problem+json");
+    }
+    for (input, expected) in [
+        (json!({"paths": []}), StatusCode::BAD_REQUEST),
+        (json!({"paths": ["/etc/passwd"]}), StatusCode::NOT_FOUND),
+        (json!({"unexpected": true}), StatusCode::BAD_REQUEST),
+    ] {
+        let (status, headers, problem) = post_json(&app, "/api/v1/exports", input).await;
+        assert_eq!(status, expected);
+        assert_eq!(headers[header::CONTENT_TYPE], "application/problem+json");
+        assert_eq!(problem["status"], expected.as_u16());
+    }
+}
+
 #[tokio::test]
 async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
     let app = super::app();
@@ -93,9 +330,12 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         "{first_docs:?}"
     );
     for url in [
+        site::LINKEDIN_URL,
         site::PYTHON_SDK_URL,
         site::TYPESCRIPT_SDK_URL,
+        site::GO_SDK_URL,
         site::MCP_REGISTRY_URL,
+        site::MCP_GLAMA_URL,
     ] {
         assert!(footer.contains(&format!("href=\"{url}\"")));
         assert!(markdown.contains(&format!("]({url})")));
@@ -167,6 +407,11 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         .find(|entity| entity["@type"] == "Organization")
         .unwrap();
     assert_eq!(organization["name"], site::ORGANIZATION);
+    assert!(organization["sameAs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|profile| profile == site::LINKEDIN_URL));
     assert_eq!(
         organization["contactPoint"][0]["email"],
         site::PRIVACY_EMAIL
@@ -198,21 +443,74 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
 }
 
 #[tokio::test]
-async fn tool_openapi_only_advertises_typed_json_reads() {
+async fn tool_openapi_advertises_typed_json_reads_and_background_exports() {
     let app = super::app();
     let spec: Value =
         serde_json::from_str(&fetch(&app, "/openapi.json", "application/json").await.2).unwrap();
     let paths = spec["paths"].as_object().unwrap();
-    assert_eq!(paths.len(), 4);
+    assert_eq!(paths.len(), 7);
+    let mut ids = std::collections::HashSet::new();
     for (path, item) in paths {
-        let methods = item.as_object().unwrap();
-        assert_eq!(methods.len(), 1, "only GET is part of the JSON API: {path}");
-        let operation = &item["get"];
-        assert!(operation["operationId"].is_string());
-        assert!(operation["responses"]["200"]["content"]["application/json"]["schema"].is_object());
+        for (method, operation) in item.as_object().unwrap() {
+            assert!(
+                method == "get"
+                    || (matches!(path.as_str(), "/api/v1/search" | "/api/v1/exports")
+                        && method == "post")
+            );
+            assert!(ids.insert(operation["operationId"].as_str().unwrap()));
+            let success = if path == "/api/v1/exports" {
+                "202"
+            } else {
+                "200"
+            };
+            assert!(
+                operation["responses"][success]["content"]["application/json"]["schema"]
+                    .is_object()
+            );
+        }
+    }
+    assert_eq!(ids.len(), 8);
+    let post = &paths["/api/v1/search"]["post"];
+    let input_ref = post["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        .as_str()
+        .unwrap()
+        .strip_prefix('#')
+        .unwrap();
+    let input = spec.pointer(input_ref).unwrap();
+    assert_eq!(input["type"], "object");
+    assert_eq!(input["required"], json!(["q"]));
+    assert_eq!(input["additionalProperties"], false);
+    assert_eq!(input["properties"]["q"]["maxLength"], 256);
+    assert_eq!(input["properties"]["limit"]["maximum"], 50);
+    let key = post["parameters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|parameter| parameter["name"] == "Idempotency-Key")
+        .unwrap();
+    assert_eq!(key["in"], "header");
+    assert_eq!(key["required"], false);
+    assert!(key["schema"]["pattern"].is_string());
+    for status in ["413", "415", "422", "503"] {
+        assert!(
+            post["responses"][status]["content"]["application/problem+json"]["schema"].is_object()
+        );
     }
     assert!(paths.contains_key("/api/v1/search"));
     assert!(paths.contains_key("/api/v1/docs/page"));
+    let export = &paths["/api/v1/exports"]["post"];
+    assert_eq!(export["operationId"], "exportDocs");
+    assert!(export["responses"]["202"]["headers"]["Location"].is_object());
+    assert!(export["responses"]["202"]["headers"]["Retry-After"].is_object());
+    assert_eq!(
+        spec["components"]["schemas"]["ExportInput"]["additionalProperties"],
+        false
+    );
+    assert!(paths["/api/v1/exports/{id}"]["get"]["parameters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["in"] == "path" && p["name"] == "id" && p["required"] == true));
     assert_eq!(
         fetch(&app, "/openapi/site.json", "*/*").await.0,
         StatusCode::OK
@@ -544,6 +842,7 @@ async fn generated_contracts_keep_operation_ids_errors_and_resolvable_schemas() 
     check_refs(&spec, &spec);
     for (path, method, operation_id) in [
         ("/api/v1/search", "get", "searchDocs"),
+        ("/api/v1/search", "post", "searchDocsPost"),
         ("/api/v1/docs", "get", "listDocs"),
         ("/api/v1/docs/page", "get", "getDoc"),
         ("/api/search", "get", "searchProaDocumentation"),
@@ -719,6 +1018,156 @@ async fn rest_search_pagination_retrieval_and_errors_match_the_contract() {
 }
 
 #[tokio::test]
+async fn json_search_replays_successes_and_rejects_key_reuse() {
+    let app = super::app();
+    let get = fetch(&app, "/api/v1/search?q=render&limit=2", "application/json")
+        .await
+        .2;
+    for (payload, key, replayed) in [
+        (r#"{"q":"render","limit":2}"#, None, None),
+        (
+            r#"{"q":"render","limit":2}"#,
+            Some("\"http-retry\""),
+            Some("false"),
+        ),
+        (
+            r#"{ "limit": 2, "q": "render" }"#,
+            Some("\"http-retry\""),
+            Some("true"),
+        ),
+    ] {
+        let mut request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/search")
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(key) = key {
+            request = request.header("Idempotency-Key", key);
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::from(payload)).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("idempotency-replayed")
+                .map(|value| value.to_str().unwrap()),
+            replayed
+        );
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(response.headers().contains_key("ratelimit"));
+        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        assert_eq!(body.as_ref(), get.as_bytes());
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/search")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("Idempotency-Key", "\"http-retry\"")
+                .body(Body::from(r#"{"q":"render","limit":3}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "application/problem+json"
+    );
+    let problem: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(problem["code"], "idempotency_key_reused");
+}
+
+#[tokio::test]
+async fn json_search_reports_typed_input_errors_and_does_not_cache_failures() {
+    let app = super::app();
+    for (payload, media_type, key, status) in [
+        (
+            r#"{"q":"render"}"#.to_owned(),
+            "text/plain",
+            "\"input-tests\"",
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "{".to_owned(),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            r#"{"q":"render","extra":true}"#.to_owned(),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            r#"{"q":"render","limit":0}"#.to_owned(),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            r#"{"q":"render","cursor":"invalid"}"#.to_owned(),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            " ".repeat(16 * 1024 + 1),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+        (
+            r#"{"q":"render"}"#.to_owned(),
+            "application/json",
+            "unquoted",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            r#"{"q":"render"}"#.to_owned(),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::OK,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/search")
+                    .header(header::CONTENT_TYPE, media_type)
+                    .header("Idempotency-Key", key)
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        if status == StatusCode::OK {
+            assert_eq!(response.headers()["idempotency-replayed"], "false");
+        } else {
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                "application/problem+json"
+            );
+            assert!(!response.headers().contains_key("idempotency-replayed"));
+            let problem: Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap())
+                    .unwrap();
+            assert_eq!(problem["status"], status.as_u16());
+        }
+    }
+}
+
+#[tokio::test]
 async fn missing_pages_preserve_404_with_useful_markdown() {
     let app = super::app();
     for path in [
@@ -761,6 +1210,9 @@ async fn rest_method_errors_and_missing_routes_have_distinct_typed_responses() {
         ("/api/missing", StatusCode::NOT_FOUND),
     ] {
         for method in [Method::POST, Method::PUT, Method::DELETE] {
+            if path == "/api/v1/search" && method == Method::POST {
+                continue;
+            }
             let response = app
                 .clone()
                 .oneshot(
@@ -778,7 +1230,14 @@ async fn rest_method_errors_and_missing_routes_have_distinct_typed_responses() {
                 "application/problem+json"
             );
             if status == StatusCode::METHOD_NOT_ALLOWED {
-                assert_eq!(response.headers()[header::ALLOW], "GET,HEAD");
+                let allowed = response.headers()[header::ALLOW].to_str().unwrap();
+                let methods: std::collections::HashSet<_> = allowed.split(',').collect();
+                let expected: std::collections::HashSet<_> = if path == "/api/v1/search" {
+                    ["GET", "HEAD", "POST"].into_iter().collect()
+                } else {
+                    ["GET", "HEAD"].into_iter().collect()
+                };
+                assert_eq!(methods, expected);
             }
             let body = to_bytes(response.into_body(), 4096).await.unwrap();
             let problem: Value = serde_json::from_slice(&body).unwrap();

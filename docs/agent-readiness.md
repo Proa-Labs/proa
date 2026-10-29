@@ -1,12 +1,13 @@
 # Agent-readiness rollout
 
-Snapshot: 2026-10-28 at 18:19 UTC. After PR #56 merged and production revision
-`5e4422dd59200e25118652f6ec7c458a8cee75d7` deployed, a forced
-[Ora scan](https://ora.ai/score/proa.so) completed at **91/100**, up from
-89/100 before deployment. Response-schema coverage and function-calling
-compatibility now pass. A perfect score is not guaranteed: some checks depend
-on search results, registry recognition, or whether Ora treats read-only APIs
-as exempt from write/job features.
+Snapshot: 2026-10-29 at 00:19 UTC. After PR #58 merged and production revision
+`c5e1fa3434d6a7f59356127f150afca4f2274b6d` deployed, a forced
+[Ora scan](https://ora.ai/score/proa.so) completed at **94/100**, up from
+91/100 after PR #56. Public API documentation, schema breadth, response-schema
+coverage, function-calling compatibility, and the official MCP Registry now
+pass. Ora detects both npm and PyPI SDKs (2/3); a third ecosystem is needed
+for the remaining SDK point. A perfect score is not guaranteed: some checks
+depend on search samples and verification of newly deployed links and endpoints.
 
 Ora's [check catalog](https://ora.ai/api/checks) marks the skills-install check
 as **emerging**, which is excluded from the canonical score. Its 200-install
@@ -21,7 +22,7 @@ not a readiness-score deduction.
 | Partial structured response coverage | `/openapi.json` now describes the four typed JSON GET operations. The full ten-operation website/legacy contract remains at `/openapi/site.json`; all existing routes remain available. |
 | No SDKs or detected CLI | Published dependency-free JavaScript/TypeScript and Python clients with `proa-docs` CLIs, typed responses, pagination, bounded timeouts, and structured errors. These read docs and do not replace the Rust build CLI. |
 | Missing section indexes | Framework, RSJS, and ecosystem `llms.txt` indexes, linked from the homepage HTML and Markdown. |
-| Limited schema breadth | Visible homepage FAQ shared with Markdown and FAQPage JSON-LD; per-document TechArticle/APIReference and BreadcrumbList metadata. |
+| Limited schema breadth | Visible homepage FAQ, videos, and benchmark charts share their content with FAQPage, VideoObject, ItemList, and ImageObject metadata. Documents expose TechArticle/APIReference and BreadcrumbList metadata. |
 | Limited identity links | Verified Proa YouTube channel added alongside GitHub in `sameAs`. |
 | Three authoring skills | Added documentation API and typed Markdown skills, bringing the published index to five after deployment. |
 | No registry listing | Published the validated remote-server manifest as `io.github.proa-web/docs`, pointing directly to `https://proa.so/mcp`; the API guide includes its verified backlink. |
@@ -36,26 +37,31 @@ and consistent HTML/Markdown discovery links.
 | Service | Observed state | Remaining action |
 | --- | --- | --- |
 | npm | Created the free `proa-labs` organization and published [@proa-labs/docs 0.1.0](https://www.npmjs.com/package/@proa-labs/docs). A fresh registry installation successfully searched the live API. | Complete. |
+| Go | Published `github.com/Proa-Labs/proa/sdk/go` at `v0.0.0-20261029004544-c75fce01a7f4`, indexed on [pkg.go.dev](https://pkg.go.dev/github.com/Proa-Labs/proa/sdk/go), and verified with a fresh public-proxy installation against production. | Deploy the reciprocal homepage/API-guide links so Ora discovers all three ecosystems. |
 | PyPI | Published [proa-docs 0.1.1](https://pypi.org/project/proa-docs/0.1.1/) as `proa`, with wheel and source distribution. A fresh registry installation searched the live API. Both temporary release tokens were revoked and deletion confirmed by PyPI. | Complete. |
 | Smithery | Created the Proa Labs workspace (`proa-labs`); attempted `proa-docs` registration. The final step returned 403: "Updating servers has been removed." No listing was confirmed. | Resume when Smithery supports publication, or resolve through its support process. |
-| Glama | Submitted “Proa documentation” with hosted endpoint `https://proa.so/mcp`. Glama's email receipt confirms it is pending review. | Wait for approval, verify the public listing, then add its exact URL to the API guide. |
-| Official MCP Registry | Published [io.github.proa-web/docs 1.0.0](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs) using the Proa GitHub identity. The registry reports it active and the API guide's reciprocal link is deployed. | Ora still does not recognize the listing. |
+| Glama | The [Proa documentation connector](https://glama.ai/mcp/connectors/so.proa/proa-documentation) is publicly listed. Verified October 29: Healthy, Streamable HTTP, endpoint `https://proa.so/mcp`, and both read-only tools. | This follow-up adds the exact listing URL to the API guide and shared homepage HTML/Markdown footer; recheck Ora after deployment. |
+| Official MCP Registry | Published [io.github.proa-web/docs 1.0.0](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs) using the Proa GitHub identity. Ora now verifies it through the first-party backlink (1/1). | Complete. |
+| LinkedIn | The user created [Proa Labs](https://www.linkedin.com/company/proa-labs/). Verified its name, Rust tagline, and website link to `https://proa.so`. | This follow-up adds it to Organization `sameAs` and the shared HTML/Markdown homepage links. |
 | PulseMCP | Site states that new submissions are paused. | Resume when submissions reopen; no submission was made. |
 | MCP.so | Submission flow requires a $39 one-time payment. | Optional paid submission needs a spending decision; no payment or submission was made. |
+| IndexNow | Added a public root verification file and a bounded notification script. The deployment workflow submits the live production sitemap after verifying the deployed key. | First submission runs after this PR deploys; acceptance does not promise indexing. |
 | Google Search Console | Verified the Proa account's domain ownership using an additional Cloudflare TXT record. Google processed `https://proa.so/sitemap.xml` successfully and discovered 125 pages. Indexing requests for `/docs/api` and `/docs/agents` were accepted; the latter was already indexed. | Allow recrawling and recheck Ora's name-based search sample. |
 
 Publisher credentials stay outside the repository. Temporary PyPI release
 tokens are revoked after publication; no secrets belong in this document or
 source control.
 
-The October 28 scan recognizes the npm SDK (1/1) and CLI (3/3). It still
-detects only npm for multi-language SDKs (1/3), despite the verified PyPI
-publication, and has not recognized the official MCP listing (0/1). The
-deployed API guide already links both packages and the official registry.
-A web search during the follow-up also surfaced `/docs/api`, despite Ora's
-name-search warning. Search providers and sampled queries can differ.
+The October 29 scan recognizes the npm SDK (1/1), CLI (3/3), both SDK
+ecosystems (2/3), and the official MCP listing (1/1). The production homepage
+and API guide link both packages and the registry. Name-based developer
+resource discovery remains 1/3 despite `/docs/api` appearing in a separate
+web search; search providers and sampled queries can differ.
 
 ## Follow-up fixes
+
+PR #58 merged on October 29 at 00:00 UTC and its normal production deployment
+completed before the 00:19 scan. These homepage changes are live:
 
 - Put the API guide before subsection indexes in the shared homepage footer.
   The deployed scan inspected only `/docs`, `/docs/llms.txt`, and
@@ -73,6 +79,82 @@ both changed checks under contract 1.37.0: public API documentation **3/3**
 update the canonical production score. All 161 marketing tests, Proa format
 and lint checks, and the render-allocation lint passed.
 
+Maintainer context: some additions in this effort are driven by Ora's generic
+agent-readiness checklist and may exceed what this documentation service
+needs. In particular, POST search and its optional idempotency replay were
+added primarily to improve the Ora score. Search already performs no writes
+and is safe to retry, so replay is unnecessary for correctness or preventing
+duplicate side effects. The advertised header still has real, tested
+behavior. Keep this feature optional and bounded, and reassess the extra
+machinery if Ora changes how it evaluates read-only APIs.
+
+PR #59 adds a functional optional `Idempotency-Key` to a typed
+JSON `POST /api/v1/search`. A successful request is retained for fifteen
+minutes on the serving instance. Matching retries replay its JSON body;
+changed parameters with an active key return 422. The bounded cache rejects
+new keys with 503 when full and is not shared across replicas or restarts.
+This adds one operation to each OpenAPI document: five JSON operations in the
+canonical contract and eleven in the complete website contract. Existing GET,
+MCP, SDK, and legacy search clients continue to work.
+
+Ora's live selected checks against this follow-up's temporary public preview
+under contract 1.38.0 awarded idempotency **3/3**, response-schema coverage
+**2/2**, and function-calling compatibility **2/2**. A direct public HTTP
+probe also confirmed the first keyed response reports
+`Idempotency-Replayed: false` and the matching retry reports `true`.
+All 169 marketing tests passed, including replay, expiry, capacity, concurrent
+requests, header validation, body limits, and typed errors. This preview check
+does not update the canonical production score.
+
+After adding the verified LinkedIn company profile, a second preview check
+under contract 1.38.0 awarded entity linking **2/2** and identified both
+`github.com` and `linkedin.com`. The same URL constant supplies Organization
+`sameAs` and the homepage's shared HTML/Markdown Explore links. The 169
+marketing tests and formatting/performance checks still pass.
+
+## Remaining scored deductions addressed by this follow-up
+
+The final audit compared all 132 catalog entries with the production report:
+48 checks were applicable, scored, non-bonus, and non-emerging; six had
+remaining deductions. PR #59 now addresses five with verified implementations:
+
+| Deduction | Follow-up and evidence |
+| --- | --- |
+| Entity linking, 1/2 | Verified LinkedIn identity; preview now 2/2. |
+| Idempotency, 1/3 | Optional real POST search response replay; preview now 3/3. |
+| SDK ecosystems, 2/3 | Published Go client in addition to npm/PyPI. Preview detects Go; production still needs its backlink deployed. |
+| Onboarding, 1/2 | Isolated, unauthenticated `/sandbox` over three synthetic fixtures; preview now 2/2. The separate sandbox bonus check also passes 2/2. |
+| Background jobs, 0/2 | Actual JSON export worker with 202, Location, polling, terminal status, and downloadable result; preview now 2/2. |
+| Developer-resource search, 1/3 | Existing branded API page, homepage/llms links, sitemap, and Search Console requests remain valid. Added IndexNow deployment notifications. Search sampling remains external; no full-score claim until Ora verifies it. |
+
+The sandbox and export API were added in response to Ora's checklist. They
+may exceed this read-only documentation service's practical needs. They are
+optional and do real work: sandbox data and state are isolated, while exports
+serialize public documents in a background worker without artificial delays.
+Per environment and serving instance, export storage is limited to eight jobs,
+two workers, fifteen-minute retention, and 4 MiB per result. Identical retained
+selections reuse a job; terminal reuse returns 200, new work returns 202.
+The canonical OpenAPI contract now has eight operations and the full website
+contract has fourteen. Ordinary search/retrieval and MCP behavior are preserved.
+
+All 175 marketing tests pass, including cross-environment isolation, full
+production and sandbox export lifecycles, capacity, expiry, failed/pending
+results, malformed IDs, and the existing replay suite. Go's race-enabled tests
+and vet pass; a fresh published installation searched and retrieved production
+documents and paginated through all 104 public pages. IndexNow origin/proof
+boundary tests, workflow lint, Proa format/lint, and render-performance lint
+also pass. Public preview probes confirmed 104 production documents and three
+sandbox fixtures in completed JSON bundles, plus the served IndexNow key.
+A final Ora contract 1.38.0 preview check confirms 100% typed JSON response
+coverage (2/2), background jobs (2/2), and function-calling compatibility (2/2).
+
+A fresh production-only check after Go publication still reports npm/PyPI 2/3
+and developer-resource search 1/3. The Go homepage backlink is part of this PR;
+publication alone does not make Ora discover it. An Ora search-detection review
+message has been prepared but not sent; sending requires the user's explicit
+approval. Tranco traffic rank and emerging skills-install counts remain outside
+the canonical score.
+
 ## Deployment and rescan
 
 1. Review and merge the follow-up PR. The current authorization permits
@@ -88,13 +170,12 @@ and lint checks, and the render-allocation lint passed.
 
 ## Read-only service constraints
 
-The documentation API, including legacy `POST /api/search`, only reads public
-compiled content. It has no state-changing operation requiring an idempotency
-key, no long-running operation requiring job polling, and no paid/live account
-state requiring a separate sandbox. The API guide and canonical OpenAPI
-description now state this explicitly. Creating artificial writes, jobs, or
-credentials would make the API worse. If Ora still deducts those points, its
-applicability assessment needs review.
+The documentation API only reads public compiled content or explicit sandbox
+fixtures. Optional search replay and export jobs keep bounded temporary state;
+they do not modify applications, accounts, or documents. Do not add fake write
+operations, authentication requirements, artificial worker delays, or unsupported
+metadata claims to improve a detector. Keep the extra machinery optional and
+reassess it if Ora changes its evaluation of read-only APIs.
 
 The report's generated integration narrative also describes API-key
 authentication, despite its own successful zero-auth probe. Recheck that claim

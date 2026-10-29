@@ -378,13 +378,27 @@ pub(crate) struct FooterLinks {
     links: &'static [(&'static str, &'static str)],
 }
 
+pub(crate) const EXPLORE_LINKS: FooterLinks = FooterLinks {
+    title: "Explore",
+    links: &[
+        ("Apps", routes::APPS),
+        ("Ecosystem", routes::ECOSYSTEM),
+        ("About", routes::ABOUT),
+        ("Contact", routes::CONTACT),
+        ("LinkedIn", site::LINKEDIN_URL),
+    ],
+};
+
 pub(crate) const DOCUMENTATION_LINKS: FooterLinks = FooterLinks {
     title: "Documentation tools",
     links: &[
         ("API guide", routes::API_GUIDE),
         ("Python SDK on PyPI", site::PYTHON_SDK_URL),
         ("TypeScript SDK on npm", site::TYPESCRIPT_SDK_URL),
+        ("Go SDK on pkg.go.dev", site::GO_SDK_URL),
+        ("API sandbox", routes::SANDBOX),
         ("Official MCP Registry", site::MCP_REGISTRY_URL),
+        ("MCP on Glama", site::MCP_GLAMA_URL),
         ("Documentation index", routes::DOCS_INDEX),
         ("Framework documentation index", routes::FRAMEWORK_INDEX),
         ("RSJS documentation index", routes::RSJS_INDEX),
@@ -530,15 +544,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                         </div> */
                     </div>
                     <nav aria-label="Footer navigation" class="grid grid-cols-2 gap-8 text-sm sm:grid-cols-3">
-                        {FooterLinks {
-                            title: "Explore",
-                            links: &[
-                                ("Apps", routes::APPS),
-                                ("Ecosystem", routes::ECOSYSTEM),
-                                ("About", routes::ABOUT),
-                                ("Contact", routes::CONTACT),
-                            ],
-                        }}
+                        {EXPLORE_LINKS}
                         {FooterLinks {
                             title: "Resources",
                             links: &[

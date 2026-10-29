@@ -19,7 +19,7 @@ use rsjs::signal;
 use rsjs_macros::rsjs;
 
 use crate::{
-    components::landing_shell::DOCUMENTATION_LINKS,
+    components::landing_shell::{DOCUMENTATION_LINKS, EXPLORE_LINKS},
     layout::{render_page, PageMeta},
     utils::document::Url,
 };
@@ -67,6 +67,8 @@ pub(crate) fn markdown() -> &'static str {
     MARKDOWN.get_or_init(|| {
         crate::utils::document::render_markdown(md_sync! { r###"
             {HomePage}
+
+            {EXPLORE_LINKS}
 
             {DOCUMENTATION_LINKS}
             "###

@@ -2,13 +2,15 @@
 
 These are small, dependency-free clients for the public read-only documentation
 API. They do not scaffold or build Proa applications; use the Rust Proa CLI for
-that. JavaScript/TypeScript and Python expose equivalent search, list, get, and
-pagination operations, plus a `proa-docs` terminal command.
+that. JavaScript/TypeScript, Python, and Go expose search, list, get, and
+pagination operations. JavaScript and Python also provide a `proa-docs`
+terminal command.
 
 | Language | Source | Public package |
 | --- | --- | --- |
 | JavaScript / TypeScript (Node 22+) | [javascript](javascript/README.md) | [@proa-labs/docs on npm](https://www.npmjs.com/package/@proa-labs/docs) |
 | Python (3.11+) | [python](python/README.md) | [proa-docs on PyPI](https://pypi.org/project/proa-docs/) |
+| Go (1.23+) | [go](go/README.md) | [proadocs on pkg.go.dev](https://pkg.go.dev/github.com/Proa-Labs/proa/sdk/go) |
 
 Python version 0.1.1 is published and verified with a fresh installation. Install
 the library with `pip install proa-docs` or run its CLI with uv:
@@ -31,6 +33,14 @@ node sdk/javascript/cli.mjs search streaming --limit 5
 uv run --directory sdk/python proa-docs search streaming --limit 5
 ```
 
+The Go module is published at `v0.0.0-20261029004544-c75fce01a7f4` and indexed on
+pkg.go.dev. A fresh public-proxy installation successfully searched, fetched a
+page, and walked all 104 live public documents. To use this verified version:
+
+```sh
+go get github.com/Proa-Labs/proa/sdk/go@v0.0.0-20261029004544-c75fce01a7f4
+```
+
 ## Validation
 
 Run from the repository root:
@@ -41,10 +51,12 @@ uv run --directory sdk/python --locked pytest
 uv run --directory sdk/python --locked ruff check
 uv run --directory sdk/python --locked ruff format --check
 uv run --directory sdk/python --locked ty check src
+go test -C sdk/go -race ./...
+go vet -C sdk/go ./...
 ```
 
-CI runs these checks with the marketing application's API tests. Both SDK test
-suites use local HTTP servers and exercise encoded requests, cursor handling,
+CI runs these checks with the marketing application's API tests. The SDK tests
+use local HTTP servers and exercise encoded requests, cursor handling,
 structured failures, and CLI behavior. No live credentials are needed.
 
 ## Releasing
@@ -73,6 +85,14 @@ structured failures, and CLI behavior. No live credentials are needed.
    `https://proa.so/docs/api` and the source repository. Update the release
    versions here only after publication and verification succeed. Revoke any
    temporary upload token after the release.
+
+The Go client is a nested module. After an authorized push, request the exact
+commit through the public Go module proxy (`go mod download
+github.com/Proa-Labs/proa/sdk/go@<commit>`), then verify a fresh import and its
+pkg.go.dev documentation. An untagged commit resolves to an immutable
+pseudo-version. A future semantic release uses an `sdk/go/vX.Y.Z` tag and
+requires explicit tag-publishing authorization; never rewrite a published
+module version. No publishing credential is needed for the public module proxy.
 
 For local-site smoke tests, set `--base-url http://localhost:5555`. Python's
 global options come before the subcommand; JavaScript accepts either order.
