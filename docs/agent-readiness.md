@@ -38,7 +38,7 @@ and consistent HTML/Markdown discovery links.
 | npm | Created the free `proa-labs` organization and published [@proa-labs/docs 0.1.0](https://www.npmjs.com/package/@proa-labs/docs). A fresh registry installation successfully searched the live API. | Complete. |
 | PyPI | Published [proa-docs 0.1.1](https://pypi.org/project/proa-docs/0.1.1/) as `proa`, with wheel and source distribution. A fresh registry installation searched the live API. Both temporary release tokens were revoked and deletion confirmed by PyPI. | Complete. |
 | Smithery | Created the Proa Labs workspace (`proa-labs`); attempted `proa-docs` registration. The final step returned 403: "Updating servers has been removed." No listing was confirmed. | Resume when Smithery supports publication, or resolve through its support process. |
-| Glama | Submitted “Proa documentation” with hosted endpoint `https://proa.so/mcp`. Glama's email receipt confirms it is pending review. | Wait for approval, verify the public listing, then add its exact URL to the API guide. |
+| Glama | The [Proa documentation connector](https://glama.ai/mcp/connectors/so.proa/proa-documentation) is publicly listed. Verified October 29: Healthy, Streamable HTTP, endpoint `https://proa.so/mcp`, and both read-only tools. | This follow-up adds the exact listing URL to the API guide and shared homepage HTML/Markdown footer; recheck Ora after deployment. |
 | Official MCP Registry | Published [io.github.proa-web/docs 1.0.0](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs) using the Proa GitHub identity. The registry reports it active and the API guide's reciprocal link is deployed. | Ora still does not recognize the listing. |
 | PulseMCP | Site states that new submissions are paused. | Resume when submissions reopen; no submission was made. |
 | MCP.so | Submission flow requires a $39 one-time payment. | Optional paid submission needs a spending decision; no payment or submission was made. |
@@ -57,6 +57,9 @@ name-search warning. Search providers and sampled queries can differ.
 
 ## Follow-up fixes
 
+PR #58 merged on October 29 at 00:00 UTC. Its normal production deployment
+must finish before the canonical scan can reflect these homepage changes.
+
 - Put the API guide before subsection indexes in the shared homepage footer.
   The deployed scan inspected only `/docs`, `/docs/llms.txt`, and
   `/docs/framework/llms.txt`, reducing public API documentation to 2/3.
@@ -73,6 +76,24 @@ both changed checks under contract 1.37.0: public API documentation **3/3**
 update the canonical production score. All 161 marketing tests, Proa format
 and lint checks, and the render-allocation lint passed.
 
+The next follow-up adds a functional optional `Idempotency-Key` to a typed
+JSON `POST /api/v1/search`. A successful request is retained for fifteen
+minutes on the serving instance. Matching retries replay its JSON body;
+changed parameters with an active key return 422. The bounded cache rejects
+new keys with 503 when full and is not shared across replicas or restarts.
+This adds one operation to each OpenAPI document: five JSON operations in the
+canonical contract and eleven in the complete website contract. Existing GET,
+MCP, SDK, and legacy search clients continue to work.
+
+Ora's live selected checks against this follow-up's temporary public preview
+under contract 1.38.0 awarded idempotency **3/3**, response-schema coverage
+**2/2**, and function-calling compatibility **2/2**. A direct public HTTP
+probe also confirmed the first keyed response reports
+`Idempotency-Replayed: false` and the matching retry reports `true`.
+All 169 marketing tests passed, including replay, expiry, capacity, concurrent
+requests, header validation, body limits, and typed errors. This preview check
+does not update the canonical production score.
+
 ## Deployment and rescan
 
 1. Review and merge the follow-up PR. The current authorization permits
@@ -88,13 +109,13 @@ and lint checks, and the render-allocation lint passed.
 
 ## Read-only service constraints
 
-The documentation API, including legacy `POST /api/search`, only reads public
-compiled content. It has no state-changing operation requiring an idempotency
-key, no long-running operation requiring job polling, and no paid/live account
-state requiring a separate sandbox. The API guide and canonical OpenAPI
-description now state this explicitly. Creating artificial writes, jobs, or
-credentials would make the API worse. If Ora still deducts those points, its
-applicability assessment needs review.
+The documentation API, including both POST search interfaces, only reads
+public compiled content. JSON POST search now offers optional response replay
+with real retention and conflict handling. There is still no long-running
+operation requiring job polling or paid/live account state requiring a
+separate sandbox. The API guide and canonical OpenAPI description state these
+limits. Artificial writes, jobs, or credentials would make the API worse;
+remaining applicability deductions need review by Ora.
 
 The report's generated integration narrative also describes API-key
 authentication, despite its own successful zero-auth probe. Recheck that claim

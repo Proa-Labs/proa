@@ -2,7 +2,7 @@
 title: Proa documentation API and MCP
 description: Search and read official Proa documentation over HTTP, MCP, or browser tools without credentials.
 sidebar_title: API and MCP
-keywords: [Proa API, MCP, WebMCP, OpenAPI, authentication, pagination, rate limits]
+keywords: [Proa API, MCP, WebMCP, OpenAPI, authentication, pagination, rate limits, idempotency]
 ---
 
 The public Proa documentation API searches and reads the same compiled pages as this website. Use it when a coding agent needs current Rust APIs, render patterns, RSJS instructions, or deployment guidance. All operations are read-only. No account, API key, OAuth token, payment, or signup is required.
@@ -22,6 +22,23 @@ curl 'https://proa.so/api/v1/search?q=streaming&limit=5'
 `q` is a case-insensitive phrase of 1–256 characters, matched against titles, descriptions, and Markdown. The response contains `results`, `total`, and `next_cursor`. Each result includes `title`, `description`, the canonical `path`, and a direct `markdown_url`.
 
 Pass the returned `next_cursor` as `cursor` with the same query to read the next page. A null cursor means there are no more results. `limit` defaults to 10 and accepts 1–50. Cursors belong to a result set on the current deployment; restart pagination if the documentation changes during retrieval.
+
+### JSON search and retry replay
+
+`POST /api/v1/search` accepts the same parameters as a JSON object and returns the same typed response. The body limit is 16 KiB. Use it when your integration sends structured JSON requests. An optional `Idempotency-Key` retains a successful response for retries:
+
+```bash
+curl 'https://proa.so/api/v1/search' \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: "8e03978e-40d5-43e8-bc93-6894a57f9324"' \
+  -d '{"q":"streaming","limit":5}'
+```
+
+Generate a new random UUID for each distinct request; reuse it only when retrying that request. The header value must be a quoted string containing 1–128 ASCII letters, digits, dots, colons, underscores, or hyphens. Send exactly one header. Keys are shared across this public endpoint, so predictable keys can collide with other clients.
+
+On the serving instance, a successful keyed response is retained for fifteen minutes from the initial request. A matching retry returns the retained JSON body and `Idempotency-Replayed: true`; the first response has `Idempotency-Replayed: false`. Concurrent retries on that instance wait for the synchronous search and then replay. Replays do not extend expiry. JSON field order and whitespace do not affect matching; changing any decoded `q`, `limit`, or `cursor` value while retaining the key returns 422 with code `idempotency_key_reused`. Omitted and null optional fields are equivalent. Validation failures do not reserve a key.
+
+Replay is bounded to 256 keys and 8 MiB of response bodies per instance. A full cache rejects new keyed searches with 503 and code `replay_unavailable`, preserving retained entries. Use an unkeyed search or retry later. Replays still consume the normal request budget. The cache is not shared between replicas and is cleared on restart or deployment, so a retry reaching another instance can compute a fresh response. All searches are read-only and safe to repeat with or without a key, including after expiry. This header does not apply to GET, MCP, or legacy search.
 
 ## Read and list pages
 
@@ -71,6 +88,8 @@ Configure a Streamable HTTP MCP connection to `https://proa.so/mcp`, with no cre
 
 The server is published in the [official MCP Registry as `io.github.proa-web/docs`](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs). Its listing points to this documentation and the same hosted endpoint; no local server installation is required.
 
+The [Proa documentation connector on Glama](https://glama.ai/mcp/connectors/so.proa/proa-documentation) also lists `https://proa.so/mcp`, its public tools, and connection health. Use either directory to find the same service.
+
 - `search_docs` accepts `q`, optional `limit`, and optional `cursor`. It returns the same document list as HTTP search.
 - `get_doc` accepts `path` and returns a complete Markdown document with its metadata.
 - `resources/list` lists public Markdown resources with names, descriptions, media types, and pagination.
@@ -95,9 +114,9 @@ When the browser supports WebMCP, the website registers `search_docs` and `get_d
 
 The HTTP API and MCP endpoint share a budget of 600 requests per minute per running server instance. It is a shared service budget, not a personal quota. Responses include `RateLimit-Policy`, `RateLimit`, and `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`. A 429 response includes `Retry-After` in seconds; wait that long before retrying. These responses use `Cache-Control: no-store` so a cached budget is not mistaken for a current one.
 
-Versioned REST failures use `application/problem+json` with `type`, `title`, `status`, `code`, `detail`, and `documentation`. Codes include `invalid_request` (400), `not_found` (404), `method_not_allowed` (405), and `rate_limited` (429). Correct invalid parameters; use the document index to recover from missing paths. For network failures or temporary 5xx responses, retry with exponential backoff.
+Versioned REST failures use `application/problem+json` with `type`, `title`, `status`, `code`, `detail`, and `documentation`. Codes include `invalid_request` (400), `not_found` (404), `method_not_allowed` (405), and `rate_limited` (429). JSON POST search also reports `payload_too_large` (413), `unsupported_media_type` (415), `idempotency_key_reused` (422), and `replay_unavailable` (503). Correct invalid parameters; use the document index to recover from missing paths. For network failures or temporary 5xx responses, retry with exponential backoff.
 
-All documented operations are synchronous reads and safe to repeat. There are no state-changing operations requiring an `Idempotency-Key` and no long-running operations requiring a `202 Accepted` job or polling URL. Even legacy `POST /api/search` only searches documents; it creates no record or side effect. Do not send credentials or personal data in search queries. See [authentication policy](/auth.md).
+All documented operations are synchronous reads and safe to repeat. JSON POST search supports the optional response replay described above; no operation requires an `Idempotency-Key`. There are no long-running operations requiring a `202 Accepted` job or polling URL. Even legacy `POST /api/search` only searches documents; it creates no record or side effect. Do not send credentials or personal data in search queries. See [authentication policy](/auth.md).
 
 ## Versions and compatibility
 

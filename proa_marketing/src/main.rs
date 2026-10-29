@@ -64,6 +64,7 @@ fn listen_addr(host: &str, port: u16) -> anyhow::Result<SocketAddr> {
 
 fn app() -> Router {
     let budget = Arc::new(Mutex::new(endpoints::api::RequestBudget::default()));
+    let search_replay = Arc::new(endpoints::api::SearchReplayCache::default());
     let agent_api = Router::new()
         .route(
             routes::API,
@@ -77,7 +78,11 @@ fn app() -> Router {
         )
         .route(
             routes::API_SEARCH,
-            get(endpoints::api::search_handler).fallback(endpoints::api::method_not_allowed),
+            get(endpoints::api::search_handler)
+                .post(endpoints::api::search_post_handler)
+                .fallback(endpoints::api::method_not_allowed)
+                .with_state(search_replay)
+                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
             routes::API_DOCS,

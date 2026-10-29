@@ -40,6 +40,7 @@ pub const PYTHON_SDK_URL: &str = "https://pypi.org/project/proa-docs/";
 pub const TYPESCRIPT_SDK_URL: &str = "https://www.npmjs.com/package/@proa-labs/docs";
 pub const MCP_REGISTRY_URL: &str =
     "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs";
+pub const MCP_GLAMA_URL: &str = "https://glama.ai/mcp/connectors/so.proa/proa-documentation";
 pub const SOCIAL_USERNAME: &str = "drewhariri";
 pub const SOCIAL_HANDLE: &str = concatcp!("@", SOCIAL_USERNAME);
 pub const SOCIAL_URL: &str = concatcp!("https://x.com/", SOCIAL_USERNAME);

@@ -5,14 +5,21 @@
 
 use crate::data::routes;
 
+mod replay;
+pub use replay::SearchReplayCache;
+
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use axum::{
-    extract::{rejection::QueryRejection, Query, Request, State},
-    http::{header, HeaderValue, StatusCode},
+    body::Bytes,
+    extract::{
+        rejection::{JsonRejection, QueryRejection},
+        Query, Request, State,
+    },
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
     Json,
@@ -28,16 +35,18 @@ const DEFAULT_LIMIT: usize = 10;
 const MAX_LIMIT: usize = 50;
 pub const REQUESTS_PER_MINUTE: u32 = 600;
 
-#[derive(Debug, Deserialize, IntoParams, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, IntoParams, JsonSchema, ToSchema)]
 #[serde(deny_unknown_fields)]
 #[into_params(parameter_in = Query)]
 pub struct SearchInput {
     /// Phrase to find in document titles, descriptions, or Markdown.
     #[param(min_length = 1, max_length = 256)]
+    #[schema(min_length = 1, max_length = 256)]
     #[schemars(length(min = 1, max = 256))]
     pub q: String,
     /// Maximum results per page; defaults to 10.
     #[param(minimum = 1, maximum = 50, default = 10, nullable = false)]
+    #[schema(minimum = 1, maximum = 50)]
     #[schemars(range(min = 1, max = MAX_LIMIT))]
     pub limit: Option<usize>,
     /// next_cursor from a preceding search with the same q.
@@ -271,6 +280,63 @@ pub async fn search_handler(
     search(query(input)?).map(Json)
 }
 
+/// Search using a JSON body, with optional response replay for retries.
+///
+/// Idempotency-Key is a quoted opaque string containing 1–128 ASCII letters,
+/// digits, dots, colons, underscores, or hyphens. Use a random UUID per request.
+/// Successful responses are retained for fifteen minutes on the serving
+/// instance. Reusing an active key with a different decoded JSON request is
+/// rejected with 422. JSON field order and whitespace do not affect matching.
+/// The cache is bounded and is not shared between replicas or across restarts.
+/// All searches remain read-only and safe to repeat even after cache expiry.
+#[utoipa::path(post, path = routes::API_SEARCH, operation_id = "searchDocsPost",
+    request_body = SearchInput,
+    params(("Idempotency-Key" = Option<String>, Header, description = "Optional quoted request key. Fifteen-minute, per-instance response replay; not shared across replicas or restarts.", pattern = r#"^"[A-Za-z0-9._:-]{1,128}"$"#)),
+    responses(ApiError,
+        (status = 200, description = "A page of public document summaries.", body = DocumentList,
+            headers(("Idempotency-Replayed" = bool, description = "Present for keyed requests: true when replaying a retained JSON response."))),
+        (status = 413, description = "JSON body exceeds 16 KiB.", body = Problem, content_type = "application/problem+json"),
+        (status = 415, description = "Expected application/json.", body = Problem, content_type = "application/problem+json"),
+        (status = 422, description = "The key was already used for a different decoded request.", body = Problem, content_type = "application/problem+json"),
+        (status = 503, description = "The bounded replay cache cannot accept another request. Retry later or use an unkeyed read.", body = Problem, content_type = "application/problem+json")
+    ))]
+pub async fn search_post_handler(
+    State(cache): State<Arc<SearchReplayCache>>,
+    headers: HeaderMap,
+    input: Result<Json<SearchInput>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    let Json(input) = input.map_err(|error| match error.status() {
+        StatusCode::PAYLOAD_TOO_LARGE => ApiError {
+            status: StatusCode::PAYLOAD_TOO_LARGE,
+            code: "payload_too_large",
+            detail: "The JSON search body must not exceed 16 KiB.",
+        },
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => ApiError {
+            status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            code: "unsupported_media_type",
+            detail: "Send the search object with Content-Type: application/json.",
+        },
+        _ => ApiError::invalid(
+            "Expected a JSON search object with q and optional limit/cursor fields.",
+        ),
+    })?;
+    let Some(key) = replay::request_key(&headers)? else {
+        return search(input).map(|result| Json(result).into_response());
+    };
+    let fingerprint = replay::fingerprint(&input);
+    let result = cache.get_or_compute(key, fingerprint, Instant::now(), || {
+        search(input).map(|result| {
+            Bytes::from(serde_json::to_vec(&result).expect("serialize search response"))
+        })
+    })?;
+    let mut response = ([(header::CONTENT_TYPE, "application/json")], result.body).into_response();
+    response.headers_mut().insert(
+        "idempotency-replayed",
+        HeaderValue::from_static(if result.replayed { "true" } else { "false" }),
+    );
+    Ok(response)
+}
+
 /// List public documentation with stable paths and Markdown URLs.
 ///
 /// Includes public pages excluded from search. Use next_cursor to continue
@@ -304,7 +370,7 @@ pub async fn method_not_allowed() -> ApiError {
         status: StatusCode::METHOD_NOT_ALLOWED,
         code: "method_not_allowed",
         detail: const_format::concatcp!(
-            "This documentation endpoint supports GET and HEAD. See ",
+            "This method is not supported by this documentation endpoint. See ",
             routes::OPENAPI,
             " for supported operations."
         ),

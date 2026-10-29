@@ -96,6 +96,7 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         site::PYTHON_SDK_URL,
         site::TYPESCRIPT_SDK_URL,
         site::MCP_REGISTRY_URL,
+        site::MCP_GLAMA_URL,
     ] {
         assert!(footer.contains(&format!("href=\"{url}\"")));
         assert!(markdown.contains(&format!("]({url})")));
@@ -204,12 +205,42 @@ async fn tool_openapi_only_advertises_typed_json_reads() {
         serde_json::from_str(&fetch(&app, "/openapi.json", "application/json").await.2).unwrap();
     let paths = spec["paths"].as_object().unwrap();
     assert_eq!(paths.len(), 4);
+    let mut ids = std::collections::HashSet::new();
     for (path, item) in paths {
-        let methods = item.as_object().unwrap();
-        assert_eq!(methods.len(), 1, "only GET is part of the JSON API: {path}");
-        let operation = &item["get"];
-        assert!(operation["operationId"].is_string());
-        assert!(operation["responses"]["200"]["content"]["application/json"]["schema"].is_object());
+        for (method, operation) in item.as_object().unwrap() {
+            assert!(method == "get" || (path == "/api/v1/search" && method == "post"));
+            assert!(ids.insert(operation["operationId"].as_str().unwrap()));
+            assert!(
+                operation["responses"]["200"]["content"]["application/json"]["schema"].is_object()
+            );
+        }
+    }
+    assert_eq!(ids.len(), 5);
+    let post = &paths["/api/v1/search"]["post"];
+    let input_ref = post["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        .as_str()
+        .unwrap()
+        .strip_prefix('#')
+        .unwrap();
+    let input = spec.pointer(input_ref).unwrap();
+    assert_eq!(input["type"], "object");
+    assert_eq!(input["required"], json!(["q"]));
+    assert_eq!(input["additionalProperties"], false);
+    assert_eq!(input["properties"]["q"]["maxLength"], 256);
+    assert_eq!(input["properties"]["limit"]["maximum"], 50);
+    let key = post["parameters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|parameter| parameter["name"] == "Idempotency-Key")
+        .unwrap();
+    assert_eq!(key["in"], "header");
+    assert_eq!(key["required"], false);
+    assert!(key["schema"]["pattern"].is_string());
+    for status in ["413", "415", "422", "503"] {
+        assert!(
+            post["responses"][status]["content"]["application/problem+json"]["schema"].is_object()
+        );
     }
     assert!(paths.contains_key("/api/v1/search"));
     assert!(paths.contains_key("/api/v1/docs/page"));
@@ -544,6 +575,7 @@ async fn generated_contracts_keep_operation_ids_errors_and_resolvable_schemas() 
     check_refs(&spec, &spec);
     for (path, method, operation_id) in [
         ("/api/v1/search", "get", "searchDocs"),
+        ("/api/v1/search", "post", "searchDocsPost"),
         ("/api/v1/docs", "get", "listDocs"),
         ("/api/v1/docs/page", "get", "getDoc"),
         ("/api/search", "get", "searchProaDocumentation"),
@@ -719,6 +751,156 @@ async fn rest_search_pagination_retrieval_and_errors_match_the_contract() {
 }
 
 #[tokio::test]
+async fn json_search_replays_successes_and_rejects_key_reuse() {
+    let app = super::app();
+    let get = fetch(&app, "/api/v1/search?q=render&limit=2", "application/json")
+        .await
+        .2;
+    for (payload, key, replayed) in [
+        (r#"{"q":"render","limit":2}"#, None, None),
+        (
+            r#"{"q":"render","limit":2}"#,
+            Some("\"http-retry\""),
+            Some("false"),
+        ),
+        (
+            r#"{ "limit": 2, "q": "render" }"#,
+            Some("\"http-retry\""),
+            Some("true"),
+        ),
+    ] {
+        let mut request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/search")
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(key) = key {
+            request = request.header("Idempotency-Key", key);
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::from(payload)).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("idempotency-replayed")
+                .map(|value| value.to_str().unwrap()),
+            replayed
+        );
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(response.headers().contains_key("ratelimit"));
+        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        assert_eq!(body.as_ref(), get.as_bytes());
+    }
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/v1/search")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("Idempotency-Key", "\"http-retry\"")
+                .body(Body::from(r#"{"q":"render","limit":3}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "application/problem+json"
+    );
+    let problem: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(problem["code"], "idempotency_key_reused");
+}
+
+#[tokio::test]
+async fn json_search_reports_typed_input_errors_and_does_not_cache_failures() {
+    let app = super::app();
+    for (payload, media_type, key, status) in [
+        (
+            r#"{"q":"render"}"#.to_owned(),
+            "text/plain",
+            "\"input-tests\"",
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        ),
+        (
+            "{".to_owned(),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            r#"{"q":"render","extra":true}"#.to_owned(),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            r#"{"q":"render","limit":0}"#.to_owned(),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            r#"{"q":"render","cursor":"invalid"}"#.to_owned(),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            " ".repeat(16 * 1024 + 1),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+        (
+            r#"{"q":"render"}"#.to_owned(),
+            "application/json",
+            "unquoted",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            r#"{"q":"render"}"#.to_owned(),
+            "application/json",
+            "\"input-tests\"",
+            StatusCode::OK,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/search")
+                    .header(header::CONTENT_TYPE, media_type)
+                    .header("Idempotency-Key", key)
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        if status == StatusCode::OK {
+            assert_eq!(response.headers()["idempotency-replayed"], "false");
+        } else {
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                "application/problem+json"
+            );
+            assert!(!response.headers().contains_key("idempotency-replayed"));
+            let problem: Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap())
+                    .unwrap();
+            assert_eq!(problem["status"], status.as_u16());
+        }
+    }
+}
+
+#[tokio::test]
 async fn missing_pages_preserve_404_with_useful_markdown() {
     let app = super::app();
     for path in [
@@ -761,6 +943,9 @@ async fn rest_method_errors_and_missing_routes_have_distinct_typed_responses() {
         ("/api/missing", StatusCode::NOT_FOUND),
     ] {
         for method in [Method::POST, Method::PUT, Method::DELETE] {
+            if path == "/api/v1/search" && method == Method::POST {
+                continue;
+            }
             let response = app
                 .clone()
                 .oneshot(
@@ -778,7 +963,14 @@ async fn rest_method_errors_and_missing_routes_have_distinct_typed_responses() {
                 "application/problem+json"
             );
             if status == StatusCode::METHOD_NOT_ALLOWED {
-                assert_eq!(response.headers()[header::ALLOW], "GET,HEAD");
+                let allowed = response.headers()[header::ALLOW].to_str().unwrap();
+                let methods: std::collections::HashSet<_> = allowed.split(',').collect();
+                let expected: std::collections::HashSet<_> = if path == "/api/v1/search" {
+                    ["GET", "HEAD", "POST"].into_iter().collect()
+                } else {
+                    ["GET", "HEAD"].into_iter().collect()
+                };
+                assert_eq!(methods, expected);
             }
             let body = to_bytes(response.into_body(), 4096).await.unwrap();
             let problem: Value = serde_json::from_slice(&body).unwrap();

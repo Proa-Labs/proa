@@ -39,6 +39,12 @@ read-only tools and paginated Markdown resources. `/mcp/server-card` describes
 the connection. No credentials or writes are exposed. API and MCP responses
 advertise an enforced shared per-instance budget of 600 requests per minute.
 
+Search also accepts a JSON POST body. Its optional `Idempotency-Key` replays
+successful responses for fifteen minutes on the serving instance, rejects a
+key reused for different parameters, and bounds retained responses to 256 keys
+and 8 MiB. Replicas and restarts do not share this cache. All searches remain
+safe to repeat without a key; see the API guide for the exact replay contract.
+
 The optional `/static/agent-tools.mjs` registers the search and retrieval
 operations with WebMCP. Its tests run with
 `node --test proa_marketing/tests-js/agent-tools.test.mjs`. HTTP and MCP tests

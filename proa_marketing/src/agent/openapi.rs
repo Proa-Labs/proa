@@ -24,10 +24,11 @@ use crate::pages::home;
     info(
         title = "Proa public documentation API",
         version = "1.0.0",
-        description = const_format::concatcp!("Public, synchronous, read-only Proa Rust framework documentation. Every operation is a GET and returns JSON. No authentication is required. Requests are safe to retry; there are no writes requiring Idempotency-Key or long-running jobs requiring 202/polling. The ", routes::API_V1, " prefix is the compatibility boundary: breaking changes receive a new prefix; deprecations are announced in ", routes::API_GUIDE, " before removal. Pagination cursors are opaque and valid only for the same result set and deployment. The complete website and legacy search contract is at ", routes::SITE_OPENAPI, ".")
+        description = const_format::concatcp!("Public, synchronous, read-only Proa Rust framework documentation. Operations return JSON using GET or JSON POST search. No authentication is required. POST search supports optional Idempotency-Key response replay for fifteen minutes on the serving instance, with bounded capacity; the cache is not shared between replicas or across restarts. All reads are safe to repeat. There are no long-running jobs requiring 202/polling. The ", routes::API_V1, " prefix is the compatibility boundary: breaking changes receive a new prefix; deprecations are announced in ", routes::API_GUIDE, " before removal. Pagination cursors are opaque and valid only for the same result set and deployment. The complete website and legacy search contract is at ", routes::SITE_OPENAPI, ".")
     ),
     paths(
         api::search_handler,
+        api::search_post_handler,
         api::list_handler,
         api::page_handler,
         agent_discovery::site_metadata
@@ -44,6 +45,7 @@ struct DocumentationApi;
     info(title = "Proa website and legacy interfaces", version = "1.0.0"),
     paths(
         api::search_handler,
+        api::search_post_handler,
         api::list_handler,
         api::page_handler,
         search::handler,
