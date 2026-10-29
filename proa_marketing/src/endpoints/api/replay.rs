@@ -4,6 +4,13 @@
 //! Bounded response replay for the synchronous, public JSON search operation.
 //! Entries are local to one serving process; no account or mutation is involved.
 
+// Maintainer context: added primarily for Ora's Idempotency-Key scoring check
+// (https://ora.ai/score/proa.so). Documentation search is already read-only and
+// safe to retry, so this layer is unnecessary for correctness. It implements
+// real, bounded replay to honor the advertised header. Keep it optional and
+// reassess its value if Ora changes the check's applicability to read-only APIs.
+// See docs/agent-readiness.md for the scoring rationale and validation.
+
 use std::{
     collections::HashMap,
     sync::Mutex,

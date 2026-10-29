@@ -78,6 +78,15 @@ both changed checks under contract 1.37.0: public API documentation **3/3**
 update the canonical production score. All 161 marketing tests, Proa format
 and lint checks, and the render-allocation lint passed.
 
+Maintainer context: some additions in this effort are driven by Ora's generic
+agent-readiness checklist and may exceed what this documentation service
+needs. In particular, POST search and its optional idempotency replay were
+added primarily to improve the Ora score. Search already performs no writes
+and is safe to retry, so replay is unnecessary for correctness or preventing
+duplicate side effects. The advertised header still has real, tested
+behavior. Keep this feature optional and bounded, and reassess the extra
+machinery if Ora changes how it evaluates read-only APIs.
+
 PR #59 adds a functional optional `Idempotency-Key` to a typed
 JSON `POST /api/v1/search`. A successful request is retained for fifteen
 minutes on the serving instance. Matching retries replay its JSON body;
