@@ -30,7 +30,7 @@ use tokio::sync::Semaphore;
 use utoipa::ToSchema;
 
 use super::{ApiError, ApiState, Document, Mutex, Source};
-use crate::{data::routes, utils::site_url::public_site_url};
+use crate::data::routes;
 
 const RETENTION: Duration = Duration::from_secs(15 * 60);
 const MAX_JOBS: usize = 8;
@@ -63,8 +63,9 @@ pub enum ExportStatus {
 pub struct JobStatus {
     job_id: String,
     status: ExportStatus,
+    /// Same-origin path; resolve against the origin that accepted the request.
     status_url: String,
-    /// Available when status is completed.
+    /// Same-origin result path, available when status is completed.
     #[schema(required)]
     result_url: Option<String>,
     /// Seconds until this instance discards the job.
@@ -157,12 +158,9 @@ fn identifier(pages: &[&DocPage]) -> String {
 }
 
 fn view(id: &str, source: Source, entry: &Entry, now: Instant) -> JobStatus {
-    let status_url = format!(
-        "{}{}{}/{id}",
-        public_site_url(),
-        source.prefix(),
-        routes::API_EXPORTS
-    );
+    // Job state belongs to this serving instance. Relative paths keep local
+    // clients on their own server even when SITE_URL defaults to production.
+    let status_url = format!("{}{}/{id}", source.prefix(), routes::API_EXPORTS);
     let (status, result_url, error) = match &entry.state {
         StateValue::Queued => (ExportStatus::Queued, None, None),
         StateValue::Running => (ExportStatus::Running, None, None),
@@ -287,7 +285,7 @@ fn bundle(pages: Vec<&'static DocPage>) -> Result<Bytes, &'static str> {
 }
 
 fn accepted(job: JobStatus) -> Response {
-    let location = HeaderValue::from_str(&job.status_url).expect("public export URL");
+    let location = HeaderValue::from_str(&job.status_url).expect("valid export status path");
     let mut response = (StatusCode::ACCEPTED, Json(job)).into_response();
     response.headers_mut().insert(header::LOCATION, location);
     response
@@ -322,7 +320,7 @@ fn path_id(id: Result<Path<String>, PathRejection>) -> Result<String, ApiError> 
     responses(ApiError,
         (status = 200, description = "An identical retained export has already completed or failed.", body = JobStatus),
         (status = 202, description = "Export accepted. Poll status_url or Location; retrieve result_url when completed.", body = JobStatus,
-            headers(("Location" = String, description = "Absolute job status URL."), ("Retry-After" = u32, description = "Suggested seconds before polling."))),
+            headers(("Location" = String, description = "Same-origin job status path."), ("Retry-After" = u32, description = "Suggested seconds before polling."))),
         (status = 413, description = "Request exceeds 16 KiB.", body = super::Problem, content_type = "application/problem+json"),
         (status = 415, description = "Expected application/json.", body = super::Problem, content_type = "application/problem+json"),
         (status = 503, description = "Export capacity exhausted.", body = super::Problem, content_type = "application/problem+json")
@@ -348,7 +346,7 @@ pub async fn create(
     responses(ApiError,
         (status = 200, description = "Completed or failed job state.", body = JobStatus),
         (status = 202, description = "Work remains queued or running.", body = JobStatus,
-            headers(("Location" = String, description = "Job status URL."), ("Retry-After" = u32, description = "Seconds before polling.")))
+            headers(("Location" = String, description = "Same-origin job status path."), ("Retry-After" = u32, description = "Seconds before polling.")))
     ))]
 pub async fn status(
     State(state): State<Arc<ApiState>>,
@@ -365,7 +363,7 @@ pub async fn status(
     responses(ApiError,
         (status = 200, description = "Exported document metadata and Markdown.", body = ExportBundle),
         (status = 202, description = "Export is still pending. Poll Location.", body = JobStatus,
-            headers(("Location" = String, description = "Job status URL."), ("Retry-After" = u32, description = "Seconds before polling."))),
+            headers(("Location" = String, description = "Same-origin job status path."), ("Retry-After" = u32, description = "Seconds before polling."))),
         (status = 409, description = "Export failed; read its status for the failure code.", body = super::Problem, content_type = "application/problem+json")
     ))]
 pub async fn result(

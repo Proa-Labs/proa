@@ -188,28 +188,28 @@ async fn background_exports_return_pollable_jobs_and_real_isolated_bundles() {
         assert_eq!(headers[header::RETRY_AFTER], "1");
         assert_eq!(headers[header::CACHE_CONTROL], "no-store");
         let id = created["job_id"].as_str().unwrap();
-        let status_path = format!("{prefix}/api/v1/exports/{id}");
+        let status_path = created["status_url"].as_str().unwrap();
+        assert_eq!(status_path, format!("{prefix}/api/v1/exports/{id}"));
         let completed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
-                let (status, headers, body) = fetch(&app, &status_path, "application/json").await;
+                let (status, headers, body) = fetch(&app, status_path, "application/json").await;
                 let job: Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(job["status_url"], status_path);
                 if status == StatusCode::OK {
                     assert_eq!(job["status"], "completed", "{job}");
                     break job;
                 }
                 assert_eq!(status, StatusCode::ACCEPTED);
+                assert_eq!(headers[header::LOCATION], status_path);
                 assert_eq!(headers[header::RETRY_AFTER], "1");
                 tokio::task::yield_now().await;
             }
         })
         .await
         .unwrap();
-        assert!(completed["result_url"]
-            .as_str()
-            .unwrap()
-            .ends_with(&format!("{status_path}/result")));
-        let (status, headers, body) =
-            fetch(&app, &format!("{status_path}/result"), "application/json").await;
+        let result_path = completed["result_url"].as_str().unwrap();
+        assert_eq!(result_path, format!("{status_path}/result"));
+        let (status, headers, body) = fetch(&app, result_path, "application/json").await;
         assert_eq!(status, StatusCode::OK);
         assert!(headers.contains_key(header::CONTENT_DISPOSITION));
         let bundle: Value = serde_json::from_str(&body).unwrap();

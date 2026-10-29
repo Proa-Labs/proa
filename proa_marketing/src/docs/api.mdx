@@ -78,6 +78,8 @@ curl -i 'https://proa.so/api/v1/exports' \
 
 New jobs return `202 Accepted`, with a `Location` status URL, `Retry-After: 1`, and a JSON body containing `job_id`, `status`, `status_url`, `result_url`, `expires_in`, and `error`. A matching retained job that has already completed or failed returns 200 with its current status. Follow the returned URLs:
 
+`Location`, `status_url`, and `result_url` are paths relative to the origin that accepted the export, such as `/api/v1/exports/<job_id>` or `/sandbox/api/v1/exports/<job_id>/result`. Resolve them against your server's origin before making HTTP requests. This keeps local polling and downloads on the local server without requiring `SITE_URL`.
+
 1. GET `status_url`. Queued or running jobs return 202 and `Retry-After`; wait that many seconds before polling again.
 2. A terminal status returns 200. If `status` is `completed`, GET `result_url` for `{ "documents": [...], "total": ... }`. Each document contains its metadata and complete Markdown.
 3. If `status` is `failed`, inspect `error`. `export_too_large` means retry with fewer paths. Other worker failures can be retried later; synchronous page reads remain available.

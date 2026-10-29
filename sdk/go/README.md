@@ -43,9 +43,14 @@ Inspect HTTP failures with `errors.As(err, &apiError)` using a
 `RetryAfter`. Honor that delay for 429 responses. Do not send private data or
 secrets as documentation search terms.
 
-For fixture-based integration tests, set `Options.BaseURL` to
-`https://proa.so/sandbox`; the base path is preserved for every API request.
-Local servers can use `http://localhost:5555`.
+For fixture-based integration tests, start the marketing application from the
+repository root with `cargo proa run -p proa_marketing --bin proa_marketing`, then
+set `Options.BaseURL` to `http://localhost:5555/sandbox`. The client preserves
+the base path for every API request, and this server exposes three synthetic
+fixtures. To read actual local documentation, use `http://localhost:5555`.
+
+A hosted sandbox uses that deployment's origin followed by `/sandbox`; it must
+have the sandbox server routes deployed before this URL is usable.
 
 Run `go test -race ./...` and `go vet ./...` in this directory. The tests use
 local HTTP servers and require no credentials or live API access.
