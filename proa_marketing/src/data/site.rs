@@ -9,7 +9,8 @@ use const_format::{concatcp, map_ascii_case, Case};
 pub const NAME: &str = "Proa";
 pub const ORGANIZATION_NAME: &str = "Proa Labs";
 pub const ORGANIZATION: &str = concatcp!(ORGANIZATION_NAME, ", Inc.");
-pub const TAGLINE: &str = "The next era of web interfaces. Built in Rust.";
+pub const TAGLINE_LEAD: &str = "The next era of web interfaces.";
+pub const TAGLINE: &str = concatcp!(TAGLINE_LEAD, " Built in Rust.");
 pub const HOME_TITLE: &str = concatcp!(NAME, " — ", TAGLINE);
 // Inherit the workspace's canonical homepage instead of duplicating it here.
 pub const CANONICAL_ORIGIN: &str = env!("CARGO_PKG_HOMEPAGE");
@@ -35,6 +36,10 @@ pub const BENCHMARKS_URL: &str =
 pub const DISCORD_URL: &str = concatcp!(CANONICAL_ORIGIN, "/discord");
 pub const REDDIT_URL: &str = "https://www.reddit.com/r/proa_rs/";
 pub const YOUTUBE_URL: &str = "https://www.youtube.com/@proa-web";
+pub const PYTHON_SDK_URL: &str = "https://pypi.org/project/proa-docs/";
+pub const TYPESCRIPT_SDK_URL: &str = "https://www.npmjs.com/package/@proa-labs/docs";
+pub const MCP_REGISTRY_URL: &str =
+    "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs";
 pub const SOCIAL_USERNAME: &str = "drewhariri";
 pub const SOCIAL_HANDLE: &str = concatcp!("@", SOCIAL_USERNAME);
 pub const SOCIAL_URL: &str = concatcp!("https://x.com/", SOCIAL_USERNAME);

@@ -77,6 +77,29 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         assert!(footer.contains(&format!("href=\"{path}\"")), "{path}");
         assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
     }
+    // Crawlers may inspect only the first few distinct documentation links.
+    // Put the API guide before the machine-readable subsection indexes.
+    let mut seen = std::collections::HashSet::new();
+    let first_docs: Vec<_> = html
+        .split("href=\"")
+        .skip(1)
+        .filter_map(|part| part.split_once('"').map(|(href, _)| href))
+        .filter(|href| *href == "/docs" || href.starts_with("/docs/"))
+        .filter(|href| seen.insert(*href))
+        .take(3)
+        .collect();
+    assert!(
+        first_docs.contains(&crate::data::routes::API_GUIDE),
+        "{first_docs:?}"
+    );
+    for url in [
+        site::PYTHON_SDK_URL,
+        site::TYPESCRIPT_SDK_URL,
+        site::MCP_REGISTRY_URL,
+    ] {
+        assert!(footer.contains(&format!("href=\"{url}\"")));
+        assert!(markdown.contains(&format!("]({url})")));
+    }
     assert_eq!(
         html,
         fetch(&app, "/", "text/markdown;q=0, text/html").await.2
@@ -91,6 +114,39 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         .0;
     let graph: Value = serde_json::from_str(data).unwrap();
     let graph = graph["@graph"].as_array().unwrap();
+    let body = html.split_once("<body").unwrap().1;
+    let videos: Vec<_> = graph
+        .iter()
+        .filter(|entity| entity["@type"] == "VideoObject")
+        .collect();
+    assert_eq!(videos.len(), 2);
+    for video in videos {
+        let url = video["url"].as_str().unwrap();
+        assert!(body.contains(&format!("href=\"{url}\"")));
+        assert!(markdown.contains(&format!("]({url})")));
+        assert!(video["thumbnailUrl"].is_string());
+        assert!(video["embedUrl"].is_string());
+    }
+    let charts = graph
+        .iter()
+        .find(|entity| entity["@type"] == "ItemList")
+        .unwrap();
+    let images = charts["itemListElement"].as_array().unwrap();
+    assert_eq!(charts["numberOfItems"], images.len());
+    assert_eq!(
+        images.len(),
+        body.matches("src=\"/static/images/benchmarks/").count()
+    );
+    for image in images {
+        assert_eq!(image["@type"], "ImageObject");
+        let path = image["contentUrl"]
+            .as_str()
+            .unwrap()
+            .strip_prefix(crate::utils::site_url::public_site_url())
+            .unwrap();
+        assert!(body.contains(&format!("src=\"{path}\"")));
+        assert!(markdown.contains(&format!("]({path})")));
+    }
     assert!(graph
         .iter()
         .any(|entity| entity["@type"] == "Organization" && entity["contactPoint"].is_array()));
