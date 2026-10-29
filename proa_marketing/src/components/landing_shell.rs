@@ -378,6 +378,17 @@ pub(crate) struct FooterLinks {
     links: &'static [(&'static str, &'static str)],
 }
 
+pub(crate) const EXPLORE_LINKS: FooterLinks = FooterLinks {
+    title: "Explore",
+    links: &[
+        ("Apps", routes::APPS),
+        ("Ecosystem", routes::ECOSYSTEM),
+        ("About", routes::ABOUT),
+        ("Contact", routes::CONTACT),
+        ("LinkedIn", site::LINKEDIN_URL),
+    ],
+};
+
 pub(crate) const DOCUMENTATION_LINKS: FooterLinks = FooterLinks {
     title: "Documentation tools",
     links: &[
@@ -531,15 +542,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                         </div> */
                     </div>
                     <nav aria-label="Footer navigation" class="grid grid-cols-2 gap-8 text-sm sm:grid-cols-3">
-                        {FooterLinks {
-                            title: "Explore",
-                            links: &[
-                                ("Apps", routes::APPS),
-                                ("Ecosystem", routes::ECOSYSTEM),
-                                ("About", routes::ABOUT),
-                                ("Contact", routes::CONTACT),
-                            ],
-                        }}
+                        {EXPLORE_LINKS}
                         {FooterLinks {
                             title: "Resources",
                             links: &[

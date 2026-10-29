@@ -36,6 +36,7 @@ pub const BENCHMARKS_URL: &str =
 pub const DISCORD_URL: &str = concatcp!(CANONICAL_ORIGIN, "/discord");
 pub const REDDIT_URL: &str = "https://www.reddit.com/r/proa_rs/";
 pub const YOUTUBE_URL: &str = "https://www.youtube.com/@proa-web";
+pub const LINKEDIN_URL: &str = "https://www.linkedin.com/company/proa-labs/";
 pub const PYTHON_SDK_URL: &str = "https://pypi.org/project/proa-docs/";
 pub const TYPESCRIPT_SDK_URL: &str = "https://www.npmjs.com/package/@proa-labs/docs";
 pub const MCP_REGISTRY_URL: &str =

@@ -93,6 +93,7 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         "{first_docs:?}"
     );
     for url in [
+        site::LINKEDIN_URL,
         site::PYTHON_SDK_URL,
         site::TYPESCRIPT_SDK_URL,
         site::MCP_REGISTRY_URL,
@@ -168,6 +169,11 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         .find(|entity| entity["@type"] == "Organization")
         .unwrap();
     assert_eq!(organization["name"], site::ORGANIZATION);
+    assert!(organization["sameAs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|profile| profile == site::LINKEDIN_URL));
     assert_eq!(
         organization["contactPoint"][0]["email"],
         site::PRIVACY_EMAIL

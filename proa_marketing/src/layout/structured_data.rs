@@ -61,7 +61,7 @@ struct Organization<'a> {
     url: SiteUrl<'a>,
     description: &'static str,
     logo: SiteUrl<'a>,
-    same_as: [&'static str; 2],
+    same_as: [&'static str; 3],
     address: Address,
     contact_point: [Contact; 2],
 }
@@ -314,7 +314,7 @@ fn serialize(origin: &str) -> String {
                 url: url(routes::HOME),
                 description: "Publisher of Proa, a Rust web framework for composable, multi-target rendering.",
                 logo: url("/static/apple-touch-icon.png"),
-                same_as: [site::GITHUB_ORGANIZATION_URL, site::YOUTUBE_URL],
+                same_as: [site::GITHUB_ORGANIZATION_URL, site::YOUTUBE_URL, site::LINKEDIN_URL],
                 address: Address { kind: "PostalAddress", address_country: "US" },
                 contact_point: [
                     Contact { kind: "ContactPoint", contact_type: "privacy", email: site::PRIVACY_EMAIL },
