@@ -90,13 +90,17 @@ impl Strategy for BodyOnly {
     {
         async move {
             if C::ROLE.is_page() {
-                cx.require_managed_head()?;
-                cx.managed_seal()?;
-                if crate::managed_head::streaming(cx.render_mode())
-                    && cx.head_state().document().is_some_and(|d| d.is_published())
-                {
-                    crate::managed_head::yield_after_publication().await;
-                }
+                // proa-perf-ok: retain the managed Page guard outside ordinary child futures
+                return Box::pin(async move {
+                    let document = cx.require_managed_head()?;
+                    let scope = document.track_page(std::any::type_name::<C>());
+                    cx.managed_seal()?;
+                    if crate::managed_head::streaming(cx.render_mode()) && document.is_published() {
+                        crate::managed_head::yield_after_publication().await;
+                    }
+                    scope.finish(child.render(cx).resolve().await)
+                })
+                .await;
             }
             child.render(cx).resolve().await
         }
@@ -193,23 +197,24 @@ fn body_after_empty_head<L: DataLoader, B: WriteBuf, C: WebRender<L, B>>(
     cx: &mut WebContext<L, B>,
 ) -> crate::RenderOutcome<impl Future<Output = Result<(), WriteError>> + use<'_, L, B, C>> {
     if C::ROLE.is_page() {
-        if let Err(error) = cx.require_managed_head() {
-            return crate::RenderOutcome::Done(Err(error));
-        }
+        let document = match cx.require_managed_head() {
+            Ok(document) => document,
+            Err(error) => return crate::RenderOutcome::Done(Err(error)),
+        };
+        let scope = document.track_page(std::any::type_name::<C>());
         if let Err(e) = cx.managed_seal() {
             return crate::RenderOutcome::Done(Err(e));
         }
-        if crate::managed_head::streaming(cx.render_mode())
-            && cx.head_state().document().is_some_and(|d| d.is_published())
-        {
-            return crate::RenderOutcome::pending(BodyFuture::Page {
-                // proa-perf-ok: only a managed Page that just published needs an owned continuation
-                future: Box::pin(async move {
+        let published = crate::managed_head::streaming(cx.render_mode()) && document.is_published();
+        return crate::RenderOutcome::pending(BodyFuture::Page {
+            // proa-perf-ok: only managed Pages retain a completion/cancellation guard
+            future: Box::pin(async move {
+                if published {
                     crate::managed_head::yield_after_publication().await;
-                    child.render(cx).resolve().await
-                }),
-            });
-        }
+                }
+                scope.finish(child.render(cx).resolve().await)
+            }),
+        });
     }
     match child.render(cx) {
         crate::RenderOutcome::Done(result) => crate::RenderOutcome::Done(result),
@@ -339,7 +344,14 @@ pub fn sync<'a, L: DataLoader + 'a, B: WriteBuf + 'a, C: crate::WebRenderSync<L,
         Some(p) => Some(p.finish(result)?),
         None => {
             result?;
-            None
+            if C::ROLE.is_page() {
+                Some(
+                    cx.require_managed_head()?
+                        .track_page(std::any::type_name::<C>()),
+                )
+            } else {
+                None
+            }
         }
     };
     if C::ROLE.is_page() {
@@ -392,23 +404,25 @@ impl SendStrategy for BodyOnly {
         C: WebRenderSend<L, B> + 'a,
     {
         if C::ROLE.is_page() {
-            if let Err(e) = cx.require_managed_head() {
-                return RenderOutcome::Done(Err(e));
-            }
+            let document = match cx.require_managed_head() {
+                Ok(document) => document,
+                Err(error) => return RenderOutcome::Done(Err(error)),
+            };
+            let scope = document.track_page(std::any::type_name::<C>());
             if let Err(e) = cx.managed_seal() {
                 return RenderOutcome::Done(Err(e));
             }
-            if crate::managed_head::streaming(cx.render_mode())
-                && cx.head_state().document().is_some_and(|d| d.is_published())
-            {
-                return RenderOutcome::pending(BodyFuture::Page {
-                    // proa-perf-ok: only a managed Page that just published needs an owned continuation
-                    future: Box::pin(async move {
+            let published =
+                crate::managed_head::streaming(cx.render_mode()) && document.is_published();
+            return RenderOutcome::pending(BodyFuture::Page {
+                // proa-perf-ok: only managed Pages retain a completion/cancellation guard
+                future: Box::pin(async move {
+                    if published {
                         crate::managed_head::yield_after_publication().await;
-                        child.render_send(cx).resolve().await
-                    }),
-                });
-            }
+                    }
+                    scope.finish(child.render_send(cx).resolve().await)
+                }),
+            });
         }
         match child.render_send(cx) {
             RenderOutcome::Done(result) => RenderOutcome::Done(result),
@@ -522,7 +536,14 @@ where
         Some(p) => Some(p.finish(result)?),
         None => {
             result?;
-            None
+            if C::ROLE.is_page() {
+                Some(
+                    cx.require_managed_head()?
+                        .track_page(std::any::type_name::<C>()),
+                )
+            } else {
+                None
+            }
         }
     };
     if C::ROLE.is_page() {

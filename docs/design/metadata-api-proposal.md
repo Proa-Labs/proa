@@ -68,6 +68,8 @@ Managed mode is selected before constructing the response driver. Manual mode ke
 | Suspense clears held prefix on failure | Before publication use its buffered path; do not install the streaming whole-buffer cleanup guard. Sealed-without-outlet is still unpublished. Continue discovery without waiting on head readiness. | Failure, cancellation and unwind preserve prefix across page boundaries in local, Send and shared-writer Markdown paths. |
 | Error recovery crosses head lifecycle | An ErrorBoundary may recover only within an unchanged head revision and before its own bytes are shipped. Hooks, Page selection and outlet/publication changes prevent rewind. Body-only fallbacks are required. | Named fallback diagnostics; reject directly identifiable Page fallbacks before invoking them; nested recovery and later siblings have explicit output assertions. |
 | Native boundary storage regression | Keep lifecycle guards out of native ErrorBoundary and Suspense futures, using separate managed execution when needed. Measure latest-main baseline. | Allocation counts, context/outcome sizes, poll counts and output match on metadata-free paths; record any allocated-byte differences. Measure latency separately; do not infer it from storage. |
+| Inherited Page cancellation | A Page owns a completion guard even when its hook is `NoHead`. Keep that guard in the managed continuation; synchronous Page bodies also invalidate preparation on unwind. | Cancelling local, macro and Send dispatch before or after publication is sticky; dropping an unpolled Page continuation and synchronous/asynchronous unwind are rejected; successful Pages can publish at a later outlet. |
+| Deferred fallback ignores a lifecycle failure | Recheck terminal head state after the error fallback and before committing its artifacts. | An ignored mutation in the last out-of-order fallback terminates the body, matching in-order behavior; a valid fallback still succeeds. |
 | Readiness and transport ordering | A shared initial-shell pump drives managed local/Send in-order and out-of-order roots. Commit HTTP only at Ready. A newly published head yields once in async component dispatch before continuing body work; the pump delivers Ready first even if a source poll also fails. Release OOO completions after initial shell close; preserve RSJS tail ordering. | Early head with pending or immediately ready body; publication from Page seal and from an outlet inside the Page; same-poll failure after Ready; OOO boundary order, cancellation, backpressure and missing/duplicate Ready. |
 | Unbounded preparation / deadlock | Sample the configurable preparation budget at outlet, sealing and explicit flush with a sink; include escaped head bytes. Never await capacity needed to discover a later Page. Suspense is not an implicit sample before publication. | Limit errors and deadline cancellation before Ready. Budget is sampled, not a hard peak-memory guarantee. |
 | Unsafe output / origins | Escape text and quoted attributes separately. Validate patch values before mutation. Resolve URLs against trusted configured origin/mount; restrict resource origins. Nonce is initialization-only. | Quotes, closing-title input, non-ASCII, dangerous schemes, traversal, origin confusion, nonce and atomic failure. |
@@ -135,7 +137,9 @@ Buffered and streaming managed responses suppress bodies for 204/205/304, reject
 informational final statuses and discard application-supplied framing headers.
 A deferred head cannot loosen an existing middleware `private`, `no-cache` or
 `no-store` policy; conflicting cache-policy overrides become `private, no-store`.
-This applies to browser and supported CDN cache-control headers. Vary and cookies
+This applies across browser and supported CDN cache-control headers, including
+`Surrogate-Control`: a restriction in one family constrains policies introduced
+or replaced in any other family. Vary and cookies
 accumulate. The preparation deadline defaults to 30 seconds; the Axum response
 extension `ManagedPreparationTimeout` overrides it before RouteContextLayer runs.
 
@@ -169,6 +173,9 @@ Type-directed dispatch omits the hook future for `NoHead`. A Page using `NoHead`
 still seals inherited metadata and yields after streaming publication before
 constructing its body. Ordinary components keep direct `Done` handling; the
 managed Page continuation is boxed to prevent recursive native-future growth.
+It also owns the inherited Page's completion guard before publication, so
+cancellation cannot leave a sealed but incomplete document reusable. Ordinary
+components do not retain this guard or gain an allocation.
 Avoiding an extra `resolve()` future also reduces storage on ordinary async composition. Tags and
 attributes keep their existing direct writes. See the measured before/after data
 in the validation report.

@@ -207,6 +207,9 @@ where
                                 );
                                 let fallback_branch = child_cx.rsjs_artifact_branch();
                                 error_fallback.render_buffer(&mut child_cx)?;
+                                if let Some(head) = child_cx.head_state().document() {
+                                    head.check_terminal()?;
+                                }
                                 fallback_branch.commit_render_artifacts(&child_cx)
                             }
                             Err(err) => return Err(err),

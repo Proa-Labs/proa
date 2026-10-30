@@ -390,12 +390,16 @@ pub(super) async fn prepare_deferred_framework_stream(
                     "cdn-cache-control",
                     "cloudflare-cdn-cache-control",
                     "vercel-cdn-cache-control",
+                    "surrogate-control",
                 ];
-                let restricted_cache = cache_headers.map(|name| {
-                    response.headers().get_all(name).iter().any(|value| {
-                        value.to_str().is_ok_and(|value| {
+                // Targeted CDN headers can take precedence over Cache-Control.
+                // A bypass in any family member also constrains newly added
+                // policies, even when middleware did not set that exact name.
+                let restricted_cache = cache_headers.iter().any(|name| {
+                    response.headers().get_all(*name).iter().any(|value| {
+                        value.to_str().map_or(true, |value| {
                             value.split(',').any(|directive| {
-                                let name = directive.trim().split('=').next().unwrap_or("");
+                                let name = directive.split('=').next().unwrap_or("").trim();
                                 ["private", "no-store", "no-cache"]
                                     .iter()
                                     .any(|restricted| name.eq_ignore_ascii_case(restricted))
@@ -411,8 +415,8 @@ pub(super) async fn prepare_deferred_framework_stream(
                 for (name, value) in decisions.headers() {
                     response.headers_mut().append(name.clone(), value.clone());
                 }
-                for (name, restricted) in cache_headers.into_iter().zip(restricted_cache) {
-                    if restricted && decisions.headers().contains_key(name) {
+                for name in cache_headers {
+                    if restricted_cache && decisions.headers().contains_key(name) {
                         response
                             .headers_mut()
                             .insert(name, http::HeaderValue::from_static("private, no-store"));
