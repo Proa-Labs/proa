@@ -49,6 +49,33 @@ mod tests {
         }
     }
 
+    struct HookedPage(Finish);
+    impl WebRender for HookedPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        #[allow(refining_impl_trait)]
+        async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+            cx.head_mut().title("hooked")
+        }
+        fn render(
+            self,
+            cx: &mut WebContext,
+        ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            RenderOutcome::pending(body(cx.output_mut(), self.0))
+        }
+    }
+    impl WebRenderSend for HookedPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
+            async move { cx.head_mut().title("hooked") }
+        }
+        fn render_send(
+            self,
+            cx: &mut SendWebContext,
+        ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+            RenderOutcome::pending(body(cx.output_mut(), self.0))
+        }
+    }
+
     fn publisher(count: &Arc<AtomicUsize>) -> managed_head::Publisher {
         let count = count.clone();
         Arc::new(move |_, _| {
@@ -151,6 +178,38 @@ mod tests {
             .unwrap();
         drop(head_dispatch::send_begin(
             InheritedPage(Finish::Ready),
+            &mut send,
+        ));
+        assert_cancelled(send.head_state().document().unwrap().final_check());
+    }
+
+    #[test]
+    fn dropping_unpolled_hooked_page_outcomes_invalidates_the_document() {
+        // Dispatch claims the hook guard before it returns the outcome, so an
+        // abandoned hooked Page cannot leave the document open for a later Page.
+        let mut local = WebContext::new();
+        local
+            .configure_head(HeadConfig::default(), Arc::new(|_, _| Ok(())))
+            .unwrap();
+        drop(head_dispatch::begin(HookedPage(Finish::Ready), &mut local));
+        assert_cancelled(local.head_state().document().unwrap().final_check());
+        assert_cancelled(futures::executor::block_on(render_child(
+            &mut local,
+            InheritedPage(Finish::Ready),
+        )));
+
+        let mut local = WebContext::new();
+        local
+            .configure_head(HeadConfig::default(), Arc::new(|_, _| Ok(())))
+            .unwrap();
+        drop(render_child(&mut local, HookedPage(Finish::Ready)));
+        assert_cancelled(local.head_state().document().unwrap().final_check());
+
+        let mut send = SendWebContext::new();
+        send.configure_head(HeadConfig::default(), Arc::new(|_, _| Ok(())))
+            .unwrap();
+        drop(head_dispatch::send_begin(
+            HookedPage(Finish::Ready),
             &mut send,
         ));
         assert_cancelled(send.head_state().document().unwrap().final_check());

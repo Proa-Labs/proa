@@ -110,6 +110,10 @@ impl Strategy for BodyOnly {
     {
         body_after_empty_head(child, cx)
     }
+    #[allow(
+        clippy::manual_async_fn,
+        reason = "the explicit `use<>` capture list is part of the strategy contract"
+    )]
     fn render<'a, L, B, C>(
         self,
         child: C,
@@ -165,22 +169,17 @@ impl Strategy for WithHead {
         const {
             C::ROLE.assert_head_role(true);
         }
+        // Claim the hook before returning the future, not merely before polling
+        // it. Dropping an unpolled outcome then drops this guard and records
+        // cancellation, so a later Page on the same context cannot reuse the
+        // document. This also gates before the operation is constructed.
+        let permission = cx
+            .require_managed_head()
+            .and_then(|document| document.begin_hook_for(std::any::type_name::<C>()));
         async move {
-            // Gate before constructing the operation, not merely before polling it.
-            cx.require_managed_head()?;
-            let permission = cx
-                .head_state()
-                .document()
-                .map(|d| d.begin_hook_for(std::any::type_name::<C>()))
-                .transpose()?;
+            let permission = permission?;
             let result = child.render_head(cx).await;
-            let scope = match permission {
-                Some(p) => Some(p.finish(result)?),
-                None => {
-                    result?;
-                    None
-                }
-            };
+            let scope = permission.finish(result)?;
             if C::ROLE.is_page() {
                 cx.managed_seal()?;
                 if crate::managed_head::streaming(cx.render_mode())
@@ -189,11 +188,7 @@ impl Strategy for WithHead {
                     crate::managed_head::yield_after_publication().await;
                 }
             }
-            let result = child.render(cx).resolve().await;
-            match scope {
-                Some(s) => s.finish(result),
-                None => result,
-            }
+            scope.finish(child.render(cx).resolve().await)
         }
     }
 }
@@ -534,21 +529,14 @@ impl SendStrategy for WithHead {
         const {
             C::ROLE.assert_head_role(true);
         }
+        // Claim the hook before returning the outcome; see the local strategy.
+        let permission = cx
+            .require_managed_head()
+            .and_then(|document| document.begin_hook_for(std::any::type_name::<C>()));
         RenderOutcome::pending(async move {
-            cx.require_managed_head()?;
-            let permission = cx
-                .head_state()
-                .document()
-                .map(|d| d.begin_hook_for(std::any::type_name::<C>()))
-                .transpose()?;
+            let permission = permission?;
             let result = child.render_head_send(cx).await;
-            let scope = match permission {
-                Some(p) => Some(p.finish(result)?),
-                None => {
-                    result?;
-                    None
-                }
-            };
+            let scope = permission.finish(result)?;
             if C::ROLE.is_page() {
                 cx.managed_seal()?;
                 if crate::managed_head::streaming(cx.render_mode())
@@ -557,11 +545,7 @@ impl SendStrategy for WithHead {
                     crate::managed_head::yield_after_publication().await;
                 }
             }
-            let result = child.render_send(cx).resolve().await;
-            match scope {
-                Some(s) => s.finish(result),
-                None => result,
-            }
+            scope.finish(child.render_send(cx).resolve().await)
         })
     }
 }
