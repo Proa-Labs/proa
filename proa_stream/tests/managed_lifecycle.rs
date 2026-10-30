@@ -3,7 +3,7 @@
 
 use futures::executor::block_on;
 use proa_core::{
-    head_dispatch::{self, ComponentRole, HeadOperation},
+    head_dispatch::{self, ComponentRole},
     managed_head::{HeadError, ManagedHead},
     *,
 };
@@ -58,11 +58,9 @@ struct PageWithTitle {
 }
 impl WebRender for PageWithTitle {
     const ROLE: ComponentRole = ComponentRole::PAGE;
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
-        async move {
-            cx.head_mut().title(self.title)?;
-            Ok(())
-        }
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title(self.title)?;
+        Ok(())
     }
     fn render(
         self,
@@ -79,11 +77,9 @@ impl WebRender for PageWithTitle {
 struct Document<C>(C);
 impl<C: WebRender + Send + 'static> WebRender for Document<C> {
     const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
-        async move {
-            cx.head_mut().title("Parent default")?;
-            Ok(())
-        }
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("Parent default")?;
+        Ok(())
     }
     fn render(
         self,
@@ -212,12 +208,10 @@ fn provider_without_selected_page_is_not_a_valid_layout() {
 struct Cancelled;
 impl WebRender for Cancelled {
     const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
-        async move {
-            cx.head_mut().title("provisional")?;
-            std::future::pending::<()>().await;
-            Ok(())
-        }
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("provisional")?;
+        std::future::pending::<()>().await;
+        Ok(())
     }
     fn render(
         self,
@@ -255,7 +249,7 @@ fn cancelled_hook_closes_permission_and_poison_does_not_leak_to_next_request() {
 struct CountHook(Arc<AtomicUsize>);
 impl WebRender for CountHook {
     const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;
-    fn render_head(&self, _cx: &mut WebContext) -> impl HeadOperation {
+    fn render_head(&self, _cx: &mut WebContext) -> impl Future<Output = Result<(), WriteError>> {
         self.0.fetch_add(1, Ordering::SeqCst);
         async { Ok(()) }
     }

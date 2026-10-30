@@ -26,8 +26,8 @@ pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 // either synchronously (`Done(r)`) or via a future (`Pending(fut)`).
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     const ROLE: ComponentRole = ComponentRole::COMPONENT;
-    fn render_head(&self, _cx: &mut WebContext<L, B>) -> impl HeadOperation {
-        NoHead
+    async fn render_head(&self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        Ok(())
     }
     fn render(
         self,
@@ -80,8 +80,8 @@ pub trait WebRenderSend<
     fn render_head_send(
         &self,
         _cx: &mut SendWebContext<L, B>,
-    ) -> impl SendHeadOperation {
-        NoHead
+    ) -> impl Future<Output = Result<(), WriteError>> + Send {
+        std::future::ready(Ok(()))
     }
     fn render_send(
         self,
@@ -448,7 +448,7 @@ switches traits.
 ## Performance notes
 
 - `WebRenderSync` is **the** fast path: no future allocation, no `RenderOutcome` wrapper, no async dispatch overhead. Stick with it whenever possible.
-- An impl that returns `RenderOutcome::Done` costs nothing beyond the match arm. `to_async(sync_child)` is exactly that shape.
+- An ordinary component that returns `RenderOutcome::Done` stays on the immediate body path. `to_async(sync_child)` is exactly that shape.
 - **The macro, not the trait, is what allocates.** An `html!` (or `md!`) block with any dynamic content emits `async_html_from_fn(Box::new(|cx| Box::pin(async move { .. })))`: one heap allocation for the erased closure, one for the future, and dynamically dispatched polls, whether or not the body ever awaits. `html_sync!` emits a monomorphized `OptimizedHtml<B, L, F>` with an `#[inline(always)]` render and no allocation. So an async component whose template happens to be static still pays twice per node.
 - Prefer `html_sync!` for every subtree that has no async child, even inside a `WebRender` impl that awaits elsewhere. Wrap the result in `to_async(..)` at the seam if it composes into an async tree.
 
@@ -458,7 +458,7 @@ switches traits.
 
 | Code | Fires on |
 |---|---|
-| `render/async-unneeded` | a `WebRender` impl whose body never awaits |
+| `render/async-unneeded` | a `WebRender` impl whose body and head hook never await |
 | `render/md-async-unneeded` | the `MdRender` equivalent |
 | `perf/async-html-static-subtree` | an `html!` whose whole subtree is synchronous |
 | `perf/async-md-static-subtree` | an `md!` with no async interpolation |
@@ -473,25 +473,36 @@ The impl-level rules stay quiet when the answer is not knowable from the source:
 
 ## Managed document head
 
-HTML components may provide an optional `render_head(&self, cx) -> impl HeadOperation`
-on `WebRender`, or `impl SyncHeadOperation` on `WebRenderSync`. The default is `NoHead`.
-The selected page sets `const ROLE: ComponentRole = ComponentRole::PAGE`; other
-components inherit `COMPONENT`. Ancestor head providers declare `LAYOUT`:
-their hooks contribute defaults and leave preparation open until the selected
-Page seals it. A real head hook with `COMPONENT` fails a compile-time assertion
-when dispatch is instantiated during code generation; use `cargo build` to check
-this contract, since `cargo check` alone does not instantiate it. A Page without a hook still seals inherited metadata.
-Default `NoHead` components skip hook invocation entirely. A component that
-declares `PAGE` renders only inside a managed document: a plain
-`WebContext::new()`, a `render_to_string` helper, or a `.without_head()` route
-fails with `HeadError::ManualMode`.
+HTML components may provide an optional native async hook on `WebRender`:
 
-Async hooks may be written as `#[allow(refining_impl_trait)] async fn
-render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError>` with direct
-context mutations. The scoped Rust lint allowance acknowledges refinement of
-`impl HeadOperation` to a future. The explicit future-returning form remains
-supported. Sync hooks mutate the context directly and return
-`impl SyncHeadOperation`. Preserve the existing `render(self, cx)` signature.
+```rust
+async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+    let product = cx.load_typed::<Product>(product_key(self.id)).await?;
+    cx.head_mut().title(product.name.clone())?;
+    Ok(())
+}
+```
+
+Keep `render(self, cx)` for the body. No attribute, separate head trait, or
+handwritten async block is needed. Ordinary components inherit `ROLE = COMPONENT`
+and skip head invocation entirely. Ancestor layouts declare `LAYOUT`; the selected
+Page declares `PAGE`. Layouts and Pages invoke the hook, including the no-op default
+when omitted. Only the Page seals metadata before its body.
+
+Run `cargo proa lint <paths> --deny warnings`: `render/head-role-required` rejects
+an overridden hook with a missing role declaration or an explicit `COMPONENT`.
+Native futures do not expose override presence, so this is a source check rather
+than an async-trait compiler assertion. Forwarded/application role constants are
+accepted without evaluation; ensure they resolve to `LAYOUT` or `PAGE`.
+A Page using only inherited metadata still needs its role and a managed route test.
+A component declaring `PAGE` renders only in a managed document: plain
+`WebContext::new()`, `render_to_string`, or `.without_head()` fails with
+`HeadError::ManualMode`. Keep a body-only wrapper for manual rendering.
+
+Sync hooks return `impl SyncHeadOperation`, retain their `NoHead` absence marker,
+and keep a code-generation role assertion (run `cargo build` too). Send hooks use
+`render_head_send`; their trait exposes `impl Future<Output = Result<(), WriteError>>
++ Send`, and implementations may use `async fn` returning `Result`.
 
 Use `cx.head_mut().title(value)?` and related checked setters inside the hook.
 Place the owned `{cx.head()}` outlet inside the document's `<head>`. Select managed

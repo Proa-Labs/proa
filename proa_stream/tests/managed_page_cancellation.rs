@@ -52,7 +52,6 @@ mod tests {
     struct HookedPage(Finish);
     impl WebRender for HookedPage {
         const ROLE: ComponentRole = ComponentRole::PAGE;
-        #[allow(refining_impl_trait)]
         async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
             cx.head_mut().title("hooked")
         }
@@ -65,8 +64,8 @@ mod tests {
     }
     impl WebRenderSend for HookedPage {
         const ROLE: ComponentRole = ComponentRole::PAGE;
-        fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
-            async move { cx.head_mut().title("hooked") }
+        async fn render_head_send(&self, cx: &mut SendWebContext) -> Result<(), WriteError> {
+            cx.head_mut().title("hooked")
         }
         fn render_send(
             self,

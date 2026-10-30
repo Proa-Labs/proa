@@ -417,13 +417,6 @@ where
     String::from_utf8(bytes).expect("markdown render produced invalid UTF-8")
 }
 
-/// Drive any `WebRender` child to completion inside an async render path.
-///
-/// This is the bridge used by the async-capable `html!` macro: each
-/// interpolated `{expr}` dispatches the optional head hook, then handles
-/// `RenderOutcome::Done` directly and awaits `Pending`. Sync children are wrapped
-/// with [`to_async`] when they need to participate in async composition.
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,6 +496,11 @@ pub mod head_dispatch;
 pub mod head_fields;
 pub mod managed_head;
 
+/// Drive a `WebRender` child through its role-selected head hook and body.
+/// Ordinary components skip the head hook; layouts contribute defaults and
+/// Pages seal metadata before their bodies. Wrap sync children with [`to_async`].
+/// Ordinary body work starts when polled. Metadata boundaries claim their guard
+/// when the future is created, so dropping an unpolled boundary cancels preparation.
 #[inline]
 pub fn render_child<'a, B, L, R>(
     cx: &'a mut WebContext<L, B>,
@@ -513,13 +511,10 @@ where
     L: DataLoader + 'a,
     R: WebRender<L, B> + 'a,
 {
-    use head_dispatch::Strategy;
-    head_dispatch::strategy_of(R::render_head).render(child, cx)
+    head_dispatch::render(child, cx)
 }
 
-pub use head_dispatch::{
-    ComponentRole, HeadOperation, NoHead, SendHeadOperation, SyncHeadOperation,
-};
+pub use head_dispatch::{ComponentRole, NoHead, SyncHeadOperation};
 pub use head_fields::HeadUrlPolicy;
 pub use managed_head::{HeadConfig, HeadDefaults, HeadError, HeadOutlet};
 

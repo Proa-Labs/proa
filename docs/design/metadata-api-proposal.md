@@ -2,23 +2,25 @@
 
 Updated October 30, 2026. Implementation branch: `codex/managed-document-head`, based on main `ee29048e42d032d80f232444c06c2d592cb06e83`.
 
-Head-hook capability and Page role are independent. A layout may contribute
-metadata by declaring `ComponentRole::LAYOUT` without selecting the Page. Only
-`ComponentRole::PAGE` ends head preparation. A real head hook with the default
-`COMPONENT` role fails an inline-const assertion during code generation at
-render dispatch; the check adds no runtime branch. `cargo check` alone does not
-evaluate these monomorphization-time assertions.
-The renderer stops allowing metadata after the Page boundary while continuing
-ordinary body rendering. Components inheriting `NoHead` skip the hook entirely.
+Head dispatch uses the explicit component role. Ancestor layouts declare
+`ComponentRole::LAYOUT`; only `ComponentRole::PAGE` ends head preparation.
+Ordinary `COMPONENT` values skip head invocation entirely. Async layouts and
+Pages invoke the native `async fn render_head`, including the no-op default
+when omitted. Head preparation closes before the Page body while ordinary body
+rendering continues.
 
-| Hook operation | Role | Component-boundary behavior |
-| --- | --- | --- |
-| `NoHead` | Component | Render body directly; do not invoke the hook |
-| Real operation | Component | Compilation error at dispatched render boundaries |
-| `NoHead` | Layout | Render body; leave head preparation open |
-| Real operation | Layout | Run layout hook, then body; keep head preparation open |
-| `NoHead` | Page | Seal inherited metadata, then render body |
-| Real operation | Page | Run Page hook, seal metadata, then render body |
+| Role | Async component-boundary behavior |
+| --- | --- |
+| Component | Render body directly; never construct or poll a head future |
+| Layout | Run hook, then body; keep preparation open |
+| Page | Run hook, seal inherited metadata, then render body |
+
+Run `cargo proa lint <paths> --deny warnings` for hooks. The source error
+`render/head-role-required` rejects missing role declarations and explicit
+`COMPONENT` roles. Forwarded/application constants are accepted without evaluation.
+Native futures cannot expose whether a default was overridden, so async hooks
+no longer have a type-directed compiler assertion. Synchronous hooks retain
+their `NoHead` marker and inline-const role assertion; run `cargo build` too.
 
 Keep `WebRender::render` and `WebRenderSync::render`. Add optional head hooks on those traits and their Send counterparts. Ordinary components inherit `ROLE = ComponentRole::COMPONENT`; ancestor head providers set `ROLE = ComponentRole::LAYOUT`; the selected page sets `ROLE = ComponentRole::PAGE`. No Page derive, additional route registry, returning-template API, or separate head trait is required.
 
@@ -26,7 +28,6 @@ Keep `WebRender::render` and `WebRenderSync::render`. Add optional head hooks on
 impl<L: DataLoader> WebRender<L> for ProductPage {
     const ROLE: ComponentRole = ComponentRole::PAGE;
 
-    #[allow(refining_impl_trait)]
     async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let product = cx.load_typed::<Product>(product_key(self.id)).await?;
         cx.head_mut().title(product.name.clone())?;
@@ -39,10 +40,11 @@ impl<L: DataLoader> WebRender<L> for ProductPage {
 }
 ```
 
-The direct `async fn` spelling uses a scoped `#[allow(refining_impl_trait)]`
-because its future refines the trait's `impl HeadOperation` return type. This
-allowance does not affect rendering behavior or Page identity. Synchronous hooks
-return `impl SyncHeadOperation` and mutate the context directly.
+The trait itself declares `async fn render_head(...) -> Result<(), WriteError>`.
+Implementations mutate the context directly without a lint allowance, attribute,
+handwritten async block, or separate head trait. Synchronous hooks still return
+`impl SyncHeadOperation`. The Send companion exposes a standard future with
+`+ Send`, so its implementations may also use native `async fn`.
 
 The document remains ordinary HTML, including fonts, classes and manual tags:
 
@@ -64,7 +66,10 @@ html! {
 
 Macro and framework component dispatch runs each eligible hook before its body. Ancestor hooks supply defaults; deeper hooks override fields. The Page hook seals the head before its body. Plain trait `.render(cx)` calls remain body calls; they do not independently establish lifecycle dispatch. Tags and attributes remain direct buffer writes.
 
-The default hook returns `NoHead`, an IntoFuture that deliberately is not a Future. Its type selects body-only dispatch without adding a hook future. Real hooks select the head-then-body strategy. This also lets dispatch reject an excluded hook before invoking application code or performing I/O.
+Async dispatch branches on the constant role without calling the hook. The
+ordinary branch forwards body `Done`/`Pending` directly. Layout/Page boundaries
+validate managed-head permission before constructing the application hook and
+retain a guard even if the returned continuation is dropped without polling.
 
 `cx.head()` returns an owned outlet: obtaining it holds no context borrow and captures no values. Rendering it records an output offset. Neither outlet nor Page waits for the other. Once both are known, transfer the native 4 KiB pages and splice serialized head bytes at the recorded position. Publish prefix, head, retained suffix, then subsequent body bytes. Do not flatten the whole document or scan its HTML.
 
@@ -90,7 +95,7 @@ Managed mode is selected before constructing the response driver. Manual mode ke
 | Suspense clears held prefix on failure | Before publication use its buffered path; do not install the streaming whole-buffer cleanup guard. Sealed-without-outlet is still unpublished. Continue discovery without waiting on head readiness. | Failure, cancellation and unwind preserve prefix across page boundaries in local, Send and shared-writer Markdown paths. |
 | Error recovery crosses head lifecycle | An ErrorBoundary may recover only within an unchanged head revision and before its own bytes are shipped. Hooks, Page selection and outlet/publication changes prevent rewind. Body-only fallbacks are required. | Named fallback diagnostics; reject directly identifiable Page fallbacks before invoking them; nested recovery and later siblings have explicit output assertions. |
 | Native boundary storage regression | Keep lifecycle guards out of native ErrorBoundary and Suspense futures, using separate managed execution when needed. Measure latest-main baseline. | Allocation counts, context/outcome sizes, poll counts and output match on metadata-free paths; record any allocated-byte differences. Measure latency separately; do not infer it from storage. |
-| Inherited Page cancellation | A Page owns a completion guard even when its hook is `NoHead`. Keep that guard in the managed continuation; hooked providers claim their hook guard when dispatch begins, before the pending outcome is returned; synchronous Page bodies also invalidate preparation on unwind. | Cancelling local, macro and Send dispatch before or after publication is sticky; dropping an unpolled Page continuation, with or without a hook, and synchronous/asynchronous unwind are rejected; successful Pages can publish at a later outlet. |
+| Inherited Page cancellation | A Page owns a completion guard even when it inherits the default hook. Keep that guard in the managed continuation; explicit metadata providers claim their guard before returning a future, including through `render_child`; synchronous Page bodies also invalidate preparation on unwind. | Cancelling local, macro and Send dispatch before or after publication is sticky; dropping an unpolled Page continuation, with or without a hook, and synchronous/asynchronous unwind are rejected; successful Pages can publish at a later outlet. |
 | Deferred fallback ignores a lifecycle failure | Recheck terminal head state after the error fallback and before committing its artifacts. | An ignored mutation in the last out-of-order fallback terminates the body, matching in-order behavior; a valid fallback still succeeds. |
 | Readiness and transport ordering | A shared initial-shell pump drives managed local/Send in-order and out-of-order roots. Commit HTTP only at Ready. A newly published head yields once in async component dispatch before continuing body work; the pump delivers Ready first even if a source poll also fails. Release OOO completions after initial shell close; preserve RSJS tail ordering. | Early head with pending or immediately ready body; publication from Page seal and from an outlet inside the Page; same-poll failure after Ready; OOO boundary order, cancellation, backpressure and missing/duplicate Ready. |
 | Unbounded preparation / deadlock | Sample the configurable preparation budget at outlet, sealing and explicit flush with a sink; include escaped head bytes. Never await capacity needed to discover a later Page. Suspense is not an implicit sample before publication. | Limit errors and deadline cancellation before Ready. Budget is sampled, not a hard peak-memory guarantee. |
@@ -191,13 +196,13 @@ match proa_core::head_dispatch::begin(child, cx) {
 ```
 
 This is internal macro expansion, not another application render method.
-Type-directed dispatch omits the hook future for `NoHead`. A Page using `NoHead`
-still seals inherited metadata and yields after streaming publication before
-constructing its body. Ordinary components keep direct `Done` handling; the
-managed Page continuation is boxed to prevent recursive native-future growth.
-It also owns the inherited Page's completion guard before publication, so
-cancellation cannot leave a sealed but incomplete document reusable. Ordinary
-components do not retain this guard or gain an allocation.
+Role-directed dispatch omits the head future for `COMPONENT`. Layouts and Pages
+use a boxed head/body continuation to avoid recursively enlarging ordinary
+component futures. A Page with the default hook still seals inherited metadata
+and yields after streaming publication before constructing its body. The guard
+is retained before the continuation's first poll, so cancellation cannot leave
+an incomplete document reusable. Ordinary components keep direct `Done` handling,
+retain pending body futures inline, and gain no head allocation.
 Avoiding an extra `resolve()` future also reduces storage on ordinary async composition. Tags and
 attributes keep their existing direct writes. See the measured before/after data
 in the validation report.

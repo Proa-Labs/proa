@@ -39,8 +39,10 @@ For a managed-head document, put the selected Page boundary on an ordinary SSR
 Page wrapper: `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;`.
 It is required even if that Page inherits all metadata. Ancestor SSR wrappers
 with head hooks declare `ComponentRole::LAYOUT`; body islands keep the default
-component role. A real head hook without a Layout/Page role fails a compile-time
-assertion during code generation; verify it with `cargo build`. The current
+component role. Run `cargo proa lint <changed-paths> --deny warnings` for head
+hooks: missing roles and explicit `COMPONENT` roles are errors. Native async hooks
+rely on this source check; sync hooks also keep a code-generation assertion,
+so verify those with `cargo build`. The current
 `#[rsjs(component...)]` analyzer accepts a render-only impl, so do not add the
 role constant or head hook inside that analyzed impl. Compose the island inside
 the Page wrapper instead. See the

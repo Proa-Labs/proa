@@ -1,8 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Inline-const assertions require code generation; `cargo check`/trybuild's
-//! compile-fail path alone cannot exercise their monomorphization errors.
+//! Native async hook syntax is checked with warnings denied. Synchronous
+//! role assertions require code generation; async roles are checked by Proa lint.
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -23,7 +23,7 @@ fn source(surface: &str, role: &str, has_hook: bool) -> String {
             "WebRender",
             "WebContext",
             "render_head",
-            "HeadOperation",
+            "",
             "render",
             "let _ = head_dispatch::begin(Example, &mut cx);",
             false,
@@ -32,7 +32,7 @@ fn source(surface: &str, role: &str, has_hook: bool) -> String {
             "WebRenderSend",
             "SendWebContext",
             "render_head_send",
-            "SendHeadOperation",
+            "",
             "render_send",
             "let _ = head_dispatch::send_begin(Example, &mut cx);",
             false,
@@ -46,6 +46,15 @@ fn source(surface: &str, role: &str, has_hook: bool) -> String {
             "let _ = head_dispatch::sync(Example, &mut cx);",
             true,
         ),
+        "sync_adapter" => (
+            "WebRenderSync",
+            "WebContext",
+            "render_head",
+            "SyncHeadOperation",
+            "render",
+            "let _ = head_dispatch::begin(to_async(Example), &mut cx);",
+            true,
+        ),
         "send_sync" => (
             "WebRenderSendSync",
             "SendWebContext",
@@ -53,6 +62,15 @@ fn source(surface: &str, role: &str, has_hook: bool) -> String {
             "SyncHeadOperation",
             "render_send_sync",
             "let _ = head_dispatch::send_sync(Example, &mut cx);",
+            true,
+        ),
+        "send_sync_adapter" => (
+            "WebRenderSendSync",
+            "SendWebContext",
+            "render_head_send_sync",
+            "SyncHeadOperation",
+            "render_send_sync",
+            "let _ = head_dispatch::send_begin(to_send(Example), &mut cx);",
             true,
         ),
         _ => unreachable!(),
@@ -67,7 +85,7 @@ fn source(surface: &str, role: &str, has_hook: bool) -> String {
     } else if sync {
         format!("fn {hook_name}(&self, cx: &mut {context}) -> impl {operation} {{ cx.head_mut().title(\"Hook\") }}")
     } else {
-        format!("fn {hook_name}(&self, cx: &mut {context}) -> impl {operation} {{ async move {{ cx.head_mut().title(\"Hook\") }} }}")
+        format!("async fn {hook_name}(&self, cx: &mut {context}) -> Result<(), WriteError> {{ cx.head_mut().title(\"Hook\") }}")
     };
     let body = if sync {
         format!("fn {method}(self, _: &mut {context}) -> Result<(), WriteError> {{ Ok(()) }}")
@@ -75,11 +93,11 @@ fn source(surface: &str, role: &str, has_hook: bool) -> String {
         let send = if surface == "send" { " + Send" } else { "" };
         format!("fn {method}(self, _: &mut {context}) -> RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>{send}> {{ RenderOutcome::<std::future::Ready<_>>::Done(Ok(())) }}")
     };
-    format!("use proa_core::*;\nstruct Example;\nimpl {render_trait} for Example {{\n{role}\n{hook}\n{body}\n}}\nfn main() {{ let mut cx = {context}::new(); {dispatch} }}\n")
+    format!("#![deny(warnings)]\nuse proa_core::*;\nstruct Example;\nimpl {render_trait} for Example {{\n{role}\n{hook}\n{body}\n}}\nfn main() {{ let mut cx = {context}::new(); {dispatch} }}\n")
 }
 
 #[test]
-fn head_hooks_require_explicit_roles_on_every_render_surface() {
+fn native_async_hooks_compile_and_sync_hooks_require_explicit_roles() {
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -102,17 +120,23 @@ fn head_hooks_require_explicit_roles_on_every_render_surface() {
     let version = version.split_whitespace().nth(1).unwrap();
     // Stable and MSRV tests can run concurrently without rebuilding each
     // other's dependency artifacts on every fixture.
-    // Place the fixture beside this test's own target directory so a
-    // redirected target (CI caches, sccache layouts) is honored.
     let target = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.ancestors().nth(3).map(Path::to_path_buf))
         .unwrap_or_else(|| workspace.join("target"))
         .join("head-role-ui")
         .join(version);
-    for surface in ["local", "send", "sync", "send_sync"] {
-        // NoHead remains legal for ordinary components and inherited-only Pages.
-        // Both explicit metadata roles accept actual hooks.
+    for surface in [
+        "local",
+        "send",
+        "sync",
+        "send_sync",
+        "sync_adapter",
+        "send_sync_adapter",
+    ] {
+        // Ordinary components and inherited-only Pages retain default hooks.
+        // Async missing-role errors are covered by source-lint tests, since
+        // native futures cannot expose whether the default was overridden.
         for (role, has_hook, valid) in [
             ("", false, true),
             ("PAGE", false, true),
@@ -121,6 +145,9 @@ fn head_hooks_require_explicit_roles_on_every_render_surface() {
             ("", true, false),
             ("COMPONENT", true, false),
         ] {
+            if !valid && matches!(surface, "local" | "send") {
+                continue;
+            }
             fs::write(
                 fixture.0.join("src/main.rs"),
                 source(surface, role, has_hook),

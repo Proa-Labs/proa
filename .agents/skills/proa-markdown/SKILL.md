@@ -15,8 +15,10 @@ corresponding current documentation from `https://proa.so/docs/llms.txt`.
 When the same Page also renders a managed-head HTML document, declare
 `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;` on its
 HTML render-trait impl, even if it inherits all metadata. Ancestor HTML head
-providers declare `ComponentRole::LAYOUT`; real head hooks with the default
-component role fail during code generation, so verify them with `cargo build`.
+providers declare `ComponentRole::LAYOUT`. Run `cargo proa lint <changed-paths>
+--deny warnings` to reject hooks with missing or explicit `COMPONENT` roles.
+Native async hooks rely on this source check; sync hooks also retain a
+code-generation assertion, so verify them with `cargo build`.
 Markdown render traits
 do not have this role constant. Follow the
 [managed Page boundary](../../../docs/agent/components.md#managed-html-page-boundary)

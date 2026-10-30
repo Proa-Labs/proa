@@ -3,7 +3,7 @@
 
 //! Regression tests for corrected gaps, plus explicit documented API boundaries.
 use proa_core::{
-    head_dispatch::{self, ComponentRole, HeadOperation},
+    head_dispatch::{self, ComponentRole},
     managed_head::{HeadError, ManagedHead},
     HeadContext, RenderBuffer, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteBuf,
     WriteError,
@@ -43,7 +43,7 @@ impl WebRenderSync for Page {
 struct Provider(Arc<AtomicUsize>);
 impl WebRender for Provider {
     const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
+    fn render_head(&self, cx: &mut WebContext) -> impl Future<Output = Result<(), WriteError>> {
         self.0.fetch_add(1, Ordering::SeqCst);
         async move { cx.head_mut().title("child") }
     }

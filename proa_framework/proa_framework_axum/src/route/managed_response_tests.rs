@@ -13,10 +13,8 @@ use futures::{
 use http::HeaderValue;
 use http_body_util::BodyExt;
 use proa_core::{
-    head_dispatch::{ComponentRole, HeadOperation, SendHeadOperation},
-    managed_head::ManagedHead,
-    NoLoader, RenderBuffer, RenderOutcome, SendWebContext, WebContext, WebRender, WebRenderSend,
-    WriteBuf, WriteError,
+    head_dispatch::ComponentRole, managed_head::ManagedHead, NoLoader, RenderBuffer, RenderOutcome,
+    SendWebContext, WebContext, WebRender, WebRenderSend, WriteBuf, WriteError,
 };
 use proa_framework_core::{
     managed_response::{LocalEvents, ManagedEvent, ManagedFactory, SendEvents},
@@ -32,7 +30,7 @@ struct ProductPage {
 }
 impl WebRender for ProductPage {
     const ROLE: ComponentRole = ComponentRole::PAGE;
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
+    fn render_head(&self, cx: &mut WebContext) -> impl Future<Output = Result<(), WriteError>> {
         let local = Rc::new(self.fail_head);
         async move {
             std::future::ready(()).await;
@@ -67,22 +65,20 @@ impl WebRender for ProductPage {
 }
 impl WebRenderSend for ProductPage {
     const ROLE: ComponentRole = ComponentRole::PAGE;
-    fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
-        async move {
-            if self.fail_head {
-                return Err(WriteError::render("lookup failed"));
-            }
-            cx.head_mut().title("Product")?;
-            assert!(cx.response_mut().set_status(StatusCode::CREATED));
-            assert!(cx.response_mut().insert_header(
-                http::header::CACHE_CONTROL,
-                HeaderValue::from_static("private")
-            ));
-            assert!(cx
-                .response_mut()
-                .append_set_cookie(HeaderValue::from_static("page=1")));
-            Ok(())
+    async fn render_head_send(&self, cx: &mut SendWebContext) -> Result<(), WriteError> {
+        if self.fail_head {
+            return Err(WriteError::render("lookup failed"));
         }
+        cx.head_mut().title("Product")?;
+        assert!(cx.response_mut().set_status(StatusCode::CREATED));
+        assert!(cx.response_mut().insert_header(
+            http::header::CACHE_CONTROL,
+            HeaderValue::from_static("private")
+        ));
+        assert!(cx
+            .response_mut()
+            .append_set_cookie(HeaderValue::from_static("page=1")));
+        Ok(())
     }
     fn render_send(
         self,
@@ -580,8 +576,8 @@ async fn actual_route_drivers_publish_before_pending_body_in_every_delivery_mode
 struct ImmediatePage(Arc<std::sync::atomic::AtomicBool>);
 impl WebRender for ImmediatePage {
     const ROLE: ComponentRole = ComponentRole::PAGE;
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
-        async { cx.head_mut().title("Ready first") }
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("Ready first")
     }
     fn render(
         self,
@@ -595,8 +591,8 @@ impl WebRender for ImmediatePage {
 }
 impl WebRenderSend for ImmediatePage {
     const ROLE: ComponentRole = ComponentRole::PAGE;
-    fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
-        async { cx.head_mut().title("Ready first") }
+    async fn render_head_send(&self, cx: &mut SendWebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("Ready first")
     }
     fn render_send(
         self,
@@ -789,8 +785,8 @@ struct PageWithOutlet(BodyWork);
 // proa-perf-ok(scope): the async outlet must yield before the immediately ready body fixture
 impl WebRender for PageWithOutlet {
     const ROLE: ComponentRole = ComponentRole::PAGE;
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
-        async { cx.head_mut().title("Page outlet") }
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("Page outlet")
     }
     fn render(
         self,
@@ -808,8 +804,8 @@ impl WebRender for PageWithOutlet {
 }
 impl WebRenderSend for PageWithOutlet {
     const ROLE: ComponentRole = ComponentRole::PAGE;
-    fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
-        async { cx.head_mut().title("Page outlet") }
+    async fn render_head_send(&self, cx: &mut SendWebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("Page outlet")
     }
     fn render_send(
         self,

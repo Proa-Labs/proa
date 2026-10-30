@@ -22,7 +22,7 @@ mod tests {
     }
     impl WebRender for Page {
         const ROLE: ComponentRole = ComponentRole::PAGE;
-        #[allow(refining_impl_trait)]
+
         async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             let title = std::future::ready(self.title).await;
@@ -38,7 +38,7 @@ mod tests {
     }
     impl WebRenderSend for Page {
         const ROLE: ComponentRole = ComponentRole::PAGE;
-        #[allow(refining_impl_trait)]
+
         async fn render_head_send(&self, cx: &mut SendWebContext) -> Result<(), WriteError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             let title = std::future::ready(self.title).await;
@@ -154,7 +154,7 @@ mod tests {
     }
     impl<C: WebRender + 'static> WebRender for Layout<C> {
         const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;
-        #[allow(refining_impl_trait)]
+
         async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             cx.head_mut().title(self.title)?;
@@ -170,7 +170,10 @@ mod tests {
     }
     impl<C: WebRenderSend + 'static> WebRenderSend for Layout<C> {
         const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;
-        fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
+        fn render_head_send(
+            &self,
+            cx: &mut SendWebContext,
+        ) -> impl Future<Output = Result<(), WriteError>> + Send {
             // Capture independent values so the layout's child need not be Sync.
             let title = self.title;
             let calls = self.calls.clone();
@@ -231,7 +234,7 @@ mod tests {
             };
             let descriptor =
                 head_dispatch::descriptor::<NoLoader, RenderBuffer, Layout<Layout<Page>>>();
-            assert!(descriptor.has_head);
+            assert!(descriptor.runs_head);
             assert!(!descriptor.is_page);
             assert!(descriptor.is_layout);
             let output = Arc::new(Mutex::new(Vec::new()));
@@ -272,7 +275,7 @@ mod tests {
     struct Outer<C>(C);
     impl<C: WebRender + 'static> WebRender for Outer<C> {
         const ROLE: ComponentRole = ComponentRole::PAGE;
-        #[allow(refining_impl_trait)]
+
         async fn render_head(&self, _: &mut WebContext) -> Result<(), WriteError> {
             Ok(())
         }
@@ -319,12 +322,79 @@ mod tests {
         assert_eq!(cx.head_state().document().unwrap().final_check(), result);
     }
 
+    #[test]
+    fn dropping_unpolled_page_or_layout_cancels_preparation_without_running_hook() {
+        for send in [false, true] {
+            for layout in [false, true] {
+                let calls = Arc::new(AtomicUsize::new(0));
+                let page = Page {
+                    title: "Unpolled",
+                    calls: calls.clone(),
+                };
+                let config = HeadConfig::default();
+                let sink: managed_head::Publisher = Arc::new(|_, _| Ok(()));
+                let document = if send {
+                    let mut cx = SendWebContext::new();
+                    cx.configure_head(config, sink).unwrap();
+                    let document = cx.head_state().document().unwrap().clone();
+                    if layout {
+                        drop(head_dispatch::send_begin(
+                            Layout {
+                                title: "Layout",
+                                calls: calls.clone(),
+                                child: page,
+                            },
+                            &mut cx,
+                        ));
+                    } else {
+                        drop(head_dispatch::send_begin(page, &mut cx));
+                    }
+                    document
+                } else {
+                    let mut cx = WebContext::new();
+                    cx.configure_head(config, sink).unwrap();
+                    let document = cx.head_state().document().unwrap().clone();
+                    if layout {
+                        drop(head_dispatch::begin(
+                            Layout {
+                                title: "Layout",
+                                calls: calls.clone(),
+                                child: page,
+                            },
+                            &mut cx,
+                        ));
+                    } else {
+                        drop(head_dispatch::begin(page, &mut cx));
+                    }
+                    document
+                };
+                assert_eq!(calls.load(Ordering::SeqCst), 0);
+                assert_eq!(
+                    document.final_check(),
+                    Err(WriteError::HeadLifecycle(HeadError::Cancelled))
+                );
+            }
+        }
+    }
+
     struct CountBody(Arc<AtomicUsize>);
     impl WebRenderSync for CountBody {
         fn render(self, _: &mut WebContext) -> Result<(), WriteError> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+    }
+
+    #[test]
+    fn direct_render_child_keeps_body_work_lazy_until_polled() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut cx = WebContext::new();
+        let future = render_child(&mut cx, to_async(CountBody(calls.clone())));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        drop(future);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        block_on(render_child(&mut cx, to_async(CountBody(calls.clone())))).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]

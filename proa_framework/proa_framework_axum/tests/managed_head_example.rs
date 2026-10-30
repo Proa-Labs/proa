@@ -54,7 +54,6 @@ struct ProductPage {
 impl<L: DataLoader> WebRender<L> for ProductPage {
     const ROLE: ComponentRole = ComponentRole::PAGE;
 
-    #[allow(refining_impl_trait)]
     async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let product = cx.load_typed::<Product>(product_key(self.id)).await?;
         cx.head_mut().title(product.name.clone())?;
@@ -96,7 +95,6 @@ struct ShopLayout {
 impl<L: DataLoader> WebRender<L> for ShopLayout {
     const ROLE: ComponentRole = ComponentRole::LAYOUT;
 
-    #[allow(refining_impl_trait)]
     async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         cx.head_mut().title("Shop")?;
         cx.head_mut().description("Browse our products.")?;

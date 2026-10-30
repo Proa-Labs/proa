@@ -97,8 +97,8 @@ for the decision process and scope.
 
 ### Render traits
 
-Application sync components normally implement `WebRenderSync<L>`. The full
-trait definition is:
+Application sync components normally implement `WebRenderSync<L>`. Its body
+method signature is:
 
 ```rust
 pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
@@ -106,8 +106,8 @@ pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 }
 ```
 
-Async-capable components normally implement `WebRender<L>`. The full trait
-definition is:
+Async-capable components normally implement `WebRender<L>`. Its body method
+signature is:
 
 ```rust
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
@@ -118,7 +118,14 @@ pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 }
 ```
 
-Use `WebRenderSync` by default. Use `WebRender` only for components that need to `.await`.
+Use `WebRenderSync` by default. Use `WebRender` when the body or metadata hook
+needs to `.await`. Async head hooks use native
+`async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError>`.
+Declare `const ROLE: ComponentRole = ComponentRole::PAGE` on the selected Page,
+including inherited-only Pages; ancestor metadata providers declare `LAYOUT`.
+Run `cargo proa lint <changed-paths> --deny warnings` to catch head overrides
+with missing roles or an explicit `COMPONENT` role. Async role validation is a
+source check; sync hooks also retain a code-generation assertion.
 The `B` parameter is the advanced custom-writer escape hatch. Application
 components normally omit it and implement `WebRenderSync<L>` or `WebRender<L>`;
 that selects the default owned `RenderBuffer` and leaves only the loader

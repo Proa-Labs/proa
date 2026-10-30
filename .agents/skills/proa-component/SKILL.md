@@ -73,10 +73,14 @@ python3 scripts/proa_perf_lint.py
   `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;`.
   Keep the same role on any local/Send/sync implementations of that Page.
   Ancestor layouts with head hooks must declare `ComponentRole::LAYOUT`.
-  A real hook with the default component role fails a compile-time assertion at
-  dispatched render boundaries; a hook alone never declares a Page. Run
-  `cargo build -p <owning-package>` for changed hooks: `cargo check` alone does
-  not evaluate monomorphization-time assertions. See the
+  Author async hooks as native `async fn render_head(...) -> Result<(), WriteError>`;
+  no attribute or handwritten async block is needed. Run
+  `cargo proa lint <changed-paths> --deny warnings`: `render/head-role-required`
+  rejects overrides with missing roles or an explicit `COMPONENT` role. This is
+  a source check for async hooks; Rust cannot detect a default-method override.
+  Forwarded/application role constants must resolve to `LAYOUT` or `PAGE`.
+  Sync hooks retain a code-generation assertion, so run `cargo build` too;
+  `cargo check` alone does not instantiate it. See the
   [managed Page boundary](../../../docs/agent/components.md#managed-html-page-boundary).
 - Verify managed Pages through their real document/route composition: one Page
   and one head outlet, layout defaults overridden by the Page, and publication

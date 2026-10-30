@@ -13,7 +13,6 @@ use proa_core::{ComponentRole, DataLoader, WebContext, WebRender, WriteError};
 impl<L: DataLoader> WebRender<L> for ProductPage {
     const ROLE: ComponentRole = ComponentRole::PAGE;
 
-    #[allow(refining_impl_trait)]
     async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let product = cx.load_typed::<Product>(product_key(self.id)).await?;
         cx.head_mut().title(product.name.clone())?;
@@ -30,11 +29,13 @@ impl<L: DataLoader> WebRender<L> for ProductPage {
 
 Head contribution and Page identity are independent: ancestor layouts declare `const ROLE: ComponentRole = ComponentRole::LAYOUT` when they implement `render_head`. Only the selected Page declares `const ROLE: ComponentRole = ComponentRole::PAGE`; that is the point where metadata becomes final, before its body runs. A Page that only inherits metadata may omit its head hook entirely.
 
-The `async fn` spelling mutates `cx` directly. The scoped `#[allow(refining_impl_trait)]` acknowledges Rust's refinement of `impl HeadOperation` to a future. Explicit `fn ... -> impl HeadOperation` remains supported. A component with the default `NoHead` operation skips the hook entirely; the renderer does not invoke the default method to discover that it is empty.
+The hook is a native `async fn`: mutate `cx` directly and return `Result<(), WriteError>`. No attribute or handwritten async block is needed. Keep your existing `WebRender::render(self, cx)` body method.
 
-A real head hook with the default component role fails a compile-time assertion at dispatched render boundaries. Build the owning crate with `cargo build` to exercise this check; `cargo check` alone does not evaluate monomorphization-time assertions. The assertion adds no request-time work. A Page with no hook still needs its explicit Page role, since it cannot be inferred from an ordinary body-only component.
+Dispatch uses `ROLE`. Ordinary components default to `ComponentRole::COMPONENT` and skip head invocation entirely, even when the managed document is still preparing. Explicit layouts and Pages run their hook, including its no-op default if omitted. Only the Page seals inherited metadata before its body.
 
-Ordinary components omit `ROLE`; it defaults to `ComponentRole::COMPONENT`. Components without metadata omit `render_head` too. Synchronous hooks return `impl SyncHeadOperation`; Send hooks use `render_head_send` and `impl SendHeadOperation`.
+Run `cargo proa lint <paths> --deny warnings` for changed hooks. `render/head-role-required` is an error for an overridden hook with no role declaration or an explicit `COMPONENT` role. Native async futures cannot expose whether a default method was overridden, so Rust alone does not enforce this rule. The source lint permits forwarded roles and application constants without evaluating them; those must resolve to `LAYOUT` or `PAGE`. A Page with no hook still needs its explicit Page role and a managed route test.
+
+Synchronous hooks return `impl SyncHeadOperation` and keep their code-generation role assertion; validate them with `cargo build` too. Send hooks can use `async fn render_head_send(...) -> Result<(), WriteError>` when their captures are Send. The Send trait spells the return as `impl Future<Output = Result<(), WriteError>> + Send` to expose that guarantee.
 
 ## Place the head
 
@@ -107,7 +108,6 @@ Layouts use the same optional hook and declare the Layout role:
 // Inside the layout's WebRender<L> impl:
 const ROLE: ComponentRole = ComponentRole::LAYOUT;
 
-#[allow(refining_impl_trait)]
 async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
     cx.head_mut().title("Shop")?;
     cx.head_mut().description("Explore our products.")?;

@@ -5,11 +5,12 @@ Implementation branch: `codex/managed-document-head`.
 
 ## Correctness
 
-- 970 tests passed across `proa_core`, `proa_stream`, `proa_framework_core`,
-  `proa_framework_axum` and `proa_macros` (library and integration tests).
-- 18 core doctests passed with HTML conversion enabled, including synchronous-hook
+- 1,322 tests passed across `proa_core`, `proa_stream`, `proa_framework_core`,
+  `proa_framework_axum`, `proa_macros` and `proa_source_tools` (library and
+  integration tests, including the final source-lint and cancellation additions).
+- 17 core doctests passed with HTML conversion enabled, including synchronous-hook
   and Send-hook compile-fail cases; five pre-existing examples remain ignored.
-- 100 new managed-head regressions cover lifecycle/errors, publication, escaping,
+- Managed-head regressions cover lifecycle/errors, publication, escaping,
   URL policy, typed slots, social fallbacks, templates, defaults, loader sharing,
   native-page transfer, actual Axum local/Send in-order/out-of-order drivers,
   deadlines, HTTP framing/bodyless statuses, client payloads and middleware defaults.
@@ -19,18 +20,24 @@ Implementation branch: `codex/managed-document-head`.
   Send and sync dispatch; and deferred error fallbacks recheck sticky lifecycle
   failures before committing artifacts. Public cache policies, successful Pages,
   valid fallbacks and HEAD suppression remain covered as passing controls.
-- Six authoring regressions distinguish head contribution from the explicit
+- Eight authoring regressions distinguish head contribution from the explicit
   Page role. They cover direct async/sync authoring, adapter identity, nested
   Page rejection, fallback validation, two ancestor layouts followed by a Page,
   and rejection of a layout hook below the Page before its code runs. The
-  ancestor chain runs through local, Send, sync and adapted rendering.
-- Head providers now declare `LAYOUT` or `PAGE`. Inline-const assertions reject
-  real hooks with the default/explicit `COMPONENT` role at dispatched render
-  boundaries during code generation. The build test covers 24 combinations:
-  local, Send, sync and Send-sync, missing/explicit-invalid roles, both valid
-  provider roles, and ordinary/inherited-only `NoHead` cases. It also passes on
-  Rust 1.93. The fixture uses full builds because metadata-only checking does
-  not evaluate monomorphization-time assertions.
+  ancestor chain runs through local, Send, sync and adapted rendering. Dropping
+  unpolled async Page/Layout boundaries cancels preparation before hook code runs.
+  Ordinary body work through `render_child` remains lazy until polled; metadata
+  boundaries claim permission eagerly so an unpolled boundary cancels preparation.
+- Head providers declare `LAYOUT` or `PAGE`. Native async hooks return
+  `Result<(), WriteError>` without user attributes or async blocks; both async
+  surfaces compile with warnings denied on Rust 1.93. Role-directed dispatch
+  skips ordinary components entirely. The source error `render/head-role-required`
+  rejects missing role declarations and explicit `COMPONENT` roles; forwarded
+  constants are accepted without evaluation. Sync hooks retain code-generation
+  assertions, including when lifted through `to_async` / `to_send`. The compiler
+  fixture covers 32 valid/invalid cases across native async, sync and adapted sync
+  surfaces, with warnings denied. Source tests cover missing/explicit-invalid
+  roles, valid providers, forwarded constants, ordinary components and test scope.
 - The corrected PR example calls `shop_head` inside `shop_router`; its exact
   Rust blocks live in `proa_framework_axum/tests/managed_head_example.rs` and
   pass an actual Axum router test for metadata, stylesheet replacement, body
@@ -63,10 +70,17 @@ Implementation branch: `codex/managed-document-head`.
   actionlint. Both RSJS compile-fail snapshots include the new dispatch-bound
   note; the full conformance suite passes without snapshot-update mode.
 
-The strict Proa source check reports 14 warnings also reproduced against main:
-existing response-tail writes/clones and ambiguous HTML/Markdown Suspense coverage.
-The changed-file source check passes with `--allow-warnings`; no formatting errors
-remain. These baseline warnings are not counted as a clean strict-lint run.
+The workspace all-target check passes. Strict workspace Clippy is blocked by
+existing findings also reproduced on main: sliced strings converted to bytes,
+a needless borrow, `first().is_some()`, and `StageTimer` lacking `Default`.
+The all-target pass also reaches an existing default-field reassignment in the
+source-lint content tests and a manual async loader in the representation tests.
+Changed-package verification excludes those six lint categories using command-line
+flags; no source suppressions were added.
+
+Changed production Rust passes strict Proa source lint. Linting the source-linter's
+own `src/lint/tests.rs` separately reports its intentionally invalid suppression
+fixture; this pre-existing fixture is excluded from the production-path check.
 
 ## Native-path performance
 
@@ -75,25 +89,31 @@ identity and probe/library hashes. [Reproduction instructions](../../proa_bench/
 These are identical-source optimized probes against both checkouts, not theoretical
 claims about what LLVM should eliminate.
 
-The three-role model and compile-time assertions have additional
-[storage-only evidence](evidence/head-role-assertion-storage.json). All four
-candidate probe outputs match the explicit-role baseline: allocation counts,
-allocated bytes, outcome sizes, polls and output. These assertions add no
-runtime branch. The latency table below remains the preceding explicit-role
-measurement; no additional timing campaign was run for the assertion change.
+The native async-hook change has fresh
+[storage-only evidence](evidence/head-native-async-role-storage.json), compared
+with main using identical optimized probes. Relative to the
+[previous PR implementation](evidence/head-role-assertion-storage.json), ordinary
+component and ErrorBoundary outputs, polls, allocations, allocated bytes and
+outcome sizes match. Local static Suspense uses 152 allocated bytes rather than
+144: an 8-byte increase in its existing boxed future to preserve eager provider
+cancellation and lazy ordinary bodies. Its allocation count, outcome size and
+poll count match; all other Suspense metrics match. No native path gains an
+allocation.
+Explicit async Layout/Page boundaries now box their head/body continuation;
+managed-boundary latency and allocation totals were not measured by these probes.
+The latency table below belongs to the preceding implementation; no new timing
+campaign was run for the native async-hook change.
 
 WebContext remains **152 bytes**, SendWebContext **576 bytes**, WriteError **40 bytes**.
-Returned outcome sizes, poll counts, allocation counts and output lengths match.
-The publication fix adds **8 allocated bytes** to the existing native
-ErrorBoundary allocation (320 versus 312 bytes total), and to local in-order
-Suspense (320 versus 312). Local static Suspense and Send Suspense storage remain
-unchanged. No native path gains an allocation. The extra enum storage keeps an
-ordinary pending future inline while boxing the managed Page continuation;
-keeping both continuations inline caused recursive future growth and is
-deliberately avoided. The cancellation fix retains a completion guard in that
-continuation even before publication. Allocation counts, allocated-byte totals,
-outcome sizes, polls and output on native paths match the
-[earlier explicit-role review](evidence/head-native-lifecycle-review-performance.json).
+Ordinary component outcome sizes, poll counts, allocation counts and output
+lengths match the previous PR. Compared with main, ErrorBoundary retains its
+prior 8-byte increase (320 versus 312 bytes total), as does local in-order
+Suspense (320 versus 312). Send Suspense storage remains unchanged; local static
+Suspense uses 152 versus 144 allocated bytes in the latest probe. No native path gains an
+allocation. A boxed metadata-boundary continuation keeps ordinary pending
+futures inline without recursively enlarging them. The
+[earlier explicit-role review](evidence/head-native-lifecycle-review-performance.json)
+is retained for comparison.
 The Page-only inference experiment is retained as
 [historical evidence](evidence/head-page-inference-performance.json); that model
 is superseded because layouts also contribute metadata before the Page.
@@ -137,9 +157,9 @@ first rebuilding a second chained buffer.
 - Raw `child.render(cx)` calls remain body-only; macros and framework dispatch own hooks.
 - One Page and one outlet per managed document; bodies/Suspense/fallbacks cannot change metadata.
 - Invalid fields fail atomically; lifecycle failures poison the document and preserve the first cause.
-- Runtime branch selection and late mutation remain runtime checks. Role and hook capability are static; real hooks require an explicit `LAYOUT`/`PAGE` role during code generation.
+- Runtime branch selection and late mutation remain runtime checks. Async dispatch uses the constant role and cannot detect default-method overrides; source lint is required to catch missing/explicit `COMPONENT` roles. Forwarded constants require author validation. Sync hooks keep their compiler assertion.
 - Cancellation discards preparation. Sampled memory limits and cooperative async deadlines are not hard peak-memory or CPU-preemption guarantees.
-- Managed async Pages with inherited metadata use a boxed continuation to own
+- Explicit async Layout/Page boundaries use a boxed head/body continuation to own
   their completion guard, including buffered modes and before an outlet exists.
   Ordinary components retain their existing inline future and allocation behavior.
 - A wholly synchronous `WebRenderSync` / `html_sync!` render cannot yield at

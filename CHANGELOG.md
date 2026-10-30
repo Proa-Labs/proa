@@ -17,7 +17,10 @@ All notable public changes are tracked here.
   routes that still call the void `set_title`/`push_meta` setters fail with
   `HeadError::LegacyMutation` and need `.without_head()` or the checked setters.
   A component that declares `ComponentRole::PAGE` renders only inside a managed
-  document.
+  document. Async hooks use native `async fn render_head(...) -> Result<(),
+  WriteError>` without author-side attributes or handwritten async blocks.
+  `proa lint` rejects async head overrides with missing roles or an explicit
+  `COMPONENT` role; synchronous hooks retain their compiler assertion.
 
 - `DataResolver` no longer retains a request-to-map-to-future reference cycle
   for loads still in flight when the request is dropped; the shared future

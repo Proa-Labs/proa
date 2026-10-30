@@ -40,12 +40,17 @@ For each managed HTML document, verify that the selected Page's render impl
 declares `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;`,
 including Pages that only inherit metadata. Check local/Send/sync implementations
 and adapter forwarding. Ancestor head providers declare `ComponentRole::LAYOUT`;
-ordinary `NoHead` components keep `COMPONENT` and skip hook invocation. Real
-hooks with a missing/default component role fail a compile-time assertion during
-code generation. Run `cargo build` for changed hooks; `cargo check` alone does
-not instantiate this check.
+ordinary `COMPONENT` values skip head invocation entirely. Explicit async
+layouts and Pages run their hook (including its default when omitted).
+Run `cargo proa lint <changed-paths> --deny warnings`: `render/head-role-required`
+rejects overrides with missing roles or an explicit `COMPONENT` role. Async hooks
+use native futures, so Rust cannot detect default-method overrides. Forwarded and
+application role constants are accepted without evaluation; ensure they resolve
+to `LAYOUT` or `PAGE`. Sync hooks also retain a code-generation assertion;
+run `cargo build` because `cargo check` alone does not instantiate it.
 
-A real hook cannot silently keep the default role. A Page with neither a hook
+A real async hook can be skipped if its role is wrong and source lint is bypassed.
+Treat the lint and managed route test as required validation. A Page with neither a hook
 nor an explicit Page role is still indistinguishable from an ordinary component;
 this omitted boundary leaves preparation unsealed: completion fails with
 `MissingPage` or `OrphanProvider`, while a pending body can delay failure until

@@ -1,211 +1,30 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Type-directed component lifecycle dispatch. Ordinary tags never enter this path.
-use crate::{DataLoader, WebContext, WebRender, WriteBuf, WriteError};
-use std::future::{Future, IntoFuture, Ready};
+//! Role-directed component lifecycle dispatch. Ordinary tags never enter this path.
+use crate::{
+    DataLoader, RenderOutcome, SendWebContext, WebContext, WebRender, WebRenderSend,
+    WebRenderSendSync, WriteBuf, WriteError,
+};
+use std::future::Future;
 
-mod sealed {
-    pub trait Operation {}
-    impl Operation for super::NoHead {}
-    impl<F: std::future::Future<Output = Result<(), crate::WriteError>>> Operation for F {}
-}
-
-/// An optional metadata hook for a layout or Page. Ancestor layout hooks run
-/// before their bodies; only a component declaring [`ComponentRole::PAGE`]
-/// seals the head before its body. Layout providers declare [`ComponentRole::LAYOUT`].
-/// A real hook with the default component role fails a compile-time assertion at
-/// dispatched render boundaries. Components inheriting [`NoHead`] skip the hook.
-///
-/// Write an `async fn` returning `Result<(), WriteError>` to mutate the context
-/// directly. Its future implements this trait automatically. Rust's
-/// `refining_impl_trait` lint needs a method-scoped allowance because this trait
-/// also accepts the non-Future absence marker; no async-trait boxing is used.
-///
-/// ```
-/// #![deny(warnings)]
-/// use proa_core::{RenderOutcome, WebContext, WebRender, WriteError};
-/// use std::future::{Future, Ready};
-/// struct Page { title: &'static str }
-/// impl WebRender for Page {
-///     const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;
-///     #[allow(refining_impl_trait)]
-///     async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
-///         let title = std::future::ready(self.title).await;
-///         cx.head_mut().title(title)?;
-///         Ok(())
-///     }
-///     fn render(self, _: &mut WebContext)
-///         -> RenderOutcome<impl Future<Output = Result<(), WriteError>>>
-///     {
-///         RenderOutcome::<Ready<_>>::Done(Ok(()))
-///     }
-/// }
-/// let _page = Page { title: "Products" };
-/// ```
-///
-/// Returning `impl HeadOperation` with an explicit future remains supported.
-/// A Page using only inherited metadata may omit the hook and declare only its role.
-pub trait HeadOperation: sealed::Operation + IntoFuture<Output = Result<(), WriteError>> {
-    type Strategy: Strategy + SendStrategy;
-    fn strategy() -> Self::Strategy;
-}
-
-/// A zero-sized absence marker, deliberately not a Future.
+/// Absence marker for synchronous hooks. Async hooks use native futures and
+/// their render trait's role selects whether to invoke the hook.
 pub struct NoHead;
-impl IntoFuture for NoHead {
-    type Output = Result<(), WriteError>;
-    type IntoFuture = Ready<Self::Output>;
-    fn into_future(self) -> Self::IntoFuture {
-        std::future::ready(Ok(()))
-    }
-}
-impl HeadOperation for NoHead {
-    type Strategy = BodyOnly;
-    fn strategy() -> BodyOnly {
-        BodyOnly
-    }
-}
-impl<F: Future<Output = Result<(), WriteError>>> HeadOperation for F {
-    type Strategy = WithHead;
-    fn strategy() -> WithHead {
-        WithHead
-    }
-}
 
-pub struct BodyOnly;
-pub struct WithHead;
-pub trait Strategy {
-    const HAS_HEAD: bool;
-    fn begin<'a, L, B, C>(
-        self,
-        child: C,
-        cx: &'a mut WebContext<L, B>,
-    ) -> crate::RenderOutcome<impl Future<Output = Result<(), WriteError>> + use<'a, Self, L, B, C>>
-    where
-        L: DataLoader + 'a,
-        B: WriteBuf + 'a,
-        C: WebRender<L, B> + 'a;
-    fn render<'a, L, B, C>(
-        self,
-        child: C,
-        cx: &'a mut WebContext<L, B>,
-    ) -> impl Future<Output = Result<(), WriteError>> + use<'a, Self, L, B, C>
-    where
-        L: DataLoader + 'a,
-        B: WriteBuf + 'a,
-        C: WebRender<L, B> + 'a;
-}
-impl Strategy for BodyOnly {
-    const HAS_HEAD: bool = false;
-    fn begin<'a, L, B, C>(
-        self,
-        child: C,
-        cx: &'a mut WebContext<L, B>,
-    ) -> crate::RenderOutcome<impl Future<Output = Result<(), WriteError>> + use<'a, L, B, C>>
-    where
-        L: DataLoader + 'a,
-        B: WriteBuf + 'a,
-        C: WebRender<L, B> + 'a,
-    {
-        body_after_empty_head(child, cx)
-    }
-    #[allow(
-        clippy::manual_async_fn,
-        reason = "the explicit `use<>` capture list is part of the strategy contract"
-    )]
-    fn render<'a, L, B, C>(
-        self,
-        child: C,
-        cx: &'a mut WebContext<L, B>,
-    ) -> impl Future<Output = Result<(), WriteError>> + use<'a, L, B, C>
-    where
-        L: DataLoader + 'a,
-        B: WriteBuf + 'a,
-        C: WebRender<L, B> + 'a,
-    {
-        async move {
-            if C::ROLE.is_page() {
-                // proa-perf-ok: retain the managed Page guard outside ordinary child futures
-                return Box::pin(async move {
-                    let document = cx.require_managed_head()?;
-                    let scope = document.track_page(std::any::type_name::<C>());
-                    cx.managed_seal()?;
-                    if crate::managed_head::streaming(cx.render_mode()) && document.is_published() {
-                        crate::managed_head::yield_after_publication().await;
-                    }
-                    scope.finish(child.render(cx).resolve().await)
-                })
-                .await;
-            }
-            child.render(cx).resolve().await
-        }
-    }
-}
-impl Strategy for WithHead {
-    const HAS_HEAD: bool = true;
-    fn begin<'a, L, B, C>(
-        self,
-        child: C,
-        cx: &'a mut WebContext<L, B>,
-    ) -> crate::RenderOutcome<impl Future<Output = Result<(), WriteError>> + use<'a, L, B, C>>
-    where
-        L: DataLoader + 'a,
-        B: WriteBuf + 'a,
-        C: WebRender<L, B> + 'a,
-    {
-        crate::RenderOutcome::pending(self.render(child, cx))
-    }
-    fn render<'a, L, B, C>(
-        self,
-        child: C,
-        cx: &'a mut WebContext<L, B>,
-    ) -> impl Future<Output = Result<(), WriteError>> + use<'a, L, B, C>
-    where
-        L: DataLoader + 'a,
-        B: WriteBuf + 'a,
-        C: WebRender<L, B> + 'a,
-    {
-        const {
-            C::ROLE.assert_head_role(true);
-        }
-        // Claim the hook before returning the future, not merely before polling
-        // it. Dropping an unpolled outcome then drops this guard and records
-        // cancellation, so a later Page on the same context cannot reuse the
-        // document. This also gates before the operation is constructed.
-        let permission = cx
-            .require_managed_head()
-            .and_then(|document| document.begin_hook_for(std::any::type_name::<C>()));
-        async move {
-            let permission = permission?;
-            let result = child.render_head(cx).await;
-            let scope = permission.finish(result)?;
-            if C::ROLE.is_page() {
-                cx.managed_seal()?;
-                if crate::managed_head::streaming(cx.render_mode())
-                    && cx.head_state().document().is_some_and(|d| d.is_published())
-                {
-                    crate::managed_head::yield_after_publication().await;
-                }
-            }
-            scope.finish(child.render(cx).resolve().await)
-        }
-    }
-}
-
-// Immediately completed ordinary children stay on Done. Box only the managed
-// Page continuation: retaining it inline would recursively enlarge every
-// ordinary component's future, even when its ROLE excludes the Page branch.
+// Box only metadata boundaries. Keeping a provider's head/body continuation
+// inline would recursively enlarge ordinary component futures, even when their
+// constant role excludes that branch. Ordinary pending bodies stay inline.
 pin_project_lite::pin_project! {
-    #[project = BodyFutureProj]
-    enum BodyFuture<P, F> {
-        Page { future: std::pin::Pin<Box<P>> },
+    #[project = BoundaryFutureProj]
+    enum BoundaryFuture<H, F> {
+        Provider { future: std::pin::Pin<Box<H>> },
         Ordinary { #[pin] future: F },
     }
 }
-impl<P, F> Future for BodyFuture<P, F>
+impl<H, F> Future for BoundaryFuture<H, F>
 where
-    P: Future<Output = Result<(), WriteError>>,
+    H: Future<Output = Result<(), WriteError>>,
     F: Future<Output = Result<(), WriteError>>,
 {
     type Output = Result<(), WriteError>;
@@ -214,58 +33,133 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         match self.project() {
-            BodyFutureProj::Page { future } => future.as_mut().poll(cx),
-            BodyFutureProj::Ordinary { future } => future.poll(cx),
+            BoundaryFutureProj::Provider { future } => future.as_mut().poll(cx),
+            BoundaryFutureProj::Ordinary { future } => future.poll(cx),
         }
     }
 }
 
-// Private dispatch plumbing, not a new application render entry point.
+#[doc(hidden)]
 #[inline]
-fn body_after_empty_head<L: DataLoader, B: WriteBuf, C: WebRender<L, B>>(
+pub fn begin<'a, L, B, C>(
     child: C,
-    cx: &mut WebContext<L, B>,
-) -> crate::RenderOutcome<impl Future<Output = Result<(), WriteError>> + use<'_, L, B, C>> {
-    if C::ROLE.is_page() {
-        let document = match cx.require_managed_head() {
-            Ok(document) => document,
-            Err(error) => return crate::RenderOutcome::Done(Err(error)),
-        };
-        let scope = document.track_page(std::any::type_name::<C>());
-        if let Err(e) = cx.managed_seal() {
-            return crate::RenderOutcome::Done(Err(e));
-        }
-        let published = crate::managed_head::streaming(cx.render_mode()) && document.is_published();
-        return crate::RenderOutcome::pending(BodyFuture::Page {
-            // proa-perf-ok: only managed Pages retain a completion/cancellation guard
-            future: Box::pin(async move {
-                if published {
-                    crate::managed_head::yield_after_publication().await;
-                }
-                scope.finish(child.render(cx).resolve().await)
-            }),
-        });
-    }
-    match child.render(cx) {
-        crate::RenderOutcome::Done(result) => crate::RenderOutcome::Done(result),
-        crate::RenderOutcome::Pending(future) => {
-            crate::RenderOutcome::Pending(BodyFuture::Ordinary { future })
-        }
-    }
-}
-
-/// Infer the operation type from the method item without calling it.
-#[inline]
-pub fn strategy_of<'a, L, B, C, H>(
-    _: impl FnOnce(&'a C, &'a mut WebContext<L, B>) -> H,
-) -> H::Strategy
+    cx: &'a mut WebContext<L, B>,
+) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + use<'a, L, B, C>>
 where
     L: DataLoader + 'a,
     B: WriteBuf + 'a,
-    C: 'a,
-    H: HeadOperation,
+    C: WebRender<L, B> + 'a,
 {
-    H::strategy()
+    if C::ROLE.is_layout() || C::ROLE.is_page() {
+        return match start_provider(child, cx) {
+            Ok(future) => RenderOutcome::pending(BoundaryFuture::Provider {
+                // proa-perf-ok: only explicit metadata boundaries own a boxed continuation
+                future: Box::pin(future),
+            }),
+            Err(error) => RenderOutcome::Done(Err(error)),
+        };
+    }
+    // COMPONENT never constructs or polls a head future, including the default.
+    match child.render(cx) {
+        RenderOutcome::Done(result) => RenderOutcome::Done(result),
+        RenderOutcome::Pending(future) => {
+            RenderOutcome::Pending(BoundaryFuture::Ordinary { future })
+        }
+    }
+}
+
+// Claim permission before returning any future, including the direct
+// render_child helper. Ordinary body futures remain lazy and carry no guard.
+fn start_provider<'a, L, B, C>(
+    child: C,
+    cx: &'a mut WebContext<L, B>,
+) -> Result<impl Future<Output = Result<(), WriteError>> + use<'a, L, B, C>, WriteError>
+where
+    L: DataLoader + 'a,
+    B: WriteBuf + 'a,
+    C: WebRender<L, B> + 'a,
+{
+    let permission = cx
+        .require_managed_head()?
+        .begin_hook_for(std::any::type_name::<C>())?;
+    Ok(async move {
+        let scope = permission.finish(child.render_head(cx).await)?;
+        if C::ROLE.is_page() {
+            cx.managed_seal()?;
+            if crate::managed_head::streaming(cx.render_mode())
+                && cx.head_state().document().is_some_and(|d| d.is_published())
+            {
+                crate::managed_head::yield_after_publication().await;
+            }
+        }
+        scope.finish(child.render(cx).resolve().await)
+    })
+}
+
+#[doc(hidden)]
+#[inline]
+pub fn render<'a, L, B, C>(
+    child: C,
+    cx: &'a mut WebContext<L, B>,
+) -> impl Future<Output = Result<(), WriteError>> + use<'a, L, B, C>
+where
+    L: DataLoader + 'a,
+    B: WriteBuf + 'a,
+    C: WebRender<L, B> + 'a,
+{
+    if C::ROLE.is_layout() || C::ROLE.is_page() {
+        let future = start_provider(child, cx);
+        return BoundaryFuture::Provider {
+            // proa-perf-ok: guard and head/body state belong only to metadata boundaries
+            future: Box::pin(async move { future?.await }),
+        };
+    }
+    BoundaryFuture::Ordinary {
+        future: async move { child.render(cx).resolve().await },
+    }
+}
+
+#[doc(hidden)]
+#[inline]
+pub fn send_begin<'a, L, B, C>(
+    child: C,
+    cx: &'a mut SendWebContext<L, B>,
+) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send + use<'a, L, B, C>>
+where
+    L: DataLoader + 'a,
+    B: WriteBuf + Send + 'a,
+    C: WebRenderSend<L, B> + 'a,
+{
+    if C::ROLE.is_layout() || C::ROLE.is_page() {
+        let permission = match cx
+            .require_managed_head()
+            .and_then(|document| document.begin_hook_for(std::any::type_name::<C>()))
+        {
+            Ok(permission) => permission,
+            Err(error) => return RenderOutcome::Done(Err(error)),
+        };
+        return RenderOutcome::pending(BoundaryFuture::Provider {
+            // proa-perf-ok: only explicit metadata boundaries own a boxed continuation
+            future: Box::pin(async move {
+                let scope = permission.finish(child.render_head_send(cx).await)?;
+                if C::ROLE.is_page() {
+                    cx.managed_seal()?;
+                    if crate::managed_head::streaming(cx.render_mode())
+                        && cx.head_state().document().is_some_and(|d| d.is_published())
+                    {
+                        crate::managed_head::yield_after_publication().await;
+                    }
+                }
+                scope.finish(child.render_send(cx).resolve().await)
+            }),
+        });
+    }
+    match child.render_send(cx) {
+        RenderOutcome::Done(result) => RenderOutcome::Done(result),
+        RenderOutcome::Pending(future) => {
+            RenderOutcome::Pending(BoundaryFuture::Ordinary { future })
+        }
+    }
 }
 
 /// Component intent declared on the render trait and visible to generic dispatch.
@@ -305,30 +199,27 @@ impl ComponentRole {
         );
     }
 }
-/// The descriptor is visible through the existing render-trait bound.
-/// No head method is called to obtain this information.
+
+/// Role-directed dispatch information; `runs_head` includes an inherited
+/// default hook on an explicit layout or Page, not override detection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Descriptor {
-    pub has_head: bool,
+    pub runs_head: bool,
     pub is_page: bool,
     pub is_layout: bool,
 }
-pub fn descriptor<'a, L, B, C>() -> Descriptor
+pub fn descriptor<L, B, C>() -> Descriptor
 where
-    L: DataLoader + 'a,
-    B: WriteBuf + 'a,
-    C: WebRender<L, B> + 'a,
+    L: DataLoader,
+    B: WriteBuf,
+    C: WebRender<L, B>,
 {
-    fn has_head<S: Strategy>(_: S) -> bool {
-        S::HAS_HEAD
-    }
     Descriptor {
-        has_head: has_head(strategy_of(C::render_head)),
+        runs_head: C::ROLE.is_layout() || C::ROLE.is_page(),
         is_page: C::ROLE.is_page(),
         is_layout: C::ROLE.is_layout(),
     }
 }
-
 // Synchronous hooks deliberately cannot return an asynchronous operation.
 mod sync_sealed {
     pub trait Operation {}
@@ -362,18 +253,18 @@ mod sync_sealed {
 /// ```
 pub trait SyncHeadOperation: sync_sealed::Operation {
     const HAS_HEAD: bool;
-    type Async: SendHeadOperation;
+    type Async: Future<Output = Result<(), WriteError>> + Send;
     fn finish(self) -> Result<(), WriteError>;
     fn into_async(self) -> Self::Async;
 }
 impl SyncHeadOperation for NoHead {
     const HAS_HEAD: bool = false;
-    type Async = NoHead;
+    type Async = std::future::Ready<Result<(), WriteError>>;
     fn finish(self) -> Result<(), WriteError> {
         Ok(())
     }
-    fn into_async(self) -> NoHead {
-        self
+    fn into_async(self) -> Self::Async {
+        std::future::ready(Ok(()))
     }
 }
 impl SyncHeadOperation for Result<(), WriteError> {
@@ -386,7 +277,7 @@ impl SyncHeadOperation for Result<(), WriteError> {
         std::future::ready(self)
     }
 }
-fn sync_presence<
+pub(crate) fn sync_presence<
     'a,
     L: DataLoader + 'a,
     B: WriteBuf + 'a,
@@ -447,132 +338,7 @@ pub fn sync<'a, L: DataLoader + 'a, B: WriteBuf + 'a, C: crate::WebRenderSync<L,
     }
 }
 
-// A Send future is required, but the component itself remains Send, not Sync.
-/// A head hook used by the Send renderer must retain only Send values across awaits.
-///
-/// ```compile_fail
-/// use proa_core::{SendHeadOperation, WriteError};
-/// fn invalid_send_hook() -> impl SendHeadOperation {
-///     async {
-///         let value = std::rc::Rc::new(1);
-///         std::future::pending::<()>().await;
-///         drop(value);
-///         Ok::<(), WriteError>(())
-///     }
-/// }
-/// ```
-pub trait SendHeadOperation: HeadOperation<IntoFuture: Send> {}
-impl<O: HeadOperation<IntoFuture: Send>> SendHeadOperation for O {}
-use crate::{RenderOutcome, SendWebContext, WebRenderSend, WebRenderSendSync};
-pub trait SendStrategy {
-    fn begin<'a, L, B, C>(
-        self,
-        child: C,
-        cx: &'a mut SendWebContext<L, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send + use<'a, Self, L, B, C>>
-    where
-        L: DataLoader + 'a,
-        B: WriteBuf + Send + 'a,
-        C: WebRenderSend<L, B> + 'a;
-}
-impl SendStrategy for BodyOnly {
-    fn begin<'a, L, B, C>(
-        self,
-        child: C,
-        cx: &'a mut SendWebContext<L, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send + use<'a, L, B, C>>
-    where
-        L: DataLoader + 'a,
-        B: WriteBuf + Send + 'a,
-        C: WebRenderSend<L, B> + 'a,
-    {
-        if C::ROLE.is_page() {
-            let document = match cx.require_managed_head() {
-                Ok(document) => document,
-                Err(error) => return RenderOutcome::Done(Err(error)),
-            };
-            let scope = document.track_page(std::any::type_name::<C>());
-            if let Err(e) = cx.managed_seal() {
-                return RenderOutcome::Done(Err(e));
-            }
-            let published =
-                crate::managed_head::streaming(cx.render_mode()) && document.is_published();
-            return RenderOutcome::pending(BodyFuture::Page {
-                // proa-perf-ok: only managed Pages retain a completion/cancellation guard
-                future: Box::pin(async move {
-                    if published {
-                        crate::managed_head::yield_after_publication().await;
-                    }
-                    scope.finish(child.render_send(cx).resolve().await)
-                }),
-            });
-        }
-        match child.render_send(cx) {
-            RenderOutcome::Done(result) => RenderOutcome::Done(result),
-            RenderOutcome::Pending(future) => {
-                RenderOutcome::Pending(BodyFuture::Ordinary { future })
-            }
-        }
-    }
-}
-impl SendStrategy for WithHead {
-    fn begin<'a, L, B, C>(
-        self,
-        child: C,
-        cx: &'a mut SendWebContext<L, B>,
-    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send + use<'a, L, B, C>>
-    where
-        L: DataLoader + 'a,
-        B: WriteBuf + Send + 'a,
-        C: WebRenderSend<L, B> + 'a,
-    {
-        const {
-            C::ROLE.assert_head_role(true);
-        }
-        // Claim the hook before returning the outcome; see the local strategy.
-        let permission = cx
-            .require_managed_head()
-            .and_then(|document| document.begin_hook_for(std::any::type_name::<C>()));
-        RenderOutcome::pending(async move {
-            let permission = permission?;
-            let result = child.render_head_send(cx).await;
-            let scope = permission.finish(result)?;
-            if C::ROLE.is_page() {
-                cx.managed_seal()?;
-                if crate::managed_head::streaming(cx.render_mode())
-                    && cx.head_state().document().is_some_and(|d| d.is_published())
-                {
-                    crate::managed_head::yield_after_publication().await;
-                }
-            }
-            scope.finish(child.render_send(cx).resolve().await)
-        })
-    }
-}
-fn send_strategy<'a, L, B, C, H>(
-    _: impl FnOnce(&'a C, &'a mut SendWebContext<L, B>) -> H,
-) -> H::Strategy
-where
-    L: DataLoader + 'a,
-    B: WriteBuf + Send + 'a,
-    C: 'a,
-    H: SendHeadOperation,
-{
-    H::strategy()
-}
-#[doc(hidden)]
-pub fn send_begin<'a, L, B, C>(
-    child: C,
-    cx: &'a mut SendWebContext<L, B>,
-) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send + use<'a, L, B, C>>
-where
-    L: DataLoader + 'a,
-    B: WriteBuf + Send + 'a,
-    C: WebRenderSend<L, B> + 'a,
-{
-    SendStrategy::begin(send_strategy(C::render_head_send), child, cx)
-}
-fn send_sync_presence<
+pub(crate) fn send_sync_presence<
     'a,
     L: DataLoader + 'a,
     B: WriteBuf + Send + 'a,
@@ -633,20 +399,6 @@ where
         None => result,
     }
 }
-
-#[doc(hidden)]
-pub fn begin<'a, L, B, C>(
-    child: C,
-    cx: &'a mut WebContext<L, B>,
-) -> crate::RenderOutcome<impl Future<Output = Result<(), WriteError>> + use<'a, L, B, C>>
-where
-    L: DataLoader + 'a,
-    B: WriteBuf + 'a,
-    C: WebRender<L, B> + 'a,
-{
-    Strategy::begin(strategy_of(C::render_head), child, cx)
-}
-
 #[doc(hidden)]
 pub fn ensure_stateless<
     'a,

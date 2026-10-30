@@ -19,8 +19,7 @@ use crate::{RenderBuffer, WriteBuf, WriteError};
 pub trait WebRenderSendSync<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuffer>:
     Send
 {
-    /// Head providers declare `LAYOUT` or `PAGE`; a real hook with the default
-    /// `COMPONENT` role fails during code generation. Only `PAGE` seals metadata.
+    /// Head providers declare `LAYOUT` or `PAGE`. Only `PAGE` seals metadata.
     const ROLE: crate::head_dispatch::ComponentRole =
         crate::head_dispatch::ComponentRole::COMPONENT;
     fn render_head_send_sync(
@@ -35,15 +34,36 @@ pub trait WebRenderSendSync<L: DataLoader = NoLoader, B: WriteBuf + Send = Rende
 
 /// Render a component with a future whose complete active state is `Send`.
 pub trait WebRenderSend<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuffer>: Send {
-    /// Head providers declare `LAYOUT` or `PAGE`; a real hook with the default
-    /// `COMPONENT` role fails during code generation. Only `PAGE` seals metadata.
+    /// Head providers declare `LAYOUT` or `PAGE`. Only `PAGE` seals metadata.
     const ROLE: crate::head_dispatch::ComponentRole =
         crate::head_dispatch::ComponentRole::COMPONENT;
+    /// Override with `async fn render_head_send(...) -> Result<(), WriteError>`
+    /// when its captured values are Send. The explicit Future bound keeps the
+    /// Send guarantee visible to generic dispatch. Ordinary components skip it.
+    /// A custom hook must declare `LAYOUT` or `PAGE`; run `proa lint` to check.
+    ///
+    /// ```compile_fail
+    /// use proa_core::{ComponentRole, RenderOutcome, SendWebContext, WebRenderSend, WriteError};
+    /// use std::future::{Future, Ready};
+    /// struct Page;
+    /// impl WebRenderSend for Page {
+    ///     const ROLE: ComponentRole = ComponentRole::PAGE;
+    ///     async fn render_head_send(&self, _: &mut SendWebContext) -> Result<(), WriteError> {
+    ///         let local = std::rc::Rc::new(1);
+    ///         std::future::pending::<()>().await;
+    ///         drop(local);
+    ///         Ok(())
+    ///     }
+    ///     fn render_send(self, _: &mut SendWebContext)
+    ///         -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send>
+    ///     { RenderOutcome::<Ready<_>>::Done(Ok(())) }
+    /// }
+    /// ```
     fn render_head_send(
         &self,
         _cx: &mut SendWebContext<L, B>,
-    ) -> impl crate::head_dispatch::SendHeadOperation {
-        crate::head_dispatch::NoHead
+    ) -> impl Future<Output = Result<(), WriteError>> + Send {
+        std::future::ready(Ok(()))
     }
 
     fn render_send(
@@ -67,7 +87,7 @@ where
     fn render_head_send(
         &self,
         cx: &mut SendWebContext<L, B>,
-    ) -> impl crate::head_dispatch::SendHeadOperation {
+    ) -> impl Future<Output = Result<(), WriteError>> + Send {
         use crate::head_dispatch::SyncHeadOperation;
         self.0.render_head_send_sync(cx).into_async()
     }
@@ -75,6 +95,7 @@ where
         self,
         cx: &mut SendWebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        crate::head_dispatch::send_sync_presence(T::render_head_send_sync);
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
             self.0.render_send_sync(cx),
         )

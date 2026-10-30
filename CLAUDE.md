@@ -132,9 +132,9 @@ definition is:
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     /// Managed-head role: `COMPONENT` (default), `LAYOUT`, or `PAGE`.
     const ROLE: ComponentRole = ComponentRole::COMPONENT;
-    /// Optional metadata hook. The default `NoHead` is never invoked.
-    fn render_head(&self, _cx: &mut WebContext<L, B>) -> impl HeadOperation {
-        NoHead
+    /// Native async metadata hook; ordinary COMPONENT values skip it entirely.
+    async fn render_head(&self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        Ok(())
     }
     fn render(
         self,
@@ -151,7 +151,11 @@ or `FrameworkBuilder::with_head`); a plain `WebContext::new()` or a
 `.without_head()` route fails with `HeadError::ManualMode`. See
 [`docs/agent/api-reference/render-traits.md#managed-document-head`](docs/agent/api-reference/render-traits.md#managed-document-head).
 
-Use `WebRenderSync` by default. Use `WebRender` only for components that need to `.await`.
+Use `WebRenderSync` by default. Use `WebRender` when the body or head hook needs
+to `.await`. Async hooks need no attributes or handwritten async blocks. Run
+`cargo proa lint <changed-paths> --deny warnings` to reject missing roles and
+explicit `COMPONENT` roles on head overrides; forwarded constants must resolve
+to `LAYOUT` or `PAGE`. Sync hooks also keep their code-generation role assertion.
 The `B` parameter is the advanced custom-writer escape hatch. Application
 components normally omit it and implement `WebRenderSync<L>` or `WebRender<L>`;
 that selects the default owned `RenderBuffer` and leaves only the loader

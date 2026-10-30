@@ -144,8 +144,7 @@ pub mod __private {
     note = "async children require `html!`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type"
 )]
 pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
-    /// Head providers declare `LAYOUT` or `PAGE`; a real hook with the default
-    /// `COMPONENT` role fails during code generation. Only `PAGE` seals metadata.
+    /// Head providers declare `LAYOUT` or `PAGE`. Only `PAGE` seals metadata.
     const ROLE: crate::head_dispatch::ComponentRole =
         crate::head_dispatch::ComponentRole::COMPONENT;
     /// Optional synchronous ancestor-layout or Page metadata hook. Default
@@ -199,15 +198,22 @@ pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     note = "wrap a sync-only child with `proa_core::to_async(...)`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type"
 )]
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
-    /// Head providers declare `LAYOUT` or `PAGE`; a real hook with the default
-    /// `COMPONENT` role fails during code generation. Only `PAGE` seals metadata.
+    /// Head providers declare `LAYOUT` or `PAGE`. `COMPONENT` skips the head
+    /// method entirely; only `PAGE` seals metadata.
     const ROLE: crate::head_dispatch::ComponentRole =
         crate::head_dispatch::ComponentRole::COMPONENT;
-    /// Optional ancestor-layout or Page metadata hook. Default `NoHead` hooks
-    /// are skipped. Async implementations may use `async fn` with a scoped
-    /// `#[allow(refining_impl_trait)]`; see `HeadOperation`.
-    fn render_head(&self, _cx: &mut WebContext<L, B>) -> impl crate::head_dispatch::HeadOperation {
-        crate::head_dispatch::NoHead
+    /// Optional ancestor-layout or Page metadata hook. Ordinary `COMPONENT`
+    /// values skip this method entirely; `LAYOUT` and `PAGE` invoke it before
+    /// their bodies. An inherited-only Page may keep this default.
+    ///
+    /// Declare `ROLE` explicitly when overriding this method. `proa lint`
+    /// rejects hooks with a missing role or an explicit `COMPONENT` role.
+    #[expect(
+        async_fn_in_trait,
+        reason = "local rendering intentionally accepts !Send futures; WebRenderSend is the Send companion"
+    )]
+    async fn render_head(&self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        Ok(())
     }
 
     /// Generated component code uses this associated constant as a
@@ -232,20 +238,17 @@ where
     B: WriteBuf,
     L: DataLoader,
 {
-    /// Head providers declare `LAYOUT` or `PAGE`; a real hook with the default
-    /// `COMPONENT` role fails during code generation. Only `PAGE` seals metadata.
+    /// Forward the synchronous component's explicit role.
     const ROLE: crate::head_dispatch::ComponentRole = T::ROLE;
-    /// Optional ancestor-layout or Page metadata hook. Default `NoHead` hooks
-    /// are skipped. Async implementations may use `async fn` with a scoped
-    /// `#[allow(refining_impl_trait)]`; see `HeadOperation`.
-    fn render_head(&self, cx: &mut WebContext<L, B>) -> impl crate::head_dispatch::HeadOperation {
+    async fn render_head(&self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         use crate::head_dispatch::SyncHeadOperation;
-        self.0.render_head(cx).into_async()
+        self.0.render_head(cx).finish()
     }
     fn render(
         self,
         cx: &mut WebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        crate::head_dispatch::sync_presence(T::render_head);
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(self.0.render(cx))
     }
 }

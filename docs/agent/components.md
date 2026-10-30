@@ -25,20 +25,22 @@ This is required even when the Page has no head hook and inherits all metadata.
 Ancestor layouts implementing `render_head` declare
 `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;`.
 Only the Page seals metadata before its body; a head hook alone
-does not declare a Page. Ordinary components with `NoHead` skip the hook.
-Manual documents without managed-head configuration do not require this role,
-and a component that declares `PAGE` renders only inside a managed document:
-a plain `WebContext::new()`, a `render_to_string` helper, or a `.without_head()`
-route fails with `HeadError::ManualMode`. Keep a body-only wrapper for any
-document that must also render manually.
+does not declare a Page. Ordinary `COMPONENT` values skip head invocation entirely.
+Manual documents without managed-head configuration do not require this role.
+A component declaring `PAGE` renders only inside a managed document: plain
+`WebContext::new()`, `render_to_string`, or `.without_head()` fails with
+`HeadError::ManualMode`. Keep a body-only wrapper for manual rendering.
 
 Test through the document's actual managed route, including an outlet and an
 explicit Page, and verify head publication while body work remains pending.
 Calling `render` directly exercises only the body and bypasses lifecycle dispatch.
-A real head hook with the default `COMPONENT` role fails a compile-time assertion
-at dispatched rendering boundaries. This is checked during code generation;
-run `cargo build` for changed hooks, because `cargo check` alone does not evaluate
-monomorphization-time assertions. The check emits no request-time branch.
+Run `cargo proa lint <changed-paths> --deny warnings` for changed hooks.
+`render/head-role-required` rejects an override with a missing role declaration
+or an explicit `COMPONENT` role. Native async hooks cannot expose override
+presence to Rust, so the async contract relies on this source check. Forwarded
+roles and application constants are not evaluated by the lint; ensure they resolve
+to `LAYOUT` or `PAGE`. Synchronous hooks also retain a compiler assertion during
+code generation; run `cargo build`, since `cargo check` does not instantiate it.
 
 A Page with neither a hook nor a declared role remains indistinguishable from an
 ordinary component. Choosing `LAYOUT` for the selected Page also leaves no Page
