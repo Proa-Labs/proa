@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use proa_core::{
     head_fields::HeadUrlPolicy,
     managed_head::{HeadError, ManagedHead},

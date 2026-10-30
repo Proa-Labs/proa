@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Same source is compiled against main and the candidate. No managed API calls.
 use proa_core::{
     RenderOutcome, SendWebContext, WebRenderSend, WebRenderSendSync, WriteBuf, WriteError,

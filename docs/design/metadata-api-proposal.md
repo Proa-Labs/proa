@@ -62,12 +62,12 @@ Managed mode is selected before constructing the response driver. Manual mode ke
 
 | Issue | Implementation decision | Required regression |
 | --- | --- | --- |
-| Original errors replaced by HookFailed/OrphanProvider | Preserve the original error and component identity in a cold, shared diagnostic. Poison the document without replacing its first cause. Only a successful provider returning without a Page is an orphan. | Hook and ancestor database errors retain source chains; ignored errors remain fatal; WriteError/native future sizes do not grow. |
+| Original errors replaced by HookFailed/OrphanProvider | Preserve the original error and component identity in a cold, shared diagnostic. Poison the document without replacing its first cause. Only a successful provider returning without a Page is an orphan. | Hook and ancestor database errors retain source chains; ignored errors remain fatal; WriteError/context/outcome sizes do not grow; record pending-future storage costs. |
 | Empty head publication rejected or delayed | Ready is a control event independent of payload size. HTTP preparation observes it before waiting for body bytes. No synthetic HTML. | Empty head at offset zero returns status/headers while body remains pending, local and Send. |
 | Detached context accepts ignored response changes | Detached response state is read-only even before parent publication. The primary context alone owns response decisions until Ready. | Header, status and cache changes fail in detached contexts; root decisions still reach HTTP. |
 | Suspense clears held prefix on failure | Before publication use its buffered path; do not install the streaming whole-buffer cleanup guard. Sealed-without-outlet is still unpublished. Continue discovery without waiting on head readiness. | Failure, cancellation and unwind preserve prefix across page boundaries in local, Send and shared-writer Markdown paths. |
 | Error recovery crosses head lifecycle | An ErrorBoundary may recover only within an unchanged head revision and before its own bytes are shipped. Hooks, Page selection and outlet/publication changes prevent rewind. Body-only fallbacks are required. | Named fallback diagnostics; reject directly identifiable Page fallbacks before invoking them; nested recovery and later siblings have explicit output assertions. |
-| Native boundary storage regression | Keep lifecycle guards out of native ErrorBoundary and Suspense futures, using separate managed execution when needed. Measure latest-main baseline. | Allocation count/bytes, context/outcome/future size, poll count and output match on metadata-free paths. Measure latency separately; do not infer it from storage. |
+| Native boundary storage regression | Keep lifecycle guards out of native ErrorBoundary and Suspense futures, using separate managed execution when needed. Measure latest-main baseline. | Allocation counts, context/outcome sizes, poll counts and output match on metadata-free paths; record any allocated-byte differences. Measure latency separately; do not infer it from storage. |
 | Readiness and transport ordering | A shared initial-shell pump drives managed local/Send in-order and out-of-order roots. Commit HTTP only at Ready. A newly published head yields once in async component dispatch before continuing body work; the pump delivers Ready first even if a source poll also fails. Release OOO completions after initial shell close; preserve RSJS tail ordering. | Early head with pending or immediately ready body; publication from Page seal and from an outlet inside the Page; same-poll failure after Ready; OOO boundary order, cancellation, backpressure and missing/duplicate Ready. |
 | Unbounded preparation / deadlock | Sample the configurable preparation budget at outlet, sealing and explicit flush with a sink; include escaped head bytes. Never await capacity needed to discover a later Page. Suspense is not an implicit sample before publication. | Limit errors and deadline cancellation before Ready. Budget is sampled, not a hard peak-memory guarantee. |
 | Unsafe output / origins | Escape text and quoted attributes separately. Validate patch values before mutation. Resolve URLs against trusted configured origin/mount; restrict resource origins. Nonce is initialization-only. | Quotes, closing-title input, non-ASCII, dangerous schemes, traversal, origin confusion, nonce and atomic failure. |
@@ -98,10 +98,12 @@ The implementation covers the framework/Axum drivers, typed fields/defaults, str
 
 ## Implementation notes from the production port
 
-The measured native ErrorBoundary and local/Send Suspense regressions are removed.
 The same release probe source against latest main and this branch reports identical
-allocation counts/bytes, returned-outcome sizes and poll counts for ready, pending,
-recovered and in-order cases. These are storage measurements, not a universal latency claim.
+allocation counts, returned-outcome sizes and poll counts for ready, pending,
+recovered and in-order cases. The inherited-head publication fix adds eight bytes
+to the existing native ErrorBoundary and local in-order Suspense allocations;
+static local and Send Suspense storage is unchanged. See the validation report
+for the exact counts and separate latency measurements.
 
 ErrorBoundary reuses its existing transaction id to keep head revision checkpoints
 in managed document state. This adds no field to native futures. Active managed
@@ -163,7 +165,10 @@ match proa_core::head_dispatch::begin(child, cx) {
 ```
 
 This is internal macro expansion, not another application render method.
-Type-directed dispatch omits the hook future for `NoHead`. Avoiding an extra
-`resolve()` future also reduces storage on ordinary async composition. Tags and
+Type-directed dispatch omits the hook future for `NoHead`. A Page using `NoHead`
+still seals inherited metadata and yields after streaming publication before
+constructing its body. Ordinary components keep direct `Done` handling; the
+managed Page continuation is boxed to prevent recursive native-future growth.
+Avoiding an extra `resolve()` future also reduces storage on ordinary async composition. Tags and
 attributes keep their existing direct writes. See the measured before/after data
 in the validation report.

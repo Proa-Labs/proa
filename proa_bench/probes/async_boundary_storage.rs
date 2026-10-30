@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Native/manual contexts only. Compare identical source against recorded baseline
 //! and current integration core rlibs. Measures storage/allocation, not latency.
 use proa_core::{ErrorBoundary, RenderOutcome, WebContext, WebRender, WriteBuf, WriteError};

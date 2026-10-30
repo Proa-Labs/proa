@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Typed fields, atomic validation, trusted URLs and context-correct serialization.
 use crate::mode::ContentMode;
 use crate::shared::escape::{escape_attr_value, escape_text};

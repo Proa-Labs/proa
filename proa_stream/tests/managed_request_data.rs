@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use futures::executor::block_on;
 use proa_core::{
     head_dispatch::{ComponentRole, HeadOperation},

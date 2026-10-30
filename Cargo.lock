@@ -3264,6 +3264,7 @@ dependencies = [
  "itoa_lut",
  "markup5ever_rcdom",
  "memchr",
+ "pin-project-lite",
  "proa_html_policy",
  "proa_ir",
  "proa_macros",

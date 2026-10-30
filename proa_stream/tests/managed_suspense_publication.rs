@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Regression for a real in-order flusher retaining the managed document prefix.
 use futures::{executor::block_on, FutureExt};
 use proa_core::{

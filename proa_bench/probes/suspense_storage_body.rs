@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Identical benchmark body, directly including baseline/candidate Suspense modules.
 //! Native/manual contexts only. No timing claim and no production source edits.
 use proa_core::{

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 """Compile identical probes against two already-built release trees; retain evidence."""
 import argparse
 import hashlib

@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Request-local document preparation and ordered native-buffer publication.
 use crate::{ResponseContext, WriteError};
 use bytes::Bytes;

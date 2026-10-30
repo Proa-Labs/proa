@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Managed readiness is independent of body byte availability.
 use crate::{FrameworkError, FrameworkLocalStream, FrameworkSendStream, FrameworkStreamFactory};
 use bytes::Bytes;

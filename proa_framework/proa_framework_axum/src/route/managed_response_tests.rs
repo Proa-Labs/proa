@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Tests the real Axum first-item gate and real local-stream executor with
 //! production core/macros, managed drivers and the typed readiness protocol.
 use super::*;
@@ -605,23 +608,105 @@ impl WebRenderSend for ImmediatePage {
         )
     }
 }
-struct ImmediateDocument(ImmediatePage);
-impl WebRender for ImmediateDocument {
+struct ImmediateDocument<P>(P);
+impl<P: WebRender + Send + 'static> WebRender for ImmediateDocument<P> {
     fn render(
         self,
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         let head = cx.head();
-        html! {<html><head>{head}</head><body>{self.0}</body></html>}.render(cx)
+        let document = html! {
+            <html>
+                <head>{head}</head>
+                <body>{self.0}</body>
+            </html>
+        };
+        document.render(cx)
     }
 }
-impl WebRenderSend for ImmediateDocument {
+impl<P: WebRenderSend + 'static> WebRenderSend for ImmediateDocument<P> {
     fn render_send(
         self,
         cx: &mut SendWebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         let head = cx.head();
         html_send! {<html><head>{head}</head><body>{self.0}</body></html>}.render_send(cx)
+    }
+}
+
+// This Page inherits application/layout metadata and never constructs a head hook.
+struct InheritedPage(ImmediatePage);
+// proa-perf-ok(scope): test the default async head strategy with an immediately ready body
+impl WebRender for InheritedPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        self.0.render(cx)
+    }
+}
+impl WebRenderSend for InheritedPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_send(
+        self,
+        cx: &mut SendWebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        self.0.render_send(cx)
+    }
+}
+
+#[tokio::test]
+async fn inherited_head_is_published_before_same_poll_body_work() {
+    use std::sync::atomic::Ordering;
+    for send in [false, true] {
+        for mode in [
+            proa_core::RenderMode::ChunkedInOrder,
+            proa_core::RenderMode::ChunkedOutOfOrder,
+        ] {
+            let ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let page = ImmediateDocument(InheritedPage(ImmediatePage(ran.clone())));
+            let route = if send {
+                CoreRouteResponse::ssr_stream_send(page)
+            } else {
+                CoreRouteResponse::ssr_stream(page)
+            }
+            .with_render_mode(mode)
+            .with_head(
+                proa_core::HeadConfig::default()
+                    .with_defaults(|head| head.title("Inherited"))
+                    .unwrap(),
+            );
+            let response = route
+                .into_stream_framework_response(&empty_manifest(), &Default::default())
+                .unwrap();
+            let FrameworkBody::Managed(factory) = response.body else {
+                panic!("expected managed stream")
+            };
+            let mut events: LocalEvents = match factory {
+                ManagedFactory::Local(make) => make(),
+                ManagedFactory::Send(make) => Box::pin(make()),
+            };
+            let Some(Ok(ManagedEvent::Ready { prefix, .. })) = events.next().await else {
+                panic!("inherited head was not published first")
+            };
+            assert!(
+                !ran.load(Ordering::SeqCst),
+                "body ran before the inherited head was delivered (send={send}, mode={mode:?})"
+            );
+            let mut bytes: Vec<u8> = prefix.into_iter().flatten().collect();
+            while let Some(event) = events.next().await {
+                match event.unwrap() {
+                    ManagedEvent::Chunk(page) => bytes.extend_from_slice(&page),
+                    ManagedEvent::Ready { .. } => panic!("duplicate Ready"),
+                }
+            }
+            assert!(ran.load(Ordering::SeqCst));
+            assert_eq!(
+                bytes,
+                b"<html><head><title>Inherited</title></head><body>immediate body</body></html>"
+            );
+        }
     }
 }
 #[tokio::test]
@@ -701,6 +786,7 @@ impl WebRenderSend for BodyWork {
     }
 }
 struct PageWithOutlet(BodyWork);
+// proa-perf-ok(scope): the async outlet must yield before the immediately ready body fixture
 impl WebRender for PageWithOutlet {
     const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
@@ -711,7 +797,13 @@ impl WebRender for PageWithOutlet {
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         let head = cx.head();
-        html! {<html><head>{head}</head><body>{self.0}</body></html>}.render(cx)
+        let document = html! {
+            <html>
+                <head>{head}</head>
+                <body>{self.0}</body>
+            </html>
+        };
+        document.render(cx)
     }
 }
 impl WebRenderSend for PageWithOutlet {

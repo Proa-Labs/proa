@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Type-directed component lifecycle dispatch. Ordinary tags never enter this path.
 use crate::{DataLoader, WebContext, WebRender, WriteBuf, WriteError};
 use std::future::{Future, IntoFuture, Ready};
@@ -85,9 +88,18 @@ impl Strategy for BodyOnly {
         B: WriteBuf + 'a,
         C: WebRender<L, B> + 'a,
     {
-        // Keep Page preflight in synchronous RenderOutcome construction, so
-        // early errors do not add branches to this async state machine.
-        async move { body_after_empty_head(child, cx).resolve().await }
+        async move {
+            if C::ROLE.is_page() {
+                cx.require_managed_head()?;
+                cx.managed_seal()?;
+                if crate::managed_head::streaming(cx.render_mode())
+                    && cx.head_state().document().is_some_and(|d| d.is_published())
+                {
+                    crate::managed_head::yield_after_publication().await;
+                }
+            }
+            child.render(cx).resolve().await
+        }
     }
 }
 impl Strategy for WithHead {
@@ -147,6 +159,33 @@ impl Strategy for WithHead {
     }
 }
 
+// Immediately completed ordinary children stay on Done. Box only the managed
+// Page continuation: retaining it inline would recursively enlarge every
+// ordinary component's future, even when its ROLE excludes the Page branch.
+pin_project_lite::pin_project! {
+    #[project = BodyFutureProj]
+    enum BodyFuture<P, F> {
+        Page { future: std::pin::Pin<Box<P>> },
+        Ordinary { #[pin] future: F },
+    }
+}
+impl<P, F> Future for BodyFuture<P, F>
+where
+    P: Future<Output = Result<(), WriteError>>,
+    F: Future<Output = Result<(), WriteError>>,
+{
+    type Output = Result<(), WriteError>;
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match self.project() {
+            BodyFutureProj::Page { future } => future.as_mut().poll(cx),
+            BodyFutureProj::Ordinary { future } => future.poll(cx),
+        }
+    }
+}
+
 // Private dispatch plumbing, not a new application render entry point.
 #[inline]
 fn body_after_empty_head<L: DataLoader, B: WriteBuf, C: WebRender<L, B>>(
@@ -160,8 +199,24 @@ fn body_after_empty_head<L: DataLoader, B: WriteBuf, C: WebRender<L, B>>(
         if let Err(e) = cx.managed_seal() {
             return crate::RenderOutcome::Done(Err(e));
         }
+        if crate::managed_head::streaming(cx.render_mode())
+            && cx.head_state().document().is_some_and(|d| d.is_published())
+        {
+            return crate::RenderOutcome::pending(BodyFuture::Page {
+                // proa-perf-ok: only a managed Page that just published needs an owned continuation
+                future: Box::pin(async move {
+                    crate::managed_head::yield_after_publication().await;
+                    child.render(cx).resolve().await
+                }),
+            });
+        }
     }
-    child.render(cx)
+    match child.render(cx) {
+        crate::RenderOutcome::Done(result) => crate::RenderOutcome::Done(result),
+        crate::RenderOutcome::Pending(future) => {
+            crate::RenderOutcome::Pending(BodyFuture::Ordinary { future })
+        }
+    }
 }
 
 /// Infer the operation type from the method item without calling it.
@@ -343,8 +398,24 @@ impl SendStrategy for BodyOnly {
             if let Err(e) = cx.managed_seal() {
                 return RenderOutcome::Done(Err(e));
             }
+            if crate::managed_head::streaming(cx.render_mode())
+                && cx.head_state().document().is_some_and(|d| d.is_published())
+            {
+                return RenderOutcome::pending(BodyFuture::Page {
+                    // proa-perf-ok: only a managed Page that just published needs an owned continuation
+                    future: Box::pin(async move {
+                        crate::managed_head::yield_after_publication().await;
+                        child.render_send(cx).resolve().await
+                    }),
+                });
+            }
         }
-        child.render_send(cx)
+        match child.render_send(cx) {
+            RenderOutcome::Done(result) => RenderOutcome::Done(result),
+            RenderOutcome::Pending(future) => {
+                RenderOutcome::Pending(BodyFuture::Ordinary { future })
+            }
+        }
     }
 }
 impl SendStrategy for WithHead {

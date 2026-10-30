@@ -1,3 +1,6 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Regression tests for corrected gaps, plus explicit documented API boundaries.
 use proa_core::{
     head_dispatch::{self, ComponentRole, HeadOperation},
@@ -174,6 +177,60 @@ fn capture_exclusion_restores_on_unwind() {
     head_dispatch::sync(Page, &mut cx).unwrap();
     doc.final_check().unwrap();
 }
+struct InheritedAsyncPage(Arc<AtomicUsize>);
+impl WebRender for InheritedAsyncPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        RenderOutcome::<Ready<Result<(), WriteError>>>::Done(cx.output_mut().extend(b"BODY"))
+    }
+}
+
+#[test]
+fn render_child_with_inherited_head_yields_only_for_streaming_publication() {
+    for mode in [
+        proa_core::RenderMode::Static,
+        proa_core::RenderMode::Agent,
+        proa_core::RenderMode::ChunkedInOrder,
+        proa_core::RenderMode::ChunkedOutOfOrder,
+    ] {
+        let (mut cx, doc, wire) = setup(4096);
+        cx.set_render_mode(mode);
+        cx.output_mut().extend(b"PREFIX").unwrap();
+        WebRenderSync::render(doc.outlet(), &mut cx).unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        {
+            let mut render = std::pin::pin!(proa_core::render_child(
+                &mut cx,
+                InheritedAsyncPage(calls.clone())
+            ));
+            let mut task = Context::from_waker(Waker::noop());
+            let first = render.as_mut().poll(&mut task);
+            if matches!(
+                mode,
+                proa_core::RenderMode::ChunkedInOrder | proa_core::RenderMode::ChunkedOutOfOrder
+            ) {
+                assert!(first.is_pending());
+                assert!(doc.is_published());
+                assert_eq!(calls.load(Ordering::SeqCst), 0);
+                assert!(matches!(
+                    render.as_mut().poll(&mut task),
+                    std::task::Poll::Ready(Ok(()))
+                ));
+            } else {
+                assert!(matches!(first, std::task::Poll::Ready(Ok(()))));
+            }
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(&*wire.lock().unwrap(), b"PREFIX");
+        assert_eq!(cx.output().to_vec(), b"BODY");
+        doc.final_check().unwrap();
+    }
+}
+
 struct SlowBeforePage;
 impl WebRender for SlowBeforePage {
     fn render(
