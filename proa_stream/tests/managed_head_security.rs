@@ -243,7 +243,9 @@ fn body_cannot_swap_nonce_after_head_values_have_been_sealed() {
     cx.set_csp_nonce(CspNonce::new("bm9uY2UtMg==").unwrap());
     assert!(matches!(
         WebRenderSync::render(doc.outlet(), &mut cx),
-        Err(WriteError::HeadLifecycle(HeadError::StateReplaced))
+        Err(WriteError::HeadLifecycle(
+            HeadError::NonceAfterInitialization
+        ))
     ));
     assert!(out.lock().unwrap().is_empty());
     assert!(guard.finish(Ok(())).is_err());
@@ -261,7 +263,9 @@ fn send_context_cannot_swap_the_response_nonce_after_sealing() {
     cx.set_csp_nonce(CspNonce::new("bm9uY2UtMg==").unwrap());
     assert!(matches!(
         WebRenderSendSync::render_send_sync(doc.outlet(), &mut cx),
-        Err(WriteError::HeadLifecycle(HeadError::StateReplaced))
+        Err(WriteError::HeadLifecycle(
+            HeadError::NonceAfterInitialization
+        ))
     ));
     assert!(out.lock().unwrap().is_empty());
     assert!(guard.finish(Ok(())).is_err());

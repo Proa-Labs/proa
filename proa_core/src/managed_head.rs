@@ -48,6 +48,8 @@ pub enum HeadError {
     StateReplaced,
     #[error("use checked head setters in a managed document")]
     LegacyMutation,
+    #[error("the CSP nonce must be installed before managed head preparation begins")]
+    NonceAfterInitialization,
 }
 fn error(e: HeadError) -> WriteError {
     WriteError::HeadLifecycle(e)
@@ -80,7 +82,7 @@ pub(crate) fn streaming(mode: crate::RenderMode) -> bool {
 #[derive(Clone, Debug)]
 pub struct HeadConfig {
     pub preparation_limit: usize,
-    pub urls: Option<crate::HeadUrlPolicy>,
+    pub urls: Option<Arc<crate::HeadUrlPolicy>>,
     pub defaults: HeadDefaults,
 }
 impl Default for HeadConfig {
@@ -101,8 +103,11 @@ impl std::fmt::Debug for HeadDefaults {
     }
 }
 impl HeadConfig {
+    /// Configure the trusted origin and mount. Call this before
+    /// [`HeadConfig::with_defaults`]: defaults resolve their URLs when they are
+    /// configured. Requests share the policy; it is not cloned per request.
     pub fn with_urls(mut self, urls: crate::HeadUrlPolicy) -> Self {
-        self.urls = Some(urls);
+        self.urls = Some(Arc::new(urls));
         self
     }
     pub fn with_preparation_limit(mut self, bytes: usize) -> Self {
@@ -110,6 +115,10 @@ impl HeadConfig {
         self
     }
     /// Prepare immutable app defaults once, using the same checked setters as hooks.
+    ///
+    /// Resource and canonical defaults are resolved against the policy from
+    /// [`HeadConfig::with_urls`] at this call, so configure URLs first; without
+    /// a policy those setters fail with `missing trusted URL policy`.
     pub fn with_defaults(
         mut self,
         configure: impl FnOnce(&mut crate::web::HeadWriter<'_>) -> Result<(), WriteError>,
@@ -149,7 +158,7 @@ struct State {
     excluded: usize,
     outlet: Option<usize>,
     fields: Arc<crate::head_fields::HeadFields>,
-    url_policy: Option<crate::head_fields::HeadUrlPolicy>,
+    url_policy: Option<Arc<crate::head_fields::HeadUrlPolicy>>,
     limit: usize,
     publisher: Publisher,
     revision: usize,
@@ -245,6 +254,8 @@ impl ManagedHead {
     /// A Page without a head hook still owns preparation until its body completes.
     /// Create the guard before sealing or constructing the body, so dropping an
     /// unpolled continuation or unwinding cannot leave a reusable document.
+    /// Hooked providers get the same property from the `HookGuard` that
+    /// dispatch claims before it returns a pending outcome.
     pub(crate) fn track_page(&self, component: &'static str) -> ProviderGuard {
         ProviderGuard {
             head: self.clone(),
@@ -295,16 +306,25 @@ impl ManagedHead {
         }
         Ok(())
     }
+    /// The nonce is read at publication, so it is fixed once preparation begins.
+    pub fn reject_late_nonce(&self) -> Result<(), WriteError> {
+        let mut s = self.0.lock().unwrap();
+        s.check()?;
+        if s.revision != 0 || self.1 || s.excluded != 0 {
+            return s.fail(HeadError::NonceAfterInitialization);
+        }
+        Ok(())
+    }
     pub fn configure_urls(
         &self,
-        policy: crate::head_fields::HeadUrlPolicy,
+        policy: impl Into<Arc<crate::head_fields::HeadUrlPolicy>>,
     ) -> Result<(), WriteError> {
         let mut s = self.0.lock().unwrap();
         s.check()?;
         if s.revision != 0 || self.1 || s.excluded != 0 {
             return s.fail(HeadError::StateReplaced);
         }
-        s.url_policy = Some(policy);
+        s.url_policy = Some(policy.into());
         Ok(())
     }
     fn mutate(
@@ -373,7 +393,7 @@ impl ManagedHead {
         })
     }
     pub fn open_graph(&self, patch: crate::head_fields::OpenGraph) -> Result<(), WriteError> {
-        self.mutate(|s| Arc::make_mut(&mut s.fields).graph(patch, s.url_policy.as_ref()))
+        self.mutate(|s| Arc::make_mut(&mut s.fields).graph(patch, s.url_policy.as_deref()))
     }
     pub fn seal(&self) -> Result<(), WriteError> {
         let mut s = self.0.lock().unwrap();

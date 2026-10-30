@@ -249,8 +249,10 @@ impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
     }
 
     pub fn set_csp_nonce(&mut self, nonce: CspNonce) {
+        // A managed document reads the nonce at publication. Installing one
+        // after preparation began poisons the document with a named error.
         if let Some(document) = self.parts.head.document() {
-            if document.check_initialization().is_err() {
+            if document.reject_late_nonce().is_err() {
                 return;
             }
         }
