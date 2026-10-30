@@ -3275,6 +3275,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "url",
  "zmij",
 ]
 
@@ -3393,6 +3394,7 @@ name = "proa_framework_axum"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "axum",
  "base16ct",
  "base64 0.22.1",
@@ -3630,6 +3632,7 @@ dependencies = [
  "futures",
  "http",
  "proa_core",
+ "proa_macros",
  "tokio",
  "tracing",
 ]

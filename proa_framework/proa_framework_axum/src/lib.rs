@@ -35,7 +35,10 @@ pub use external::{ExternalApp, ExternalAppStrategy};
 pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
 };
-pub use proa_core::{AppUrl, BasePath, CspNonce, InvalidBasePath};
+pub use proa_core::{
+    AppUrl, BasePath, ComponentRole, CspNonce, HeadConfig, HeadDefaults, HeadMedia, HeadOperation,
+    HeadUrlPolicy, InvalidBasePath, SendHeadOperation, SyncHeadOperation,
+};
 pub use proa_framework_core::{
     absolute_http_url, ChangeFreq, DiscoveryError, RobotsGroup, RobotsRule, RobotsTxt, Sitemap,
     SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
@@ -47,10 +50,11 @@ pub use route::{
     explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader, render_css_link,
     render_metadata_head, resolved_metadata, router_from_spec, CascadeOpenGraph, CascadeValue,
     ComputedRouteMeta, DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend,
-    Layout, LayoutRef, LocalStreamExecutorConfig, MarkdownAlternate, Metadata, MetadataRef,
-    OpenGraph, OpenGraphImage, OpenGraphMedia, PageCacheLayer, PageCacheService,
-    RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage, ResolvedOpenGraphMedia,
-    Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec, StaticPathsFn,
+    Layout, LayoutRef, LocalStreamExecutorConfig, ManagedPreparationTimeout, MarkdownAlternate,
+    Metadata, MetadataRef, OpenGraph, OpenGraphImage, OpenGraphMedia, PageCacheLayer,
+    PageCacheService, RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage,
+    ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec,
+    StaticPathsFn,
 };
 pub use rsjs_assets::rsjs_assets_router;
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};
@@ -116,6 +120,7 @@ pub struct FrameworkBuilder {
     manifest: Arc<IslandManifest>,
     base_path: BasePath,
     public_origin: Option<String>,
+    head: Option<proa_core::HeadConfig>,
     sitemaps: Option<discovery::SitemapConfig>,
     robots: Option<RobotsTxt>,
     rsjs_assets: bool,
@@ -157,6 +162,7 @@ impl FrameworkBuilder {
             manifest: Arc::new(manifest),
             base_path: BasePath::default(),
             public_origin: None,
+            head: None,
             sitemaps: None,
             robots: None,
             rsjs_assets: false,
@@ -176,6 +182,13 @@ impl FrameworkBuilder {
             catch_panic: false,
             local_stream_executor: LocalStreamExecutorConfig::default(),
         }
+    }
+
+    /// Configure reusable document head defaults once for all rendered routes.
+    /// The origin/mount policy belongs to HeadConfig and is never inferred from Host.
+    pub fn with_head(mut self, head: proa_core::HeadConfig) -> Self {
+        self.head = Some(head);
+        self
     }
 
     /// Set the browser-visible mount prefix for a prefix-stripping proxy.
@@ -545,6 +558,7 @@ impl FrameworkBuilder {
             manifest,
             base_path,
             public_origin,
+            head,
             sitemaps,
             robots,
             rsjs_assets,
@@ -599,6 +613,11 @@ impl FrameworkBuilder {
         let layer = RouteContextLayer::new(manifest.clone(), computed_metadata)
             .with_base_path(base_path)
             .with_local_stream_executor_config(local_stream_executor);
+        let layer = if let Some(head) = head {
+            layer.with_head(head)
+        } else {
+            layer
+        };
         app = app.layer(layer);
         // Apply a global body-size limit so a single oversized POST cannot
         // tie up the worker indefinitely. Per-route overrides via

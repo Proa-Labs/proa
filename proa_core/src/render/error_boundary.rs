@@ -49,7 +49,8 @@ where
     L: DataLoader + 'static,
 {
     fn render_buffer(&self, cx: &mut WebContext<L, RenderBuffer>) -> Result<(), WriteError> {
-        WebRenderSync::render(self.fallback.clone(), cx)
+        let _excluded = cx.head_state().document().map(|d| d.exclude());
+        crate::head_dispatch::sync(self.fallback.clone(), cx)
     }
 }
 
@@ -66,6 +67,9 @@ where
     L: DataLoader,
     Ef: WebRenderSync<L, B>,
 {
+    if let Some(document) = cx.head_state().document() {
+        document.finish_recovery(seed_checkpoint.transaction_id(), &result)?;
+    }
     match result {
         Ok(()) => {
             cx.rsjs_artifact_commit(artifact_checkpoint);
@@ -90,7 +94,8 @@ where
             cx.rsjs_artifact_rollback(artifact_checkpoint);
             cx.rsjs_shared_state_rollback_seeds(seed_checkpoint);
             tracing::error!(?err, "error boundary recovered with fallback");
-            WebRenderSync::render(fallback, cx)
+            let _excluded = cx.head_state().document().map(|d| d.exclude());
+            crate::head_dispatch::sync(fallback, cx)
         }
         Err(err) => {
             // This boundary did not rewind. Merge its response artifacts into
@@ -111,10 +116,22 @@ where
     Ef: WebRenderSync<L, B>,
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        if Ef::ROLE.is_page() {
+            if let Some(document) = cx.head_state().document() {
+                return document.reject_component(
+                    std::any::type_name::<Ef>(),
+                    "error fallback",
+                    crate::HeadError::Excluded,
+                );
+            }
+        }
         let checkpoint = cx.out.checkpoint();
         let artifact_checkpoint = cx.rsjs_artifact_checkpoint();
         let seed_checkpoint = cx.rsjs_shared_state_seed_checkpoint();
-        let result = WebRenderSync::render(self.child, cx);
+        if let Some(document) = cx.head_state().document() {
+            document.begin_recovery(seed_checkpoint.transaction_id())?;
+        }
+        let result = crate::head_dispatch::sync(self.child, cx);
         recover_or_propagate(
             cx,
             checkpoint,
@@ -137,9 +154,23 @@ where
         self,
         cx: &mut WebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        if <Ef as WebRenderSync<L, B>>::ROLE.is_page() {
+            if let Some(document) = cx.head_state().document() {
+                return RenderOutcome::Done(document.reject_component(
+                    std::any::type_name::<Ef>(),
+                    "error fallback",
+                    crate::HeadError::Excluded,
+                ));
+            }
+        }
         let checkpoint = cx.out.checkpoint();
         let artifact_checkpoint = cx.rsjs_artifact_checkpoint();
         let seed_checkpoint = cx.rsjs_shared_state_seed_checkpoint();
+        if let Some(document) = cx.head_state().document() {
+            if let Err(error) = document.begin_recovery(seed_checkpoint.transaction_id()) {
+                return RenderOutcome::Done(Err(error));
+            }
+        }
         // proa-perf-ok: async boundaries need one owned fallback for deferred Suspense capture and one for local recovery
         let fallback_for_stack_value = self.fallback.clone();
         let fallback_for_stack: Rc<dyn BoundaryErrorFallback<L>> =
@@ -147,7 +178,7 @@ where
         let fallback_scope = cx.push_boundary_error_fallback(fallback_for_stack);
 
         RenderOutcome::Pending(Box::pin(async move {
-            let result = WebRender::render(self.child, cx).resolve().await;
+            let result = crate::head_dispatch::begin(self.child, cx).resolve().await;
             drop(fallback_scope);
             recover_or_propagate(
                 cx,

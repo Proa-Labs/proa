@@ -144,6 +144,14 @@ pub mod __private {
     note = "async children require `html!`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type"
 )]
 pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
+    const ROLE: crate::head_dispatch::ComponentRole =
+        crate::head_dispatch::ComponentRole::COMPONENT;
+    fn render_head(
+        &self,
+        _cx: &mut WebContext<L, B>,
+    ) -> impl crate::head_dispatch::SyncHeadOperation {
+        crate::head_dispatch::NoHead
+    }
     /// Generated component code uses this associated constant as a
     /// rustc-resolved trait identity witness.
     #[doc(hidden)]
@@ -186,6 +194,12 @@ pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     note = "wrap a sync-only child with `proa_core::to_async(...)`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type"
 )]
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
+    const ROLE: crate::head_dispatch::ComponentRole =
+        crate::head_dispatch::ComponentRole::COMPONENT;
+    fn render_head(&self, _cx: &mut WebContext<L, B>) -> impl crate::head_dispatch::HeadOperation {
+        crate::head_dispatch::NoHead
+    }
+
     /// Generated component code uses this associated constant as a
     /// rustc-resolved trait identity witness.
     #[doc(hidden)]
@@ -208,6 +222,11 @@ where
     B: WriteBuf,
     L: DataLoader,
 {
+    const ROLE: crate::head_dispatch::ComponentRole = T::ROLE;
+    fn render_head(&self, cx: &mut WebContext<L, B>) -> impl crate::head_dispatch::HeadOperation {
+        use crate::head_dispatch::SyncHeadOperation;
+        self.0.render_head(cx).into_async()
+    }
     fn render(
         self,
         cx: &mut WebContext<L, B>,
@@ -235,7 +254,7 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let child = self.0.await;
-            child.render(cx).resolve().await
+            crate::render_child(cx, child).await
         })
     }
 }
@@ -260,8 +279,30 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for () {
 impl<L: DataLoader, B: WriteBuf, T: WebRenderSync<L, B>> WebRenderSync<L, B> for Option<T> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if let Some(inner) = self {
-            inner.render(cx)?;
+            crate::head_dispatch::sync(inner, cx)?;
         }
         Ok(())
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf, T: WebRender<L, B>> WebRender<L, B> for Option<T> {
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            if let Some(child) = self {
+                crate::render_child(cx, child).await?;
+            }
+            Ok(())
+        })
+    }
+}
+impl<L: DataLoader, B: WriteBuf, T: WebRender<L, B>> WebRender<L, B> for Result<T, WriteError> {
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move { crate::render_child(cx, self?).await })
     }
 }

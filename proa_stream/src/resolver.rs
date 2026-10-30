@@ -60,19 +60,25 @@ impl<L: ?Sized> DataResolver<L> {
         trace!(load_key = %key, "data resolver miss");
 
         let load_fut = miss();
-        let inflight_map = Arc::clone(&self.inflight);
-        let resolved_map = Arc::clone(&self.resolved);
+        let inflight_map = Arc::downgrade(&self.inflight);
+        let resolved_map = Arc::downgrade(&self.resolved);
         let future_key = key.clone();
         let shared = async move {
             let result = load_fut.await;
-            resolved_map
-                .lock()
-                .expect("data resolver resolved mutex poisoned")
-                .insert(future_key.clone(), result.clone());
-            inflight_map
-                .lock()
-                .expect("data resolver inflight mutex poisoned")
-                .remove(&future_key);
+            // The map owns this shared future. Weak backlinks prevent a
+            // request -> map -> pending future -> map ownership cycle.
+            if let Some(resolved_map) = resolved_map.upgrade() {
+                resolved_map
+                    .lock()
+                    .expect("data resolver resolved mutex poisoned")
+                    .insert(future_key.clone(), result.clone());
+            }
+            if let Some(inflight_map) = inflight_map.upgrade() {
+                inflight_map
+                    .lock()
+                    .expect("data resolver inflight mutex poisoned")
+                    .remove(&future_key);
+            }
             result
         }
         .boxed()

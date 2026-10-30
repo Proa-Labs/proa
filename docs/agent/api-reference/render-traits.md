@@ -443,3 +443,20 @@ The impl-level rules stay quiet when the answer is not knowable from the source:
 - [`proa_core/src/render/web_render.rs`](../../../proa_core/src/render/web_render.rs) — actual trait definitions.
 - [`proa_core/src/render/outcome.rs`](../../../proa_core/src/render/outcome.rs) — `RenderOutcome` and `.resolve()`.
 - [`rsjs_macros/src/parse.rs`](../../../rsjs_macros/src/parse.rs) — accepted analyzed-component signatures.
+
+## Managed document head
+
+HTML components may provide an optional `render_head(&self, cx) -> impl HeadOperation`
+on `WebRender`, or `impl SyncHeadOperation` on `WebRenderSync`. The default is `NoHead`.
+The selected page sets `const ROLE: ComponentRole = ComponentRole::PAGE`; other
+components inherit `COMPONENT`. Preserve the existing `render(self, cx)` signature.
+
+Use `cx.head_mut().title(value)?` and related checked setters inside the hook.
+Place the owned `{cx.head()}` outlet inside the document's `<head>`. Select managed
+mode before rendering with `RouteResponse::with_head(HeadConfig)` or app-wide
+`FrameworkBuilder::with_head`. Head preparation ends before the Page body.
+Suspense, captures and fallbacks are body-only. Raw `.render(cx)` calls skip hooks;
+macro composition and framework helpers dispatch them.
+
+See [the implementation contract](../../design/metadata-api-proposal.md) and
+[the code-first metadata guide](../../../proa_marketing/src/docs/framework/metadata.mdx).

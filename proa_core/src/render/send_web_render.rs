@@ -19,11 +19,29 @@ use crate::{RenderBuffer, WriteBuf, WriteError};
 pub trait WebRenderSendSync<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuffer>:
     Send
 {
+    const ROLE: crate::head_dispatch::ComponentRole =
+        crate::head_dispatch::ComponentRole::COMPONENT;
+    fn render_head_send_sync(
+        &self,
+        _cx: &mut SendWebContext<L, B>,
+    ) -> impl crate::head_dispatch::SyncHeadOperation {
+        crate::head_dispatch::NoHead
+    }
+
     fn render_send_sync(self, cx: &mut SendWebContext<L, B>) -> Result<(), WriteError>;
 }
 
 /// Render a component with a future whose complete active state is `Send`.
 pub trait WebRenderSend<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuffer>: Send {
+    const ROLE: crate::head_dispatch::ComponentRole =
+        crate::head_dispatch::ComponentRole::COMPONENT;
+    fn render_head_send(
+        &self,
+        _cx: &mut SendWebContext<L, B>,
+    ) -> impl crate::head_dispatch::SendHeadOperation {
+        crate::head_dispatch::NoHead
+    }
+
     fn render_send(
         self,
         cx: &mut SendWebContext<L, B>,
@@ -39,6 +57,14 @@ where
     B: WriteBuf + Send,
     L: DataLoader,
 {
+    const ROLE: crate::head_dispatch::ComponentRole = T::ROLE;
+    fn render_head_send(
+        &self,
+        cx: &mut SendWebContext<L, B>,
+    ) -> impl crate::head_dispatch::SendHeadOperation {
+        use crate::head_dispatch::SyncHeadOperation;
+        self.0.render_head_send_sync(cx).into_async()
+    }
     fn render_send(
         self,
         cx: &mut SendWebContext<L, B>,
@@ -64,6 +90,7 @@ where
     L: DataLoader,
 {
     fn render_send_sync(self, cx: &mut SendWebContext<L, B>) -> Result<(), WriteError> {
+        crate::head_dispatch::ensure_stateless::<B, T>()?;
         cx.__proa_with_stateless_context(|local: &mut WebContext<NoLoader, &mut B>| {
             WebRenderSync::render(self.0, local)
         })
@@ -86,7 +113,7 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
             let child = self.0.await;
-            child.render_send(cx).resolve().await
+            crate::head_dispatch::send_begin(child, cx).resolve().await
         })
     }
 }
@@ -114,7 +141,7 @@ where
 {
     fn render_send_sync(self, cx: &mut SendWebContext<L, B>) -> Result<(), WriteError> {
         if let Some(child) = self {
-            child.render_send_sync(cx)?;
+            crate::head_dispatch::send_sync(child, cx)?;
         }
         Ok(())
     }
@@ -132,7 +159,9 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
             if let Some(child) = self {
-                child.render_send(cx).resolve().await?;
+                crate::head_dispatch::send_begin(child, cx)
+                    .resolve()
+                    .await?;
             }
             Ok(())
         })
@@ -234,7 +263,7 @@ where
         self: Box<Self>,
         cx: &'a mut SendWebContext<L, B>,
     ) -> DynSendRenderOutcome<'a> {
-        match WebRenderSend::render_send(*self, cx) {
+        match crate::head_dispatch::send_begin(*self, cx) {
             RenderOutcome::Done(result) => DynSendRenderOutcome::Done(result),
             RenderOutcome::Pending(future) => DynSendRenderOutcome::Pending(Box::pin(future)),
         }
@@ -257,7 +286,7 @@ where
     L: DataLoader,
     R: WebRenderSend<L, B>,
 {
-    child.render_send(cx).resolve().await
+    crate::head_dispatch::send_begin(child, cx).resolve().await
 }
 
 pub async fn render_in_send_context<B, L, R>(
@@ -269,7 +298,7 @@ where
     L: DataLoader,
     R: WebRenderSend<L, B>,
 {
-    root.render_send(cx).resolve().await
+    crate::head_dispatch::send_begin(root, cx).resolve().await
 }
 
 #[cfg(test)]

@@ -17,8 +17,8 @@ use bytes::Bytes;
 use serde::de::DeserializeOwned;
 
 use super::{
-    CacheTrace, CspNonce, HeadContext, Locals, RenderArtifacts, RenderTelemetry, RequestContext,
-    ResponseContext, RsjsRenderArtifacts, WebContext,
+    CacheTrace, CspNonce, HeadContext, HeadWriter, Locals, RenderArtifacts, RenderTelemetry,
+    RequestContext, ResponseContext, RsjsRenderArtifacts, WebContext,
 };
 use crate::render::{
     DataLoader, LoadError, LoadHints, LoadKey, LoadRequest, NoLoader, RenderMode, RequestLocation,
@@ -68,8 +68,8 @@ impl SendWebContextParts {
     fn fork_for_detached(&self) -> Self {
         Self {
             request: Arc::clone(&self.request),
-            response: self.response.clone(),
-            head: self.head.clone(),
+            response: self.response.fork_for_detached(),
+            head: self.head.detached(),
             cache_trace: self.cache_trace.clone(),
             telemetry: self.telemetry.clone(),
             locals: self.locals.clone(),
@@ -208,12 +208,12 @@ impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
         &mut self.parts.response
     }
 
-    pub fn head(&self) -> &HeadContext {
+    pub fn head_state(&self) -> &HeadContext {
         &self.parts.head
     }
 
-    pub fn head_mut(&mut self) -> &mut HeadContext {
-        &mut self.parts.head
+    pub fn head_mut(&mut self) -> HeadWriter<'_> {
+        HeadWriter::new(&mut self.parts.head)
     }
 
     pub fn cache_trace(&self) -> &CacheTrace {
@@ -249,6 +249,11 @@ impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
     }
 
     pub fn set_csp_nonce(&mut self, nonce: CspNonce) {
+        if let Some(document) = self.parts.head.document() {
+            if document.check_initialization().is_err() {
+                return;
+            }
+        }
         self.parts.csp_nonce = Some(nonce);
     }
 
@@ -450,6 +455,13 @@ impl<L: DataLoader> SendWebContext<L, RenderBuffer> {
         let Some(flusher) = self.stream_chunk_flusher.as_ref().cloned() else {
             return Ok(());
         };
+        if let Some(d) = self.head_state().document() {
+            d.limit_check(self.out.len())?;
+            if !d.is_published() {
+                return Ok(());
+            }
+        }
+
         if self.out.is_empty() {
             return Ok(());
         }

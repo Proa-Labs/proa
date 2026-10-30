@@ -133,7 +133,7 @@ pub trait Render {
 
 impl<T: WebRenderSync> Render for T {
     fn render(self, cx: &mut WebContext) -> Result<(), shared::write_buf::WriteError> {
-        WebRenderSync::render(self, cx)
+        head_dispatch::sync(self, cx)
     }
 }
 
@@ -250,7 +250,7 @@ where
     L: DataLoader,
     R: WebRender<L, B>,
 {
-    let outcome = root.render(cx);
+    let outcome = head_dispatch::begin(root, cx);
     outcome.resolve().await
 }
 
@@ -420,17 +420,9 @@ where
 /// Drive any `WebRender` child to completion inside an async render path.
 ///
 /// This is the bridge used by the async-capable `html!` macro: each
-/// interpolated `{expr}` becomes `render_child(cx, expr).await?`, which keeps
-/// async children on the `Pending` path and expects sync children to be wrapped
+/// interpolated `{expr}` dispatches the optional head hook, then handles
+/// `RenderOutcome::Done` directly and awaits `Pending`. Sync children are wrapped
 /// with [`to_async`] when they need to participate in async composition.
-pub async fn render_child<B, L, R>(cx: &mut WebContext<L, B>, child: R) -> Result<(), WriteError>
-where
-    B: WriteBuf,
-    L: DataLoader,
-    R: WebRender<L, B>,
-{
-    child.render(cx).resolve().await
-}
 
 #[cfg(test)]
 mod tests {
@@ -505,3 +497,30 @@ mod tests {
 
 #[doc(hidden)]
 pub mod dev_hot;
+
+#[doc(hidden)]
+pub mod head_dispatch;
+pub mod head_fields;
+pub mod managed_head;
+
+#[inline]
+pub fn render_child<'a, B, L, R>(
+    cx: &'a mut WebContext<L, B>,
+    child: R,
+) -> impl std::future::Future<Output = Result<(), WriteError>> + use<'a, B, L, R>
+where
+    B: WriteBuf + 'a,
+    L: DataLoader + 'a,
+    R: WebRender<L, B> + 'a,
+{
+    use head_dispatch::Strategy;
+    head_dispatch::strategy_of(R::render_head).render(child, cx)
+}
+
+pub use head_dispatch::{
+    ComponentRole, HeadOperation, NoHead, SendHeadOperation, SyncHeadOperation,
+};
+pub use head_fields::HeadUrlPolicy;
+pub use managed_head::{HeadConfig, HeadDefaults, HeadError, HeadOutlet};
+
+pub use head_fields::{HeadMedia, OpenGraph};

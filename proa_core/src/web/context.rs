@@ -312,7 +312,7 @@ impl ResponseContext {
         !self.streaming_started()
     }
 
-    fn fork_for_detached(&self) -> Self {
+    pub(super) fn fork_for_detached(&self) -> Self {
         Self {
             state: ResponseState {
                 status: self.state.status,
@@ -321,7 +321,7 @@ impl ResponseContext {
                 } else {
                     self.state.headers.clone()
                 },
-                streaming_started: self.state.streaming_started,
+                streaming_started: true,
                 stream_flush_generation: self.state.stream_flush_generation,
             },
         }
@@ -342,26 +342,227 @@ struct HeadState {
     entries: Vec<HeadEntry>,
 }
 
+// Managed state is cold; the default context keeps the existing storage shape.
+#[derive(Debug, Clone)]
+enum HeadStorage {
+    Legacy(HeadState),
+    Managed(Box<ManagedHeadState>),
+}
+#[derive(Debug, Clone)]
+struct ManagedHeadState {
+    state: HeadState,
+    document: crate::managed_head::ManagedHead,
+}
+impl Default for HeadStorage {
+    fn default() -> Self {
+        Self::Legacy(HeadState::default())
+    }
+}
+impl std::ops::Deref for HeadStorage {
+    type Target = HeadState;
+    fn deref(&self) -> &HeadState {
+        match self {
+            Self::Legacy(s) => s,
+            Self::Managed(m) => &m.state,
+        }
+    }
+}
+impl std::ops::DerefMut for HeadStorage {
+    fn deref_mut(&mut self) -> &mut HeadState {
+        match self {
+            Self::Legacy(s) => s,
+            Self::Managed(m) => &mut m.state,
+        }
+    }
+}
+
 /// Accumulates page-level head metadata and resource hints during render.
 #[derive(Debug, Clone, Default)]
 pub struct HeadContext {
-    state: HeadState,
+    state: HeadStorage,
+}
+
+/// Checked writer view. Replacing this view never replaces document state.
+pub struct HeadWriter<'a>(&'a mut HeadContext);
+impl<'a> HeadWriter<'a> {
+    fn managed(&self) -> Result<crate::managed_head::ManagedHead, crate::WriteError> {
+        self.0
+            .document()
+            .ok_or_else(|| crate::WriteError::render("managed head setup required"))
+    }
+    pub fn meta(
+        &mut self,
+        name: &str,
+        value: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), crate::WriteError> {
+        self.managed()?.meta(name, Some(value.into()))
+    }
+    pub fn description(
+        &mut self,
+        value: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), crate::WriteError> {
+        self.meta("description", value)
+    }
+    pub fn canonical(&mut self, value: &str) -> Result<(), crate::WriteError> {
+        self.managed()?.canonical(value)
+    }
+    pub fn module<K: Eq + Send + Sync + 'static>(
+        &mut self,
+        key: K,
+        value: &str,
+    ) -> Result<(), crate::WriteError> {
+        self.managed()?
+            .resource(crate::head_fields::ResourceFamily::Module, key, Some(value))
+    }
+    pub fn stylesheet<K: Eq + Send + Sync + 'static>(
+        &mut self,
+        key: K,
+        value: &str,
+    ) -> Result<(), crate::WriteError> {
+        self.managed()?.resource(
+            crate::head_fields::ResourceFamily::Stylesheet,
+            key,
+            Some(value),
+        )
+    }
+    pub fn remove_module<K: Eq + Send + Sync + 'static>(
+        &mut self,
+        key: K,
+    ) -> Result<(), crate::WriteError> {
+        self.managed()?
+            .resource(crate::head_fields::ResourceFamily::Module, key, None)
+    }
+
+    pub fn absolute_title(
+        &mut self,
+        value: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), crate::WriteError> {
+        self.managed()?.absolute_title(value.into())
+    }
+    pub fn clear_title(&mut self) -> Result<(), crate::WriteError> {
+        self.managed()?.clear_title()
+    }
+    pub fn title_template(
+        &mut self,
+        value: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), crate::WriteError> {
+        self.managed()?.title_template(Some(value.into()))
+    }
+    pub fn clear_title_template(&mut self) -> Result<(), crate::WriteError> {
+        self.managed()?.title_template(None)
+    }
+    pub fn clear_canonical(&mut self) -> Result<(), crate::WriteError> {
+        self.managed()?.clear_canonical()
+    }
+    pub fn remove_meta(&mut self, name: &str) -> Result<(), crate::WriteError> {
+        self.managed()?.meta(name, None)
+    }
+    pub fn clear_description(&mut self) -> Result<(), crate::WriteError> {
+        self.remove_meta("description")
+    }
+    pub fn open_graph(
+        &mut self,
+        patch: crate::head_fields::OpenGraph,
+    ) -> Result<(), crate::WriteError> {
+        self.managed()?.open_graph(patch)
+    }
+    pub fn remove_stylesheet<K: Eq + Send + Sync + 'static>(
+        &mut self,
+        key: K,
+    ) -> Result<(), crate::WriteError> {
+        self.managed()?
+            .resource(crate::head_fields::ResourceFamily::Stylesheet, key, None)
+    }
+
+    pub(crate) fn new(head: &'a mut HeadContext) -> Self {
+        Self(head)
+    }
+    pub fn title(
+        &mut self,
+        title: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), crate::WriteError> {
+        self.managed()?.title(title.into())
+    }
+    #[doc(hidden)]
+    pub fn manage(&mut self, document: crate::managed_head::ManagedHead) {
+        self.0.manage(document);
+    }
+    pub fn set_title(&mut self, title: impl Into<String>) {
+        self.0.set_title(title);
+    }
+    pub fn push_meta(&mut self, name: impl Into<String>, content: impl Into<String>) {
+        self.0.push_meta(name, content);
+    }
+    pub fn push_link(&mut self, rel: impl Into<String>, href: impl Into<String>) {
+        self.0.push_link(rel, href);
+    }
+    pub fn push_raw_html(&mut self, html: impl Into<String>) {
+        self.0.push_raw_html(html);
+    }
+}
+impl std::ops::Deref for HeadWriter<'_> {
+    type Target = HeadContext;
+    fn deref(&self) -> &HeadContext {
+        self.0
+    }
 }
 
 impl HeadContext {
+    pub fn detached(&self) -> Self {
+        match &self.state {
+            HeadStorage::Legacy(state) => Self {
+                state: HeadStorage::Legacy(state.clone()),
+            },
+            HeadStorage::Managed(m) => Self {
+                // proa-perf-ok: only a managed detached context allocates this state
+                state: HeadStorage::Managed(Box::new(ManagedHeadState {
+                    state: m.state.clone(),
+                    document: m.document.detached(),
+                })),
+            },
+        }
+    }
+    pub fn manage(&mut self, document: crate::managed_head::ManagedHead) {
+        if let Some(current) = self.document() {
+            current.reject_replacement();
+            return;
+        }
+        // proa-perf-ok: managed documents opt into cold state allocation
+        self.state = HeadStorage::Managed(Box::new(ManagedHeadState {
+            state: HeadState::default(),
+            document,
+        }));
+    }
+    #[doc(hidden)]
+    pub fn document(&self) -> Option<crate::managed_head::ManagedHead> {
+        match &self.state {
+            HeadStorage::Managed(m) => Some(m.document.clone()),
+            _ => None,
+        }
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn set_title(&mut self, title: impl Into<String>) {
+        if let Some(document) = self.document() {
+            let _ = document.fail::<()>(crate::managed_head::HeadError::LegacyMutation);
+            return;
+        }
         self.state.title = Some(title.into());
     }
 
     pub fn title(&self) -> Option<String> {
-        self.state.title.clone()
+        self.document()
+            .map_or_else(|| self.state.title.clone(), |d| d.resolved_title())
     }
 
     pub fn push_meta(&mut self, name: impl Into<String>, content: impl Into<String>) {
+        if let Some(document) = self.document() {
+            let _ = document.fail::<()>(crate::managed_head::HeadError::LegacyMutation);
+            return;
+        }
         self.state.entries.push(HeadEntry::Meta {
             name: name.into(),
             content: content.into(),
@@ -369,6 +570,10 @@ impl HeadContext {
     }
 
     pub fn push_link(&mut self, rel: impl Into<String>, href: impl Into<String>) {
+        if let Some(document) = self.document() {
+            let _ = document.fail::<()>(crate::managed_head::HeadError::LegacyMutation);
+            return;
+        }
         self.state.entries.push(HeadEntry::Link {
             rel: rel.into(),
             href: href.into(),
@@ -376,6 +581,10 @@ impl HeadContext {
     }
 
     pub fn push_raw_html(&mut self, html: impl Into<String>) {
+        if let Some(document) = self.document() {
+            let _ = document.fail::<()>(crate::managed_head::HeadError::LegacyMutation);
+            return;
+        }
         self.state.entries.push(HeadEntry::RawHtml(html.into()));
     }
 
@@ -1771,6 +1980,14 @@ pub struct RsjsSharedStateSeedCheckpoint {
     flush_generation: u64,
 }
 
+impl RsjsSharedStateSeedCheckpoint {
+    /// Existing request-unique transaction id, also used by managed recovery.
+    #[doc(hidden)]
+    pub fn transaction_id(&self) -> u64 {
+        self.transaction_id
+    }
+}
+
 static NEXT_RSJS_SHARED_STATE_TRANSACTION_ID: AtomicU64 = AtomicU64::new(1);
 
 impl Drop for RsjsSharedStateScopeGuard {
@@ -1846,20 +2063,24 @@ impl WebContextParts {
         self
     }
 
-    pub fn head(&self) -> &HeadContext {
+    pub fn head_state(&self) -> &HeadContext {
         &self.head
     }
 
-    pub fn head_mut(&mut self) -> &mut HeadContext {
-        &mut self.head
+    pub fn head_mut(&mut self) -> HeadWriter<'_> {
+        HeadWriter::new(&mut self.head)
     }
 
     pub fn set_head(&mut self, head: HeadContext) {
+        if let Some(document) = self.head.document() {
+            document.reject_replacement();
+            return;
+        }
         self.head = head;
     }
 
     pub fn with_head(mut self, head: HeadContext) -> Self {
-        self.head = head;
+        self.set_head(head);
         self
     }
 
@@ -1919,6 +2140,11 @@ impl WebContextParts {
     }
 
     pub fn set_csp_nonce(&mut self, nonce: CspNonce) {
+        if let Some(document) = self.head.document() {
+            if document.check_initialization().is_err() {
+                return;
+            }
+        }
         self.csp_nonce = Some(nonce);
     }
 
@@ -2242,6 +2468,12 @@ impl<L: DataLoader> WebContext<L, Vec<u8>> {
         let Some(flusher) = self.stream_chunk_flusher.as_ref().cloned() else {
             return Ok(());
         };
+        if let Some(d) = self.head_state().document() {
+            d.limit_check(self.out.len())?;
+            if !d.is_published() {
+                return Ok(());
+            }
+        }
 
         if self.out.is_empty() {
             return Ok(());
@@ -2270,6 +2502,12 @@ impl<L: DataLoader> WebContext<L, RenderBuffer> {
         let Some(flusher) = self.stream_chunk_flusher.as_ref().cloned() else {
             return Ok(());
         };
+        if let Some(d) = self.head_state().document() {
+            d.limit_check(self.out.len())?;
+            if !d.is_published() {
+                return Ok(());
+            }
+        }
 
         if WriteBuf::is_empty(&self.out) {
             // Match the framework's current Vec-backed root behavior: an
@@ -2483,6 +2721,11 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     where
         C: WriteBuf,
     {
+        let _excluded = self
+            .context_parts
+            .as_ref()
+            .and_then(|p| p.head.document())
+            .map(|d| d.exclude());
         let parent = self.state_slots();
         with_scoped_web_output(parent, out, render)
     }
@@ -2497,6 +2740,11 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     where
         T: crate::WebRenderSync<L>,
     {
+        let _excluded = self
+            .context_parts
+            .as_ref()
+            .and_then(|p| p.head.document())
+            .map(|d| d.exclude());
         let mut output = ScopedWebOutput::new(self.state_slots(), RenderBuffer::new());
         let child = output.child_mut();
         let mut scope = HtmlCaptureScope {
@@ -2666,18 +2914,18 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     }
 
     /// Returns the page-level head metadata accumulator.
-    pub fn head(&self) -> &HeadContext {
+    pub fn head_state(&self) -> &HeadContext {
         &self.ensure_context_parts().head
     }
 
     /// Returns the mutable page-level head metadata accumulator.
-    pub fn head_mut(&mut self) -> &mut HeadContext {
-        &mut self.ensure_context_parts_mut().head
+    pub fn head_mut(&mut self) -> HeadWriter<'_> {
+        HeadWriter::new(&mut self.ensure_context_parts_mut().head)
     }
 
     /// Replace the page-level head metadata accumulator.
     pub fn set_head(&mut self, head: HeadContext) {
-        self.ensure_context_parts_mut().head = head;
+        self.ensure_context_parts_mut().set_head(head);
     }
 
     /// Builder-style head metadata setter.
@@ -2762,7 +3010,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 
     /// Install a validated request-scoped Content Security Policy nonce.
     pub fn set_csp_nonce(&mut self, nonce: CspNonce) {
-        self.ensure_context_parts_mut().csp_nonce = Some(nonce);
+        self.ensure_context_parts_mut().set_csp_nonce(nonce);
     }
 
     /// Builder-style CSP nonce setter.
@@ -2784,7 +3032,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         let snapshot = WebContextParts {
             request: parts.request.clone(),
             response: parts.response.fork_for_detached(),
-            head: parts.head.clone(),
+            head: parts.head.detached(),
             cache_trace: parts.cache_trace.clone(),
             telemetry: parts.telemetry.clone(),
             locals: parts.locals.clone(),
@@ -2802,6 +3050,10 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 
     /// Replace all forkable request-scoped state.
     pub fn set_context_parts(&mut self, parts: WebContextParts) {
+        if let Some(document) = self.context_parts.as_ref().and_then(|p| p.head.document()) {
+            document.reject_replacement();
+            return;
+        }
         let artifact_transaction = parts.rsjs_artifact_transaction.clone();
         self.rsjs_artifact_transaction = OnceCell::new();
         if artifact_transaction.is_some() {
@@ -4175,7 +4427,7 @@ mod tests {
 
         assert_eq!(parts.request().method(), Some(&Method::POST));
         assert_eq!(parts.response().status(), Some(StatusCode::CREATED));
-        assert_eq!(parts.head().title().as_deref(), Some("Parts"));
+        assert_eq!(parts.head_state().title().as_deref(), Some("Parts"));
         assert_eq!(
             parts.cache_trace().dependencies(),
             vec![CacheDependency::Path("/products/42".to_owned())]
@@ -4209,8 +4461,8 @@ mod tests {
             HeaderValue::from_static("1"),
         );
 
-        assert_eq!(parent.head().title().as_deref(), Some("Parent"));
-        assert!(parent.head().entries().is_empty());
+        assert_eq!(parent.head_state().title().as_deref(), Some("Parent"));
+        assert!(parent.head_state().entries().is_empty());
         assert_eq!(parent.cache_trace().dependencies().len(), 1);
         assert!(parent.cache_trace().dynamic_reasons().is_empty());
         assert_eq!(parent.response().status(), Some(StatusCode::ACCEPTED));
@@ -4309,7 +4561,7 @@ mod tests {
         assert_eq!(cx.current_mode(), ContentMode::Style);
         assert_eq!(cx.__proa_current_escape_dialect(), EscapeDialect::Xml);
         assert_eq!(cx.render_mode(), RenderMode::ChunkedOutOfOrder);
-        assert_eq!(cx.head().title().as_deref(), Some("after"));
+        assert_eq!(cx.head_state().title().as_deref(), Some("after"));
         let islands = cx.rsjs_islands_used();
         assert!(islands.contains("before"));
         assert!(islands.contains("after"));
@@ -4331,7 +4583,7 @@ mod tests {
 
         assert!(panic.is_err());
         assert_eq!(cx.current_mode(), ContentMode::Script);
-        assert_eq!(cx.head().title().as_deref(), Some("survived"));
+        assert_eq!(cx.head_state().title().as_deref(), Some("survived"));
     }
 
     #[test]
@@ -4358,7 +4610,7 @@ mod tests {
         assert_eq!(cx.current_mode(), ContentMode::Style);
         assert_eq!(cx.__proa_current_escape_dialect(), EscapeDialect::Xml);
         assert_eq!(cx.render_mode(), RenderMode::Agent);
-        assert_eq!(cx.head().title().as_deref(), Some("after"));
+        assert_eq!(cx.head_state().title().as_deref(), Some("after"));
         assert!(cx.rsjs_islands_used().contains("metered"));
         drop(cx);
         assert_eq!(out, b"metered");
@@ -4395,7 +4647,7 @@ mod tests {
         }));
         assert!(panic.is_err());
         assert_eq!(cx.__proa_current_escape_dialect(), EscapeDialect::Xml);
-        assert_eq!(cx.head().title().as_deref(), Some("survived"));
+        assert_eq!(cx.head_state().title().as_deref(), Some("survived"));
     }
 
     #[tokio::test]
@@ -4421,7 +4673,7 @@ mod tests {
         assert_eq!(meter.consumed(), 5);
         assert_eq!(cx.current_mode(), ContentMode::Style);
         assert_eq!(cx.__proa_current_escape_dialect(), EscapeDialect::Xml);
-        assert_eq!(cx.head().title().as_deref(), Some("before await"));
+        assert_eq!(cx.head_state().title().as_deref(), Some("before await"));
         assert!(cx.rsjs_islands_used().contains("async-metered"));
         drop(cx);
         assert_eq!(out, b"async");
@@ -4447,7 +4699,7 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(cx.current_mode(), ContentMode::Script);
         assert_eq!(cx.render_mode(), RenderMode::Agent);
-        assert_eq!(cx.head().title().as_deref(), Some("cancelled"));
+        assert_eq!(cx.head_state().title().as_deref(), Some("cancelled"));
     }
 
     #[test]
@@ -4473,7 +4725,7 @@ mod tests {
             "reserved bytes must not be double-debited"
         );
         assert_eq!(cx.current_mode(), ContentMode::Style);
-        assert_eq!(cx.head().title().as_deref(), Some("reserved"));
+        assert_eq!(cx.head_state().title().as_deref(), Some("reserved"));
         assert_eq!(cx.output().as_slice(), b"hello");
     }
 

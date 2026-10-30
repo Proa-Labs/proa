@@ -129,6 +129,16 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         ))
     }
 
+    /// Enable the request-local document head lifecycle.
+    pub fn with_head(self, config: proa_core::HeadConfig) -> Self {
+        Self(self.0.with_head(config))
+    }
+
+    /// Override app defaults for a manually authored document.
+    pub fn without_head(self) -> Self {
+        Self(self.0.without_head())
+    }
+
     pub fn with_islands<I, S>(self, islands: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -254,6 +264,18 @@ pub(super) fn framework_response_to_axum(response: FrameworkResponse) -> Respons
         body,
     } = response;
     let mut axum_response = match body {
+        FrameworkBody::Managed(factory) => {
+            let (factory, head) = proa_framework_core::managed_response::adapt(factory);
+            let mut response = Response::builder()
+                .status(status)
+                .body(Body::empty())
+                .unwrap();
+            response
+                .extensions_mut()
+                .insert(DeferredFrameworkStream::new(factory));
+            response.extensions_mut().insert(ManagedPreparedHead(head));
+            response
+        }
         FrameworkBody::Full(bytes) => Response::builder()
             .status(status)
             .body(Body::from(bytes))
@@ -280,6 +302,15 @@ pub(super) fn framework_response_to_axum(response: FrameworkResponse) -> Respons
 }
 
 #[derive(Clone)]
+struct ManagedPreparedHead(proa_framework_core::managed_response::PreparedHead);
+
+/// Response extension overriding the managed-head preparation deadline (default: 30 seconds).
+/// Install before the outer `RouteContextLayer` prepares the response. This limits
+/// time to publication; it does not change a body stream's lifetime.
+#[derive(Clone, Copy)]
+pub struct ManagedPreparationTimeout(pub std::time::Duration);
+
+#[derive(Clone)]
 pub(super) struct DeferredFrameworkStream {
     factory: Arc<Mutex<Option<FrameworkStreamFactory>>>,
 }
@@ -303,6 +334,7 @@ enum StreamPrepareError {
     Overloaded,
     Unavailable(Arc<str>),
     FirstItem(proa_framework_core::FrameworkError),
+    TimedOut,
 }
 
 pub(super) async fn prepare_deferred_framework_stream(
@@ -323,10 +355,101 @@ pub(super) async fn prepare_deferred_framework_stream(
         ));
     };
 
-    match prepare_stream(factory, &executor).await {
+    let readiness = response
+        .extensions()
+        .get::<ManagedPreparedHead>()
+        .map(|h| h.0.clone());
+    let prepared = if readiness.is_some() {
+        let deadline = response
+            .extensions()
+            .get::<ManagedPreparationTimeout>()
+            .map_or(std::time::Duration::from_secs(30), |v| v.0);
+        match tokio::time::timeout(deadline, prepare_stream(factory, &executor, readiness)).await {
+            Ok(result) => result,
+            Err(_) => Err(StreamPrepareError::TimedOut),
+        }
+    } else {
+        prepare_stream(factory, &executor, readiness).await
+    };
+    match prepared {
         Ok(stream) => {
+            if let Some(prepared) = response.extensions_mut().remove::<ManagedPreparedHead>() {
+                let Some(decisions) = prepared.0.get() else {
+                    return framework_response_to_axum(FrameworkResponse::plain_text(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "missing prepared response head",
+                    ));
+                };
+                if let Some(status) = decisions.status() {
+                    *response.status_mut() = status;
+                }
+                // A deferred head must not weaken a cache bypass already applied
+                // by middleware before preparation. Vary and cookies accumulate.
+                let cache_headers = [
+                    "cache-control",
+                    "cdn-cache-control",
+                    "cloudflare-cdn-cache-control",
+                    "vercel-cdn-cache-control",
+                ];
+                let restricted_cache = cache_headers.map(|name| {
+                    response.headers().get_all(name).iter().any(|value| {
+                        value.to_str().is_ok_and(|value| {
+                            value.split(',').any(|directive| {
+                                let name = directive.trim().split('=').next().unwrap_or("");
+                                ["private", "no-store", "no-cache"]
+                                    .iter()
+                                    .any(|restricted| name.eq_ignore_ascii_case(restricted))
+                            })
+                        })
+                    })
+                });
+                for name in decisions.headers().keys() {
+                    if name != http::header::SET_COOKIE && name != http::header::VARY {
+                        response.headers_mut().remove(name);
+                    }
+                }
+                for (name, value) in decisions.headers() {
+                    response.headers_mut().append(name.clone(), value.clone());
+                }
+                for (name, restricted) in cache_headers.into_iter().zip(restricted_cache) {
+                    if restricted && decisions.headers().contains_key(name) {
+                        response
+                            .headers_mut()
+                            .insert(name, http::HeaderValue::from_static("private, no-store"));
+                    }
+                }
+                // The final streamed representation has no known byte length.
+                // Framing belongs to the HTTP transport, never a head provider.
+                response.headers_mut().remove(http::header::CONTENT_LENGTH);
+                response
+                    .headers_mut()
+                    .remove(http::header::TRANSFER_ENCODING);
+                // These statuses cannot carry the generated document body.
+                if response.status() == StatusCode::NO_CONTENT
+                    || response.status() == StatusCode::NOT_MODIFIED
+                    || response.status() == StatusCode::RESET_CONTENT
+                {
+                    drop(stream);
+                    *response.body_mut() = Body::empty();
+                    return response;
+                }
+                if response.status().is_informational() {
+                    drop(stream);
+                    return framework_response_to_axum(FrameworkResponse::plain_text(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "invalid document status",
+                    ));
+                }
+            }
             *response.body_mut() = Body::from_stream(stream);
             response
+        }
+        Err(StreamPrepareError::TimedOut) => {
+            error!("managed head preparation timed out before response headers");
+            framework_response_to_axum(FrameworkResponse::plain_text(
+                StatusCode::GATEWAY_TIMEOUT,
+                "render timeout",
+            ))
         }
         Err(StreamPrepareError::Overloaded) => {
             error!("local stream executor admission limit reached");
@@ -355,27 +478,34 @@ pub(super) async fn prepare_deferred_framework_stream(
 async fn prepare_stream(
     factory: FrameworkStreamFactory,
     executor: &LocalStreamExecutor,
+    readiness: Option<proa_framework_core::managed_response::PreparedHead>,
 ) -> Result<FrameworkSendStream, StreamPrepareError> {
     match factory {
         FrameworkStreamFactory::Send(make) => {
             let mut tail = make();
-            match tail.next().await {
-                None => Ok(Box::pin(stream::empty())),
+            match proa_framework_core::managed_response::first_or_ready(
+                &mut tail,
+                readiness.as_ref(),
+            )
+            .await
+            {
+                None => Ok(tail),
                 Some(Err(error)) => Err(StreamPrepareError::FirstItem(error)),
                 Some(Ok(first)) => Ok(Box::pin(
                     stream::once(std::future::ready(Ok(first))).chain(tail),
                 )),
             }
         }
-        FrameworkStreamFactory::Local(make) => {
-            executor.prepare(make).await.map_err(|error| match error {
+        FrameworkStreamFactory::Local(make) => executor
+            .prepare_with_head(make, readiness)
+            .await
+            .map_err(|error| match error {
                 LocalStreamPrepareError::Overloaded => StreamPrepareError::Overloaded,
                 LocalStreamPrepareError::Unavailable(reason) => {
                     StreamPrepareError::Unavailable(reason)
                 }
                 LocalStreamPrepareError::FirstItem(error) => StreamPrepareError::FirstItem(error),
-            })
-        }
+            }),
     }
 }
 
@@ -395,6 +525,7 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
         request.set_route_params(params);
     }
     FrameworkRequestContext {
+        head: ctx.head_config().cloned().map(Into::into),
         request,
         request_location,
         route_params,
@@ -561,3 +692,7 @@ mod tests {
             .is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "managed_response_tests.rs"]
+mod managed_response_tests;

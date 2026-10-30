@@ -19,6 +19,7 @@ html-to-markdown = ["dep:htmd", "dep:markup5ever_rcdom"]
 [dependencies]
 proa_ir = { workspace = true }
 proa_html_policy = { workspace = true }
+url = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 heapless = { workspace = true }

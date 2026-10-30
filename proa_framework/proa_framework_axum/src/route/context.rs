@@ -36,6 +36,7 @@ pub struct RouteContext {
     request_headers: http::HeaderMap,
     csp_nonce: Option<CspNonce>,
     base_path: proa_core::BasePath,
+    head: Option<proa_core::HeadConfig>,
 }
 
 impl RouteContext {
@@ -49,7 +50,12 @@ impl RouteContext {
             request_headers: http::HeaderMap::new(),
             csp_nonce: None,
             base_path: proa_core::BasePath::default(),
+            head: None,
         }
+    }
+
+    pub(super) fn head_config(&self) -> Option<&proa_core::HeadConfig> {
+        self.head.as_ref()
     }
 
     pub(super) fn base_path(&self) -> &proa_core::BasePath {
@@ -311,6 +317,7 @@ pub struct RouteContextLayer {
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
+    head: Option<proa_core::HeadConfig>,
 }
 
 impl RouteContextLayer {
@@ -324,7 +331,14 @@ impl RouteContextLayer {
             computed_metadata,
             local_stream_executor: LocalStreamExecutor::new(LocalStreamExecutorConfig::default()),
             base_path: proa_core::BasePath::default(),
+            head: None,
         }
+    }
+
+    /// Enable managed head rendering for the document responses in this layer.
+    pub fn with_head(mut self, head: proa_core::HeadConfig) -> Self {
+        self.head = Some(head);
+        self
     }
 
     /// Set the public mount prefix without changing incoming routes.
@@ -360,6 +374,7 @@ impl<S> Layer<S> for RouteContextLayer {
             computed_metadata: self.computed_metadata.clone(),
             local_stream_executor: self.local_stream_executor.clone(),
             base_path: self.base_path.clone(),
+            head: self.head.clone(),
         }
     }
 }
@@ -371,6 +386,7 @@ pub struct RouteContextService<S> {
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
+    head: Option<proa_core::HeadConfig>,
 }
 
 impl<S> Service<axum::http::Request<Body>> for RouteContextService<S>
@@ -401,6 +417,7 @@ where
         let csp_nonce = req.extensions().get::<CspNonce>().cloned();
 
         let mut context = RouteContext::new(self.manifest.clone(), self.computed_metadata.clone());
+        context.head = self.head.clone();
         context.set_is_client_request(is_client_request);
         context.set_current_request_parts(current_method, current_headers, current_uri);
         context.set_csp_nonce(csp_nonce);

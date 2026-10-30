@@ -555,7 +555,7 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
         .map(|(field, accessor, _)| {
             let expr = accessor.to_expr(field, AccessTarget::Children);
             quote! {
-                proa_core::WebRenderSync::render(#expr, cx)?;
+                proa_core::head_dispatch::sync(#expr, cx)?;
             }
         })
         .unwrap_or_else(|| quote! {});
