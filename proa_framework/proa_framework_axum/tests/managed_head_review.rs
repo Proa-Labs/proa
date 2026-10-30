@@ -8,8 +8,8 @@ mod tests {
     use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
     use http_body_util::BodyExt;
     use proa_core::{
-        HeadConfig, RenderMode, RenderOutcome, SendWebContext, WebContext, WebRender,
-        WebRenderSend, WebRenderSync, WriteError,
+        ComponentRole, HeadConfig, HeadOperation, RenderMode, RenderOutcome, SendHeadOperation,
+        SendWebContext, WebContext, WebRender, WebRenderSend, WebRenderSync, WriteError,
     };
     use proa_framework_axum::{RouteContextLayer, RouteResponse};
     use proa_macros::{html, html_send, html_sync};
@@ -26,12 +26,14 @@ mod tests {
 
     struct PolicyPage(HeaderMap);
     impl WebRender for PolicyPage {
-        #[allow(refining_impl_trait)]
-        async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
-            for (name, value) in &self.0 {
-                assert!(cx.response_mut().append_header(name.clone(), value.clone()));
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
+            async move {
+                for (name, value) in &self.0 {
+                    assert!(cx.response_mut().append_header(name.clone(), value.clone()));
+                }
+                Ok(())
             }
-            Ok(())
         }
         fn render(
             self,
@@ -47,12 +49,14 @@ mod tests {
         }
     }
     impl WebRenderSend for PolicyPage {
-        #[allow(refining_impl_trait)]
-        async fn render_head_send(&self, cx: &mut SendWebContext) -> Result<(), WriteError> {
-            for (name, value) in &self.0 {
-                assert!(cx.response_mut().append_header(name.clone(), value.clone()));
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
+            async move {
+                for (name, value) in &self.0 {
+                    assert!(cx.response_mut().append_header(name.clone(), value.clone()));
+                }
+                Ok(())
             }
-            Ok(())
         }
         fn render_send(
             self,
@@ -214,10 +218,7 @@ mod tests {
 
     struct RecoveryPage(Fallback);
     impl WebRender for RecoveryPage {
-        #[allow(refining_impl_trait)]
-        async fn render_head(&self, _: &mut WebContext) -> Result<(), WriteError> {
-            Ok(())
-        }
+        const ROLE: ComponentRole = ComponentRole::PAGE;
         fn render(
             self,
             cx: &mut WebContext,

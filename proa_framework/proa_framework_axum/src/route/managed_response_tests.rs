@@ -13,8 +13,10 @@ use futures::{
 use http::HeaderValue;
 use http_body_util::BodyExt;
 use proa_core::{
-    head_dispatch::HeadOperation, managed_head::ManagedHead, NoLoader, RenderBuffer, RenderOutcome,
-    SendWebContext, WebContext, WebRender, WebRenderSend, WriteBuf, WriteError,
+    head_dispatch::{ComponentRole, HeadOperation, SendHeadOperation},
+    managed_head::ManagedHead,
+    NoLoader, RenderBuffer, RenderOutcome, SendWebContext, WebContext, WebRender, WebRenderSend,
+    WriteBuf, WriteError,
 };
 use proa_framework_core::{
     managed_response::{LocalEvents, ManagedEvent, ManagedFactory, SendEvents},
@@ -29,6 +31,7 @@ struct ProductPage {
     fail_body: bool,
 }
 impl WebRender for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
         let local = Rc::new(self.fail_head);
         async move {
@@ -63,21 +66,23 @@ impl WebRender for ProductPage {
     }
 }
 impl WebRenderSend for ProductPage {
-    #[allow(refining_impl_trait)]
-    async fn render_head_send(&self, cx: &mut SendWebContext) -> Result<(), WriteError> {
-        if self.fail_head {
-            return Err(WriteError::render("lookup failed"));
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
+        async move {
+            if self.fail_head {
+                return Err(WriteError::render("lookup failed"));
+            }
+            cx.head_mut().title("Product")?;
+            assert!(cx.response_mut().set_status(StatusCode::CREATED));
+            assert!(cx.response_mut().insert_header(
+                http::header::CACHE_CONTROL,
+                HeaderValue::from_static("private")
+            ));
+            assert!(cx
+                .response_mut()
+                .append_set_cookie(HeaderValue::from_static("page=1")));
+            Ok(())
         }
-        cx.head_mut().title("Product")?;
-        assert!(cx.response_mut().set_status(StatusCode::CREATED));
-        assert!(cx.response_mut().insert_header(
-            http::header::CACHE_CONTROL,
-            HeaderValue::from_static("private")
-        ));
-        assert!(cx
-            .response_mut()
-            .append_set_cookie(HeaderValue::from_static("page=1")));
-        Ok(())
     }
     fn render_send(
         self,
@@ -574,9 +579,9 @@ async fn actual_route_drivers_publish_before_pending_body_in_every_delivery_mode
 
 struct ImmediatePage(Arc<std::sync::atomic::AtomicBool>);
 impl WebRender for ImmediatePage {
-    #[allow(refining_impl_trait)]
-    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
-        cx.head_mut().title("Ready first")
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
+        async { cx.head_mut().title("Ready first") }
     }
     fn render(
         self,
@@ -589,9 +594,9 @@ impl WebRender for ImmediatePage {
     }
 }
 impl WebRenderSend for ImmediatePage {
-    #[allow(refining_impl_trait)]
-    async fn render_head_send(&self, cx: &mut SendWebContext) -> Result<(), WriteError> {
-        cx.head_mut().title("Ready first")
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
+        async { cx.head_mut().title("Ready first") }
     }
     fn render_send(
         self,
@@ -629,14 +634,11 @@ impl<P: WebRenderSend + 'static> WebRenderSend for ImmediateDocument<P> {
     }
 }
 
-// An empty Page hook keeps application defaults and still finalizes metadata.
+// This Page inherits application/layout metadata and never constructs a head hook.
 struct InheritedPage(ImmediatePage);
-// proa-perf-ok(scope): test an empty async head hook with an immediately ready body
+// proa-perf-ok(scope): test the default async head strategy with an immediately ready body
 impl WebRender for InheritedPage {
-    #[allow(refining_impl_trait)]
-    async fn render_head(&self, _: &mut WebContext) -> Result<(), WriteError> {
-        Ok(())
-    }
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render(
         self,
         cx: &mut WebContext,
@@ -645,10 +647,7 @@ impl WebRender for InheritedPage {
     }
 }
 impl WebRenderSend for InheritedPage {
-    #[allow(refining_impl_trait)]
-    async fn render_head_send(&self, _: &mut SendWebContext) -> Result<(), WriteError> {
-        Ok(())
-    }
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render_send(
         self,
         cx: &mut SendWebContext,
@@ -789,9 +788,9 @@ impl WebRenderSend for BodyWork {
 struct PageWithOutlet(BodyWork);
 // proa-perf-ok(scope): the async outlet must yield before the immediately ready body fixture
 impl WebRender for PageWithOutlet {
-    #[allow(refining_impl_trait)]
-    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
-        cx.head_mut().title("Page outlet")
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
+        async { cx.head_mut().title("Page outlet") }
     }
     fn render(
         self,
@@ -808,9 +807,9 @@ impl WebRender for PageWithOutlet {
     }
 }
 impl WebRenderSend for PageWithOutlet {
-    #[allow(refining_impl_trait)]
-    async fn render_head_send(&self, cx: &mut SendWebContext) -> Result<(), WriteError> {
-        cx.head_mut().title("Page outlet")
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
+        async { cx.head_mut().title("Page outlet") }
     }
     fn render_send(
         self,
@@ -856,10 +855,7 @@ async fn outlet_inside_page_publishes_before_following_body_child() {
 
 struct EmptyHeadPage(oneshot::Receiver<()>);
 impl WebRender for EmptyHeadPage {
-    #[allow(refining_impl_trait)]
-    async fn render_head(&self, _: &mut WebContext) -> Result<(), WriteError> {
-        Ok(())
-    }
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render(
         self,
         cx: &mut WebContext,
@@ -872,10 +868,7 @@ impl WebRender for EmptyHeadPage {
     }
 }
 impl WebRenderSend for EmptyHeadPage {
-    #[allow(refining_impl_trait)]
-    async fn render_head_send(&self, _: &mut SendWebContext) -> Result<(), WriteError> {
-        Ok(())
-    }
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render_send(
         self,
         cx: &mut SendWebContext,
@@ -938,10 +931,7 @@ impl WebRender for BadDeferred {
 }
 struct DeferredPage;
 impl WebRender for DeferredPage {
-    #[allow(refining_impl_trait)]
-    async fn render_head(&self, _: &mut WebContext) -> Result<(), WriteError> {
-        Ok(())
-    }
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render(
         self,
         cx: &mut WebContext,
@@ -1058,6 +1048,7 @@ struct SyncPage {
     status: StatusCode,
 }
 impl proa_core::WebRenderSync for SyncPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render_head(&self, cx: &mut WebContext) -> impl proa_core::SyncHeadOperation {
         assert!(cx.response_mut().set_status(self.status));
         if self.clear {
@@ -1199,10 +1190,7 @@ impl WebRender for SeedChild {
 }
 struct SeedPage;
 impl WebRender for SeedPage {
-    #[allow(refining_impl_trait)]
-    async fn render_head(&self, _: &mut WebContext) -> Result<(), WriteError> {
-        Ok(())
-    }
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render(
         self,
         cx: &mut WebContext,

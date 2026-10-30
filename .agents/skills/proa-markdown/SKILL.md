@@ -12,6 +12,16 @@ corresponding current documentation from `https://proa.so/docs/llms.txt`.
 
 ## Choose the rendering boundary
 
+When the same Page also renders a managed-head HTML document, declare
+`const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;` on its
+HTML render-trait impl, even if it inherits all metadata. Ancestor HTML head
+providers declare `ComponentRole::LAYOUT`; real head hooks with the default
+component role fail during code generation, so verify them with `cargo build`.
+Markdown render traits
+do not have this role constant. Follow the
+[managed Page boundary](../../../docs/agent/components.md#managed-html-page-boundary)
+for HTML lifecycle and route verification.
+
 Use `MdRenderSync` with `md_sync!` for synchronous content. Use `MdRender` and
 `md!` only when rendering awaits data. Lift a synchronous child into an async
 tree with `proa_core::to_md_async(...)`.

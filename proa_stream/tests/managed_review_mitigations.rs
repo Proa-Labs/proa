@@ -11,13 +11,15 @@ struct Failure {
     hook: bool,
 }
 impl WebRender for Failure {
-    #[allow(refining_impl_trait)]
-    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
-        cx.head_mut().title("default")?;
-        if self.hook {
-            return Err(WriteError::render("database connection refused"));
+    const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;
+    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
+        async move {
+            cx.head_mut().title("default")?;
+            if self.hook {
+                return Err(WriteError::render("database connection refused"));
+            }
+            Ok(())
         }
-        Ok(())
     }
     fn render(
         self,

@@ -446,19 +446,22 @@ The impl-level rules stay quiet when the answer is not knowable from the source:
 
 ## Managed document head
 
-A head hook identifies the Page; no `ROLE` constant or Page annotation is required.
-Ordinary components and layouts omit it. The Page hook runs once, then metadata is
-sealed before its body. Shared metadata belongs in `HeadConfig` defaults. A Page
-that only uses defaults supplies an empty hook returning `Ok(())`.
+HTML components may provide an optional `render_head(&self, cx) -> impl HeadOperation`
+on `WebRender`, or `impl SyncHeadOperation` on `WebRenderSync`. The default is `NoHead`.
+The selected page sets `const ROLE: ComponentRole = ComponentRole::PAGE`; other
+components inherit `COMPONENT`. Ancestor head providers declare `LAYOUT`:
+their hooks contribute defaults and leave preparation open until the selected
+Page seals it. A real head hook with `COMPONENT` fails a compile-time assertion
+when dispatch is instantiated during code generation; use `cargo build` to check
+this contract, since `cargo check` alone does not instantiate it. A Page without a hook still seals inherited metadata.
+Default `NoHead` components skip hook invocation entirely.
 
-On `WebRender`, author `#[allow(refining_impl_trait)] async fn render_head(&self,
-cx: &mut WebContext<L>) -> Result<(), WriteError>` and mutate `cx` directly. The
-scoped allowance acknowledges Rust's refinement of `impl HeadOperation` to a
-future; the default `NoHead` marker keeps ordinary dispatch free of hook futures.
-Returning `impl HeadOperation` explicitly remains supported. `WebRenderSync`
-hooks return `impl SyncHeadOperation` and mutate `cx` synchronously. Send hooks
-use `render_head_send` / `render_head_send_sync` with the same spelling and the
-existing `Send` future requirement. Preserve the existing `render(self, cx)` signature.
+Async hooks may be written as `#[allow(refining_impl_trait)] async fn
+render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError>` with direct
+context mutations. The scoped Rust lint allowance acknowledges refinement of
+`impl HeadOperation` to a future. The explicit future-returning form remains
+supported. Sync hooks mutate the context directly and return
+`impl SyncHeadOperation`. Preserve the existing `render(self, cx)` signature.
 
 Use `cx.head_mut().title(value)?` and related checked setters inside the hook.
 Place the owned `{cx.head()}` outlet inside the document's `<head>`. Select managed

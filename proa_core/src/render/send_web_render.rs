@@ -19,8 +19,10 @@ use crate::{RenderBuffer, WriteBuf, WriteError};
 pub trait WebRenderSendSync<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuffer>:
     Send
 {
-    /// Providing this synchronous hook identifies the component as the Page.
-    /// Metadata is sealed before `render_send_sync` starts.
+    /// Head providers declare `LAYOUT` or `PAGE`; a real hook with the default
+    /// `COMPONENT` role fails during code generation. Only `PAGE` seals metadata.
+    const ROLE: crate::head_dispatch::ComponentRole =
+        crate::head_dispatch::ComponentRole::COMPONENT;
     fn render_head_send_sync(
         &self,
         _cx: &mut SendWebContext<L, B>,
@@ -33,9 +35,10 @@ pub trait WebRenderSendSync<L: DataLoader = NoLoader, B: WriteBuf + Send = Rende
 
 /// Render a component with a future whose complete active state is `Send`.
 pub trait WebRenderSend<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuffer>: Send {
-    /// Providing this hook identifies the component as the Page.
-    /// The `async fn` spelling uses `#[allow(refining_impl_trait)]` as described
-    /// by [`crate::HeadOperation`]; its future must also be `Send`.
+    /// Head providers declare `LAYOUT` or `PAGE`; a real hook with the default
+    /// `COMPONENT` role fails during code generation. Only `PAGE` seals metadata.
+    const ROLE: crate::head_dispatch::ComponentRole =
+        crate::head_dispatch::ComponentRole::COMPONENT;
     fn render_head_send(
         &self,
         _cx: &mut SendWebContext<L, B>,
@@ -58,6 +61,9 @@ where
     B: WriteBuf + Send,
     L: DataLoader,
 {
+    /// Head providers declare `LAYOUT` or `PAGE`; a real hook with the default
+    /// `COMPONENT` role fails during code generation. Only `PAGE` seals metadata.
+    const ROLE: crate::head_dispatch::ComponentRole = T::ROLE;
     fn render_head_send(
         &self,
         cx: &mut SendWebContext<L, B>,

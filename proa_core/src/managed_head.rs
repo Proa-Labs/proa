@@ -22,9 +22,9 @@ pub enum HeadError {
     Cancelled,
     #[error("head preparation failed")]
     HookFailed,
-    #[error("a Page failed while rendering its body")]
+    #[error("a head provider failed while rendering its body")]
     ProviderFailed,
-    #[error("head preparation completed without sealing a Page")]
+    #[error("a successful head provider must contain the selected Page")]
     OrphanProvider,
     #[error("managed document did not select a Page")]
     MissingPage,
@@ -241,6 +241,16 @@ impl ManagedHead {
     }
     pub fn begin_hook(&self) -> Result<HookGuard, WriteError> {
         self.begin_hook_for("head provider")
+    }
+    /// A Page without a head hook still owns preparation until its body completes.
+    /// Create the guard before sealing or constructing the body, so dropping an
+    /// unpolled continuation or unwinding cannot leave a reusable document.
+    pub(crate) fn track_page(&self, component: &'static str) -> ProviderGuard {
+        ProviderGuard {
+            head: self.clone(),
+            component,
+            done: false,
+        }
     }
     pub fn begin_hook_for(&self, component: &'static str) -> Result<HookGuard, WriteError> {
         let mut s = self.0.lock().unwrap();

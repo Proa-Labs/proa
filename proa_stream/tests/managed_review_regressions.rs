@@ -3,7 +3,7 @@
 
 //! Regression tests for corrected gaps, plus explicit documented API boundaries.
 use proa_core::{
-    head_dispatch::{self, HeadOperation},
+    head_dispatch::{self, ComponentRole, HeadOperation},
     managed_head::{HeadError, ManagedHead},
     HeadContext, RenderBuffer, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteBuf,
     WriteError,
@@ -35,15 +35,14 @@ fn setup(limit: usize) -> (WebContext, ManagedHead, Wire) {
 }
 struct Page;
 impl WebRenderSync for Page {
-    fn render_head(&self, _: &mut WebContext) -> impl proa_core::SyncHeadOperation {
-        Ok(())
-    }
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render(self, _: &mut WebContext) -> Result<(), WriteError> {
         Ok(())
     }
 }
 struct Provider(Arc<AtomicUsize>);
 impl WebRender for Provider {
+    const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;
     fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
         self.0.fetch_add(1, Ordering::SeqCst);
         async move { cx.head_mut().title("child") }
@@ -181,10 +180,7 @@ fn capture_exclusion_restores_on_unwind() {
 }
 struct InheritedAsyncPage(Arc<AtomicUsize>);
 impl WebRender for InheritedAsyncPage {
-    #[allow(refining_impl_trait)]
-    async fn render_head(&self, _: &mut WebContext) -> Result<(), WriteError> {
-        Ok(())
-    }
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     fn render(
         self,
         cx: &mut WebContext,

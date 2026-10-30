@@ -1,16 +1,18 @@
 ---
 title: Metadata and document head
-description: Prepare request-aware Page metadata, override app defaults, and place the head explicitly.
+description: Prepare request-aware metadata, override layout defaults, and place the head explicitly.
 ---
 
-Implement `render_head` to identify a Page and prepare its metadata. Put `{cx.head()}` in your document. The Page finishes metadata before its body runs; no role constant or Page annotation is needed.
+Declare metadata in `render_head`. Put `{cx.head()}` in your document. The selected Page finishes metadata before its body runs.
 
 ## Page metadata
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRender, WriteError};
+use proa_core::{ComponentRole, DataLoader, WebContext, WebRender, WriteError};
 
 impl<L: DataLoader> WebRender<L> for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
     #[allow(refining_impl_trait)]
     async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let product = cx.load_typed::<Product>(product_key(self.id)).await?;
@@ -26,22 +28,13 @@ impl<L: DataLoader> WebRender<L> for ProductPage {
 
 `render_head` and `render` share the request, headers, params and loader. A request-scoped `DataResolver` reuses the same loaded value in both methods. An uncached loader still follows its own caching policy.
 
-Ordinary components and layouts omit `render_head`. A real head operation identifies the Page, including a hook that only returns `Ok(())` to inherit all defaults.
+Head contribution and Page identity are independent: ancestor layouts declare `const ROLE: ComponentRole = ComponentRole::LAYOUT` when they implement `render_head`. Only the selected Page declares `const ROLE: ComponentRole = ComponentRole::PAGE`; that is the point where metadata becomes final, before its body runs. A Page that only inherits metadata may omit its head hook entirely.
 
-The `async fn` body mutates `cx` directly. The scoped `#[allow(refining_impl_trait)]` acknowledges that its future refines the trait's `impl HeadOperation` return type. The default operation is a non-Future absence marker, which lets ordinary components skip head dispatch without an allocation. The explicit `fn ... -> impl HeadOperation` form remains supported.
+The `async fn` spelling mutates `cx` directly. The scoped `#[allow(refining_impl_trait)]` acknowledges Rust's refinement of `impl HeadOperation` to a future. Explicit `fn ... -> impl HeadOperation` remains supported. A component with the default `NoHead` operation skips the hook entirely; the renderer does not invoke the default method to discover that it is empty.
 
-If no async loading is needed, use a synchronous Page hook:
+A real head hook with the default component role fails a compile-time assertion at dispatched render boundaries. Build the owning crate with `cargo build` to exercise this check; `cargo check` alone does not evaluate monomorphization-time assertions. The assertion adds no request-time work. A Page with no hook still needs its explicit Page role, since it cannot be inferred from an ordinary body-only component.
 
-```rust
-// Inside impl WebRenderSync<L> for ProductsPage:
-fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {
-    cx.head_mut().title("Products")?;
-    cx.head_mut().description("Browse our products")?;
-    Ok(())
-}
-```
-
-Send Pages use `render_head_send`; `async fn ... -> Result<(), WriteError>` uses the same scoped allowance and must produce a `Send` future. Synchronous Send Pages use `render_head_send_sync` and `impl SyncHeadOperation`.
+Ordinary components omit `ROLE`; it defaults to `ComponentRole::COMPONENT`. Components without metadata omit `render_head` too. Synchronous hooks return `impl SyncHeadOperation`; Send hooks use `render_head_send` and `impl SendHeadOperation`.
 
 ## Place the head
 
@@ -106,28 +99,33 @@ RouteResponse::ssr_stream(document).with_head(head_config)
 
 Use `.without_head()` to override app defaults for a manual document. A managed document needs exactly one Page and one head outlet.
 
-## Page overrides
+## Layout overrides
 
-Shared defaults belong in `HeadConfig`, configured for the app or a response. Layouts render ordinary document structure and do not implement head hooks. A second head hook inside a Page is rejected before it runs.
+Layouts use the same optional hook and declare the Layout role:
+
+```rust
+// Inside the layout's WebRender<L> impl:
+const ROLE: ComponentRole = ComponentRole::LAYOUT;
+
+#[allow(refining_impl_trait)]
+async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+    cx.head_mut().title("Shop")?;
+    cx.head_mut().description("Explore our products.")?;
+    Ok(())
+}
+```
 
 ```text
-App defaults: title template = "%s | ORIGIN", description = "Explore our products."
-  Ordinary document/layout renders its head outlet
+App defaults
+  Layout hook: title = "Shop", description = "Explore our products."
     Page hook: title = "Trail Jacket"
       Head is sealed
       Page body starts
 ```
 
-The final title is `Trail Jacket | ORIGIN`; the default description remains. Each setter replaces only its field. `clear_title()`, `clear_description()` and `clear_canonical()` remove inherited values. `absolute_title("Checkout")` bypasses the default title template.
+The final title is `Trail Jacket | ORIGIN`; the layout description remains. Each setter replaces only its field. `clear_title()`, `clear_description()` and `clear_canonical()` remove inherited values. `absolute_title("Checkout")` bypasses templates.
 
-Configure title templates in defaults. They require exactly one `%s` and apply to the Page's title once. A Page that only uses defaults still provides an empty hook:
-
-```rust
-#[allow(refining_impl_trait)]
-async fn render_head(&self, _cx: &mut WebContext<L>) -> Result<(), WriteError> {
-    Ok(())
-}
-```
+Templates require exactly one `%s`. The nearest strict ancestor's template applies once; a component's own template applies to descendants.
 
 Compose children through `html!`, `html_sync!`, or the existing framework render helpers. Calling `child.render(cx)` directly calls its body and skips its head hook.
 
@@ -165,7 +163,7 @@ enum Style { Theme }
 
 cx.head_mut().stylesheet(Style::Theme, "/static/default.css")?;
 
-// In the Page hook, replacing the configured default:
+// In a descendant hook:
 cx.head_mut().stylesheet(Style::Theme, "/static/shop.css")?;
 cx.head_mut().remove_module(Script::Site)?;
 ```
@@ -174,7 +172,7 @@ A slot is identified by its resource family, enum type and variant. Replacing or
 
 ## The cutoff
 
-Head mutations work in the Page hook and app-default initialization. After the Page hook completes, the head is sealed. Page bodies, Suspense children, captures and loading/error fallbacks cannot add metadata, even when immediately ready.
+Head mutations work in hooks and app-default initialization. After the Page hook completes, the head is sealed. Page bodies, Suspense children, captures and loading/error fallbacks cannot add metadata, even when immediately ready.
 
 Late mutations return an error and invalidate the managed document. Ignoring `Result` cannot silently keep the old title. Ordinary UI fallbacks cannot swallow lifecycle errors. Invalid field values are atomic and may be handled within a hook.
 
@@ -184,7 +182,7 @@ An ErrorBoundary can recover inside a Page body. It cannot rewind across a head 
 
 ## Existing route metadata
 
-`Metadata`, `CascadeValue`, route-spec layouts and `render_metadata_head` remain available for manual documents. They do not automatically become render ancestors or feed the managed head. Migrate their values into app defaults or the Page hook, then replace their emitter with `{cx.head()}`; do not run both emitters.
+`Metadata`, `CascadeValue`, route-spec layouts and `render_metadata_head` remain available for manual documents. They do not automatically become render ancestors or feed the managed head. Migrate their values into app defaults or hooks, then replace their emitter with `{cx.head()}`; do not run both emitters.
 
 The previous `cx.head()` inspection getter is now `cx.head_state()`. Legacy void setters are for manual mode; use the checked `cx.head_mut().title(...)` and related setters in managed mode.
 

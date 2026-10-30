@@ -116,7 +116,7 @@ where
     Ef: WebRenderSync<L, B>,
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        if crate::head_dispatch::is_sync_page::<L, B, Ef>() {
+        if Ef::ROLE.is_page() {
             if let Some(document) = cx.head_state().document() {
                 return document.reject_component(
                     std::any::type_name::<Ef>(),
@@ -154,7 +154,7 @@ where
         self,
         cx: &mut WebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
-        if crate::head_dispatch::is_sync_page::<L, B, Ef>() {
+        if <Ef as WebRenderSync<L, B>>::ROLE.is_page() {
             if let Some(document) = cx.head_state().document() {
                 return RenderOutcome::Done(document.reject_component(
                     std::any::type_name::<Ef>(),

@@ -3,7 +3,11 @@
 
 //! Regression for a real in-order flusher retaining the managed document prefix.
 use futures::{executor::block_on, FutureExt};
-use proa_core::{managed_head::ManagedHead, *};
+use proa_core::{
+    head_dispatch::{ComponentRole, HeadOperation, SendHeadOperation},
+    managed_head::ManagedHead,
+    *,
+};
 use proa_macros::{html, html_send};
 use proa_stream::Suspense;
 use std::{
@@ -64,9 +68,9 @@ fn setup_send() -> (SendWebContext, ManagedHead, Sink) {
 
 struct Page;
 impl WebRender for Page {
-    #[allow(refining_impl_trait)]
-    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
-        cx.head_mut().title("Selected page")
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
+        async move { cx.head_mut().title("Selected page") }
     }
     fn render(
         self,
@@ -76,9 +80,9 @@ impl WebRender for Page {
     }
 }
 impl WebRenderSend for Page {
-    #[allow(refining_impl_trait)]
-    async fn render_head_send(&self, cx: &mut SendWebContext) -> Result<(), WriteError> {
-        cx.head_mut().title("Selected page")
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head_send(&self, cx: &mut SendWebContext) -> impl SendHeadOperation {
+        async move { cx.head_mut().title("Selected page") }
     }
     fn render_send(
         self,

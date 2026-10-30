@@ -11,6 +11,43 @@ Before authoring a page, discovery document, or error response, read
 [`document-rendering.md`](document-rendering.md). It covers format-specific
 macros and shared HTML/Markdown implementations, including cached documents.
 
+## Managed HTML Page boundary
+
+Every managed-head HTML document needs one explicitly declared Page. Put this
+constant in the selected Page's `WebRender` or `WebRenderSync` impl, and in any
+corresponding Send render impl:
+
+```rust
+const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;
+```
+
+This is required even when the Page has no head hook and inherits all metadata.
+Ancestor layouts implementing `render_head` declare
+`const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;`.
+Only the Page seals metadata before its body; a head hook alone
+does not declare a Page. Ordinary components with `NoHead` skip the hook.
+Manual documents without managed-head configuration do not require this role.
+
+Test through the document's actual managed route, including an outlet and an
+explicit Page, and verify head publication while body work remains pending.
+Calling `render` directly exercises only the body and bypasses lifecycle dispatch.
+A real head hook with the default `COMPONENT` role fails a compile-time assertion
+at dispatched rendering boundaries. This is checked during code generation;
+run `cargo build` for changed hooks, because `cargo check` alone does not evaluate
+monomorphization-time assertions. The check emits no request-time branch.
+
+A Page with neither a hook nor a declared role remains indistinguishable from an
+ordinary component. Choosing `LAYOUT` for the selected Page also leaves no Page
+boundary. These cases leave preparation unsealed: a completed render fails with
+`MissingPage` or `OrphanProvider`, while pending body work can wait until the
+preparation deadline (30 seconds by default in the Axum streaming adapter).
+
+Keep interactive islands inside an ordinary SSR Page wrapper. The current
+`#[rsjs(component...)]` analyzer accepts only the render method in its impl;
+put the Page role and head hook on the wrapper rather than the analyzed island.
+See [managed document head](api-reference/render-traits.md#managed-document-head)
+for dispatch, inheritance, and hook signatures.
+
 ## Pick the render path
 
 Use `WebRenderSync` and `html_sync!` unless rendering must await data. Author

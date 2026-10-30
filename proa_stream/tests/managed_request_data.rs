@@ -26,6 +26,7 @@ impl DataLoader for Loader {
 }
 struct LoadedPage(Arc<Mutex<Option<Arc<Product>>>>);
 impl<L: DataLoader> WebRender<L> for LoadedPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
     #[allow(refining_impl_trait)]
     async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let p = cx
@@ -35,6 +36,7 @@ impl<L: DataLoader> WebRender<L> for LoadedPage {
         *self.0.lock().unwrap() = Some(p);
         Ok(())
     }
+
     fn render(
         self,
         cx: &mut WebContext<L>,

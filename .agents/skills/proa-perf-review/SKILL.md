@@ -34,6 +34,27 @@ the concrete unsupported requirement beside its source and stay minimal.
 Apply the [RSJS-first policy](../../../docs/agent/rsjs-islands.md#prefer-rsjs-for-browser-behavior); distinguish executable application code from JSON
 data, generated output, vendored code, tooling, and displayed examples.
 
+## Managed head publication
+
+For each managed HTML document, verify that the selected Page's render impl
+declares `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;`,
+including Pages that only inherit metadata. Check local/Send/sync implementations
+and adapter forwarding. Ancestor head providers declare `ComponentRole::LAYOUT`;
+ordinary `NoHead` components keep `COMPONENT` and skip hook invocation. Real
+hooks with a missing/default component role fail a compile-time assertion during
+code generation. Run `cargo build` for changed hooks; `cargo check` alone does
+not instantiate this check.
+
+A real hook cannot silently keep the default role. A Page with neither a hook
+nor an explicit Page role is still indistinguishable from an ordinary component;
+this omitted boundary leaves preparation unsealed: completion fails with
+`MissingPage` or `OrphanProvider`, while a pending body can delay failure until
+the preparation deadline. Treat missing declarations and delayed publication as
+correctness/performance findings. Require a managed route test that observes
+head publication before pending body work; source skills and allocation probes
+alone do not enforce the boundary. See the
+[managed Page boundary](../../../docs/agent/components.md#managed-html-page-boundary).
+
 ## Quick Start
 
 Run the CLI check on changed files when possible:
