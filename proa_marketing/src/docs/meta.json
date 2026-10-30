@@ -33,6 +33,7 @@
     "framework/page-caching",
     "framework/errors",
     "framework/metadata",
+    "framework/metadata-reference",
     {
       "separator": "Data",
       "icon": "Database"
