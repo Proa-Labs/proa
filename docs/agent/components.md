@@ -26,7 +26,11 @@ Ancestor layouts implementing `render_head` declare
 `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;`.
 Only the Page seals metadata before its body; a head hook alone
 does not declare a Page. Ordinary components with `NoHead` skip the hook.
-Manual documents without managed-head configuration do not require this role.
+Manual documents without managed-head configuration do not require this role,
+and a component that declares `PAGE` renders only inside a managed document:
+a plain `WebContext::new()`, a `render_to_string` helper, or a `.without_head()`
+route fails with `HeadError::ManualMode`. Keep a body-only wrapper for any
+document that must also render manually.
 
 Test through the document's actual managed route, including an outlet and an
 explicit Page, and verify head publication while body work remains pending.

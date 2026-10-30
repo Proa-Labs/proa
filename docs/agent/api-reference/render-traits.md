@@ -13,18 +13,31 @@ contract, see [Why components write directly to the output buffer](direct-buffer
 ```rust
 // Sync. The fast path. Use this by default.
 pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
+    // Managed-head role: COMPONENT (default), LAYOUT, or PAGE.
+    const ROLE: ComponentRole = ComponentRole::COMPONENT;
+    // Optional metadata hook; the default `NoHead` is never invoked.
+    fn render_head(&self, _cx: &mut WebContext<L, B>) -> impl SyncHeadOperation {
+        NoHead
+    }
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError>;
 }
 
 // Async-capable. The render method returns a `RenderOutcome` that may resolve
 // either synchronously (`Done(r)`) or via a future (`Pending(fut)`).
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
+    const ROLE: ComponentRole = ComponentRole::COMPONENT;
+    fn render_head(&self, _cx: &mut WebContext<L, B>) -> impl HeadOperation {
+        NoHead
+    }
     fn render(
         self,
         cx: &mut WebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>>;
 }
 ```
+
+Ordinary components leave `ROLE` and `render_head` at their defaults; see
+[Managed document head](#managed-document-head) for the Page and layout roles.
 
 `B` is the advanced custom-writer parameter. Because it defaults to the owned
 `RenderBuffer`, ordinary application components customize only `L` and use
@@ -46,6 +59,13 @@ pub trait WebRenderSendSync<
     L: DataLoader = NoLoader,
     B: WriteBuf + Send = RenderBuffer,
 >: Send {
+    const ROLE: ComponentRole = ComponentRole::COMPONENT;
+    fn render_head_send_sync(
+        &self,
+        _cx: &mut SendWebContext<L, B>,
+    ) -> impl SyncHeadOperation {
+        NoHead
+    }
     fn render_send_sync(
         self,
         cx: &mut SendWebContext<L, B>,
@@ -56,6 +76,13 @@ pub trait WebRenderSend<
     L: DataLoader = NoLoader,
     B: WriteBuf + Send = RenderBuffer,
 >: Send {
+    const ROLE: ComponentRole = ComponentRole::COMPONENT;
+    fn render_head_send(
+        &self,
+        _cx: &mut SendWebContext<L, B>,
+    ) -> impl SendHeadOperation {
+        NoHead
+    }
     fn render_send(
         self,
         cx: &mut SendWebContext<L, B>,
@@ -454,7 +481,10 @@ their hooks contribute defaults and leave preparation open until the selected
 Page seals it. A real head hook with `COMPONENT` fails a compile-time assertion
 when dispatch is instantiated during code generation; use `cargo build` to check
 this contract, since `cargo check` alone does not instantiate it. A Page without a hook still seals inherited metadata.
-Default `NoHead` components skip hook invocation entirely.
+Default `NoHead` components skip hook invocation entirely. A component that
+declares `PAGE` renders only inside a managed document: a plain
+`WebContext::new()`, a `render_to_string` helper, or a `.without_head()` route
+fails with `HeadError::ManualMode`.
 
 Async hooks may be written as `#[allow(refining_impl_trait)] async fn
 render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError>` with direct

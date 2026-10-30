@@ -89,7 +89,7 @@ let app = FrameworkBuilder::new(manifest)
     .build();
 ```
 
-`public_origin` comes from trusted application configuration, including staging configuration. It is not inferred from `Host` or forwarded headers. Paths passed to the head API are relative to the configured public mount; do not first prefix them with `cx.request().url(...)`.
+`public_origin` comes from trusted application configuration, including staging configuration. It is not inferred from `Host` or forwarded headers. Paths passed to the head API are relative to the configured public mount; do not first prefix them with `cx.request().url(...)`. Call `with_urls` before `with_defaults`: defaults resolve their URLs when they are configured, so a stylesheet, module or canonical default without a policy fails with `missing trusted URL policy`.
 
 To enable it for one response instead:
 

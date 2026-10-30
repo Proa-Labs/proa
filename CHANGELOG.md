@@ -4,6 +4,25 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- Managed document head: `render_head` hooks on `WebRenderSync`, `WebRender`,
+  `WebRenderSend` and `WebRenderSendSync`, a `ROLE` constant (`COMPONENT`,
+  `LAYOUT`, `PAGE`), checked setters on `cx.head_mut()`, an owned
+  `{cx.head()}` outlet, `HeadConfig`/`HeadUrlPolicy` defaults, Open Graph
+  records, and request-aware publication through `RouteResponse::with_head`
+  or app-wide `FrameworkBuilder::with_head`. Breaking: `WebContext::head()`
+  and `SendWebContext::head()` now return the `HeadOutlet`; the inspection
+  getter is `head_state()` (also on `WebContextParts`), and `head_mut()`
+  returns a checked `HeadWriter` instead of `&mut HeadContext`. Enabling
+  `FrameworkBuilder::with_head` switches every rendered route to managed mode;
+  routes that still call the void `set_title`/`push_meta` setters fail with
+  `HeadError::LegacyMutation` and need `.without_head()` or the checked setters.
+  A component that declares `ComponentRole::PAGE` renders only inside a managed
+  document.
+
+- `DataResolver` no longer retains a request-to-map-to-future reference cycle
+  for loads still in flight when the request is dropped; the shared future
+  holds weak links to the resolver maps.
+
 - `xml!` and `xml_sync!` accept a leading `<?xml version="1.0" encoding="UTF-8"?>`
   declaration and consolidate it with adjacent static markup. Declaration
   fields are checked at compile time; formatting preserves their values.

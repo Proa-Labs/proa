@@ -115,6 +115,12 @@ trait definition is:
 
 ```rust
 pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
+    /// Managed-head role: `COMPONENT` (default), `LAYOUT`, or `PAGE`.
+    const ROLE: ComponentRole = ComponentRole::COMPONENT;
+    /// Optional metadata hook. The default `NoHead` is never invoked.
+    fn render_head(&self, _cx: &mut WebContext<L, B>) -> impl SyncHeadOperation {
+        NoHead
+    }
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError>;
 }
 ```
@@ -124,12 +130,26 @@ definition is:
 
 ```rust
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
+    /// Managed-head role: `COMPONENT` (default), `LAYOUT`, or `PAGE`.
+    const ROLE: ComponentRole = ComponentRole::COMPONENT;
+    /// Optional metadata hook. The default `NoHead` is never invoked.
+    fn render_head(&self, _cx: &mut WebContext<L, B>) -> impl HeadOperation {
+        NoHead
+    }
     fn render(
         self,
         cx: &mut WebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>>;
 }
 ```
+
+Ordinary components leave both defaults alone. In a managed-head document the
+selected Page sets `ROLE = ComponentRole::PAGE`, and ancestor layouts that
+implement `render_head` set `ROLE = ComponentRole::LAYOUT`. A component that
+declares `PAGE` renders only inside a managed document (`RouteResponse::with_head`
+or `FrameworkBuilder::with_head`); a plain `WebContext::new()` or a
+`.without_head()` route fails with `HeadError::ManualMode`. See
+[`docs/agent/api-reference/render-traits.md#managed-document-head`](docs/agent/api-reference/render-traits.md#managed-document-head).
 
 Use `WebRenderSync` by default. Use `WebRender` only for components that need to `.await`.
 The `B` parameter is the advanced custom-writer escape hatch. Application
