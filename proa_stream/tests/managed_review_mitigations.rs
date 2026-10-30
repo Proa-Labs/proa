@@ -11,14 +11,13 @@ struct Failure {
     hook: bool,
 }
 impl WebRender for Failure {
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
-        async move {
-            cx.head_mut().title("default")?;
-            if self.hook {
-                return Err(WriteError::render("database connection refused"));
-            }
-            Ok(())
+    #[allow(refining_impl_trait)]
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("default")?;
+        if self.hook {
+            return Err(WriteError::render("database connection refused"));
         }
+        Ok(())
     }
     fn render(
         self,

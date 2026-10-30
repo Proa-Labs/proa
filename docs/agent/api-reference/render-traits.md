@@ -446,10 +446,19 @@ The impl-level rules stay quiet when the answer is not knowable from the source:
 
 ## Managed document head
 
-HTML components may provide an optional `render_head(&self, cx) -> impl HeadOperation`
-on `WebRender`, or `impl SyncHeadOperation` on `WebRenderSync`. The default is `NoHead`.
-The selected page sets `const ROLE: ComponentRole = ComponentRole::PAGE`; other
-components inherit `COMPONENT`. Preserve the existing `render(self, cx)` signature.
+A head hook identifies the Page; no `ROLE` constant or Page annotation is required.
+Ordinary components and layouts omit it. The Page hook runs once, then metadata is
+sealed before its body. Shared metadata belongs in `HeadConfig` defaults. A Page
+that only uses defaults supplies an empty hook returning `Ok(())`.
+
+On `WebRender`, author `#[allow(refining_impl_trait)] async fn render_head(&self,
+cx: &mut WebContext<L>) -> Result<(), WriteError>` and mutate `cx` directly. The
+scoped allowance acknowledges Rust's refinement of `impl HeadOperation` to a
+future; the default `NoHead` marker keeps ordinary dispatch free of hook futures.
+Returning `impl HeadOperation` explicitly remains supported. `WebRenderSync`
+hooks return `impl SyncHeadOperation` and mutate `cx` synchronously. Send hooks
+use `render_head_send` / `render_head_send_sync` with the same spelling and the
+existing `Send` future requirement. Preserve the existing `render(self, cx)` signature.
 
 Use `cx.head_mut().title(value)?` and related checked setters inside the hook.
 Place the owned `{cx.head()}` outlet inside the document's `<head>`. Select managed

@@ -144,8 +144,9 @@ pub mod __private {
     note = "async children require `html!`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type"
 )]
 pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
-    const ROLE: crate::head_dispatch::ComponentRole =
-        crate::head_dispatch::ComponentRole::COMPONENT;
+    /// Providing a head hook identifies this component as the Page.
+    /// Mutate metadata here; it is sealed before `render` starts. Ordinary
+    /// components and layouts leave the default absence marker unchanged.
     fn render_head(
         &self,
         _cx: &mut WebContext<L, B>,
@@ -194,8 +195,11 @@ pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     note = "wrap a sync-only child with `proa_core::to_async(...)`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type"
 )]
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
-    const ROLE: crate::head_dispatch::ComponentRole =
-        crate::head_dispatch::ComponentRole::COMPONENT;
+    /// Providing a head hook identifies this component as the Page.
+    /// An `async fn` returning `Result<(), WriteError>` can implement this
+    /// method with a scoped `#[allow(refining_impl_trait)]`; see [`crate::HeadOperation`].
+    /// Metadata is sealed before `render` starts. A defaults-only Page returns
+    /// `Ok(())` from an empty hook; ordinary components omit the hook entirely.
     fn render_head(&self, _cx: &mut WebContext<L, B>) -> impl crate::head_dispatch::HeadOperation {
         crate::head_dispatch::NoHead
     }
@@ -222,7 +226,6 @@ where
     B: WriteBuf,
     L: DataLoader,
 {
-    const ROLE: crate::head_dispatch::ComponentRole = T::ROLE;
     fn render_head(&self, cx: &mut WebContext<L, B>) -> impl crate::head_dispatch::HeadOperation {
         use crate::head_dispatch::SyncHeadOperation;
         self.0.render_head(cx).into_async()

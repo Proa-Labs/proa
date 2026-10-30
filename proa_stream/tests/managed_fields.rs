@@ -5,9 +5,14 @@ use proa_core::*;
 use std::sync::{Arc, Mutex};
 
 fn resolve(
-    config: HeadConfig,
-    hooks: &[fn(&mut proa_core::web::HeadWriter<'_>) -> Result<(), WriteError>],
+    mut config: HeadConfig,
+    patches: &[fn(&mut proa_core::web::HeadWriter<'_>) -> Result<(), WriteError>],
 ) -> String {
+    // Shared layers are configuration; only the final patch is the Page hook.
+    let (page, defaults) = patches.split_last().unwrap();
+    for defaults in defaults {
+        config = config.with_defaults(defaults).unwrap();
+    }
     let wire = Arc::new(Mutex::new(Vec::new()));
     let sink = wire.clone();
     let mut cx = WebContext::new();
@@ -22,16 +27,11 @@ fn resolve(
     )
     .unwrap();
     let doc = cx.head_state().document().unwrap();
-    let mut scopes = Vec::new();
-    for hook in hooks {
-        let guard = doc.begin_hook().unwrap();
-        scopes.push(guard.finish(hook(&mut cx.head_mut())).unwrap());
-    }
+    let guard = doc.begin_hook().unwrap();
+    let scope = guard.finish(page(&mut cx.head_mut())).unwrap();
     cx.managed_seal().unwrap();
     WebRenderSync::render(cx.head(), &mut cx).unwrap();
-    for scope in scopes {
-        scope.finish(Ok(())).unwrap();
-    }
+    scope.finish(Ok(())).unwrap();
     doc.final_check().unwrap();
     let result = String::from_utf8(wire.lock().unwrap().clone()).unwrap();
     result
@@ -40,7 +40,7 @@ fn config() -> HeadConfig {
     HeadConfig::default().with_urls(HeadUrlPolicy::new("https://example.test", "/shop").unwrap())
 }
 #[test]
-fn nearest_strict_ancestor_template_and_final_social_fallbacks() {
+fn nearest_configured_template_and_final_social_fallbacks() {
     let defaults = config()
         .with_defaults(|h| {
             h.title_template("%s | Site")?;

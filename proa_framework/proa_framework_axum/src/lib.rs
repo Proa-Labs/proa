@@ -36,8 +36,8 @@ pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
 };
 pub use proa_core::{
-    AppUrl, BasePath, ComponentRole, CspNonce, HeadConfig, HeadDefaults, HeadMedia, HeadOperation,
-    HeadUrlPolicy, InvalidBasePath, SendHeadOperation, SyncHeadOperation,
+    AppUrl, BasePath, CspNonce, HeadConfig, HeadDefaults, HeadMedia, HeadOperation, HeadUrlPolicy,
+    InvalidBasePath, SendHeadOperation, SyncHeadOperation,
 };
 pub use proa_framework_core::{
     absolute_http_url, ChangeFreq, DiscoveryError, RobotsGroup, RobotsRule, RobotsTxt, Sitemap,

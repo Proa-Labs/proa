@@ -3,7 +3,7 @@
 
 //! Regression tests for corrected gaps, plus explicit documented API boundaries.
 use proa_core::{
-    head_dispatch::{self, ComponentRole, HeadOperation},
+    head_dispatch::{self, HeadOperation},
     managed_head::{HeadError, ManagedHead},
     HeadContext, RenderBuffer, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteBuf,
     WriteError,
@@ -35,7 +35,9 @@ fn setup(limit: usize) -> (WebContext, ManagedHead, Wire) {
 }
 struct Page;
 impl WebRenderSync for Page {
-    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head(&self, _: &mut WebContext) -> impl proa_core::SyncHeadOperation {
+        Ok(())
+    }
     fn render(self, _: &mut WebContext) -> Result<(), WriteError> {
         Ok(())
     }
@@ -179,7 +181,10 @@ fn capture_exclusion_restores_on_unwind() {
 }
 struct InheritedAsyncPage(Arc<AtomicUsize>);
 impl WebRender for InheritedAsyncPage {
-    const ROLE: ComponentRole = ComponentRole::PAGE;
+    #[allow(refining_impl_trait)]
+    async fn render_head(&self, _: &mut WebContext) -> Result<(), WriteError> {
+        Ok(())
+    }
     fn render(
         self,
         cx: &mut WebContext,

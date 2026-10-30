@@ -517,9 +517,7 @@ where
     head_dispatch::strategy_of(R::render_head).render(child, cx)
 }
 
-pub use head_dispatch::{
-    ComponentRole, HeadOperation, NoHead, SendHeadOperation, SyncHeadOperation,
-};
+pub use head_dispatch::{HeadOperation, NoHead, SendHeadOperation, SyncHeadOperation};
 pub use head_fields::HeadUrlPolicy;
 pub use managed_head::{HeadConfig, HeadDefaults, HeadError, HeadOutlet};
 

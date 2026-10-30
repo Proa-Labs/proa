@@ -31,7 +31,10 @@ mod tests {
         }
     }
     impl WebRender for InheritedPage {
-        const ROLE: ComponentRole = ComponentRole::PAGE;
+        #[allow(refining_impl_trait)]
+        async fn render_head(&self, _: &mut WebContext) -> Result<(), WriteError> {
+            Ok(())
+        }
         fn render(
             self,
             cx: &mut WebContext,
@@ -40,7 +43,10 @@ mod tests {
         }
     }
     impl WebRenderSend for InheritedPage {
-        const ROLE: ComponentRole = ComponentRole::PAGE;
+        #[allow(refining_impl_trait)]
+        async fn render_head_send(&self, _: &mut SendWebContext) -> Result<(), WriteError> {
+            Ok(())
+        }
         fn render_send(
             self,
             cx: &mut SendWebContext,
@@ -135,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn dropping_unpolled_page_outcomes_invalidates_the_sealed_document() {
+    fn dropping_unpolled_page_outcomes_invalidates_preparation() {
         let mut local = WebContext::new();
         local
             .configure_head(HeadConfig::default(), Arc::new(|_, _| Ok(())))
@@ -204,13 +210,20 @@ mod tests {
 
     struct SyncPage;
     impl WebRenderSync for SyncPage {
-        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render_head(&self, _: &mut WebContext) -> impl proa_core::SyncHeadOperation {
+            Ok(())
+        }
         fn render(self, _: &mut WebContext) -> Result<(), WriteError> {
             panic!("sync body panic")
         }
     }
     impl WebRenderSendSync for SyncPage {
-        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render_head_send_sync(
+            &self,
+            _: &mut SendWebContext,
+        ) -> impl proa_core::SyncHeadOperation {
+            Ok(())
+        }
         fn render_send_sync(self, _: &mut SendWebContext) -> Result<(), WriteError> {
             panic!("send sync body panic")
         }

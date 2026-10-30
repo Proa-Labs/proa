@@ -2,10 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use futures::executor::block_on;
-use proa_core::{
-    head_dispatch::{ComponentRole, HeadOperation},
-    *,
-};
+use proa_core::*;
 use proa_stream::DataResolver;
 use std::{
     future::Future,
@@ -29,16 +26,14 @@ impl DataLoader for Loader {
 }
 struct LoadedPage(Arc<Mutex<Option<Arc<Product>>>>);
 impl<L: DataLoader> WebRender<L> for LoadedPage {
-    const ROLE: ComponentRole = ComponentRole::PAGE;
-    fn render_head(&self, cx: &mut WebContext<L>) -> impl HeadOperation {
-        async move {
-            let p = cx
-                .load_typed::<Product>(LoadKey::named("product", "1"))
-                .await?;
-            cx.head_mut().title(p.name.clone())?;
-            *self.0.lock().unwrap() = Some(p);
-            Ok(())
-        }
+    #[allow(refining_impl_trait)]
+    async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let p = cx
+            .load_typed::<Product>(LoadKey::named("product", "1"))
+            .await?;
+        cx.head_mut().title(p.name.clone())?;
+        *self.0.lock().unwrap() = Some(p);
+        Ok(())
     }
     fn render(
         self,

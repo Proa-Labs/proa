@@ -3,7 +3,7 @@
 
 use futures::executor::block_on;
 use proa_core::{
-    head_dispatch::{self, ComponentRole, HeadOperation},
+    head_dispatch::{self, HeadOperation},
     managed_head::{HeadError, ManagedHead},
     *,
 };
@@ -20,17 +20,21 @@ use std::{
 
 type Output = Arc<Mutex<Vec<bytes::Bytes>>>;
 fn setup() -> (WebContext, ManagedHead, Output) {
+    setup_with_defaults(HeadConfig::default())
+}
+fn setup_with_defaults(config: HeadConfig) -> (WebContext, ManagedHead, Output) {
     let output: Output = Arc::new(Mutex::new(Vec::new()));
     let out = output.clone();
-    let d = ManagedHead::new(
-        1024 * 1024,
+    let mut cx = WebContext::new();
+    cx.configure_head(
+        config,
         Arc::new(move |_, bytes| {
             out.lock().unwrap().extend(bytes);
             Ok(())
         }),
-    );
-    let mut cx = WebContext::new();
-    cx.head_mut().manage(d.clone());
+    )
+    .unwrap();
+    let d = cx.head_state().document().unwrap();
     (cx, d, output)
 }
 fn wire(out: &Output) -> String {
@@ -57,12 +61,10 @@ struct PageWithTitle {
     wait: bool,
 }
 impl WebRender for PageWithTitle {
-    const ROLE: ComponentRole = ComponentRole::PAGE;
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
-        async move {
-            cx.head_mut().title(self.title)?;
-            Ok(())
-        }
+    #[allow(refining_impl_trait)]
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title(self.title)?;
+        Ok(())
     }
     fn render(
         self,
@@ -78,12 +80,6 @@ impl WebRender for PageWithTitle {
 }
 struct Document<C>(C);
 impl<C: WebRender + Send + 'static> WebRender for Document<C> {
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
-        async move {
-            cx.head_mut().title("Parent default")?;
-            Ok(())
-        }
-    }
     fn render(
         self,
         cx: &mut WebContext,
@@ -100,8 +96,11 @@ impl<C: WebRender + Send + 'static> WebRender for Document<C> {
     }
 }
 #[test]
-fn page_overrides_parent_and_splices_before_pending_body() {
-    let (mut cx, d, out) = setup();
+fn page_overrides_app_defaults_and_splices_before_pending_body() {
+    let defaults = HeadConfig::default()
+        .with_defaults(|head| head.title("App default"))
+        .unwrap();
+    let (mut cx, d, out) = setup_with_defaults(defaults);
     let mut fut = std::pin::pin!(render_child(
         &mut cx,
         Document(PageWithTitle {
@@ -200,22 +199,19 @@ fn page_siblings_and_postpage_hooks_fail_without_reopening() {
     assert!(d.final_check().is_err());
 }
 #[test]
-fn provider_without_selected_page_is_not_a_valid_layout() {
+fn ordinary_document_without_a_page_cannot_publish() {
     let (mut cx, d, _) = setup();
-    assert_eq!(
-        err(block_on(render_child(&mut cx, Document(()))).unwrap_err()),
-        HeadError::OrphanProvider
-    );
-    assert!(d.final_check().is_err());
+    block_on(render_child(&mut cx, Document(()))).unwrap();
+    assert_eq!(err(d.final_check().unwrap_err()), HeadError::MissingPage);
+    assert!(!d.is_published());
 }
 struct Cancelled;
 impl WebRender for Cancelled {
-    fn render_head(&self, cx: &mut WebContext) -> impl HeadOperation {
-        async move {
-            cx.head_mut().title("provisional")?;
-            std::future::pending::<()>().await;
-            Ok(())
-        }
+    #[allow(refining_impl_trait)]
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("provisional")?;
+        std::future::pending::<()>().await;
+        Ok(())
     }
     fn render(
         self,
@@ -312,13 +308,15 @@ fn lifecycle_error_cannot_be_caught_by_actual_error_boundary() {
 }
 struct EmptyPage;
 impl WebRenderSync for EmptyPage {
-    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head(&self, _: &mut WebContext) -> impl proa_core::SyncHeadOperation {
+        Ok(())
+    }
     fn render(self, _cx: &mut WebContext) -> Result<(), WriteError> {
         Ok(())
     }
 }
 #[test]
-fn page_without_hook_seals_and_publishes_in_sync_dispatch() {
+fn page_with_empty_hook_seals_and_publishes_in_sync_dispatch() {
     let (mut cx, d, _) = setup();
     cx.output_mut().extend(b"<head>").unwrap();
     WebRenderSync::render(d.outlet(), &mut cx).unwrap();
