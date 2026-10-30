@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 480" width="960" height="480" role="img" aria-labelledby="title description">
+  <title id="title">A root layout wraps the selected Page</title>
+  <desc id="description">RootDocument declares LAYOUT, owns the html and body elements and the head outlet, and renders ContentPage through its generic children field. ContentPage declares PAGE and seals metadata before its body.</desc>
+  <style>
+.canvas {fill:#faf8f4}.panel {fill:#fffdf9;stroke:#dcd5cb;stroke-width:1.4}.ink {fill:#302c27}.muted {fill:#80776d}.line {stroke:#bdb3a6;stroke-width:1.5;fill:none}.layout {fill:#f5eee2;stroke:#b69a72;stroke-width:1.6}.page {fill:#fff0e5;stroke:#d6804d;stroke-width:1.8}.component {fill:#eef3ed;stroke:#8aab8c;stroke-width:1.4}.tag {font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px}.h {font:600 19px ui-sans-serif,system-ui,sans-serif}.body {font:14px ui-sans-serif,system-ui,sans-serif}.mono {font:13px ui-monospace,SFMono-Regular,Menlo,monospace}.small {font:12px ui-sans-serif,system-ui,sans-serif}.arrow-head {fill:#a99b8b}
+@media(prefers-color-scheme:dark){.canvas{fill:#202020}.panel{fill:#272624;stroke:#5d574f}.ink{fill:#ece6dc}.muted{fill:#c0b7aa}.layout{fill:#383024;stroke:#b69a72}.page{fill:#442e23;stroke:#e29663}.component{fill:#26382b;stroke:#8aab8c}.line{stroke:#8c8172}}
+</style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" class="arrow-head" />
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="480" rx="18" class="canvas" />
+  <text x="28" y="39" class="h ink">A layout supplies shared UI and renders its child</text>
+  <rect x="28" y="65" width="328" height="337" rx="12" class="panel" />
+  <text x="48" y="96" class="body muted">Source organization</text>
+  <text x="49" y="134" class="mono ink">src/</text>
+  <text x="49" y="163" class="mono ink">  layouts/</text>
+  <text x="49" y="192" class="mono ink">    root.rs</text>
+  <text x="49" y="243" class="mono ink">  pages/</text>
+  <text x="49" y="272" class="mono ink">    content.rs</text>
+  <rect x="214" y="173" width="110" height="25" rx="7" class="layout" />
+  <text x="269.0" y="190" class="tag ink" text-anchor="middle">LAYOUT</text>
+  <rect x="235" y="253" width="89" height="25" rx="7" class="page" />
+  <text x="279.5" y="270" class="tag ink" text-anchor="middle">PAGE</text>
+  <text x="49" y="331" class="mono ink">RootDocument {</text>
+  <text x="49" y="354" class="mono ink">  children: ContentPage { ... }</text>
+  <text x="49" y="377" class="mono ink">}</text>
+  <path d="M370 239H423" class="line" marker-end="url(#arrow)" />
+  <rect x="442" y="65" width="490" height="337" rx="12" class="layout" />
+  <text x="462" y="98" class="h ink">RootDocument</text>
+  <rect x="800" y="80" width="108" height="25" rx="7" class="layout" />
+  <text x="854.0" y="97" class="tag ink" text-anchor="middle">LAYOUT</text>
+  <rect x="462" y="116" width="450" height="47" rx="12" class="panel" />
+  <text x="480" y="145" class="mono muted">&lt;head&gt; ... {cx.head()} &lt;/head&gt;</text>
+  <rect x="462" y="175" width="450" height="204" rx="12" class="panel" />
+  <text x="480" y="204" class="mono muted">&lt;body&gt;</text>
+  <text x="480" y="233" class="body ink">Acme · shared header and navigation</text>
+  <rect x="481" y="250" width="412" height="104" rx="12" class="page" />
+  <text x="500" y="281" class="h ink">ContentPage</text>
+  <rect x="800" y="263" width="75" height="25" rx="7" class="page" />
+  <text x="837.5" y="280" class="tag ink" text-anchor="middle">PAGE</text>
+  <text x="500" y="323" class="body muted">The selected page’s &lt;main&gt;</text>
+  <text x="28" y="440" class="body muted">The layout owns the document. The Page finalizes metadata before its body starts.</text>
+</svg>

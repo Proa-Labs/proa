@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 548" width="960" height="548" role="img" aria-labelledby="title description">
+  <title id="title">Nested layouts lead to one selected Page</title>
+  <desc id="description">RootDocument and ShopLayout declare LAYOUT and wrap a ContentPage declaring PAGE. They are composed explicitly in the handler. Layout hooks contribute defaults, the Page seals metadata, and ordinary body components skip head hooks.</desc>
+  <style>
+.canvas {fill:#faf8f4}.panel {fill:#fffdf9;stroke:#dcd5cb;stroke-width:1.4}.ink {fill:#302c27}.muted {fill:#80776d}.line {stroke:#bdb3a6;stroke-width:1.5;fill:none}.layout {fill:#f5eee2;stroke:#b69a72;stroke-width:1.6}.page {fill:#fff0e5;stroke:#d6804d;stroke-width:1.8}.component {fill:#eef3ed;stroke:#8aab8c;stroke-width:1.4}.tag {font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px}.h {font:600 19px ui-sans-serif,system-ui,sans-serif}.body {font:14px ui-sans-serif,system-ui,sans-serif}.mono {font:13px ui-monospace,SFMono-Regular,Menlo,monospace}.small {font:12px ui-sans-serif,system-ui,sans-serif}.arrow-head {fill:#a99b8b}
+@media(prefers-color-scheme:dark){.canvas{fill:#202020}.panel{fill:#272624;stroke:#5d574f}.ink{fill:#ece6dc}.muted{fill:#c0b7aa}.layout{fill:#383024;stroke:#b69a72}.page{fill:#442e23;stroke:#e29663}.component{fill:#26382b;stroke:#8aab8c}.line{stroke:#8c8172}}
+</style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" class="arrow-head" />
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="548" rx="18" class="canvas" />
+  <text x="28" y="39" class="h ink">Nest layouts by composing their children</text>
+  <rect x="28" y="65" width="335" height="325" rx="12" class="panel" />
+  <text x="48" y="97" class="body muted">Render tree for /shop</text>
+  <text x="48" y="146" class="mono ink">RootDocument</text>
+  <text x="48" y="203" class="mono ink">  └─ ShopLayout</text>
+  <text x="48" y="260" class="mono ink">      └─ ContentPage</text>
+  <rect x="219" y="126" width="116" height="25" rx="7" class="layout" />
+  <text x="277.0" y="143" class="tag ink" text-anchor="middle">LAYOUT</text>
+  <rect x="219" y="183" width="116" height="25" rx="7" class="layout" />
+  <text x="277.0" y="200" class="tag ink" text-anchor="middle">LAYOUT</text>
+  <rect x="252" y="240" width="83" height="25" rx="7" class="page" />
+  <text x="293.5" y="257" class="tag ink" text-anchor="middle">PAGE</text>
+  <text x="48" y="323" class="small muted">Shared wrappers are explicit.</text>
+  <text x="48" y="347" class="small muted">Each document selects one Page.</text>
+  <rect x="389" y="65" width="543" height="325" rx="12" class="layout" />
+  <text x="410" y="98" class="h ink">RootDocument</text>
+  <text x="410" y="125" class="small muted">Acme header</text>
+  <rect x="410" y="143" width="501" height="224" rx="12" class="layout" />
+  <text x="432" y="175" class="h ink">ShopLayout</text>
+  <text x="432" y="202" class="small muted">Shop navigation</text>
+  <rect x="432" y="222" width="458" height="123" rx="12" class="page" />
+  <text x="453" y="257" class="h ink">ContentPage</text>
+  <rect x="790" y="239" width="77" height="25" rx="7" class="page" />
+  <text x="828.5" y="256" class="tag ink" text-anchor="middle">PAGE</text>
+  <text x="453" y="309" class="body ink">Products</text>
+  <rect x="28" y="415" width="288" height="86" rx="12" class="layout" />
+  <text x="47" y="444" class="tag ink">LAYOUT → LAYOUT</text>
+  <text x="47" y="473" class="small muted">Contribute defaults; keep head open</text>
+  <path d="M325 459H350" class="line" marker-end="url(#arrow)" />
+  <rect x="361" y="415" width="264" height="86" rx="12" class="page" />
+  <text x="380" y="444" class="tag ink">PAGE</text>
+  <text x="380" y="473" class="small muted">Override values; seal metadata</text>
+  <path d="M634 459H659" class="line" marker-end="url(#arrow)" />
+  <rect x="670" y="415" width="262" height="86" rx="12" class="component" />
+  <text x="689" y="444" class="tag ink">COMPONENT</text>
+  <text x="689" y="473" class="small muted">Render body; skip head hooks</text>
+  <text x="28" y="530" class="small muted">Each layout renders its child. The Page seals metadata before rendering its own body.</text>
+</svg>

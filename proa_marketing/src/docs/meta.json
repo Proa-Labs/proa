@@ -25,6 +25,7 @@
       "icon": "Route"
     },
     "framework/routing",
+    "framework/layouts-and-pages",
     "framework/linking",
     "framework/route-handlers",
     "framework/sitemaps",
