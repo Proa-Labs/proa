@@ -32,8 +32,15 @@ Implementation branch: `codex/managed-document-head`.
   Rust 1.93. The fixture uses full builds because metadata-only checking does
   not evaluate monomorphization-time assertions.
 - The corrected PR example calls `shop_head` inside `shop_router`; its exact
-  Rust blocks pass an actual Axum router test for metadata, stylesheet
-  replacement, body output and one product lookup per request.
+  Rust blocks live in `proa_framework_axum/tests/managed_head_example.rs` and
+  pass an actual Axum router test for metadata, stylesheet replacement, body
+  output and one product lookup per request.
+- Dropping an unpolled dispatch outcome for a Page with a real hook is rejected
+  like an inherited Page: the hook guard is claimed before the outcome is
+  returned, in local, `render_child` and Send dispatch.
+- A CSP nonce installed after preparation began fails with
+  `HeadError::NonceAfterInitialization` instead of a generic state-replacement
+  error.
 - A real Page with an immediately ready body publishes Ready on an earlier poll,
   in local/Send and in-order/out-of-order modes, including Pages that inherit
   their head without implementing a hook. Direct `render_child` dispatch yields
