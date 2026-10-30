@@ -5,7 +5,7 @@
 //! compile-fail path alone cannot exercise their monomorphization errors.
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -102,7 +102,14 @@ fn head_hooks_require_explicit_roles_on_every_render_surface() {
     let version = version.split_whitespace().nth(1).unwrap();
     // Stable and MSRV tests can run concurrently without rebuilding each
     // other's dependency artifacts on every fixture.
-    let target = workspace.join("target/head-role-ui").join(version);
+    // Place the fixture beside this test's own target directory so a
+    // redirected target (CI caches, sccache layouts) is honored.
+    let target = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.ancestors().nth(3).map(Path::to_path_buf))
+        .unwrap_or_else(|| workspace.join("target"))
+        .join("head-role-ui")
+        .join(version);
     for surface in ["local", "send", "sync", "send_sync"] {
         // NoHead remains legal for ordinary components and inherited-only Pages.
         // Both explicit metadata roles accept actual hooks.
