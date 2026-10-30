@@ -518,4 +518,4 @@ pub use head_dispatch::{ComponentRole, NoHead, SyncHeadOperation};
 pub use head_fields::HeadUrlPolicy;
 pub use managed_head::{HeadConfig, HeadDefaults, HeadError, HeadOutlet};
 
-pub use head_fields::{HeadMedia, OpenGraph};
+pub use head_fields::{HeadMedia, HeadMetadata, OpenGraph};

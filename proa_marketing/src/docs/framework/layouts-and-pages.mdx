@@ -11,13 +11,15 @@ A **Page** is the selected content for a document. A **layout** wraps that conte
 | Selected Page | `ComponentRole::PAGE` | Finalize metadata before rendering its own body. |
 | Ordinary body component | `ComponentRole::COMPONENT` (default) | Skip head invocation entirely. |
 
+![Source files and two nested LAYOUT components around one selected PAGE.](/static/images/docs/nested-layouts.svg?v=2)
+
 The router selects a handler. The handler composes the layout and Page. Rust filenames organize the code; URLs are registered explicitly. See [Routing](/docs/framework/routing) for route patterns and request parameters.
 
 ## Create a Page
 
 Declare `PAGE` even when a Page inherits all of its metadata. This example accepts its content through props and uses the same title in the head and body:
 
-![A Rust Page component is selected by a registered route and renders the page's main content.](/static/images/docs/page-and-route.svg)
+![A Rust Page component is selected by a registered route and renders the page's main content.](/static/images/docs/page-and-route.svg?v=2)
 
 ```rust filename="src/pages/content.rs"
 use proa_core::{
@@ -232,9 +234,8 @@ async fn shop() -> RouteResponse {
 }
 ```
 
-Register it with `Route::endpoint("/shop", get(shop))`. The render tree is:
+Register it with `Route::endpoint("/shop", get(shop))`. The explicitly composed tree is `RootDocument → ShopLayout → ContentPage`:
 
-![RootDocument and ShopLayout are nested LAYOUT components; the inner ContentPage is the one PAGE boundary.](/static/images/docs/nested-layouts.svg)
 
 ```html filename="Generated title and description"
 <title>Products | Shop</title>
@@ -273,7 +274,7 @@ Declaring `PAGE` or `LAYOUT` controls metadata lifecycle; it does not register a
 
 Run `cargo proa lint <changed-paths> --deny warnings` to catch head overrides with missing roles or an explicit `COMPONENT` role. Native async hooks rely on this source check; synchronous hooks also retain a code-generation role assertion, so build those implementations too.
 
-Proa also has a route-metadata `Layout` trait and `Route::layout` constructor. They describe metadata in a route specification; they do not compose the rendered HTML or replace these component roles. [Route metadata compatibility](/docs/framework/routing#route-metadata-compatibility) explains when to use them.
+Proa also has a route-metadata `Layout` trait and `Route::layout` constructor. They describe metadata in a route specification; they do not compose the rendered HTML or replace these component roles. [Route specifications](/docs/framework/routing#route-specifications) explains when to use them.
 
 ## Next steps
 

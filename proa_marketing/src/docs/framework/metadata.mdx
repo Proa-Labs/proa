@@ -35,6 +35,8 @@ impl<L: DataLoader> WebRender<L> for ProductPage {
 
 `render_head` is a native async method: mutate `cx` directly and return a `Result`. It needs no attribute or handwritten async block. The examples show the relevant generated tags; other inherited metadata can add more.
 
+For a struct with several fields, use [`cx.head_mut().metadata(HeadMetadata { ... })`](/docs/framework/metadata-reference#apply-a-metadata-object). Omitted fields keep their inherited values.
+
 ### Enable managed metadata
 
 Configure a trusted public origin before rendering the document:

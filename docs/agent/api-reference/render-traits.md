@@ -505,6 +505,13 @@ and keep a code-generation role assertion (run `cargo build` too). Send hooks us
 + Send`, and implementations may use `async fn` returning `Result`.
 
 Use `cx.head_mut().title(value)?` and related checked setters inside the hook.
+For several fields, pass `proa_core::HeadMetadata { title: Some(value.into()),
+description: Some(summary.into()), ..Default::default() }` to
+`cx.head_mut().metadata(...)`. This is an atomic patch: omitted fields inherit,
+and invalid fields leave the whole patch unapplied. `title_template`,
+`canonical`, and `open_graph` are also supported; use individual `clear_*`
+methods for explicit removal.
+
 Place the owned `{cx.head()}` outlet inside the document's `<head>`. Select managed
 mode before rendering with `RouteResponse::with_head(HeadConfig)` or app-wide
 `FrameworkBuilder::with_head`. Head preparation ends before the Page body.

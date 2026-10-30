@@ -351,6 +351,34 @@ impl ManagedHead {
     ) -> Result<(), WriteError> {
         self.mutate(|s| Arc::make_mut(&mut s.fields).meta(name, value))
     }
+    pub fn metadata(&self, metadata: crate::HeadMetadata) -> Result<(), WriteError> {
+        self.mutate(|s| {
+            // proa-perf-ok: transactional copy only during opted-in head preparation.
+            let mut fields = (*s.fields).clone();
+            if let Some(title) = metadata.title {
+                fields.set_title(Some(title), false)?;
+            }
+            if let Some(description) = metadata.description {
+                fields.meta("description", Some(description))?;
+            }
+            if let Some(template) = metadata.title_template {
+                fields.set_template(Some(template))?;
+            }
+            if let Some(canonical) = metadata.canonical {
+                let policy = s
+                    .url_policy
+                    .as_ref()
+                    .ok_or_else(|| WriteError::render("missing trusted URL policy"))?;
+                fields.canonical(policy, &canonical)?;
+            }
+            if let Some(graph) = metadata.open_graph {
+                fields.graph(graph, s.url_policy.as_deref())?;
+            }
+            // proa-perf-ok: commit the validated cold-path metadata snapshot.
+            s.fields = Arc::new(fields);
+            Ok(())
+        })
+    }
     pub fn canonical(&self, value: &str) -> Result<(), WriteError> {
         self.mutate(|s| {
             let policy = s
@@ -822,5 +850,101 @@ impl Utf8 {
         } else {
             Err(HeadError::InvalidOutput)
         }
+    }
+}
+
+#[cfg(test)]
+mod metadata_patch_tests {
+    use super::*;
+    use crate::{HeadMedia, HeadMetadata, HeadUrlPolicy, OpenGraph, WebContext};
+
+    #[test]
+    fn metadata_patch_is_atomic_and_preserves_omitted_fields() {
+        let mut cx = WebContext::new();
+        cx.configure_head(
+            HeadConfig::default()
+                .with_urls(HeadUrlPolicy::new("https://shop.example", "/mount").unwrap()),
+            Arc::new(|_, _| Ok(())),
+        )
+        .unwrap();
+        let document = cx.require_managed_head().unwrap();
+        let hook = document.begin_hook().unwrap();
+        cx.head_mut()
+            .metadata(HeadMetadata {
+                title: Some("Original".into()),
+                description: Some("Inherited".into()),
+                title_template: Some("%s | Shop".into()),
+                canonical: Some("/original".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let root_scope = hook.finish(Ok(())).unwrap();
+        let hook = document.begin_hook().unwrap();
+        for metadata in [
+            HeadMetadata {
+                title: Some("Wrong".into()),
+                canonical: Some("javascript:alert(1)".into()),
+                description: Some("Must not replace inherited description".into()),
+                ..Default::default()
+            },
+            HeadMetadata {
+                title: Some("Wrong".into()),
+                title_template: Some("no placeholder".into()),
+                ..Default::default()
+            },
+            HeadMetadata {
+                title: Some("Wrong".into()),
+                open_graph: Some(OpenGraph::new().images([HeadMedia::new("javascript:bad")])),
+                ..Default::default()
+            },
+        ] {
+            assert!(cx.head_mut().metadata(metadata).is_err());
+            assert_eq!(document.resolved_title().as_deref(), Some("Original"));
+        }
+        cx.head_mut()
+            .metadata(HeadMetadata {
+                title: Some("A & B".into()),
+                open_graph: Some(
+                    OpenGraph::new()
+                        .kind("product")
+                        .images([HeadMedia::new("/jacket.png").alt("A & B")]),
+                ),
+                ..Default::default()
+            })
+            .unwrap();
+        let page_scope = hook.finish(Ok(())).unwrap();
+        document.seal().unwrap();
+        page_scope.finish(Ok(())).unwrap();
+        root_scope.finish(Ok(())).unwrap();
+        let state = document.0.lock().unwrap();
+        let mut output = crate::RenderBuffer::new();
+        state.fields.write(&mut output, None).unwrap();
+        let html = output.into_string();
+        assert!(html.contains("<title>A &amp; B | Shop</title>"));
+        assert!(html.contains("<meta name=\"description\" content=\"Inherited\">"));
+        assert!(html.contains("href=\"https://shop.example/mount/original\""));
+        assert!(html.contains("property=\"og:type\" content=\"product\""));
+        assert!(html
+            .contains("property=\"og:image\" content=\"https://shop.example/mount/jacket.png\""));
+        assert!(html.contains("property=\"og:image:alt\" content=\"A &amp; B\""));
+    }
+
+    #[test]
+    fn metadata_patch_requires_an_open_head_hook() {
+        let mut cx = WebContext::new();
+        assert!(cx.head_mut().metadata(HeadMetadata::default()).is_err());
+        cx.configure_head(HeadConfig::default(), Arc::new(|_, _| Ok(())))
+            .unwrap();
+        assert!(cx.head_mut().metadata(HeadMetadata::default()).is_err());
+        let mut cx = WebContext::new();
+        cx.configure_head(HeadConfig::default(), Arc::new(|_, _| Ok(())))
+            .unwrap();
+        let document = cx.require_managed_head().unwrap();
+        let hook = document.begin_hook().unwrap();
+        cx.head_mut().metadata(HeadMetadata::default()).unwrap();
+        let scope = hook.finish(Ok(())).unwrap();
+        document.seal().unwrap();
+        scope.finish(Ok(())).unwrap();
+        assert!(cx.head_mut().metadata(HeadMetadata::default()).is_err());
     }
 }

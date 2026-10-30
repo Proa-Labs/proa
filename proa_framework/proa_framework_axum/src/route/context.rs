@@ -9,9 +9,10 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use axum::body::Body;
-use axum::response::Response;
+use axum::extract::{rejection::RawPathParamsRejection, FromRequestParts, RawPathParams};
+use axum::response::{IntoResponse, Response};
 use pin_project::{pin_project, pinned_drop};
-use proa_core::{CspNonce, RouteParams};
+use proa_core::{CspNonce, RouteParam, RouteParams};
 use proa_framework_core::{
     extract_route_params, ComputedRouteMeta, FrameworkRouteSnapshot, MetadataRef, ResolvedMetadata,
 };
@@ -219,11 +220,16 @@ where
 
     fn call(&mut self, req: axum::http::Request<Body>) -> Self::Future {
         let uri = req.uri().clone();
-        let route_params = extract_route_params(self.route_pattern.as_ref(), uri.path());
-
         let (previous_metadata, previous_resolved, previous_route_params) =
             ROUTE_CONTEXT.with(|ctx| {
                 let mut ctx = ctx.borrow_mut();
+                // Prefer Axum's decoded captures, including nested and wildcard
+                // parameters. Keep pattern extraction for non-router adapters.
+                let route_params = if ctx.current_route_params().is_empty() {
+                    extract_route_params(self.route_pattern.as_ref(), uri.path())
+                } else {
+                    ctx.current_route_params().clone()
+                };
                 ctx.set_current_uri(uri);
                 let (previous_metadata, previous_resolved) = ctx.swap_metadata(self.metadata.arc());
                 let previous_route_params = ctx.swap_route_params(route_params);
@@ -391,7 +397,7 @@ pub struct RouteContextService<S> {
 
 impl<S> Service<axum::http::Request<Body>> for RouteContextService<S>
 where
-    S: Service<axum::http::Request<Body>, Response = Response> + Clone,
+    S: Service<axum::http::Request<Body>, Response = Response> + Clone + Send + 'static,
     S::Future: Send + 'static,
     S::Error: Send + 'static,
 {
@@ -423,11 +429,36 @@ where
         context.set_csp_nonce(csp_nonce);
         context.base_path = self.base_path.clone();
 
-        let future = self.inner.call(req);
-        let scoped = ROUTE_CONTEXT.scope(RefCell::new(context), future);
+        // Move the ready service into the future; its clone may need poll_ready
+        // before use on the next request.
+        let replacement = self.inner.clone();
+        let mut inner = std::mem::replace(&mut self.inner, replacement);
         let local_stream_executor = self.local_stream_executor.clone();
         Box::pin(async move {
-            let response = scoped.await?;
+            let (mut parts, body) = req.into_parts();
+            let params = match RawPathParams::from_request_parts(&mut parts, &()).await {
+                Ok(params) => RouteParams::from_vec(
+                    params
+                        .iter()
+                        .map(|(name, value)| {
+                            RouteParam::new(
+                                name.to_owned().into_boxed_str(),
+                                value.to_owned().into_boxed_str(),
+                            )
+                        })
+                        .collect(),
+                ),
+                Err(RawPathParamsRejection::MissingPathParams(_)) => RouteParams::default(),
+                Err(rejection) => return Ok(rejection.into_response()),
+            };
+            context.swap_route_params(params);
+            let request = axum::http::Request::from_parts(parts, body);
+            let response = ROUTE_CONTEXT
+                .scope(
+                    RefCell::new(context),
+                    async move { inner.call(request).await },
+                )
+                .await?;
             Ok(prepare_deferred_framework_stream(response, local_stream_executor).await)
         })
     }

@@ -10,6 +10,21 @@ use url::Url;
 const VALUE_LIMIT: usize = 16 * 1024;
 const SLOT_LIMIT: usize = 128;
 pub const HEAD_LIMIT: usize = 64 * 1024;
+
+/// A checked metadata patch for one layout or Page's head hook.
+///
+/// `None` leaves the inherited value unchanged. Use the individual `clear_*`
+/// methods to remove a value. The patch is validated atomically before applying
+/// any fields, with the same URL policy and title inheritance as the setters.
+#[derive(Clone, Default)]
+pub struct HeadMetadata {
+    pub title: Option<Cow<'static, str>>,
+    pub description: Option<Cow<'static, str>>,
+    pub title_template: Option<Cow<'static, str>>,
+    pub canonical: Option<Cow<'static, str>>,
+    pub open_graph: Option<OpenGraph>,
+}
+
 fn invalid() -> WriteError {
     WriteError::render("invalid managed head value")
 }

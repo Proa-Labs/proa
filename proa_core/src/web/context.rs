@@ -390,6 +390,10 @@ impl<'a> HeadWriter<'a> {
             .document()
             .ok_or_else(|| crate::WriteError::render("managed head setup required"))
     }
+    /// Apply a typed metadata patch atomically. Omitted fields keep their values.
+    pub fn metadata(&mut self, metadata: crate::HeadMetadata) -> Result<(), crate::WriteError> {
+        self.managed()?.metadata(metadata)
+    }
     pub fn meta(
         &mut self,
         name: &str,

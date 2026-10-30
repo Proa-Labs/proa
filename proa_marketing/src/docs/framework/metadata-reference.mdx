@@ -7,6 +7,29 @@ Use `cx.head_mut()` inside a layout or Page's `render_head` hook. Each example b
 
 Examples are independent: they use a fresh managed document, `https://shop.example` as the public origin, `/` as the mount, and no default fields or CSP nonce unless stated otherwise. Output shows only the generated tags, with line breaks added for readability. Charset, viewport, and other manual tags remain in your document template.
 
+## Apply a metadata object
+
+Use `metadata` to set several fields in one call:
+
+```rust filename="render_head"
+use proa_core::HeadMetadata;
+
+cx.head_mut().metadata(HeadMetadata {
+    title: Some("Trail & Travel".into()),
+    description: Some("Built for the outdoors.".into()),
+    canonical: Some("/products/trail-jacket".into()),
+    ..Default::default()
+})?;
+```
+
+```html filename="Generated HTML"
+<title>Trail &amp; Travel</title>
+<link rel="canonical" href="https://shop.example/products/trail-jacket">
+<meta name="description" content="Built for the outdoors.">
+```
+
+`HeadMetadata` supports `title`, `description`, `title_template`, `canonical`, and `open_graph`. `None` preserves the inherited value; use the individual `clear_*` methods to remove a field. The whole patch is validated before any field changes. Its title uses the nearest ancestor template, just like `title(...)`.
+
 ## Document metadata
 
 ### title
@@ -62,6 +85,8 @@ cx.head_mut().title("Trail Jacket")?;
 ```html filename="Generated HTML"
 <title>Trail Jacket | Acme</title>
 ```
+
+Dynamic routes work the same way: a Page at `/products/:id` or `/blog/:slug` uses `cx.param(...)` to load its display title and passes it to `title(...)` or `metadata(...)`. The template formats that title; it does not infer a title from the URL.
 
 A template must contain exactly one `%s`. The nearest ancestor template applies once. A template set in a hook applies to descendants, not to a title set in that same hook.
 
