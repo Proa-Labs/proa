@@ -53,7 +53,7 @@ The Apps page includes reference showcase links for every combination of showcas
 | Airbnb | Home, Search, Listing | Proa, Node, Bun |
 | Nike | Catalog, Product | Proa, Node, Bun |
 
-Each showcase page lives under `/showcase/...` and is a pixel-perfect recreation rendered with the selected SSR engine. Links within each page stay within the same engine, clicking the Airbnb logo on a Bun page navigates to the Bun home page, not the Proa one.
+Each showcase page lives under `/showcase/...` and is a reference implementation rendered with the selected SSR engine. Links within each page stay within the same engine, clicking the Airbnb logo on a Bun page navigates to the Bun home page, not the Proa one.
 
 ### API Docs (`/api/docs`)
 
@@ -65,7 +65,7 @@ The playground runs three SSR engines for comparison:
 
 | Engine | How it works |
 |--------|-------------|
-| **Proa (Rust)** | Templates compiled to byte sequences at build time. No interpreter, no GC, no runtime. |
+| **Proa (Rust)** | Templates compiled to byte sequences at build time. Static markup is consolidated; dynamic values are written directly to the output buffer. |
 | **React (Node)** | `renderToString()` served by Hono on Node.js 20+. |
 | **React (Bun)** | Same React/Hono code, served via `Bun.serve()` for native HTTP I/O. |
 
@@ -121,7 +121,7 @@ The test runs each engine sequentially and reports:
 
 ### Accuracy note
 
-All timings in the playground are slower than isolated benchmarks. The server handles the benchmark while also serving requests, all three engines share the same CPU, and the browser competes for resources. Relative comparisons between engines are meaningful; for absolute numbers, use `curl` or the [FFI library](/docs/ffi).
+Treat playground timings as exploratory measurements. The engines share CPU and compete with the server and browser, so scheduling, warm-up, and instrumentation affect both absolute times and ratios. For performance comparisons, pin versions and inputs, verify equivalent output, and run isolated repeated trials as described in [Performance](/docs/guides/performance).
 
 ## API endpoints
 

@@ -17,10 +17,8 @@ html_sync! {
     <form method="post" action="/contact" class="grid gap-4">
         <label for="email">"Email"</label>
         <input id="email" name="email" type="email" required autocomplete="email" />
-
         <label for="message">"Message"</label>
         <textarea id="message" name="message" required minlength="10"></textarea>
-
         <button type="submit">"Send"</button>
     </form>
 }
@@ -151,13 +149,14 @@ Register the route beside the page route:
 
 ```rust filename="src/main.rs"
 use axum::routing::{get, post};
-use proa_framework_axum::Route;
+use axum::Router;
 
-Route::page("/", "Contact", get(contact_page));
-Route::endpoint("/contact", post(submit_contact));
+let routes = Router::new()
+    .route("/", get(contact_page))
+    .route("/contact", post(submit_contact));
 ```
 
-Use `Route::endpoint` for non-page POST handlers unless the endpoint also needs page metadata. [Route handlers](/docs/framework/route-handlers) covers JSON endpoints, body limits, shared state, webhooks, and endpoint tests.
+Use `Route::endpoint` when the endpoint also needs Proa route-specification policy. Component roles and `render_head` control managed page metadata independently of the HTTP method. [Route handlers](/docs/framework/route-handlers) covers JSON endpoints, body limits, shared state, webhooks, and endpoint tests.
 
 ### Re-rendering field errors
 
@@ -215,7 +214,9 @@ That covers everything the server owns. Browser-only behavior needs a different 
 
 ## Adding typed client actions
 
-Actions are not a hidden RPC layer. They annotate rendered HTML so client code can dispatch typed handlers. Server writes still happen through normal HTTP routes.
+Use typed RSJS handlers, signals, and `bind_value` / `bind_checked` for application browser behavior. See [Islands](/docs/guides/islands) and [Bindings](/docs/rsjs/bindings). Server writes still happen through normal HTTP routes.
+
+The lower-level `proa_actions` interface below is useful when an existing TypeScript integration needs named actions and delegated `data-on*` attributes. It requires generating and loading its own client runtime; adding an action attribute alone does not install a listener.
 
 Use `#[derive(Action)]` when client-side code needs stable, typed action names:
 
@@ -254,9 +255,7 @@ Render static action identifiers as data attributes:
 
 ```rust filename="src/components/product_card.rs"
 html_sync! {
-    <button type="button" data-onclick={ProductAction::FAVORITE}>
-        "Favorite"
-    </button>
+    <button type="button" data-onclick={ProductAction::FAVORITE}>"Favorite"</button>
 }
 ```
 
@@ -300,19 +299,19 @@ Start from the need:
 |------|-----|
 | Submit data to the server | Native `<form method="post">` plus an Axum handler. |
 | Validate and persist data | Validate with a Wellformed schema, then persist the generated values. |
-| Trigger client-only behavior | `proa_actions` identifiers and `data-on*` attributes. |
-| Keep form UI reactive | `rsjs` controlled components or `ReactiveAttr` bindings. |
+| Trigger client-only behavior | Typed RSJS event handlers and signals. |
+| Keep form UI reactive | RSJS signals with `bind_value` / `bind_checked`. |
 
 Then match the specific situation:
 
 | Situation | Recommended boundary |
 |-----------|----------------------|
 | Contact form, checkout, account update | Native form plus Axum POST handler. |
-| Opening a dialog or toggling local UI | Client action binding or small controller. |
+| Opening a dialog or toggling local UI | An RSJS island or an existing Proa UI component. |
 | Field value drives live browser UI | Controlled `rsjs` component. |
 | Data changes server state | Server route, not a client-only action. |
-| Static button action with no params | `data-onclick={...}` on a button. |
-| Dynamic action params | Explicit `data-param-*` attributes or a native form field. |
+| Static button action with no params | An RSJS `on_click` handler. |
+| Dynamic action params | Typed RSJS values or native form fields; use `data-param-*` for an existing delegated action integration. |
 
 ## Next steps
 

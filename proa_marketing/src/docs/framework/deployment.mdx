@@ -40,7 +40,7 @@ A platform is roughly ten features in a trench coat. Take it away and you own al
 | Health-check gating before cutover | A broken build takes production with it |
 | Rollback | Recovery means finding the previous image tag under pressure |
 | Secret injection | Tokens end up in a `.env` on the box |
-| Log shipping and retention | `docker logs` is your only forensics, until the container restarts |
+| Log shipping and retention | `docker logs` is your only forensics, until the container is removed |
 | Metrics and alerting | You learn about outages from users |
 | Restart-on-crash policy | One panic ends the deployment |
 | Image garbage collection | The disk fills, quietly, around week six |
@@ -55,14 +55,14 @@ Take Docker anyway when the alternative does not exist: the sidecar shape in the
 Whatever you pick, the app must:
 
 - Read `PORT` from the environment. Never hardcode it.
-- Bind `0.0.0.0`, or `::` on IPv6-only private networks such as Railway's.
+- Bind `0.0.0.0`, or `::` for dual-stack traffic, including legacy IPv6-only private networks.
 - Serve static assets from `public/` beside the binary (the generated server reads them relative to its working directory).
 - Answer `200` on a cheap `/healthz`, with dependency checks on a separate `/readyz`.
 
 Verify these before you deploy anywhere:
 
 ```bash
-docker run --rm -p 3000:3000 -e PORT=3000 my-site
+docker run --rm -p 127.0.0.1:3000:3000 -e PORT=3000 my-site
 curl -fsS http://127.0.0.1:3000/healthz
 curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
 ```

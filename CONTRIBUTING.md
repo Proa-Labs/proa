@@ -32,7 +32,7 @@ cargo test -p proa_core --lib
 For the marketing/docs app:
 
 ```bash
-cargo run -p proa_marketing
+cargo proa run -p proa_marketing --bin proa_marketing
 ```
 
 This checkout is a standalone workspace. The `proa_ui` component library and

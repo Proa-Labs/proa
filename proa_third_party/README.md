@@ -10,11 +10,10 @@ application state and interactive application components can continue using RSJS
 
 ## Install
 
-Until this crate is published on crates.io, use the workspace's Git source
-consistently for your Proa dependencies:
+Add the optional crate and enable only the providers you need:
 
 ```toml
-proa_third_party = { git = "https://github.com/proa-labs/proa", default-features = false, features = ["google-analytics", "youtube"] }
+proa_third_party = { version = "0.1.0", default-features = false, features = ["google-analytics", "youtube"] }
 ```
 
 The default features include both providers. Disable defaults and select just

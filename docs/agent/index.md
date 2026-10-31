@@ -81,7 +81,7 @@ Agents should treat these as the canonical reference shapes. Read before writing
 - Components add `data-component` to their root element and `data-variant={variant.as_str()}` if they have variants.
 - Hot-path styling uses static class strings and `ClassList<N>`
   (stack-allocated, no heap).
-- Use `WebRenderSync` by default; switch to `WebRender` only when rendering must
+- Use `WebRenderSync` by default; switch to `WebRender` only when its body or head hook must
   `.await` (for example, to load a query's initial value) or while mutation
   declarations remain on the async surface.
 - Use `md_sync!` inside `MdRenderSync`; use `md!` inside async-capable `MdRender`.

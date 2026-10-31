@@ -71,6 +71,8 @@ html_sync! {
 
 The server still sends real button HTML. RSJS adds the handler, signal seed, and per-island runtime metadata next to that HTML.
 
+For managed metadata, keep `ROLE = PAGE` and `render_head` on an ordinary SSR Page wrapper around the island. Ancestor metadata layouts declare `LAYOUT`; the analyzed island impl keeps the default component role and contains its render method only. See [Layouts and Pages](/docs/framework/layouts-and-pages).
+
 ## What Gets Hydrated
 
 An island emits a small boundary:
@@ -100,8 +102,10 @@ Read signals in markup:
 
 ```rust
 html_sync! {
-    <p>"Count: "{count.get()}</p>
-    <section hidden={!open.get()}>"Details"</section>
+    <div>
+        <p>"Count: "{count.get()}</p>
+        <section hidden={!open.get()}>"Details"</section>
+    </div>
 }
 ```
 
@@ -109,9 +113,7 @@ Write signals inside handlers:
 
 ```rust
 html_sync! {
-    <button type="button" on_click={|_| count.update(|n| n + 1)}>
-        "Increment"
-    </button>
+    <button type="button" on_click={|_| count.update(|n| n + 1)}>"Increment"</button>
 }
 ```
 
@@ -155,7 +157,7 @@ html_sync! {
     <input
         type="search"
         value={query.get()}
-        on_input={|event| query.set(event.value().trim())}
+        on_input={|event| query.set(event.value().trim().to_string())}
     />
 }
 ```
@@ -233,9 +235,7 @@ Use `rsjs::island(...)` only when the child should hydrate as an independent nes
 
 ```rust
 html_sync! {
-    <section>
-        {rsjs::island(FavoriteButton { label: "Save" })}
-    </section>
+    <section>{rsjs::island(FavoriteButton { label: "Save" })}</section>
 }
 ```
 
@@ -288,9 +288,7 @@ pub struct StockPrice {
     pub value: f64,
 }
 
-pub struct StockTile {
-    pub symbol: &'static str,
-}
+pub struct StockTile;
 
 #[rsjs(component, client)]
 impl<L: DataLoader> WebRender<L> for StockTile {
@@ -300,10 +298,10 @@ impl<L: DataLoader> WebRender<L> for StockTile {
     ) -> proa_core::RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         proa_core::RenderOutcome::pending(async move {
             let initial: StockPrice = cx
-                .load_json(LoadKey::named("stock", self.symbol))
+                .load_json(LoadKey::named("stock", "AAPL"))
                 .await?;
             let price = rsjs::query_with_initial(
-                rsjs::QueryKey::new(("stock", self.symbol)),
+                rsjs::QueryKey::new(("stock", "AAPL")),
                 initial,
                 rsjs::FetchRequest {
                     url: "/api/stock/AAPL",
@@ -337,7 +335,7 @@ Before shipping an island:
 - Keep signal writes inside event handlers.
 - Construct arbitrary server renderers in the prelude and render the local.
 - Choose a hydration strategy for below-the-fold or optional UI.
-- Run `cargo check`, `cargo test`, and `proa lint`.
+- Run `proa check` and the matching linked `proa test` target; `cargo check` remains useful for provisional type checking.
 
 ## Read Next
 

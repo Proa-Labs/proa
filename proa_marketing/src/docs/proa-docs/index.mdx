@@ -36,21 +36,14 @@ The practical consequences:
 
 You can also ignore the default theme entirely and write your own against the [styling contract](/docs/proa-docs/styling-contract). That is the headless path, and it is a supported one.
 
-## How it compares
+## What runs in the browser
 
-| | Proa Docs | Fumadocs | Nextra | mdBook |
-|---|---|---|---|---|
-| Language | Rust | TypeScript | TypeScript | Rust |
-| Runtime cost | None — static HTML | React hydration | React hydration | None |
-| Components | 13, build-time | Large, React | MDX | Limited |
-| Theming | 15 CSS properties | CSS variables + presets | Themes | Handlebars |
-| Markdown access | Per-page Markdown | `llms.txt`, per-page `.md` | — | — |
-
-**Choose Fumadocs or Nextra** if your site is already React and you want the largest component library and ecosystem.
-
-**Choose mdBook** if you want a book, not a site, and no framework at all.
-
-**Choose Proa Docs** if your site is Proa, or if shipping zero JavaScript for content pages is worth writing Rust.
+The article HTML, syntax highlighting, and MathML are generated at build time.
+Tabs, accordions, and code explorers use CSS. Copy controls need the optional
+default script; search UI and Mermaid rendering need their own integration.
+The runtime still selects a page, renders its shell, and serves the response.
+See [Customizing the layout](/docs/proa-docs/customizing) for composing a themed
+shell and [Mermaid](/docs/proa-docs/mermaid) for its renderer requirement.
 
 ## Next
 

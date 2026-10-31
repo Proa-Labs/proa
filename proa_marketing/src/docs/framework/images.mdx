@@ -16,7 +16,7 @@ html_sync! {
         width="800"
         height="450"
         alt="Coastal cliffs at sunrise"
-        loading="lazy"
+        fetchpriority="high"
         decoding="async"
     />
 }
@@ -63,7 +63,7 @@ html_sync! {
 
 Images live under the directory your static service points at, `public/` in scaffolded sites. The framework does not read a `STATIC_DIR` variable; [Environment variables](/docs/framework/environment) shows that as an app-level convention you can adopt. See [Static assets](/docs/framework/static-assets) for mounting and cache headers.
 
-Give generated filenames a content hash and a long `max-age`. Stable names such as `hero.avif` need a shorter window or a cache-busting query string, because you cannot invalidate a name you keep reusing.
+Give generated filenames a content hash and a long `max-age`. Stable names such as `hero.avif` need a revalidation policy or a versioned URL so updates reach browsers.
 
 In MDX content, `MdxImageConfig` rewrites authored paths at build time, so `/images/hero.avif` in a Markdown file can resolve to `/static/images/hero.avif` in the output:
 
@@ -73,7 +73,7 @@ In MDX content, `MdxImageConfig` rewrites authored paths at build time, so `/ima
 
 ## Open Graph images
 
-Social preview images are a different problem, generated per page, not authored. `proa_og` renders them headlessly. See [Metadata and OG images](/docs/framework/metadata).
+Social preview images can be shared static files or generated per page. The optional `proa_og` crate can render images with WPE WebKit on Linux and requires its native libraries; it is separate from the metadata API. Metadata points to an existing image URL and does not invoke a renderer. See [Metadata and OG images](/docs/framework/metadata).
 
 ## Next steps
 

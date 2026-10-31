@@ -338,7 +338,7 @@ cargo test --workspace --no-fail-fast
 python3 scripts/proa_perf_lint.py
 
 # Run the marketing/docs application
-cargo run -p proa_marketing
+cargo proa run -p proa_marketing --bin proa_marketing
 ```
 
 ## Conventions

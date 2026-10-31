@@ -15,20 +15,20 @@ Use route handlers for:
 - health checks, [robots.txt](/docs/framework/robots), [sitemaps](/docs/framework/sitemaps), and downloads
 - redirects and canonical URL handlers
 
-Use `Route::page` when the route belongs in page metadata and layout resolution. Use `Route::endpoint` when the route is an API or transport endpoint.
+Use ordinary Axum `.route(...)` calls for handlers. Use `Route::endpoint` when you also need Proa route specifications, such as page-cache policy. Document layouts and metadata belong to the rendered components' `ROLE` and `render_head`, independently of route registration.
 
 `Route::endpoint` accepts an Axum `MethodRouter`, so compose methods exactly as you would in Axum:
 
 ```rust filename="src/routes/mod.rs"
-use axum::routing::{get, post};
+use axum::{routing::{get, post}, Router};
 use proa_framework_axum::{router_from_spec, Route};
 
 let (router, metadata) = router_from_spec(vec![
-    Route::page("/", "Home", get(home_page)),
     Route::endpoint("/api/search", get(search).post(search_post)),
     Route::endpoint("/contact", post(submit_contact)),
     Route::endpoint("/healthz", get(healthz)),
 ]);
+let router = Router::new().route("/", get(home_page)).merge(router);
 ```
 
 Pass `router` and `metadata` to `FrameworkBuilder::with_dynamic_routes_and_metadata(...)`.
@@ -55,9 +55,10 @@ pub struct SearchResponse {
 }
 
 pub async fn search(Query(query): Query<SearchQuery>) -> Json<SearchResponse> {
+    let results = run_search(&query.q).await;
     Json(SearchResponse {
         query: query.q,
-        results: run_search(&query.q).await,
+        results,
     })
 }
 ```
@@ -278,7 +279,7 @@ async fn health_check_returns_ok() {
 Before shipping:
 
 - Use `Route::endpoint` for API, form, webhook, health, and static text handlers.
-- Use `Route::page` when the response belongs in page metadata.
+- Declare `ROLE = PAGE` and use `render_head` for a managed document's selected Page; compose its layout in the handler.
 - Return `Json<T>`, tuples, `Redirect`, `StatusCode`, or `Response` directly from Axum handlers.
 - Keep server mutations in handlers or service-layer functions.
 - Validate form and JSON input on the server.

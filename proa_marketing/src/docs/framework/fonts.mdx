@@ -127,16 +127,21 @@ html_sync! { <html class={SANS.class_name()}> /* ... */ </html> }
 ```
 
 `head()` is allocation-free, writes into the buffer owned by the context, and
-is generic over the output buffer, so it composes inside any normal
-`WebRenderSync` head rendered with the default `NoLoader` context. It emits the
+is generic over the loader and output buffer. Render this component inside
+the document's `<head>` using the page's context, including when that context
+has a loader or a runtime base path. It emits the
 stylesheet via `StaticRaw` (developer-controlled generated content), never
 re-escaping it.
+
+`Font::head(cx)` writes manual markup during the document layout's body render.
+Keep it next to the managed head outlet; `render_head` is for metadata mutations,
+not for writing font tags.
 
 ## Metric-matched fallbacks
 
 The reason self-hosting alone is not enough is layout shift. While a web font loads, the browser paints a fallback (Arial, Times New Roman, Courier New). If that fallback has different metrics, text reflows when the real font swaps in.
 
-The build pipeline parses the web font's vertical metrics and average character width, then synthesizes a fallback `@font-face` with `ascent-override`, `descent-override`, `line-gap-override`, and a computed `size-adjust` so the fallback occupies the same space as the real font. The swap becomes invisible. This is the same technique the `fontaine` and `@capsizecss/metrics` projects use, done here at vendor time with no extra dependency.
+The build pipeline parses the web font's vertical metrics and average character width, then synthesizes a fallback `@font-face` with `ascent-override`, `descent-override`, `line-gap-override`, and a computed `size-adjust` so the fallback occupies the same space as the real font. These overrides reduce metric differences during the font swap. This is the same technique the `fontaine` and `@capsizecss/metrics` projects use, done here at vendor time with no extra dependency.
 
 The generated stylesheet looks like this:
 

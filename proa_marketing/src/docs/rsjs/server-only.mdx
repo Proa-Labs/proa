@@ -24,7 +24,7 @@ Raw HTML is the clearest case of output RSJS never inspects.
 
 You must still trust raw HTML and sanitize it before rendering. That safety boundary is separate from client reachability.
 
-```rust filename="src/islands/icon_button.rs"
+```rust filename="src/components/icon_button.rs"
 use proa_core::{DataLoader, UnsafeRaw, WebContext, WebRenderSync, WriteError};
 use proa_macros::html_sync;
 use rsjs::{rsjs, signal};
@@ -55,7 +55,7 @@ RSJS hydrates the button and reactive label. The SVG remains ordinary SSR. Attri
 
 Use `server_attr(...)` for static-per-render attributes that must **not** update after hydration.
 
-```rust filename="src/islands/decorated_button.rs"
+```rust filename="src/components/decorated_button.rs"
 pub struct DecoratedButton {
     pub label: &'static str,
     pub class: &'static str,
@@ -81,13 +81,11 @@ impl<L: DataLoader> WebRenderSync<L> for DecoratedButton {
 
 Use a normal dynamic attribute when the value must react to a signal:
 
-```rust filename="src/islands/toggle.rs"
+```rust filename="src/components/toggle.rs"
 let selected = signal(false);
 
 html_sync! {
-    <button data_selected={selected.get()}>
-        "Toggle"
-    </button>
+    <button data_selected={selected.get()}>"Toggle"</button>
 }
 ```
 
@@ -97,7 +95,7 @@ Do not wrap `selected.get()` in `server_attr(...)`. RSJS rejects that capture at
 
 Descriptor-backed RSJS child components can mix reactive props, callback props, and server-only props.
 
-```rust filename="src/islands/parent.rs"
+```rust filename="src/components/parent.rs"
 pub struct Parent;
 
 #[rsjs(component, client)]
@@ -129,13 +127,15 @@ If you force an explicit nested island with `rsjs::island(...)`, parent callback
 
 A direct struct literal in an analyzed template has a deliberately strong meaning: it is a compiler-composable component edge.
 
-```rust filename="src/islands/parent.rs"
+```rust filename="src/components/parent.rs"
 html_sync! {
-    {DecoratedButton {
-        label: "Press",
-        class: "primary",
-        on_press,
-    }}
+    <div>
+        {DecoratedButton {
+            label: "Press",
+            class: "primary",
+            on_press,
+        }}
+    </div>
 }
 ```
 
@@ -153,11 +153,11 @@ This lets normal Rust imports and aliases work for components. It also preserves
 
 Renamed imports and re-exports work too because Rust resolves the component type before the linker authenticates its ABI:
 
-```rust filename="src/islands/status_row.rs"
+```rust filename="src/components/status_row.rs"
 use crate::ui::StatusBadge as Badge;
 
 html_sync! {
-    {Badge { label: current_label.get() }}
+    <div>{Badge { label: current_label.get() }}</div>
 }
 ```
 

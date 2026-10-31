@@ -290,23 +290,14 @@ back empty. Attach it if you report the detection as wrong.
 
 ## Cargo Cannot Download Proa Crates
 
-Generated projects declare Proa crates as git dependencies on
-`https://github.com/Proa-Labs/proa.git`. Confirm that your project has a
-`.cargo/config.toml` that fetches them with the Git CLI:
+Generated projects use public crates.io dependencies. Check network access to
+crates.io, the Cargo error, and your project's proxy configuration. No private
+`proa` registry or GitHub token is required.
 
-```toml
-[net]
-git-fetch-with-cli = true
-```
-
-`git-fetch-with-cli` makes Cargo use your Git credential helper and proxy
-settings. No `[registries.proa]` configuration is needed. If an existing
-project still reports a missing `proa` index, update its Proa Git dependencies
-with `cargo update`; its lockfile may pin a commit from before this migration.
-Use the same Git URL and revision for all Proa dependencies.
-
-While the repository is private, the git fetch needs GitHub access, on your
-machine and in CI. See [Installation](/docs) and [CI / GitHub Actions](/docs/guides/ci).
+For an older project using Git dependencies, keep all Proa crates on the same
+Git URL and revision, and enable `net.git-fetch-with-cli` when you need your Git
+credential helper or proxy settings. Migrate dependency declarations together;
+see [Upgrading](/docs/guides/upgrading) and [CI](/docs/guides/ci).
 
 ## The Page Builds But Styles Are Missing
 

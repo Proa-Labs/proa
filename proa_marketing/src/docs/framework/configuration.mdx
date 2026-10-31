@@ -12,13 +12,15 @@ Use this page when you need the complete setup surface in one place. Use [Routin
 ```rust
 use std::collections::HashMap;
 
-use axum::routing::get;
+use axum::{routing::get, Router};
+use proa_core::{HeadConfig, HeadUrlPolicy};
 use proa_framework_axum::{
-    router_from_spec, FrameworkBuilder, IslandManifest, ManifestAssets, Route, RouteResponse,
+    FrameworkBuilder, IslandManifest, ManifestAssets, RouteResponse,
 };
+use crate::{layouts::RootDocument, pages::HomePage};
 
 async fn home() -> RouteResponse {
-    RouteResponse::ssr(HomePage)
+    RouteResponse::ssr(RootDocument { children: HomePage })
 }
 
 let manifest = IslandManifest {
@@ -28,16 +30,19 @@ let manifest = IslandManifest {
     ssr_bundle: None,
 };
 
-let (routes, metadata) = router_from_spec(vec![
-    Route::page("/", "Home", get(home)),
-]);
+let routes = Router::new().route("/", get(home));
+let head = HeadConfig::default()
+    .with_urls(HeadUrlPolicy::new("https://example.com", "/")?);
 
 let app = FrameworkBuilder::new(manifest)
-    .with_dynamic_routes_and_metadata(routes, metadata)
+    .with_head(head)
+    .with_dynamic_routes(routes)
     .build();
 ```
 
-`with_dynamic_routes_and_metadata` is the common path for page routes because it installs both the Axum router and the precomputed metadata map used by response finalization.
+`RootDocument` is the `LAYOUT` component containing the document markup and head outlet; `HomePage` declares `ROLE = PAGE`. See [Layouts and Pages](/docs/framework/layouts-and-pages) for complete implementations. Replace the public origin with trusted application configuration.
+
+Use `with_dynamic_routes` for an ordinary Axum router. Route specifications are optional: use `with_dynamic_routes_and_metadata` when you also need their route-mode or other specification metadata. Legacy route titles do not populate the managed head; use `render_head` or app-wide defaults.
 
 The builder returns an Axum router; bind a TCP listener and pass both to `proa_framework_axum::serve()` to run it. See [the complete application example](/docs/framework/sitemaps#run-an-application) for route setup, discovery endpoints, and server startup.
 
@@ -74,7 +79,7 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa_f
 
 These methods configure separate parts of the application:
 
-- `with_base_path(BasePath)` sets the public mount used by request URL helpers
+- `with_base_path(BasePath)` sets the public mount used by `cx.url(...)`
   and framework-generated URLs, including island query/mutation requests.
   Managed static CSS/JS URLs follow it too. Its default is the origin root.
 - `with_rsjs_assets()` installs routes for the RSJS runtimes and linked modules.
@@ -256,6 +261,7 @@ Response modifiers:
 
 | Modifier | Applies to |
 |----------|------------|
+| `.with_head(config)` / `.without_head()` | Enable managed metadata for one response, or keep its document in manual mode. |
 | `.with_islands([...])` | Sync, async, and streaming SSR responses. |
 | `.with_bootstrap(config)` | SSR responses that need custom React bootstrap behavior. |
 | `.with_loader(loader)` | Async and streaming responses with typed loaders. |

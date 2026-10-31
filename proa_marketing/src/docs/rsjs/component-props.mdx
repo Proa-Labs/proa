@@ -82,9 +82,11 @@ Direct component syntax uses normal Rust name resolution. Ordinary imports, rena
 use crate::ui::StatusBadge as Badge;
 
 html_sync! {
-    {Badge {
-        label: status.get(),
-    }}
+    <div>
+        {Badge {
+            label: status.get(),
+        }}
+    </div>
 }
 ```
 
@@ -145,9 +147,7 @@ pub struct ClearButton {
 impl<L: DataLoader> WebRenderSync<L> for ClearButton {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         html_sync! {
-            <button type="button" on_click={|_| self.on_clear.call_if_some(())}>
-                "Clear"
-            </button>
+            <button type="button" on_click={|_| self.on_clear.call_if_some(())}>"Clear"</button>
         }
         .render(cx)
     }
@@ -158,8 +158,7 @@ impl<L: DataLoader> WebRenderSync<L> for ClearButton {
 let on_clear = rsjs::handler(|_: ()| query.set(String::new()));
 
 html_sync! {
-    {ClearButton { on_clear: Some(on_clear) }}
-    {ClearButton { on_clear: None }}
+    <div>{ClearButton { on_clear: Some(on_clear) }}{ClearButton { on_clear: None }}</div>
 }
 ```
 
@@ -178,7 +177,7 @@ pub struct DatePicker {
 #[rsjs(component, client)]
 impl<L: DataLoader> WebRenderSync<L> for DatePicker {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        let selected = signal(self.selected);
+        let selected: rsjs::Signal<u32> = signal(self.selected);
 
         let pick = rsjs::event_handler(|event: rsjs::MouseEvent<rsjs::elem::Button>, day: u32| {
             event.prevent_default();
@@ -213,11 +212,13 @@ let selected_day = signal(15_u32);
 let on_change = rsjs::handler(|day: u32| selected_day.set(day));
 
 html_sync! {
-    {DatePicker {
-        selected: selected_day.get(),
-        on_change,
-    }}
-    <p>"Selected day: "{selected_day.get()}</p>
+    <div>
+        {DatePicker {
+            selected: selected_day.get(),
+            on_change,
+        }}
+        <p>"Selected day: "{selected_day.get()}</p>
+    </div>
 }
 ```
 
@@ -236,7 +237,7 @@ pub struct FocusInput {
 impl<L: DataLoader> WebRenderSync<L> for FocusInput {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         html_sync! {
-            <input ref={self.input_ref}/>
+            <input ref={self.input_ref} />
         }
         .render(cx)
     }
@@ -249,8 +250,10 @@ The origin-capable parent creates and uses the same handle:
 let input_ref = rsjs::node_ref::<rsjs::HtmlInputElement>();
 
 html_sync! {
-    {FocusInput { input_ref }}
-    <button on_click={|_| input_ref.focus()}>"Focus"</button>
+    <div>
+        {FocusInput { input_ref }}
+        <button type="button" on_click={|_| input_ref.focus()}>"Focus"</button>
+    </div>
 }
 ```
 

@@ -207,7 +207,7 @@ Reachable client-crossing values must satisfy the crossing surface's codec
 contract: signal seeds, handler payloads, node payloads, and descriptor
 reactive props use `rsjs::ClientEncode`, while query initial values use the
 query serialization path. Values that only appear in SSR/server-only positions
-do not need a client codec. Server-loaded data from `cx.load(...).await?`
+do not need a client codec. Server-loaded data from `cx.load_typed::<T>(key).await?`
 follows the same rule: rendering it as SSR text keeps it server-side, while
 passing it to `signal(...)`, `query_with_initial(...)`, a handler payload, a
 node payload, or a descriptor reactive prop serializes it into public browser
@@ -662,7 +662,7 @@ failing test.
 
 ### Shape 4: async island with dataloader prelude
 
-When the render needs to `.await` (most commonly `cx.load::<T>(id).await` for a
+When the render needs to `.await` (most commonly `cx.load_typed::<T>(key).await` for a
 dataloader fetch), implement the real `WebRender` method and return
 `RenderOutcome::pending(async move { ... })`.
 
@@ -752,7 +752,7 @@ observed.
 
 Do not use `query_with_initial(...)` just to fetch SSR data. If the browser does
 not need to observe, refetch, invalidate, or bind the value, keep it as ordinary
-`cx.load(...).await?` prelude data and render it through SSR. In v2, unreachable
+`cx.load_typed::<T>(key).await?` prelude data and render it through SSR. In v2, unreachable
 query/mutation declarations can be dropped along with their metadata and runtime
 imports.
 

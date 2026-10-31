@@ -7,7 +7,7 @@ Proa is database and ORM agnostic. The framework crates ship no driver, no query
 
 `DataLoader` is the seam. It is a trait you implement, not a driver Proa ships, and its one required method returns a future, so anything you can await composes behind one key: a pool checkout, an ORM query, an HTTP call, a cache read, or all four.
 
-This page connects [SQLx](https://github.com/launchbadge/sqlx), [Diesel](https://diesel.rs), and [Toasty](https://github.com/tokio-rs/toasty) to that trait. Everything above the loader is the same in all three, which is the point; only the module that defines `Product` differs (`src/data/loader.rs` for SQLx, `src/data/schema.rs` for Diesel, `src/data/model.rs` for Toasty), so adjust that one import. Installing and configuring each library is its own documentation; this page starts once you have a pool.
+This page connects [SQLx](https://github.com/launchbadge/sqlx), [Diesel](https://diesel.rs), and [Toasty](https://github.com/tokio-rs/toasty) to that trait. Everything above the loader is the same in all three, which is the point; each loader exports the same `Product` and `product_key` interface while its model and connection setup vary. Installing and configuring each library is its own documentation; this page starts once you have a pool.
 
 ## The part that does not change
 
@@ -23,7 +23,7 @@ use proa_macros::{html, text};
 use crate::data::loader::{product_key, Product};
 
 pub struct ProductPage {
-    pub id: i64,
+    pub id: String,
 }
 
 impl<L: DataLoader> WebRender<L> for ProductPage {
@@ -32,13 +32,15 @@ impl<L: DataLoader> WebRender<L> for ProductPage {
         cx: &mut WebContext<L>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            let product: Arc<Product> = cx.load_typed(product_key(self.id)).await?;
+            let product: Arc<Product> = cx.load_typed(product_key(&self.id)).await?;
 
             html! {
                 <main aria-label="Product details">
                     <article>
                         <h1>{product.name.as_str()}</h1>
-                        <p>{text!("${}.{:02}", product.price_cents / 100, product.price_cents % 100)}</p>
+                        <p>
+                            {text!("${}.{:02}", product.price_cents / 100, product.price_cents % 100)}
+                        </p>
                     </article>
                 </main>
             }
@@ -62,25 +64,27 @@ Application-wide handles are shared the same way regardless of library. `Framewo
 ```rust filename="src/app.rs"
 use std::sync::Arc;
 
-use axum::{extract::Extension, routing::get};
-use proa_framework_axum::{router_from_spec, FrameworkBuilder, Route};
+use axum::{extract::Extension, routing::get, Router};
+use proa_framework_axum::FrameworkBuilder;
 
 use crate::{data::loader::AppLoader, db::connect_database};
 
 let db = connect_database().await?;
 let loader = Arc::new(AppLoader { db });
 
-let (router, metadata) = router_from_spec(vec![
-    Route::page("/products/:id", "Product", get(product)),
-]);
+let router = Router::new().route("/products/:id", get(product));
 
 let app = FrameworkBuilder::new(manifest)
-    .with_dynamic_routes_and_metadata(router, metadata)
+    .with_dynamic_routes(router)
     .build()
     .layer(Extension(loader));
 ```
 
 See [Route handlers](/docs/framework/route-handlers#sharing-application-state) for the broader state pattern, and [Data loading and streaming](/docs/framework/data-loading) for cache hints, dedupe, and streaming boundaries.
+
+The route keeps the identifier as a string. Each loader parses it into its own key type: an integer for SQLx/Diesel or a UUID for Toasty. This keeps the component and route interface consistent.
+
+These examples focus on data-loading body components. When you enable managed metadata, compose the body inside a role-marked Page and document layout as shown in [Layouts and Pages](/docs/framework/layouts-and-pages).
 
 Everything below differs only in how the pool is built and what the loader runs.
 
@@ -125,8 +129,8 @@ pub struct Product {
     pub price_cents: i64,
 }
 
-pub fn product_key(id: i64) -> LoadKey {
-    LoadKey::named("product", id.to_string())
+pub fn product_key(id: &str) -> LoadKey {
+    LoadKey::named("product", id)
 }
 
 pub struct AppLoader {
@@ -175,11 +179,11 @@ use axum::response::IntoResponse;
 use proa_framework_axum::RouteResponse;
 use proa_stream::DataResolver;
 
-use crate::data::loader::AppLoader;
+use crate::{components::product_page::ProductPage, data::loader::AppLoader};
 
 pub async fn product(
     Extension(loader): Extension<Arc<AppLoader>>,
-    Path(id): Path<i64>,
+    Path(id): Path<String>,
 ) -> impl IntoResponse {
     let loader = DataResolver::request_scope(loader);
     RouteResponse::ssr_async_with_loader(ProductPage { id }, loader)
@@ -275,11 +279,12 @@ use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
 
-use crate::data::schema::{products, Product};
+use crate::data::schema::products;
+pub use crate::data::schema::Product;
 use crate::db::Pool;
 
-pub fn product_key(id: i64) -> LoadKey {
-    LoadKey::named("product", id.to_string())
+pub fn product_key(id: &str) -> LoadKey {
+    LoadKey::named("product", id)
 }
 
 pub struct AppLoader {
@@ -298,7 +303,7 @@ impl DataLoader for AppLoader {
             let Some(id) = key.strip_prefix("product:") else {
                 return Err(LoadError::custom(format!("unknown load key: {key}")));
             };
-            let id: i64 = id.parse().map_err(|error| LoadError::custom(error.to_string()))?;
+            let id = id.parse::<i64>().map_err(|error| LoadError::custom(error.to_string()))?;
 
             let mut conn = db.get().await.map_err(|error| LoadError::custom(error.to_string()))?;
             let row = Product::query()
@@ -361,7 +366,10 @@ pub async fn update_price(db: &Pool, id: i64, price_cents: i64) -> anyhow::Resul
 
 [Toasty](https://tokio.rs/blog/2026-04-03-toasty-released) is the Tokio project's async ORM. You define models as plain Rust structs and it infers the schema, generating the query, create, and update builders so you write no SQL. It targets SQLite, PostgreSQL, MySQL, Turso, and DynamoDB from one model definition.
 
-Toasty is pre-1.0 and moving quickly. Pin a version, and expect API changes between minor releases in a way you would not expect from SQLx or Diesel.
+The Toasty examples target 0.11 and require Rust 1.95 or newer, independently
+of Proa's minimum Rust version. Enable the driver feature for your database,
+such as `sqlite`. Toasty is pre-1.0; pin a minor version and check its migration
+guide before upgrading.
 
 <CodeExplorer>
 
@@ -406,10 +414,10 @@ use std::future::Future;
 
 use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
 
-use crate::data::model::Product;
+pub use crate::data::model::Product;
 
-pub fn product_key(id: uuid::Uuid) -> LoadKey {
-    LoadKey::named("product", id.to_string())
+pub fn product_key(id: &str) -> LoadKey {
+    LoadKey::named("product", id)
 }
 
 pub struct AppLoader {
@@ -430,7 +438,7 @@ impl DataLoader for AppLoader {
             let Some(id) = key.strip_prefix("product:") else {
                 return Err(LoadError::custom(format!("unknown load key: {key}")));
             };
-            let id: uuid::Uuid = id.parse().map_err(|error| LoadError::custom(error.to_string()))?;
+            let id = id.parse::<uuid::Uuid>().map_err(|error| LoadError::custom(error.to_string()))?;
 
             let row = Product::filter_by_id(id)
                 .first()
@@ -455,7 +463,7 @@ impl DataLoader for AppLoader {
 use crate::data::model::Product;
 
 pub async fn update_price(
-    db: &toasty::Db,
+    db: &mut toasty::Db,
     id: uuid::Uuid,
     new_price: i64,
 ) -> toasty::Result<()> {
@@ -479,7 +487,9 @@ pub async fn update_price(
 
 **`src/data/loader.rs`** — `filter_by_*` builds a lazy query and the terminal decides the result shape: `.first().exec(&mut db)` yields `Option`, `.exec(&mut db)` on the unfiltered query yields `Vec`, and `.get(&mut db)` expects exactly one row and errors otherwise.
 
-**`src/routes/update_price.rs`** — A Toasty transaction is a value you pass where you would pass the `Db`. Dropping it rolls back, so an early return needs no explicit rollback.
+**`src/routes/update_price.rs`** — An interactive Toasty transaction borrows the
+`Db` mutably. Pass `&mut tx` to its queries; dropping it rolls back. This example
+requires a SQL backend: DynamoDB does not support interactive transactions.
 
 ## Choosing
 

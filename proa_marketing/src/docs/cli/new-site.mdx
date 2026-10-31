@@ -169,9 +169,9 @@ What each directory holds:
 `proa.config.json` controls the `proa dev` and `proa build` lifecycle commands
 and records component registry aliases. `proa.lock.json` records the scaffold
 capabilities and every component installed by `proa ui add`. The generated
-Cargo dependencies on Proa crates are git dependencies on the Proa repository;
-`.cargo/config.toml` only turns on `git-fetch-with-cli` so your Git credential
-helper can fetch it.
+Cargo dependencies on Proa crates resolve from crates.io. A generated standalone
+project needs no GitHub credentials or private registry token. Commit the
+`Cargo.lock` produced by the first dependency-resolving command.
 
 ## Live reload
 

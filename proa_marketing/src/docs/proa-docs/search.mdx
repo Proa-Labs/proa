@@ -118,7 +118,11 @@ pub fn docs_response(path: &str) -> axum::response::Response {
         return docs_response_to_axum(response);
     }
 
-    let page = DOCS.page_for_path(path).unwrap_or_else(|| DOCS.first_page().unwrap());
+    let Some(page) = DOCS.page_for_path(path) else {
+        return axum::response::IntoResponse::into_response(
+            axum::http::StatusCode::NOT_FOUND,
+        );
+    };
     docs_html_response(page)
 }
 ```
@@ -150,16 +154,20 @@ type SearchDocuments = {
   }>;
 };
 
+let cached: { hash: string; data: SearchDocuments } | undefined;
+
+// Bridge to an external JavaScript search indexer; use RSJS for application UI.
 async function loadSearchData(): Promise<SearchDocuments> {
-  const manifest: SearchManifest = await fetch("/docs/_search/manifest.json")
-    .then((response) => response.json());
+  const manifestResponse = await fetch("/docs/_search/manifest.json");
+  if (!manifestResponse.ok) throw new Error("Search manifest failed");
+  const manifest: SearchManifest = await manifestResponse.json();
+  if (cached?.hash === manifest.hash) return cached.data;
 
-  const cachedHash = localStorage.getItem("proa-docs-search-hash");
-  if (cachedHash !== manifest.hash) {
-    localStorage.setItem("proa-docs-search-hash", manifest.hash);
-  }
-
-  return fetch(manifest.documents).then((response) => response.json());
+  const response = await fetch(manifest.documents);
+  if (!response.ok) throw new Error("Search documents failed");
+  const data: SearchDocuments = await response.json();
+  cached = { hash: manifest.hash, data };
+  return data;
 }
 ```
 

@@ -173,7 +173,7 @@ finish with `..Default::default()`:
 
 ## Step 2: Data Loading
 
-In Next.js, you fetch data in `getServerSideProps` or Server Components. In Proa, you fetch data in your Axum handler before rendering.
+In Next.js, you fetch data in `getServerSideProps` or Server Components. In Proa, a handler can load data before rendering, or a component can use keyed loaders through `cx`. See [Data loading](/docs/framework/data-loading) when independent sections should load concurrently.
 
 **Next.js:**
 ```typescript filename="pages/listings/[id].tsx"
@@ -198,8 +198,10 @@ export default function ListingPage({ listing }: ListingPageProps) {
 async fn listing_page(
     Path(id): Path<String>,
     State(db): State<DbPool>,
-) -> impl IntoResponse {
-    let listing = db.listings.find_by_id(&id).await.unwrap();
+) -> Result<impl IntoResponse, StatusCode> {
+    let listing = db.listings.find_by_id(&id).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     let mut cx = WebContext::new();
 
@@ -210,9 +212,9 @@ async fn listing_page(
         image_url: &listing.image_url,
     }
     .render(&mut cx)
-    .unwrap();
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Html(cx.into_output().into_string())
+    Ok(Html(cx.into_output().into_string()))
 }
 ```
 
@@ -220,7 +222,7 @@ async fn listing_page(
 
 React components that need client-side interactivity become Proa islands. The HTML is rendered server-side by Proa; the JavaScript hydrates only the interactive parts.
 
-**Next.js (entire page hydrated):**
+**Next.js (a client component):**
 ```tsx filename="components/SearchFilters.tsx"
 "use client";
 
@@ -334,9 +336,10 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith("/rooms/")) {
-      return fetch(`https://proa-origin.example${url.pathname}`, {
-        headers: request.headers,
-      });
+      url.hostname = "proa-origin.example";
+      url.protocol = "https:";
+      url.port = "";
+      return fetch(new Request(url, request));
     }
 
     // Everything else to Next.js
