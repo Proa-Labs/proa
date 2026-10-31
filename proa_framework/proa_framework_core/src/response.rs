@@ -1438,7 +1438,8 @@ fn render_sync_component_to_html(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok((std::str::from_utf8(&buffer)?.to_owned(), title, decisions))
+    let html = String::from_utf8(buffer).map_err(|error| error.utf8_error())?;
+    Ok((html, title, decisions))
 }
 
 async fn render_async_component_to_html<L: DataLoader + 'static>(
@@ -1496,7 +1497,8 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok((std::str::from_utf8(&buffer)?.to_owned(), title, decisions))
+    let html = String::from_utf8(buffer).map_err(|error| error.utf8_error())?;
+    Ok((html, title, decisions))
 }
 
 async fn render_send_component_to_html<L: DataLoader + 'static>(
@@ -1551,7 +1553,8 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok((std::str::from_utf8(&buffer)?.to_owned(), title, decisions))
+    let html = String::from_utf8(buffer).map_err(|error| error.utf8_error())?;
+    Ok((html, title, decisions))
 }
 
 fn framework_error_response(err: FrameworkError) -> FrameworkResponse {
