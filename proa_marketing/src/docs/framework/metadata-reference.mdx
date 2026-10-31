@@ -589,6 +589,41 @@ Removal preserves the slot position if a descendant fills it again. Only the tit
 
 ## URL resolution
 
+### Planned URL composition
+
+The following API is proposed and is not yet implemented. `cx.url(...)`, `.segment(...)`, and passing the resulting typed value to `canonical(...)` are planned additions. Today, the URL helper is `cx.request().url(path)`, and metadata URL setters accept strings.
+
+The proposed context helper composes an application-local URL using the base path configured in `FrameworkBuilder`. For a dynamic product ID:
+
+```rust filename="Proposed render_head API — not yet implemented"
+let product_url = cx.url("/products").segment(self.id);
+cx.head_mut().canonical(product_url)?;
+```
+
+With public origin `https://shop.example`, application base path `/shop`, and `self.id = 42`, the expected output is:
+
+```html filename="Expected HTML once implemented"
+<link rel="canonical" href="https://shop.example/shop/products/42">
+```
+
+`.segment(value)` would append and percent-encode one path segment. For example, `.segment("red/blue")` would append `red%2Fblue`, preserving the slash as part of the slug. Fixed paths would use `cx.url("/products/42")` directly.
+
+The same typed value is intended to work in ordinary URL attributes:
+
+```rust filename="Proposed template API — not yet implemented"
+let product_url = cx.url("/products").segment(self.id);
+
+html_sync! {
+    <a href={product_url}>"View product"</a>
+}
+```
+
+```html filename="Expected HTML once implemented"
+<a href="/shop/products/42">View product</a>
+```
+
+The existing `AppUrl` writes its prefix and borrowed path directly to the output buffer without creating a concatenated `String`. Dynamic segment composition is intended to preserve that approach, with URL validation, segment encoding, and allocation tests. Metadata retains an owned, validated URL, so its storage can still allocate. A composed application URL would carry its prefix through to metadata without applying the mount a second time.
+
 ### URL base and mount
 
 For this example, configure a public mount of `/shop` before rendering:
@@ -607,6 +642,8 @@ cx.head_mut().canonical("/products/trail-jacket")?;
 ```
 
 The leading `/` is still relative to the configured mount. Configure `HeadUrlPolicy::new(public_origin, mount)` before `with_defaults`: defaults resolve URLs immediately.
+
+Currently, this mount is configured separately from `FrameworkBuilder::with_base_path(...)`; the builder does not automatically pass its base path into the head URL policy. Keep both configurations aligned for a mounted application. Inside a component, `cx.request().base_path().as_str()` reads the configured application prefix (`""` at the origin root).
 
 ### External resource origins
 

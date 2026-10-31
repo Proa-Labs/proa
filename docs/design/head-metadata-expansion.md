@@ -124,9 +124,11 @@ old-object control compiles `request.rs` from `c6ac23e5` with its `bulk` feature
 - Workspace all-target checking, formatting, Proa source lint, and render
   performance lint passed. All 16 active core doctests passed; 5 remain ignored.
 - The ORIGIN example/template parity check and its 5 library tests passed.
-- All 32 metadata-reference Rust snippets compiled. The 24 independent examples
-  with generated HTML were executed in fresh managed contexts, and their exact
-  emitted tags matched the displayed output (ignoring display-only newlines).
+- All 32 implemented-API metadata-reference Rust snippets compiled. The 24
+  independent examples with generated HTML were executed in fresh managed
+  contexts, and their exact emitted tags matched the displayed output (ignoring
+  display-only newlines). The separately labeled proposed `cx.url(...).segment(...)`
+  examples are design illustrations and are excluded from that validation.
 
 The [metadata reference](../../proa_marketing/src/docs/framework/metadata-reference.mdx)
 shows each mutation immediately above its generated tags. Agent authoring
