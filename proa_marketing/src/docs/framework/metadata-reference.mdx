@@ -402,8 +402,7 @@ cx.head_mut().module(Script::Site, "/scripts/site.js")?;
 ```
 
 ```html filename="Generated HTML"
-<script type="module" src="https://shop.example/scripts/site.js">
-</script>
+<script type="module" src="https://shop.example/scripts/site.js"></script>
 ```
 
 When a CSP nonce is installed before managed-head initialization, Proa adds it to resource tags automatically. The output above assumes no nonce.
@@ -454,13 +453,15 @@ The leading `/` is still relative to the configured mount. Configure `HeadUrlPol
 
 ### External resource origins
 
-Allow a CDN origin before using it for images, audio, video, stylesheets, or modules:
+Stylesheets and modules must come from the public origin or an allowed resource origin. Allow a CDN origin before registering resources from it:
 
 ```rust filename="App configuration"
 let urls = HeadUrlPolicy::new("https://shop.example", "/")?
     .allow_resource_origin("https://cdn.example")?;
 let head = HeadConfig::default().with_urls(urls);
 ```
+
+Images, audio, video, canonical URLs, and `og:url` do not use this allowlist. They accept a mount-relative path or any absolute `http` or `https` URL that has a host and carries no credentials.
 
 The public origin comes from trusted application configuration, including staging configuration. It is never inferred from `Host` or forwarded headers. Proa resolves and validates these URLs; it does not fetch resources.
 

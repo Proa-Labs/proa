@@ -101,7 +101,7 @@ execution by itself.
 | Your component | Pick |
 |---|---|
 | Pure markup, no I/O, no `.await` | `WebRenderSync` |
-| Reads `cx.load::<T>(id).await` (dataloader) | `WebRender` |
+| Reads `cx.load_typed::<T>(key).await` (dataloader) | `WebRender` |
 | Calls `query_with_initial(...)` with an already-available initial value | `WebRenderSync` |
 | Must `.await` to produce a query's initial value | `WebRender` |
 | Calls `mutation(...)` inside an analyzed component | `WebRender` (mutation declarations remain on the async surface) |
@@ -146,9 +146,9 @@ impl<L: DataLoader> WebRender<L> for UserCard {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let user = cx
-                .load::<User>(LoadKey::typed("user", self.user_id))
+                .load_typed::<User>(LoadKey::typed("user", self.user_id))
                 .await?;
-            html! { <div>{user.name}</div> }.render(cx).resolve().await
+            html! { <div>{user.name.as_str()}</div> }.render(cx).resolve().await
         })
     }
 }
@@ -442,7 +442,7 @@ The `#[rsjs(component)]` macro respects whichever trait you wrote. Add
 `client` when the component originates browser behavior. A
 `query_with_initial(...)` declaration is valid in `WebRenderSync` when its
 initial value is already available. If producing that value needs
-`cx.load(...).await`, choose `WebRender` and `html!`; the macro never silently
+`cx.load_typed(...).await`, choose `WebRender` and `html!`; the macro never silently
 switches traits.
 
 ## Performance notes

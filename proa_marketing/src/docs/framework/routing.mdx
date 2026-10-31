@@ -136,7 +136,7 @@ let routes = Router::new()
     .nest("/shop", shop);
 ```
 
-This registers `/about`, `/shop/`, and `/shop/products/:id`. Each handler explicitly composes its layout and Page. URL nesting does not add HTML wrappers.
+This registers `/about`, `/shop`, and `/shop/products/:id`; Axum maps the nested `/` route to the prefix itself. Each handler explicitly composes its layout and Page. URL nesting does not add HTML wrappers.
 
 ### Route specifications
 

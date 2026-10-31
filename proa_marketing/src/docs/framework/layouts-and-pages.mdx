@@ -120,9 +120,7 @@ Re-export the components from your `pages` and `layouts` modules. Each handler c
 ```rust filename="src/app.rs"
 use axum::{routing::get, Router};
 use proa_core::{HeadConfig, HeadUrlPolicy, WriteError};
-use proa_framework_axum::{
-    FrameworkBuilder, IslandManifest, Route, RouteMode, RouteResponse,
-};
+use proa_framework_axum::{FrameworkBuilder, IslandManifest, RouteResponse};
 use crate::{layouts::RootDocument, pages::ContentPage};
 
 async fn home() -> RouteResponse {
@@ -144,14 +142,9 @@ async fn about() -> RouteResponse {
 }
 
 pub fn app(manifest: IslandManifest) -> Result<Router, WriteError> {
-    let routes = Route::endpoint("/", get(home))
-        .with_route_mode(RouteMode::Server)
-        .into_router()
-        .merge(
-            Route::endpoint("/about", get(about))
-                .with_route_mode(RouteMode::Server)
-                .into_router(),
-        );
+    let routes = Router::new()
+        .route("/", get(home))
+        .route("/about", get(about));
     let head = HeadConfig::default()
         .with_urls(HeadUrlPolicy::new("https://acme.example", "/")?);
 
@@ -234,7 +227,7 @@ async fn shop() -> RouteResponse {
 }
 ```
 
-Register it with `Route::endpoint("/shop", get(shop))`. The explicitly composed tree is `RootDocument → ShopLayout → ContentPage`:
+Register it with `.route("/shop", get(shop))`. The explicitly composed tree is `RootDocument → ShopLayout → ContentPage`:
 
 
 ```html filename="Generated title and description"

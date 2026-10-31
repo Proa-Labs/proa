@@ -123,7 +123,7 @@ For product `42`, named “Trail Jacket” with summary “Built for the outdoor
 <link rel="canonical" href="https://shop.example/products/42">
 ```
 
-Head and body share the request, headers, route parameters, and loader. When both need the same value, use a request-scoped `DataResolver` and the same key to reuse one underlying lookup. An uncached loader still follows its own caching policy. See [Data loading](/docs/framework/data-loading).
+Head and body share the request, headers, route parameters, and loader. When both need the same value, use a request-scoped `DataResolver` and the same key to reuse one underlying lookup. Request scoping dedupes reads within one request; cache policy beyond that stays with the `DataLoader`. See [Data loading](/docs/framework/data-loading).
 
 ## Inherit layout defaults
 
@@ -209,7 +209,7 @@ cx.head_mut().open_graph(
 
 `OpenGraph::new()` enables social metadata. If the document already has a title, description, or canonical URL, Open Graph also emits `og:title`, `og:description`, and `og:url` from those final values. Explicit social values override those fallbacks.
 
-Serve the image through your [static assets](/docs/framework/static-assets) or an allowed resource origin. Proa emits the image metadata; it does not generate, resize, or fetch the image. See the reference for [social overrides](/docs/framework/metadata-reference#a-different-social-title), [image replacement](/docs/framework/metadata-reference#replace-inherited-images), and [Twitter cards](/docs/framework/metadata-reference#twitter-cards).
+Serve the image through your [static assets](/docs/framework/static-assets) or from any absolute `https` URL. Images do not need `allow_resource_origin`; that allowlist applies to stylesheets and modules. Proa emits the image metadata; it does not generate, resize, or fetch the image. See the reference for [social overrides](/docs/framework/metadata-reference#a-different-social-title), [image replacement](/docs/framework/metadata-reference#replace-inherited-images), and [Twitter cards](/docs/framework/metadata-reference#twitter-cards).
 
 ## Metadata and streaming
 
