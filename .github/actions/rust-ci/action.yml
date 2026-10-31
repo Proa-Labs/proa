@@ -78,6 +78,24 @@ runs:
           --cli "${CARGO_TARGET_DIR:-target}/debug/proa" \
           --source-only --work-dir "$RUNNER_TEMP/quickstart-workspace"
 
+    # render/head-role-required is the only enforcement of the async head-hook
+    # role contract, so the source lint must run over production sources and
+    # scaffolds, not just the quickstart. Error-severity diagnostics fail this
+    # step; warnings do not. examples/mcp-incident-desk stays out until its
+    # pre-existing render/content-coverage errors are fixed.
+    - name: Lint workspace sources with the proa source linter
+      shell: bash
+      run: |
+        "${CARGO_TARGET_DIR:-target}/debug/proa" lint \
+          proa_core/src \
+          proa_stream/src \
+          proa_framework/proa_framework_core/src \
+          proa_framework/proa_framework_axum/src \
+          proa_marketing/src \
+          proa_cli/src/site_scaffold/templates \
+          examples/origin-routing-atlas \
+          examples/webmcp-pizza
+
     - name: Check generated RSJS web bindings
       shell: bash
       run: cargo run --locked -p rsjs_web --bin rsjs-web-codegen -- --check

@@ -97,9 +97,15 @@ source-lint content tests and a manual async loader in the representation tests.
 Changed-package verification excludes those six lint categories using command-line
 flags; no source suppressions were added.
 
-Changed production Rust passes strict Proa source lint. Linting the source-linter's
+Changed production Rust adds no Proa source-lint findings at any severity. The
+`perf/clone` and `perf/raw-write-html` warnings that `proa lint` still reports in
+`proa_framework_core/src/response.rs` all blame to main. Linting the source-linter's
 own `src/lint/tests.rs` separately reports its intentionally invalid suppression
 fixture; this pre-existing fixture is excluded from the production-path check.
+The `rust-ci` action now runs `proa lint` over the production crate sources, the
+marketing site, the scaffold templates, and the atlas and pizza examples, so
+`render/head-role-required` is enforced on every push rather than only on the
+quickstart scaffold.
 
 ## Native-path performance
 
