@@ -183,15 +183,17 @@ async fn params_survive_an_inner_context_layer_and_an_original_uri_override() {
         let layer = RouteContextLayer::new(Arc::new(manifest), Arc::new(Default::default()))
             .with_head(HeadConfig::default());
         let app = Router::new().nest("/shop", routes.layer(layer));
-        for rewritten in [false, true] {
+        // OriginalUri may be absent, unrelated, or a rewritten path that still
+        // matches the pattern. Axum's capture for the current URI always wins.
+        for original in [None, Some("/before-rewrite"), Some("/shop/blog/old-shoes")] {
             let mut request = Request::builder()
                 .uri("/shop/blog/red-shoes")
                 .body(Body::empty())
                 .unwrap();
-            if rewritten {
-                request.extensions_mut().insert(axum::extract::OriginalUri(
-                    "/before-rewrite".parse().unwrap(),
-                ));
+            if let Some(original) = original {
+                request
+                    .extensions_mut()
+                    .insert(axum::extract::OriginalUri(original.parse().unwrap()));
             }
             let response = app.clone().oneshot(request).await.unwrap();
             assert_eq!(response.status(), 200);
@@ -204,6 +206,7 @@ async fn params_survive_an_inner_context_layer_and_an_original_uri_override() {
             .unwrap();
             assert!(html.contains("<title>red-shoes | Shop</title>"), "{html}");
             assert!(html.contains("<h1>red-shoes</h1>"), "{html}");
+            assert!(!html.contains("old-shoes"), "{html}");
         }
     }
 }

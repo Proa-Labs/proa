@@ -479,8 +479,12 @@ where
 }
 
 /// Match unescaped named segments synchronously. Axum still owns decoding and
-/// wildcard semantics on the cold path below. OriginalUri aligns full nested
-/// MatchedPaths even when this layer sees a stripped request URI.
+/// wildcard semantics on the cold path below. A nested router strips its prefix
+/// from the current URI while `MatchedPath` keeps the full pattern, so the full
+/// path is read from `OriginalUri` when the current path is its tail. Any other
+/// divergence between the two means a rewrite happened between them; only
+/// Axum's own captures are authoritative then, so that request also takes the
+/// cold path.
 fn prepare_ascii_params(req: &axum::http::Request<Body>, context: &mut RouteContext) -> bool {
     let Some(pattern) = req.extensions().get::<MatchedPath>() else {
         return true;
@@ -491,18 +495,24 @@ fn prepare_ascii_params(req: &axum::http::Request<Body>, context: &mut RouteCont
     if !has_named && !has_wildcard {
         return true;
     }
-    let path = req
-        .extensions()
-        .get::<OriginalUri>()
-        .map_or_else(|| req.uri().path(), |uri| uri.0.path());
-    if has_wildcard || path.contains('%') || req.uri().path().contains('%') {
+    if has_wildcard {
         return false;
     }
-    let mut params = extract_route_params(pattern, path);
-    if params.is_empty() && path != req.uri().path() {
-        // A URI-rewriting middleware may route a different path from OriginalUri.
-        params = extract_route_params(pattern, req.uri().path());
+    let current = req.uri().path();
+    let path = match req
+        .extensions()
+        .get::<OriginalUri>()
+        .map(|uri| uri.0.path())
+    {
+        None => current,
+        Some(original) if original == current => current,
+        Some(original) if original.ends_with(current) => original,
+        Some(_) => return false,
+    };
+    if path.contains('%') {
+        return false;
     }
+    let params = extract_route_params(pattern, path);
     if params.is_empty() {
         return false;
     }
