@@ -36,8 +36,10 @@ pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
 };
 pub use proa_core::{
-    AppUrl, BasePath, ComponentRole, CspNonce, HeadConfig, HeadDefaults, HeadMedia, HeadMetadata,
-    HeadUrlPolicy, InvalidBasePath, SyncHeadOperation,
+    AppUrl, ArticleMetadata, BasePath, ComponentRole, CspNonce, HeadAlternate, HeadAuthor,
+    HeadConfig, HeadDefaults, HeadIcon, HeadMedia, HeadMetadata, HeadTitle, HeadUrlPolicy,
+    HeadValue, HeadVerification, IconKind, ImagePreview, InvalidBasePath, ReferrerPolicy, Robots,
+    SyncHeadOperation, Twitter, TwitterCard,
 };
 pub use proa_framework_core::{
     absolute_http_url, ChangeFreq, DiscoveryError, RobotsGroup, RobotsRule, RobotsTxt, Sitemap,
@@ -331,6 +333,11 @@ impl FrameworkBuilder {
     /// # };
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run).unwrap();
     /// ```
+    ///
+    /// This configures the crawl-policy file, not page indexing metadata. Use
+    /// `cx.head_mut().robots(proa_core::Robots { .. })` in a managed head hook
+    /// for page-level `noindex`/preview directives. Crawlers must be allowed to
+    /// fetch the page to read its HTML robots tag.
     pub fn with_robots(mut self, robots: RobotsTxt) -> Self {
         self.robots = Some(robots);
         self

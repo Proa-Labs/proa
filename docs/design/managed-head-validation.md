@@ -193,3 +193,15 @@ first rebuilding a second chained buffer.
   component after the outlet.
 - Existing client JSON is supported; no new browser navigation/head-merging runtime is included.
 - Manual HTML remains application-owned. Custom writers must opt into owned-page transfer.
+
+
+## Typed metadata object expansion
+
+The expanded object supports explicit inherit/set/clear values, absolute titles,
+Twitter summary cards, page robots/Googlebot policies, icons, alternate links,
+manifests, authors, verification, application details, referrer policy, and
+article Open Graph properties. `/robots.txt` remains a separate builder resource.
+See the [expansion validation report](head-metadata-expansion.md) for the 779
+passing affected tests, compiled/generated-output documentation checks, native
+allocation/storage parity, request measurements, the remaining approximately 3%
+tiny-fixture bulk-object cost, and its 48-byte managed-state increase.

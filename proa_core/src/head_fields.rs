@@ -11,19 +11,10 @@ const VALUE_LIMIT: usize = 16 * 1024;
 const SLOT_LIMIT: usize = 128;
 pub const HEAD_LIMIT: usize = 64 * 1024;
 
-/// A checked metadata patch for one layout or Page's head hook.
-///
-/// `None` leaves the inherited value unchanged. Use the individual `clear_*`
-/// methods to remove a value. The patch is validated atomically before applying
-/// any fields, with the same URL policy and title inheritance as the setters.
-#[derive(Clone, Debug, Default)]
-pub struct HeadMetadata {
-    pub title: Option<Cow<'static, str>>,
-    pub description: Option<Cow<'static, str>>,
-    pub title_template: Option<Cow<'static, str>>,
-    pub canonical: Option<Cow<'static, str>>,
-    pub open_graph: Option<OpenGraph>,
-}
+pub use crate::head_metadata::HeadMetadata;
+use crate::{HeadTitle, HeadValue};
+mod extended;
+use extended::{ExtendedHead, PreparedExtended};
 
 fn invalid() -> WriteError {
     WriteError::render("invalid managed head value")
@@ -127,11 +118,12 @@ struct Resource {
 }
 /// Fully validated inputs, ready for an infallible commit under the head lock.
 pub(crate) struct PreparedMetadata {
-    title: Option<HeadText>,
-    description: Option<HeadText>,
-    title_template: Option<HeadText>,
-    canonical: Option<Arc<str>>,
-    graph: Option<OpenGraph>,
+    title: HeadValue<(HeadText, bool)>,
+    description: HeadValue<HeadText>,
+    title_template: HeadValue<HeadText>,
+    canonical: HeadValue<Arc<str>>,
+    graph: HeadValue<OpenGraph>,
+    extended: PreparedExtended,
 }
 
 #[derive(Default, Clone)]
@@ -144,84 +136,113 @@ pub struct HeadFields {
     canonical: Option<Arc<str>>,
     meta: Vec<(Arc<str>, Option<HeadText>)>,
     resources: Vec<Resource>,
+    extended: Option<Arc<ExtendedHead>>,
 }
 impl HeadFields {
+    #[inline(always)]
     pub(crate) fn prepare_metadata(
         &self,
-        metadata: HeadMetadata,
+        metadata: &mut HeadMetadata,
         policy: Option<&HeadUrlPolicy>,
     ) -> Result<PreparedMetadata, WriteError> {
-        for value in [
-            &metadata.title,
-            &metadata.description,
-            &metadata.title_template,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            text(value)?;
-        }
-        if let Some(template) = &metadata.title_template {
-            if template.matches("%s").count() != 1 {
+        let title = std::mem::take(&mut metadata.title).try_map(|value| {
+            let (value, absolute) = match value {
+                HeadTitle::Text(value) => (value, false),
+                HeadTitle::Absolute(value) => (value, true),
+            };
+            text(&value)?;
+            Ok((HeadText::from(value), absolute))
+        })?;
+        let description = std::mem::take(&mut metadata.description).try_map(|value| {
+            text(&value)?;
+            Ok(HeadText::from(value))
+        })?;
+        let title_template = std::mem::take(&mut metadata.title_template).try_map(|value| {
+            text(&value)?;
+            if value.matches("%s").count() != 1 {
                 return Err(invalid());
             }
-        }
-        if metadata.description.is_some()
-            && !self
-                .meta
-                .iter()
-                .any(|slot| slot.0.eq_ignore_ascii_case("description"))
-            && self.meta.len() + self.resources.len() >= SLOT_LIMIT
-        {
-            return Err(invalid());
-        }
-        let canonical = metadata
-            .canonical
-            .map(|value| {
-                let policy =
-                    policy.ok_or_else(|| WriteError::render("missing trusted URL policy"))?;
-                policy.resolve(&value, false).map(Arc::from)
-            })
-            .transpose()?;
-        let graph = metadata
-            .open_graph
-            .map(|patch| self.prepare_graph(patch, policy))
-            .transpose()?;
+            Ok(HeadText::from(value))
+        })?;
+        let canonical = std::mem::take(&mut metadata.canonical).try_map(|value| {
+            policy
+                .ok_or_else(|| WriteError::render("missing trusted URL policy"))?
+                .resolve(&value, false)
+                .map(Arc::from)
+        })?;
+        let graph = std::mem::take(&mut metadata.open_graph)
+            .try_map(|patch| self.prepare_graph(patch, policy))?;
+        let extended = self.prepare_extended(metadata, policy)?;
+        let description_slot = usize::from(
+            matches!(description, HeadValue::Set(_))
+                && !self
+                    .meta
+                    .iter()
+                    .any(|slot| slot.0.eq_ignore_ascii_case("description")),
+        );
+        self.check_extended_slots(&extended, description_slot)?;
         Ok(PreparedMetadata {
-            title: metadata.title.map(HeadText::from),
-            description: metadata.description.map(HeadText::from),
-            title_template: metadata.title_template.map(HeadText::from),
+            title,
+            description,
+            title_template,
             canonical,
             graph,
+            extended,
         })
     }
 
+    #[inline(always)]
     pub(crate) fn apply_metadata(&mut self, metadata: PreparedMetadata) {
-        if let Some(title) = metadata.title {
-            self.title = Some(title);
-            self.title_template = self.ancestor_template.clone();
-        }
-        if let Some(description) = metadata.description {
-            if let Some(slot) = self
-                .meta
-                .iter_mut()
-                .find(|slot| slot.0.eq_ignore_ascii_case("description"))
-            {
-                slot.1 = Some(description);
-            } else {
-                // proa-perf-ok: new metadata slots are allocated only during head preparation.
-                self.meta
-                    .push((Arc::from("description"), Some(description)));
+        match metadata.title {
+            HeadValue::Inherit => {}
+            HeadValue::Set((title, absolute)) => {
+                self.title = Some(title);
+                self.title_template = if absolute {
+                    None
+                } else {
+                    self.ancestor_template.clone()
+                };
+            }
+            HeadValue::Clear => {
+                self.title = None;
+                self.title_template = None;
             }
         }
-        if let Some(template) = metadata.title_template {
-            self.template = Some(template);
+        match metadata.description {
+            HeadValue::Inherit => {}
+            HeadValue::Set(description) => {
+                self.apply_named("description".into(), Some(description))
+            }
+            HeadValue::Clear => {
+                if let Some(slot) = self
+                    .meta
+                    .iter_mut()
+                    .find(|s| s.0.eq_ignore_ascii_case("description"))
+                {
+                    slot.1 = None;
+                }
+            }
         }
-        if let Some(canonical) = metadata.canonical {
-            self.canonical = Some(canonical);
+        metadata.title_template.apply(&mut self.template);
+        metadata.canonical.apply(&mut self.canonical);
+        match metadata.graph {
+            HeadValue::Inherit => {}
+            HeadValue::Set(graph) => self.apply_graph(graph),
+            HeadValue::Clear => self.graph = OpenGraph::default(),
         }
-        if let Some(graph) = metadata.graph {
-            self.apply_graph(graph);
+        self.apply_extended(metadata.extended);
+    }
+
+    fn apply_named(&mut self, name: Cow<'static, str>, value: Option<HeadText>) {
+        if let Some(slot) = self
+            .meta
+            .iter_mut()
+            .find(|slot| slot.0.eq_ignore_ascii_case(&name))
+        {
+            slot.1 = value;
+        } else {
+            // proa-perf-ok: metadata slots are allocated only during head preparation.
+            self.meta.push((Arc::from(name.as_ref()), value));
         }
     }
 
@@ -230,7 +251,7 @@ impl HeadFields {
         if name.is_empty()
             || !name
                 .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-_:".contains(&b))
+                .all(|b| b.is_ascii_alphanumeric() || b"-_:.".contains(&b))
         {
             return Err(invalid());
         }
@@ -244,7 +265,9 @@ impl HeadFields {
         {
             slot.1 = value.map(HeadText::from);
         } else {
-            if self.meta.len() + self.resources.len() >= SLOT_LIMIT {
+            if self.meta.len() + self.resources.len() + self.extended_slots_after_named(name)
+                >= SLOT_LIMIT
+            {
                 return Err(invalid());
             }
             self.meta
@@ -275,7 +298,7 @@ impl HeadFields {
         {
             slot.href = href;
         } else {
-            if self.meta.len() + self.resources.len() >= SLOT_LIMIT {
+            if self.meta.len() + self.resources.len() + self.extended_slots() >= SLOT_LIMIT {
                 return Err(invalid());
             }
             self.resources.push(Resource {
@@ -311,6 +334,7 @@ impl HeadFields {
             out.extend_static(b"\">")?;
         }
         self.write_graph(out)?;
+        self.write_extended(out)?;
         for entry in &self.resources {
             if let Some(href) = &entry.href {
                 match entry.family {
@@ -427,6 +451,7 @@ pub struct OpenGraph {
     images: Option<Vec<HeadMedia>>,
     audio: Option<Vec<HeadMedia>>,
     video: Option<Vec<HeadMedia>>,
+    article: Option<Option<Arc<crate::ArticleMetadata>>>,
 }
 const GRAPH_NAMES: [&str; 7] = [
     "og:title",
@@ -467,6 +492,15 @@ impl OpenGraph {
     graph_scalar!(determiner, clear_determiner, 4);
     graph_scalar!(kind, clear_kind, 5);
     graph_scalar!(locale, clear_locale, 6);
+    /// Set article properties and select `og:type=article`.
+    pub fn article(mut self, article: crate::ArticleMetadata) -> Self {
+        self.article = Some(Some(Arc::new(article)));
+        self.kind("article")
+    }
+    pub fn clear_article(mut self) -> Self {
+        self.article = Some(None);
+        self
+    }
     pub fn images(mut self, values: impl IntoIterator<Item = HeadMedia>) -> Self {
         self.images = Some(values.into_iter().take(SLOT_LIMIT + 1).collect());
         self
@@ -543,6 +577,7 @@ impl HeadFields {
         mut patch: OpenGraph,
         policy: Option<&HeadUrlPolicy>,
     ) -> Result<OpenGraph, WriteError> {
+        self.prepare_article(&mut patch, policy)?;
         for value in patch.scalars.iter().flatten().flatten() {
             text(value)?;
         }
@@ -590,7 +625,25 @@ impl HeadFields {
                 .as_ref()
                 .or(self.graph.video.as_ref())
                 .map_or(0, Vec::len);
-        if retained > SLOT_LIMIT {
+        let article = patch
+            .article
+            .as_ref()
+            .or(self.graph.article.as_ref())
+            .and_then(|v| v.as_ref())
+            .map_or(0, |article| {
+                article.authors.len()
+                    + article.tags.len()
+                    + [
+                        &article.published_time,
+                        &article.modified_time,
+                        &article.expiration_time,
+                        &article.section,
+                    ]
+                    .into_iter()
+                    .filter(|v| v.is_some())
+                    .count()
+            });
+        if retained + article > SLOT_LIMIT {
             return Err(invalid());
         }
         Ok(patch)
@@ -615,6 +668,9 @@ impl HeadFields {
         }
         if patch.video.is_some() {
             self.graph.video = patch.video;
+        }
+        if patch.article.is_some() {
+            self.graph.article = patch.article;
         }
     }
     pub(crate) fn resolved_title(&self) -> Option<String> {
@@ -674,6 +730,7 @@ impl HeadFields {
                 }
             }
         }
+        self.write_article(out)?;
         if let Some(locales) = &self.graph.locales {
             for value in locales {
                 property(out, "og:locale:alternate", value)?;

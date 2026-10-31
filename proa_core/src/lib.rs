@@ -494,6 +494,7 @@ pub mod dev_hot;
 #[doc(hidden)]
 pub mod head_dispatch;
 pub mod head_fields;
+mod head_metadata;
 pub mod managed_head;
 
 /// Drive a `WebRender` child through its role-selected head hook and body.
@@ -518,4 +519,8 @@ pub use head_dispatch::{ComponentRole, NoHead, SyncHeadOperation};
 pub use head_fields::HeadUrlPolicy;
 pub use managed_head::{HeadConfig, HeadDefaults, HeadError, HeadOutlet};
 
-pub use head_fields::{HeadMedia, HeadMetadata, OpenGraph};
+pub use head_fields::{HeadMedia, OpenGraph};
+pub use head_metadata::{
+    ArticleMetadata, HeadAlternate, HeadAuthor, HeadIcon, HeadMetadata, HeadTitle, HeadValue,
+    HeadVerification, IconKind, ImagePreview, ReferrerPolicy, Robots, Twitter, TwitterCard,
+};

@@ -79,8 +79,8 @@ where
 
     async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         cx.head_mut().metadata(HeadMetadata {
-            title: Some("ORIGIN — how the internet reaches websites".into()),
-            description: Some("ORIGIN shows how the internet reaches any website: the addresses, the networks, and the routes between them.".into()),
+            title: "ORIGIN — how the internet reaches websites".into(),
+            description: "ORIGIN shows how the internet reaches any website: the addresses, the networks, and the routes between them.".into(),
             ..Default::default()
         })
     }

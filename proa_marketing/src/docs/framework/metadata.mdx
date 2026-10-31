@@ -96,7 +96,7 @@ With the Page above, the head contains:
 </head>
 ```
 
-Charset and viewport come from the template. Proa adds the managed metadata at the outlet; it does not add these manual tags for you. Keep fonts, favicons, `<html>` classes, and any other manual tags in the document too.
+Charset and viewport come from the template. Proa adds the managed metadata at the outlet; it does not add these manual tags for you. Keep fonts, `<html>` classes, and any other manual tags in the document too. For managed favicons, use [`cx.head_mut().icons(...)`](/docs/framework/metadata-reference#icons).
 
 Each managed document needs exactly one selected Page and one head outlet. Compose the Page through `html!`, `html_sync!`, or framework render helpers. Calling `child.render(cx)` directly calls only its body and skips its hook.
 

@@ -21,9 +21,9 @@ impl WebRenderSync for Document {
     const ROLE: ComponentRole = ComponentRole::LAYOUT;
     fn render_head(&self, cx: &mut WebContext) -> impl SyncHeadOperation {
         cx.head_mut().metadata(HeadMetadata {
-            title: Some("Default".into()),
-            title_template: Some("%s | Shop".into()),
-            description: Some("Inherited description".into()),
+            title: "Default".into(),
+            title_template: "%s | Shop".into(),
+            description: "Inherited description".into(),
             ..Default::default()
         })
     }
@@ -48,7 +48,7 @@ impl WebRenderSync for Page {
             .ok_or_else(|| WriteError::render("missing route capture"))?
             .to_owned();
         cx.head_mut().metadata(HeadMetadata {
-            title: Some(name.into()),
+            title: name.into(),
             ..Default::default()
         })
     }
@@ -209,4 +209,125 @@ async fn params_survive_an_inner_context_layer_and_an_original_uri_override() {
             assert!(!html.contains("old-shoes"), "{html}");
         }
     }
+}
+
+struct SearchPage;
+impl WebRenderSync for SearchPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head(&self, cx: &mut WebContext) -> impl SyncHeadOperation {
+        use proa_core::{HeadTitle, HeadValue, Robots, Twitter, TwitterCard};
+        let slug = cx.param("slug").unwrap().to_owned();
+        cx.head_mut().metadata(HeadMetadata {
+            title: HeadTitle::absolute(slug).into(),
+            description: HeadValue::Clear,
+            robots: Robots {
+                index: Some(false),
+                follow: Some(true),
+                ..Default::default()
+            }
+            .into(),
+            twitter: Twitter::new().card(TwitterCard::SummaryLargeImage).into(),
+            ..Default::default()
+        })
+    }
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <html>
+                <head>{cx.head()}</head>
+                <body>
+                    <main data-search></main>
+                </body>
+            </html>
+        }
+        .render(cx)
+    }
+}
+
+#[tokio::test]
+async fn robots_file_and_page_directives_are_independent_in_buffered_and_streamed_responses() {
+    use proa_core::{HeadAlternate, HeadIcon, Twitter};
+    use proa_framework_axum::RobotsTxt;
+    let head = HeadConfig::default()
+        .with_urls(HeadUrlPolicy::new("https://shop.example", "/").unwrap())
+        .with_defaults(|head| {
+            head.title_template("%s | Site")?;
+            head.description("Inherited")?;
+            head.icons([HeadIcon::new("/favicon.svg")])?;
+            head.alternates([HeadAlternate::new("/fr/search").language("fr")])?;
+            head.manifest("/app.webmanifest")?;
+            head.twitter(Twitter::new().site("@shop"))
+        })
+        .unwrap();
+    let manifest = IslandManifest {
+        islands: Default::default(),
+        assets: Default::default(),
+        import_map: Default::default(),
+        ssr_bundle: None,
+    };
+    let app = FrameworkBuilder::new(manifest)
+        .with_head(head)
+        .with_robots(RobotsTxt::new().disallow("/admin/").unwrap())
+        .with_dynamic_routes(
+            Router::new()
+                .route(
+                    "/search/:slug",
+                    get(|| async { RouteResponse::ssr(SearchPage) }),
+                )
+                .route(
+                    "/stream/:slug",
+                    get(|| async { RouteResponse::ssr_stream(proa_core::to_async(SearchPage)) }),
+                ),
+        )
+        .build();
+    for (path, title) in [
+        ("/search/red%20%26%20blue", "red &amp; blue"),
+        ("/stream/green", "green"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let output = String::from_utf8(
+            to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            output.contains(&format!("<title>{title}</title>")),
+            "{output}"
+        );
+        assert!(output.contains(&format!("name=\"twitter:title\" content=\"{title}\"")));
+        assert!(output.contains("name=\"twitter:site\" content=\"@shop\""));
+        assert!(output.contains("name=\"robots\" content=\"noindex, follow\""));
+        assert!(!output.contains("name=\"description\""));
+        assert!(!output.contains("twitter:description"));
+        assert!(output.contains("href=\"https://shop.example/favicon.svg\""));
+        assert!(output.contains("href=\"https://shop.example/fr/search\" hreflang=\"fr\""));
+        assert!(output.find("name=\"robots\"").unwrap() < output.find("<main").unwrap());
+        assert!(!output.contains("/admin/"));
+    }
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/robots.txt")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let output = String::from_utf8(
+        to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(output.contains("Disallow: /admin/"));
+    assert!(!output.contains("noindex"));
+    assert!(!output.contains("<meta"));
 }

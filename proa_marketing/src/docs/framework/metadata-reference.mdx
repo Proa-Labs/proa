@@ -15,9 +15,9 @@ Use `metadata` to set several fields in one call:
 use proa_core::HeadMetadata;
 
 cx.head_mut().metadata(HeadMetadata {
-    title: Some("Trail & Travel".into()),
-    description: Some("Built for the outdoors.".into()),
-    canonical: Some("/products/trail-jacket".into()),
+    title: "Trail & Travel".into(),
+    description: "Built for the outdoors.".into(),
+    canonical: "/products/trail-jacket".into(),
     ..Default::default()
 })?;
 ```
@@ -28,7 +28,41 @@ cx.head_mut().metadata(HeadMetadata {
 <link rel="canonical" href="https://shop.example/products/trail-jacket">
 ```
 
-`HeadMetadata` supports `title`, `description`, `title_template`, `canonical`, and `open_graph`. `None` preserves the inherited value; use the individual `clear_*` methods to remove a field. The whole patch is validated before any field changes. Its title uses the nearest ancestor template, just like `title(...)`.
+Every field defaults to `HeadValue::Inherit`. Use `.into()` to set a value and `HeadValue::Clear` to remove an inherited field. The whole patch is validated before any field changes, including URLs and list limits. A normal title uses the nearest ancestor template, just like `title(...)`.
+
+```rust filename="render_head"
+use proa_core::{HeadMetadata, HeadTitle, HeadValue};
+
+cx.head_mut().metadata(HeadMetadata {
+    title: HeadTitle::absolute("Checkout").into(),
+    description: HeadValue::Clear,
+    ..Default::default()
+})?;
+```
+
+```html filename="Generated HTML"
+<title>Checkout</title>
+```
+
+This clears any inherited description and bypasses an ancestor title template. Other inherited fields stay in place.
+
+| Field | Value | Inheritance when set |
+| --- | --- | --- |
+| `title` | `HeadTitle` or a string with `.into()` | Replace; `HeadTitle::absolute` bypasses the template |
+| `description`, `title_template`, `canonical` | Text | Replace |
+| `open_graph` | `OpenGraph` | Patch individual properties |
+| `twitter` | `Twitter` | Patch individual properties |
+| `robots`, `googlebot` | `Robots` | Replace the entire directive policy |
+| `icons` | `Vec<HeadIcon>` | Replace the entire list |
+| `alternates` | `Vec<HeadAlternate>` | Replace the entire list |
+| `manifest` | URL text | Replace |
+| `authors` | `Vec<HeadAuthor>` | Replace the entire list |
+| `application_name`, `creator`, `publisher` | Text | Replace |
+| `keywords` | `Vec<Cow<'static, str>>` | Replace the entire list |
+| `referrer` | `ReferrerPolicy` | Replace |
+| `verification` | `Vec<HeadVerification>` | Replace the entire list |
+
+An empty list removes inherited list entries. Clearing `open_graph` or `twitter` removes the whole inherited object. To suppress one social fallback, use the object's `clear_*` builder method instead. Existing individual setters remain available; migrate old bulk fields such as `title: Some("Shop".into())` to `title: "Shop".into()`.
 
 ## Document metadata
 
@@ -147,21 +181,123 @@ cx.head_mut().meta("author", "Acme")?;
 
 ### Twitter cards
 
-Use named meta tags for a Twitter/X card.
+Use the typed card builder to resolve image URLs and reuse final metadata. These types come from `proa_core`.
 
 ```rust filename="render_head"
-cx.head_mut().meta("twitter:card", "summary_large_image")?;
-cx.head_mut().meta("twitter:title", "Trail Jacket")?;
-cx.head_mut().meta("twitter:image", "https://shop.example/og/trail-jacket.png")?;
+cx.head_mut().title("Trail Jacket")?;
+cx.head_mut().twitter(
+    Twitter::new()
+        .card(TwitterCard::SummaryLargeImage)
+        .site("@acme")
+        .image(HeadMedia::new("/og/trail-jacket.png").alt("Forest green jacket")),
+)?;
 ```
 
 ```html filename="Generated HTML"
+<title>Trail Jacket</title>
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Trail Jacket">
+<meta name="twitter:site" content="@acme">
 <meta name="twitter:image" content="https://shop.example/og/trail-jacket.png">
+<meta name="twitter:image:alt" content="Forest green jacket">
 ```
 
-`meta` stores text; it does not resolve URL values or copy Open Graph fields. Supply an absolute URL for `twitter:image`.
+`Twitter::new()` enables a summary card. Title and description fall back to explicit Open Graph values, then the final document values. The image falls back to the first final Open Graph image. Card output is opt-in; Open Graph alone does not enable Twitter tags. `SummaryLargeImage` selects the large image card; this API currently supports summary cards, rather than player or app cards.
+
+Use `.title(...)`, `.description(...)`, `.creator(...)`, `.site_id(...)`, and `.creator_id(...)` to customize the card. `.clear_title()`, `.clear_description()`, and `.clear_image()` suppress fallback values. A descendant patch keeps unspecified parent card properties. `cx.head_mut().clear_twitter()?` removes the whole card.
+
+Named `.meta("twitter:...", value)` overrides the corresponding typed tag without duplication. Named meta values remain text and do not resolve URLs. Setting a typed property again replaces its named override. Overriding `twitter:image` also suppresses the old typed image's alt text.
+
+### Robots directives for a page
+
+Set indexing and preview directives on an individual page:
+
+```rust filename="render_head"
+cx.head_mut().robots(Robots {
+    index: Some(false),
+    follow: Some(true),
+    max_image_preview: Some(ImagePreview::Large),
+    ..Default::default()
+})?;
+```
+
+```html filename="Generated HTML"
+<meta name="robots" content="noindex, follow, max-image-preview:large">
+```
+
+Use `googlebot(Robots { ... })` for a separate `<meta name="googlebot">` policy. Optional directives emit nothing when omitted. `max_snippet` and `max_video_preview` accept `-1` for unlimited or a nonnegative limit. A descendant's policy replaces the parent's entire policy, so directives can be intentionally removed. `clear_robots()` and `clear_googlebot()` remove those tags.
+
+This is separate from `FrameworkBuilder::with_robots(RobotsTxt)`, which serves the site's `/robots.txt`. That file controls which URL paths crawlers may fetch. The HTML meta tag controls indexing and previews for a fetched page. A crawler must be allowed to fetch a page to read its `noindex` tag; disallowing it in `robots.txt` does not guarantee removal from search results. See [Google's page-level directives](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag) and [robots.txt guide](https://developers.google.com/search/docs/crawling-indexing/robots/intro).
+
+### Icons
+
+Replace the inherited icon list with typed links:
+
+```rust filename="render_head"
+cx.head_mut().icons([
+    HeadIcon::new("/favicon.svg").sizes("any").mime_type("image/svg+xml"),
+    HeadIcon::new("/apple-touch-icon.png").kind(IconKind::AppleTouch).sizes("180x180"),
+])?;
+```
+
+```html filename="Generated HTML"
+<link rel="icon" href="https://shop.example/favicon.svg" sizes="any" type="image/svg+xml">
+<link rel="apple-touch-icon" href="https://shop.example/apple-touch-icon.png" sizes="180x180">
+```
+
+`IconKind::Mask` emits `rel="mask-icon"`. `.media(...)` and `.color(...)` add optional attributes. Use an empty list or `clear_icons()` to remove inherited icons. URLs are validated and resolved with the trusted public origin and mount.
+
+### Alternate languages and feeds
+
+```rust filename="render_head"
+cx.head_mut().alternates([
+    HeadAlternate::new("/fr/products/trail-jacket").language("fr"),
+    HeadAlternate::new("/products/trail-jacket").language("x-default"),
+    HeadAlternate::new("/feed.xml").mime_type("application/rss+xml").title("Shop news"),
+])?;
+```
+
+```html filename="Generated HTML"
+<link rel="alternate" href="https://shop.example/fr/products/trail-jacket" hreflang="fr">
+<link rel="alternate" href="https://shop.example/products/trail-jacket" hreflang="x-default">
+<link rel="alternate" href="https://shop.example/feed.xml" type="application/rss+xml" title="Shop news">
+```
+
+Each alternate can also carry `.media(...)`. Setting alternates replaces the whole inherited list; canonical remains independent. Use `clear_alternates()` to remove the list.
+
+### Manifest
+
+```rust filename="render_head"
+cx.head_mut().manifest("/app.webmanifest")?;
+```
+
+```html filename="Generated HTML"
+<link rel="manifest" href="https://shop.example/app.webmanifest">
+```
+
+`clear_manifest()` removes an inherited manifest link.
+
+### Authors, application details, and verification
+
+```rust filename="render_head"
+cx.head_mut().metadata(HeadMetadata {
+    application_name: "Acme Shop".into(),
+    authors: vec![HeadAuthor::new("Alex").url("/authors/alex")].into(),
+    referrer: ReferrerPolicy::StrictOriginWhenCrossOrigin.into(),
+    verification: vec![HeadVerification::google("verification-token")].into(),
+    ..Default::default()
+})?;
+```
+
+```html filename="Generated HTML"
+<meta name="application-name" content="Acme Shop">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="author" content="Alex">
+<link rel="author" href="https://shop.example/authors/alex">
+<meta name="google-site-verification" content="verification-token">
+```
+
+`authors([...])` and `verification([...])` replace their entire inherited lists. Multiple authors and verification tokens emit multiple tags. `HeadVerification::new("msvalidate.01", token)` supports other verification providers; reserved document and Twitter names are rejected. `application_name`, `creator`, `publisher`, `keywords`, and `referrer` also have individual setters. Named `.meta(...)` calls override the corresponding typed author or verification name without duplication; `remove_meta(...)` suppresses it.
 
 ### Clear inherited metadata
 
@@ -355,6 +491,27 @@ cx.head_mut().open_graph(OpenGraph::default().enabled(false))?;
 <title>Checkout</title>
 ```
 
+### Article metadata
+
+```rust filename="render_head"
+cx.head_mut().open_graph(OpenGraph::new().article(ArticleMetadata {
+    published_time: Some("2026-10-30T12:00:00Z".into()),
+    authors: vec!["/authors/alex".into()],
+    tags: vec!["Rust".into(), "Web".into()],
+    ..Default::default()
+}))?;
+```
+
+```html filename="Generated HTML"
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-30T12:00:00Z">
+<meta property="article:author" content="https://shop.example/authors/alex">
+<meta property="article:tag" content="Rust">
+<meta property="article:tag" content="Web">
+```
+
+`article(...)` selects `og:type="article"` and replaces the inherited article object. It also accepts `modified_time`, `expiration_time`, and `section`. Author values are profile URLs. Provide valid timestamp text; Proa validates text size and escaping, not timestamp syntax. `clear_article()` removes article properties. Article properties emit only while the final Open Graph type is `article`.
+
 ## Stylesheets and scripts
 
 ### stylesheet
@@ -461,13 +618,13 @@ let urls = HeadUrlPolicy::new("https://shop.example", "/")?
 let head = HeadConfig::default().with_urls(urls);
 ```
 
-Images, audio, video, canonical URLs, and `og:url` do not use this allowlist. They accept a mount-relative path or any absolute `http` or `https` URL that has a host and carries no credentials.
+Images, audio, video, canonical URLs, `og:url`, Twitter images, icons, alternate links, manifests, and author URLs do not use this allowlist. They accept a mount-relative path or any absolute `http` or `https` URL that has a host and carries no credentials.
 
 The public origin comes from trusted application configuration, including staging configuration. It is never inferred from `Host` or forwarded headers. Proa resolves and validates these URLs; it does not fetch resources.
 
 ## Other head tags
 
-Keep charset, viewport, favicons, fonts, and other manual tags in the document's `html!` or `html_sync!` template, next to `{cx.head()}`. Proa does not parse or deduplicate manual tags. There is no automatic favicon or Open Graph image file convention.
+Keep charset, viewport, fonts, and other manual tags in the document's `html!` or `html_sync!` template, next to `{cx.head()}`. Proa does not parse or deduplicate manual tags. Use the typed icon setters above for managed favicons. There is no automatic favicon or Open Graph image file convention. Do not also emit a manual icon for the same purpose unless you intend both links.
 
 ## When mutations are allowed
 

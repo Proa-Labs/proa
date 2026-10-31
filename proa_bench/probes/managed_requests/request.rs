@@ -67,8 +67,8 @@ impl WebRenderSync for Doc {
         #[cfg(feature = "bulk")]
         {
             cx.head_mut().metadata(proa_core::HeadMetadata {
-                title_template: Some("%s | Shop".into()),
-                description: Some("Layout description".into()),
+                title_template: "%s | Shop".into(),
+                description: "Layout description".into(),
                 ..Default::default()
             })?;
         }
@@ -96,9 +96,9 @@ impl WebRenderSync for Page {
         #[cfg(feature = "bulk")]
         {
             cx.head_mut().metadata(proa_core::HeadMetadata {
-                title: Some("Trail & Travel".into()),
-                description: Some("Built for the outdoors.".into()),
-                canonical: Some("/products/42".into()),
+                title: "Trail & Travel".into(),
+                description: "Built for the outdoors.".into(),
+                canonical: "/products/42".into(),
                 ..Default::default()
             })?;
         }

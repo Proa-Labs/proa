@@ -4,6 +4,15 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- Typed head metadata now supports inherit/set/clear patches, absolute titles,
+  Twitter summary cards, page-level robots/Googlebot directives, icons,
+  alternate-language/feed links, manifests, authors, verification, referrer
+  policies, application details, and article Open Graph properties. New setters
+  share managed-head validation and lifecycle rules. Breaking within the new
+  bulk API: replace `title: Some("Shop".into())` with `title: "Shop".into()`;
+  `HeadValue::Clear` removes an inherited field. `RobotsTxt` and
+  `FrameworkBuilder::with_robots` still configure the separate `/robots.txt` file.
+
 - Managed document head: `render_head` hooks on `WebRenderSync`, `WebRender`,
   `WebRenderSend` and `WebRenderSendSync`, a `ROLE` constant (`COMPONENT`,
   `LAYOUT`, `PAGE`), checked setters on `cx.head_mut()`, an owned

@@ -315,6 +315,9 @@ impl ManagedHead {
         s.url_policy = Some(policy.into());
         Ok(())
     }
+    // Expose the patch to its caller after the lifecycle check, allowing
+    // literal Inherit fields to be eliminated instead of validating them.
+    #[inline(always)]
     fn mutate(
         &self,
         operation: impl FnOnce(&mut State) -> Result<(), WriteError>,
@@ -339,7 +342,14 @@ impl ManagedHead {
     ) -> Result<(), WriteError> {
         self.mutate(|s| Arc::make_mut(&mut s.fields).meta(name, value))
     }
-    pub fn metadata(&self, metadata: crate::HeadMetadata) -> Result<(), WriteError> {
+    pub fn metadata(&self, mut metadata: crate::HeadMetadata) -> Result<(), WriteError> {
+        self.metadata_mut(&mut metadata)
+    }
+    #[inline(always)]
+    pub(crate) fn metadata_mut(
+        &self,
+        metadata: &mut crate::HeadMetadata,
+    ) -> Result<(), WriteError> {
         self.mutate(|s| {
             // Validate owned inputs before taking a mutable view. Unique request
             // state needs no transactional clone; shared defaults still use COW.
@@ -842,10 +852,10 @@ mod metadata_patch_tests {
         let hook = document.begin_hook().unwrap();
         cx.head_mut()
             .metadata(HeadMetadata {
-                title: Some("Original".into()),
-                description: Some("Inherited".into()),
-                title_template: Some("%s | Shop".into()),
-                canonical: Some("/original".into()),
+                title: "Original".into(),
+                description: "Inherited".into(),
+                title_template: "%s | Shop".into(),
+                canonical: "/original".into(),
                 ..Default::default()
             })
             .unwrap();
@@ -853,19 +863,21 @@ mod metadata_patch_tests {
         let hook = document.begin_hook().unwrap();
         for metadata in [
             HeadMetadata {
-                title: Some("Wrong".into()),
-                canonical: Some("javascript:alert(1)".into()),
-                description: Some("Must not replace inherited description".into()),
+                title: "Wrong".into(),
+                canonical: "javascript:alert(1)".into(),
+                description: "Must not replace inherited description".into(),
                 ..Default::default()
             },
             HeadMetadata {
-                title: Some("Wrong".into()),
-                title_template: Some("no placeholder".into()),
+                title: "Wrong".into(),
+                title_template: "no placeholder".into(),
                 ..Default::default()
             },
             HeadMetadata {
-                title: Some("Wrong".into()),
-                open_graph: Some(OpenGraph::new().images([HeadMedia::new("javascript:bad")])),
+                title: "Wrong".into(),
+                open_graph: OpenGraph::new()
+                    .images([HeadMedia::new("javascript:bad")])
+                    .into(),
                 ..Default::default()
             },
         ] {
@@ -874,12 +886,11 @@ mod metadata_patch_tests {
         }
         cx.head_mut()
             .metadata(HeadMetadata {
-                title: Some("A & B".into()),
-                open_graph: Some(
-                    OpenGraph::new()
-                        .kind("product")
-                        .images([HeadMedia::new("/jacket.png").alt("A & B")]),
-                ),
+                title: "A & B".into(),
+                open_graph: OpenGraph::new()
+                    .kind("product")
+                    .images([HeadMedia::new("/jacket.png").alt("A & B")])
+                    .into(),
                 ..Default::default()
             })
             .unwrap();
@@ -916,8 +927,8 @@ mod metadata_patch_tests {
         assert!(cx
             .head_mut()
             .metadata(HeadMetadata {
-                title: Some("Must not apply".into()),
-                description: Some("No slot available".into()),
+                title: "Must not apply".into(),
+                description: "No slot available".into(),
                 ..Default::default()
             })
             .is_err());

@@ -384,15 +384,124 @@ pub struct HeadContext {
 
 /// Checked writer view. Replacing this view never replaces document state.
 pub struct HeadWriter<'a>(&'a mut HeadContext);
+macro_rules! metadata_setter {
+    ($set:ident, $clear:ident, $field:ident, $ty:ty) => {
+        #[doc = concat!("Set `", stringify!($field), "` using the checked metadata patch API.")]
+        pub fn $set(&mut self, value: $ty) -> Result<(), crate::WriteError> {
+            self.metadata(crate::HeadMetadata {
+                $field: value.into(),
+                ..Default::default()
+            })
+        }
+        #[doc = concat!("Remove inherited `", stringify!($field), "` metadata.")]
+        pub fn $clear(&mut self) -> Result<(), crate::WriteError> {
+            self.metadata(crate::HeadMetadata {
+                $field: crate::HeadValue::Clear,
+                ..Default::default()
+            })
+        }
+    };
+}
+macro_rules! metadata_list_setter {
+    ($set:ident, $clear:ident, $field:ident, $ty:ty) => {
+        #[doc = concat!("Replace the inherited `", stringify!($field), "` list.")]
+        pub fn $set(
+            &mut self,
+            values: impl IntoIterator<Item = $ty>,
+        ) -> Result<(), crate::WriteError> {
+            // proa-perf-ok: bounded lists are constructed only during managed head preparation.
+            let values: Vec<_> = values.into_iter().take(129).collect();
+            self.metadata(crate::HeadMetadata {
+                $field: values.into(),
+                ..Default::default()
+            })
+        }
+        #[doc = concat!("Remove the inherited `", stringify!($field), "` list.")]
+        pub fn $clear(&mut self) -> Result<(), crate::WriteError> {
+            self.metadata(crate::HeadMetadata {
+                $field: crate::HeadValue::Clear,
+                ..Default::default()
+            })
+        }
+    };
+}
 impl<'a> HeadWriter<'a> {
+    metadata_setter!(twitter, clear_twitter, twitter, crate::Twitter);
+    metadata_setter!(robots, clear_robots, robots, crate::Robots);
+    metadata_setter!(googlebot, clear_googlebot, googlebot, crate::Robots);
+    metadata_setter!(referrer, clear_referrer, referrer, crate::ReferrerPolicy);
+    metadata_list_setter!(icons, clear_icons, icons, crate::HeadIcon);
+    metadata_list_setter!(
+        alternates,
+        clear_alternates,
+        alternates,
+        crate::HeadAlternate
+    );
+    metadata_list_setter!(authors, clear_authors, authors, crate::HeadAuthor);
+    metadata_list_setter!(
+        verification,
+        clear_verification,
+        verification,
+        crate::HeadVerification
+    );
+
+    /// Set a manifest URL resolved against the trusted public origin and mount.
+    pub fn manifest(
+        &mut self,
+        value: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), crate::WriteError> {
+        self.metadata(crate::HeadMetadata {
+            manifest: value.into().into(),
+            ..Default::default()
+        })
+    }
+    pub fn clear_manifest(&mut self) -> Result<(), crate::WriteError> {
+        self.metadata(crate::HeadMetadata {
+            manifest: crate::HeadValue::Clear,
+            ..Default::default()
+        })
+    }
+    pub fn application_name(
+        &mut self,
+        value: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), crate::WriteError> {
+        self.meta("application-name", value)
+    }
+    pub fn creator(
+        &mut self,
+        value: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), crate::WriteError> {
+        self.meta("creator", value)
+    }
+    pub fn publisher(
+        &mut self,
+        value: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), crate::WriteError> {
+        self.meta("publisher", value)
+    }
+    pub fn keywords<T: Into<std::borrow::Cow<'static, str>>>(
+        &mut self,
+        values: impl IntoIterator<Item = T>,
+    ) -> Result<(), crate::WriteError> {
+        // proa-perf-ok: bounded keyword composition is part of head preparation.
+        let values: Vec<_> = values.into_iter().take(129).map(Into::into).collect();
+        self.metadata(crate::HeadMetadata {
+            keywords: values.into(),
+            ..Default::default()
+        })
+    }
+
     fn managed(&self) -> Result<crate::managed_head::ManagedHead, crate::WriteError> {
         self.0
             .document()
             .ok_or_else(|| crate::WriteError::render("managed head setup required"))
     }
-    /// Apply a typed metadata patch atomically. Omitted fields keep their values.
-    pub fn metadata(&mut self, metadata: crate::HeadMetadata) -> Result<(), crate::WriteError> {
-        self.managed()?.metadata(metadata)
+    /// Apply a typed metadata patch atomically. Defaults inherit; `HeadValue::Clear` removes.
+    // Keep literal patch discriminants visible so omitted fields disappear
+    // from the caller's preparation path rather than copying a full object.
+    #[inline(always)]
+    pub fn metadata(&mut self, mut metadata: crate::HeadMetadata) -> Result<(), crate::WriteError> {
+        self.managed()?.metadata_mut(&mut metadata)
     }
     pub fn meta(
         &mut self,

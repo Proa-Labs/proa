@@ -509,12 +509,17 @@ and keep a code-generation role assertion (run `cargo build` too). Send hooks us
 + Send`, and implementations may use `async fn` returning `Result`.
 
 Use `cx.head_mut().title(value)?` and related checked setters inside the hook.
-For several fields, pass `proa_core::HeadMetadata { title: Some(value.into()),
-description: Some(summary.into()), ..Default::default() }` to
+For several fields, pass `proa_core::HeadMetadata { title: value.into(),
+description: summary.into(), ..Default::default() }` to
 `cx.head_mut().metadata(...)`. This is an atomic patch: omitted fields inherit,
 and invalid fields leave the whole patch unapplied. `title_template`,
-`canonical`, and `open_graph` are also supported; use individual `clear_*`
-methods for explicit removal.
+`canonical`, and `open_graph` are also supported, alongside typed Twitter cards,
+page-level robots directives, icons, alternates, manifests, authors, and
+verification tokens. Each field defaults to `HeadValue::Inherit`; use
+`HeadValue::Clear` for explicit removal and `HeadTitle::absolute(value).into()`
+for an absolute title. Lists replace entire inherited lists; Open Graph and
+Twitter patch individual properties. `FrameworkBuilder::with_robots(RobotsTxt)`
+continues to configure the separate `/robots.txt` file.
 
 Place the owned `{cx.head()}` outlet inside the document's `<head>`. Select managed
 mode before rendering with `RouteResponse::with_head(HeadConfig)` or app-wide

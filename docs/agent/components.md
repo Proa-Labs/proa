@@ -58,6 +58,22 @@ put the Page role and head hook on the wrapper rather than the analyzed island.
 See [managed document head](api-reference/render-traits.md#managed-document-head)
 for dispatch, inheritance, and hook signatures.
 
+## Typed metadata patches
+
+Use `cx.head_mut().metadata(HeadMetadata { title: "Shop".into(), ..Default::default() })`
+for multiple fields. Each field defaults to `HeadValue::Inherit`; `HeadValue::Clear`
+removes an inherited value. `HeadTitle::absolute("Checkout").into()` bypasses an
+ancestor title template. Lists replace entire inherited lists; Open Graph and
+Twitter builders patch individual properties. All fields validate before any
+are applied. New families include `Twitter`, page-level `Robots`, `HeadIcon`,
+`HeadAlternate`, manifest URLs, authors, and verification tokens. These mutations
+belong inside the same explicitly role-marked hook as title and description.
+`Robots` emits page-level `<meta>` tags; `FrameworkBuilder::with_robots(RobotsTxt)`
+configures the separate `/robots.txt` resource. A crawler needs fetch access to
+read a page's `noindex` directive. See the
+[metadata reference](../../proa_marketing/src/docs/framework/metadata-reference.mdx)
+for typed setters and their generated HTML.
+
 ## Pick the render path
 
 Use `WebRenderSync` and `html_sync!` unless rendering must await data. Author
