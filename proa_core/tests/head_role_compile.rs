@@ -134,12 +134,13 @@ fn native_async_hooks_compile_and_sync_hooks_require_explicit_roles() {
         "sync_adapter",
         "send_sync_adapter",
     ] {
-        // Ordinary components and inherited-only Pages retain default hooks.
+        // Ordinary components, layouts and inherited-only Pages retain default hooks.
         // Async missing-role errors are covered by source-lint tests, since
         // native futures cannot expose whether the default was overridden.
         for (role, has_hook, valid) in [
             ("", false, true),
             ("PAGE", false, true),
+            ("LAYOUT", false, true),
             ("LAYOUT", true, true),
             ("PAGE", true, true),
             ("", true, false),

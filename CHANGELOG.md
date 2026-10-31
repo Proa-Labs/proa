@@ -16,9 +16,11 @@ All notable public changes are tracked here.
   `FrameworkBuilder::with_head` switches every rendered route to managed mode;
   routes that still call the void `set_title`/`push_meta` setters fail with
   `HeadError::LegacyMutation` and need `.without_head()` or the checked setters.
-  A component that declares `ComponentRole::PAGE` renders only inside a managed
-  document. Async hooks use native `async fn render_head(...) -> Result<(),
-  WriteError>` without author-side attributes or handwritten async blocks.
+  A component that declares `ComponentRole::LAYOUT` or `ComponentRole::PAGE`
+  renders only inside a managed document, including with a default hook. Sync,
+  async, Send and adapters obey the same rule; layouts must precede the Page
+  seal and cannot render in Suspense/captures/fallbacks. Async hooks use native
+  `async fn render_head(...) -> Result<(), WriteError>` without author-side attributes or handwritten async blocks.
   `proa lint` rejects async head overrides with missing roles or an explicit
   `COMPONENT` role; synchronous hooks retain their compiler assertion.
 

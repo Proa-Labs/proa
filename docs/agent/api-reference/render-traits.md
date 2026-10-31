@@ -495,9 +495,13 @@ Native futures do not expose override presence, so this is a source check rather
 than an async-trait compiler assertion. Forwarded/application role constants are
 accepted without evaluation; ensure they resolve to `LAYOUT` or `PAGE`.
 A Page using only inherited metadata still needs its role and a managed route test.
-A component declaring `PAGE` renders only in a managed document: plain
+A component declaring `LAYOUT` or `PAGE` renders only in a managed document,
+including when it inherits the default hook. Layouts belong above the selected
+Page; dispatch rejects them after sealing or inside Suspense/captures/fallbacks.
+Sync, async, Send, `to_async` and `to_send` obey the same role contract. Plain
 `WebContext::new()`, `render_to_string`, or `.without_head()` fails with
-`HeadError::ManualMode`. Keep a body-only wrapper for manual rendering.
+`HeadError::ManualMode`. Ordinary visual wrappers keep `COMPONENT` for manual
+rendering or use inside a Page. `to_send_static` rejects both metadata roles.
 
 Sync hooks return `impl SyncHeadOperation`, retain their `NoHead` absence marker,
 and keep a code-generation role assertion (run `cargo build` too). Send hooks use

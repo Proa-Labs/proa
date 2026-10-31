@@ -27,9 +27,13 @@ Ancestor layouts implementing `render_head` declare
 Only the Page seals metadata before its body; a head hook alone
 does not declare a Page. Ordinary `COMPONENT` values skip head invocation entirely.
 Manual documents without managed-head configuration do not require this role.
-A component declaring `PAGE` renders only inside a managed document: plain
+A component declaring `LAYOUT` or `PAGE` renders only inside a managed document,
+even with the default no-op hook. Layouts must precede the selected Page and
+cannot appear after sealing or inside Suspense/captures/fallbacks. This rule is
+the same for sync, async, Send and adapted rendering. Plain
 `WebContext::new()`, `render_to_string`, or `.without_head()` fails with
-`HeadError::ManualMode`. Keep a body-only wrapper for manual rendering.
+`HeadError::ManualMode`. Keep visual wrappers on the default `COMPONENT` role
+when they need to render inside a Page or in manual mode.
 
 Test through the document's actual managed route, including an outlet and an
 explicit Page, and verify head publication while body work remains pending.

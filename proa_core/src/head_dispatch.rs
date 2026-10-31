@@ -297,45 +297,19 @@ pub fn sync<'a, L: DataLoader + 'a, B: WriteBuf + 'a, C: crate::WebRenderSync<L,
     child: C,
     cx: &'a mut WebContext<L, B>,
 ) -> Result<(), WriteError> {
-    let head = sync_presence(C::render_head);
-    if head || C::ROLE.is_page() {
-        cx.require_managed_head()?;
+    // Keep the code-generation assertion, but let ROLE select the lifecycle.
+    let _ = sync_presence(C::render_head);
+    if !C::ROLE.is_layout() && !C::ROLE.is_page() {
+        return child.render(cx);
     }
-    let permission = if head {
-        cx.head_state()
-            .document()
-            .map(|d| d.begin_hook_for(std::any::type_name::<C>()))
-            .transpose()?
-    } else {
-        None
-    };
-    let result = if head {
-        child.render_head(cx).finish()
-    } else {
-        Ok(())
-    };
-    let scope = match permission {
-        Some(p) => Some(p.finish(result)?),
-        None => {
-            result?;
-            if C::ROLE.is_page() {
-                Some(
-                    cx.require_managed_head()?
-                        .track_page(std::any::type_name::<C>()),
-                )
-            } else {
-                None
-            }
-        }
-    };
+    let permission = cx
+        .require_managed_head()?
+        .begin_hook_for(std::any::type_name::<C>())?;
+    let scope = permission.finish(child.render_head(cx).finish())?;
     if C::ROLE.is_page() {
         cx.managed_seal()?;
     }
-    let result = child.render(cx);
-    match scope {
-        Some(s) => s.finish(result),
-        None => result,
-    }
+    scope.finish(child.render(cx))
 }
 
 pub(crate) fn send_sync_presence<
@@ -359,45 +333,18 @@ where
     B: WriteBuf + Send + 'a,
     C: WebRenderSendSync<L, B> + 'a,
 {
-    let head = send_sync_presence(C::render_head_send_sync);
-    if head || C::ROLE.is_page() {
-        cx.require_managed_head()?;
+    let _ = send_sync_presence(C::render_head_send_sync);
+    if !C::ROLE.is_layout() && !C::ROLE.is_page() {
+        return child.render_send_sync(cx);
     }
-    let permission = if head {
-        cx.head_state()
-            .document()
-            .map(|d| d.begin_hook_for(std::any::type_name::<C>()))
-            .transpose()?
-    } else {
-        None
-    };
-    let result = if head {
-        child.render_head_send_sync(cx).finish()
-    } else {
-        Ok(())
-    };
-    let scope = match permission {
-        Some(p) => Some(p.finish(result)?),
-        None => {
-            result?;
-            if C::ROLE.is_page() {
-                Some(
-                    cx.require_managed_head()?
-                        .track_page(std::any::type_name::<C>()),
-                )
-            } else {
-                None
-            }
-        }
-    };
+    let permission = cx
+        .require_managed_head()?
+        .begin_hook_for(std::any::type_name::<C>())?;
+    let scope = permission.finish(child.render_head_send_sync(cx).finish())?;
     if C::ROLE.is_page() {
         cx.managed_seal()?;
     }
-    let result = child.render_send_sync(cx);
-    match scope {
-        Some(s) => s.finish(result),
-        None => result,
-    }
+    scope.finish(child.render_send_sync(cx))
 }
 #[doc(hidden)]
 pub fn ensure_stateless<
@@ -405,9 +352,10 @@ pub fn ensure_stateless<
     B: WriteBuf + 'a,
     C: crate::WebRenderSync<crate::NoLoader, &'a mut B> + 'a,
 >() -> Result<(), WriteError> {
-    if C::ROLE.is_page() || sync_presence(C::render_head) {
+    let _ = sync_presence(C::render_head);
+    if C::ROLE.is_page() || C::ROLE.is_layout() {
         Err(WriteError::render(
-            "stateless adapter cannot carry a Page or head provider",
+            "stateless adapter cannot carry a Page or Layout",
         ))
     } else {
         Ok(())

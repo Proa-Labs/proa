@@ -64,7 +64,7 @@ let app = FrameworkBuilder::new(manifest)
     .build();
 ```
 
-Use `.without_head()` on a response that keeps a manual document. A Page declaring `ROLE = PAGE` must render inside a managed document; keep a body-only wrapper if you also need manual rendering.
+Use `.without_head()` on a response that keeps a manual document. Components declaring `ROLE = LAYOUT` or `ROLE = PAGE` must render inside a managed document, even without a head hook. Layouts precede the selected Page and cannot render after sealing or inside Suspense/captures/fallbacks. Use the default `COMPONENT` role for body-only wrappers or manual rendering.
 
 ### Place the head outlet
 

@@ -107,7 +107,8 @@ where
 /// The wrapped `WebRenderSync` receives a stateless temporary `WebContext` and
 /// may only write output or use output-mode escaping. Components that inspect
 /// request state, register artifacts, or install stream callbacks must instead
-/// implement [`WebRenderSendSync`] directly.
+/// implement [`WebRenderSendSync`] directly. Page and Layout roles are rejected,
+/// even when they have no head hook.
 pub struct StatelessSyncToSend<T>(pub T);
 
 impl<T, L, B> WebRenderSendSync<L, B> for StatelessSyncToSend<T>

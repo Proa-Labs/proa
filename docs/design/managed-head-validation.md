@@ -3,6 +3,25 @@
 October 30, 2026. Baseline: main `ee29048e42d032d80f232444c06c2d592cb06e83`.
 Implementation branch: `codex/managed-document-head`.
 
+## Hookless layout role parity
+
+Sync and Send-sync dispatch now select the guarded provider lifecycle from
+`ROLE`, just like native async and adapted rendering. `LAYOUT` and `PAGE` require
+managed mode even with default hooks; layouts are rejected after sealing and in
+excluded body regions. The synchronous absence marker remains a compiler
+assertion input, and ordinary `COMPONENT` values retain their body-only fast path.
+`to_send_static` also rejects a hookless layout rather than erasing its role.
+
+The six-surface regression matrix covers manual, open, sealed and excluded
+contexts, plus passing ordinary components and layout-to-Page composition.
+Actual capture and out-of-order Suspense fallback tests reject hookless layouts
+before body code runs. Compile fixtures include hookless layouts on every surface.
+
+[Storage evidence](evidence/head-role-parity-storage.json) compares identical
+native probes against `0243ee9b`: ordinary local/Send components, ErrorBoundary
+and Suspense retain the same allocation counts/bytes, future sizes, poll counts
+and output bytes. This check does not time managed hookless provider preparation.
+
 ## Correctness
 
 - 1,322 tests passed across `proa_core`, `proa_stream`, `proa_framework_core`,

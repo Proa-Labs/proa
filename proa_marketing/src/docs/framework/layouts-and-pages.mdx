@@ -173,7 +173,7 @@ A request to `/about` selects the `about` handler, composes `RootDocument → Co
 <meta name="description" content="News and products from Acme.">
 ```
 
-There is one document, one head outlet, and one selected Page. A component declaring `PAGE` requires managed rendering; it cannot render through a plain `WebContext::new()` or a `.without_head()` response.
+There is one document, one head outlet, and one selected Page. Components declaring `LAYOUT` or `PAGE` require managed rendering, even without a head hook. They cannot render through a plain `WebContext::new()` or a `.without_head()` response.
 
 ## Nest layouts
 
@@ -271,6 +271,8 @@ The [metadata guide](/docs/framework/metadata) covers async document templates, 
 ## Roles are explicit
 
 Declaring `PAGE` or `LAYOUT` controls metadata lifecycle; it does not register a URL or wrap another component automatically. A Page still needs `PAGE` when it has no head hook. A layout above it uses `LAYOUT`. There must be exactly one selected Page in each managed document.
+
+These rules apply equally to sync, async, Send, `to_async`, and `to_send` rendering. A `LAYOUT` must be above the selected Page; it is rejected after metadata seals or inside Suspense, captures, and fallbacks, even when its hook is the default no-op. A visual wrapper used inside a Page or in a manual document keeps the default `COMPONENT` role.
 
 Run `cargo proa lint <changed-paths> --deny warnings` to catch head overrides with missing roles or an explicit `COMPONENT` role. Native async hooks rely on this source check; synchronous hooks also retain a code-generation role assertion, so build those implementations too.
 

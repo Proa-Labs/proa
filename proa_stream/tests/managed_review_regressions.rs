@@ -286,3 +286,39 @@ fn boundary_sampled_budget_can_be_exceeded_while_discovery_waits() {
     assert!(!doc.is_published());
     assert!(wire.lock().unwrap().is_empty());
 }
+
+struct HooklessLayout(Arc<AtomicUsize>);
+impl WebRenderSync for HooklessLayout {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, _: &mut WebContext) -> Result<(), WriteError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[test]
+fn capture_rejects_a_hookless_layout_before_its_body() {
+    let (mut cx, _, _) = setup(4096);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let result = cx.with_output(RenderBuffer::new(), |capture| {
+        head_dispatch::sync(HooklessLayout(calls.clone()), capture)
+    });
+    assert_eq!(lifecycle(result.unwrap_err()), HeadError::Excluded);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn suspense_fallback_rejects_a_hookless_layout_before_its_body() {
+    let (mut cx, _, _) = setup(4096);
+    let calls = Arc::new(AtomicUsize::new(0));
+    cx.set_render_mode(proa_core::RenderMode::ChunkedOutOfOrder);
+    cx.set_stream_recorder(std::rc::Rc::new(proa_stream::StreamContext::new(
+        proa_core::RenderMode::ChunkedOutOfOrder,
+    )));
+    let result = proa_stream::Suspense::new((), HooklessLayout(calls.clone()))
+        .render(&mut cx)
+        .resolve()
+        .await;
+    assert_eq!(lifecycle(result.unwrap_err()), HeadError::Excluded);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}

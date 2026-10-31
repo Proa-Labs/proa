@@ -251,18 +251,6 @@ impl ManagedHead {
     pub fn begin_hook(&self) -> Result<HookGuard, WriteError> {
         self.begin_hook_for("head provider")
     }
-    /// A Page without a head hook still owns preparation until its body completes.
-    /// Create the guard before sealing or constructing the body, so dropping an
-    /// unpolled continuation or unwinding cannot leave a reusable document.
-    /// Hooked providers get the same property from the `HookGuard` that
-    /// dispatch claims before it returns a pending outcome.
-    pub(crate) fn track_page(&self, component: &'static str) -> ProviderGuard {
-        ProviderGuard {
-            head: self.clone(),
-            component,
-            done: false,
-        }
-    }
     pub fn begin_hook_for(&self, component: &'static str) -> Result<HookGuard, WriteError> {
         let mut s = self.0.lock().unwrap();
         s.check()?;
