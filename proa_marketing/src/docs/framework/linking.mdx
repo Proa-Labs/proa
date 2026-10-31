@@ -19,11 +19,11 @@ There is no `<Link>` component or client router to configure. Proa pages are ser
 ## Deployments under a path prefix
 
 When serving behind a prefix-stripping proxy, configure a runtime base path and
-use `cx.request().url("/blog")` for your anchors, forms, and asset attributes:
+use `cx.url("/blog")` for your anchors, forms, and asset attributes:
 
 ```rust filename="src/components/nav.rs"
-let blog = cx.request().url("/blog");
-let about = cx.request().url("/about");
+let blog = cx.url("/blog");
+let about = cx.url("/about");
 html_sync! {
     <nav>
         <a href={blog}>"Blog"</a>
@@ -32,6 +32,12 @@ html_sync! {
 }
 .render(cx)
 ```
+
+`cx.url(...)` explicitly applies the configured base path and writes directly
+into the output buffer without an intermediate `String`. Plain URL strings
+stay unchanged. External URLs, protocol-relative URLs, document-relative paths,
+queries, and fragments pass through the helper unchanged. Pass an unprefixed
+application path so the base path is applied once.
 
 This also works in streamed components. In an Axum handler, use
 `Redirect::to(&proa_framework_axum::app_url("/").to_string())` for an

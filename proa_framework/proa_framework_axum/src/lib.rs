@@ -197,7 +197,7 @@ impl FrameworkBuilder {
     /// Configure from an environment variable at startup with
     /// `BasePath::new(&std::env::var("PROA_BASE_PATH").unwrap_or_default())?`.
     /// Incoming routes remain rooted at `/`. Application-authored links and
-    /// redirects use `app_url` or `cx.request().url` explicitly.
+    /// redirects use `app_url` or `cx.url` explicitly.
     pub fn with_base_path(mut self, base_path: BasePath) -> Self {
         self.base_path = base_path;
         self

@@ -98,7 +98,7 @@ where
                 </head>
                 <body>
                     <header>
-                        <a href={cx.request().url("/")}>"Acme"</a>
+                        <a href={cx.url("/")}>"Acme"</a>
                     </header>
                     {self.children}
                 </body>
@@ -200,7 +200,7 @@ where
         html_sync! {
             <section data-shop-layout>
                 <nav aria-label="Shop">
-                    <a href={cx.request().url("/shop")}>"Products"</a>
+                    <a href={cx.url("/shop")}>"Products"</a>
                 </nav>
                 {self.children}
             </section>

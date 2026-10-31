@@ -188,17 +188,20 @@ allocation-free.
 
 ## Application URLs
 
-Compose unprefixed application paths with `cx.request().url("/path")` so links,
+Compose unprefixed application paths with `cx.url("/path")` so links,
 forms, and asset attributes follow the deployment's runtime base path. Compute
 the URL before calling `.render(cx)` to avoid overlapping context borrows:
 
 ```rust
-let home = cx.request().url("/");
+let home = cx.url("/");
 html_sync! { <a href={home}>"Home"</a> }.render(cx)
 ```
 
-The returned attribute value allocates no intermediate string. Use the same
-helper in HTML and Markdown renderers so content coverage can match their URLs.
+The returned attribute value allocates no intermediate string. Plain URL strings
+stay unchanged; the helper passes through external URLs, protocol-relative URLs,
+document-relative paths, queries, and fragments. Use the same helper in HTML and
+Markdown renderers so content coverage can match their URLs. `cx.request()`
+provides incoming request metadata; construct outgoing URLs with `cx.url(...)`.
 Only clone `cx.request().base_path()` when a loop or closure needs independent
 access while rendering; explain that shared, allocation-free clone with a
 `proa-perf-ok` comment. In Axum handlers, compose redirects with

@@ -122,14 +122,20 @@ old-object control compiles `request.rs` from `c6ac23e5` with its `bulk` feature
   inherited social defaults, clearing, URL resolution, and head-before-body
   publication.
 - Workspace all-target checking, formatting, Proa source lint, and render
-  performance lint passed. All 16 active core doctests passed; 5 remain ignored.
+  performance lint passed. All 17 active core doctests passed; 5 remain ignored.
 - The ORIGIN example/template parity check and its 5 library tests passed.
-- All 33 implemented-API metadata-reference Rust snippets compiled. The 25
-  independent examples with generated HTML were executed in fresh managed
-  contexts, and their exact emitted tags matched the displayed output (ignoring
-  display-only newlines). The guide's builder-installed app-wide defaults example
+- All 34 implemented-API metadata-reference Rust snippets compiled. The 26
+  independent examples with generated HTML matched the displayed output
+  (ignoring display-only newlines). Metadata examples use fresh managed contexts;
+  the application URL example uses a render context mounted at `/shop`.
+  The guide's builder-installed app-wide defaults example
   also compiled. The separately labeled proposed `cx.url(...).segment(...)`
   examples are design illustrations and are excluded from that validation.
+- Application URL composition is available as `cx.url(path)` on local and Send
+  render contexts. All former request-scoped helper calls, docs, and scaffold
+  templates migrated. Focused allocation tests confirm construction and HTML
+  attribute rendering still allocate no intermediate strings. The content linter
+  recognizes the helper's path contribution, including inside imperative branches.
 
 The [metadata reference](../../proa_marketing/src/docs/framework/metadata-reference.mdx)
 shows each mutation immediately above its generated tags. Agent authoring

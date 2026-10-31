@@ -97,11 +97,11 @@ where
                 .add(SANS.class_name())
                 .add(MONO.class_name())
                 .add("dark");
-            let favicon = cx.request().url("/static/favicon.svg");
-            let stylesheet = cx.request().url(css_href());
-            let ui_stylesheet = cx.request().url("/static/proa/proa-ui/proa-free.css");
-            let ui_script = cx.request().url("/static/proa/proa-ui/proa-free.js");
-            let script = cx.request().url(js_src());
+            let favicon = cx.url("/static/favicon.svg");
+            let stylesheet = cx.url(css_href());
+            let ui_stylesheet = cx.url("/static/proa/proa-ui/proa-free.css");
+            let ui_script = cx.url("/static/proa/proa-ui/proa-free.js");
+            let script = cx.url(js_src());
             html! {
                 <!DOCTYPE html>
                 <html lang="en" class={font_classes}>

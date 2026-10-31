@@ -83,7 +83,7 @@ struct DocsSectionMenuItem {
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSectionMenuItem {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
         let active = self.active.then_some("true");
-        let href = cx.request().url(self.href);
+        let href = cx.url(self.href);
         html_sync! {
             <a
                 href={href}

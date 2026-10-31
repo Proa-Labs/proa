@@ -81,11 +81,6 @@ impl RequestContext {
         self
     }
 
-    /// Compose a browser URL without allocating a string in the render path.
-    pub fn url<'a>(&self, path: &'a str) -> super::AppUrl<'a> {
-        self.base_path.url(path)
-    }
-
     pub fn method(&self) -> Option<&Method> {
         self.method.as_ref()
     }
@@ -2146,6 +2141,11 @@ impl WebContextParts {
         &self.request
     }
 
+    /// Compose an application URL using the configured base path.
+    pub fn url<'a>(&self, path: &'a str) -> super::AppUrl<'a> {
+        self.request.base_path().url(path)
+    }
+
     pub fn request_mut(&mut self) -> &mut RequestContext {
         &mut self.request
     }
@@ -2989,6 +2989,31 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     /// Returns the request metadata available during render.
     pub fn request(&self) -> &RequestContext {
         &self.ensure_context_parts().request
+    }
+
+    /// Compose an application URL using the configured base path.
+    ///
+    /// Pass an unprefixed root-relative path, such as `/products`. External,
+    /// protocol-relative, document-relative, query-only and fragment references
+    /// pass through. Plain URL strings in templates are not prefixed implicitly.
+    ///
+    /// The returned value borrows only `path`, shares the base path, and writes
+    /// both directly into HTML attributes or Markdown without allocating an
+    /// intermediate string. Use `.to_string()` only when an owned URL is needed.
+    ///
+    /// ```
+    /// use proa_core::{BasePath, WebContext, WebRenderSync, WriteBuf};
+    /// use proa_macros::html_sync;
+    ///
+    /// let mut cx = WebContext::new();
+    /// cx.request_mut().set_base_path(BasePath::new("/shop")?);
+    /// let products = cx.url("/products");
+    /// html_sync! { <a href={products}>"Products"</a> }.render(&mut cx)?;
+    /// assert_eq!(cx.into_output().as_slice(), b"<a href=\"/shop/products\">Products</a>");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn url<'a>(&self, path: &'a str) -> super::AppUrl<'a> {
+        self.ensure_context_parts().url(path)
     }
 
     /// Returns mutable request metadata for framework setup code.

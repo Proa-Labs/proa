@@ -522,7 +522,7 @@ fn prepare_ascii_params(req: &axum::http::Request<Body>, context: &mut RouteCont
 
 /// Compose a public URL for an application-local path in the current request.
 /// Outside a framework request, the prefix defaults to the origin root.
-/// Prefer `cx.request().url(path)` inside components, which also works in
+/// Prefer `cx.url(path)` inside components, which also works in
 /// suspended boundaries after the HTTP handler has completed.
 pub fn app_url(path: &str) -> proa_core::AppUrl<'_> {
     ROUTE_CONTEXT

@@ -7,7 +7,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
 use proa_core::stack::WriteCursor;
-use proa_core::{BasePath, WebContext, WebRenderSync, WriteBuf};
+use proa_core::{BasePath, SendWebContext, WebContext, WebRenderSync, WriteBuf};
 use proa_macros::html_sync;
 
 struct ThreadCountingAllocator;
@@ -59,7 +59,7 @@ fn stop_counting() -> usize {
 }
 
 #[test]
-fn request_urls_render_without_intermediate_allocations() {
+fn context_urls_render_without_intermediate_allocations() {
     let base_path = BasePath::new("/user/demo/proxy/3000").unwrap();
     let mut backing = [0u8; 512];
     let mut cursor = WriteCursor::new(&mut backing);
@@ -67,7 +67,7 @@ fn request_urls_render_without_intermediate_allocations() {
     cx.request_mut().set_base_path(base_path);
 
     start_counting();
-    let url = cx.request().url("/static/styles.css?v=1&mode=dark");
+    let url = cx.url("/static/styles.css?v=1&mode=dark");
     html_sync! {
         <link rel="stylesheet" href={url} />
     }
@@ -78,6 +78,34 @@ fn request_urls_render_without_intermediate_allocations() {
     assert_eq!(allocations, 0);
     drop(cx);
     assert_eq!(cursor.as_slice(), br#"<link rel="stylesheet" href="/user/demo/proxy/3000/static/styles.css?v=1&amp;mode=dark">"#);
+}
+
+#[test]
+fn send_context_urls_share_the_prefix_without_intermediate_allocations() {
+    let mut cx = SendWebContext::new();
+    cx.request_mut()
+        .set_base_path(BasePath::new("/apps/demo").unwrap());
+    let mut backing = [0u8; 128];
+    let mut cursor = WriteCursor::new(&mut backing);
+    let mut output = WebContext::with_buffer(&mut cursor);
+
+    start_counting();
+    let url = cx.url("/products?q=1&sort=asc");
+    // The URL does not retain a context borrow or depend on its later state.
+    cx.request_mut().set_base_path(BasePath::default());
+    html_sync! {
+        <a href={url}>"Products"</a>
+    }
+    .render(&mut output)
+    .unwrap();
+    let allocations = stop_counting();
+
+    assert_eq!(allocations, 0);
+    drop(output);
+    assert_eq!(
+        cursor.as_slice(),
+        br#"<a href="/apps/demo/products?q=1&amp;sort=asc">Products</a>"#
+    );
 }
 
 #[test]

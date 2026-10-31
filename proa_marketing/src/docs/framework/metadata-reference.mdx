@@ -102,7 +102,7 @@ cx.head_mut().canonical("/products/trail-jacket")?;
 <link rel="canonical" href="https://shop.example/products/trail-jacket">
 ```
 
-Pass paths relative to the configured public mount. Do not first prefix them with `cx.request().url(...)`.
+Pass paths relative to the configured public mount. Do not first prefix them with `cx.url(...)`.
 
 ### title_template
 
@@ -589,11 +589,34 @@ Removal preserves the slot position if a descendant fills it again. Only the tit
 
 ## URL resolution
 
-### Planned URL composition
+### Application URL composition
 
-The following API is proposed and is not yet implemented. `cx.url(...)`, `.segment(...)`, and passing the resulting typed value to `canonical(...)` are planned additions. Today, the URL helper is `cx.request().url(path)`, and metadata URL setters accept strings.
+Use `cx.url(path)` to explicitly apply the application base path to a URL in an HTML attribute or Markdown link. The helper writes the shared prefix and borrowed path directly to the output buffer without creating a concatenated `String`.
 
-The proposed context helper composes an application-local URL using the base path configured in `FrameworkBuilder`. For a dynamic product ID:
+```rust filename="Component body"
+let product_url = cx.url("/products/42");
+
+html_sync! {
+    <a href={product_url}>"View product"</a>
+}
+.render(cx)
+```
+
+With application base path `/shop`, this produces:
+
+```html filename="Generated HTML"
+<a href="/shop/products/42">View product</a>
+```
+
+Plain URL strings in templates stay unchanged. Absolute URLs, protocol-relative URLs, document-relative paths, queries, and fragments pass through `cx.url(...)` without adding the base path. Pass an unprefixed application path to avoid applying the prefix twice. `cx.request()` remains the accessor for incoming request metadata, including headers, location, and route parameters.
+
+Metadata URL setters currently accept strings and resolve them using the separately configured `HeadUrlPolicy` below. Do not convert a `cx.url(...)` value to a string and then feed it through a metadata policy that applies the same mount again.
+
+### Planned dynamic segments and metadata URLs
+
+Appending dynamic values with `.segment(...)` and passing the resulting typed value directly to `canonical(...)` are proposed and are not yet implemented. `cx.url(path)` itself is available today.
+
+The proposed segment API builds on the context helper. For a dynamic product ID:
 
 ```rust filename="Proposed render_head API (not yet implemented)"
 let product_url = cx.url("/products").segment(self.id);
@@ -622,7 +645,7 @@ html_sync! {
 <a href="/shop/products/42">View product</a>
 ```
 
-The existing `AppUrl` writes its prefix and borrowed path directly to the output buffer without creating a concatenated `String`. Dynamic segment composition is intended to preserve that approach, with URL validation, segment encoding, and allocation tests. Metadata retains an owned, validated URL, so its storage can still allocate. A composed application URL would carry its prefix through to metadata without applying the mount a second time.
+Dynamic segment composition is intended to preserve the direct-buffer approach, with URL validation, segment encoding, and allocation tests. Metadata retains an owned, validated URL, so its storage can still allocate. A composed application URL would carry its prefix through to metadata without applying the mount a second time.
 
 ### URL base and mount
 

@@ -806,7 +806,7 @@ impl proa_core::WebRenderSend for SendPrefixChild {
         RenderOutcome::pending(async move {
             yield_once().await;
             cx.rsjs_island_used(QUERY_ISLAND_ID);
-            let url = cx.request().url("/child");
+            let url = cx.url("/child");
             proa_macros::html_send! { <a href={url}>"Child"</a> }
                 .render_send(cx)
                 .resolve()

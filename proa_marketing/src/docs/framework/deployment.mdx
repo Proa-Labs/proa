@@ -118,8 +118,8 @@ URLs at startup.
 Application-authored links, forms, images, and redirects opt into URL composition:
 
 ```rust filename="src/components/nav.rs"
-let start = cx.request().url("/docs/start");
-let logo = cx.request().url("/static/logo.svg");
+let start = cx.url("/docs/start");
+let logo = cx.url("/static/logo.svg");
 html_sync! {
     <nav>
         <a href={start}>"Start"</a>
@@ -216,7 +216,7 @@ Root deployments retain the original service without parsing or rewriting.
 The recognized syntax is the contract. URLs in custom-library arguments,
 inline scripts/styles, data files, or external third-party output need explicit
 composition or their own pipeline. Subresource integrity hashes must match the
-served, transformed bytes. Application templates use `cx.request().url(...)`;
+served, transformed bytes. Application templates use `cx.url(...)`;
 trusted compiled raw HTML can use `proa_core::BasePathHtml`. Compiled docs
 articles use it automatically for links, images/srcsets, forms, and other URL
 attributes, while text and script/style contents remain unchanged.

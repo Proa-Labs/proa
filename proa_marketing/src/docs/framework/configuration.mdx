@@ -94,7 +94,7 @@ let app = FrameworkBuilder::new(manifest)
 ```
 
 Keep routes such as `/docs/start` and `/static/...` unprefixed. Compose
-application links with `cx.request().url("/docs/start")` and handler redirects
+application links with `cx.url("/docs/start")` and handler redirects
 with `app_url("/")`. Pass the original, unprefixed manifest to the builder.
 
 See [linked island asset serving](/docs/framework/static-assets#serving-linked-island-assets)

@@ -37,7 +37,7 @@ let app = FrameworkBuilder::new(manifest)
 
 The final URL for the nested example is `/static/assets/...`. When deployed
 under a public prefix, configure `FrameworkBuilder::with_base_path` and use
-`cx.request().url("/static/assets/...")` in templates. The manifest CSS link is
+`cx.url("/static/assets/...")` in templates. The manifest CSS link is
 prefixed automatically. See [URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix).
 
 When `with_base_path(...)` is configured, the managed service also composes

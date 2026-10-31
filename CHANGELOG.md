@@ -4,6 +4,12 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- Outgoing application URLs are composed with `cx.url(path)` on `WebContext`,
+  `WebContextParts`, and `SendWebContext`. The helper explicitly applies the
+  configured base path without allocating an intermediate string; plain URL
+  attributes stay unchanged. Breaking: `RequestContext::url` has moved to the
+  render context. `cx.request()` remains the incoming request metadata accessor.
+
 - Typed head metadata now supports inherit/set/clear patches, absolute titles,
   Twitter summary cards, page-level robots/Googlebot directives, icons,
   alternate-language/feed links, manifests, authors, verification, referrer
