@@ -168,7 +168,7 @@ A Page that only inherits metadata can omit its hook, but it still declares `ROL
 
 ### Configure app-wide defaults
 
-Use `with_defaults` for values shared by your routes, then install the configuration with `FrameworkBuilder::with_head(...)`. Here, `manifest` and `routes` are your application's existing island manifest and Axum router:
+Use `with_defaults` for values shared by your routes, then install the configuration using `with_head(...)` on [FrameworkBuilder](/docs/framework/configuration). Here, `manifest` and `routes` are your application's existing island manifest and Axum router:
 
 ```rust filename="App configuration"
 use proa_core::{HeadConfig, HeadUrlPolicy};

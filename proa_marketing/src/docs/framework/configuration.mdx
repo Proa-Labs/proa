@@ -47,6 +47,7 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa_f
 |--------|------------|
 | `FrameworkBuilder::new(manifest)` | Create the builder with an island manifest and secure defaults. |
 | `.with_config(config)` | Override project paths, codegen flags, and server defaults. |
+| `.with_head(head)` | Install app-wide [managed head configuration and defaults](/docs/framework/metadata#configure-app-wide-defaults) for rendered routes. |
 | [`.with_base_path(base_path)`](#frameworkbuilder-base-paths-and-rsjs-assets) | Set the public URL prefix for a mounted application. |
 | [`.with_public_origin(origin)?`](/docs/framework/sitemaps) | Set the public HTTP(S) origin used by discovery endpoints. |
 | [`.with_sitemap(entries)`](/docs/framework/sitemaps) | Serve one sitemap using the final public origin and base path. |
