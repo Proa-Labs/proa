@@ -9,7 +9,9 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use axum::body::Body;
-use axum::extract::{rejection::RawPathParamsRejection, FromRequestParts, RawPathParams};
+use axum::extract::{
+    rejection::RawPathParamsRejection, FromRequestParts, MatchedPath, OriginalUri, RawPathParams,
+};
 use axum::response::{IntoResponse, Response};
 use pin_project::{pin_project, pinned_drop};
 use proa_core::{CspNonce, RouteParam, RouteParams};
@@ -429,6 +431,18 @@ where
         context.set_csp_nonce(csp_nonce);
         context.base_path = self.base_path.clone();
 
+        if prepare_ascii_params(&req, &mut context) {
+            // Static and ordinary named paths keep the original ready-service
+            // path: no extractor future, service clone, or replacement params.
+            let future = self.inner.call(req);
+            let scoped = ROUTE_CONTEXT.scope(RefCell::new(context), future);
+            let local_stream_executor = self.local_stream_executor.clone();
+            return Box::pin(async move {
+                let response = scoped.await?;
+                Ok(prepare_deferred_framework_stream(response, local_stream_executor).await)
+            });
+        }
+
         // Move the ready service into the future; its clone may need poll_ready
         // before use on the next request.
         let replacement = self.inner.clone();
@@ -464,6 +478,38 @@ where
     }
 }
 
+/// Match unescaped named segments synchronously. Axum still owns decoding and
+/// wildcard semantics on the cold path below. OriginalUri aligns full nested
+/// MatchedPaths even when this layer sees a stripped request URI.
+fn prepare_ascii_params(req: &axum::http::Request<Body>, context: &mut RouteContext) -> bool {
+    let Some(pattern) = req.extensions().get::<MatchedPath>() else {
+        return true;
+    };
+    let pattern = pattern.as_str();
+    let has_named = pattern.split('/').any(|part| part.starts_with(':'));
+    let has_wildcard = pattern.split('/').any(|part| part.starts_with('*'));
+    if !has_named && !has_wildcard {
+        return true;
+    }
+    let path = req
+        .extensions()
+        .get::<OriginalUri>()
+        .map_or_else(|| req.uri().path(), |uri| uri.0.path());
+    if has_wildcard || path.contains('%') || req.uri().path().contains('%') {
+        return false;
+    }
+    let mut params = extract_route_params(pattern, path);
+    if params.is_empty() && path != req.uri().path() {
+        // A URI-rewriting middleware may route a different path from OriginalUri.
+        params = extract_route_params(pattern, req.uri().path());
+    }
+    if params.is_empty() {
+        return false;
+    }
+    context.swap_route_params(params);
+    true
+}
+
 /// Compose a public URL for an application-local path in the current request.
 /// Outside a framework request, the prefix defaults to the origin root.
 /// Prefer `cx.request().url(path)` inside components, which also works in
@@ -472,4 +518,57 @@ pub fn app_url(path: &str) -> proa_core::AppUrl<'_> {
     ROUTE_CONTEXT
         .try_with(|ctx| ctx.borrow().base_path().url(path))
         .unwrap_or_else(|_| proa_core::BasePath::default().url(path))
+}
+
+#[cfg(test)]
+mod perf_tests {
+    use super::*;
+    use std::{
+        convert::Infallible,
+        future::{ready, Ready},
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+    use tower::ServiceExt;
+
+    struct ReadyService(Arc<AtomicUsize>);
+    impl Clone for ReadyService {
+        fn clone(&self) -> Self {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Self(self.0.clone())
+        }
+    }
+    impl Service<axum::http::Request<Body>> for ReadyService {
+        type Response = Response;
+        type Error = Infallible;
+        type Future = Ready<Result<Response, Infallible>>;
+        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Infallible>> {
+            Poll::Ready(Ok(()))
+        }
+        fn call(&mut self, _: axum::http::Request<Body>) -> Self::Future {
+            ready(Ok(Response::new(Body::from("ok"))))
+        }
+    }
+
+    #[tokio::test]
+    async fn static_context_calls_the_ready_service_without_cloning_it() {
+        let clones = Arc::new(AtomicUsize::new(0));
+        let manifest = IslandManifest {
+            islands: Default::default(),
+            assets: Default::default(),
+            import_map: Default::default(),
+            ssr_bundle: Default::default(),
+        };
+        let layer = RouteContextLayer::new(Arc::new(manifest), Arc::new(Default::default()));
+        let mut service = layer.layer(ReadyService(clones.clone()));
+        for _ in 0..3 {
+            service
+                .ready()
+                .await
+                .unwrap()
+                .call(axum::http::Request::new(Body::empty()))
+                .await
+                .unwrap();
+        }
+        assert_eq!(clones.load(Ordering::Relaxed), 0);
+    }
 }

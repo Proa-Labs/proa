@@ -125,6 +125,15 @@ struct Resource {
     key: Arc<dyn Any + Send + Sync>,
     href: Option<Arc<str>>,
 }
+/// Fully validated inputs, ready for an infallible commit under the head lock.
+pub(crate) struct PreparedMetadata {
+    title: Option<HeadText>,
+    description: Option<HeadText>,
+    title_template: Option<HeadText>,
+    canonical: Option<Arc<str>>,
+    graph: Option<OpenGraph>,
+}
+
 #[derive(Default, Clone)]
 pub struct HeadFields {
     pub(crate) title: Option<HeadText>,
@@ -137,6 +146,85 @@ pub struct HeadFields {
     resources: Vec<Resource>,
 }
 impl HeadFields {
+    pub(crate) fn prepare_metadata(
+        &self,
+        metadata: HeadMetadata,
+        policy: Option<&HeadUrlPolicy>,
+    ) -> Result<PreparedMetadata, WriteError> {
+        for value in [
+            &metadata.title,
+            &metadata.description,
+            &metadata.title_template,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            text(value)?;
+        }
+        if let Some(template) = &metadata.title_template {
+            if template.matches("%s").count() != 1 {
+                return Err(invalid());
+            }
+        }
+        if metadata.description.is_some()
+            && !self
+                .meta
+                .iter()
+                .any(|slot| slot.0.eq_ignore_ascii_case("description"))
+            && self.meta.len() + self.resources.len() >= SLOT_LIMIT
+        {
+            return Err(invalid());
+        }
+        let canonical = metadata
+            .canonical
+            .map(|value| {
+                let policy =
+                    policy.ok_or_else(|| WriteError::render("missing trusted URL policy"))?;
+                policy.resolve(&value, false).map(Arc::from)
+            })
+            .transpose()?;
+        let graph = metadata
+            .open_graph
+            .map(|patch| self.prepare_graph(patch, policy))
+            .transpose()?;
+        Ok(PreparedMetadata {
+            title: metadata.title.map(HeadText::from),
+            description: metadata.description.map(HeadText::from),
+            title_template: metadata.title_template.map(HeadText::from),
+            canonical,
+            graph,
+        })
+    }
+
+    pub(crate) fn apply_metadata(&mut self, metadata: PreparedMetadata) {
+        if let Some(title) = metadata.title {
+            self.title = Some(title);
+            self.title_template = self.ancestor_template.clone();
+        }
+        if let Some(description) = metadata.description {
+            if let Some(slot) = self
+                .meta
+                .iter_mut()
+                .find(|slot| slot.0.eq_ignore_ascii_case("description"))
+            {
+                slot.1 = Some(description);
+            } else {
+                // proa-perf-ok: new metadata slots are allocated only during head preparation.
+                self.meta
+                    .push((Arc::from("description"), Some(description)));
+            }
+        }
+        if let Some(template) = metadata.title_template {
+            self.template = Some(template);
+        }
+        if let Some(canonical) = metadata.canonical {
+            self.canonical = Some(canonical);
+        }
+        if let Some(graph) = metadata.graph {
+            self.apply_graph(graph);
+        }
+    }
+
     pub fn meta(&mut self, name: &str, value: Option<Cow<'static, str>>) -> Result<(), WriteError> {
         text(name)?;
         if name.is_empty()
@@ -443,9 +531,18 @@ impl HeadFields {
     }
     pub(crate) fn graph(
         &mut self,
-        mut patch: OpenGraph,
+        patch: OpenGraph,
         policy: Option<&HeadUrlPolicy>,
     ) -> Result<(), WriteError> {
+        let patch = self.prepare_graph(patch, policy)?;
+        self.apply_graph(patch);
+        Ok(())
+    }
+    fn prepare_graph(
+        &self,
+        mut patch: OpenGraph,
+        policy: Option<&HeadUrlPolicy>,
+    ) -> Result<OpenGraph, WriteError> {
         for value in patch.scalars.iter().flatten().flatten() {
             text(value)?;
         }
@@ -496,7 +593,9 @@ impl HeadFields {
         if retained > SLOT_LIMIT {
             return Err(invalid());
         }
-        // Apply only after validation of every supplied field/record.
+        Ok(patch)
+    }
+    fn apply_graph(&mut self, patch: OpenGraph) {
         if let Some(value) = patch.enabled {
             self.graph.enabled = Some(value);
         }
@@ -517,7 +616,6 @@ impl HeadFields {
         if patch.video.is_some() {
             self.graph.video = patch.video;
         }
-        Ok(())
     }
     pub(crate) fn resolved_title(&self) -> Option<String> {
         self.title.as_ref().map(|title| match &self.title_template {

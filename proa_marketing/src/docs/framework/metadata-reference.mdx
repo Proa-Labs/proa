@@ -24,8 +24,8 @@ cx.head_mut().metadata(HeadMetadata {
 
 ```html filename="Generated HTML"
 <title>Trail &amp; Travel</title>
-<link rel="canonical" href="https://shop.example/products/trail-jacket">
 <meta name="description" content="Built for the outdoors.">
+<link rel="canonical" href="https://shop.example/products/trail-jacket">
 ```
 
 `HeadMetadata` supports `title`, `description`, `title_template`, `canonical`, and `open_graph`. `None` preserves the inherited value; use the individual `clear_*` methods to remove a field. The whole patch is validated before any field changes. Its title uses the nearest ancestor template, just like `title(...)`.

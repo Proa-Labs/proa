@@ -353,29 +353,12 @@ impl ManagedHead {
     }
     pub fn metadata(&self, metadata: crate::HeadMetadata) -> Result<(), WriteError> {
         self.mutate(|s| {
-            // proa-perf-ok: transactional copy only during opted-in head preparation.
-            let mut fields = (*s.fields).clone();
-            if let Some(title) = metadata.title {
-                fields.set_title(Some(title), false)?;
-            }
-            if let Some(description) = metadata.description {
-                fields.meta("description", Some(description))?;
-            }
-            if let Some(template) = metadata.title_template {
-                fields.set_template(Some(template))?;
-            }
-            if let Some(canonical) = metadata.canonical {
-                let policy = s
-                    .url_policy
-                    .as_ref()
-                    .ok_or_else(|| WriteError::render("missing trusted URL policy"))?;
-                fields.canonical(policy, &canonical)?;
-            }
-            if let Some(graph) = metadata.open_graph {
-                fields.graph(graph, s.url_policy.as_deref())?;
-            }
-            // proa-perf-ok: commit the validated cold-path metadata snapshot.
-            s.fields = Arc::new(fields);
+            // Validate owned inputs before taking a mutable view. Unique request
+            // state needs no transactional clone; shared defaults still use COW.
+            let prepared = s
+                .fields
+                .prepare_metadata(metadata, s.url_policy.as_deref())?;
+            Arc::make_mut(&mut s.fields).apply_metadata(prepared);
             Ok(())
         })
     }
@@ -927,6 +910,33 @@ mod metadata_patch_tests {
         assert!(html
             .contains("property=\"og:image\" content=\"https://shop.example/mount/jacket.png\""));
         assert!(html.contains("property=\"og:image:alt\" content=\"A &amp; B\""));
+    }
+
+    #[test]
+    fn metadata_slot_limit_rejects_the_whole_patch() {
+        let mut cx = WebContext::new();
+        cx.configure_head(HeadConfig::default(), Arc::new(|_, _| Ok(())))
+            .unwrap();
+        let document = cx.require_managed_head().unwrap();
+        let hook = document.begin_hook().unwrap();
+        cx.head_mut().title("Original").unwrap();
+        for index in 0..128 {
+            cx.head_mut()
+                .meta(&format!("slot-{index}"), "value")
+                .unwrap();
+        }
+        assert!(cx
+            .head_mut()
+            .metadata(HeadMetadata {
+                title: Some("Must not apply".into()),
+                description: Some("No slot available".into()),
+                ..Default::default()
+            })
+            .is_err());
+        assert_eq!(document.resolved_title().as_deref(), Some("Original"));
+        let scope = hook.finish(Ok(())).unwrap();
+        document.seal().unwrap();
+        scope.finish(Ok(())).unwrap();
     }
 
     #[test]

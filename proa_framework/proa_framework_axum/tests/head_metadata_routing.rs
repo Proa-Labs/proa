@@ -163,3 +163,47 @@ async fn invalid_utf8_is_rejected_and_static_routes_need_no_captures() {
         assert_eq!(response.status(), status);
     }
 }
+
+#[tokio::test]
+async fn params_survive_an_inner_context_layer_and_an_original_uri_override() {
+    use proa_framework_axum::RouteContextLayer;
+    use std::sync::Arc;
+    for spec in [false, true] {
+        let routes = if spec {
+            Route::endpoint("/blog/:slug", get(page)).into_router()
+        } else {
+            Router::new().route("/blog/:slug", get(page))
+        };
+        let manifest = IslandManifest {
+            islands: Default::default(),
+            assets: Default::default(),
+            import_map: Default::default(),
+            ssr_bundle: Default::default(),
+        };
+        let layer = RouteContextLayer::new(Arc::new(manifest), Arc::new(Default::default()))
+            .with_head(HeadConfig::default());
+        let app = Router::new().nest("/shop", routes.layer(layer));
+        for rewritten in [false, true] {
+            let mut request = Request::builder()
+                .uri("/shop/blog/red-shoes")
+                .body(Body::empty())
+                .unwrap();
+            if rewritten {
+                request.extensions_mut().insert(axum::extract::OriginalUri(
+                    "/before-rewrite".parse().unwrap(),
+                ));
+            }
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), 200);
+            let html = String::from_utf8(
+                to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap()
+                    .to_vec(),
+            )
+            .unwrap();
+            assert!(html.contains("<title>red-shoes | Shop</title>"), "{html}");
+            assert!(html.contains("<h1>red-shoes</h1>"), "{html}");
+        }
+    }
+}
