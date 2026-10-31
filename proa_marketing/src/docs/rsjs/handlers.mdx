@@ -31,13 +31,15 @@ let selected = signal("standard".to_string());
 let pick = rsjs::event_handler(
     |event: rsjs::MouseEvent<elem::Button>, value: &'static str| {
         event.prevent_default();
-        selected.set(value);
+        selected.set(value.to_string());
     },
 );
 
 html_sync! {
-    <button type="button" on_click={pick("standard")}>"Standard"</button>
-    <button type="button" on_click={pick("express")}>"Express"</button>
+    <div>
+        <button type="button" on_click={pick("standard")}>"Standard"</button>
+        <button type="button" on_click={pick("express")}>"Express"</button>
+    </div>
 }
 ```
 
@@ -53,8 +55,10 @@ Use `rsjs::debounce(handler, delay_ms)` directly in an event attribute:
 let query = signal(String::new());
 
 html_sync! {
-    <input on_input={rsjs::debounce(|event| query.set(event.value()), 300)} />
-    <output>{query.get()}</output>
+    <div>
+        <input on_input={rsjs::debounce(|event| query.set(event.value()), 300)} />
+        <output>{query.get()}</output>
+    </div>
 }
 ```
 
@@ -88,8 +92,10 @@ let update_enabled = rsjs::event_handler(
 );
 
 html_sync! {
-    <input type="search" value={query.get()} on_input={update_query()} />
-    <input type="checkbox" checked={enabled.get()} on_change={update_enabled()} />
+    <div>
+        <input type="search" value={query.get()} on_input={update_query()} />
+        <input type="checkbox" checked={enabled.get()} on_change={update_enabled()} />
+    </div>
 }
 ```
 
@@ -150,11 +156,13 @@ let query = signal(String::new());
 let on_change = rsjs::handler(|next: String| query.set(next));
 
 html_sync! {
-    {SearchInput {
-        value: query.get(),
-        on_change,
-    }}
-    <p>"Query: "{query.get()}</p>
+    <div>
+        {SearchInput {
+            value: query.get(),
+            on_change,
+        }}
+        <p>"Query: "{query.get()}</p>
+    </div>
 }
 ```
 

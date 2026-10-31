@@ -13,8 +13,8 @@ pub mod csp;
 pub mod send_context;
 
 pub use context::{
-    CacheDependency, CacheTrace, HeadContext, HeadEntry, Locals, RenderArtifacts, RenderTelemetry,
-    RequestContext, ResponseContext, RsjsArtifactBranch, RsjsArtifactCheckpoint,
+    CacheDependency, CacheTrace, HeadContext, HeadEntry, HeadWriter, Locals, RenderArtifacts,
+    RenderTelemetry, RequestContext, ResponseContext, RsjsArtifactBranch, RsjsArtifactCheckpoint,
     RsjsLinkedProviderOccurrenceKey, RsjsLinkedProviderTagGuard, RsjsQuerySeedArtifact,
     RsjsRenderArtifacts, RsjsSharedStateScopeGuard, RsjsSharedStateSeedArtifact,
     RsjsSharedStateSeedCheckpoint, StandardWebContext, TelemetryEvent, WebContext, WebContextParts,

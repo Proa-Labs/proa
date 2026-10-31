@@ -1,0 +1,736 @@
+---
+title: Metadata reference
+description: See each head mutation and the HTML it generates.
+---
+
+Use `cx.head_mut()` inside a layout or Page's `render_head` hook. Each example below puts the mutation directly above its generated HTML. See [Metadata and OG images](/docs/framework/metadata) to set up a document.
+
+Examples are independent: they use a fresh managed document, `https://shop.example` as the public origin, `/` as the mount, and no default fields or CSP nonce unless stated otherwise. Output shows only the generated tags, with line breaks added for readability. Charset, viewport, and other manual tags remain in your document template.
+
+## Apply a metadata object
+
+Use `metadata` to set several fields in one call:
+
+```rust filename="render_head"
+use proa_core::HeadMetadata;
+
+cx.head_mut().metadata(HeadMetadata {
+    title: "Trail & Travel".into(),
+    description: "Built for the outdoors.".into(),
+    canonical: "/products/trail-jacket".into(),
+    ..Default::default()
+})?;
+```
+
+```html filename="Generated HTML"
+<title>Trail &amp; Travel</title>
+<meta name="description" content="Built for the outdoors.">
+<link rel="canonical" href="https://shop.example/products/trail-jacket">
+```
+
+Every field defaults to `HeadValue::Inherit`. Use `.into()` to set a value and `HeadValue::Clear` to remove an inherited field. The whole patch is validated before any field changes, including URLs and list limits. A normal title uses the nearest ancestor template, just like `title(...)`.
+
+```rust filename="render_head"
+use proa_core::{HeadMetadata, HeadTitle, HeadValue};
+
+cx.head_mut().metadata(HeadMetadata {
+    title: HeadTitle::absolute("Checkout").into(),
+    description: HeadValue::Clear,
+    ..Default::default()
+})?;
+```
+
+```html filename="Generated HTML"
+<title>Checkout</title>
+```
+
+This clears any inherited description and bypasses an ancestor title template. Other inherited fields stay in place.
+
+| Field | Value | Inheritance when set |
+| --- | --- | --- |
+| `title` | `HeadTitle` or a string with `.into()` | Replace; `HeadTitle::absolute` bypasses the template |
+| `description`, `title_template`, `canonical` | Text | Replace |
+| `open_graph` | `OpenGraph` | Patch individual properties |
+| `twitter` | `Twitter` | Patch individual properties |
+| `robots`, `googlebot` | `Robots` | Replace the entire directive policy |
+| `icons` | `Vec<HeadIcon>` | Replace the entire list |
+| `alternates` | `Vec<HeadAlternate>` | Replace the entire list |
+| `manifest` | URL text | Replace |
+| `authors` | `Vec<HeadAuthor>` | Replace the entire list |
+| `application_name`, `creator`, `publisher` | Text | Replace |
+| `keywords` | `Vec<Cow<'static, str>>` | Replace the entire list |
+| `referrer` | `ReferrerPolicy` | Replace |
+| `verification` | `Vec<HeadVerification>` | Replace the entire list |
+
+An empty list removes inherited list entries. Clearing `open_graph` or `twitter` removes the whole inherited object. To suppress one social fallback, use the object's `clear_*` builder method instead. Existing individual setters remain available; migrate old bulk fields such as `title: Some("Shop".into())` to `title: "Shop".into()`.
+
+## Document metadata
+
+### title
+
+Set the document title. Text is escaped when it is written to HTML.
+
+```rust filename="render_head"
+cx.head_mut().title("Trail & Travel")?;
+```
+
+```html filename="Generated HTML"
+<title>Trail &amp; Travel</title>
+```
+
+### description
+
+Set the description shown to search engines and link previews.
+
+```rust filename="render_head"
+cx.head_mut().description("Lightweight layers for everyday adventures.")?;
+```
+
+```html filename="Generated HTML"
+<meta name="description" content="Lightweight layers for everyday adventures.">
+```
+
+### canonical
+
+Resolve a canonical path against the trusted public origin.
+
+```rust filename="render_head"
+cx.head_mut().canonical("/products/trail-jacket")?;
+```
+
+```html filename="Generated HTML"
+<link rel="canonical" href="https://shop.example/products/trail-jacket">
+```
+
+Pass paths relative to the configured public mount. Do not first prefix them with `cx.url(...)`.
+
+### title_template
+
+An ancestor can provide a title template. A descendant supplies the title.
+
+```rust filename="render_head"
+// Layout hook
+cx.head_mut().title_template("%s | Acme")?;
+
+// Page hook
+cx.head_mut().title("Trail Jacket")?;
+```
+
+```html filename="Generated HTML"
+<title>Trail Jacket | Acme</title>
+```
+
+Dynamic routes work the same way: a Page at `/products/:id` or `/blog/:slug` uses `cx.param(...)` to load its display title and passes it to `title(...)` or `metadata(...)`. The template formats that title; it does not infer a title from the URL.
+
+A template must contain exactly one `%s`. The nearest ancestor template applies once. A template set in a hook applies to descendants, not to a title set in that same hook.
+
+### absolute_title
+
+Bypass an inherited title template for this title.
+
+```rust filename="render_head"
+// Layout hook
+cx.head_mut().title_template("%s | Acme")?;
+
+// Page hook
+cx.head_mut().absolute_title("Checkout")?;
+```
+
+```html filename="Generated HTML"
+<title>Checkout</title>
+```
+
+### clear_title_template
+
+Stop a template from being inherited by deeper descendants.
+
+```rust filename="render_head"
+// Root layout hook
+cx.head_mut().title_template("%s | Acme")?;
+
+// Nested layout hook
+cx.head_mut().clear_title_template()?;
+
+// Page hook
+cx.head_mut().title("Checkout")?;
+```
+
+```html filename="Generated HTML"
+<title>Checkout</title>
+```
+
+Clearing a template affects descendants. To bypass an ancestor template for a title in the current hook, use `absolute_title`.
+
+## Named meta tags
+
+### meta
+
+Set a named meta tag. Setting the same name again replaces its value; names are matched without case sensitivity.
+
+```rust filename="render_head"
+cx.head_mut().meta("robots", "index, follow")?;
+cx.head_mut().meta("author", "Acme")?;
+```
+
+```html filename="Generated HTML"
+<meta name="robots" content="index, follow">
+<meta name="author" content="Acme">
+```
+
+`description(value)` is shorthand for `meta("description", value)`. Use `open_graph` for Open Graph properties.
+
+### Twitter cards
+
+Use the typed card builder to resolve image URLs and reuse final metadata. These types come from `proa_core`.
+
+```rust filename="render_head"
+cx.head_mut().title("Trail Jacket")?;
+cx.head_mut().twitter(
+    Twitter::new()
+        .card(TwitterCard::SummaryLargeImage)
+        .site("@acme")
+        .image(HeadMedia::new("/og/trail-jacket.png").alt("Forest green jacket")),
+)?;
+```
+
+```html filename="Generated HTML"
+<title>Trail Jacket</title>
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Trail Jacket">
+<meta name="twitter:site" content="@acme">
+<meta name="twitter:image" content="https://shop.example/og/trail-jacket.png">
+<meta name="twitter:image:alt" content="Forest green jacket">
+```
+
+`Twitter::new()` enables a summary card. Title and description fall back to explicit Open Graph values, then the final document values. The image falls back to the first final Open Graph image. Card output is opt-in; Open Graph alone does not enable Twitter tags. `SummaryLargeImage` selects the large image card; this API currently supports summary cards, rather than player or app cards.
+
+Use `.title(...)`, `.description(...)`, `.creator(...)`, `.site_id(...)`, and `.creator_id(...)` to customize the card. `.clear_title()`, `.clear_description()`, and `.clear_image()` suppress fallback values. A descendant patch keeps unspecified parent card properties. `cx.head_mut().clear_twitter()?` removes the whole card.
+
+Named `.meta("twitter:...", value)` overrides the corresponding typed tag without duplication. Named meta values remain text and do not resolve URLs. Setting a typed property again replaces its named override. Overriding `twitter:image` also suppresses the old typed image's alt text.
+
+### Robots directives for a page
+
+Set indexing and preview directives on an individual page:
+
+```rust filename="render_head"
+cx.head_mut().robots(Robots {
+    index: Some(false),
+    follow: Some(true),
+    max_image_preview: Some(ImagePreview::Large),
+    ..Default::default()
+})?;
+```
+
+```html filename="Generated HTML"
+<meta name="robots" content="noindex, follow, max-image-preview:large">
+```
+
+Use `googlebot(Robots { ... })` for a separate `<meta name="googlebot">` policy. Optional directives emit nothing when omitted. `max_snippet` and `max_video_preview` accept `-1` for unlimited or a nonnegative limit. A descendant's policy replaces the parent's entire policy, so directives can be intentionally removed. `clear_robots()` and `clear_googlebot()` remove those tags.
+
+This is separate from `FrameworkBuilder::with_robots(RobotsTxt)`, which serves the site's `/robots.txt`. That file controls which URL paths crawlers may fetch. The HTML meta tag controls indexing and previews for a fetched page. A crawler must be allowed to fetch a page to read its `noindex` tag; disallowing it in `robots.txt` does not guarantee removal from search results. See [Google's page-level directives](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag) and [robots.txt guide](https://developers.google.com/search/docs/crawling-indexing/robots/intro).
+
+### Icons
+
+Replace the inherited icon list with typed links:
+
+```rust filename="render_head"
+cx.head_mut().icons([
+    HeadIcon::new("/favicon.svg").sizes("any").mime_type("image/svg+xml"),
+    HeadIcon::new("/apple-touch-icon.png").kind(IconKind::AppleTouch).sizes("180x180"),
+])?;
+```
+
+```html filename="Generated HTML"
+<link rel="icon" href="https://shop.example/favicon.svg" sizes="any" type="image/svg+xml">
+<link rel="apple-touch-icon" href="https://shop.example/apple-touch-icon.png" sizes="180x180">
+```
+
+`IconKind::Mask` emits `rel="mask-icon"`. `.media(...)` and `.color(...)` add optional attributes. Use an empty list or `clear_icons()` to remove inherited icons. URLs are validated and resolved with the trusted public origin and mount.
+
+### Alternate languages and feeds
+
+```rust filename="render_head"
+cx.head_mut().alternates([
+    HeadAlternate::new("/fr/products/trail-jacket").language("fr"),
+    HeadAlternate::new("/products/trail-jacket").language("x-default"),
+    HeadAlternate::new("/feed.xml").mime_type("application/rss+xml").title("Shop news"),
+])?;
+```
+
+```html filename="Generated HTML"
+<link rel="alternate" href="https://shop.example/fr/products/trail-jacket" hreflang="fr">
+<link rel="alternate" href="https://shop.example/products/trail-jacket" hreflang="x-default">
+<link rel="alternate" href="https://shop.example/feed.xml" type="application/rss+xml" title="Shop news">
+```
+
+Each alternate can also carry `.media(...)`. Setting alternates replaces the whole inherited list; canonical remains independent. Use `clear_alternates()` to remove the list.
+
+### Manifest
+
+```rust filename="render_head"
+cx.head_mut().manifest("/app.webmanifest")?;
+```
+
+```html filename="Generated HTML"
+<link rel="manifest" href="https://shop.example/app.webmanifest">
+```
+
+`clear_manifest()` removes an inherited manifest link.
+
+### Authors, application details, and verification
+
+```rust filename="render_head"
+cx.head_mut().metadata(HeadMetadata {
+    application_name: "Acme Shop".into(),
+    authors: vec![HeadAuthor::new("Alex").url("/authors/alex")].into(),
+    referrer: ReferrerPolicy::StrictOriginWhenCrossOrigin.into(),
+    verification: vec![HeadVerification::google("verification-token")].into(),
+    ..Default::default()
+})?;
+```
+
+```html filename="Generated HTML"
+<meta name="application-name" content="Acme Shop">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="author" content="Alex">
+<link rel="author" href="https://shop.example/authors/alex">
+<meta name="google-site-verification" content="verification-token">
+```
+
+`authors([...])` and `verification([...])` replace their entire inherited lists. Multiple authors and verification tokens emit multiple tags. `HeadVerification::new("msvalidate.01", token)` supports other verification providers; reserved document and Twitter names are rejected. `application_name`, `creator`, `publisher`, `keywords`, and `referrer` also have individual setters. Named `.meta(...)` calls override the corresponding typed author or verification name without duplication; `remove_meta(...)` suppresses it.
+
+### Clear inherited metadata
+
+Clear only the inherited fields you want to remove. Other metadata stays in place.
+
+```rust filename="render_head"
+// Layout hook
+cx.head_mut().title("Shop")?;
+cx.head_mut().description("Browse our products.")?;
+cx.head_mut().canonical("/products")?;
+cx.head_mut().meta("robots", "noindex")?;
+cx.head_mut().meta("author", "Acme")?;
+
+// Page hook
+cx.head_mut().clear_title()?;
+cx.head_mut().clear_description()?;
+cx.head_mut().clear_canonical()?;
+cx.head_mut().remove_meta("robots")?;
+```
+
+```html filename="Generated HTML"
+<meta name="author" content="Acme">
+```
+
+`clear_title`, `clear_description`, `clear_canonical`, and `remove_meta` suppress inherited values. Omitting a mutation keeps the inherited value.
+
+## Open Graph
+
+Use `OpenGraph` and `HeadMedia` from `proa_core` for these builders.
+
+### open_graph
+
+Enable Open Graph and reuse the final document title, description, and canonical URL.
+
+```rust filename="render_head"
+cx.head_mut().title("Trail Jacket")?;
+cx.head_mut().description("Built for the outdoors.")?;
+cx.head_mut().canonical("/products/trail-jacket")?;
+cx.head_mut().open_graph(
+    OpenGraph::new().kind("product").site_name("Acme"),
+)?;
+```
+
+```html filename="Generated HTML"
+<title>Trail Jacket</title>
+<meta name="description" content="Built for the outdoors.">
+<link rel="canonical" href="https://shop.example/products/trail-jacket">
+<meta property="og:title" content="Trail Jacket">
+<meta property="og:description" content="Built for the outdoors.">
+<meta property="og:url" content="https://shop.example/products/trail-jacket">
+<meta property="og:site_name" content="Acme">
+<meta property="og:type" content="product">
+```
+
+Open Graph is opt-in. `OpenGraph::new()` enables it. Unspecified title, description, and URL fall back to the final document fields at emission; a templated title includes its template.
+
+### A different social title
+
+Set an Open Graph title without changing the document title.
+
+```rust filename="render_head"
+cx.head_mut().title("Trail Jacket")?;
+cx.head_mut().open_graph(
+    OpenGraph::new().title("Meet your new everyday jacket"),
+)?;
+```
+
+```html filename="Generated HTML"
+<title>Trail Jacket</title>
+<meta property="og:title" content="Meet your new everyday jacket">
+```
+
+### Open Graph images
+
+Describe an existing image with its URL, alternative text, and dimensions.
+
+```rust filename="render_head"
+cx.head_mut().open_graph(
+    OpenGraph::new().images([
+        HeadMedia::new("/og/trail-jacket.png")
+            .mime_type("image/png")
+            .alt("Trail Jacket in forest green")
+            .dimensions(1200, 630),
+    ]),
+)?;
+```
+
+```html filename="Generated HTML"
+<meta property="og:image" content="https://shop.example/og/trail-jacket.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="Trail Jacket in forest green">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+```
+
+Import `HeadMedia` and `OpenGraph` from `proa_core`. Proa resolves the image URL and emits its metadata; it does not generate or resize the image. `secure_url(...)` adds an optional `og:image:secure_url`.
+
+### Replace inherited images
+
+An images list replaces the whole inherited list.
+
+```rust filename="render_head"
+// Layout hook
+cx.head_mut().open_graph(
+    OpenGraph::new().images([HeadMedia::new("/og/shop.png")]),
+)?;
+
+// Page hook
+cx.head_mut().open_graph(
+    OpenGraph::default().images([HeadMedia::new("/og/trail-jacket.png")]),
+)?;
+```
+
+```html filename="Generated HTML"
+<meta property="og:image" content="https://shop.example/og/trail-jacket.png">
+```
+
+`OpenGraph::default()` is a patch: it changes only the supplied fields. It does not enable a previously disabled graph. Use `images([])` to remove inherited images.
+
+### Open Graph locales
+
+Set a primary locale and alternate locales.
+
+```rust filename="render_head"
+cx.head_mut().open_graph(
+    OpenGraph::new()
+        .locale("en_US")
+        .alternate_locales(["fr_FR", "es_ES"]),
+)?;
+```
+
+```html filename="Generated HTML"
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="fr_FR">
+<meta property="og:locale:alternate" content="es_ES">
+```
+
+The alternate locale list replaces the whole inherited list. Pass an empty typed list, such as `[] as [&str; 0]`, to clear it.
+
+### Audio and video
+
+Audio and video use the same `HeadMedia` records as images.
+
+```rust filename="render_head"
+cx.head_mut().open_graph(
+    OpenGraph::new()
+        .audio([HeadMedia::new("/media/trail.mp3").mime_type("audio/mpeg")])
+        .video([HeadMedia::new("/media/trail.mp4").dimensions(1280, 720)]),
+)?;
+```
+
+```html filename="Generated HTML"
+<meta property="og:audio" content="https://shop.example/media/trail.mp3">
+<meta property="og:audio:type" content="audio/mpeg">
+<meta property="og:video" content="https://shop.example/media/trail.mp4">
+<meta property="og:video:width" content="1280">
+<meta property="og:video:height" content="720">
+```
+
+Each audio or video list replaces its inherited list. Related properties stay with their media record.
+
+### Clear an Open Graph fallback
+
+Explicitly clear a social field to suppress its fallback while leaving the document field alone.
+
+```rust filename="render_head"
+cx.head_mut().title("Trail Jacket")?;
+cx.head_mut().description("Built for the outdoors.")?;
+cx.head_mut().open_graph(OpenGraph::new().clear_title())?;
+```
+
+```html filename="Generated HTML"
+<title>Trail Jacket</title>
+<meta name="description" content="Built for the outdoors.">
+<meta property="og:description" content="Built for the outdoors.">
+```
+
+An omitted social field inherits or falls back; a cleared field stays absent. The same pattern applies to `clear_description`, `clear_url`, `clear_site_name`, `clear_determiner`, `clear_kind`, and `clear_locale` on `OpenGraph`.
+
+### Disable Open Graph
+
+Suppress the whole graph without changing ordinary document metadata.
+
+```rust filename="render_head"
+cx.head_mut().title("Checkout")?;
+cx.head_mut().open_graph(OpenGraph::new().kind("website"))?;
+cx.head_mut().open_graph(OpenGraph::default().enabled(false))?;
+```
+
+```html filename="Generated HTML"
+<title>Checkout</title>
+```
+
+### Article metadata
+
+```rust filename="render_head"
+cx.head_mut().open_graph(OpenGraph::new().article(ArticleMetadata {
+    published_time: Some("2026-10-30T12:00:00Z".into()),
+    authors: vec!["/authors/alex".into()],
+    tags: vec!["Rust".into(), "Web".into()],
+    ..Default::default()
+}))?;
+```
+
+```html filename="Generated HTML"
+<meta property="og:type" content="article">
+<meta property="article:published_time" content="2026-10-30T12:00:00Z">
+<meta property="article:author" content="https://shop.example/authors/alex">
+<meta property="article:tag" content="Rust">
+<meta property="article:tag" content="Web">
+```
+
+`article(...)` selects `og:type="article"` and replaces the inherited article object. It also accepts `modified_time`, `expiration_time`, and `section`. Author values are profile URLs. Provide valid timestamp text; Proa validates text size and escaping, not timestamp syntax. `clear_article()` removes article properties. Article properties emit only while the final Open Graph type is `article`.
+
+## Stylesheets and scripts
+
+### stylesheet
+
+Register a stylesheet in a typed resource slot.
+
+```rust filename="render_head"
+#[derive(PartialEq, Eq)]
+enum Style { Theme }
+
+cx.head_mut().stylesheet(Style::Theme, "/styles/theme.css")?;
+```
+
+```html filename="Generated HTML"
+<link rel="stylesheet" href="https://shop.example/styles/theme.css">
+```
+
+### Replace a stylesheet
+
+Writing the same slot again changes its URL without emitting a second tag.
+
+```rust filename="render_head"
+#[derive(PartialEq, Eq)]
+enum Style { Theme }
+
+cx.head_mut().stylesheet(Style::Theme, "/styles/base.css")?;
+cx.head_mut().stylesheet(Style::Theme, "/styles/shop.css")?;
+```
+
+```html filename="Generated HTML"
+<link rel="stylesheet" href="https://shop.example/styles/shop.css">
+```
+
+A slot is identified by its resource family, enum type, and variant. Different slots may intentionally use the same URL.
+
+### module
+
+Register an external module script.
+
+```rust filename="render_head"
+#[derive(PartialEq, Eq)]
+enum Script { Site }
+
+cx.head_mut().module(Script::Site, "/scripts/site.js")?;
+```
+
+```html filename="Generated HTML"
+<script type="module" src="https://shop.example/scripts/site.js"></script>
+```
+
+When a CSP nonce is installed before managed-head initialization, Proa adds it to resource tags automatically. The output above assumes no nonce.
+
+### Remove a resource
+
+Remove a stylesheet or module by its slot key.
+
+```rust filename="render_head"
+#[derive(PartialEq, Eq)]
+enum Style { Theme }
+#[derive(PartialEq, Eq)]
+enum Script { Site }
+
+cx.head_mut().stylesheet(Style::Theme, "/styles/theme.css")?;
+cx.head_mut().module(Script::Site, "/scripts/site.js")?;
+cx.head_mut().remove_stylesheet(Style::Theme)?;
+cx.head_mut().remove_module(Script::Site)?;
+cx.head_mut().title("Checkout")?;
+```
+
+```html filename="Generated HTML"
+<title>Checkout</title>
+```
+
+Removal preserves the slot position if a descendant fills it again. Only the title remains in this example.
+
+## URL resolution
+
+### Application URL composition
+
+Use `cx.url(path)` to explicitly apply the application base path to a URL in an HTML attribute or Markdown link. The helper writes the shared prefix and borrowed path directly to the output buffer without creating a concatenated `String`.
+
+```rust filename="Component body"
+let product_url = cx.url("/products/42");
+
+html_sync! {
+    <a href={product_url}>"View product"</a>
+}
+.render(cx)
+```
+
+With application base path `/shop`, this produces:
+
+```html filename="Generated HTML"
+<a href="/shop/products/42">View product</a>
+```
+
+Plain URL strings in templates stay unchanged. Absolute URLs, protocol-relative URLs, document-relative paths, queries, and fragments pass through `cx.url(...)` without adding the base path. Pass an unprefixed application path to avoid applying the prefix twice. `cx.request()` remains the accessor for incoming request metadata, including headers, location, and route parameters.
+
+Metadata URL setters currently accept strings and resolve them using the separately configured `HeadUrlPolicy` below. Do not convert a `cx.url(...)` value to a string and then feed it through a metadata policy that applies the same mount again.
+
+### Planned dynamic segments and metadata URLs
+
+Appending dynamic values with `.segment(...)` and passing the resulting typed value directly to `canonical(...)` are proposed and are not yet implemented. `cx.url(path)` itself is available today.
+
+The proposed segment API builds on the context helper. For a dynamic product ID:
+
+```rust filename="Proposed render_head API (not yet implemented)"
+let product_url = cx.url("/products").segment(self.id);
+cx.head_mut().canonical(product_url)?;
+```
+
+With public origin `https://shop.example`, application base path `/shop`, and `self.id = 42`, the expected output is:
+
+```html filename="Expected HTML once implemented"
+<link rel="canonical" href="https://shop.example/shop/products/42">
+```
+
+`.segment(value)` would append and percent-encode one path segment. For example, `.segment("red/blue")` would append `red%2Fblue`, preserving the slash as part of the slug. Fixed paths would use `cx.url("/products/42")` directly.
+
+The same typed value is intended to work in ordinary URL attributes:
+
+```rust filename="Proposed template API (not yet implemented)"
+let product_url = cx.url("/products").segment(self.id);
+
+html_sync! {
+    <a href={product_url}>"View product"</a>
+}
+```
+
+```html filename="Expected HTML once implemented"
+<a href="/shop/products/42">View product</a>
+```
+
+Dynamic segment composition is intended to preserve the direct-buffer approach, with URL validation, segment encoding, and allocation tests. Metadata retains an owned, validated URL, so its storage can still allocate. A composed application URL would carry its prefix through to metadata without applying the mount a second time.
+
+### URL base and mount
+
+Configure metadata URL resolution once at application startup, then pass the resulting `HeadConfig` to [FrameworkBuilder](/docs/framework/configuration) with `with_head(...)`. The builder makes this policy available to the rendered routes' `cx.head_mut()` setters. Creating the configuration alone does not install it.
+
+In this example, `manifest` is your application's `IslandManifest` and `routes` is its Axum `Router`. Both the framework and metadata policy use the same `/shop` mount:
+
+```rust filename="App configuration"
+use proa_core::{HeadConfig, HeadUrlPolicy};
+use proa_framework_axum::{BasePath, FrameworkBuilder};
+
+let mount = "/shop";
+let head = HeadConfig::default()
+    .with_urls(HeadUrlPolicy::new("https://shop.example", mount)?);
+
+let app = FrameworkBuilder::new(manifest)
+    .with_base_path(BasePath::new(mount)?)
+    .with_head(head)
+    .with_dynamic_routes(routes)
+    .build();
+```
+
+Inside a Page or layout's head hook, paths now resolve using that installed policy:
+
+```rust filename="render_head"
+cx.head_mut().canonical("/products/trail-jacket")?;
+```
+
+```html filename="Generated HTML"
+<link rel="canonical" href="https://shop.example/shop/products/trail-jacket">
+```
+
+The leading `/` is still relative to the configured mount. Configure `HeadUrlPolicy::new(public_origin, mount)` before `with_defaults`: defaults resolve URLs immediately.
+
+Currently, this mount is configured separately from `FrameworkBuilder::with_base_path(...)`; the builder does not automatically pass its base path into the head URL policy. Keep both configurations aligned for a mounted application. Inside a component, `cx.request().base_path().as_str()` reads the configured application prefix (`""` at the origin root).
+
+### External resource origins
+
+This is also application startup configuration for [FrameworkBuilder](/docs/framework/configuration). Stylesheets and modules registered through `cx.head_mut()` must come from the public origin or an allowed resource origin. Allow a CDN origin in the policy, then install it with `with_head(...)` before serving your routes. `manifest` and `routes` are your application's existing manifest and Axum router:
+
+```rust filename="App configuration"
+use proa_core::{HeadConfig, HeadUrlPolicy};
+use proa_framework_axum::FrameworkBuilder;
+
+let urls = HeadUrlPolicy::new("https://shop.example", "/")?
+    .allow_resource_origin("https://cdn.example")?;
+let head = HeadConfig::default().with_urls(urls);
+
+let app = FrameworkBuilder::new(manifest)
+    .with_head(head)
+    .with_dynamic_routes(routes)
+    .build();
+```
+
+A Page or layout can then register a stylesheet from the allowed CDN:
+
+```rust filename="render_head"
+#[derive(PartialEq, Eq)]
+enum Style { Theme }
+
+cx.head_mut().stylesheet(Style::Theme, "https://cdn.example/styles/theme.css")?;
+```
+
+```html filename="Generated HTML"
+<link rel="stylesheet" href="https://cdn.example/styles/theme.css">
+```
+
+The allowlist permits registration; it does not register or fetch the resource itself. `RouteResponse::with_head(head)` can install a head configuration for an individual response instead of using app-wide builder configuration.
+
+Images, audio, video, canonical URLs, `og:url`, Twitter images, icons, alternate links, manifests, and author URLs do not use this allowlist. They accept a mount-relative path or any absolute `http` or `https` URL that has a host and carries no credentials.
+
+The public origin comes from trusted application configuration, including staging configuration. It is never inferred from `Host` or forwarded headers. Proa resolves and validates these URLs; it does not fetch resources.
+
+## Other head tags
+
+Keep charset, viewport, fonts, and other manual tags in the document's `html!` or `html_sync!` template, next to `{cx.head()}`. Proa does not parse or deduplicate manual tags. Use the typed icon setters above for managed favicons. There is no automatic favicon or Open Graph image file convention. Do not also emit a manual icon for the same purpose unless you intend both links.
+
+## When mutations are allowed
+
+Set metadata in `render_head` or in `HeadConfig::with_defaults`. A Page declares `ROLE = PAGE` and seals metadata before its body. An ancestor that supplies metadata declares `ROLE = LAYOUT`. Ordinary `COMPONENT` values skip head invocation.
+
+These mutations also work in synchronous hooks returning `impl SyncHeadOperation` on `WebRenderSync`. Send components use `render_head_send` (or `render_head_send_sync` for synchronous rendering); an async Send hook must produce a Send future.
+
+Page bodies, Suspense children, captures, and loading/error fallbacks cannot mutate metadata. A late mutation returns an error and invalidates the managed document, even if its `Result` is ignored. Invalid field values fail atomically and may be handled within a hook.
+
+Each managed document needs one Page and one head outlet. Raw `child.render(cx)` calls render only the body; use template composition or framework render helpers for lifecycle dispatch. Run `cargo proa lint <changed-paths> --deny warnings` to catch async head overrides with missing roles or an explicit `COMPONENT` role. Synchronous hooks also retain a code-generation role assertion.
+
+[Metadata and OG images](/docs/framework/metadata) · [Data loading](/docs/framework/data-loading) · [Headers and CSP](/docs/framework/security-headers)

@@ -28,7 +28,7 @@ impl<L: DataLoader + 'static> proa_core::WebRender<L> for SiteHeader {
                     </a>
                     <div class="flex items-center gap-[8px] pl-[20px] border-l border-line">
                         <img
-                            src={cx.request().url("/static/proa-logo.svg")}
+                            src={cx.url("/static/proa-logo.svg")}
                             width="20"
                             height="20"
                             alt=""

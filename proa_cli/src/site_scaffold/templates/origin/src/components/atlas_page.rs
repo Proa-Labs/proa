@@ -10,7 +10,8 @@ use std::future::Future;
 use std::sync::Arc;
 
 use proa_core::{
-    DataLoader, MdRenderSync, RenderOutcome, WebContext, WebRender, WriteBuf, WriteError,
+    ComponentRole, DataLoader, MdRenderSync, RenderOutcome, WebContext, WebRender, WriteBuf,
+    WriteError,
 };
 use proa_macros::html;
 
@@ -75,6 +76,8 @@ pub fn markdown_string_with_base_path(
 }
 
 impl<L: DataLoader + 'static> WebRender<L> for AtlasPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
     // proa-perf-ok(scope): guided demo page; the per-request view model and
     // its owned strings are intentional and sized to one lookup.
     fn render(

@@ -1,101 +1,248 @@
 ---
 title: Metadata and OG images
-description: Compose titles, descriptions, and social preview images.
+sidebar_title: Metadata and OG images
+description: Add page titles, descriptions, canonical URLs, and social images with render_head.
 ---
 
-Proa metadata is resolved from the current route context. Layouts and pages can both provide metadata; the framework precomputes a metadata map from the route specification and exposes helpers for rendering the current route's head tags.
+Set page metadata in `render_head`. Proa turns your `cx.head_mut()` calls into tags at the `{cx.head()}` outlet in your document.
 
-## Title-Only Pages
+This guide covers setup, request-loaded metadata, layout defaults, and sharing images. For individual setters and their generated HTML, see the [metadata reference](/docs/framework/metadata-reference).
 
-`Route::page` creates title-only metadata:
+## Add page metadata
 
-```rust
-Route::page("/pricing", "Pricing", get(pricing))
-```
+Put the hook in the selected Page's `WebRender<L>` implementation. Keep its existing `render(self, cx)` body.
 
-Use this for simple pages where layout defaults provide the rest.
+```rust filename="ProductPage"
+use proa_core::{ComponentRole, DataLoader, WebContext, WebRender, WriteError};
 
-## Custom Metadata
+impl<L: DataLoader> WebRender<L> for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
 
-Implement `Metadata` for full control:
-
-```rust
-use proa_framework_axum::{
-    CascadeOpenGraph, CascadeValue, Metadata, OpenGraphImage,
-};
-
-pub struct PricingMeta;
-
-impl Metadata for PricingMeta {
-    fn title(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("Pricing")
+    async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        cx.head_mut().title("Trail Jacket")?;
+        cx.head_mut().description("Built for the outdoors.")?;
+        Ok(())
     }
 
-    fn description(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("Plans and deployment options for Proa.")
-    }
-
-    fn open_graph(&self) -> CascadeOpenGraph {
-        static IMAGES: [OpenGraphImage; 1] = [
-            OpenGraphImage::new("https://proa.so/static/og/pricing.png")
-                .with_dimensions(1200, 630)
-                .with_alt("Proa pricing"),
-        ];
-
-        CascadeOpenGraph {
-            images: CascadeValue::Set(&IMAGES),
-            ..Default::default()
-        }
-    }
-}
-
-static PRICING_META: PricingMeta = PricingMeta;
-
-let route = Route::page_with_metadata("/pricing", get(pricing), &PRICING_META);
-```
-
-## Layout Metadata
-
-Layouts implement `Metadata` as well as `Layout`, so they can provide defaults:
-
-```rust
-impl Metadata for AppLayout {
-    fn title(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("%s - Proa")
-    }
-
-    fn description(&self) -> CascadeValue<&'static str> {
-        CascadeValue::Set("A Proa application.")
-    }
+    // Keep your existing render(self, cx) implementation.
 }
 ```
 
-Use layout metadata for site-wide title templates, default descriptions, and default Open Graph fields.
+```html filename="Generated HTML"
+<title>Trail Jacket</title>
+<meta name="description" content="Built for the outdoors.">
+```
 
-## Rendering Head Tags
+`render_head` is a native async method: mutate `cx` directly and return a `Result`. It needs no attribute or handwritten async block. The examples show the relevant generated tags; other inherited metadata can add more.
 
-Inside a document layout, call the helpers while route context is installed:
+For a struct with several fields, use [`cx.head_mut().metadata(HeadMetadata { ... })`](/docs/framework/metadata-reference#apply-a-metadata-object). Omitted fields keep their inherited values.
 
-```rust
-use proa_framework_axum::{render_css_link, render_metadata_head};
+### Enable managed metadata
 
-fn render_head(cx: &mut proa_core::WebContext) {
-    render_metadata_head(cx);
-    render_css_link(cx);
+Configure a trusted public origin before rendering the document:
+
+```rust filename="Route configuration"
+use proa_core::{HeadConfig, HeadUrlPolicy};
+use proa_framework_axum::RouteResponse;
+
+let head = HeadConfig::default()
+    .with_urls(HeadUrlPolicy::new("https://shop.example", "/")?);
+
+RouteResponse::ssr_stream(document).with_head(head)
+```
+
+Use your configured production or staging origin in place of `https://shop.example`. Proa does not infer it from request headers. The origin resolves canonical, social-image, stylesheet, and module URLs.
+
+To enable metadata for every rendered route, pass the same configuration to the framework builder:
+
+```rust filename="App configuration"
+use proa_framework_axum::FrameworkBuilder;
+
+let app = FrameworkBuilder::new(manifest)
+    .with_head(head)
+    .with_dynamic_routes(router)
+    .build();
+```
+
+Use `.without_head()` on a response that keeps a manual document. Components declaring `ROLE = LAYOUT` or `ROLE = PAGE` must render inside a managed document, even without a head hook. Layouts precede the selected Page and cannot render after sealing or inside Suspense/captures/fallbacks. Use the default `COMPONENT` role for body-only wrappers or manual rendering.
+
+### Place the head outlet
+
+Place `{cx.head()}` where the generated tags belong in your layout's document template:
+
+```rust filename="Document layout"
+html! {
+    <!DOCTYPE html>
+    <html lang="en">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            {cx.head()}
+        </head>
+        <body>{self.page}</body>
+    </html>
+}
+.render(cx)
+```
+
+With the Page above, the head contains:
+
+```html filename="Document head"
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Trail Jacket</title>
+    <meta name="description" content="Built for the outdoors.">
+</head>
+```
+
+Charset and viewport come from the template. Proa adds the managed metadata at the outlet; it does not add these manual tags for you. Keep fonts, `<html>` classes, and any other manual tags in the document too. For managed favicons, use [`cx.head_mut().icons(...)`](/docs/framework/metadata-reference#icons).
+
+Each managed document needs exactly one selected Page and one head outlet. Compose the Page through `html!`, `html_sync!`, or framework render helpers. Calling `child.render(cx)` directly calls only its body and skips its hook.
+
+## Load metadata from data
+
+The hook can await the same loader used by the Page body. Here, `ProductPage` has an `id`, `product_key(id)` identifies a product, and the loaded `Product` contains `name` and `summary`.
+
+```rust filename="ProductPage::render_head"
+async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+    let product = cx.load_typed::<Product>(product_key(self.id)).await?;
+
+    cx.head_mut().title(product.name.clone())?;
+    cx.head_mut().description(product.summary.clone())?;
+    cx.head_mut().canonical(&format!("/products/{}", self.id))?;
+    Ok(())
 }
 ```
 
-`render_metadata_head` reads the resolved metadata for the current route. `render_css_link` reads the CSS asset path from the current `IslandManifest`.
+For product `42`, named “Trail Jacket” with summary “Built for the outdoors.”:
 
-## Clearing Inherited Values
+```html filename="Generated HTML"
+<title>Trail Jacket</title>
+<meta name="description" content="Built for the outdoors.">
+<link rel="canonical" href="https://shop.example/products/42">
+```
 
-Use `CascadeValue::Tombstone` to explicitly clear an inherited field. This is useful for pages that should not inherit layout-level Open Graph images.
+Head and body share the request, headers, route parameters, and loader. When both need the same value, use a request-scoped `DataResolver` and the same key to reuse one underlying lookup. Request scoping dedupes reads within one request; cache policy beyond that stays with the `DataLoader`. See [Data loading](/docs/framework/data-loading).
 
-```rust
-CascadeOpenGraph {
-    images: CascadeValue::Tombstone,
-    ..Default::default()
+## Inherit layout defaults
+
+A layout can supply defaults and a title template. Declare its role as `LAYOUT`:
+
+```rust filename="ShopLayout::render_head"
+const ROLE: ComponentRole = ComponentRole::LAYOUT;
+
+async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+    cx.head_mut().title("Shop")?;
+    cx.head_mut().description("Browse our products.")?;
+    cx.head_mut().title_template("%s | Acme")?;
+    Ok(())
 }
 ```
 
-Use tombstones deliberately. Most routes should inherit sensible layout defaults.
+The selected Page overrides only the fields it writes:
+
+```rust filename="ProductPage::render_head"
+const ROLE: ComponentRole = ComponentRole::PAGE;
+
+async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+    cx.head_mut().title("Trail Jacket")?;
+    Ok(())
+}
+```
+
+```html filename="Generated HTML"
+<title>Trail Jacket | Acme</title>
+<meta name="description" content="Browse our products.">
+```
+
+The layout description survives. The Page title replaces the layout title and uses the ancestor's template. Use `absolute_title("Checkout")` to bypass a template, or the [clear methods](/docs/framework/metadata-reference#clear-inherited-metadata) to remove inherited fields.
+
+| Role | Head behavior |
+| --- | --- |
+| `COMPONENT` (default) | Skips the head method entirely. |
+| `LAYOUT` | Runs its hook, then its body; leaves metadata open for the Page. |
+| `PAGE` | Runs its hook, seals metadata, then starts its body. |
+
+A Page that only inherits metadata can omit its hook, but it still declares `ROLE = PAGE`. Only the Page establishes the cutoff. Run `cargo proa lint <changed-paths> --deny warnings` to catch async hook overrides with a missing role or an explicit `COMPONENT` role.
+
+### Configure app-wide defaults
+
+Use `with_defaults` for values shared by your routes, then install the configuration using `with_head(...)` on [FrameworkBuilder](/docs/framework/configuration). Here, `manifest` and `routes` are your application's existing island manifest and Axum router:
+
+```rust filename="App configuration"
+use proa_core::{HeadConfig, HeadUrlPolicy};
+use proa_framework_axum::FrameworkBuilder;
+
+let head = HeadConfig::default()
+    .with_urls(HeadUrlPolicy::new("https://shop.example", "/")?)
+    .with_defaults(|head| {
+        head.title_template("%s | Acme")?;
+        head.description("Explore the Acme shop.")?;
+        Ok(())
+    })?;
+
+let app = FrameworkBuilder::new(manifest)
+    .with_head(head)
+    .with_dynamic_routes(routes)
+    .build();
+```
+
+Page and layout hooks can override these defaults. Call `with_urls` before `with_defaults`: default URLs are resolved when they are configured.
+
+## Add an Open Graph image
+
+Point to an existing image and describe it with `HeadMedia`:
+
+```rust filename="render_head"
+use proa_core::{HeadMedia, OpenGraph};
+
+cx.head_mut().open_graph(
+    OpenGraph::new().images([
+        HeadMedia::new("/og/trail-jacket.png")
+            .mime_type("image/png")
+            .alt("Trail Jacket in forest green")
+            .dimensions(1200, 630),
+    ]),
+)?;
+```
+
+```html filename="Image tags"
+<meta property="og:image" content="https://shop.example/og/trail-jacket.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="Trail Jacket in forest green">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+```
+
+`OpenGraph::new()` enables social metadata. If the document already has a title, description, or canonical URL, Open Graph also emits `og:title`, `og:description`, and `og:url` from those final values. Explicit social values override those fallbacks.
+
+Serve the image through your [static assets](/docs/framework/static-assets) or from any absolute `https` URL. Images do not need `allow_resource_origin`; that allowlist applies to stylesheets and modules. Proa emits the image metadata; it does not generate, resize, or fetch the image. See the reference for [social overrides](/docs/framework/metadata-reference#a-different-social-title), [image replacement](/docs/framework/metadata-reference#replace-inherited-images), and [Twitter cards](/docs/framework/metadata-reference#twitter-cards).
+
+## Metadata and streaming
+
+Proa prepares metadata before starting the selected Page body. It publishes the head when both the Page's sealed metadata and the outlet are available. The outlet records an insertion position; it does not wait for the Page or stop layout rendering.
+
+```text
+Layout head → Layout body → Page head → Seal metadata → Page body
+```
+
+Do status, redirect, authorization, cookie, and cache decisions before publication. Slow secondary content can stream afterward. A wholly synchronous render cannot yield at publication; expensive body work that needs early delivery belongs in an async component after the outlet.
+
+Page bodies, Suspense children, captures, and loading/error fallbacks cannot add metadata. Late mutations invalidate the managed document even if their `Result` is ignored. An ErrorBoundary can recover within a Page body, but it cannot rewind across head preparation, Page selection, or publication. Cancelled preparation is discarded.
+
+Preparation has a sampled 1 MiB budget and a 30-second streaming deadline. `HeadConfig::with_preparation_limit` adjusts the budget; `ManagedPreparationTimeout` can override the Axum deadline. Serialized head output is limited to 64 KiB. These are cooperative limits, not hard peak-memory guarantees.
+
+## Existing metadata code
+
+`Metadata`, `CascadeValue`, route-spec layouts, and `render_metadata_head` remain available for manual documents. They do not automatically feed the managed head. Move their values into defaults or hooks and replace their emitter with `{cx.head()}`.
+
+The previous `cx.head()` inspection getter is `cx.head_state()`. Managed documents use the checked setters on `cx.head_mut()`; legacy void setters are for manual mode. Existing client-navigation payloads keep their JSON format and resolved title; this API does not add client-side head reconciliation.
+
+## Next steps
+
+- [Layouts and Pages](/docs/framework/layouts-and-pages): role-marked document and page components.
+- [Metadata reference](/docs/framework/metadata-reference): mutations with their generated HTML.
+- [Data loading](/docs/framework/data-loading): request-scoped loading and reuse.
+- [Static assets](/docs/framework/static-assets): serve images, icons, and other files.
+- [Headers and CSP](/docs/framework/security-headers): response security policy and nonces.

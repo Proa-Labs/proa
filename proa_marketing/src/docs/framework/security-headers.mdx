@@ -26,7 +26,7 @@ let app = FrameworkBuilder::new(manifest)
 
 ## Use a nonce, not a static policy
 
-A static `Content-Security-Policy` string works only when the response has no inline scripts. RSJS islands, React islands, and out-of-order streaming each need a fresh nonce per response, so reach for the strict policy instead:
+A static policy can authorize fixed inline scripts with hashes. Framework-generated scripts can contain response-specific state, so a fresh nonce per response is the convenient policy for RSJS islands, React islands, and out-of-order streaming:
 
 ```rust filename="src/main.rs"
 let app = FrameworkBuilder::new(manifest)
@@ -48,7 +48,9 @@ Proa applies the same nonce to framework-emitted state, import-map, bootstrap, c
 
 Pairing the nonce with `'strict-dynamic'` means a script loaded by an already-trusted script inherits trust. That is what makes bundler-emitted chunks work without enumerating CDN hosts.
 
-**Two things the layer cannot do for you.** A raw `<script>` tag you write by hand needs an explicit `nonce` attribute, read from `cx.csp_nonce()` in a component or extracted with `Extension<CspNonce>` in a route handler (the layer stores the nonce in the request extensions). And inline event-handler attributes (`onclick="…"`) never execute under any nonce policy, move them to an RSJS island or an `addEventListener` call inside a nonced script.
+Managed module tags registered with `cx.head_mut().module(...)` also receive the installed nonce automatically. Handwritten template tags need the explicit nonce described below.
+
+**Two things the layer cannot do for you.** A raw `<script>` tag you write by hand needs an explicit `nonce` attribute, read from `cx.csp_nonce()` in a component or extracted with `Extension<CspNonce>` in a route handler (the layer stores the nonce in the request extensions). A nonce on a `<script>` does not authorize inline event-handler attributes (`onclick="…"`); use typed RSJS handlers for application behavior.
 
 ## Tuning directives
 

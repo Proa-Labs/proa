@@ -13,18 +13,31 @@ contract, see [Why components write directly to the output buffer](direct-buffer
 ```rust
 // Sync. The fast path. Use this by default.
 pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
+    // Managed-head role: COMPONENT (default), LAYOUT, or PAGE.
+    const ROLE: ComponentRole = ComponentRole::COMPONENT;
+    // Optional metadata hook; the default `NoHead` is never invoked.
+    fn render_head(&self, _cx: &mut WebContext<L, B>) -> impl SyncHeadOperation {
+        NoHead
+    }
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError>;
 }
 
 // Async-capable. The render method returns a `RenderOutcome` that may resolve
 // either synchronously (`Done(r)`) or via a future (`Pending(fut)`).
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
+    const ROLE: ComponentRole = ComponentRole::COMPONENT;
+    async fn render_head(&self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        Ok(())
+    }
     fn render(
         self,
         cx: &mut WebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>>;
 }
 ```
+
+Ordinary components leave `ROLE` and `render_head` at their defaults; see
+[Managed document head](#managed-document-head) for the Page and layout roles.
 
 `B` is the advanced custom-writer parameter. Because it defaults to the owned
 `RenderBuffer`, ordinary application components customize only `L` and use
@@ -46,6 +59,13 @@ pub trait WebRenderSendSync<
     L: DataLoader = NoLoader,
     B: WriteBuf + Send = RenderBuffer,
 >: Send {
+    const ROLE: ComponentRole = ComponentRole::COMPONENT;
+    fn render_head_send_sync(
+        &self,
+        _cx: &mut SendWebContext<L, B>,
+    ) -> impl SyncHeadOperation {
+        NoHead
+    }
     fn render_send_sync(
         self,
         cx: &mut SendWebContext<L, B>,
@@ -56,6 +76,13 @@ pub trait WebRenderSend<
     L: DataLoader = NoLoader,
     B: WriteBuf + Send = RenderBuffer,
 >: Send {
+    const ROLE: ComponentRole = ComponentRole::COMPONENT;
+    fn render_head_send(
+        &self,
+        _cx: &mut SendWebContext<L, B>,
+    ) -> impl Future<Output = Result<(), WriteError>> + Send {
+        std::future::ready(Ok(()))
+    }
     fn render_send(
         self,
         cx: &mut SendWebContext<L, B>,
@@ -74,7 +101,7 @@ execution by itself.
 | Your component | Pick |
 |---|---|
 | Pure markup, no I/O, no `.await` | `WebRenderSync` |
-| Reads `cx.load::<T>(id).await` (dataloader) | `WebRender` |
+| Reads `cx.load_typed::<T>(key).await` (dataloader) | `WebRender` |
 | Calls `query_with_initial(...)` with an already-available initial value | `WebRenderSync` |
 | Must `.await` to produce a query's initial value | `WebRender` |
 | Calls `mutation(...)` inside an analyzed component | `WebRender` (mutation declarations remain on the async surface) |
@@ -119,9 +146,9 @@ impl<L: DataLoader> WebRender<L> for UserCard {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let user = cx
-                .load::<User>(LoadKey::typed("user", self.user_id))
+                .load_typed::<User>(LoadKey::typed("user", self.user_id))
                 .await?;
-            html! { <div>{user.name}</div> }.render(cx).resolve().await
+            html! { <div>{user.name.as_str()}</div> }.render(cx).resolve().await
         })
     }
 }
@@ -415,13 +442,13 @@ The `#[rsjs(component)]` macro respects whichever trait you wrote. Add
 `client` when the component originates browser behavior. A
 `query_with_initial(...)` declaration is valid in `WebRenderSync` when its
 initial value is already available. If producing that value needs
-`cx.load(...).await`, choose `WebRender` and `html!`; the macro never silently
+`cx.load_typed(...).await`, choose `WebRender` and `html!`; the macro never silently
 switches traits.
 
 ## Performance notes
 
 - `WebRenderSync` is **the** fast path: no future allocation, no `RenderOutcome` wrapper, no async dispatch overhead. Stick with it whenever possible.
-- An impl that returns `RenderOutcome::Done` costs nothing beyond the match arm. `to_async(sync_child)` is exactly that shape.
+- An ordinary component that returns `RenderOutcome::Done` stays on the immediate body path. `to_async(sync_child)` is exactly that shape.
 - **The macro, not the trait, is what allocates.** An `html!` (or `md!`) block with any dynamic content emits `async_html_from_fn(Box::new(|cx| Box::pin(async move { .. })))`: one heap allocation for the erased closure, one for the future, and dynamically dispatched polls, whether or not the body ever awaits. `html_sync!` emits a monomorphized `OptimizedHtml<B, L, F>` with an `#[inline(always)]` render and no allocation. So an async component whose template happens to be static still pays twice per node.
 - Prefer `html_sync!` for every subtree that has no async child, even inside a `WebRender` impl that awaits elsewhere. Wrap the result in `to_async(..)` at the seam if it composes into an async tree.
 
@@ -431,7 +458,7 @@ switches traits.
 
 | Code | Fires on |
 |---|---|
-| `render/async-unneeded` | a `WebRender` impl whose body never awaits |
+| `render/async-unneeded` | a `WebRender` impl whose body and head hook never await |
 | `render/md-async-unneeded` | the `MdRender` equivalent |
 | `perf/async-html-static-subtree` | an `html!` whose whole subtree is synchronous |
 | `perf/async-md-static-subtree` | an `md!` with no async interpolation |
@@ -443,3 +470,62 @@ The impl-level rules stay quiet when the answer is not knowable from the source:
 - [`proa_core/src/render/web_render.rs`](../../../proa_core/src/render/web_render.rs) — actual trait definitions.
 - [`proa_core/src/render/outcome.rs`](../../../proa_core/src/render/outcome.rs) — `RenderOutcome` and `.resolve()`.
 - [`rsjs_macros/src/parse.rs`](../../../rsjs_macros/src/parse.rs) — accepted analyzed-component signatures.
+
+## Managed document head
+
+HTML components may provide an optional native async hook on `WebRender`:
+
+```rust
+async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+    let product = cx.load_typed::<Product>(product_key(self.id)).await?;
+    cx.head_mut().title(product.name.clone())?;
+    Ok(())
+}
+```
+
+Keep `render(self, cx)` for the body. No attribute, separate head trait, or
+handwritten async block is needed. Ordinary components inherit `ROLE = COMPONENT`
+and skip head invocation entirely. Ancestor layouts declare `LAYOUT`; the selected
+Page declares `PAGE`. Layouts and Pages invoke the hook, including the no-op default
+when omitted. Only the Page seals metadata before its body.
+
+Run `cargo proa lint <paths> --deny warnings`: `render/head-role-required` rejects
+an overridden hook with a missing role declaration or an explicit `COMPONENT`.
+Native futures do not expose override presence, so this is a source check rather
+than an async-trait compiler assertion. Forwarded/application role constants are
+accepted without evaluation; ensure they resolve to `LAYOUT` or `PAGE`.
+A Page using only inherited metadata still needs its role and a managed route test.
+A component declaring `LAYOUT` or `PAGE` renders only in a managed document,
+including when it inherits the default hook. Layouts belong above the selected
+Page; dispatch rejects them after sealing or inside Suspense/captures/fallbacks.
+Sync, async, Send, `to_async` and `to_send` obey the same role contract. Plain
+`WebContext::new()`, `render_to_string`, or `.without_head()` fails with
+`HeadError::ManualMode`. Ordinary visual wrappers keep `COMPONENT` for manual
+rendering or use inside a Page. `to_send_static` rejects both metadata roles.
+
+Sync hooks return `impl SyncHeadOperation`, retain their `NoHead` absence marker,
+and keep a code-generation role assertion (run `cargo build` too). Send hooks use
+`render_head_send`; their trait exposes `impl Future<Output = Result<(), WriteError>>
++ Send`, and implementations may use `async fn` returning `Result`.
+
+Use `cx.head_mut().title(value)?` and related checked setters inside the hook.
+For several fields, pass `proa_core::HeadMetadata { title: value.into(),
+description: summary.into(), ..Default::default() }` to
+`cx.head_mut().metadata(...)`. This is an atomic patch: omitted fields inherit,
+and invalid fields leave the whole patch unapplied. `title_template`,
+`canonical`, and `open_graph` are also supported, alongside typed Twitter cards,
+page-level robots directives, icons, alternates, manifests, authors, and
+verification tokens. Each field defaults to `HeadValue::Inherit`; use
+`HeadValue::Clear` for explicit removal and `HeadTitle::absolute(value).into()`
+for an absolute title. Lists replace entire inherited lists; Open Graph and
+Twitter patch individual properties. `FrameworkBuilder::with_robots(RobotsTxt)`
+continues to configure the separate `/robots.txt` file.
+
+Place the owned `{cx.head()}` outlet inside the document's `<head>`. Select managed
+mode before rendering with `RouteResponse::with_head(HeadConfig)` or app-wide
+`FrameworkBuilder::with_head`. Head preparation ends before the Page body.
+Suspense, captures and fallbacks are body-only. Raw `.render(cx)` calls skip hooks;
+macro composition and framework helpers dispatch them.
+
+See [the implementation contract](../../design/metadata-api-proposal.md) and
+[the code-first metadata guide](../../../proa_marketing/src/docs/framework/metadata.mdx).

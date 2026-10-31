@@ -51,7 +51,6 @@ will add files beside them and register new routes between the
       <File name="products.rs" />
       <File name="product.rs" />
     </Folder>
-    <File name="rsjs_assets.rs" />
     <File name="routes.rs" />
     <File name="main.rs" />
   </Folder>
@@ -132,6 +131,10 @@ mod data;
 
 ## Product Card
 
+The generated starter uses a manual document head. This tutorial keeps that
+mode; to adopt managed metadata, migrate the document outlet and page/layout
+roles together as shown in [Layouts and Pages](/docs/framework/layouts-and-pages).
+
 The whole card is the link, and the image slot is a placeholder box until you
 have real photography.
 
@@ -153,7 +156,7 @@ impl<L: DataLoader> WebRenderSync<L> for ProductCard {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let product = self.product;
         html_sync! {
-            <a class="grid gap-3" href={product.path}>
+            <a class="grid gap-3" href={cx.url(product.path)}>
                 <div class="flex aspect-square w-full items-center justify-center rounded-lg bg-zinc-100">
                     <span class="text-xs uppercase tracking-[0.25em] text-zinc-400">
                         {product.name}
@@ -276,11 +279,10 @@ impl<L: DataLoader> WebRenderSync<L> for ProductPage {
         html_sync! {
             <main class="mx-auto max-w-6xl px-6 py-10">
                 <nav class="flex items-center gap-2 text-xs text-zinc-500">
-                    <a href="/products">"Products"</a>
+                    <a href={cx.url("/products")}>"Products"</a>
                     <span>"/"</span>
                     <span class="text-zinc-900">{product.name}</span>
                 </nav>
-
                 <div class="mt-6 flex flex-col gap-10 lg:flex-row">
                     <div class="lg:w-[55%]">
                         <div class="flex aspect-square w-full items-center justify-center rounded-lg bg-zinc-100">
@@ -289,18 +291,14 @@ impl<L: DataLoader> WebRenderSync<L> for ProductPage {
                             </span>
                         </div>
                     </div>
-
                     <div class="lg:w-[45%]">
                         <h1 class="text-[28px] font-medium leading-tight text-zinc-950">
                             {product.name}
                         </h1>
                         <p class="mt-1 text-base text-zinc-500">{product.category}</p>
-                        <p class="mt-4 text-xl font-medium text-zinc-950">
-                            "$"{product.price_usd}
-                        </p>
+                        <p class="mt-4 text-xl font-medium text-zinc-950">"$"{product.price_usd}</p>
                         <p class="mt-6 text-base leading-7 text-zinc-600">{product.summary}</p>
-
-                        <form method="post" action="/cart" class="mt-8">
+                        <form method="post" action={cx.url("/cart")} class="mt-8">
                             <input type="hidden" name="sku" value={product.slug} />
                             <input type="hidden" name="qty" value="1" />
                             <button
@@ -310,7 +308,6 @@ impl<L: DataLoader> WebRenderSync<L> for ProductPage {
                                 "Add to Bag"
                             </button>
                         </form>
-
                         <div class="mt-8 border-t border-zinc-200 pt-2 text-sm text-zinc-600">
                             <p class="py-2">"Free standard shipping on orders over $150."</p>
                             <p class="py-2">"Free 60-day returns."</p>
@@ -348,7 +345,8 @@ three routes in `src/routes.rs`.
 <CodeFile name="src/endpoints/cart.rs">
 
 ```rust
-use axum::{extract::Form, response::Redirect};
+use axum::{extract::Form, http::StatusCode, response::Redirect};
+use proa_framework_axum::app_url;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -357,9 +355,15 @@ pub struct AddToCart {
     qty: u32,
 }
 
-pub async fn add_to_cart(Form(form): Form<AddToCart>) -> Redirect {
+pub async fn add_to_cart(Form(form): Form<AddToCart>) -> Result<Redirect, StatusCode> {
+    if crate::data::products::find_product(&form.sku).is_none()
+        || !(1..=99).contains(&form.qty)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // Persist the validated cart change in your application's session/store.
     tracing::info!(sku = %form.sku, qty = form.qty, "add to cart");
-    Redirect::to("/products")
+    Ok(Redirect::to(&app_url("/products").to_string()))
 }
 ```
 
@@ -436,7 +440,7 @@ needed, and the scaffold already depends on `serde`.
 
 ```rust
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa_macros::{html_sync, text};
 use rsjs::{rsjs, signal};
 
 pub struct QuantityStepper {
@@ -464,7 +468,7 @@ impl<L: DataLoader> WebRenderSync<L> for QuantityStepper {
                         class="h-12 w-12 rounded-lg border border-zinc-300 text-lg transition hover:border-zinc-950 disabled:border-zinc-100 disabled:bg-zinc-100 disabled:text-zinc-400"
                         aria-label="Decrease quantity"
                         disabled={qty.get() == 1}
-                        on_click={|_| qty.update(|q| q - 1)}
+                        on_click={|_| qty.update(|q| if q > 1 { q - 1 } else { q })}
                     >
                         "-"
                     </button>
@@ -475,7 +479,8 @@ impl<L: DataLoader> WebRenderSync<L> for QuantityStepper {
                         type="button"
                         class="h-12 w-12 rounded-lg border border-zinc-300 text-lg transition hover:border-zinc-950"
                         aria-label="Increase quantity"
-                        on_click={|_| qty.update(|q| q + 1)}
+                        disabled={qty.get() == 99}
+                        on_click={|_| qty.update(|q| if q < 99 { q + 1 } else { q })}
                     >
                         "+"
                     </button>
@@ -513,7 +518,7 @@ use crate::components::quantity_stepper::QuantityStepper;
 
 // ...
 
-<form method="post" action="/cart" class="mt-8">
+<form method="post" action={cx.url("/cart")} class="mt-8">
     <input type="hidden" name="sku" value={product.slug} />
     {QuantityStepper { unit_price: product.price_usd }}
     <button
@@ -552,133 +557,19 @@ the component running in the demo at the top of this page.
 
 ## Serving the Island
 
-The compiler emits a JavaScript module per island and a shared runtime. A
-hand-written Axum app has to do two things with them: announce the ones a
-response actually used, and serve them.
+The generated site's router already merges
+`proa_framework_axum::rsjs_assets_router(&base_path)` after `.with_state(state)`.
+Keep that shared asset router: it serves the linked core runtime, query runtime,
+island modules, and component fragments with the configured URL prefix.
 
-`RsjsRuntimeTags` must render as the last thing in `<body>`. The snapshot only
-sees islands rendered so far, so these tags have to come after the page content.
-A page with no islands plans nothing and emits no tags.
+`RouteResponse` records the rendered owners and emits the required runtime tags
+automatically, including owners arriving in streamed boundaries. Do not append
+runtime tags in `RootDocument` or add a separate `rsjs_assets.rs` implementation.
+A response without hydrated owners emits no RSJS runtime tags.
 
-The `component_` fallback in `rsjs_assets.rs` matters: a component fragment is
-compiled separately from the island that mounts it, and the page preloads both.
-
-<CodeExplorer>
-
-<CodeFile name="src/layouts/root.rs">
-
-```rust
-use proa_core::{to_async, WebRenderSync};
-
-pub struct RsjsRuntimeTags;
-
-impl<L: DataLoader> WebRenderSync<L> for RsjsRuntimeTags {
-    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        let artifacts = cx.rsjs_artifacts_snapshot();
-        let plan = rsjs::manifest()
-            .page_runtime_plan(artifacts.rendered_islands())
-            .expect("every rendered island resolves in the linked manifest");
-        plan.write_html(&mut cx.out, None)
-    }
-}
-
-// ... and in the generated document body, which is an async `html!` template:
-
-<body>
-    {content}
-    {to_async(RsjsRuntimeTags)}
-</body>
-```
-
-</CodeFile>
-
-<CodeFile name="src/rsjs_assets.rs">
-
-```rust
-use axum::{
-    extract::Path,
-    http::{header, StatusCode},
-    response::{IntoResponse, Response},
-    routing::get,
-    Router,
-};
-
-/// Generic over the app state so it merges into the generated `Router<AppState>`.
-pub fn router<S>() -> Router<S>
-where
-    S: Clone + Send + Sync + 'static,
-{
-    Router::new()
-        .route("/rsjs-runtime.js", get(runtime))
-        .route("/rsjs/island/:file", get(island))
-}
-
-async fn runtime() -> impl IntoResponse {
-    (js_headers(), rsjs::runtime_assets::CORE_JS)
-}
-
-async fn island(Path(file): Path<String>) -> Response {
-    let asset_id = file.strip_suffix(".js").unwrap_or(file.as_str());
-    let fragment_id = asset_id.strip_prefix("component_").unwrap_or(asset_id);
-    let manifest = rsjs::manifest();
-    let source = manifest
-        .islands
-        .iter()
-        .find(|entry| entry.asset_id == asset_id)
-        .map(|entry| entry.js_source)
-        .or_else(|| {
-            manifest
-                .component_fragments
-                .iter()
-                .find(|entry| entry.asset_id == asset_id || entry.asset_id == fragment_id)
-                .map(|entry| entry.js_source)
-        });
-
-    match source {
-        Some(source) => (js_headers(), source).into_response(),
-        None => (StatusCode::NOT_FOUND, "unknown rsjs asset").into_response(),
-    }
-}
-
-fn js_headers() -> [(header::HeaderName, &'static str); 2] {
-    [
-        (header::CONTENT_TYPE, "application/javascript; charset=utf-8"),
-        (header::CACHE_CONTROL, "no-store"),
-    ]
-}
-```
-
-</CodeFile>
-
-<CodeFile name="src/main.rs">
-
-```rust
-mod rsjs_assets;
-```
-
-</CodeFile>
-
-<CodeFile name="src/routes.rs">
-
-```rust
-use crate::rsjs_assets;
-
-// ... in the chain after router_from_spec, before .with_state(state):
-
-router
-    .route("/healthz", get(endpoints::health::live))
-    .route("/readyz", get(endpoints::health::ready))
-    .merge(rsjs_assets::router())
-    // proa:explicit-routes:start
-    .route("/index.md", get(pages::home::markdown))
-    // proa:explicit-routes:end
-    .nest_service("/static", static_assets::service())
-    .with_state(state)
-```
-
-</CodeFile>
-
-</CodeExplorer>
+For an existing hand-written server, follow [Runtime wiring](/docs/rsjs/runtime)
+and install `FrameworkBuilder::with_rsjs_assets()` or merge the shared asset
+router explicitly.
 
 ## Verify
 

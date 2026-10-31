@@ -1479,8 +1479,8 @@ where
     C: WebRenderSync<L>,
 {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        let favicon = cx.request().url("/static/favicon.svg");
-        let stylesheet = cx.request().url("/static/styles.css");
+        let favicon = cx.url("/static/favicon.svg");
+        let stylesheet = cx.url("/static/styles.css");
         html_sync! {
             <!DOCTYPE html>
             <html lang="en">

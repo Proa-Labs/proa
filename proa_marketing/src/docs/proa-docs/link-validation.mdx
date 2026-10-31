@@ -1,6 +1,6 @@
 ---
 title: Link validation
-description: Validate internal links, heading hashes, relative paths, and app-specific link attributes at build time.
+description: Validate compiled docs routes, heading hashes, and URL-relative links at build time.
 ---
 
 `proa_docs_build` records links while it compiles Markdown. The validator checks those links against the compiled page graph, so broken docs links can fail CI before the site ships.
@@ -71,7 +71,7 @@ let validation = LinkValidation::strict()
     .check_relative_paths(RelativePathMode::AsUrl);
 ```
 
-`RelativePathMode::AsUrl` resolves `./quickstart` from `/docs/guides/install` to `/docs/guides/quickstart`. `RelativePathMode::Ignore` skips relative links. `RelativePathMode::AsFile` exists in the enum, but the current validator only performs URL-style relative resolution.
+`RelativePathMode::AsUrl` resolves `./quickstart` from `/docs/guides/install` to `/docs/guides/quickstart`. `RelativePathMode::Ignore` skips relative links. `RelativePathMode::AsFile` exists in the enum, but currently skips relative links; it does not resolve source-file paths.
 
 ## What Gets Checked
 
@@ -91,7 +91,7 @@ Heading ids come from Markdown headings after slug generation:
 ```markdown
 ## Render Traits
 
-[Jump to render traits](/docs/core/html-rendering)
+[Jump to render traits](#render-traits)
 ```
 
 If the heading changes to `## Rendering Traits`, the link now points at a missing hash and strict validation fails.

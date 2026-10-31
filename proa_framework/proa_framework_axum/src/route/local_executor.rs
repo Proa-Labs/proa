@@ -85,9 +85,18 @@ impl LocalStreamExecutor {
         Self { inner }
     }
 
+    #[cfg(test)]
     pub(super) async fn prepare(
         &self,
         make: FrameworkLocalStreamFactory,
+    ) -> Result<FrameworkSendStream, LocalStreamPrepareError> {
+        self.prepare_with_head(make, None).await
+    }
+
+    pub(super) async fn prepare_with_head(
+        &self,
+        make: FrameworkLocalStreamFactory,
+        head: Option<proa_framework_core::managed_response::PreparedHead>,
     ) -> Result<FrameworkSendStream, LocalStreamPrepareError> {
         let pool = self
             .inner
@@ -112,6 +121,7 @@ impl LocalStreamExecutor {
         let job = LocalJob {
             id: pool.next_job_id.fetch_add(1, Ordering::Relaxed),
             make,
+            head,
             first: first_tx,
             tail: tail_tx,
             byte_budget,
@@ -411,6 +421,7 @@ impl Drop for ActiveJobGuard {
 struct LocalJob {
     id: u64,
     make: FrameworkLocalStreamFactory,
+    head: Option<proa_framework_core::managed_response::PreparedHead>,
     first: oneshot::Sender<Result<Option<Bytes>, FrameworkError>>,
     tail: mpsc::Sender<Result<BufferedChunk, FrameworkError>>,
     byte_budget: ByteBudget,
@@ -427,12 +438,16 @@ async fn drive_job(mut job: LocalJob) {
     let first = tokio::select! {
         biased;
         () = job.first.closed() => return,
-        item = response.next() => item,
+        item = proa_framework_core::managed_response::first_or_ready(&mut response, job.head.as_ref()) => item,
     };
     match first {
         None => {
-            let _ = job.first.send(Ok(None));
-            return;
+            if job.first.send(Ok(None)).is_err() {
+                return;
+            }
+            if job.head.as_ref().is_none_or(|h| h.get().is_none()) {
+                return;
+            }
         }
         Some(Err(error)) => {
             let _ = job.first.send(Err(error));

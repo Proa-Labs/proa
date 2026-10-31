@@ -56,9 +56,7 @@ html_sync! {
             title={text!("{} block preview", block.name)}
             loading="lazy"
         ></iframe>
-        <p>
-            {text!("Explore the {} block.", block.name)}
-        </p>
+        <p>{text!("Explore the {} block.", block.name)}</p>
     </article>
 }
 ```
@@ -152,9 +150,7 @@ Static values are string literals; dynamic values go in braces and are escaped b
 
 ```rust filename="src/components/link.rs"
 html_sync! {
-    <a href={self.href} aria-label={self.label}>
-        {self.children}
-    </a>
+    <a href={self.href} aria-label={self.label}>{self.children}</a>
 }
 ```
 
@@ -217,7 +213,7 @@ html_sync! {
 | Markdown | `MdRenderSync` + `md_sync!` | `MdRender` + `md!` |
 
 Every component picks one of these two, and the choice is narrow: **use the
-synchronous trait unless the component itself has to `.await` while rendering.**
+synchronous trait unless its body or metadata hook has to `.await`.**
 Both render on the server; the difference is whether rendering can suspend.
 
 A synchronous component writes its bytes and returns. There is no future, no
@@ -225,7 +221,7 @@ driver, and no scheduling. An async-capable component returns a `RenderOutcome`
 instead, which a driver at the route or adapter boundary resolves. Most route
 bodies, layouts, and UI components stay synchronous.
 
-<Tabs items={['Synchronous', 'Async-capable']}>
+<Tabs data-items="Synchronous|Async-capable">
 
 <Tab value="Synchronous">
 
@@ -256,14 +252,16 @@ impl<L: DataLoader> WebRenderSync<L> for Price {
 
 `WebRender` with `html!`. The signature is heavier because the returned future
 borrows the context, so reach for it only when you need to `.await`.
+An async `render_head` is also a reason to implement `WebRender`, even when the
+body is synchronous. See [Metadata](/docs/framework/metadata).
 
 ```rust filename="src/components/async_price.rs"
 use std::future::Future;
 
 use proa_core::{
-    DataLoader, RenderOutcome, WebContext, WebRender, WriteError,
+    DataLoader, LoadKey, RenderOutcome, WebContext, WebRender, WriteError,
 };
-use proa_macros::html;
+use proa_macros::{html, text};
 
 pub struct AsyncPrice;
 
@@ -273,9 +271,9 @@ impl<L: DataLoader> WebRender<L> for AsyncPrice {
         cx: &mut WebContext<L>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            let amount = 42_u32;
+            let amount = cx.load_typed::<u32>(LoadKey::named("price", "featured")).await?;
             html! {
-                <span>"$"{amount}</span>
+                <span>{text!("${}", *amount)}</span>
             }
             .render(cx)
             .resolve()
@@ -288,6 +286,16 @@ impl<L: DataLoader> WebRender<L> for AsyncPrice {
 </Tab>
 
 </Tabs>
+
+This async example expects the route's loader to return
+`LoadValue::typed(42_u32)` for `price:featured`. Use a normal value and the
+synchronous implementation when there is no async work.
+
+For managed HTML documents, the selected Page declares `ROLE = PAGE`, ancestor
+layouts declare `LAYOUT`, and the document contains one head outlet. Ordinary
+components keep the default `COMPONENT` role. The low-level drivers below use
+manual rendering unless you configure a managed document explicitly. See
+[Layouts and Pages](/docs/framework/layouts-and-pages).
 
 
 Ordinary authored implementations are generic only over `L: DataLoader`.

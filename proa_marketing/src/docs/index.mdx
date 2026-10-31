@@ -27,7 +27,7 @@ continuing.
 
 ## 2. Create A Site
 
-<Tabs items={['Basic app', 'ORIGIN (kitchen sink)']}>
+<Tabs data-items="Basic app|ORIGIN (kitchen sink)">
 
 <Tab value="Basic app">
 
@@ -91,6 +91,8 @@ exist, and `proa dev --open` shows the atlas.
 </Tabs>
 
 You do not have to build the common UI yourself: [proa-ui](https://ui.proa.so) is a shadcn-style catalog of ready-made Proa components, and `proa ui add button` vendors the source into `src/components/` where you own and edit it like any other file. Worth knowing before you write your first card, dialog, or form by hand.
+
+The Basic app starter writes its document title directly in `RootDocument` and uses manual head rendering. Its pages keep the default component role. To adopt managed metadata, follow [Layouts and Pages](/docs/framework/layouts-and-pages) and add an explicit Page boundary and head outlet together. ORIGIN already uses that managed document pattern.
 
 The remaining steps use the **Basic app** named `hello-proa`. If you chose
 ORIGIN, follow its generated `README.md` and run commands inside `origin-atlas`.

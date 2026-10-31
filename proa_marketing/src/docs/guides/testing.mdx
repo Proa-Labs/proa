@@ -173,7 +173,7 @@ mod tests {
 }
 ```
 
-Run `cargo test`. On the first run, insta writes a `.snap` file into a `snapshots/` directory next to the test file. On later runs, it compares against that snapshot and fails when the output changes.
+Run `proa test` for application targets that link RSJS islands, or `cargo test --lib` for ordinary library unit tests. On the first run, insta writes a `.snap` file into a `snapshots/` directory next to the test file. On later runs, it compares against that snapshot and fails when the output changes.
 
 Review and update snapshots with:
 
@@ -184,7 +184,10 @@ cargo insta review   # interactive review of changed snapshots
 
 ### Full page snapshots
 
-Snapshot an entire page render to catch layout regressions:
+Snapshot a body component directly to catch layout regressions. For a managed
+document, render the complete document through a configured framework response
+and snapshot its body; calling `.render()` directly bypasses role and head-hook
+dispatch. The following example tests body markup only:
 
 ```rust filename="tests/pages.rs"
 #[test]
@@ -265,12 +268,29 @@ test("listing card matches screenshot", async ({ page }) => {
 ### Running the browser suite
 
 ```bash filename="Terminal"
-# Start Proa server through the linked pipeline
-proa run &
-
-# Run Playwright tests
 pnpm exec playwright test
 ```
+
+Let Playwright start the server and wait for readiness:
+
+```typescript filename="playwright.config.ts"
+import { defineConfig } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./playwright/tests",
+  use: { baseURL: "http://127.0.0.1:3000" },
+  webServer: {
+    command: "proa run",
+    env: { PORT: "3000", PROA_HOST: "127.0.0.1" },
+    url: "http://127.0.0.1:3000/healthz",
+    reuseExistingServer: !process.env.CI,
+    timeout: 300_000,
+  },
+});
+```
+
+Place the browser examples above in `playwright/tests/` and use relative URLs
+such as `page.goto("/")` so they share this `baseURL`.
 
 Correct output is one half of the contract. Render cost is the other half.
 
@@ -369,42 +389,23 @@ On a crate that contains RSJS islands, run integration-test targets through the 
 
 ### CI pipeline
 
-```yaml filename=".github/workflows/test.yml"
-# .github/workflows/test.yml
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+Use the pinned Rust and Proa CLI installation from [CI / GitHub Actions](/docs/guides/ci).
+For browser tests, also install the project's pinned Node and pnpm versions,
+then run:
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Enable pinned pnpm
-        run: corepack enable && corepack prepare pnpm@9.15.2 --activate
-
-      - name: Install locked browser test dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright browsers and system dependencies
-        run: pnpm exec playwright install --with-deps
-
-      - name: Tests
-        run: proa test
-
-      # proa test runs the application suite through the linked pipeline.
-      # Name one target in a multi-target workspace: proa test -p my_app --test pages
-
-      - name: Benchmarks (check for regressions)
-        run: cargo bench --no-run  # compile only in CI; run nightly
-
-      - name: Start server
-        run: proa run &
-
-      - name: Playwright a11y + visual
-        run: pnpm exec playwright test
+```bash filename="Terminal"
+pnpm install --frozen-lockfile
+pnpm exec playwright install --with-deps
+proa test
+pnpm exec playwright test
 ```
+
+Playwright's `webServer` configuration starts and stops the application and
+waits for its health endpoint. Keep benchmark execution in a separate job with
+stable hardware; compiling a benchmark alone does not detect regressions.
+RSJS benchmark executables also need the linked pipeline, so benchmark plain
+render-only fixtures with `cargo bench` or follow your application's linked
+benchmark setup.
 
 ## Next steps
 
@@ -413,6 +414,6 @@ jobs:
 - [Accessibility](/docs/guides/accessibility)
   - Fix the violations axe-core reports.
 - [Writing performant pages](/docs/guides/performance)
-  - Read the benchmark numbers and remove the allocations behind them.
+  - Measure render cost and avoid unnecessary allocations.
 - [HTML rendering](/docs/core/html-rendering)
   - Review the render traits these tests call.

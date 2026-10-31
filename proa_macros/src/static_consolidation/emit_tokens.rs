@@ -6,7 +6,7 @@
 //!
 //! Everything `quote!`-shaped lives here: byte-literal writes, `AttrValue`
 //! render calls, control-flow lowering of `{expr}` blocks into
-//! `WebRenderSync::render` / `render_child(..).await` calls, raw-text
+//! typed head/body dispatch and direct Done/Pending handling, raw-text
 //! content-mode guards, and the sync/async/XML closure wrappers around the
 //! statement sequence. The walk in [`super::walk`] never sees any of it.
 
@@ -214,7 +214,7 @@ fn generate_inline_text(
             let index = syn::Index::from(*index);
             match context {
                 InlineTextContext::Text => quote! {
-                    ::proa_core::WebRenderSync::render(#args_ident.#index, cx)?;
+                    ::proa_core::head_dispatch::sync(#args_ident.#index, cx)?;
                 },
                 InlineTextContext::Attr => quote! {
                     ::proa_core::shared::attr_value::AttrValue::render_attr_value(&#args_ident.#index, cx)?;
@@ -763,7 +763,7 @@ fn generate_block_expr(expr: &Expr, statements: &mut Vec<TokenStream>) {
         _ => {
             // Default: wrap the whole expression in WebRender::render
             statements.push(quote! {
-                ::proa_core::WebRenderSync::render(#expr, cx)?;
+                ::proa_core::head_dispatch::sync(#expr, cx)?;
             });
         }
     }
@@ -820,7 +820,7 @@ fn transform_block(block: &syn::Block) -> TokenStream {
         // by wrapping in WebRender::render.
         syn::Stmt::Macro(stmt_mac) if stmt_mac.semi_token.is_none() => {
             let mac = &stmt_mac.mac;
-            quote! { #(#init)* { let __r = #mac; ::proa_core::WebRenderSync::render(__r, cx)?; } }
+            quote! { #(#init)* { let __r = #mac; ::proa_core::head_dispatch::sync(__r, cx)?; } }
         }
         _ => {
             // Statement with semicolon or non-expression — emit all as-is
@@ -844,7 +844,7 @@ fn generate_expr_as_render(expr: &Expr) -> TokenStream {
             quote! {}
         }
         _ => {
-            quote! { ::proa_core::WebRenderSync::render(#expr, cx)?; }
+            quote! { ::proa_core::head_dispatch::sync(#expr, cx)?; }
         }
     }
 }
@@ -915,7 +915,10 @@ fn generate_block_expr_async(expr: &Expr, statements: &mut Vec<TokenStream>) {
         }
         _ => {
             statements.push(quote! {
-                ::proa_core::render_child(cx, #expr).await?;
+                match ::proa_core::head_dispatch::begin(#expr, cx) {
+                    ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
+                    ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
+                }
             });
         }
     }
@@ -965,7 +968,10 @@ fn transform_block_async(block: &syn::Block) -> TokenStream {
                 #(#init)*
                 {
                     let __r = #mac;
-                    ::proa_core::render_child(cx, __r).await?;
+                    match ::proa_core::head_dispatch::begin(__r, cx) {
+                    ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
+                    ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
+                }
                 }
             }
         }
@@ -987,7 +993,10 @@ fn generate_expr_as_render_async(expr: &Expr) -> TokenStream {
             quote! {}
         }
         _ => {
-            quote! { ::proa_core::render_child(cx, #expr).await?; }
+            quote! { match ::proa_core::head_dispatch::begin(#expr, cx) {
+                ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
+                ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
+            } }
         }
     }
 }
@@ -1057,7 +1066,10 @@ fn generate_block_expr_send_async(expr: &Expr, statements: &mut Vec<TokenStream>
         }
         _ => {
             statements.push(quote! {
-                ::proa_core::render_send_child(cx, #expr).await?;
+                match ::proa_core::head_dispatch::send_begin(#expr, cx) {
+                    ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
+                    ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
+                }
             });
         }
     }
@@ -1103,7 +1115,10 @@ fn transform_block_send_async(block: &syn::Block) -> TokenStream {
                 #(#init)*
                 {
                     let __r = #mac;
-                    ::proa_core::render_send_child(cx, __r).await?;
+                    match ::proa_core::head_dispatch::send_begin(__r, cx) {
+                    ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
+                    ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
+                }
                 }
             }
         }
@@ -1119,7 +1134,10 @@ fn generate_expr_as_render_send_async(expr: &Expr) -> TokenStream {
             quote! { #(#statements)* }
         }
         Expr::Path(path) if path.path.is_ident("None") => quote! {},
-        _ => quote! { ::proa_core::render_send_child(cx, #expr).await?; },
+        _ => quote! { match ::proa_core::head_dispatch::send_begin(#expr, cx) {
+            ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
+            ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
+        } },
     }
 }
 

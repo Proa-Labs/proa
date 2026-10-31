@@ -19,7 +19,9 @@ Render cost is $O(n)$ in the number of dynamic slots, not in template size.
 
 The generated markup renders natively in every modern browser. **No client JavaScript, no stylesheet, no font.**
 
-That is the difference between this and the usual approach. A docs site with KaTeX ships a renderer and a font file to every reader on every page; a Proa docs page with math ships bytes that were already going to be there. It is the same argument as build-time syntax highlighting, applied to equations.
+That is the difference between this and the usual approach. Proa compiles equations during the build and emits MathML. Browser fonts and
+MathML support determine their appearance; the page does not need a JavaScript
+math renderer.
 
 | Mode | Behaviour |
 |---|---|

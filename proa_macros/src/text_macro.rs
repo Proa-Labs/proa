@@ -232,7 +232,7 @@ fn render_text_segment(
         Segment::Bare { index } => {
             let field = &field_idents[*index];
             quote! {
-                ::proa_core::WebRenderSync::render(self.#field, cx)?;
+                ::proa_core::head_dispatch::sync(self.#field, cx)?;
             }
         }
         Segment::Formatted {

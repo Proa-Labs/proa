@@ -39,8 +39,9 @@ render targets. Each target defines its own rendering implementation; a target
 can be a document format or a different rendering backend. The built-in traits
 and macros described below cover HTML and Markdown.
 
-Proa compiles HTML and Markdown templates into byte sequences at compile time,
-so SSR is allocation-free on the hot path. Custom HTML components normally
+Proa consolidates static markup at compile time and writes dynamic values
+directly to the output buffer. Output storage, loaders, metadata, application
+code, and response handling can still allocate; measure the complete path. Custom HTML components normally
 implement `WebRenderSync<L>` and return
 `html_sync! { ... }.render(cx)`; components that genuinely await implement the
 real `WebRender<L>` signature. The default writer is the `RenderBuffer` owned by
@@ -81,7 +82,7 @@ Agents should treat these as the canonical reference shapes. Read before writing
 - Components add `data-component` to their root element and `data-variant={variant.as_str()}` if they have variants.
 - Hot-path styling uses static class strings and `ClassList<N>`
   (stack-allocated, no heap).
-- Use `WebRenderSync` by default; switch to `WebRender` only when rendering must
+- Use `WebRenderSync` by default; switch to `WebRender` only when its body or head hook must
   `.await` (for example, to load a query's initial value) or while mutation
   declarations remain on the async surface.
 - Use `md_sync!` inside `MdRenderSync`; use `md!` inside async-capable `MdRender`.

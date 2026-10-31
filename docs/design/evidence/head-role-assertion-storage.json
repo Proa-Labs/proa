@@ -1,0 +1,50 @@
+{
+  "compiler": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: aarch64-apple-darwin\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+  "sources": {
+    "async_boundary_storage.rs": "a615f1b578d0f27d19293b833e0619ee7b307d567899371421f4c672a5c23c6a",
+    "suspense_storage_body.rs": "2b75c517dbd1e493e509c971bc1b682acfe9e6e169b4b3e59dbeca52805beaa6",
+    "head_free_components.rs": "5863e80832c7b1ffcd5d825a465e5a925bed491d626fe936fa57361fb4e61e67",
+    "head_free_send.rs": "64cd6fb4aaa95de6b90819ea11f0818f7ce24289f82a44fa4010765ac726303b"
+  },
+  "baseline": {
+    "artifacts_sha256": {
+      "libproa_core.rlib": "12e7261eb0c1097f29bf21f165ebea656499126bd9ecb13e15b82b6b51ea32df",
+      "libproa_stream.rlib": "bab5a958f5bb3f96f473db5dafcbbd71209bee97165cccc3c448fe5145b2a000",
+      "libproa_macros.dylib": "e8c6dac1731a64c13e509d3551a57b890e42e0a3b6a111f29d07a9ec419d1091"
+    },
+    "dirty_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "revision": "ee29048e42d032d80f232444c06c2d592cb06e83",
+    "async_boundary_storage": "case=ready outcome_bytes=40 allocations=3 allocated_bytes=312 polls=1 output_bytes=5\ncase=pending outcome_bytes=40 allocations=3 allocated_bytes=312 polls=2 output_bytes=5\ncase=recovered outcome_bytes=40 allocations=3 allocated_bytes=312 polls=2 output_bytes=8\n",
+    "suspense_storage_body": "case=local_false_false outcome_bytes=40 allocations=1 allocated_bytes=144 polls=1\ncase=send_false_false outcome_bytes=256 allocations=0 allocated_bytes=0 polls=1\ncase=local_true_false outcome_bytes=40 allocations=2 allocated_bytes=312 polls=1\ncase=send_true_false outcome_bytes=256 allocations=0 allocated_bytes=0 polls=1\ncase=local_false_true outcome_bytes=40 allocations=1 allocated_bytes=144 polls=2\ncase=send_false_true outcome_bytes=256 allocations=0 allocated_bytes=0 polls=2\ncase=local_true_true outcome_bytes=40 allocations=2 allocated_bytes=312 polls=2\ncase=send_true_true outcome_bytes=256 allocations=0 allocated_bytes=0 polls=2\n",
+    "head_free_components": "sizes context=152 send_context=576 error=40\ncase=0 outcome_bytes=48 allocations=0 allocated_bytes=0 polls=1 output_bytes=15\ncase=1 outcome_bytes=40 allocations=2 allocated_bytes=200 polls=1 output_bytes=26\ncase=2 outcome_bytes=40 allocations=2 allocated_bytes=584 polls=2 output_bytes=26\ncase=3 outcome_bytes=136 allocations=2 allocated_bytes=216 polls=1 output_bytes=493\n",
+    "head_free_send": "sizes context=576 send_context=576 error=40\ncase=0 outcome_bytes=48 allocations=1 allocated_bytes=16 polls=1 output_bytes=15\ncase=1 outcome_bytes=40 allocations=3 allocated_bytes=216 polls=1 output_bytes=26\ncase=2 outcome_bytes=40 allocations=3 allocated_bytes=600 polls=2 output_bytes=26\ncase=3 outcome_bytes=136 allocations=34 allocated_bytes=728 polls=1 output_bytes=493\n"
+  },
+  "candidate": {
+    "artifacts_sha256": {
+      "libproa_core.rlib": "f89693cdf1b9dc8624f5216c0e2af059ac8226422d5703afe604c9a0f42fb905",
+      "libproa_stream.rlib": "a4f7a0cb74c628aafcc1ed94be2ae36f00065ab960a36103cd21bd0cb256d125",
+      "libproa_macros.dylib": "0862f2122f63cf160d8f81384e9ba731aced2b13b6924c9ec5954e7a8662bbf4"
+    },
+    "dirty_diff_sha256": "b3e1fe7a9ed935d35c6e8e02f49f98e75fbbbc692d4cf5485b45b15b5c1c5807",
+    "revision": "f5d354fbd170a09cf98e0cb70b0bacea5df7e17a",
+    "async_boundary_storage": "case=ready outcome_bytes=40 allocations=3 allocated_bytes=320 polls=1 output_bytes=5\ncase=pending outcome_bytes=40 allocations=3 allocated_bytes=320 polls=2 output_bytes=5\ncase=recovered outcome_bytes=40 allocations=3 allocated_bytes=320 polls=2 output_bytes=8\n",
+    "suspense_storage_body": "case=local_false_false outcome_bytes=40 allocations=1 allocated_bytes=144 polls=1\ncase=send_false_false outcome_bytes=256 allocations=0 allocated_bytes=0 polls=1\ncase=local_true_false outcome_bytes=40 allocations=2 allocated_bytes=320 polls=1\ncase=send_true_false outcome_bytes=256 allocations=0 allocated_bytes=0 polls=1\ncase=local_false_true outcome_bytes=40 allocations=1 allocated_bytes=144 polls=2\ncase=send_false_true outcome_bytes=256 allocations=0 allocated_bytes=0 polls=2\ncase=local_true_true outcome_bytes=40 allocations=2 allocated_bytes=320 polls=2\ncase=send_true_true outcome_bytes=256 allocations=0 allocated_bytes=0 polls=2\n",
+    "head_free_components": "sizes context=152 send_context=576 error=40\ncase=0 outcome_bytes=48 allocations=0 allocated_bytes=0 polls=1 output_bytes=15\ncase=1 outcome_bytes=40 allocations=2 allocated_bytes=120 polls=1 output_bytes=26\ncase=2 outcome_bytes=40 allocations=2 allocated_bytes=384 polls=2 output_bytes=26\ncase=3 outcome_bytes=136 allocations=2 allocated_bytes=136 polls=1 output_bytes=493\n",
+    "head_free_send": "sizes context=576 send_context=576 error=40\ncase=0 outcome_bytes=48 allocations=1 allocated_bytes=16 polls=1 output_bytes=15\ncase=1 outcome_bytes=40 allocations=3 allocated_bytes=136 polls=1 output_bytes=26\ncase=2 outcome_bytes=40 allocations=3 allocated_bytes=400 polls=2 output_bytes=26\ncase=3 outcome_bytes=136 allocations=34 allocated_bytes=648 polls=1 output_bytes=493\n"
+  },
+  "latency_ns": {
+    "baseline": {
+      "0": [],
+      "1": [],
+      "2": [],
+      "3": []
+    },
+    "candidate": {
+      "0": [],
+      "1": [],
+      "2": [],
+      "3": []
+    }
+  },
+  "latency_medians_ns": {}
+}

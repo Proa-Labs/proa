@@ -42,8 +42,8 @@ where
     L: DataLoader,
 {
     fn render(self, cx: &mut WebContext<L, Buf>) -> Result<(), WriteError> {
-        self.first.render(&mut *cx)?;
-        self.second.render(&mut *cx)?;
+        crate::head_dispatch::sync(self.first, &mut *cx)?;
+        crate::head_dispatch::sync(self.second, &mut *cx)?;
         Ok(())
     }
 }

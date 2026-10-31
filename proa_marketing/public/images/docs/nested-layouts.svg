@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 590" width="960" height="590" role="img" aria-labelledby="title description">
+  <title id="title">Source files and nested layouts around a selected Page</title>
+  <desc id="description">The editor file tree contains root.rs and shop.rs layout components, and a product.rs Page. The handler composes RootDocument around ShopLayout around the selected ProductPage. Layout hooks contribute defaults; the Page seals metadata; ordinary body components skip head hooks.</desc>
+  <style>
+.canvas {fill:#faf8f4}.panel {fill:#fffdf9;stroke:#dcd5cb;stroke-width:1.4}.ink {fill:#302c27}.muted {fill:#80776d}.line {stroke:#bdb3a6;stroke-width:1.5;fill:none}.layout {fill:#f5eee2;stroke:#b69a72;stroke-width:1.6}.page {fill:#fff0e5;stroke:#d6804d;stroke-width:1.8}.component {fill:#eef3ed;stroke:#8aab8c;stroke-width:1.4}.tag {font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px}.h {font:600 19px ui-sans-serif,system-ui,sans-serif}.body {font:14px ui-sans-serif,system-ui,sans-serif}.mono {font:13px ui-monospace,SFMono-Regular,Menlo,monospace}.small {font:12px ui-sans-serif,system-ui,sans-serif}.arrow-head {fill:#a99b8b}
+@media(prefers-color-scheme:dark){.canvas{fill:#202020}.panel{fill:#272624;stroke:#5d574f}.ink{fill:#ece6dc}.muted{fill:#c0b7aa}.layout{fill:#383024;stroke:#b69a72}.page{fill:#442e23;stroke:#e29663}.component{fill:#26382b;stroke:#8aab8c}.line{stroke:#8c8172}}
+</style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" class="arrow-head" />
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="590" rx="18" class="canvas" />
+  <text x="28" y="39" class="h ink">Compose layouts around the selected Page</text>
+  <rect x="28" y="65" width="335" height="360" rx="12" class="panel" />
+  <text x="48" y="95" class="tag muted">EXPLORER · src</text>
+  <path d="M28 112H363" class="line" />
+  <path d="M49 133h9l4 4v12h-13z M58 133v5h4" class="line" />
+  <text x="72" y="145" class="mono ink">app.rs</text>
+  <text x="49" y="183" class="mono muted">⌄</text>
+  <path d="M66 173h9l3 3h12v13h-24z" class="line" />
+  <text x="99" y="183" class="mono ink">layouts</text>
+  <path d="M82 208h9l4 4v12h-13z M91 208v5h4" class="line" />
+  <text x="105" y="220" class="mono ink">root.rs</text>
+  <rect x="232" y="201" width="106" height="25" rx="7" class="layout" />
+  <text x="285.0" y="218" class="tag ink" text-anchor="middle">LAYOUT</text>
+  <path d="M82 246h9l4 4v12h-13z M91 246v5h4" class="line" />
+  <text x="105" y="258" class="mono ink">shop.rs</text>
+  <rect x="232" y="239" width="106" height="25" rx="7" class="layout" />
+  <text x="285.0" y="256" class="tag ink" text-anchor="middle">LAYOUT</text>
+  <text x="49" y="299" class="mono muted">⌄</text>
+  <path d="M66 289h9l3 3h12v13h-24z" class="line" />
+  <text x="99" y="299" class="mono ink">pages</text>
+  <rect x="73" y="318" width="245" height="29" rx="5" class="page" />
+  <path d="M82 325h9l4 4v12h-13z M91 325v5h4" class="line" />
+  <text x="105" y="337" class="mono ink">product.rs</text>
+  <rect x="256" y="318" width="82" height="25" rx="7" class="page" />
+  <text x="297.0" y="335" class="tag ink" text-anchor="middle">PAGE</text>
+  <text x="48" y="383" class="small muted">app.rs selects the render tree</text>
+  <text x="48" y="405" class="small ink">RootDocument → ShopLayout → Page</text>
+  <rect x="389" y="65" width="543" height="360" rx="12" class="layout" />
+  <text x="410" y="98" class="h ink">RootDocument</text>
+  <text x="410" y="127" class="small muted">Shared header · ROLE = LAYOUT</text>
+  <rect x="410" y="149" width="501" height="254" rx="12" class="layout" />
+  <text x="432" y="182" class="h ink">ShopLayout</text>
+  <text x="432" y="211" class="small muted">Shop navigation · ROLE = LAYOUT</text>
+  <rect x="432" y="233" width="458" height="149" rx="12" class="page" />
+  <text x="453" y="273" class="h ink">ProductPage</text>
+  <rect x="790" y="254" width="77" height="25" rx="7" class="page" />
+  <text x="828.5" y="271" class="tag ink" text-anchor="middle">PAGE</text>
+  <text x="453" y="328" class="body ink">The selected page’s content</text>
+  <rect x="28" y="450" width="288" height="86" rx="12" class="layout" />
+  <text x="47" y="479" class="tag ink">LAYOUT → LAYOUT</text>
+  <text x="47" y="508" class="small muted">Contribute defaults; keep head open</text>
+  <path d="M325 494H350" class="line" marker-end="url(#arrow)" />
+  <rect x="361" y="450" width="264" height="86" rx="12" class="page" />
+  <text x="380" y="479" class="tag ink">PAGE</text>
+  <text x="380" y="508" class="small muted">Override values; seal metadata</text>
+  <path d="M634 494H659" class="line" marker-end="url(#arrow)" />
+  <rect x="670" y="450" width="262" height="86" rx="12" class="component" />
+  <text x="689" y="479" class="tag ink">COMPONENT</text>
+  <text x="689" y="508" class="small muted">Render body; skip head hooks</text>
+  <text x="28" y="566" class="small muted">Filenames organize the source. The handler explicitly composes one selected Page and its layouts.</text>
+</svg>

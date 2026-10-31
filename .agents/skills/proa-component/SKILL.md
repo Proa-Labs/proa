@@ -68,6 +68,24 @@ python3 scripts/proa_perf_lint.py
 
 ## Hard rules
 
+- For a managed-head HTML document, declare the selected Page explicitly in
+  its render-trait impl, even when it has no `render_head` hook:
+  `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;`.
+  Keep the same role on any local/Send/sync implementations of that Page.
+  Ancestor layouts with head hooks must declare `ComponentRole::LAYOUT`.
+  Author async hooks as native `async fn render_head(...) -> Result<(), WriteError>`;
+  no attribute or handwritten async block is needed. Run
+  `cargo proa lint <changed-paths> --deny warnings`: `render/head-role-required`
+  rejects overrides with missing roles or an explicit `COMPONENT` role. This is
+  a source check for async hooks; Rust cannot detect a default-method override.
+  Forwarded/application role constants must resolve to `LAYOUT` or `PAGE`.
+  Sync hooks retain a code-generation assertion, so run `cargo build` too;
+  `cargo check` alone does not instantiate it. See the
+  [managed Page boundary](../../../docs/agent/components.md#managed-html-page-boundary).
+- Verify managed Pages through their real document/route composition: one Page
+  and one head outlet, layout defaults overridden by the Page, and publication
+  before pending body work. Missing roles must surface as errors; do not accept
+  a raw body-only render test as proof of correct managed-head integration.
 - Do not use `format!`, `String`, `.to_string()`, `.to_owned()`, `.collect()`,
   `.join()`, `Vec::new`, or `push_str` in a render hot path.
 - Render numbers and booleans directly.

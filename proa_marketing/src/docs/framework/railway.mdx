@@ -24,7 +24,8 @@ use std::net::SocketAddr;
 
 let port: u16 = std::env::var("PORT")
     .ok()
-    .and_then(|value| value.parse().ok())
+    .map(|value| value.parse::<u16>())
+    .transpose()?
     .unwrap_or(3000);
 
 // Railway recommends [::] when the service needs both public and private
@@ -32,7 +33,9 @@ let port: u16 = std::env::var("PORT")
 // IPv6-only.
 let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
 let listener = tokio::net::TcpListener::bind(addr).await?;
-axum::serve(listener, app).await?;
+proa_framework_axum::serve(
+        listener, app, std::time::Duration::from_secs(30),
+    ).await?;
 ```
 
 ## Generate the Dockerfile
@@ -135,7 +138,7 @@ Config as code keeps deploy settings in review instead of in a dashboard. The pr
 }
 ```
 
-The generated site answers `/healthz` (liveness) and `/readyz` (readiness, which also checks the database when one is configured). Rust release builds are slow on a cold cache; raise `healthcheckTimeout` toward 300 seconds if the first deploy times out before the server is up.
+The generated site answers `/healthz` (liveness) and `/readyz` (readiness, which also checks the database when one is configured). Choose a health-check timeout that covers application startup and dependency readiness. This timeout starts after the image is built; increasing it does not extend the image-build deadline.
 
 ## Deploy
 
@@ -155,7 +158,6 @@ Then open **Settings → Networking → Generate Domain** to get a public URL. W
 Under **Variables**, add:
 
 ```dotenv
-GITHUB_TOKEN=<a token with read access to Proa-Labs/proa>
 RUST_LOG=info
 ```
 
@@ -163,7 +165,7 @@ Do not set `PORT` or `PROA_HOST`. Railway manages `PORT`, and the Dockerfile set
 
 ## Health checks
 
-Railway calls `healthcheckPath` once per deploy and waits for a `200` before routing traffic to the new container. It does not poll afterwards.
+Railway polls `healthcheckPath` during deployment until it receives a successful `2xx` response, then switches traffic. It does not monitor that endpoint after activation. See [Railway healthchecks](https://docs.railway.com/deployments/healthchecks).
 
 Keep the liveness route cheap:
 
@@ -177,16 +179,15 @@ Checking your database here means a slow database fails your deploy. Put depende
 
 Railway sends the `Host` header `healthcheck.railway.app`. If you add host filtering later, allowlist it.
 
-> **Good to know**: Building Rust on every push costs minutes and puts your GitHub token on Railway. Build and push to GHCR in GitHub Actions instead, then create the Railway service from a Docker image and remove `GITHUB_TOKEN`. This is the same argument the [Coolify guide](/docs/framework/coolify) makes.
+> **Good to know**: To build an image once and promote it between environments, build and push it to a registry in CI, then deploy that image on Railway. Public Proa dependencies do not require a GitHub token for either build path.
 
 ## Verify before you deploy
 
 ```bash
-docker build --build-arg GITHUB_TOKEN=$GITHUB_TOKEN -t my-site .
-docker run --rm -p 3000:3000 -e PORT=3000 my-site
+docker build -t my-site .
+docker run --rm -p 127.0.0.1:3000:3000 -e PORT=3000 my-site
 curl -fsS http://127.0.0.1:3000/healthz
 curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
-docker run --rm my-site env | grep -c GITHUB_TOKEN   # expect 0
 ```
 
 ## When it fails
@@ -195,10 +196,9 @@ docker run --rm my-site env | grep -c GITHUB_TOKEN   # expect 0
 |---|---|
 | Health check times out, logs look fine | App bound `127.0.0.1`, or ignored `PORT` |
 | Build succeeds, service unreachable | No domain generated under Networking |
-| Authentication failure fetching Proa git dependencies | `ARG GITHUB_TOKEN` missing from the build stage |
 | Binary missing in runtime stage | `--artifact-out` pointed inside the cache-mounted `target/` |
 | Another service cannot reach this one in a legacy environment | `PROA_HOST=0.0.0.0`; legacy IPv6-only private networking needs `::` |
-| Every push rebuilds from scratch | No cache mounts, or `.dockerignore` omits `target/` |
+| Every push rebuilds from scratch | Check the cache-mount IDs and paths, and exclude local `target/` output from the build context |
 
 ## Next steps
 

@@ -150,6 +150,7 @@ enum RoutePlan<L: DataLoader> {
 /// Ready-made HTTP bodies and browser-only applications deliberately live
 /// outside this type: a `RouteResponse` always means "render this component."
 pub struct RouteResponse<L: DataLoader = NoLoader> {
+    head: Option<Option<proa_core::HeadConfig>>,
     plan: RoutePlan<L>,
     islands: Vec<String>,
     bootstrap: ReactBootstrapConfig<'static>,
@@ -281,6 +282,7 @@ impl RouteResponse<NoLoader> {
             plan: RoutePlan::Sync(Box::new(component)),
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            head: None,
         }
     }
 
@@ -304,6 +306,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            head: None,
         }
     }
 
@@ -321,6 +324,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            head: None,
         }
     }
 
@@ -338,6 +342,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            head: None,
         }
     }
 
@@ -355,6 +360,7 @@ impl RouteResponse<NoLoader> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            head: None,
         }
     }
 }
@@ -378,6 +384,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            head: None,
         }
     }
 
@@ -395,6 +402,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            head: None,
         }
     }
 
@@ -412,6 +420,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            head: None,
         }
     }
 
@@ -429,7 +438,20 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             },
             islands: Vec::new(),
             bootstrap: ReactBootstrapConfig::default(),
+            head: None,
         }
+    }
+
+    /// Enable document head preparation for this response.
+    pub fn with_head(mut self, config: proa_core::HeadConfig) -> Self {
+        self.head = Some(Some(config));
+        self
+    }
+
+    /// Use manual HTML for this response even when the app enables managed head.
+    pub fn without_head(mut self) -> Self {
+        self.head = Some(None);
+        self
     }
 
     pub fn with_islands<I, S>(mut self, islands: I) -> Self
@@ -509,7 +531,14 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             plan,
             islands,
             bootstrap,
+            head,
         } = self;
+        let owned_request = head.map(|head| {
+            let mut owned = request.clone();
+            owned.head = head.map(Into::into);
+            owned
+        });
+        let request = owned_request.as_ref().unwrap_or(request);
         match plan {
             RoutePlan::Sync(_) => Err(FrameworkError::Invariant(
                 "non-async route passed to stream finalization",
@@ -572,7 +601,14 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             plan,
             islands,
             bootstrap,
+            head,
         } = self;
+        let owned_request = head.map(|head| {
+            let mut owned = request.clone();
+            owned.head = head.map(Into::into);
+            owned
+        });
+        let request = owned_request.as_ref().unwrap_or(request);
         match plan {
             RoutePlan::Sync(component) => {
                 render_sync_html_response(component, islands, bootstrap, manifest, request)
@@ -636,8 +672,14 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         _manifest: &IslandManifest,
         request: &FrameworkRequestContext,
     ) -> FrameworkResponse {
-        let Self { plan, .. } = self;
-        let html = match plan {
+        let Self { plan, head, .. } = self;
+        let owned_request = head.map(|head| {
+            let mut owned = request.clone();
+            owned.head = head.map(Into::into);
+            owned
+        });
+        let request = owned_request.as_ref().unwrap_or(request);
+        let (html, resolved_title, decisions) = match plan {
             RoutePlan::Sync(component) => match render_sync_component_to_html(component, request) {
                 Ok(html) => html,
                 Err(err) => {
@@ -674,7 +716,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 }
             }
         };
-        encode_client_payload(html, page_title)
+        encode_client_payload(html, resolved_title.unwrap_or(page_title), decisions)
     }
 
     fn into_sync_framework_response(
@@ -687,7 +729,14 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             plan,
             islands,
             bootstrap,
+            head,
         } = self;
+        let owned_request = head.map(|head| {
+            let mut owned = request.clone();
+            owned.head = head.map(Into::into);
+            owned
+        });
+        let request = owned_request.as_ref().unwrap_or(request);
         let RoutePlan::Sync(component) = plan else {
             return Err(FrameworkError::Invariant(
                 "async route passed to synchronous finalization",
@@ -699,7 +748,11 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             }
             RouteFinalizeMode::ClientPayload { page_title } => {
                 match render_sync_component_to_html(component, request) {
-                    Ok(html) => Ok(encode_client_payload(html, page_title)),
+                    Ok((html, title, decisions)) => Ok(encode_client_payload(
+                        html,
+                        title.unwrap_or(page_title),
+                        decisions,
+                    )),
                     Err(err) => Ok(framework_error_response(err)),
                 }
             }
@@ -707,7 +760,11 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     }
 }
 
-fn encode_client_payload(html: String, page_title: Option<String>) -> FrameworkResponse {
+fn encode_client_payload(
+    html: String,
+    page_title: Option<String>,
+    decisions: Option<ResponseContext>,
+) -> FrameworkResponse {
     let mut payload = serde_json::json!({
         "html": html,
     });
@@ -717,7 +774,19 @@ fn encode_client_payload(html: String, page_title: Option<String>) -> FrameworkR
     }
 
     match serde_json::to_vec(&payload) {
-        Ok(bytes) => FrameworkResponse::json(Bytes::from(bytes)),
+        Ok(bytes) => {
+            let mut response = FrameworkResponse::json(Bytes::from(bytes));
+            if let Some(decisions) = decisions {
+                merge_response_context(&mut response, &decisions);
+                // Negotiation selected JSON; document hooks cannot change its encoding.
+                response.headers.insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json; charset=utf-8"),
+                );
+                finish_managed_response(&mut response);
+            }
+            response
+        }
         Err(_) => {
             FrameworkResponse::plain_text(StatusCode::INTERNAL_SERVER_ERROR, "encoding error")
         }
@@ -778,6 +847,7 @@ pub fn finalize_route_response_stream<L: DataLoader + 'static>(
 /// request context up front without already knowing the route's `L`.
 #[derive(Clone, Debug, Default)]
 pub struct FrameworkRequestContext {
+    pub head: Option<crate::managed_response::ManagedRequest>,
     pub request: RequestContext,
     pub request_location: Option<RequestLocation>,
     pub route_params: Option<RouteParams>,
@@ -793,6 +863,7 @@ pub struct FrameworkRequestContext {
 /// `Stream` is the streaming path; its nested factory preserves whether the
 /// produced stream is directly pollable or requires a pinned local executor.
 pub enum FrameworkBody {
+    Managed(crate::managed_response::ManagedFactory),
     Full(Bytes),
     /// A fully rendered body whose owned pages can transfer to the transport
     /// without flattening. This is independent of deferred streaming setup.
@@ -803,6 +874,7 @@ pub enum FrameworkBody {
 impl std::fmt::Debug for FrameworkBody {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Managed(factory) => f.debug_tuple("Managed").field(factory).finish(),
             Self::Full(bytes) => f
                 .debug_tuple("Full")
                 .field(&format!("{} bytes", bytes.len()))
@@ -900,6 +972,22 @@ impl FrameworkResponse {
     }
 }
 
+fn finish_managed_response(response: &mut FrameworkResponse) {
+    response.headers.remove(header::CONTENT_LENGTH);
+    response.headers.remove(header::TRANSFER_ENCODING);
+    if response.status.is_informational() {
+        *response = FrameworkResponse::plain_text(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "invalid document status",
+        );
+    } else if matches!(
+        response.status,
+        StatusCode::NO_CONTENT | StatusCode::RESET_CONTENT | StatusCode::NOT_MODIFIED
+    ) {
+        response.body = FrameworkBody::Full(Bytes::new());
+    }
+}
+
 pub(crate) fn merge_response_context(response: &mut FrameworkResponse, context: &ResponseContext) {
     if context.is_empty() {
         return;
@@ -982,18 +1070,30 @@ pub fn render_sync_html_response(
     let (render_artifacts, shared_seed_table_json, response_context, buffer) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
+        let head_buffer = crate::managed_response::setup_local(&mut ctx, request)?;
         component.render_sync_dyn(&mut ctx)?;
+        if let Some(head) = ctx.head_state().document() {
+            head.final_check()?;
+        }
         let state = (
             ctx.render_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
             ctx.response().clone(),
         );
-        (state.0, state.1, state.2, ctx.into_output())
+        (
+            state.0,
+            state.1,
+            state.2,
+            match head_buffer {
+                Some(head) => head.finish(ctx.into_output())?,
+                None => ctx.into_output().into_vec(),
+            },
+        )
     };
 
     islands.extend(render_artifacts.react_islands);
     let rsjs_artifacts = render_artifacts.rsjs;
-    let mut buffer = buffer.into_vec();
+    let mut buffer = buffer;
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
     let response_tail_start = buffer.len();
     append_rsjs_query_seed_table_if_needed(
@@ -1023,6 +1123,9 @@ pub fn render_sync_html_response(
     validate_html_utf8(&buffer)?;
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
     merge_response_context(&mut response, &response_context);
+    if request.head.is_some() {
+        finish_managed_response(&mut response);
+    }
     Ok(response)
 }
 
@@ -1039,18 +1142,30 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
             WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(request.render_mode);
         install_request_context(&mut ctx, request);
+        let head_buffer = crate::managed_response::setup_local(&mut ctx, request)?;
         drive_dyn_render(component.render_dyn(&mut ctx)).await?;
+        if let Some(head) = ctx.head_state().document() {
+            head.final_check()?;
+        }
         let state = (
             ctx.render_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
             ctx.response().clone(),
         );
-        (state.0, state.1, state.2, ctx.into_output())
+        (
+            state.0,
+            state.1,
+            state.2,
+            match head_buffer {
+                Some(head) => head.finish(ctx.into_output())?,
+                None => ctx.into_output().into_vec(),
+            },
+        )
     };
 
     islands.extend(render_artifacts.react_islands);
     let rsjs_artifacts = render_artifacts.rsjs;
-    let mut buffer = buffer.into_vec();
+    let mut buffer = buffer;
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
     let response_tail_start = buffer.len();
     append_rsjs_query_seed_table_if_needed(
@@ -1080,6 +1195,9 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
     validate_html_utf8(&buffer)?;
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
     merge_response_context(&mut response, &response_context);
+    if request.head.is_some() {
+        finish_managed_response(&mut response);
+    }
     Ok(response)
 }
 
@@ -1096,14 +1214,25 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
             SendWebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(request.render_mode);
         install_send_request_context(&mut ctx, request);
+        let head_buffer = crate::managed_response::setup_send(&mut ctx, request)?;
         drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
+        if let Some(head) = ctx.head_state().document() {
+            head.final_check()?;
+        }
         let (buffer, artifacts, response) = ctx.into_output_render_artifacts_and_response();
-        (artifacts, response, buffer)
+        (
+            artifacts,
+            response,
+            match head_buffer {
+                Some(head) => head.finish(buffer)?,
+                None => buffer.into_vec(),
+            },
+        )
     };
 
     islands.extend(render_artifacts.react_islands);
     let rsjs_artifacts = render_artifacts.rsjs;
-    let mut buffer = buffer.into_vec();
+    let mut buffer = buffer;
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
     let shared_seed_table_json = rsjs_artifacts.shared_state_seed_table_json();
     let response_tail_start = buffer.len();
@@ -1134,6 +1263,9 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
     validate_html_utf8(&buffer)?;
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
     merge_response_context(&mut response, &response_context);
+    if request.head.is_some() {
+        finish_managed_response(&mut response);
+    }
     Ok(response)
 }
 
@@ -1153,37 +1285,47 @@ where
     let manifest = manifest.clone();
     let request = request.clone();
 
-    FrameworkResponse::stream(move || match request.render_mode {
-        RenderMode::ChunkedInOrder => {
-            let stream: FrameworkLocalStream = Box::pin(
-                InOrderStreamDriver {
-                    component,
-                    islands,
-                    bootstrap,
-                    manifest,
-                    request,
-                    loader,
-                    preload_keys,
-                }
-                .into_stream(),
-            );
-            stream
-        }
-        _ => {
-            let stream: FrameworkLocalStream = Box::pin(
-                OutOfOrderStreamDriver {
-                    component,
-                    islands,
-                    bootstrap,
-                    manifest,
-                    request,
-                    loader,
-                }
-                .into_stream(),
-            );
-            stream
-        }
-    })
+    let managed = request.head.is_some();
+    let make = move |request: FrameworkRequestContext| {
+        FrameworkStreamFactory::Local(Box::new(move || match request.render_mode {
+            RenderMode::ChunkedInOrder => {
+                let stream: FrameworkLocalStream = Box::pin(
+                    InOrderStreamDriver {
+                        component,
+                        islands,
+                        bootstrap,
+                        manifest,
+                        request,
+                        loader,
+                        preload_keys,
+                    }
+                    .into_stream(),
+                );
+                stream
+            }
+            _ => {
+                let stream: FrameworkLocalStream = Box::pin(
+                    OutOfOrderStreamDriver {
+                        component,
+                        islands,
+                        bootstrap,
+                        manifest,
+                        request,
+                        loader,
+                    }
+                    .into_stream(),
+                );
+                stream
+            }
+        }))
+    };
+    let mut response = FrameworkResponse::html(Bytes::new());
+    response.body = if managed {
+        FrameworkBody::Managed(crate::managed_response::stream_factory(request, make))
+    } else {
+        FrameworkBody::Stream(make(request))
+    };
+    response
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1202,54 +1344,83 @@ where
     let manifest = manifest.clone();
     let request = request.clone();
 
-    FrameworkResponse::send_stream(move || match request.render_mode {
-        RenderMode::ChunkedInOrder => {
-            let stream: FrameworkSendStream = Box::pin(
-                SendInOrderStreamDriver {
-                    component,
-                    islands,
-                    bootstrap,
-                    manifest,
-                    request,
-                    loader,
-                    preload_keys,
-                }
-                .into_stream(),
-            );
-            stream
-        }
-        _ => {
-            let stream: FrameworkSendStream = Box::pin(
-                SendOutOfOrderStreamDriver {
-                    component,
-                    islands,
-                    bootstrap,
-                    manifest,
-                    request,
-                    loader,
-                }
-                .into_stream(),
-            );
-            stream
-        }
-    })
+    let managed = request.head.is_some();
+    let make = move |request: FrameworkRequestContext| {
+        FrameworkStreamFactory::Send(Box::new(move || match request.render_mode {
+            RenderMode::ChunkedInOrder => {
+                let stream: FrameworkSendStream = Box::pin(
+                    SendInOrderStreamDriver {
+                        component,
+                        islands,
+                        bootstrap,
+                        manifest,
+                        request,
+                        loader,
+                        preload_keys,
+                    }
+                    .into_stream(),
+                );
+                stream
+            }
+            _ => {
+                let stream: FrameworkSendStream = Box::pin(
+                    SendOutOfOrderStreamDriver {
+                        component,
+                        islands,
+                        bootstrap,
+                        manifest,
+                        request,
+                        loader,
+                    }
+                    .into_stream(),
+                );
+                stream
+            }
+        }))
+    };
+    let mut response = FrameworkResponse::html(Bytes::new());
+    response.body = if managed {
+        FrameworkBody::Managed(crate::managed_response::stream_factory(request, make))
+    } else {
+        FrameworkBody::Stream(make(request))
+    };
+    response
 }
 
 fn render_sync_component_to_html(
     component: Box<dyn DynWebRenderSync<NoLoader, RenderBuffer> + Send>,
     request: &FrameworkRequestContext,
-) -> Result<String, FrameworkError> {
-    let (rsjs_artifacts, shared_seed_table_json, buffer) = {
+) -> Result<(String, Option<Option<String>>, Option<ResponseContext>), FrameworkError> {
+    let (rsjs_artifacts, shared_seed_table_json, buffer, title, decisions) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
+        let head_buffer = crate::managed_response::setup_local(&mut ctx, request)?;
         component.render_sync_dyn(&mut ctx)?;
+        if let Some(head) = ctx.head_state().document() {
+            head.final_check()?;
+        }
+        let title = ctx
+            .head_state()
+            .document()
+            .map(|head| head.resolved_title());
+        // proa-perf-ok: managed client finalization transfers owned HTTP decisions after rendering
+        let decisions = title.as_ref().map(|_| ctx.response().clone());
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
         );
-        (state.0, state.1, ctx.into_output())
+        (
+            state.0,
+            state.1,
+            match head_buffer {
+                Some(head) => head.finish(ctx.into_output())?,
+                None => ctx.into_output().into_vec(),
+            },
+            title,
+            decisions,
+        )
     };
-    let mut buffer = buffer.into_vec();
+    let mut buffer = buffer;
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
     append_rsjs_query_seed_fragment_if_needed(
         &mut buffer,
@@ -1267,7 +1438,8 @@ fn render_sync_component_to_html(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok(std::str::from_utf8(&buffer)?.to_owned())
+    let html = String::from_utf8(buffer).map_err(|error| error.utf8_error())?;
+    Ok((html, title, decisions))
 }
 
 async fn render_async_component_to_html<L: DataLoader + 'static>(
@@ -1275,20 +1447,39 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     render_mode: RenderMode,
-) -> Result<String, FrameworkError> {
-    let (rsjs_artifacts, shared_seed_table_json, buffer) = {
+) -> Result<(String, Option<Option<String>>, Option<ResponseContext>), FrameworkError> {
+    let (rsjs_artifacts, shared_seed_table_json, buffer, title, decisions) = {
         let mut ctx =
             WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(render_mode);
         install_request_context(&mut ctx, request);
+        let head_buffer = crate::managed_response::setup_local(&mut ctx, request)?;
         drive_dyn_render(component.render_dyn(&mut ctx)).await?;
+        if let Some(head) = ctx.head_state().document() {
+            head.final_check()?;
+        }
+        let title = ctx
+            .head_state()
+            .document()
+            .map(|head| head.resolved_title());
+        // proa-perf-ok: managed client finalization transfers owned HTTP decisions after rendering
+        let decisions = title.as_ref().map(|_| ctx.response().clone());
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
         );
-        (state.0, state.1, ctx.into_output())
+        (
+            state.0,
+            state.1,
+            match head_buffer {
+                Some(head) => head.finish(ctx.into_output())?,
+                None => ctx.into_output().into_vec(),
+            },
+            title,
+            decisions,
+        )
     };
-    let mut buffer = buffer.into_vec();
+    let mut buffer = buffer;
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
     append_rsjs_query_seed_fragment_if_needed(
         &mut buffer,
@@ -1306,7 +1497,8 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok(std::str::from_utf8(&buffer)?.to_owned())
+    let html = String::from_utf8(buffer).map_err(|error| error.utf8_error())?;
+    Ok((html, title, decisions))
 }
 
 async fn render_send_component_to_html<L: DataLoader + 'static>(
@@ -1314,17 +1506,35 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     render_mode: RenderMode,
-) -> Result<String, FrameworkError> {
-    let (rsjs_artifacts, buffer) = {
+) -> Result<(String, Option<Option<String>>, Option<ResponseContext>), FrameworkError> {
+    let (rsjs_artifacts, buffer, title, decisions) = {
         let mut ctx =
             SendWebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
         ctx.set_render_mode(render_mode);
         install_send_request_context(&mut ctx, request);
+        let head_buffer = crate::managed_response::setup_send(&mut ctx, request)?;
         drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
+        if let Some(head) = ctx.head_state().document() {
+            head.final_check()?;
+        }
+        let title = ctx
+            .head_state()
+            .document()
+            .map(|head| head.resolved_title());
+        // proa-perf-ok: managed client finalization transfers owned HTTP decisions after rendering
+        let decisions = title.as_ref().map(|_| ctx.response().clone());
         let (buffer, artifacts) = ctx.into_output_and_render_artifacts();
-        (artifacts.rsjs, buffer)
+        (
+            artifacts.rsjs,
+            match head_buffer {
+                Some(head) => head.finish(buffer)?,
+                None => buffer.into_vec(),
+            },
+            title,
+            decisions,
+        )
     };
-    let mut buffer = buffer.into_vec();
+    let mut buffer = buffer;
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
     let shared_seed_table_json = rsjs_artifacts.shared_state_seed_table_json();
     append_rsjs_query_seed_fragment_if_needed(
@@ -1343,7 +1553,8 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    Ok(std::str::from_utf8(&buffer)?.to_owned())
+    let html = String::from_utf8(buffer).map_err(|error| error.utf8_error())?;
+    Ok((html, title, decisions))
 }
 
 fn framework_error_response(err: FrameworkError) -> FrameworkResponse {
@@ -1397,9 +1608,11 @@ where
                     WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
                 ctx.set_render_mode(request.render_mode);
                 install_request_context(&mut ctx, &request);
-                ctx.response_mut().mark_streaming_started();
+                crate::managed_response::setup_local(&mut ctx, &request)?;
+                if request.head.is_none() { ctx.response_mut().mark_streaming_started(); }
                 ctx.set_stream_recorder(Rc::clone(&recorder));
                 drive_dyn_render(component.render_dyn(&mut ctx)).await?;
+        if let Some(head) = ctx.head_state().document() { head.final_check()?; }
                 let state = (
                     ctx.render_artifacts_snapshot(),
                     ctx.rsjs_shared_state_seed_table_json(),
@@ -1505,6 +1718,7 @@ where
                             id,
                             rendered: Err(err),
                         } => {
+                            if !err.is_boundary_catchable() { Err(FrameworkError::Render(err.clone()))?; }
                             tracing::error!(
                                 boundary_id = id,
                                 ?err,
@@ -1572,9 +1786,11 @@ where
                 );
                 ctx.set_render_mode(request.render_mode);
                 install_send_request_context(&mut ctx, &request);
-                ctx.response_mut().mark_streaming_started();
+                crate::managed_response::setup_send(&mut ctx, &request)?;
+                if request.head.is_none() { ctx.response_mut().mark_streaming_started(); }
                 ctx.set_stream_recorder(Arc::clone(&recorder));
                 drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
+        if let Some(head) = ctx.head_state().document() { head.final_check()?; }
                 let (output, artifacts) = ctx.into_output_and_render_artifacts();
                 (artifacts, output)
             };
@@ -1676,6 +1892,7 @@ where
                             id,
                             rendered: Err(err),
                         } => {
+                            if !err.is_boundary_catchable() { Err(FrameworkError::Render(err.clone()))?; }
                             tracing::error!(
                                 boundary_id = id,
                                 ?err,
@@ -1763,9 +1980,11 @@ where
                         WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
                     ctx.set_render_mode(request.render_mode);
                     install_request_context(&mut ctx, &request);
-                    ctx.response_mut().mark_streaming_started();
+                crate::managed_response::setup_local(&mut ctx, &request)?;
+                    if request.head.is_none() { ctx.response_mut().mark_streaming_started(); }
                     ctx.set_stream_chunk_flusher(flusher);
                     drive_dyn_render(component.render_dyn(&mut ctx)).await?;
+        if let Some(head) = ctx.head_state().document() { head.final_check()?; }
                     let state = (
                         ctx.render_artifacts_snapshot(),
                         ctx.rsjs_shared_state_seed_table_json(),
@@ -1882,9 +2101,11 @@ where
                     );
                     ctx.set_render_mode(request.render_mode);
                     install_send_request_context(&mut ctx, &request);
-                    ctx.response_mut().mark_streaming_started();
+                crate::managed_response::setup_send(&mut ctx, &request)?;
+                    if request.head.is_none() { ctx.response_mut().mark_streaming_started(); }
                     ctx.set_stream_chunk_flusher(flusher);
                     drive_dyn_send_render(component.render_send_dyn(&mut ctx)).await?;
+        if let Some(head) = ctx.head_state().document() { head.final_check()?; }
                     let (output, artifacts) = ctx.into_output_and_render_artifacts();
                     (artifacts, output)
                 };
@@ -2609,7 +2830,9 @@ mod tests {
         );
         match response.body {
             FrameworkBody::Full(bytes) => assert_eq!(bytes, Bytes::from_static(b"<main>ok</main>")),
-            FrameworkBody::Stream(_) | FrameworkBody::BufferedPages(_) => {
+            FrameworkBody::Stream(_)
+            | FrameworkBody::BufferedPages(_)
+            | FrameworkBody::Managed(_) => {
                 panic!("expected full body")
             }
         }

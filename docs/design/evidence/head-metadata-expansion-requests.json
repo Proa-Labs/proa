@@ -1,0 +1,2045 @@
+{
+  "provenance": {
+    "baseline_revision": "c6ac23e5206258891e29f387ab8145b569df255c",
+    "candidate_parent_revision": "c6ac23e5206258891e29f387ab8145b569df255c",
+    "candidate_diff_sha256": "880357207fd13d78366a60bd2de45a0575314a2d1a36b0683c3bfa7ec5bbe0ce",
+    "compiler": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: aarch64-apple-darwin\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+    "request_source_sha256": "98adc368a0340a31b2291959769ec52261511994c48704b8a39e13b908184d7c",
+    "request_lock_sha256": "7668e24df34a6a559d4b9fcdf9eff12e20c87364de9265a643669151a834fbfb",
+    "source_sha256": {
+      "examples/origin-routing-atlas/src/layouts/root.rs": "3ac21a77499955f96506291bc67c4d22c561d5dfa9ff64c4b2950b61f8b99e5f",
+      "proa_bench/probes/managed_requests/request.rs": "98adc368a0340a31b2291959769ec52261511994c48704b8a39e13b908184d7c",
+      "proa_cli/src/site_scaffold/templates/origin/src/layouts/root.rs": "3ac21a77499955f96506291bc67c4d22c561d5dfa9ff64c4b2950b61f8b99e5f",
+      "proa_core/src/head_fields.rs": "daf4353c0bee60e60b59997d3ce767c86574b0631dd61745cdc69db8f7f0444f",
+      "proa_core/src/head_fields/extended.rs": "e22b74b76ac6ade9b8d0123e371e9ee6d3995dfa7f0ddd8a8bfc31d72da0fb2b",
+      "proa_core/src/head_metadata.rs": "918e80feec03cc204501b7f97c9b8e398d4638c20de960623d9267da2fa4df80",
+      "proa_core/src/lib.rs": "6eae4456a125d4cdc50cc1253e3361de6574af057fecaa400b5d1959a102f107",
+      "proa_core/src/managed_head.rs": "e77d84d6adfdaa688a13722ca2500c573ae10832b9152367a42ac53f9bd3e5f4",
+      "proa_core/src/web/context.rs": "c31459910318543489ab50aa37ddf09b1634b7932d9e929c7653953f43dc8f33",
+      "proa_framework/proa_framework_axum/src/lib.rs": "e6727250b3acbcdf03bdc34a73f1bbfe7cc8bd69537c3ee25958aae5511b6ce1",
+      "proa_framework/proa_framework_axum/tests/head_metadata_routing.rs": "9cee0f0b21ce8940abc61a4f13a29a29eaa0b949b1283bca55faa0688450f705"
+    },
+    "binary_sha256": {
+      "bulk": "5b466afdd0d9b3200170db77628e999e8e4f9290416eebb4602c94a756597bed",
+      "legacy-bulk": "1a775cab56e039b054a88f892de0e3ff68aef9cd7638d30b700bac4bd4c98d33",
+      "before": "a6ac516a1060369482a1273e6bd3c642e810d3331cec8a5abdb7aec786781996",
+      "after": "eee22ba0a63d43108294df5f9f274279b5d9207b110d4ee49ad3c2946155c363"
+    }
+  },
+  "protocol": {
+    "pairs": 15,
+    "iterations_per_sample": 100000,
+    "warmup_requests_per_process": 250,
+    "order": "alternating forward/reverse",
+    "cpu_pinning": false,
+    "compiler_jobs_during_measurement": false
+  },
+  "cases": {
+    "empty_raw": {
+      "summary": {
+        "before": {
+          "median_ns": 910.51125,
+          "allocations": 26,
+          "allocated_bytes": 3813,
+          "output_bytes": 2,
+          "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+        },
+        "after": {
+          "median_ns": 898.72958,
+          "allocations": 26,
+          "allocated_bytes": 3813,
+          "output_bytes": 2,
+          "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+        }
+      },
+      "paired_changes": {
+        "after": {
+          "paired_median_percent": -1.240499493661773,
+          "paired_median_bootstrap_95_percent": [
+            -3.713427640466893,
+            -0.4701461948353636
+          ]
+        }
+      },
+      "samples": {
+        "before": [
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 937.14666,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 949.48208,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 914.875,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 902.76958,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 893.03458,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 910.495,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 942.28125,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 899.36917,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 915.13458,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 937.79667,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 887.15125,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 898.42667,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 910.51125,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 944.21917,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 899.16334,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          }
+        ],
+        "after": [
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 896.3775,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 914.22375,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 910.57375,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 888.61125,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 892.83,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 885.49417,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 898.72958,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 888.2125,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 942.07458,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 912.045,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 876.46625,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 888.04375,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 933.13334,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 901.92208,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 3813,
+            "allocations": 26,
+            "bulk": false,
+            "case": "empty_raw",
+            "iterations": 100000,
+            "ns_per_request": 899.41458,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          }
+        ]
+      }
+    },
+    "empty_spec": {
+      "summary": {
+        "before": {
+          "median_ns": 1197.08209,
+          "allocations": 34,
+          "allocated_bytes": 4805,
+          "output_bytes": 2,
+          "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+        },
+        "after": {
+          "median_ns": 1178.99292,
+          "allocations": 34,
+          "allocated_bytes": 4805,
+          "output_bytes": 2,
+          "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+        }
+      },
+      "paired_changes": {
+        "after": {
+          "paired_median_percent": -0.3378794410772823,
+          "paired_median_bootstrap_95_percent": [
+            -2.0461526767751814,
+            0.34476408700372385
+          ]
+        }
+      },
+      "samples": {
+        "before": [
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1230.91417,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1201.45583,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1214.58041,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1179.09583,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1220.43292,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1193.81333,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1210.76791,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1197.08209,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1202.02125,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1238.0525,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1165.14666,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1170.11583,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1182.99,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1171.43375,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1188.58792,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          }
+        ],
+        "after": [
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1235.15792,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1220.76875,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1215.26042,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1218.17125,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1176.65417,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1178.83542,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1185.99375,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1178.2125,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1173.7725,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1162.80375,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1165.48042,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1186.17709,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1178.99292,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1183.03084,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          },
+          {
+            "allocated_bytes": 4805,
+            "allocations": 34,
+            "bulk": false,
+            "case": "empty_spec",
+            "iterations": 100000,
+            "ns_per_request": 1149.56959,
+            "output": "ok",
+            "output_bytes": 2,
+            "sha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+          }
+        ]
+      }
+    },
+    "dynamic_spec": {
+      "summary": {
+        "before": {
+          "median_ns": 1981.73208,
+          "allocations": 48,
+          "allocated_bytes": 10056,
+          "output_bytes": 11,
+          "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+        },
+        "after": {
+          "median_ns": 1980.445,
+          "allocations": 48,
+          "allocated_bytes": 10056,
+          "output_bytes": 11,
+          "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+        }
+      },
+      "paired_changes": {
+        "after": {
+          "paired_median_percent": -1.339382458406968,
+          "paired_median_bootstrap_95_percent": [
+            -1.9326175474904228,
+            1.4642603542504906
+          ]
+        }
+      },
+      "samples": {
+        "before": [
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1949.98542,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1988.11458,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1960.24083,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1970.77125,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1961.00167,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1986.59792,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 2007.42833,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1981.73208,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1973.48709,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1980.04833,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1963.48,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 2057.55417,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1993.85666,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 2185.71916,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 2030.79833,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          }
+        ],
+        "after": [
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1980.445,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1959.13583,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1993.25,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1927.36584,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1989.71584,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1948.20458,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 2017.10792,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 2036.24125,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1970.8675,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1953.52791,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1934.2375,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1997.29041,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 2063.6275,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 2002.22166,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          },
+          {
+            "allocated_bytes": 10056,
+            "allocations": 48,
+            "bulk": false,
+            "case": "dynamic_spec",
+            "iterations": 100000,
+            "ns_per_request": 1970.60125,
+            "output": "<h1>42</h1>",
+            "output_bytes": 11,
+            "sha256": "ec012c1c3a1aaccd0401bef481a485ef2c270ac3876fbda2d33941771993fb83"
+          }
+        ]
+      }
+    },
+    "managed": {
+      "summary": {
+        "before": {
+          "median_ns": 2895.9025,
+          "allocations": 60,
+          "allocated_bytes": 19241,
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        "after": {
+          "median_ns": 2829.94958,
+          "allocations": 60,
+          "allocated_bytes": 19289,
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        "bulk": {
+          "median_ns": 2892.36084,
+          "allocations": 59,
+          "allocated_bytes": 19278,
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        }
+      },
+      "paired_changes": {
+        "after": {
+          "paired_median_percent": -2.249341958163309,
+          "paired_median_bootstrap_95_percent": [
+            -3.346071652650451,
+            -0.9410671858399056
+          ]
+        },
+        "bulk": {
+          "paired_median_percent": 0.08054105260797417,
+          "paired_median_bootstrap_95_percent": [
+            -1.033586938786779,
+            2.2252458786881757
+          ]
+        }
+      },
+      "samples": {
+        "before": [
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2849.60833,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 3014.14917,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2843.62375,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2953.85625,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2905.53458,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2898.15334,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2895.9025,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2880.90334,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2864.47709,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2852.10125,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2937.56584,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2857.1,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2835.37333,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2900.8675,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19241,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2900.53458,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          }
+        ],
+        "after": [
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2829.94958,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2847.23042,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2816.86334,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2878.52166,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2878.05042,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2798.96875,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2830.76375,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2784.50625,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2837.41041,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2775.16542,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2818.45709,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2803.73,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2840.03292,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2876.72709,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19289,
+            "allocations": 60,
+            "bulk": false,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2779.88834,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          }
+        ],
+        "bulk": [
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2975.78584,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2944.67792,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2879.54458,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 3008.20709,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2915.80416,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2862.66958,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2865.97083,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2876.9075,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2866.78417,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2839.34417,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2880.45583,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2920.6775,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2926.28958,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2968.72292,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          },
+          {
+            "allocated_bytes": 19278,
+            "allocations": 59,
+            "bulk": true,
+            "case": "managed",
+            "iterations": 100000,
+            "ns_per_request": 2892.36084,
+            "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+            "output_bytes": 240,
+            "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+          }
+        ]
+      }
+    }
+  },
+  "previous_bulk_object_control": {
+    "samples": {
+      "legacy-bulk": [
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2987.03375,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 3034.67417,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2884.77292,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 3049.38625,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2961.73125,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2877.4525,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2952.38541,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2890.36833,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2918.4425,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2930.35041,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2858.56334,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2855.20708,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2911.66417,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2799.37542,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19230,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2804.33625,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        }
+      ],
+      "bulk": [
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 3045.71708,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 3188.65667,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2986.81958,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2975.2975,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 3075.31042,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 3014.18,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2996.33,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2996.27291,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 3030.33667,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2956.31791,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2995.11,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2901.61208,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2943.96166,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2827.80125,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        },
+        {
+          "allocated_bytes": 19278,
+          "allocations": 59,
+          "bulk": true,
+          "case": "managed",
+          "iterations": 100000,
+          "ns_per_request": 2992.8025,
+          "output": "<html><head><title>Trail &amp; Travel | Shop</title><meta name=\"description\" content=\"Built for the outdoors.\"><link rel=\"canonical\" href=\"https://shop.example/products/42\"></head><body><main><h1>Trail &amp; Travel</h1></main></body></html>",
+          "output_bytes": 240,
+          "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+        }
+      ]
+    },
+    "medians_ns": {
+      "legacy-bulk": 2911.66417,
+      "bulk": 2995.11
+    },
+    "paired_median_percent": 3.5374243599042066,
+    "paired_median_bootstrap_95_percent": [
+      1.1092450267023768,
+      3.8348911637408056
+    ],
+    "summary": {
+      "legacy-bulk": {
+        "median_ns": 2911.66417,
+        "allocations": 59,
+        "allocated_bytes": 19230,
+        "output_bytes": 240,
+        "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+      },
+      "bulk": {
+        "median_ns": 2995.11,
+        "allocations": 59,
+        "allocated_bytes": 19278,
+        "output_bytes": 240,
+        "sha256": "fcb473db6952e659c79ae474f6ce47d4e6c461f7e461381fe5a068bfac44eb16"
+      }
+    },
+    "legacy_source": "git show c6ac23e5:proa_bench/probes/managed_requests/request.rs; baseline patch and bulk feature",
+    "legacy_source_sha256": "f80985065df35eafb0d9a6fbaee41ef0aaf2c577976f99c04bf51d31939fe5b5",
+    "binary_sha256": {
+      "legacy-bulk": "1a775cab56e039b054a88f892de0e3ff68aef9cd7638d30b700bac4bd4c98d33",
+      "bulk": "5b466afdd0d9b3200170db77628e999e8e4f9290416eebb4602c94a756597bed"
+    }
+  },
+  "managed_type_sizes": {
+    "before": "HeadFields=432 OpenGraph=272",
+    "after": "HeadFields=456 OpenGraph=288"
+  }
+}

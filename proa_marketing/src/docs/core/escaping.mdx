@@ -61,24 +61,17 @@ html_sync! {
 
 HTML escaping is **not sufficient** here. JavaScript and CSS are separate encoding contexts needing JS-specific and CSS-specific encoding, which an HTML engine does not provide.
 
-Pass the data through a `data-*` attribute instead, and read it from the DOM:
+For application browser behavior, pass typed props or query data to an [RSJS island](/docs/guides/islands). RSJS owns the server-to-browser serialization and generated handlers.
+
+For an existing external script that expects a `data-*` bridge, serialize the configuration when constructing the view model, then let the template escape the attribute:
 
 ```rust filename="src/layouts/root.rs"
-use proa_core::StaticRaw;
-
 html_sync! {
-    <div id="app" data-config={serde_json::to_string(&config).unwrap()}></div>
-    <script>
-        {StaticRaw(r#"
-            const config = JSON.parse(
-                document.getElementById('app').dataset.config
-            );
-        "#)}
-    </script>
+    <div id="app" data-config={self.config_json.as_str()}></div>
 }
 ```
 
-The attribute value goes through attribute escaping, and the script reads it via the DOM. No injection path.
+The external script can parse the DOM attribute as JSON. Attribute escaping keeps the serialized value inside the attribute; it does not make the parsed values safe for arbitrary JavaScript, CSS, URLs, or HTML sinks.
 
 ## The two escape hatches
 
@@ -101,7 +94,7 @@ UnsafeRaw(&sanitized)
 
 Never wrap request input, CMS strings, or user-authored Markdown in `UnsafeRaw` directly. Sanitize with an allowlist first, [ammonia](https://crates.io/crates/ammonia) on the server, [DOMPurify](https://github.com/cure53/DOMPurify) in the browser.
 
-> **Good to know**: The typed `AttrKey` enum deliberately excludes event-handler attributes such as `onclick`. Inline handlers cannot execute under a [Content Security Policy](https://www.w3.org/TR/CSP3/#directive-script-src) `script-src` directive, so the typed API does not encourage them. The macro still accepts them if you write them by hand.
+> **Good to know**: The typed `AttrKey` enum deliberately excludes event-handler attributes such as `onclick`. A nonce-based [Content Security Policy](https://www.w3.org/TR/CSP3/#directive-script-src) does not authorize inline event attributes. Prefer typed RSJS handlers; raw inline handler strings bypass that authoring model.
 
 ## Next steps
 

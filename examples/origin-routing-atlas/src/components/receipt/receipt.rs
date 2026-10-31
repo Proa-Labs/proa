@@ -142,7 +142,7 @@ impl<L: DataLoader> WebRenderSync<L> for ReceiptShell<'_> {
                         class="hv-cyan flex items-center gap-[8px] text-brand tracking-[0.1em]"
                     >
                         <img
-                            src={cx.request().url("/static/proa-logo.svg")}
+                            src={cx.url("/static/proa-logo.svg")}
                             width="16"
                             height="16"
                             alt=""

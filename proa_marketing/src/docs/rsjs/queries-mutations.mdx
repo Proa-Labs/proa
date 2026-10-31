@@ -96,10 +96,9 @@ use proa_core::{
 };
 use proa_macros::html;
 use rsjs::{rsjs, QueryKey};
+use crate::components::stock_tile::StockPrice;
 
-pub struct AsyncStockTile {
-    pub load_key: LoadKey,
-}
+pub struct AsyncStockTile;
 
 #[rsjs(component, client)]
 impl<L: DataLoader> WebRender<L> for AsyncStockTile {
@@ -108,7 +107,7 @@ impl<L: DataLoader> WebRender<L> for AsyncStockTile {
         cx: &mut WebContext<L>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            let initial: StockPrice = cx.load_json(self.load_key).await?;
+            let initial: StockPrice = cx.load_json(LoadKey::named("stock", "AAPL")).await?;
             let price: rsjs::Query<StockPrice> = rsjs::query_with_initial(
                 QueryKey::new(("stock", "AAPL")),
                 initial,
@@ -152,7 +151,10 @@ QueryKey::new(("search", query.get()))
 ```
 
 The key identifies the cache entry. The `FetchRequest` describes the browser
-request and stays static.
+request and stays static. Keys do not substitute URL parameters or send their
+parts to the endpoint. Keep the server seed, cache key, and literal request
+descriptor aligned with the same resource; changing only the key does not change
+the URL or request body.
 
 When a linked parent supplies a live value used in a child query key, RSJS keeps
 the query handle stable. It rebinds the observer to the entry for the new
@@ -197,17 +199,15 @@ let invalidate = event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
 });
 
 html_sync! {
-    <span>{price.status()}</span>
-    <span>{price.data().value}</span>
-    <span>{price.download_percent()}</span>
-
-    {if price.is_refetching() {
-        html_sync! { <span>"Refreshing"</span> }
-    }}
-
-    <button type="button" on_click={invalidate()}>
-        "Invalidate"
-    </button>
+    <div>
+        <span>{price.status()}</span>
+        <span>{price.data().value}</span>
+        <span>{price.download_percent()}</span>
+        {if price.is_refetching() {
+            html_sync! { <span>"Refreshing"</span> }
+        }}
+        <button type="button" on_click={invalidate()}>"Invalidate"</button>
+    </div>
 }
 ```
 
@@ -246,6 +246,11 @@ the invalidation list names the query keys the runtime refreshes after a
 successful run.
 
 ```rust filename="src/components/cart_editor.rs"
+use std::future::Future;
+use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa_macros::html;
+use rsjs::{rsjs, QueryKey};
+
 pub struct CartEditor;
 
 #[rsjs(component, client)]
@@ -280,14 +285,16 @@ impl<L: DataLoader> WebRender<L> for CartEditor {
             );
 
             html! {
-                <input value={draft.get()} on_input={update_draft()} />
-                <button
-                    type="button"
-                    disabled={save.is_pending()}
-                    on_click={submit()}
-                >
-                    {if save.is_pending() { "Saving..." } else { "Save" }}
-                </button>
+                <div>
+                    <input value={draft.get()} on_input={update_draft()} />
+                    <button
+                        type="button"
+                        disabled={save.is_pending()}
+                        on_click={submit()}
+                    >
+                        {if save.is_pending() { "Saving..." } else { "Save" }}
+                    </button>
+                </div>
             }
             .render(cx)
             .resolve()
@@ -296,6 +303,11 @@ impl<L: DataLoader> WebRender<L> for CartEditor {
     }
 }
 ```
+
+`run(args)` sends one JSON value when the request descriptor has no fixed body.
+A Rust `String` becomes a JSON string; text containing JSON is not parsed into
+an object. Match the endpoint's input type to the payload type. A fixed
+`FetchRequest.body` takes precedence over the run argument.
 
 Use `mutation_with_options(...)` when you need retry policy or a different
 invalidation strategy.

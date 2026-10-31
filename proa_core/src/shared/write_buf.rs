@@ -77,6 +77,10 @@ pub enum WriteError {
     /// buffer or loader conditions but must still surface through
     /// `WebRender`'s `Result<(), WriteError>`.
     Render(std::borrow::Cow<'static, str>),
+    /// A rejected managed-head lifecycle operation.
+    HeadLifecycle(crate::managed_head::HeadError),
+    /// A managed-head failure retaining its original error and component.
+    HeadFailure(std::sync::Arc<crate::managed_head::HeadFailure>),
 }
 
 impl WriteError {
@@ -107,6 +111,8 @@ impl WriteError {
 impl core::fmt::Display for WriteError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            WriteError::HeadFailure(e) => core::fmt::Display::fmt(e, f),
+            WriteError::HeadLifecycle(e) => write!(f, "head lifecycle ({e:?}): {e}"),
             WriteError::OutOfCapacity => write!(f, "buffer out of capacity"),
             WriteError::OutputLimitExceeded {
                 requested,
@@ -146,7 +152,15 @@ impl core::fmt::Display for WriteError {
     }
 }
 
-impl std::error::Error for WriteError {}
+impl std::error::Error for WriteError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::HeadFailure(e) => Some(e.as_ref()),
+            Self::Load(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl From<LoadError> for WriteError {
     fn from(value: LoadError) -> Self {
@@ -168,6 +182,15 @@ impl From<LoadError> for WriteError {
 /// - `RenderBuffer` - Standard 4 KiB chained bump writer for reusable render buffers
 /// - `StreamingZeroCopyBuf` - Streaming-oriented segmented buffer with zero-copy checkpoints
 pub trait WriteBuf {
+    fn __head_supports_pages() -> bool {
+        false
+    }
+    fn __head_take_pages(&mut self) -> Result<Vec<Bytes>, WriteError> {
+        Err(WriteError::HeadLifecycle(
+            crate::managed_head::HeadError::UnsupportedWriter,
+        ))
+    }
+
     /// Returns the total capacity of the buffer.
     fn capacity(&self) -> usize;
 
@@ -272,6 +295,13 @@ pub trait CheckpointWriteBuf: WriteBuf {
 // forwarding implementations here, beside the traits, so borrowed buffers
 // preserve every optimized write hook and do not acquire a `B: 'static` bound.
 impl<B: WriteBuf + ?Sized> WriteBuf for &mut B {
+    fn __head_supports_pages() -> bool {
+        B::__head_supports_pages()
+    }
+    fn __head_take_pages(&mut self) -> Result<Vec<Bytes>, WriteError> {
+        (**self).__head_take_pages()
+    }
+
     #[inline(always)]
     fn capacity(&self) -> usize {
         (**self).capacity()
@@ -904,7 +934,7 @@ impl<const N: usize> ChainedBumpWriter<N> {
     {
         let mut reusable = crate::reusable_web_context(self);
         // ChainedBumpWriter::extend never returns Err — it chains pages.
-        root.render(reusable.context()).unwrap();
+        crate::head_dispatch::sync(root, reusable.context()).unwrap();
     }
 
     /// Consume the buffer into contiguous bytes.
@@ -970,6 +1000,13 @@ impl<const N: usize> Default for ChainedBumpWriter<N> {
 }
 
 impl<const N: usize> WriteBuf for ChainedBumpWriter<N> {
+    fn __head_supports_pages() -> bool {
+        true
+    }
+    fn __head_take_pages(&mut self) -> Result<Vec<Bytes>, WriteError> {
+        Ok(std::mem::take(self).into_pages().collect())
+    }
+
     #[inline(always)]
     fn capacity(&self) -> usize {
         usize::MAX

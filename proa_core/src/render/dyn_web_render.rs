@@ -53,7 +53,7 @@ where
     L: DataLoader,
 {
     fn render_sync_dyn(self: Box<Self>, ctx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        WebRenderSync::render(*self, ctx)
+        crate::head_dispatch::sync(*self, ctx)
     }
 }
 
@@ -184,7 +184,7 @@ where
     L: DataLoader,
 {
     fn render_dyn<'a>(self: Box<Self>, ctx: &'a mut WebContext<L, B>) -> DynRenderOutcome<'a> {
-        match WebRender::render(*self, ctx) {
+        match crate::head_dispatch::begin(*self, ctx) {
             RenderOutcome::Done(res) => DynRenderOutcome::Done(res),
             RenderOutcome::Pending(fut) => DynRenderOutcome::Pending(Box::pin(fut)),
         }

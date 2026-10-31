@@ -284,9 +284,11 @@ mod tests {
     #[test]
     fn selected_code_lines_are_compiled_into_stable_html_hooks() {
         let page = docs()
-            .find_page("proa-docs/_retired/markdown-pipeline")
-            .expect("markdown pipeline guide");
-        assert!(page.markdown.contains("```rust {2,4-5}\n"));
+            .find_page("proa-docs/code-block")
+            .expect("code block guide");
+        assert!(page
+            .markdown
+            .contains("```rust filename=\"src/main.rs\" {2,4-5}\n"));
         assert!(page.article_html.contains("data-code-lines"));
         assert!(page
             .article_html

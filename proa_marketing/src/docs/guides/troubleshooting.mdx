@@ -196,9 +196,10 @@ as the installer exits.
 
 `https://proa.so/downloads/cli/latest.json` answers `404` when no `proa-cli`
 release exists. The installer reads that as "there is no version to install"
-rather than a failure, and compiles the CLI with Cargo instead. The log names
-the outcome, and the run ends with a working `proa`, just built rather than
-downloaded.
+rather than an archive-download failure, and attempts a Cargo build from
+crates.io instead. That requires a published `proa-cli` crate. For unreleased
+development work, explicitly select an unversioned source build to compile
+Git HEAD. The installer log identifies which source it selected.
 
 The source build puts `proa` and `cargo-proa` in `~/.cargo/bin`, not
 `~/.proa/bin`, so look there when the shell cannot find the binary afterwards.
@@ -218,7 +219,7 @@ produce this. Run the installer again first. If the mismatch survives a retry,
 fetch both files and check them yourself:
 
 ```bash
-VERSION=0.1.0
+VERSION="<published-version>"
 TARGET=x86_64-unknown-linux-gnu
 BASE="https://proa.so/downloads/cli/$VERSION"
 curl --proto '=https' --tlsv1.2 -fLO "$BASE/proa-cli-$VERSION-$TARGET.tar.gz"
@@ -247,18 +248,17 @@ For now, Proa publishes one native release binary:
 24.04+ and other glibc 2.39+ Linux systems. On anything else, including older
 Ubuntu releases, ARM Linux, Alpine and other musl distributions, macOS,
 Windows, FreeBSD, and 32-bit hosts, the installer reports that it found no
-matching asset and compiles the CLI with Cargo instead. While the repository is
-private, that fallback requires GitHub access:
+matching asset and compiles the CLI with Cargo instead. For an official released
+version, this fallback builds from crates.io without GitHub credentials:
 
 ```bash
-CARGO_NET_GIT_FETCH_WITH_CLI=true \
-  cargo install --git https://github.com/proa-labs/proa --locked proa-cli
+cargo install proa-cli --locked
 ```
 
-No private Cargo index or Cargo token is required. The installer enables
-`CARGO_NET_GIT_FETCH_WITH_CLI=true` when Git is available so your Git
-credential helper and proxy settings apply. For private repository access,
-configure your GitHub credentials before running the source installer.
+Use `--version "=<published-version>"` to pin a release. Main snapshots pin a
+full Git commit; a custom repository or an explicit unversioned
+`--build-from-source` installation uses Git instead. Git builds honor your
+credential helper and proxy settings through `CARGO_NET_GIT_FETCH_WITH_CLI`.
 
 That build takes several minutes and needs Rust 1.93.0 or newer plus a C
 toolchain. On Alpine, install the toolchain first:
@@ -290,23 +290,14 @@ back empty. Attach it if you report the detection as wrong.
 
 ## Cargo Cannot Download Proa Crates
 
-Generated projects declare Proa crates as git dependencies on
-`https://github.com/Proa-Labs/proa.git`. Confirm that your project has a
-`.cargo/config.toml` that fetches them with the Git CLI:
+Generated projects use public crates.io dependencies. Check network access to
+crates.io, the Cargo error, and your project's proxy configuration. No private
+`proa` registry or GitHub token is required.
 
-```toml
-[net]
-git-fetch-with-cli = true
-```
-
-`git-fetch-with-cli` makes Cargo use your Git credential helper and proxy
-settings. No `[registries.proa]` configuration is needed. If an existing
-project still reports a missing `proa` index, update its Proa Git dependencies
-with `cargo update`; its lockfile may pin a commit from before this migration.
-Use the same Git URL and revision for all Proa dependencies.
-
-While the repository is private, the git fetch needs GitHub access, on your
-machine and in CI. See [Installation](/docs) and [CI / GitHub Actions](/docs/guides/ci).
+For an older project using Git dependencies, keep all Proa crates on the same
+Git URL and revision, and enable `net.git-fetch-with-cli` when you need your Git
+credential helper or proxy settings. Migrate dependency declarations together;
+see [Upgrading](/docs/guides/upgrading) and [CI](/docs/guides/ci).
 
 ## The Page Builds But Styles Are Missing
 

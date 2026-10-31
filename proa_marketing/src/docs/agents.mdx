@@ -33,7 +33,7 @@ Keep `AGENTS.md` at the project root. It describes the local project shape, rend
 ## Rendering Rules
 
 - Use `WebRenderSync` by default.
-- Use `WebRender` only when the render body needs `.await`, `query_with_initial(...)`, or `mutation(...)`.
+- Use `WebRender` only when the render body or `render_head` needs `.await`, or the analyzed component declares RSJS query/mutation state.
 - Use `html_sync!` for synchronous render trees and `html!` for async-capable render trees.
 - Opaque SSR components use no RSJS attribute. An analyzed component uses
   `#[rsjs(component)]`; add `client` when it originates signals, event
@@ -46,6 +46,7 @@ Keep `AGENTS.md` at the project root. It describes the local project shape, rend
   an intentional per-render snapshot.
 - Keep hot render paths allocation-clean. Prefer borrowed data, static class strings, and stack-allocated class composition.
 - Do not build child HTML strings just to concatenate them into a parent.
+- In managed documents, set `const ROLE: ComponentRole = ComponentRole::PAGE` on the route page and `LAYOUT` on its ancestors. Use one head outlet. A head hook requires either role; analyzed RSJS impls stay render-only, with roles and hooks on an ordinary SSR wrapper.
 
 ## Validation
 
@@ -53,8 +54,8 @@ Run these before handing work back:
 
 ```bash
 cargo fmt --all
-cargo check
-cargo test
+proa check
+proa test
 proa site check
 ```
 
@@ -89,7 +90,7 @@ Use this skill when adding or changing Proa pages, components, layouts, route ha
 ## Rules
 
 - Read the local `AGENTS.md` first.
-- Prefer `WebRenderSync` unless the component must await data or declare RSJS query/mutation state.
+- Prefer `WebRenderSync` unless the body or head hook must await data, or the component declares RSJS query/mutation state.
 - Use `html_sync!` for sync markup and `html!` for async-capable markup.
 - Use `#[rsjs(component)]` on an authored render-trait impl for analyzed
   participation. Add `client` when the component originates browser behavior.
@@ -100,6 +101,7 @@ Use this skill when adding or changing Proa pages, components, layouts, route ha
   boundaries only when the component contract intentionally snapshots them.
 - Preserve direct parent-child rendering. Do not render children into intermediate `String`s unless a non-hot-path API explicitly requires it.
 - Keep classes static where possible. Prefer compile-time class composition and existing project tokens.
+- Managed documents need explicit PAGE/LAYOUT roles and one head outlet; put head hooks on ordinary SSR wrappers, outside analyzed RSJS impls.
 - After edits, run the validation commands from `AGENTS.md`.
 
 ## Context To Fetch

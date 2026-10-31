@@ -300,10 +300,7 @@ impl Font {
             StaticRaw("<link rel=\"preload\" as=\"font\" type=\"").render(cx)?;
             StaticRaw(face.format.mime()).render(cx)?;
             StaticRaw("\" href=\"").render(cx)?;
-            proa_core::shared::attr_value::AttrValue::render_attr_value(
-                &cx.request().url(face.url),
-                cx,
-            )?;
+            proa_core::shared::attr_value::AttrValue::render_attr_value(&cx.url(face.url), cx)?;
             StaticRaw("\" crossorigin=\"anonymous\">").render(cx)?;
         }
         Ok(())
