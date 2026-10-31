@@ -118,7 +118,9 @@ impl<'a, L: DataLoader> WebRenderSync<L> for ListingDetail<'a> {
                     <h2 class="text-lg font-semibold">{self.title}</h2>
                     <p class="text-muted-foreground">{self.location}</p>
                     <p class="mt-auto font-semibold">
-                        "$"{self.price}" "
+                        "$"
+                        {self.price}
+                        " "
                         <span class="font-normal">"/ night"</span>
                     </p>
                 </div>
@@ -170,12 +172,12 @@ Jinja2 uses inheritance (`{% extends %}`). Proa uses composition, where a layout
 Proa:
 
 ```rust filename="src/layouts/app.rs"
-pub struct AppLayout<C> {
-    pub title: &'static str,
+pub struct AppLayout<'a, C> {
+    pub title: &'a str,
     pub children: C,
 }
 
-impl<L, C> WebRenderSync<L> for AppLayout<C>
+impl<'a, L, C> WebRenderSync<L> for AppLayout<'a, C>
 where
     L: DataLoader,
     C: WebRenderSync<L>,
@@ -184,7 +186,9 @@ where
         html_sync! {
             <!DOCTYPE html>
             <html lang="en">
-                <head><title>{self.title}" - MyApp"</title></head>
+                <head>
+                    <title>{self.title}" - MyApp"</title>
+                </head>
                 <body>
                     <nav>"..."</nav>
                     {self.children}
@@ -255,6 +259,10 @@ async fn listing_detail(
     Ok(Html(cx.into_output().into_string()))
 }
 ```
+
+The layout above uses a manual head. To adopt managed metadata, follow
+[Layouts and Pages](/docs/framework/layouts-and-pages) and migrate roles and
+the outlet together.
 
 The sidecar costs one HTTP hop per migrated route. Remove it only when profiling says it matters.
 

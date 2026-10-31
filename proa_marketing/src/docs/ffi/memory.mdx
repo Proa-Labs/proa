@@ -30,7 +30,7 @@ Rules:
 
 `proa_free(NULL, 0)` is a no-op in the current implementation. Call it only for successful allocated renders.
 
-One allocation per render costs you an allocator round trip. The `_into` functions remove it.
+Use `_into` to reuse host output storage. The current demo exports still allocate their intermediate Rust render output; the ownership contract does not guarantee zero internal allocations.
 
 ## Reusing a caller-provided buffer
 
@@ -77,7 +77,7 @@ uintptr_t out_len = 0;
 int32_t rc = render_nike_pdp_json(json_ptr, json_len, &out, &out_len);
 ```
 
-The host keeps ownership of `json_ptr`. The input must remain valid until the function returns. On success, Proa owns the output, and you release it with `proa_free`.
+The host keeps ownership of `json_ptr`. The input must remain valid until the function returns. On success, ownership of the Proa-allocated output transfers to the caller, which releases it with `proa_free`.
 
 Those rules hold per call. Running calls in parallel adds one more.
 

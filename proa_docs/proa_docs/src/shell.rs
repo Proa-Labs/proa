@@ -19,7 +19,7 @@ pub struct DocsShell<'a> {
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsShell<'_> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
-        let home = cx.request().url(self.docs.config.base_path);
+        let home = cx.url(self.docs.config.base_path);
         html_sync! {
             <!DOCTYPE html>
             <html lang="en">

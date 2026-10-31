@@ -32,7 +32,8 @@ For Rust APIs, write the table by hand:
 | `base_path` | `&'static str` | `"/docs"` | URL prefix the site mounts under |
 | `site_name` | `&'static str` | — | Shown in the sidebar header |
 
-A rustdoc-driven source would let a config reference page shrink to a handful of lines. It is the highest-leverage thing missing from this crate — [Fumadocs' whole MDX config surface](https://www.fumadocs.dev/docs/mdx/global) is three generated tables and 111 words of prose.
+Until type extraction is implemented, maintain API tables alongside their
+examples and verify field names and defaults against the owning Rust types.
 
 ## Related
 

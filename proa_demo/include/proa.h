@@ -1,8 +1,11 @@
 /*
  * Proa SSR Engine — C FFI Interface
  *
- * Build:
- *   cargo build -p proa_demo --release
+ * Source and packaging:
+ *   This header describes the showcase demo exports. Use a matching library
+ *   artifact; plain cargo build is blocked for this RSJS cdylib. The linked
+ *   CLI currently builds binary/example targets, not cdylibs. See the FFI
+ *   packaging guide for the current artifact contract.
  *
  * Output:
  *   target/release/libproa_demo.dylib   (macOS)
@@ -57,7 +60,7 @@ int32_t render_airbnb_listing_json(const uint8_t *json_ptr,
                                    uintptr_t *out_len);
 
 /**
- * Render the Nike catalog page (120 product cards). Returns 0 on success.
+ * Render the Nike catalog page with its default product data. Returns 0 on success.
  *
  * # Safety
  * `out_ptr` and `out_len` must be valid, writable pointers.
@@ -115,7 +118,7 @@ int32_t render_nike_catalog_into(uint8_t *buf_ptr, uintptr_t buf_cap, uintptr_t 
 int32_t render_nike_pdp_into(uint8_t *buf_ptr, uintptr_t buf_cap, uintptr_t *out_len);
 
 /**
- * Free a buffer previously returned by a `render_airbnb_*` function.
+ * Free a buffer previously returned by any allocating render function.
  *
  * # Safety
  * `ptr` and `len` must match a previous allocation from this library.
@@ -126,7 +129,8 @@ void proa_free(uint8_t *ptr, uintptr_t len);
  * Render the Airbnb homepage into a caller-provided buffer.
  *
  * Returns 0 on success, -1 if the buffer is too small.
- * `out_len` receives the number of bytes written.
+ * `out_len` receives the number of bytes written on success, or the required
+ * byte count when the buffer is too small.
  *
  * # Safety
  * `buf_ptr` must point to at least `buf_cap` writable bytes.

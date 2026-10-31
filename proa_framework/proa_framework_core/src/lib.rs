@@ -13,6 +13,7 @@
 
 pub mod bootstrap;
 pub mod discovery;
+pub mod managed_response;
 pub mod manifest;
 pub mod markdown;
 pub mod metadata;

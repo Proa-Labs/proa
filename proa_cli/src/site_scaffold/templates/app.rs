@@ -185,8 +185,8 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let RootDocument { title, content } = self;
-            let favicon = cx.request().url("/static/favicon.svg");
-            let stylesheet = cx.request().url("/static/styles.css");
+            let favicon = cx.url("/static/favicon.svg");
+            let stylesheet = cx.url("/static/styles.css");
             html! {
                 <!DOCTYPE html>
                 <html lang="en">
@@ -346,11 +346,11 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
                 r#"{Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }}"#
             }
         } else {
-            r#"<a href={cx.request().url("/index.md")}>"READ THE MARKDOWN"</a>"#
+            r#"<a href={cx.url("/index.md")}>"READ THE MARKDOWN"</a>"#
         };
         r#"__HTML_MACRO__! {
             <main>
-                <header class="topbar"><a class="wordmark" href={cx.request().url("/")}>"PROA"</a><span>"COMPILED APPLICATION STARTER"</span></header>
+                <header class="topbar"><a class="wordmark" href={cx.url("/")}>"PROA"</a><span>"COMPILED APPLICATION STARTER"</span></header>
                 <section class="hero">
                     <p class="kicker">"THE SERVER ALREADY DID THE WORK"</p>
                     <h1>"Build the page in Rust. Ship only what moves."</h1>

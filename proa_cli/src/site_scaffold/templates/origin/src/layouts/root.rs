@@ -5,8 +5,8 @@ use std::future::Future;
 use std::sync::OnceLock;
 
 use proa_core::{
-    ClassList, DataLoader, RenderOutcome, StaticRaw, WebContext, WebRender, WebRenderSync,
-    WriteError,
+    ClassList, ComponentRole, DataLoader, HeadMetadata, RenderOutcome, StaticRaw, WebContext,
+    WebRender, WebRenderSync, WriteError,
 };
 use proa_fonts::Font;
 use proa_fonts_macros::google_font;
@@ -75,6 +75,16 @@ where
     L: DataLoader,
     C: WebRender<L> + Send + 'static,
 {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+
+    async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        cx.head_mut().metadata(HeadMetadata {
+            title: "ORIGIN — how the internet reaches websites".into(),
+            description: "ORIGIN shows how the internet reaches any website: the addresses, the networks, and the routes between them.".into(),
+            ..Default::default()
+        })
+    }
+
     fn render(
         self,
         cx: &mut WebContext<L>,
@@ -87,23 +97,19 @@ where
                 .add(SANS.class_name())
                 .add(MONO.class_name())
                 .add("dark");
-            let favicon = cx.request().url("/static/favicon.svg");
-            let stylesheet = cx.request().url(css_href());
-            let ui_stylesheet = cx.request().url("/static/proa/proa-ui/proa-free.css");
-            let ui_script = cx.request().url("/static/proa/proa-ui/proa-free.js");
-            let script = cx.request().url(js_src());
+            let favicon = cx.url("/static/favicon.svg");
+            let stylesheet = cx.url(css_href());
+            let ui_stylesheet = cx.url("/static/proa/proa-ui/proa-free.css");
+            let ui_script = cx.url("/static/proa/proa-ui/proa-free.js");
+            let script = cx.url(js_src());
             html! {
                 <!DOCTYPE html>
                 <html lang="en" class={font_classes}>
                     <head>
                         <meta charset="utf-8" />
                         <meta name="viewport" content="width=device-width, initial-scale=1" />
-                        <meta
-                            name="description"
-                            content="ORIGIN shows how the internet reaches any website: the addresses, the networks, and the routes between them."
-                        />
+                        {cx.head()}
                         <meta name="theme-color" content="#0b0b0c" />
-                        <title>"ORIGIN — how the internet reaches websites"</title>
                         <link rel="preconnect" href="https://stat.ripe.net" />
                         <link rel="preconnect" href="https://ris-live.ripe.net" />
                         <link rel="icon" href={favicon} />

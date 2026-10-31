@@ -28,5 +28,6 @@ tokio = { workspace = true, optional = true, features = ["macros", "rt", "time"]
 tracing = { workspace = true }
 
 [dev-dependencies]
+proa_macros = { path = "../proa_macros" }
 http = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

@@ -75,7 +75,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsNavLabel<'_> {
             let Some(path) = self.item.path else {
                 return Ok(());
             };
-            let path = cx.request().url(path);
+            let path = cx.url(path);
             html_sync! {
                 <a href={path} data_active={active}>
                     {DocsNavIcon { icon: self.item.icon }}

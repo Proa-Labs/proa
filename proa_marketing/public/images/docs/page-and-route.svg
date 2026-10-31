@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 500" width="960" height="500" role="img" aria-labelledby="title description">
+  <title id="title">A Page component in an editor and its rendered output</title>
+  <desc id="description">An editor shows the src directory, layouts and pages folders, and content.rs selected. ContentPage declares ROLE PAGE. The registered slash route renders it. Rust file names do not register URLs.</desc>
+  <style>
+.canvas {fill:#faf8f4}.panel {fill:#fffdf9;stroke:#dcd5cb;stroke-width:1.4}.ink {fill:#302c27}.muted {fill:#80776d}.line {stroke:#bdb3a6;stroke-width:1.5;fill:none}.layout {fill:#f5eee2;stroke:#b69a72;stroke-width:1.6}.page {fill:#fff0e5;stroke:#d6804d;stroke-width:1.8}.component {fill:#eef3ed;stroke:#8aab8c;stroke-width:1.4}.tag {font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px}.h {font:600 19px ui-sans-serif,system-ui,sans-serif}.body {font:14px ui-sans-serif,system-ui,sans-serif}.mono {font:13px ui-monospace,SFMono-Regular,Menlo,monospace}.small {font:12px ui-sans-serif,system-ui,sans-serif}.arrow-head {fill:#a99b8b}
+@media(prefers-color-scheme:dark){.canvas{fill:#202020}.panel{fill:#272624;stroke:#5d574f}.ink{fill:#ece6dc}.muted{fill:#c0b7aa}.layout{fill:#383024;stroke:#b69a72}.page{fill:#442e23;stroke:#e29663}.component{fill:#26382b;stroke:#8aab8c}.line{stroke:#8c8172}}
+</style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" class="arrow-head" />
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="960" height="500" rx="18" class="canvas" />
+  <text x="28" y="39" class="h ink">Define a Page in a Rust module</text>
+  <rect x="28" y="65" width="520" height="363" rx="12" class="panel" />
+  <circle cx="48" cy="86" r="4" fill="#d6804d" />
+  <circle cx="64" cy="86" r="4" fill="#c2ad8b" />
+  <circle cx="80" cy="86" r="4" fill="#8aab8c" />
+  <text x="108" y="91" class="small muted">atlas / src / pages / content.rs</text>
+  <path d="M28 107H548 M225 107V428" class="line" />
+  <text x="45" y="131" class="tag muted">EXPLORER</text>
+  <text x="44" y="164" class="mono muted">⌄</text>
+  <path d="M61 154h9l3 3h12v13h-24z" class="line" />
+  <text x="94" y="164" class="mono ink">src</text>
+  <path d="M77 189h9l4 4v12h-13z M86 189v5h4" class="line" />
+  <text x="100" y="201" class="mono ink">app.rs</text>
+  <text x="66" y="237" class="mono muted">⌄</text>
+  <path d="M83 227h9l3 3h12v13h-24z" class="line" />
+  <text x="116" y="237" class="mono ink">layouts</text>
+  <path d="M99 262h9l4 4v12h-13z M108 262v5h4" class="line" />
+  <text x="122" y="274" class="mono ink">root.rs</text>
+  <text x="66" y="310" class="mono muted">⌄</text>
+  <path d="M83 300h9l3 3h12v13h-24z" class="line" />
+  <text x="116" y="310" class="mono ink">pages</text>
+  <rect x="90" y="328" width="112" height="29" rx="5" class="page" />
+  <path d="M99 335h9l4 4v12h-13z M108 335v5h4" class="line" />
+  <text x="122" y="347" class="mono ink">content.rs</text>
+  <text x="244" y="135" class="mono muted">content.rs</text>
+  <text x="244" y="170" class="mono ink">pub struct ContentPage {</text>
+  <text x="244" y="191" class="mono muted">    title: &amp;'static str,</text>
+  <text x="244" y="212" class="mono muted">    message: &amp;'static str,</text>
+  <text x="244" y="233" class="mono ink">}</text>
+  <text x="244" y="254" class="mono ink" />
+  <text x="244" y="275" class="mono ink">impl ... for ContentPage {</text>
+  <text x="244" y="296" class="mono ink">    const ROLE:</text>
+  <text x="244" y="317" class="mono ink">        ComponentRole =</text>
+  <text x="244" y="338" class="mono ink">        ComponentRole::PAGE;</text>
+  <text x="244" y="359" class="mono muted">    // render_head, render</text>
+  <text x="244" y="380" class="mono ink">}</text>
+  <path d="M560 249H581" class="line" marker-end="url(#arrow)" />
+  <rect x="595" y="65" width="337" height="363" rx="12" class="panel" />
+  <text x="615" y="97" class="mono muted">GET /</text>
+  <rect x="614" y="122" width="298" height="281" rx="12" class="page" />
+  <rect x="633" y="140" width="70" height="25" rx="7" class="page" />
+  <text x="668.0" y="157" class="tag ink" text-anchor="middle">PAGE</text>
+  <text x="633" y="229" class="h ink">Home</text>
+  <text x="633" y="258" class="body muted">Welcome to Acme.</text>
+  <text x="633" y="370" class="mono muted">&lt;main data-content-page&gt;</text>
+  <text x="28" y="470" class="body muted">Register the URL in app.rs; the selected file defines the Page component.</text>
+</svg>

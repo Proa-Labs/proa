@@ -25,6 +25,7 @@
       "icon": "Route"
     },
     "framework/routing",
+    "framework/layouts-and-pages",
     "framework/linking",
     "framework/route-handlers",
     "framework/sitemaps",
@@ -33,6 +34,7 @@
     "framework/page-caching",
     "framework/errors",
     "framework/metadata",
+    "framework/metadata-reference",
     {
       "separator": "Data",
       "icon": "Database"

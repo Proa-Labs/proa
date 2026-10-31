@@ -13,7 +13,7 @@ mod __proa_fonts_generated {
 }
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::{
     extract::{Path, Query, State},
@@ -49,7 +49,8 @@ where
     render_atlas_page_with_base_path(raw_query, loader, BasePath::default()).await
 }
 
-/// Render with the same public mount used by the HTTP application.
+/// Render with the same public mount and managed head used by the HTTP application.
+// proa-perf-ok(scope): buffered document helper collects published pages into one owned response.
 pub async fn render_atlas_page_with_base_path<L>(
     raw_query: Option<&str>,
     loader: Arc<L>,
@@ -58,18 +59,37 @@ pub async fn render_atlas_page_with_base_path<L>(
 where
     L: proa_core::DataLoader + Send + Sync + 'static,
 {
-    use proa_core::WebRender;
     let resolver = DataResolver::request_scope(loader);
     let mut cx = proa_core::WebContext::with_loader(resolver);
     cx.request_mut().set_base_path(base_path);
-    RootDocument {
-        content: AtlasPage::resolve(raw_query),
-    }
-    .render(&mut cx)
-    .resolve()
+    let published = Arc::new(Mutex::new(Vec::new()));
+    let prefix = published.clone();
+    cx.configure_head(
+        proa_core::HeadConfig::default(),
+        Arc::new(move |_, chunks| {
+            let mut bytes = prefix.lock().unwrap();
+            for chunk in chunks {
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok(())
+        }),
+    )
+    .expect("configure managed document");
+    proa_core::render_child(
+        &mut cx,
+        RootDocument {
+            content: AtlasPage::resolve(raw_query),
+        },
+    )
     .await
     .expect("render the atlas document");
-    cx.into_output().into_string()
+    cx.require_managed_head()
+        .unwrap()
+        .final_check()
+        .expect("complete managed document");
+    let mut bytes = std::mem::take(&mut *published.lock().unwrap());
+    bytes.extend_from_slice(cx.into_output().into_string().as_bytes());
+    String::from_utf8(bytes).expect("UTF-8 document")
 }
 
 #[derive(Debug, Deserialize)]
@@ -139,7 +159,11 @@ pub fn app_with_base_path(base_path: BasePath) -> Router {
         )
         .with_state(state)
         .merge(rsjs_assets_router(&base_path))
-        .layer(RouteContextLayer::new(manifest, metadata).with_base_path(base_path))
+        .layer(
+            RouteContextLayer::new(manifest, metadata)
+                .with_base_path(base_path)
+                .with_head(proa_core::HeadConfig::default()),
+        )
         .layer(TraceLayer::new_for_http())
 }
 

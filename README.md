@@ -239,7 +239,7 @@ python3 scripts/proa_perf_lint.py
 Run the marketing site and documentation locally with:
 
 ```bash
-cargo run -p proa_marketing
+cargo proa run -p proa_marketing --bin proa_marketing
 ```
 
 This repository contains the compiled-template engine and its first-party

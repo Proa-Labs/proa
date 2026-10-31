@@ -9,7 +9,7 @@ RSJS evaluates a `#[rsjs::client]` function during the server render, then rerun
 
 Use `#[rsjs::client]` when a small, portable calculation must produce the same result during SSR and rerun after a browser-visible input changes. Annotate the function definition once. A reachable call creates a symbolic helper edge automatically; the consuming component declares no allowlist.
 
-```rust filename="src/islands/results.rs"
+```rust filename="src/components/results.rs"
 mod labels {
     #[rsjs::client]
     pub fn result_label(count: i64) -> String {
@@ -26,7 +26,7 @@ use labels::result_label as label_for_count;
 
 Call the helper through an ordinary Rust path inside an analyzed component:
 
-```rust filename="src/islands/results.rs"
+```rust filename="src/components/results.rs"
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
 use proa_macros::html_sync;
 use rsjs::{event_handler, rsjs, signal};
@@ -69,7 +69,7 @@ Path spelling is not helper identity. Rustc-selected relocation targets give the
 
 Because the linker resolves identity this way, RSJS removed the component-level `clients(...)` list:
 
-```rust filename="src/islands/results.rs"
+```rust filename="src/components/results.rs"
 // Rejected:
 #[rsjs(component, client, clients(crate::labels))]
 ```
@@ -128,7 +128,7 @@ Arguments that reach a client helper are browser-visible and must have a support
 
 If a helper needs a server-loaded component field, first make the intended crossing explicit:
 
-```rust filename="src/islands/price.rs"
+```rust filename="src/components/price.rs"
 let cents = signal(self.cents);
 
 html_sync! {
@@ -142,7 +142,7 @@ Do not pass secrets or a large server object to format one label. Keep server-on
 
 If a result never changes in the browser, use a normal Rust function:
 
-```rust filename="src/islands/record_row.rs"
+```rust filename="src/components/record_row.rs"
 let label = format_server_label(self.record);
 
 html_sync! {

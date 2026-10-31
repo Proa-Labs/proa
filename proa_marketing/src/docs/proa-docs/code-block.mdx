@@ -21,6 +21,17 @@ use proa_core::WebRenderSync;
 | `proa-filetree` | Renders the block as a file tree instead of code |
 | `mermaid` | Marks the block for diagram rendering (opt-in). See [Mermaid](/docs/proa-docs/mermaid) |
 
+For example, this block highlights line 2 and the inclusive range 4–5:
+
+```rust filename="src/main.rs" {2,4-5}
+fn main() {
+    let message = "Highlighted";
+
+    println!("{message}");
+    println!("These ranges are inclusive");
+}
+```
+
 A filename header adds a copy button. Blocks without one still get the button; only the chrome differs.
 
 ## Highlighting is semantic, not inline

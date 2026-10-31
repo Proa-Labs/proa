@@ -255,8 +255,9 @@ Inline context is the other half. A newline would break a table cell or a link l
 
 ```rust filename="src/components/button/md.rs"
 let prev = cx.md_set_inline(true);
-self.children.render_md(cx)?;
+let result = self.children.render_md(cx);
 cx.md_set_inline(prev);
+result?;
 ```
 
 The same `Heading` that emits `\n\n## Inline\n\n` at block level emits `## Inline` there. Components degrade instead of corrupting the document. `md_set_inline` returns the previous value, so a nested span restores what it found rather than assuming it started at block level.

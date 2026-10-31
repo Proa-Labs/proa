@@ -100,14 +100,16 @@ fn manifest() -> IslandManifest {
 struct Page;
 impl<L: DataLoader> WebRenderSync<L> for Page {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        let base_path = cx.request().base_path().clone();
+        let docs = cx.url("/docs/start?x=1&y=2");
+        let submit = cx.url("/submit");
+        let image = cx.url("https://cdn.example/image.png");
         cx.rsjs_island_used(ISLAND);
         WebRenderSync::render(
             html_sync! {
                 <main>
-                    <a href={base_path.url("/docs/start?x=1&y=2")}>"Docs"</a>
-                    <form action={base_path.url("/submit")}></form>
-                    <img src={base_path.url("https://cdn.example/image.png")} />
+                    <a href={docs}>"Docs"</a>
+                    <form action={submit}></form>
+                    <img src={image} />
                 </main>
             },
             cx,
@@ -277,9 +279,9 @@ impl WebRender for LatePage {
         RenderOutcome::pending(async move {
             self.0.notified().await;
             cx.rsjs_island_used(LATE);
-            let base_path = cx.request().base_path().clone();
+            let late = cx.url("/late");
             html! {
-                <a href={base_path.url("/late")}>"Ready"</a>
+                <a href={late}>"Ready"</a>
             }
             .render(cx)
             .resolve()

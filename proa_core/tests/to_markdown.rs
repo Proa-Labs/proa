@@ -110,7 +110,10 @@ fn source_can_read_a_custom_loader_and_update_request_metadata() {
     let mut cx = WebContext::with_loader(loader.clone());
     to_markdown(LoadedHeading).render_md(&mut cx).unwrap();
     assert!(Arc::ptr_eq(cx.loader(), &loader));
-    assert_eq!(cx.head().title().as_deref(), Some("Request-specific title"));
+    assert_eq!(
+        cx.head_state().title().as_deref(),
+        Some("Request-specific title")
+    );
     assert_eq!(cx.into_output().into_string(), "## Request-specific title");
 }
 

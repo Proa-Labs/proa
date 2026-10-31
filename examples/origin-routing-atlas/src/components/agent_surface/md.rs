@@ -25,7 +25,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for A
         let accept = format!(
             "curl -H 'Accept: text/markdown' {}{}?q={}",
             super::agent_surface::base_url(&self.host),
-            cx.request().url("/"),
+            cx.url("/"),
             super::agent_surface::encode_query(&self.query)
         );
         cx.write_md_prepared_static(b"- ")?;

@@ -1,11 +1,13 @@
 ---
 title: Writing performant pages
-description: How to write zero-allocation Proa pages that render in microseconds. Covers format!() avoidance, SafeText, ClassList, numeric rendering, buffer selection, and pre-formatting patterns.
+description: Avoid intermediate allocations with direct-buffer text, class composition, numeric rendering, and reusable buffers.
 ---
 
 Proa's `html!` macro compiles static markup to byte literals at build time. At request time, only dynamic values are rendered. This guide covers how to keep the dynamic path fast.
 
-The core principle: **every byte written during a render should go directly into the output buffer. No intermediate strings, no format!() calls, no temporary allocations.**
+The core principle: **write authored output directly into the destination buffer instead of building temporary strings.** Use `WebRenderSync` and `html_sync!` by default; the same techniques apply to `WebRender` and `html!` when async work is required.
+
+This describes the template-writing path. Request contexts, loaders, managed metadata preparation, and response ownership have their own costs. Measure the complete request when evaluating an application; eliminating an intermediate formatting string does not make every request allocation-free.
 
 ## Avoid format!()
 
@@ -17,31 +19,55 @@ Instead of `format!()`, place string literals and expressions side by side. Each
 
 ```rust
 // Bad: allocates a String every render
-html! { <p>{format!("${} / night", price)}</p> }
-html! { <p>{format!("Hello, {}!", name)}</p> }
+html! {
+    <p>{format!("${} / night", price)}</p>
+}
+html! {
+    <p>{format!("Hello, {}!", name)}</p>
+}
 
 // Good: inline segments — zero allocation
-html! { <p>"$"{price}" / night"</p> }
-html! { <p>"Hello, "{name}"!"</p> }
+html! {
+    <p>"$"{price}" / night"</p>
+}
+html! {
+    <p>"Hello, "{name}"!"</p>
+}
 ```
 
-How it works: `"$"` compiles into the static byte run (zero cost at runtime), `{price}` renders the integer directly via `itoa_lut` (no `.to_string()`), and `" / night"` compiles into the next static byte run. No intermediate `String` is ever created.
+How it works: `"$"` compiles into the static byte run (no runtime formatting), `{price}` renders the integer directly via `itoa_lut` (no `.to_string()`), and `" / night"` compiles into the next static byte run. No intermediate `String` is ever created.
 
 More examples:
 
 ```rust
 // Bad
-html! { <span>{format!("{} items in cart", count)}</span> }
-html! { <title>{format!("{} - MyApp", page_title)}</title> }
+html! {
+    <span>{format!("{} items in cart", count)}</span>
+}
+html! {
+    <title>{format!("{} - MyApp", page_title)}</title>
+}
 
 // Good
-html! { <span>{count}" items in cart"</span> }
-html! { <title>{page_title}" - MyApp"</title> }
+html! {
+    <span>{count}" items in cart"</span>
+}
+html! {
+    <title>{page_title}" - MyApp"</title>
+}
 ```
 
-### In attributes, pre-compute
+### In attributes, use typed values
 
-Attributes take a single `{expr}`, so inline segments don't work there. Pre-compute the full string value before rendering:
+Use `text!` for formatted text attributes. It writes directly to the output buffer:
+
+```rust
+html_sync! {
+    <button title={text!("Add {} items", count)}>"Add"</button>
+}
+```
+
+For URL attributes, use a prepared URL or `cx.url(path)` for explicit application-base-path composition. Placeholder-bearing `text!` is rejected in URLs. Keep resource paths in your data rather than constructing a temporary URL during rendering:
 
 ```rust
 // Bad: allocates a String every render
@@ -59,7 +85,7 @@ html! {
 }
 ```
 
-If you can't pre-compute, do the `format!()` in your Axum handler and pass the result as a `&str`, this moves the allocation out of the render hot path.
+If a dynamic URL needs an owned string, construct it in the handler or view model and move the `String` into the deferred response component. Borrow `as_str()` while rendering it; a borrow of a handler-local string cannot outlive that handler. Computing it on every request still has a per-request cost. See [Linking](/docs/framework/linking) for `cx.url(...)` and mounted paths.
 
 ## SafeText
 
@@ -67,15 +93,16 @@ If you can't pre-compute, do the `format!()` in your Axum handler and pass the r
 
 ```rust
 use proa_core::SafeText;
+use proa_macros::safe_text;
 
 // Compile-time verified literal
 safe_text!("Hello world")
 
-// Runtime: string from a controlled source (e.g., enum variant, database slug)
-SafeText::from_trusted(product.slug)
+// Runtime: a label whose allowed characters were validated before rendering
+SafeText::from_trusted(validated_label)
 ```
 
-`SafeText` renders with a single `memcpy` into the output buffer. Regular `&str` rendering scans every byte with `memchr3` looking for unsafe characters. For strings you control (slugs, IDs, enum labels), `SafeText` eliminates that scan.
+`SafeText` renders with a single `memcpy` into the output buffer. Regular `&str` rendering scans every byte with `memchr3` looking for unsafe characters. For strings with a proven safe character set, `SafeText` eliminates that scan. A value is not trusted merely because it came from a database; keep ordinary escaped strings as the default.
 
 **When NOT to use it:** Never wrap user input in `SafeText`. If the string could contain `<script>`, you've created an XSS vulnerability.
 
@@ -96,9 +123,7 @@ const fn button_classes(primary: bool) -> ClassList<3> {
 
 // In your component
 html! {
-    <button class={button_classes(self.primary)}>
-        {self.label}
-    </button>
+    <button class={button_classes(self.primary)}>{self.label}</button>
 }
 ```
 
@@ -127,7 +152,15 @@ html! {
 }
 ```
 
-For formatted prices like `"$205"`, pre-compute the string in your data rather than formatting at render time.
+For formatted prices, `text!` writes the currency marker and numeric formatting directly:
+
+```rust
+html_sync! {
+    <span>{text!("${}.{:02}", price_cents / 100, price_cents % 100)}</span>
+}
+```
+
+This example uses nonnegative integer cents. For locale-specific currency rules, prepare a display value using the application's formatter.
 
 ## Pre-formatting pattern
 
@@ -161,7 +194,7 @@ html! {
 }
 ```
 
-This is the pattern used in the fictional footwear showcase, which renders 117 product cards in ~11 microseconds.
+The footwear showcase uses preformatted display data. Timing depends on the fixture, build, machine, and buffer ownership; use a pinned benchmark and verify output before comparing results.
 
 ## Static consolidation
 
@@ -222,7 +255,7 @@ let mut buf = RenderBuffer::new();
 buf.render_into(component);  // Clears first, then recycles pages as it renders
 ```
 
-`RenderBuffer` grows by chaining 4 KB pages. When a page fills, it rotates to a new one. On `clear()`, pages are cached for reuse. After a few requests, the buffer stabilizes and stops allocating entirely.
+`RenderBuffer` grows by chaining 4 KB pages. When a page fills, it rotates to a new one. On `clear()`, pages are cached for reuse. Once its reusable capacity covers a workload, the buffer can avoid further page allocations. Components, context state, metadata, and transport finalization can still allocate independently. This low-level helper uses manual rendering and panics on render errors; use framework response helpers for managed documents.
 
 ## Attribute rendering
 
@@ -292,7 +325,9 @@ Proa's `html!` macro detects common allocation patterns at compile time and emit
 
 ```rust
 // This produces a compiler warning:
-html! { <p>{format!("${} / night", price)}</p> }
+html! {
+    <p>{format!("${} / night", price)}</p>
+}
 ```
 
 The hint surfaces as a rustc warning anchored to the offending expression:
@@ -316,10 +351,14 @@ When you intentionally allocate in the render path, wrap the expression in `perf
 use proa_core::perf_ok;
 
 // Flagged:
-html! { <span>{format!("${}", price)}</span> }
+html! {
+    <span>{format!("${}", price)}</span>
+}
 
 // Silenced — you've acknowledged the allocation:
-html! { <span>{perf_ok(format!("${}", price))}</span> }
+html! {
+    <span>{perf_ok(format!("${}", price))}</span>
+}
 ```
 
 `perf_ok()` is an `#[inline(always)]` identity function, it returns its argument unchanged and compiles away to nothing. It exists only as a signal to the scanner (and to code reviewers) that the allocation is intentional.
@@ -346,10 +385,10 @@ Remove the feature flag when you're ready to optimize.
 
 ## Summary of rules
 
-1. **Never use `format!()`** inside `html!`. Use inline segments for text (`"$"{price}" / night"`), pre-compute for attributes.
-2. **Use `SafeText`** for strings from controlled sources (slugs, enum labels, pre-formatted data).
+1. **Avoid temporary formatting strings.** Use plain slots, adjacent text, or `text!` for text and non-URL attributes. Prepare URLs explicitly.
+2. **Keep escaping as the default.** Use `SafeText` only for a proven safe character set.
 3. **Use `ClassList`** for CSS class composition. It's `const fn` and zero-allocation.
-4. **Pre-format data** at initialization, not per render. Store `&'static str` instead of raw values.
+4. **Prepare reusable display data once** where practical. Retain typed numeric values when direct formatting is enough.
 5. **Use `RenderBuffer`** in production for buffer reuse across requests.
 6. **Maximize static runs** by keeping dynamic values at the leaves of your template.
 7. **Never allocate in a loop.** Each iteration should write directly to the output buffer.

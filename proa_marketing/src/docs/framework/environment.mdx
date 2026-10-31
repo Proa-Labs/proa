@@ -49,7 +49,8 @@ impl RuntimeConfig {
 
         let port = env::var("PORT")
             .ok()
-            .and_then(|value| value.parse::<u16>().ok())
+            .map(|value| value.parse::<u16>())
+            .transpose()?
             .unwrap_or(3000);
 
         let static_dir = env::var_os("STATIC_DIR")
@@ -93,7 +94,9 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!("listening on http://{}", listener.local_addr()?);
-    axum::serve(listener, app).await?;
+    proa_framework_axum::serve(
+        listener, app, std::time::Duration::from_secs(30),
+    ).await?;
 
     Ok(())
 }
@@ -156,7 +159,9 @@ Fail fast for required secrets:
 
 ```rust filename="src/config.rs"
 fn required_env(name: &'static str) -> anyhow::Result<String> {
-    env::var(name).map_err(|_| anyhow::anyhow!("{name} must be set"))
+    let value = env::var(name).map_err(|_| anyhow::anyhow!("{name} must be set"))?;
+    anyhow::ensure!(!value.trim().is_empty(), "{name} must not be empty");
+    Ok(value)
 }
 
 let database_url = required_env("DATABASE_URL")?;
@@ -195,11 +200,14 @@ pub struct PublicConfig {
 
 html_sync! {
     <meta name="app-base-url" content={public_config.base_url} />
-    <meta name="analytics-enabled" content={if public_config.analytics_enabled {
+    <meta
+        name="analytics-enabled"
+        content={if public_config.analytics_enabled {
         "true"
     } else {
         "false"
-    }} />
+    }}
+    />
 }
 ```
 
@@ -212,7 +220,7 @@ Locally, the same variables come from your shell instead of a platform dashboard
 Use shell exports or a local `.env` loader:
 
 ```bash filename="Terminal"
-HOST=127.0.0.1 PORT=3000 RUST_LOG=debug cargo run
+HOST=127.0.0.1 PORT=3000 RUST_LOG=debug proa run
 ```
 
 ```rust filename="src/main.rs"

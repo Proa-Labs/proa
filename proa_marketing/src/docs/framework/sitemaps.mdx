@@ -310,7 +310,7 @@ async fn main() -> anyhow::Result<()> {
 From the application crate, run with an empty base path for local development:
 
 ```bash filename="Terminal"
-PUBLIC_BASE_URL=http://127.0.0.1:3000 PROA_BASE_PATH="" cargo run
+PUBLIC_BASE_URL=http://127.0.0.1:3000 PROA_BASE_PATH="" proa run
 ```
 
 Visit `http://127.0.0.1:3000/sitemap.xml` for the sitemap and `/robots.txt` for crawler rules. The example sitemap lists `/` and `/pricing`; register those page routes in the application route list.

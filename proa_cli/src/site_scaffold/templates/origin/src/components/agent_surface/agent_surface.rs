@@ -91,7 +91,7 @@ impl<L: DataLoader> WebRenderSync<L> for AgentSurface {
         let command = format!(
             "curl -H 'Accept: text/markdown' {}{}?q={}",
             base_url(&self.host),
-            cx.request().url("/"),
+            cx.url("/"),
             encode_query(&self.query)
         );
         let curl_accept = format!("$ {command}"); // proa-perf-ok: a few short strings once per request.

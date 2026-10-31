@@ -19,6 +19,7 @@ html-to-markdown = ["dep:htmd", "dep:markup5ever_rcdom"]
 [dependencies]
 proa_ir = { workspace = true }
 proa_html_policy = { workspace = true }
+url = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
 heapless = { workspace = true }
@@ -27,6 +28,7 @@ htmd = { version = "0.5.5", optional = true }
 markup5ever_rcdom = { version = "0.38", optional = true }
 itoa_lut = { workspace = true }
 memchr = { version = "2.7" }
+pin-project-lite = "0.2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

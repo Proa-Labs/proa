@@ -3,6 +3,80 @@
 
 use super::*;
 
+#[test]
+fn head_hooks_require_explicit_metadata_roles() {
+    for (render_trait, hook) in [
+        ("WebRender", "render_head"),
+        ("WebRenderSend", "render_head_send"),
+        ("WebRenderSync", "render_head"),
+        ("WebRenderSendSync", "render_head_send_sync"),
+    ] {
+        for role in [
+            "",
+            "const ROLE: ComponentRole = ComponentRole::COMPONENT;",
+            "const ROLE: ComponentRole = (ComponentRole::COMPONENT);",
+            "const ROLE: ComponentRole = { proa_core::ComponentRole::COMPONENT };",
+        ] {
+            let source = format!("impl proa_core::{render_trait} for Page {{ {role} async fn {hook}(&self, cx: &mut WebContext) -> Result<(), WriteError> {{ Ok(()) }} }}");
+            let diagnostics = lint_file(Path::new("page.rs"), &source);
+            let errors: Vec<_> = diagnostics
+                .iter()
+                .filter(|d| d.code == "render/head-role-required")
+                .collect();
+            assert_eq!(errors.len(), 1, "{render_trait}: {diagnostics:?}");
+            assert_eq!(errors[0].severity, Severity::Error);
+        }
+        for role in [
+            "ComponentRole::LAYOUT",
+            "ComponentRole::PAGE",
+            "T::ROLE",
+            "APP_PAGE_ROLE",
+        ] {
+            let source = format!("mod pages {{ impl proa_core::{render_trait} for Page {{ const ROLE: ComponentRole = {role}; async fn {hook}(&self, cx: &mut WebContext) -> Result<(), WriteError> {{ Ok(()) }} }} }}");
+            assert!(
+                !lint_file(Path::new("page.rs"), &source)
+                    .iter()
+                    .any(|d| d.code == "render/head-role-required"),
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn head_role_lint_ignores_body_only_components_other_traits_and_excluded_tests() {
+    let source = r#"
+        impl WebRender for BodyOnly { fn render(self, cx: &mut WebContext) {} }
+        impl WebRender for InheritedPage {
+            const ROLE: ComponentRole = ComponentRole::PAGE;
+            fn render(self, cx: &mut WebContext) {}
+        }
+        impl OtherTrait for Other { async fn render_head(&self) {} }
+        #[cfg(test)]
+        mod tests {
+            impl WebRender for Fixture { async fn render_head(&self) {} }
+        }
+    "#;
+    assert!(!lint_file(Path::new("page.rs"), source)
+        .iter()
+        .any(|d| d.code == "render/head-role-required"));
+    let diagnostics = lint_file_with_options(
+        Path::new("page.rs"),
+        source,
+        LintOptions {
+            include_tests: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|d| d.code == "render/head-role-required")
+            .count(),
+        1
+    );
+}
+
 fn write_strategy_sidecar_with_fingerprint(
     root: &Path,
     analysis_id: &str,
@@ -1241,6 +1315,25 @@ impl<B: WriteBuf> WebRender<::proa_core::NoLoader, B> for Page {
     assert!(!diagnostics
         .iter()
         .any(|diag| diag.code == "render/async-unneeded"));
+}
+
+#[test]
+fn awaiting_head_keeps_async_trait_but_body_can_use_sync_template() {
+    let source = r#"
+impl WebRender for Page {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let title = self.loader.load().await?;
+        cx.head_mut().title(title)
+    }
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <main>"Body"</main> }.render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("page.rs"), source);
+    assert!(!has_code(&diagnostics, "render/async-unneeded"));
+    assert!(has_code(&diagnostics, "perf/async-html-static-subtree"));
 }
 
 fn has_code(diagnostics: &[Diagnostic], code: &str) -> bool {

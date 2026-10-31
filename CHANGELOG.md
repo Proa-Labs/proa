@@ -4,6 +4,45 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- Outgoing application URLs are composed with `cx.url(path)` on `WebContext`,
+  `WebContextParts`, and `SendWebContext`. The helper explicitly applies the
+  configured base path without allocating an intermediate string; plain URL
+  attributes stay unchanged. Breaking: `RequestContext::url` has moved to the
+  render context. `cx.request()` remains the incoming request metadata accessor.
+
+- Typed head metadata now supports inherit/set/clear patches, absolute titles,
+  Twitter summary cards, page-level robots/Googlebot directives, icons,
+  alternate-language/feed links, manifests, authors, verification, referrer
+  policies, application details, and article Open Graph properties. New setters
+  share managed-head validation and lifecycle rules. Breaking within the new
+  bulk API: replace `title: Some("Shop".into())` with `title: "Shop".into()`;
+  `HeadValue::Clear` removes an inherited field. `RobotsTxt` and
+  `FrameworkBuilder::with_robots` still configure the separate `/robots.txt` file.
+
+- Managed document head: `render_head` hooks on `WebRenderSync`, `WebRender`,
+  `WebRenderSend` and `WebRenderSendSync`, a `ROLE` constant (`COMPONENT`,
+  `LAYOUT`, `PAGE`), checked setters on `cx.head_mut()`, an owned
+  `{cx.head()}` outlet, `HeadConfig`/`HeadUrlPolicy` defaults, Open Graph
+  records, and request-aware publication through `RouteResponse::with_head`
+  or app-wide `FrameworkBuilder::with_head`. Breaking: `WebContext::head()`
+  and `SendWebContext::head()` now return the `HeadOutlet`; the inspection
+  getter is `head_state()` (also on `WebContextParts`), and `head_mut()`
+  returns a checked `HeadWriter` instead of `&mut HeadContext`. Enabling
+  `FrameworkBuilder::with_head` switches every rendered route to managed mode;
+  routes that still call the void `set_title`/`push_meta` setters fail with
+  `HeadError::LegacyMutation` and need `.without_head()` or the checked setters.
+  A component that declares `ComponentRole::LAYOUT` or `ComponentRole::PAGE`
+  renders only inside a managed document, including with a default hook. Sync,
+  async, Send and adapters obey the same rule; layouts must precede the Page
+  seal and cannot render in Suspense/captures/fallbacks. Async hooks use native
+  `async fn render_head(...) -> Result<(), WriteError>` without author-side attributes or handwritten async blocks.
+  `proa lint` rejects async head overrides with missing roles or an explicit
+  `COMPONENT` role; synchronous hooks retain their compiler assertion.
+
+- `DataResolver` no longer retains a request-to-map-to-future reference cycle
+  for loads still in flight when the request is dropped; the shared future
+  holds weak links to the resolver maps.
+
 - `xml!` and `xml_sync!` accept a leading `<?xml version="1.0" encoding="UTF-8"?>`
   declaration and consolidate it with adjacent static markup. Declaration
   fields are checked at compile time; formatting preserves their values.

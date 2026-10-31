@@ -3,11 +3,11 @@ title: Accessibility
 description: How Proa catches common WCAG, WAI-ARIA, and ARIA-in-HTML issues at compile time.
 ---
 
-Proa checks accessibility rules at compile time via the `html!` macro. No separate linter to install, no runtime cost, no CI step to forget. Violations are caught the same way type errors are, during `cargo build`.
+`html_sync!` and `html!` check accessibility rules visible in the authored template at compile time. Invalid roles and required attributes can fail compilation; other findings are warnings. Use `proa check` in CI and browser checks for behavior that static templates cannot prove.
 
 ## What Proa Checks
 
-Proa's compile-time checks cover three specs:
+Proa checks a subset of rules from three specifications:
 
 - [WCAG 2.2](https://www.w3.org/TR/WCAG22/), Web Content Accessibility Guidelines (Level A and AA)
 - [WAI-ARIA 1.2](https://www.w3.org/TR/wai-aria-1.2/), Accessible Rich Internet Applications
@@ -19,15 +19,21 @@ Every non-text content element needs a text alternative for screen readers.
 
 ```rust
 // Warning: <img> without alt
-html! { <img src="/photo.jpg" /> }
+html! {
+    <img src="/photo.jpg" />
+}
 //       ^^^^ missing `alt` attribute — screen readers cannot describe this image.
 //            Use alt="description" or alt="" for decorative images.
 
 // OK: descriptive alt
-html! { <img src="/photo.jpg" alt="Team photo from the company retreat" /> }
+html! {
+    <img src="/photo.jpg" alt="Team photo from the company retreat" />
+}
 
 // OK: decorative image (empty alt)
-html! { <img src="/divider.svg" alt="" /> }
+html! {
+    <img src="/divider.svg" alt="" />
+}
 ```
 
 This also applies to `<input type="image">` (must have `alt`) and `<area>` with `href` (must have `alt`).
@@ -38,11 +44,15 @@ The `role` attribute must be one of the 82 roles defined in WAI-ARIA 1.2. Abstra
 
 ```rust
 // Error: invalid role
-html! { <div role="buttn">"Click"</div> }
+html! {
+    <div role="buttn">"Click"</div>
+}
 //                 ^^^^^^ "buttn" is not a valid ARIA role. Did you mean "button"?
 
 // Error: abstract role
-html! { <div role="widget">"Click"</div> }
+html! {
+    <div role="widget">"Click"</div>
+}
 //                 ^^^^^^^ "widget" is an abstract role and cannot be used in content.
 //                          Use a concrete role like "button", "checkbox", or "slider".
 ```
@@ -53,7 +63,9 @@ Some roles require specific ARIA attributes to function correctly with assistive
 
 ```rust
 // Error: role="checkbox" requires aria-checked
-html! { <div role="checkbox">"Accept terms"</div> }
+html! {
+    <div role="checkbox">"Accept terms"</div>
+}
 //       ^^^^ role="checkbox" requires the `aria-checked` attribute.
 //            Add aria-checked="true", aria-checked="false", or aria-checked="mixed".
 
@@ -85,12 +97,16 @@ ARIA attribute names must be ones the macro recognizes (the 48 defined in WAI-AR
 
 ```rust
 // Error: not a real ARIA attribute
-html! { <div aria_labeledby="title">"content"</div> }
+html! {
+    <div aria_labeledby="title">"content"</div>
+}
 //            ^^^^^^^^^^^^^^^ "aria-labeledby" is not a valid ARIA attribute.
 //                             Did you mean "aria-labelledby"?
 
 // Error: invalid value
-html! { <div aria_hidden="yes">"content"</div> }
+html! {
+    <div aria_hidden="yes">"content"</div>
+}
 //                        ^^^^ "yes" is not a valid value for aria-hidden.
 //                              Use "true" or "false".
 ```
@@ -101,12 +117,16 @@ HTML elements have implicit ARIA roles. Adding an explicit role that matches is 
 
 ```rust
 // Warning: redundant role
-html! { <button role="button">"Save"</button> }
+html! {
+    <button role="button">"Save"</button>
+}
 //               ^^^^^^^^^^^^^ <button> already has an implicit role of "button".
 //                              Remove the role attribute.
 
 // Warning: prefer native element
-html! { <div role="button" tabindex="0">"Save"</div> }
+html! {
+    <div role="button" tabindex="0">"Save"</div>
+}
 //            ^^^^^^^^^^^^^ prefer <button> over <div role="button"> —
 //                           native elements provide keyboard support and
 //                           accessibility semantics for free.
@@ -118,7 +138,9 @@ Positive `tabindex` values disrupt the natural tab order and are almost always w
 
 ```rust
 // Warning: positive tabindex
-html! { <input tabindex="5" /> }
+html! {
+    <input tabindex="5" />
+}
 //              ^^^^^^^^^^^^^ tabindex="5" overrides the natural document tab order.
 //                            Use tabindex="0" to add to natural order, or
 //                            tabindex="-1" for programmatic focus only.
@@ -132,7 +154,9 @@ Screen readers use the `lang` attribute to determine pronunciation rules:
 // Warning: <html> without lang
 html! {
     <html>
-        <head><title>"My Page"</title></head>
+        <head>
+            <title>"My Page"</title>
+        </head>
     </html>
 }
 // ^^^^^ <html> should have a `lang` attribute (e.g., lang="en").
@@ -157,6 +181,7 @@ Proa's compile-time checks cover what's visible in the HTML output. For the full
 
 ```typescript
 // Example: axe-core in Playwright
+import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 test("home page is accessible", async ({ page }) => {

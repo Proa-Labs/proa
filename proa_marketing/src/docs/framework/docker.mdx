@@ -63,7 +63,7 @@ checksum. This source-build path also works with the Bookworm base images.
 docker build -t my-site:$(git rev-parse --short HEAD) .
 ```
 
-**Tag with the commit SHA, never `latest`.** Rollback means pointing at the previous tag. Without immutable tags you have nothing to point at.
+**Use commit-qualified tags or image digests**, and retain the previous image for rollback. Tags can be overwritten; a digest identifies the exact image.
 
 Build in CI rather than on the production box. Rust release builds want CPU and RAM that your web server should be spending on requests.
 
@@ -144,12 +144,14 @@ Do not cache dynamic HTML at the proxy until you have route-level rules. See [Pa
 Three more things a platform would have handled, in the order they bite:
 
 - **Logs.** `docker logs` vanishes with the container. Ship to a collector before you need it, not after.
-- **Disk.** Old images accumulate silently. Run `docker image prune -af --filter "until=168h"` on a weekly timer.
-- **Alerting.** The compose healthcheck restarts a wedged container. It does not tell you it happened.
+- **Disk.** Monitor image storage and prune with a retention policy that preserves the images you need for rollback.
+- **Alerting.** A Compose healthcheck marks a container unhealthy; it does not restart it. The restart policy handles process exits. Add monitoring and a recovery policy for a process that stays running but stops responding. See [Docker restart policies](https://docs.docker.com/engine/containers/start-containers-automatically/).
 
 ## Ship a new version without downtime
 
-`docker compose up -d` stops the old container before the new one is ready. That is a visible outage on every deploy.
+When `docker compose up -d` recreates a single application container, it does
+not provide a readiness-gated traffic swap. Use parallel containers and a proxy
+cutover when that interruption is unacceptable.
 
 Start the new version alongside, prove it healthy, then move traffic:
 
@@ -158,15 +160,24 @@ NEW=abc1234
 docker run -d --name my-site-$NEW -p 127.0.0.1:3001:3000 \
   -e PORT=3000 -e PROA_HOST=0.0.0.0 ghcr.io/you/my-site:$NEW
 
+healthy=false
 for i in $(seq 30); do
-  curl -fsS http://127.0.0.1:3001/healthz && break
+  if curl --max-time 2 -fsS http://127.0.0.1:3001/healthz; then
+    healthy=true
+    break
+  fi
   sleep 1
-done || { docker rm -f my-site-$NEW; echo "unhealthy, aborting"; exit 1; }
+done
+if [ "$healthy" != true ]; then
+  docker rm -f "my-site-$NEW"
+  echo "unhealthy, aborting"
+  exit 1
+fi
 
 # flip the proxy upstream 3000 -> 3001, reload, then retire the old container
 ```
 
-Rollback is the same sequence with the previous SHA. Which is exactly why the tag has to be a SHA.
+Rollback uses the same sequence with the previously retained image tag or digest.
 
 For more than one host, this is the point where Kubernetes, Nomad, or ECS stops being overkill.
 
@@ -174,13 +185,13 @@ For more than one host, this is the point where Kubernetes, Nomad, or ECS stops 
 
 ```bash
 docker build -t my-site:test .
-docker run --rm -p 3000:3000 -e PORT=3000 my-site:test
+docker run --rm -p 127.0.0.1:3000:3000 -e PORT=3000 my-site:test
 curl -fsS http://127.0.0.1:3000/healthz
 curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
-docker image inspect my-site:test --format '{{.Size}}'                  # expect ~100MB, not ~2GB
+docker image inspect my-site:test --format '{{.Size}}'                  # inspect the final image size
 ```
 
-The last line catches a single-stage Dockerfile, which ships your entire Rust toolchain and source to production.
+Inspect the image size and layers to confirm that the runtime stage contains only the application, assets, and runtime dependencies.
 
 ## Next steps
 

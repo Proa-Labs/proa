@@ -1,98 +1,162 @@
 ---
-title: Routes and layouts
-description: Define route trees, layouts, and static paths.
+title: Routing
+sidebar_title: Routing
+description: Register an Axum route, render a Page, and read request parameters through cx.
 ---
 
-Proa route declarations are regular Rust values. You define a route tree with `Route`, then turn it into an Axum `Router` with `router_from_spec`.
+## Register a route
 
-## Route Tree
+Start with an Axum `Router`. This route sends `/shop/products/42` to the `product` handler:
 
-```rust
-use axum::routing::get;
-use proa_framework_axum::{router_from_spec, Route, RouteMode};
+```rust filename="Routes"
+use axum::{routing::get, Router};
 
-let (routes, metadata) = router_from_spec(vec![
-    Route::layout(
-        "",
-        &AppLayout,
-        vec![
-            Route::page("/", "Home", get(home)).with_route_mode(RouteMode::Server),
-            Route::page("/about", "About", get(about)).with_route_mode(RouteMode::Static),
-            Route::page("/dashboard", "Dashboard", get(dashboard))
-                .with_route_mode(RouteMode::ClientBrowser),
-        ],
-    ),
-]);
+let routes = Router::new()
+    .route("/shop/products/:id", get(product));
 ```
 
-The generated router contains the Axum routes. The metadata map contains precomputed metadata for those same paths and should be passed to `FrameworkBuilder::with_dynamic_routes_and_metadata`.
+The handler composes the document, shared shop layout, and selected Page:
 
-For JSON APIs, form submissions, webhooks, health checks, and other non-page routes, use [Route handlers](/docs/framework/route-handlers).
+```rust filename="Product handler"
+use proa_framework_axum::RouteResponse;
+use crate::{layouts::{RootDocument, ShopLayout}, pages::ProductPage};
 
-## Route Constructors
+async fn product() -> RouteResponse {
+    RouteResponse::ssr(RootDocument {
+        children: ShopLayout {
+            children: ProductPage,
+        },
+    })
+}
+```
 
-| Constructor | Use it for |
-|-------------|------------|
-| `Route::endpoint(path, router)` | Raw endpoint without generated title metadata. |
-| `Route::page(path, title, router)` | Page endpoint with title-only metadata. |
-| `Route::page_with_metadata(path, router, metadata)` | Page endpoint with a custom metadata provider. |
-| `Route::layout(path, layout, children)` | Metadata layout shared by child routes. |
+![The file tree and explicitly composed layouts lead to one selected Page.](/static/images/docs/nested-layouts.svg?v=2)
 
-## Route Modes
+`RootDocument` and `ShopLayout` declare `const ROLE: ComponentRole = ComponentRole::LAYOUT`; `ProductPage` declares `PAGE`. See [Layouts and Pages](/docs/framework/layouts-and-pages) for their full implementations and document markup.
 
-`RouteMode` describes how a route should be treated by build and client-routing tooling.
+### Install the router
 
-| Mode | Use it when |
-|------|-------------|
-| `Server` | The route is rendered by the server at request time. |
-| `Static` | The route can be pre-rendered by build tooling. |
-| `ClientBrowser` | The route participates in client-side browser navigation. |
+Pass the router to `FrameworkBuilder`. Enable managed metadata with `with_head`:
 
-The mode does not replace your Axum handler. It is metadata for Proa's route tooling and export pipeline.
+```rust filename="App configuration"
+use proa_core::{HeadConfig, HeadUrlPolicy};
+use proa_framework_axum::FrameworkBuilder;
 
-## Dynamic Static Paths
+let head = HeadConfig::default()
+    .with_urls(HeadUrlPolicy::new("https://acme.example", "/")?);
 
-Static dynamic routes can provide path parameters:
+let app = FrameworkBuilder::new(manifest)
+    .with_head(head)
+    .with_dynamic_routes(routes)
+    .build();
+```
 
-```rust
-use std::collections::HashMap;
+Use your configured public origin in place of `https://acme.example`. The framework makes Axum's matched path parameters available through `cx` before head and body rendering.
 
-use axum::routing::get;
+## Read route parameters from cx
+
+A segment beginning with `:` captures a path value:
+
+| Route | Request | Read through cx |
+| --- | --- | --- |
+| `/shop/products/:id` | `/shop/products/42` | `cx.param("id")` → `Some("42")` |
+| `/blog/:slug` | `/blog/red-shoes` | `cx.param("slug")` → `Some("red-shoes")` |
+
+These are URL patterns, registered explicitly; Rust filenames organize the source code.
+
+Here is the `ProductPage` used above. It reads the same `id` in its head and body:
+
+```rust filename="src/pages/product.rs"
+use proa_core::{
+    ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync,
+    WriteError,
+};
+use proa_macros::html_sync;
+
+pub struct ProductPage;
+
+impl<L: DataLoader> WebRenderSync<L> for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
+    fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {
+        let id = cx.param("id")
+            .ok_or_else(|| WriteError::render("missing product id"))?;
+        let title = format!("Product {id}");
+        cx.head_mut().title(title)
+    }
+
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let params = cx.route_params().cloned().unwrap_or_default();
+        let id = params.get("id")
+            .ok_or_else(|| WriteError::render("missing product id"))?;
+
+        html_sync! {
+            <main data-product-page>
+                <h1>"Product "{id}</h1>
+            </main>
+        }
+        .render(cx)
+    }
+}
+```
+
+`cx.param(name)` returns `Option<&str>`. `cx.route_params()` exposes the shared collection. Clone that handle before rendering when the template needs to borrow a parameter while writing through `cx`; this does not copy parameter strings.
+
+For `/shop/products/42`, `ShopLayout`'s `title_template("%s | Shop")` formats the Page's dynamic title:
+
+```html filename="Selected output"
+<title>Product 42 | Shop</title>
+<main data-product-page><h1>Product 42</h1></main>
+```
+
+The title goes in the document head and `<main>` in its body. Title templates work the same for `:id` and `:slug`: the Page supplies its title, often from a loader, and the nearest ancestor template formats it. A slug is not automatically turned into a display title. See [Load metadata from data](/docs/framework/metadata#load-metadata-from-data) for an async example.
+
+### Query strings
+
+Path captures and query strings are separate:
+
+```rust filename="Inside a render method or head hook"
+let path = cx.request_location().map(|location| location.path());
+let query = cx.request_location().and_then(|location| location.query());
+```
+
+For `/shop/products/42?currency=usd`, these return `Some("/shop/products/42")` and `Some("currency=usd")`. `query()` returns the raw query string. Use a query parser or Axum's typed `Query` extractor for decoded fields.
+
+## Add and nest routes
+
+Chain `.route(...)` calls to add Pages. Use Axum's `.nest(...)` to share a URL prefix:
+
+```rust filename="More routes"
+let shop = Router::new()
+    .route("/", get(shop_index))
+    .route("/products/:id", get(product));
+
+let routes = Router::new()
+    .route("/about", get(about))
+    .nest("/shop", shop);
+```
+
+This registers `/about`, `/shop`, and `/shop/products/:id`; Axum maps the nested `/` route to the prefix itself. Each handler explicitly composes its layout and Page. URL nesting does not add HTML wrappers.
+
+### Route specifications
+
+Use Proa's `Route::endpoint` when you also need route modes, static-path declarations, or route-specification metadata. It produces an Axum router you can merge with the rest of the app:
+
+```rust filename="Route specification"
 use proa_framework_axum::{Route, RouteMode};
 
-fn blog_paths() -> Vec<HashMap<&'static str, String>> {
-    vec![
-        HashMap::from([("slug", "intro".to_string())]),
-        HashMap::from([("slug", "routing".to_string())]),
-    ]
-}
-
-let route = Route::<()>::page("/blog/:slug", "Blog Post", get(blog_handler))
-    .with_route_mode(RouteMode::Static)
-    .with_static_paths(blog_paths);
+let routes = Router::new().merge(
+    Route::endpoint("/shop/products/:id", get(product))
+        .with_route_mode(RouteMode::Server)
+        .into_router(),
+);
 ```
 
-The keys match the `:param` names in the route path.
+`Server`, `Static`, and `ClientBrowser` describe routes to tooling; they do not set component roles or compose layouts. The older `Route::layout` and `Route::page` APIs describe route metadata independently of `render_head`. See [metadata migration](/docs/framework/metadata#existing-metadata-code) when updating those documents.
 
-## Layouts
+## Next steps
 
-A route layout is a metadata boundary. It implements `Metadata`, so title templates and Open Graph defaults can live at the layout level.
-
-```rust
-use proa_framework_axum::{Layout, Metadata};
-
-pub struct AppLayout;
-
-impl Metadata for AppLayout {}
-impl Layout for AppLayout {}
-```
-
-Compose shared HTML chrome explicitly in the render tree, normally with a reusable `RootDocument` component:
-
-```rust
-use proa_framework_axum::RouteResponse;
-
-RouteResponse::ssr(RootDocument { content: ProductPage })
-```
-
-That composition is typed and works the same way for synchronous, buffered async, and streaming routes; route metadata continues to cascade independently.
+- [Layouts and Pages](/docs/framework/layouts-and-pages): document markup, component roles, and nesting.
+- [Metadata and OG images](/docs/framework/metadata): dynamic titles, defaults, and social images.
+- [Route handlers](/docs/framework/route-handlers): JSON, forms, and non-page endpoints.
+- [Linking and navigating](/docs/framework/linking): public URLs and mount prefixes.

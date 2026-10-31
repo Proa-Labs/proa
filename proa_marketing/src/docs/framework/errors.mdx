@@ -32,19 +32,26 @@ Some error states do need that shell, and those become real pages.
 
 ## Rendering a 404 page
 
-Render a full Proa page when the error state needs the same layout, metadata, or island bootstrap as the rest of the site. Set the status through `WebContext` before writing the body:
+Render a full Proa document when the error state needs the site's layout, metadata, or island bootstrap. For a managed document, declare the selected Page and set its status in the head hook:
 
 ```rust filename="src/pages/not_found.rs"
 use http::StatusCode;
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_core::{ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync, WriteError};
 use proa_macros::html_sync;
 
 pub struct NotFoundPage;
 
 impl<L: DataLoader> WebRenderSync<L> for NotFoundPage {
-    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        cx.response_mut().set_status(StatusCode::NOT_FOUND);
+    const ROLE: ComponentRole = ComponentRole::PAGE;
 
+    fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {
+        if !cx.response_mut().set_status(StatusCode::NOT_FOUND) {
+            return Err(WriteError::render("response headers already committed"));
+        }
+        cx.head_mut().title("Page not found")
+    }
+
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         html_sync! {
             <main>
                 <h1>"Page not found"</h1>
@@ -56,7 +63,7 @@ impl<L: DataLoader> WebRenderSync<L> for NotFoundPage {
 }
 ```
 
-Then return `RouteResponse::ssr(NotFoundPage)` from the handler.
+Compose it inside the `RootDocument` from [Layouts and Pages](/docs/framework/layouts-and-pages), then return `RouteResponse::ssr(RootDocument { children: NotFoundPage })`. Enable managed metadata with `FrameworkBuilder::with_head(...)` or the response's `with_head(...)`. This hook works for buffered and streamed documents; the status is decided before the Page body starts.
 
 The same response context also stages headers and cookies.
 
@@ -81,7 +88,7 @@ Late mutations are exactly what streaming makes possible, so streamed routes nee
 
 ## Setting status on a streamed route
 
-Streaming responses commit the response head before the root component starts rendering. Set status and headers in the handler that returns the streamed response:
+Set status and headers in the handler when the decision is already known:
 
 ```rust filename="src/pages/dashboard.rs"
 use axum::http::{header, StatusCode};
@@ -93,7 +100,9 @@ use axum::http::{header, StatusCode};
 )
 ```
 
-Inside a streamed render tree, `ResponseContext::can_mutate_headers()` is `false` and status/header mutations are refused. This keeps the already-created transport response coherent. Buffered sync and async routes can still stage response metadata during render.
+For managed documents, layout and Page `render_head` hooks can also stage status, headers, and cookies before publication. Put data-dependent HTTP decisions there, before the selected Page body starts. Once the Page metadata is sealed and the head outlet is available, Proa publishes those decisions; `can_mutate_headers()` becomes `false` and later mutations are refused.
+
+Manual streaming documents commit their response head before root rendering, so make their HTTP decisions in the handler. Buffered sync and async routes can stage response metadata until finalization. See [Metadata and streaming](/docs/framework/metadata#metadata-and-streaming).
 
 Redirects avoid the problem entirely: they never enter the render tree.
 
@@ -177,7 +186,7 @@ Before shipping:
 
 - Decide in the handler when data is missing before rendering.
 - Render a full error page only when it needs the site shell.
-- Set status and headers in the handler before returning a streamed response.
+- Set streaming HTTP decisions in the handler or, for managed documents, in a layout/Page head hook before publication.
 - Check the `bool` returned from response-context mutations in streaming code.
 - Use Axum `Redirect` for redirects instead of rendering meta-refresh pages.
 - Test `404`, redirect, validation, timeout, and upstream-error paths.

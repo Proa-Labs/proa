@@ -153,10 +153,10 @@ pub fn docs_response(path: &str) -> Response {
 }
 ```
 
-Inside the page view, render the generated article HTML with `UnsafeRaw`. The compiler already produced trusted HTML from local Markdown files:
+Inside the page view, render the generated article HTML with `BasePathHtml`. The compiler already produced trusted HTML from local Markdown files:
 
 ```rust filename="src/routes/docs_page.rs"
-use proa_core::{UnsafeRaw, WebContext, WebRenderSync, WriteError};
+use proa_core::{BasePathHtml, WebContext, WebRenderSync, WriteError};
 use proa_docs::{DocPage, Docs, DocsNav, DocsPager, DocsSectionMenu, DocsToc};
 use proa_macros::html_sync;
 
@@ -179,7 +179,7 @@ impl<L: proa_core::DataLoader> WebRenderSync<L> for DocsPageView {
                         active_path: self.page.route_path,
                     }}
                 </aside>
-                <article>{UnsafeRaw(self.page.article_html)}</article>
+                <article>{BasePathHtml(self.page.article_html)}</article>
                 <aside>{DocsToc { items: self.page.toc }}</aside>
                 <footer>{DocsPager { page: self.page }}</footer>
             </main>
@@ -189,7 +189,7 @@ impl<L: proa_core::DataLoader> WebRenderSync<L> for DocsPageView {
 }
 ```
 
-Keep `UnsafeRaw` scoped to `page.article_html`. Never use it for request data, CMS data, or user-generated Markdown.
+Keep `BasePathHtml` scoped to trusted compiled HTML such as `page.article_html`; it composes URL attributes with the deployment prefix without re-escaping the markup. Never use it for request data, CMS data, or user-generated Markdown.
 
 `DocsSectionMenu` and `Docs::nav_items_for_path` live in `proa_docs`, so custom shells share one section picker and one scoped-sidebar behavior. Sections come from folders whose `meta.json` sets `"root": true`, so your app supplies no section list of its own.
 

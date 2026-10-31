@@ -15,9 +15,8 @@ use proa_framework_axum::{PageCache, Route, RouteResponse};
 use crate::pages::PromoPage;
 
 pub fn route() -> Route<()> {
-    Route::page(
+    Route::endpoint(
         "/promo/summer",
-        "Summer promotion",
         get(promo_page),
     ).with_page_cache(PageCache::new())
 }
@@ -73,9 +72,8 @@ use proa_framework_axum::{PageCache, Route, RouteResponse};
 use crate::pages::PromoPage;
 
 pub fn route() -> Route<()> {
-    Route::page(
+    Route::endpoint(
         "/promo/summer",
-        "Summer promotion",
         get(promo_page),
     ).with_page_cache(PageCache::new().revalidate(Duration::from_secs(3600)))
 }

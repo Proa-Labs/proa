@@ -120,8 +120,31 @@ impl<L: DataLoader> Drop for RestoreMarkdownBoundaryOnDrop<L> {
 /// Standard-writer `Suspense` implementation.
 ///
 /// In-order rendering flushes and reuses the parent `RenderBuffer` on the same
-/// context. Out-of-order rendering gives each detached boundary its own owned
+/// context after managed head publication (or immediately in manual mode).
+/// Before publication, use buffered rendering: a held flush does not empty the
+/// writer, so streaming cleanup must not clear the retained document prefix.
+/// Out-of-order rendering gives each detached boundary its own owned
 /// `RenderBuffer` and preserves its pages through transport framing.
+// These expand at the existing return points; there is no extra future or
+// stored optional guard on metadata-free boundary paths.
+macro_rules! boundary_return {
+    ($cx:expr, $result:expr) => {{
+        let result = $result;
+        if let Some(document) = $cx.head_state().document() {
+            document.leave_boundary();
+        }
+        return result;
+    }};
+}
+macro_rules! boundary_try {
+    ($cx:expr, $result:expr) => {{
+        match $result {
+            Ok(value) => value,
+            Err(error) => boundary_return!($cx, Err(error)),
+        }
+    }};
+}
+
 impl<C, Fb, L> WebRender<L, RenderBuffer> for Suspense<C, Fb>
 where
     L: DataLoader + 'static,
@@ -139,6 +162,9 @@ where
             timeout,
         } = self;
 
+        if let Some(document) = cx.head_state().document() {
+            document.enter_boundary();
+        }
         if matches!(cx.render_mode(), RenderMode::ChunkedOutOfOrder) {
             if let Some(recorder) = cx.stream_recorder().cloned() {
                 let boundary_id = recorder.next_boundary_id();
@@ -163,6 +189,9 @@ where
                         child_cx.set_boundary_error_fallback_stack(error_fallback_stack);
                         let artifact_branch = child_cx.rsjs_artifact_branch();
                         let result = proa_core::render_in_context_async(&mut child_cx, child).await;
+                        if let Some(head) = child_cx.head_state().document() {
+                            head.check_terminal()?;
+                        }
                         let artifacts = match result {
                             Ok(()) => artifact_branch.commit_render_artifacts(&child_cx),
                             Err(err) if err.is_boundary_catchable() => {
@@ -178,6 +207,9 @@ where
                                 );
                                 let fallback_branch = child_cx.rsjs_artifact_branch();
                                 error_fallback.render_buffer(&mut child_cx)?;
+                                if let Some(head) = child_cx.head_state().document() {
+                                    head.check_terminal()?;
+                                }
                                 fallback_branch.commit_render_artifacts(&child_cx)
                             }
                             Err(err) => return Err(err),
@@ -191,8 +223,11 @@ where
                 ));
 
                 let result = write_boundary_comment(cx, b"start", boundary_id)
-                    .and_then(|()| WebRenderSync::render(fallback, cx))
+                    .and_then(|()| proa_core::head_dispatch::sync(fallback, cx))
                     .and_then(|()| write_boundary_comment(cx, b"end", boundary_id));
+                if let Some(document) = cx.head_state().document() {
+                    document.leave_boundary();
+                }
                 return RenderOutcome::<
                     std::pin::Pin<
                         Box<dyn std::future::Future<Output = Result<(), WriteError>> + '_>,
@@ -203,12 +238,13 @@ where
 
         if matches!(cx.render_mode(), RenderMode::ChunkedInOrder)
             && cx.stream_chunk_flusher().is_some()
+            && cx.head_state().document().is_none_or(|d| d.is_published())
         {
             let pre_flush = cx.flush_stream_chunk();
             let future: std::pin::Pin<
                 Box<dyn std::future::Future<Output = Result<(), WriteError>> + '_>,
             > = Box::pin(async move {
-                pre_flush?;
+                boundary_try!(cx, pre_flush);
                 // Declared before the child future so cancellation drops the
                 // child borrow before this guard clears its unshipped bytes.
                 let mut output_guard = ClearRenderBufferOnDrop::new(&mut cx.out);
@@ -229,7 +265,7 @@ where
                                 mode = RenderMode::ChunkedInOrder.as_str(),
                                 "streaming boundary failed without error boundary"
                             );
-                            return Err(err);
+                            boundary_return!(cx, Err(err));
                         };
                         cx.out.clear();
                         cx.rsjs_shared_state_rollback_seeds(seed_checkpoint);
@@ -239,25 +275,35 @@ where
                             mode = RenderMode::ChunkedInOrder.as_str(),
                             "streaming boundary recovered with error fallback"
                         );
-                        error_fallback.render_buffer(cx)?;
+                        boundary_try!(cx, error_fallback.render_buffer(cx));
                     }
                     Err(err) => {
                         cx.rsjs_shared_state_commit_seeds(seed_checkpoint);
                         cx.rsjs_artifact_commit(artifact_checkpoint);
-                        return Err(err);
+                        boundary_return!(cx, Err(err));
                     }
                 }
                 let result = cx.flush_stream_chunk();
                 output_guard.disarm();
+                if let Some(document) = cx.head_state().document() {
+                    document.leave_boundary();
+                }
                 result
             });
             return RenderOutcome::Pending(future);
         }
 
         let _ = fallback;
-        RenderOutcome::Pending(Box::pin(
-            async move { proa_core::render_child(cx, child).await },
-        ))
+        // Do not wait for head readiness here. The selected Page/outlet may be
+        // a later sibling; keep rendering so discovery can reach it. An outer
+        // ErrorBoundary owns buffered rollback to its checkpoint on failure.
+        RenderOutcome::Pending(Box::pin(async move {
+            let result = proa_core::render_child(cx, child).await;
+            if let Some(document) = cx.head_state().document() {
+                document.leave_boundary();
+            }
+            result
+        }))
     }
 }
 
@@ -277,6 +323,9 @@ where
         cx: &mut SendWebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
+            if let Some(document) = cx.head_state().document() {
+                document.enter_boundary();
+            }
             let Self {
                 child,
                 fallback,
@@ -304,6 +353,9 @@ where
                                 .with_render_mode(RenderMode::ChunkedOutOfOrder);
                             child_cx.set_stream_recorder(child_stream);
                             proa_core::render_in_send_context(&mut child_cx, child).await?;
+                            if let Some(head) = child_cx.head_state().document() {
+                                head.check_terminal()?;
+                            }
                             let (html, artifacts) = child_cx.into_output_and_render_artifacts();
                             let nested = nested_stream.take_boundaries();
                             Ok(RenderedBoundary::with_nested(html, artifacts, nested))
@@ -312,26 +364,32 @@ where
                         timeout,
                     ));
 
-                    write_send_boundary_comment(cx, b"start", boundary_id)?;
-                    proa_core::render_send_child(cx, fallback).await?;
-                    return write_send_boundary_comment(cx, b"end", boundary_id);
+                    boundary_try!(cx, write_send_boundary_comment(cx, b"start", boundary_id));
+                    boundary_try!(cx, proa_core::render_send_child(cx, fallback).await);
+                    boundary_return!(cx, write_send_boundary_comment(cx, b"end", boundary_id));
                 }
             }
 
             let _ = fallback;
             if matches!(cx.render_mode(), RenderMode::ChunkedInOrder)
                 && cx.stream_chunk_flusher().is_some()
+                // Sealing alone is insufficient: an outlet may still be ahead.
+                && cx.head_state().document().is_none_or(|d| d.is_published())
             {
                 let pre_flush = cx.flush_stream_chunk();
-                pre_flush?;
+                boundary_try!(cx, pre_flush);
                 if let Err(error) = proa_core::render_send_child(cx, child).await {
                     cx.out.clear();
-                    return Err(error);
+                    boundary_return!(cx, Err(error));
                 }
-                return cx.flush_stream_chunk();
+                boundary_return!(cx, cx.flush_stream_chunk());
             }
 
-            proa_core::render_send_child(cx, child).await
+            let result = proa_core::render_send_child(cx, child).await;
+            if let Some(document) = cx.head_state().document() {
+                document.leave_boundary();
+            }
+            result
         })
     }
 }
@@ -357,6 +415,8 @@ where
         // either lifetime to outlive the other through an erased future.
         let pre_flush = if matches!(cx.render_mode(), RenderMode::ChunkedInOrder)
             && cx.stream_chunk_flusher().is_some()
+            // Markdown may share a managed HTML context and its retained writer.
+            && cx.head_state().document().is_none_or(|d| d.is_published())
         {
             Some(cx.flush_stream_chunk())
         } else {

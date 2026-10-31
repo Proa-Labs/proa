@@ -25,7 +25,7 @@ into an existing site by hand.
 
 ```toml filename="Cargo.toml"
 [dependencies]
-proa_docs = "0.2.0"
+proa_docs = { version = "0.2.0", features = ["axum"] }
 
 [build-dependencies]
 proa_docs_build = "0.2.0"
@@ -105,17 +105,21 @@ Run it and open `/docs`.
 
 ## Styling
 
-`proa_docs` ships a default theme. Render it into `<head>` and every component is styled and wired:
+`proa_docs` ships a default theme. In a custom document shell, render its assets
+inside `<head>`:
 
 ```rust filename="src/layouts/root.rs"
 use proa_docs::DocsAssets;
 
 html_sync! {
-    <head>
-        {DocsAssets::new()}
-    </head>
+    <head>{DocsAssets::new()}</head>
 }
 ```
+
+The default `DocsShell` used by the adapter above owns its head and has no asset
+slot. To install these assets, compose your own document from the primitives in
+[Customizing the layout](/docs/proa-docs/customizing); adding a second `<head>`
+around `DocsShell` would produce an invalid document.
 
 On a site with many pages, serve `DEFAULT_STYLESHEET` and `DEFAULT_SCRIPT` as static files instead so they cache between navigations.
 

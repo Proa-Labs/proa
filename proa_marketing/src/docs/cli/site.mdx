@@ -162,10 +162,9 @@ For generated Proa sites, add `site check` next to the normal Rust and Proa chec
 
 ```bash
 cargo fmt --all --check
-cargo check
-proa fmt --check --verify src
-proa lint src
+proa check
 proa site check
+proa test
 ```
 
 When publishing a route manifest, capture the route report as an artifact:

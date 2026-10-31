@@ -23,3 +23,8 @@ help: the trait `proa_core::WebRenderSync<_, _>` is not implemented for `QueryCh
              `Elem<'a, Void, N, B, F, L>` implements `proa_core::WebRenderSync<L, B>`
              `Elem<'a, proa_core::Normal, N, B, F, L>` implements `proa_core::WebRenderSync<L, B>`
            and $N others
+note: required by a bound in `proa_core::head_dispatch::sync`
+  --> $WORKSPACE/proa_core/src/head_dispatch.rs
+   |
+   | pub fn sync<'a, L: DataLoader + 'a, B: WriteBuf + 'a, C: crate::WebRenderSync<L, B> + 'a>(
+   |                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `sync`

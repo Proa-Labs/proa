@@ -14,11 +14,13 @@ Use `bind_value` for an input element's string `value` property. That cell is an
 let query = signal(String::new());
 
 html_sync! {
-    <label class="grid gap-2">
-        "Search"
-        <input type="search" bind_value={query} />
-    </label>
-    <p>"Current query: "{query.get()}</p>
+    <div>
+        <label class="grid gap-2">
+            "Search"
+            <input type="search" bind_value={query} />
+        </label>
+        <p>"Current query: "{query.get()}</p>
+    </div>
 }
 ```
 
@@ -79,14 +81,15 @@ than widened to 32 bits; use a proven `i32` / `u32` / `i64` / `u64` domain.
 let subscribed = signal(false);
 
 html_sync! {
-    <label class="inline-flex items-center gap-2">
-        <input type="checkbox" bind_checked={subscribed} />
-        "Email me updates"
-    </label>
-
-    {if subscribed.get() {
-        html_sync! { <p>"Subscribed"</p> }
-    }}
+    <div>
+        <label class="inline-flex items-center gap-2">
+            <input type="checkbox" bind_checked={subscribed} />
+            "Email me updates"
+        </label>
+        {if subscribed.get() {
+            html_sync! { <p>"Subscribed"</p> }
+        }}
+    </div>
 }
 ```
 
@@ -100,16 +103,17 @@ Both `bind_value` and `bind_selected` target the owning `<select>` element's str
 let plan = signal("starter".to_string());
 
 html_sync! {
-    <label class="grid gap-2">
-        "Plan"
-        <select bind_selected={plan}>
-            <option value="starter">"Starter"</option>
-            <option value="team">"Team"</option>
-            <option value="enterprise">"Enterprise"</option>
-        </select>
-    </label>
-
-    <p>"Selected plan: "{plan.get()}</p>
+    <div>
+        <label class="grid gap-2">
+            "Plan"
+            <select bind_selected={plan}>
+                <option value="starter">"Starter"</option>
+                <option value="team">"Team"</option>
+                <option value="enterprise">"Enterprise"</option>
+            </select>
+        </label>
+        <p>"Selected plan: "{plan.get()}</p>
+    </div>
 }
 ```
 
@@ -152,14 +156,15 @@ let update_query = rsjs::event_handler(
 );
 
 html_sync! {
-    <label class="grid gap-2">
-        "Search"
-        <input type="search" value={query.get()} on_input={update_query()} />
-    </label>
-
-    {if touched.get() && !query.is_non_empty() {
-        html_sync! { <p role="alert">"Enter a search term."</p> }
-    }}
+    <div>
+        <label class="grid gap-2">
+            "Search"
+            <input type="search" value={query.get()} on_input={update_query()} />
+        </label>
+        {if touched.get() && !query.is_non_empty() {
+            html_sync! { <p role="alert">"Enter a search term."</p> }
+        }}
+    </div>
 }
 ```
 
@@ -197,12 +202,10 @@ let mark_submitting = rsjs::event_handler(
 html_sync! {
     <form method="post" action="/newsletter" on_submit={mark_submitting()}>
         <input type="email" name="email" bind_value={email} required />
-
         <label>
             <input type="checkbox" name="terms" bind_checked={terms} required />
             "I accept the terms"
         </label>
-
         <button type="submit" disabled={submitting.get()}>
             {if submitting.get() { "Joining..." } else { "Join" }}
         </button>

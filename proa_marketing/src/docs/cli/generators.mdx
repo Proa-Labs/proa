@@ -42,6 +42,11 @@ proa generate layout root-document --document
 
 `--document` and `--section` cannot be combined.
 
+Generated wrappers use manual rendering. For a managed document, add the head
+outlet to the document shell and declare `ROLE = LAYOUT`; its selected Page
+declares `ROLE = PAGE`. Body-only visual wrappers keep the default `COMPONENT`
+role. See [Layouts and Pages](/docs/framework/layouts-and-pages).
+
 ## Data Modules
 
 ```bash
@@ -62,7 +67,7 @@ Use this pattern when generating into a project with local edits:
 proa generate component pricing/feature-row --children --recipe --dry-run
 proa generate component pricing/feature-row --children --recipe
 cargo fmt --all
-cargo test
+proa test
 ```
 
 Only use `--force` when you intend to replace generated files.

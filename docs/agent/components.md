@@ -11,6 +11,69 @@ Before authoring a page, discovery document, or error response, read
 [`document-rendering.md`](document-rendering.md). It covers format-specific
 macros and shared HTML/Markdown implementations, including cached documents.
 
+## Managed HTML Page boundary
+
+Every managed-head HTML document needs one explicitly declared Page. Put this
+constant in the selected Page's `WebRender` or `WebRenderSync` impl, and in any
+corresponding Send render impl:
+
+```rust
+const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;
+```
+
+This is required even when the Page has no head hook and inherits all metadata.
+Ancestor layouts implementing `render_head` declare
+`const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;`.
+Only the Page seals metadata before its body; a head hook alone
+does not declare a Page. Ordinary `COMPONENT` values skip head invocation entirely.
+Manual documents without managed-head configuration do not require this role.
+A component declaring `LAYOUT` or `PAGE` renders only inside a managed document,
+even with the default no-op hook. Layouts must precede the selected Page and
+cannot appear after sealing or inside Suspense/captures/fallbacks. This rule is
+the same for sync, async, Send and adapted rendering. Plain
+`WebContext::new()`, `render_to_string`, or `.without_head()` fails with
+`HeadError::ManualMode`. Keep visual wrappers on the default `COMPONENT` role
+when they need to render inside a Page or in manual mode.
+
+Test through the document's actual managed route, including an outlet and an
+explicit Page, and verify head publication while body work remains pending.
+Calling `render` directly exercises only the body and bypasses lifecycle dispatch.
+Run `cargo proa lint <changed-paths> --deny warnings` for changed hooks.
+`render/head-role-required` rejects an override with a missing role declaration
+or an explicit `COMPONENT` role. Native async hooks cannot expose override
+presence to Rust, so the async contract relies on this source check. Forwarded
+roles and application constants are not evaluated by the lint; ensure they resolve
+to `LAYOUT` or `PAGE`. Synchronous hooks also retain a compiler assertion during
+code generation; run `cargo build`, since `cargo check` does not instantiate it.
+
+A Page with neither a hook nor a declared role remains indistinguishable from an
+ordinary component. Choosing `LAYOUT` for the selected Page also leaves no Page
+boundary. These cases leave preparation unsealed: a completed render fails with
+`MissingPage` or `OrphanProvider`, while pending body work can wait until the
+preparation deadline (30 seconds by default in the Axum streaming adapter).
+
+Keep interactive islands inside an ordinary SSR Page wrapper. The current
+`#[rsjs(component...)]` analyzer accepts only the render method in its impl;
+put the Page role and head hook on the wrapper rather than the analyzed island.
+See [managed document head](api-reference/render-traits.md#managed-document-head)
+for dispatch, inheritance, and hook signatures.
+
+## Typed metadata patches
+
+Use `cx.head_mut().metadata(HeadMetadata { title: "Shop".into(), ..Default::default() })`
+for multiple fields. Each field defaults to `HeadValue::Inherit`; `HeadValue::Clear`
+removes an inherited value. `HeadTitle::absolute("Checkout").into()` bypasses an
+ancestor title template. Lists replace entire inherited lists; Open Graph and
+Twitter builders patch individual properties. All fields validate before any
+are applied. New families include `Twitter`, page-level `Robots`, `HeadIcon`,
+`HeadAlternate`, manifest URLs, authors, and verification tokens. These mutations
+belong inside the same explicitly role-marked hook as title and description.
+`Robots` emits page-level `<meta>` tags; `FrameworkBuilder::with_robots(RobotsTxt)`
+configures the separate `/robots.txt` resource. A crawler needs fetch access to
+read a page's `noindex` directive. See the
+[metadata reference](../../proa_marketing/src/docs/framework/metadata-reference.mdx)
+for typed setters and their generated HTML.
+
 ## Pick the render path
 
 Use `WebRenderSync` and `html_sync!` unless rendering must await data. Author

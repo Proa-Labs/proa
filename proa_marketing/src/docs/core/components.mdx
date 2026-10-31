@@ -4,19 +4,33 @@ description: How Proa components are plain structs, how props and children flow,
 keywords: [WebRenderSync, WebRender, to_async, await_component, ProaComponent]
 ---
 
-A Proa component is a struct plus a render impl. There is no component macro, no virtual DOM, and no runtime registry: the struct is the props, the impl is the template, and the compiler is the type check.
+A Proa component is a struct plus a render impl. Its fields are props, its impl defines the template, and Rust checks both.
 
 <Callout>
 You do not have to write the common ones yourself. [proa-ui](https://ui.proa.so/docs) is a shadcn-style catalog of Proa components, and `proa ui add button` vendors the source into `src/components/button/` in your project. You own the files and edit them exactly like the ones on this page.
 </Callout>
 
 ```rust filename="src/components/button/button.rs"
+use super::recipe::{ButtonSize, ButtonVariant};
+
 pub struct Button<C = ()> {
     pub variant: ButtonVariant,
     pub size: ButtonSize,
     pub disabled: bool,
     pub class: Option<&'static str>,
     pub children: Option<C>,
+}
+
+impl<C> Default for Button<C> {
+    fn default() -> Self {
+        Self {
+            variant: ButtonVariant::Solid,
+            size: ButtonSize::Md,
+            disabled: false,
+            class: None,
+            children: None,
+        }
+    }
 }
 ```
 
@@ -41,15 +55,16 @@ html_sync! {
 
 Struct-literal syntax is doing real work here. `..Button::default()` is Rust's functional update, so a component with twelve props stays readable when a caller sets two, and the defaults live in one `Default` impl instead of being scattered across call sites.
 
-There is no separate props type to keep in sync, and nothing is boxed: the literal is constructed on the stack and consumed by `render`.
+There is no separate props type to keep in sync. The literal is constructed on the stack and consumed by `render`.
 
 ## Writing the render impl
 
-The impl decides which trait the component supports. Use `WebRenderSync` unless the component genuinely awaits:
+The impl decides which trait the component supports. Use `WebRenderSync` unless its body or metadata hook needs to await work:
 
 ```rust filename="src/components/button/button.rs"
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
 use proa_macros::html_sync;
+use super::recipe::button_classes;
 
 impl<L, C> WebRenderSync<L> for Button<C>
 where
@@ -86,26 +101,27 @@ where
     C: WebRenderSync<L>,
 ```
 
-`C = ()` in the struct definition supplies the default, so `Button::default()` works without a turbofish for a button with no children. The render bound constrains only the child type; other generics on the struct stay unconstrained.
+`C = ()` supplies the default child type when you write a type such as `let button: Button = Button::default()`. A child like `Some("Save")` infers its own `C`; for an otherwise unconstrained empty button, write `Button::<()>::default()`. The manual `Default` implementation does not require `C: Default`.
+
+The render bound constrains only types actually rendered as children.
 
 Children are `Option<C>` because `Option<T>` renders nothing when `None`. Optional content needs no branch in the template:
 
 ```rust filename="src/components/panel.rs"
 html_sync! {
-    <section data-panel>
-        {self.subtitle}
-        {self.children}
-    </section>
+    <section data-panel>{self.subtitle}{self.children}</section>
 }
 ```
 
 ## Styling: recipes, not class strings
 
-Proa is opinionated about where classes live. A component does not build a class string at render time; it selects between static fragments that were resolved at compile time. The convention, borrowed from shadcn/ui's variant vocabulary and Panda CSS's recipe model, splits every component into two files.
+Proa is opinionated about where classes live. A component does not build a class string at render time; it selects between static fragments that were resolved at compile time. For reusable components, keep style decisions in `recipe.rs` beside the render implementation.
 
 `recipe.rs` owns the styling. Each variant axis is an enum whose `classes()` maps a semantic name to a class fragment:
 
 ```rust filename="src/components/button/recipe.rs"
+use proa_core::ClassList;
+
 mod base {
     pub const BUTTON_BASE: &str =
         "inline-flex items-center justify-center rounded-md text-sm font-medium";
@@ -136,9 +152,32 @@ impl ButtonVariant {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonSize {
+    #[default]
+    Md,
+    Sm,
+}
+
+impl ButtonSize {
+    pub const fn classes(self) -> &'static str {
+        match self {
+            Self::Md => "h-9 px-4",
+            Self::Sm => "h-8 px-3",
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Md => "md",
+            Self::Sm => "sm",
+        }
+    }
+}
 ```
 
-Both methods are `const fn`, so a variant is a compile-time selection between `&'static str` fragments. The paired `as_str` is what the component renders into `data-variant`.
+Both methods support const evaluation. At render time, a variant selects an existing `&'static str` fragment without constructing a class string. The paired `as_str` is what the component renders into `data-variant`.
 
 One function composes the axes, returning a stack-allocated [`ClassList`](/docs/core/class-composition) rather than a `String`:
 
@@ -180,14 +219,15 @@ Most interactive chrome has no Markdown equivalent, so the Markdown impl usually
 
 ```rust filename="src/components/button/md.rs"
 use proa_core::{DataLoader, MdRenderSync, WebContext, WriteError};
+use super::Button;
 
 /// Button renders as just its label text; the visual chrome is meaningless in Markdown.
 impl<L: DataLoader, C: MdRenderSync<L>> MdRenderSync<L> for Button<C> {
     fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let prev = cx.md_set_inline(true);
-        self.children.render_md(cx)?;
+        let result = self.children.render_md(cx);
         cx.md_set_inline(prev);
-        Ok(())
+        result
     }
 }
 ```
@@ -204,9 +244,7 @@ A sync-only component composes into an async tree through `to_async(...)`:
 
 ```rust filename="src/pages/dashboard.rs"
 html! {
-    <main>
-        {proa_core::to_async(Button { children: Some("Save"), ..Button::default() })}
-    </main>
+    <main>{proa_core::to_async(Button { children: Some("Save"), ..Button::default() })}</main>
 }
 ```
 

@@ -533,6 +533,7 @@ fn lint_render_impl_items(
     for item in items {
         match item {
             Item::Impl(item_impl) => {
+                lint_head_role(path, item_impl, ignored_ranges, diagnostics);
                 lint_render_impl(
                     path,
                     item_impl,
@@ -558,6 +559,74 @@ fn lint_render_impl_items(
             }
             _ => {}
         }
+    }
+}
+
+/// Native async hooks have the same Future contract as the default, so Rust
+/// cannot infer whether a hook was overridden. Reject forgotten roles in
+/// authored source before role-directed dispatch would skip the hook.
+fn lint_head_role(
+    path: &Path,
+    item_impl: &ItemImpl,
+    ignored_ranges: &[RangeInclusive<usize>],
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+        return;
+    };
+    let Some(segment) = trait_path.segments.last() else {
+        return;
+    };
+    let hook_name = match segment.ident.to_string().as_str() {
+        "WebRender" | "WebRenderSync" => "render_head",
+        "WebRenderSend" => "render_head_send",
+        "WebRenderSendSync" => "render_head_send_sync",
+        _ => return,
+    };
+    let role = item_impl.items.iter().find_map(|item| match item {
+        ImplItem::Const(item) if item.ident == "ROLE" => Some(&item.expr),
+        _ => None,
+    });
+    let explicitly_component = role.is_some_and(explicit_component_role);
+    if role.is_some() && !explicitly_component {
+        // Forwarded roles (T::ROLE) and application constants are permitted;
+        // this lint does not evaluate arbitrary Rust constant expressions.
+        return;
+    }
+    for item in &item_impl.items {
+        let ImplItem::Fn(method) = item else { continue };
+        if method.sig.ident != hook_name {
+            continue;
+        }
+        let start = method.sig.ident.span().start();
+        if line_in_ranges(start.line, ignored_ranges) {
+            continue;
+        }
+        diagnostics.push(Diagnostic::new(
+            path,
+            start.line,
+            start.column + 1,
+            Severity::Error,
+            "render/head-role-required",
+            format!("`{hook_name}` requires an explicit layout or Page role"),
+        ).with_help("set `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;` for an ancestor layout, or `ComponentRole::PAGE` for the selected Page; only the Page seals metadata before its body"));
+    }
+}
+
+fn explicit_component_role(expr: &Expr) -> bool {
+    match expr {
+        Expr::Path(expr) => expr
+            .path
+            .segments
+            .last()
+            .is_some_and(|seg| seg.ident == "COMPONENT"),
+        Expr::Paren(expr) => explicit_component_role(&expr.expr),
+        Expr::Group(expr) => explicit_component_role(&expr.expr),
+        Expr::Block(expr) => match expr.block.stmts.as_slice() {
+            [syn::Stmt::Expr(expr, None)] => explicit_component_role(expr),
+            _ => false,
+        },
+        _ => false,
     }
 }
 
@@ -3268,8 +3337,13 @@ fn check_render_api_perf(
     // lowered to `WebRenderSync` regardless of what its own body does.
     let has_async_child_bound = generics_bind_async_render(&item_impl.generics, &["WebRender"])
         || generics_bind_async_render(&method.sig.generics, &["WebRender"]);
+    let has_async_head = item_impl.items.iter().any(|item| {
+        matches!(item, ImplItem::Fn(hook)
+            if hook.sig.ident == "render_head" && block_contains_await(&hook.block))
+    });
 
     if !has_async_child_bound
+        && !has_async_head
         && !block_completes_render_outcome_done(&method.block)
         && !block_forwards_foreign_render_outcome(&method.block)
         && !block_has_possibly_async_template_child(&method.block)

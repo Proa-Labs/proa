@@ -20,20 +20,20 @@ html! {
 }
 ```
 
-Everything outside the boundary flushes at once. Everything inside streams in behind it.
+Ready shell bytes can flush while the boundary remains pending. If the child suspends in out-of-order mode, the fallback appears until its content arrives. Managed documents first complete their metadata preparation.
 
 ## When streaming helps
 
-Streaming trades total time for time-to-first-byte. It helps when one section is meaningfully slower than the rest of the page, and hurts when you split a page that was already fast.
+Streaming can reduce time to the first useful content while independent work continues. It helps when one section is meaningfully slower than the rest of the page, and hurts when you split a page that was already fast.
 
 | Situation | Do this |
 |---|---|
 | One slow query, rest of the page is cheap | Wrap the slow section in `Suspense` |
 | Every section is slow | Fix the data layer first; streaming will not hide it |
-| The whole page is fast | Do not stream. The shell flush costs a round trip |
-| A bot or crawler is reading | Serve the buffered response; streaming helps humans, not parsers |
+| The whole page is fast | Prefer a buffered response; streaming adds scheduling and framing work. |
+| The consumer does not execute JavaScript | Use buffered or in-order HTML so resolved content is available without swaps. |
 
-Streaming also fixes the response head before the root component renders. Set status codes and headers in the handler before returning `RouteResponse::ssr_stream`; render-tree mutations are refused. See [Status, redirects, and errors](/docs/framework/errors).
+With managed metadata enabled, Proa runs layout and Page head hooks before publishing the response head. Make status, cookie, redirect, and cache decisions in the handler or those hooks. Publication requires both the sealed Page metadata and the head outlet; body work streams afterward. Manual streaming documents commit headers before rendering begins. See [Metadata and streaming](/docs/framework/metadata#metadata-and-streaming) and [Status, redirects, and errors](/docs/framework/errors).
 
 ## Returning a streaming response
 
@@ -55,8 +55,12 @@ Two boundaries on one page, one slow and one fast:
 html! {
     <main>
         <h1>"Product"</h1>
-        {Suspense::new(Reviews { id }, html_sync! { <p>"loading reviews"</p> })}
-        {Suspense::new(Stock { id }, html_sync! { <p>"loading stock"</p> })}
+        {Suspense::new(Reviews { id }, html_sync! {
+            <p>"loading reviews"</p>
+        })}
+        {Suspense::new(Stock { id }, html_sync! {
+            <p>"loading stock"</p>
+        })}
     </main>
 }
 ```
@@ -129,7 +133,9 @@ use proa_stream::Suspense;
 
 Suspense {
     child: Recommendations { id },
-    fallback: html_sync! { <p>"loading recommendations"</p> },
+    fallback: html_sync! {
+        <p>"loading recommendations"</p>
+    },
     priority: Priority::Defer,
     timeout: Some(Duration::from_millis(200)),
 }
