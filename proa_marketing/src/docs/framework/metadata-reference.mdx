@@ -626,12 +626,26 @@ The existing `AppUrl` writes its prefix and borrowed path directly to the output
 
 ### URL base and mount
 
-For this example, configure a public mount of `/shop` before rendering:
+Configure metadata URL resolution once at application startup, then pass the resulting `HeadConfig` to `FrameworkBuilder::with_head(...)`. The builder makes this policy available to the rendered routes' `cx.head_mut()` setters. Creating the configuration alone does not install it.
+
+In this example, `manifest` is your application's `IslandManifest` and `routes` is its Axum `Router`. Both the framework and metadata policy use the same `/shop` mount:
 
 ```rust filename="App configuration"
+use proa_core::{HeadConfig, HeadUrlPolicy};
+use proa_framework_axum::{BasePath, FrameworkBuilder};
+
+let mount = "/shop";
 let head = HeadConfig::default()
-    .with_urls(HeadUrlPolicy::new("https://shop.example", "/shop")?);
+    .with_urls(HeadUrlPolicy::new("https://shop.example", mount)?);
+
+let app = FrameworkBuilder::new(manifest)
+    .with_base_path(BasePath::new(mount)?)
+    .with_head(head)
+    .with_dynamic_routes(routes)
+    .build();
 ```
+
+Inside a Page or layout's head hook, paths now resolve using that installed policy:
 
 ```rust filename="render_head"
 cx.head_mut().canonical("/products/trail-jacket")?;
@@ -647,13 +661,36 @@ Currently, this mount is configured separately from `FrameworkBuilder::with_base
 
 ### External resource origins
 
-Stylesheets and modules must come from the public origin or an allowed resource origin. Allow a CDN origin before registering resources from it:
+This is also application startup configuration for `FrameworkBuilder`. Stylesheets and modules registered through `cx.head_mut()` must come from the public origin or an allowed resource origin. Allow a CDN origin in the policy, then install it with `with_head(...)` before serving your routes. `manifest` and `routes` are your application's existing manifest and Axum router:
 
 ```rust filename="App configuration"
+use proa_core::{HeadConfig, HeadUrlPolicy};
+use proa_framework_axum::FrameworkBuilder;
+
 let urls = HeadUrlPolicy::new("https://shop.example", "/")?
     .allow_resource_origin("https://cdn.example")?;
 let head = HeadConfig::default().with_urls(urls);
+
+let app = FrameworkBuilder::new(manifest)
+    .with_head(head)
+    .with_dynamic_routes(routes)
+    .build();
 ```
+
+A Page or layout can then register a stylesheet from the allowed CDN:
+
+```rust filename="render_head"
+#[derive(PartialEq, Eq)]
+enum Style { Theme }
+
+cx.head_mut().stylesheet(Style::Theme, "https://cdn.example/styles/theme.css")?;
+```
+
+```html filename="Generated HTML"
+<link rel="stylesheet" href="https://cdn.example/styles/theme.css">
+```
+
+The allowlist permits registration; it does not register or fetch the resource itself. `RouteResponse::with_head(head)` can install a head configuration for an individual response instead of using app-wide builder configuration.
 
 Images, audio, video, canonical URLs, `og:url`, Twitter images, icons, alternate links, manifests, and author URLs do not use this allowlist. They accept a mount-relative path or any absolute `http` or `https` URL that has a host and carries no credentials.
 

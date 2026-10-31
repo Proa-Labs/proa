@@ -168,9 +168,12 @@ A Page that only inherits metadata can omit its hook, but it still declares `ROL
 
 ### Configure app-wide defaults
 
-Use `with_defaults` for values shared by your routes:
+Use `with_defaults` for values shared by your routes, then install the configuration with `FrameworkBuilder::with_head(...)`. Here, `manifest` and `routes` are your application's existing island manifest and Axum router:
 
 ```rust filename="App configuration"
+use proa_core::{HeadConfig, HeadUrlPolicy};
+use proa_framework_axum::FrameworkBuilder;
+
 let head = HeadConfig::default()
     .with_urls(HeadUrlPolicy::new("https://shop.example", "/")?)
     .with_defaults(|head| {
@@ -178,6 +181,11 @@ let head = HeadConfig::default()
         head.description("Explore the Acme shop.")?;
         Ok(())
     })?;
+
+let app = FrameworkBuilder::new(manifest)
+    .with_head(head)
+    .with_dynamic_routes(routes)
+    .build();
 ```
 
 Page and layout hooks can override these defaults. Call `with_urls` before `with_defaults`: default URLs are resolved when they are configured.
