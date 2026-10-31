@@ -595,7 +595,7 @@ The following API is proposed and is not yet implemented. `cx.url(...)`, `.segme
 
 The proposed context helper composes an application-local URL using the base path configured in `FrameworkBuilder`. For a dynamic product ID:
 
-```rust filename="Proposed render_head API — not yet implemented"
+```rust filename="Proposed render_head API (not yet implemented)"
 let product_url = cx.url("/products").segment(self.id);
 cx.head_mut().canonical(product_url)?;
 ```
@@ -610,7 +610,7 @@ With public origin `https://shop.example`, application base path `/shop`, and `s
 
 The same typed value is intended to work in ordinary URL attributes:
 
-```rust filename="Proposed template API — not yet implemented"
+```rust filename="Proposed template API (not yet implemented)"
 let product_url = cx.url("/products").segment(self.id);
 
 html_sync! {
