@@ -7,15 +7,15 @@ The playground FFI artifact is a native shared library plus `proa.h`. The host p
 
 ## Build Outputs
 
-The library is built and packaged by Proa's release pipeline; download the playground package rather than building it yourself. A plain `cargo build -p proa_demo --release` does not link, because the demo includes RSJS islands and the linked pipeline currently exposes only binary and example targets, not the cdylib.
+Use the matching library and header from a published playground package. A plain `cargo build -p proa_demo --release` does not link, because the demo includes RSJS islands and the linked pipeline currently exposes only binary and example targets, not the cdylib.
 
 Native outputs in the package:
 
 | Platform | Library |
 |----------|---------|
-| macOS | `target/release/libproa_demo.dylib` |
-| Linux | `target/release/libproa_demo.so` |
-| Windows | `target/release/proa_demo.dll` |
+| macOS | `ffi/libproa_demo.dylib` |
+| Linux | `ffi/libproa_demo.so` |
+| Windows | `ffi/proa_demo.dll` |
 
 The downloadable playground package places the library and header under `ffi/`.
 
@@ -24,25 +24,62 @@ The downloadable playground package places the library and header under `ffi/`.
 For C programs, set an rpath or configure the platform loader:
 
 ```bash
-# macOS
-cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,./ffi
+# macOS: normalize the current archive's build-machine install name first.
+install_name_tool -id @rpath/libproa_demo.dylib ./ffi/libproa_demo.dylib
+cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,@loader_path/ffi
 
 # Linux
 cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,'$ORIGIN/ffi'
 ```
 
-For host runtimes such as Python, Ruby, Go, Java, or Node native bindings, prefer an absolute library path or a path resolved relative to the deployed application directory.
+The current Apple Silicon archive embeds an absolute install name from its
+build machine. `install_name_tool -id` repairs your local copy before linking;
+`otool -D ./ffi/libproa_demo.dylib` should then report
+`@rpath/libproa_demo.dylib`. The executable's rpath locates the library beside
+it. Rebuild already-linked executables after changing the library identity.
+
+Python and Ruby load the library by its explicit filename. Resolve that path
+from the deployed application's directory rather than assuming its working
+directory. Go's C bridge also needs linker search paths and an rpath, as shown
+in the [Go example](/docs/ffi#go).
 
 ## Docker
 
-The playground package includes a Dockerfile:
+Use the **x86_64 Linux archive** from [Ecosystem Apps](/ecosystem/apps#reference-showcases),
+including when building on macOS or Windows. The image runs Linux executables;
+a macOS or Windows download cannot run inside it. The current Linux archive
+omits a Dockerfile, so add this one at the extracted package root:
 
-```bash
-docker build -t proa/playground .
-docker run -p 3001:3001 proa/playground
+```dockerfile filename="Dockerfile"
+FROM oven/bun:1.3.10 AS bun
+FROM node:22-bookworm-slim
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+WORKDIR /app
+COPY . .
+RUN npm install --include=dev --prefix hono-ssr \
+    && npm install --include=dev --prefix react-ssr-shared \
+    && chmod +x proa-playground
+ENV PORT=3001
+EXPOSE 3001
+# The archived binary has an obsolete build-machine path for its companions.
+# Start them explicitly from this package, on the ports it expects.
+CMD ["sh", "-c", "(cd hono-ssr && PORT=3100 node --import tsx server.ts) & (cd hono-ssr && PORT=3200 bun server.ts) & exec ./proa-playground"]
 ```
 
-Use Docker when you want a self-contained playground with the Proa server, comparison engines, assets, and FFI library in one image.
+Build and run it for the archive's architecture:
+
+```bash
+docker build --platform linux/amd64 -t proa/playground .
+docker run --rm --platform linux/amd64 -p 127.0.0.1:3001:3001 proa/playground
+```
+
+Open `http://localhost:3001`. Node and Bun provide the comparison engines;
+the native Proa server and FFI library come from the Linux archive. The
+archived server also contains a build-machine companion path, so this example
+starts Node and Bun explicitly from the package directory. Keep dev
+dependencies during installation because the packaged Node server uses `tsx`.
+This is a showcase package; pin dependency lockfiles and image digests before
+using it as a repeatable benchmark baseline.
 
 ## Host Integration Checklist
 

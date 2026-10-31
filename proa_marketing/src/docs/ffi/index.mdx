@@ -26,20 +26,21 @@ Proa compiles HTML templates into optimized byte sequences at build time. The pl
 | `run.sh` | Launch script (`run.bat` on Windows) |
 | `libproa_demo.dylib` | FFI shared library (`.so` on Linux, `.dll` on Windows) |
 | `proa.h` | C header |
-| `Dockerfile` | Build a self-contained Docker image |
+| `Dockerfile` | Add the [Packaging example](/docs/ffi/packaging#docker) for a Linux container |
 
 ## Docker
 
-No Node, Bun, or runtime setup needed, everything runs inside the container:
+Use the **Linux x86_64 download**, even when building on macOS or Windows.
+Add the [Dockerfile from Packaging](/docs/ffi/packaging#docker) to the extracted
+Linux package; that archive currently omits it. Then run:
 
 ```bash
-# From inside the extracted package directory:
-docker build -t proa/playground .
-docker run -p 3001:3001 proa/playground
+docker build --platform linux/amd64 -t proa/playground .
+docker run --rm --platform linux/amd64 -p 127.0.0.1:3001:3001 proa/playground
 ```
 
-Then open [http://localhost:3001](http://localhost:3001). The image includes Node 22 and Bun,
-so all three engines (Proa, React/Node, React/Bun) work out of the box.
+Open `http://localhost:3001`. The image includes Node and Bun for the comparison
+engines. A native macOS or Windows executable cannot run in this Linux image.
 
 ## API at a glance
 
@@ -334,8 +335,9 @@ int main(void) {
 Compile and run:
 
 ```bash
-# macOS
-cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,./ffi
+# macOS: normalize the current archive's build-machine install name first.
+install_name_tool -id @rpath/libproa_demo.dylib ./ffi/libproa_demo.dylib
+cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,@loader_path/ffi
 
 # Linux
 cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,'$ORIGIN/ffi'
@@ -343,11 +345,17 @@ cc -o demo demo.c -L./ffi -lproa_demo -Wl,-rpath,'$ORIGIN/ffi'
 
 ## Go
 
+On macOS, run the `install_name_tool` repair in the C example before linking.
+The linker paths below resolve from the Go source directory. See
+[Dynamic loader paths](/docs/ffi/packaging#dynamic-loader-paths) for details.
+
 ```go
 package main
 
 /*
-#cgo LDFLAGS: -L./ffi -lproa_demo
+#cgo LDFLAGS: -L${SRCDIR}/ffi -lproa_demo
+#cgo darwin LDFLAGS: -Wl,-rpath,${SRCDIR}/ffi
+#cgo linux LDFLAGS: -Wl,-rpath,${SRCDIR}/ffi
 #include "ffi/proa.h"
 #include <stdlib.h>
 */

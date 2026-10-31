@@ -7,8 +7,8 @@ Use `proa check` as the default pull-request gate. It runs `proa fmt --check --v
 
 Install a checksum-verified CLI binary before running the gate. There are two
 download flows. The current prebuilt target is 64-bit Ubuntu 24.04+
-(`x86_64-unknown-linux-gnu`); use a source build with repository access on
-other runners.
+(`x86_64-unknown-linux-gnu`); compile a pinned published version from crates.io
+on other runners.
 
 ### Latest CLI From `main`
 
@@ -57,8 +57,8 @@ instead of silently recompiling the workspace. Add
 To build it from source instead:
 
 ```bash
-CARGO_NET_GIT_FETCH_WITH_CLI=true \
-  cargo install --git https://github.com/proa-labs/proa --locked proa-cli
+PROA_CLI_VERSION="<published-version>"
+cargo install proa-cli --version "=$PROA_CLI_VERSION" --locked
 ```
 
 Then confirm CI can resolve the binary:

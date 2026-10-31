@@ -96,6 +96,7 @@ use proa_core::{
 };
 use proa_macros::html;
 use rsjs::{rsjs, QueryKey};
+use crate::components::stock_tile::StockPrice;
 
 pub struct AsyncStockTile;
 
@@ -245,6 +246,11 @@ the invalidation list names the query keys the runtime refreshes after a
 successful run.
 
 ```rust filename="src/components/cart_editor.rs"
+use std::future::Future;
+use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa_macros::html;
+use rsjs::{rsjs, QueryKey};
+
 pub struct CartEditor;
 
 #[rsjs(component, client)]

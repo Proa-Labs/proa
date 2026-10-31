@@ -495,10 +495,10 @@ Every enabled mode emits a search manifest and documents JSON today. Your app de
 | `.mode(LinkValidationMode)` | `Off`, `Warn`, or `Error`. |
 | `.check_internal(bool)` | Check absolute and relative internal route targets. |
 | `.check_hashes(bool)` | Check heading hashes. |
-| `.check_relative_paths(RelativePathMode)` | Ignore, URL-resolve, or file-resolve relative links. |
-| `.check_external(ExternalLinkCheck)` | Configure external link checking. |
-| `.component_attr(component, attr)` | Register component attributes that contain links. |
-| `.static_root(path)` | Register static asset roots. |
+| `.check_relative_paths(RelativePathMode)` | Ignore or URL-resolve relative links. `AsFile` currently skips them. |
+| `.check_external(ExternalLinkCheck)` | Store external-link settings; the current validator makes no external requests. |
+| `.component_attr(component, attr)` | Reserved setting; the current validator does not read custom component attributes. |
+| `.static_root(path)` | Reserved setting; the current validator does not resolve static asset roots. |
 
 See [Link validation](/docs/proa-docs/link-validation) for examples.
 

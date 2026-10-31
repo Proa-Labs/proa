@@ -5,6 +5,14 @@ description: Pass RSJS callbacks and reactive values into child component struct
 
 A child component receives parent state through ordinary struct fields, and the linker keeps those fields live across the edge. This page covers [required](#passing-a-required-callback) and [optional](#passing-an-optional-callback) callbacks, [live values and local state](#when-does-a-child-see-live-parent-values), [node refs](#passing-a-node-ref), and [island boundaries](#what-crosses-an-island-boundary).
 
+Include these imports in each component module below:
+
+```rust
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa_macros::html_sync;
+use rsjs::{rsjs, signal};
+```
+
 ## Passing a required callback
 
 Use callback props when a child component owns markup but the parent owns state.

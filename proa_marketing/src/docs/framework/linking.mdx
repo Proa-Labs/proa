@@ -57,7 +57,7 @@ A plain anchor has none of that, and it works before JavaScript loads, with Java
 | Navigate to another page | `<a href="/path">` |
 | Prefetch a likely next page | `<link rel="prefetch" href="/path">` |
 | Add SPA-like page transitions | Add Turbo Drive; keep the same anchors and routes |
-| Keep a scroll position across navigation | CSS `overflow-anchor`, or an island that restores it |
+| Restore scroll on back/forward navigation | Browser history restoration, or the navigation library's restoration policy |
 | Show progress on a slow page | Stream it. See [Streaming SSR](/docs/core/streaming-ssr) |
 | Update the URL without navigating | RSJS history helpers, below |
 | Preserve state across a navigation | Reconsider, that state probably belongs in the URL |
@@ -140,13 +140,14 @@ Add `rel="noopener noreferrer"` whenever you open a new tab:
 
 ```rust filename="src/components/external.rs"
 html_sync! {
-    <a href="https://example.com" target="_blank" rel="noopener noreferrer">
-        "Docs"
-    </a>
+    <a href="https://example.com" target="_blank" rel="noopener noreferrer">"Docs"</a>
 }
 ```
 
-Without it, the opened page can reach back through `window.opener` and redirect your tab. See [Escaping and raw HTML](/docs/core/escaping).
+Modern browsers imply `noopener` for `target="_blank"`. Writing it explicitly
+keeps the policy visible; `noreferrer` also suppresses the Referer header, which
+you can omit when referral information is wanted. See [MDN: noopener](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/noopener)
+and [Escaping and raw HTML](/docs/core/escaping).
 
 ## Next steps
 

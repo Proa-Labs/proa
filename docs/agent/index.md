@@ -39,8 +39,9 @@ render targets. Each target defines its own rendering implementation; a target
 can be a document format or a different rendering backend. The built-in traits
 and macros described below cover HTML and Markdown.
 
-Proa compiles HTML and Markdown templates into byte sequences at compile time,
-so SSR is allocation-free on the hot path. Custom HTML components normally
+Proa consolidates static markup at compile time and writes dynamic values
+directly to the output buffer. Output storage, loaders, metadata, application
+code, and response handling can still allocate; measure the complete path. Custom HTML components normally
 implement `WebRenderSync<L>` and return
 `html_sync! { ... }.render(cx)`; components that genuinely await implement the
 real `WebRender<L>` signature. The default writer is the `RenderBuffer` owned by

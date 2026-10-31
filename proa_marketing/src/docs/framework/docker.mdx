@@ -149,7 +149,9 @@ Three more things a platform would have handled, in the order they bite:
 
 ## Ship a new version without downtime
 
-`docker compose up -d` stops the old container before the new one is ready. That is a visible outage on every deploy.
+When `docker compose up -d` recreates a single application container, it does
+not provide a readiness-gated traffic swap. Use parallel containers and a proxy
+cutover when that interruption is unacceptable.
 
 Start the new version alongside, prove it healthy, then move traffic:
 
