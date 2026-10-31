@@ -16,7 +16,7 @@ pub const HEAD_LIMIT: usize = 64 * 1024;
 /// `None` leaves the inherited value unchanged. Use the individual `clear_*`
 /// methods to remove a value. The patch is validated atomically before applying
 /// any fields, with the same URL policy and title inheritance as the setters.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct HeadMetadata {
     pub title: Option<Cow<'static, str>>,
     pub description: Option<Cow<'static, str>>,
