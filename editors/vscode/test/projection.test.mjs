@@ -94,6 +94,19 @@ test('uses a position-preserving Rust block for incomplete fields until the macr
   assert(project('return ::proa_macros::md_sync! { r#"{a.}"# };').text.startsWith('return '));
 });
 
+test('dots inside Rust strings, characters, and comments do not mark a slot unfinished', () => {
+  for (const text of [
+    'md_sync! { r#"{format!("a.}")}"# }',
+    'md_sync! { r#"{value /* a. */ .name}"# }',
+    "md_sync! { r#\"{name.trim_end_matches('.')}\"# }",
+    'md_sync! { r#"{if ready { r"end." } else { "none" }}"# }',
+  ]) {
+    assert.ok(project(text).text.includes('md_sync!'), text);
+  }
+  assert.ok(!project('md_sync! { r#"{value /* a.} */ .}"# }').text.includes('md_sync!'));
+  assert.ok(!project('md_sync! { r#"{if ready { value. } else { "none" }}"# }').text.includes('md_sync!'));
+});
+
 test('nested template literals inside a slot stay verbatim while outer prose is hidden', () => {
   const text = 'md_sync! { r#"Read on. {for item in items { md_sync! { r"[docs](https://example.com) — don\'t forget " {item.name} } }}"# }';
   const result = project(text);

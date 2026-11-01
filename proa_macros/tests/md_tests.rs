@@ -146,6 +146,10 @@ fn markdown_quotes_and_escaped_braces_are_literal_content() {
         "closing }"
     );
     assert_eq!(
+        r(md_sync! { r###"{if false { "hidden" }} visible }}"### }),
+        " visible }"
+    );
+    assert_eq!(
         r(md_sync! { r###"{if true { md_sync! { r#"A 6" screen."# } }}"### }),
         "A 6\" screen."
     );

@@ -782,12 +782,7 @@ fn check_async_md_static_body(
     impl<'ast> Visit<'ast> for Visitor<'_> {
         fn visit_expr_macro(&mut self, node: &'ast ExprMacro) {
             if macro_path_ends(node, "md") {
-                let tokens = &node.mac.tokens;
-                let has_async = tokens_mention_ident(tokens, &["await"])
-                    || tokens_mention_ident(tokens, MD_ASYNC_RENDER_MARKERS)
-                    || tokens_contain_await_in_literal(tokens)
-                    || md_tokens_have_possibly_async_child(tokens);
-                if !has_async {
+                if !md_tokens_have_async_work(&node.mac.tokens) {
                     push_expr_diag(
                         self.path,
                         SpanOrigin::File,
@@ -812,24 +807,76 @@ fn check_async_md_static_body(
     visitor.visit_block(block);
 }
 
+/// True when a `md!` template's tokens contain async work: an `.await`, an
+/// explicit async marker, or a child that may itself render asynchronously.
+fn md_tokens_have_async_work(tokens: &proc_macro2::TokenStream) -> bool {
+    tokens_mention_ident(tokens, &["await"])
+        || tokens_mention_ident(tokens, MD_ASYNC_RENDER_MARKERS)
+        || tokens_contain_await_in_literal(tokens)
+        || md_tokens_have_possibly_async_child(tokens)
+}
+
+/// True when any slot of a `md!` template renders an opaque unit-struct child.
 fn md_tokens_have_possibly_async_child(tokens: &proc_macro2::TokenStream) -> bool {
     use proa_dsl::md::{MdNodeKind, MdRoot, MdTemplateInput, TplNode};
-    fn nodes_have_child(nodes: &[TplNode]) -> bool {
-        nodes.iter().any(|node| match node {
-            TplNode::Expr(value) => expr_is_bare_uppercase_path(&value.expr),
-            TplNode::Text(_) => false,
-        })
-    }
     if let Ok(input) = syn::parse2::<MdTemplateInput>(tokens.clone()) {
-        return input
-            .semantic_nodes()
-            .is_ok_and(|nodes| nodes_have_child(&nodes));
+        return input.semantic_nodes().is_ok_and(|nodes| {
+            nodes.iter().any(|node| match node {
+                TplNode::Expr(value) => md_slot_has_possibly_async_child(&value.expr),
+                TplNode::Text(_) => false,
+            })
+        });
     }
     syn::parse2::<MdRoot>(tokens.clone()).is_ok_and(|root| {
         root.nodes.iter().any(|node| {
-        matches!(&node.kind, MdNodeKind::Block(expr) if expr_is_bare_uppercase_path(expr))
+            matches!(&node.kind, MdNodeKind::Block(expr) if md_slot_has_possibly_async_child(expr))
+        })
     })
-    })
+}
+
+/// True when a slot expression renders an opaque unit-struct child.
+///
+/// A slot is one Rust expression, so control flow is walked down to every
+/// rendered tail: `{if ready { DatabaseBadge }}` keeps the template async
+/// exactly as a top-level `{DatabaseBadge}` does. A nested `md!` counts when
+/// it has async work of its own.
+fn md_slot_has_possibly_async_child(expr: &Expr) -> bool {
+    fn rendered_block(block: &Block) -> bool {
+        block.stmts.iter().any(|stmt| match stmt {
+            syn::Stmt::Expr(expr, None) => md_slot_has_possibly_async_child(expr),
+            syn::Stmt::Macro(stmt) if stmt.semi_token.is_none() => nested_template(&stmt.mac),
+            _ => false,
+        })
+    }
+    fn nested_template(mac: &syn::Macro) -> bool {
+        mac.path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "md")
+            && md_tokens_have_async_work(&mac.tokens)
+    }
+    match expr {
+        Expr::If(expr) => {
+            rendered_block(&expr.then_branch)
+                || expr
+                    .else_branch
+                    .as_ref()
+                    .is_some_and(|(_, tail)| md_slot_has_possibly_async_child(tail))
+        }
+        Expr::ForLoop(expr) => rendered_block(&expr.body),
+        Expr::While(expr) => rendered_block(&expr.body),
+        Expr::Loop(expr) => rendered_block(&expr.body),
+        Expr::Match(expr) => expr
+            .arms
+            .iter()
+            .any(|arm| md_slot_has_possibly_async_child(&arm.body)),
+        Expr::Block(expr) => rendered_block(&expr.block),
+        Expr::Unsafe(expr) => rendered_block(&expr.block),
+        Expr::Group(expr) => md_slot_has_possibly_async_child(&expr.expr),
+        Expr::Paren(expr) => md_slot_has_possibly_async_child(&expr.expr),
+        Expr::Macro(expr) => nested_template(&expr.mac),
+        _ => expr_is_bare_uppercase_path(expr),
+    }
 }
 
 fn block_has_possibly_async_md_template_child(block: &Block) -> bool {

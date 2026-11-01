@@ -128,6 +128,31 @@ function expressions(source, literal, indent = indentation(source, literal), sta
   return { ranges, copies, replacements };
 }
 
+// An unfinished field access ends a slot or a control-flow body inside it:
+// `{a.}` or `{if ready { a. }}`. Strings, characters, and comments are
+// skipped so a `.` inside them is content, and `..` is a range.
+function unfinishedAccess(source, start, end) {
+  for (let i = start; i < end;) {
+    const skipped = comment(source, i);
+    if (skipped !== i) { i = skipped; continue; }
+    const raw = source[i] === 'r' ? rawString(source, i) : null;
+    if (raw) { i = raw.after; continue; }
+    if (source[i] === '"' || source[i] === "'") {
+      const quoteEnd = quoted(source, i);
+      if (quoteEnd !== i) { i = quoteEnd; continue; }
+    }
+    if (source[i] !== '.') { i++; continue; }
+    let next = i + 1;
+    while (next < end && source[next] === '.') next++;
+    if (next === i + 1) {
+      const after = trivia(source, next);
+      if (after >= end || source[after] === '}') return true;
+    }
+    i = next;
+  }
+  return false;
+}
+
 export function project(source) {
   const templates = [];
   let output = null;
@@ -160,9 +185,7 @@ export function project(source) {
     // expose an ordinary Rust block instead, so rust-analyzer can recover the
     // expression and complete its fields without needing a macro expansion.
     // Complete templates retain the macro and its actual render result type.
-    // An unfinished access may sit at the end of the slot or before the
-    // closing brace of a control-flow body inside it.
-    const incomplete = parsed.ranges.some(range => /\.\s*(?:\}|$)/u.test(source.slice(range.start + 1, range.end - 1)));
+    const incomplete = parsed.ranges.some(range => unfinishedAccess(source, range.start + 1, range.end - 1));
     if (incomplete) parsed = expressions(source, literal, indentation(source, literal), true);
     output ??= source.split('');
     if (incomplete) {

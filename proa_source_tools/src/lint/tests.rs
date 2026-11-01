@@ -1734,6 +1734,60 @@ impl MdRender for Page {
 }
 
 #[test]
+fn async_markdown_recognizes_opaque_children_inside_control_flow_slots() {
+    for slot in [
+        "{if self.ready { DatabaseBadge }}",
+        "{if self.ready { \"static\" } else { DatabaseBadge }}",
+        "{for _row in self.rows.iter() { DatabaseBadge }}",
+        "{match self.state { State::Ready => DatabaseBadge, _ => \"pending\" }}",
+        "{if self.ready { md! { r#\"{DatabaseBadge}\"# } }}",
+    ] {
+        let source = format!(
+            r####"
+impl MdRender for Page {{
+    fn render_md(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {{
+        md! {{ r###"{slot}"### }}.render_md(cx)
+    }}
+}}
+"####
+        );
+        let diagnostics = lint_file(Path::new("sample.rs"), &source);
+        assert!(
+            !has_code(&diagnostics, "render/md-async-unneeded"),
+            "{slot}"
+        );
+        assert!(
+            !has_code(&diagnostics, "perf/async-md-static-subtree"),
+            "{slot}"
+        );
+    }
+    let source = r####"
+impl MdRender for Page {
+    fn render_md(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        md! { r###"{if self.ready { "ready" } else { "pending" }}"### }.render_md(cx)
+    }
+}
+"####;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    assert!(has_code(&diagnostics, "render/md-async-unneeded"));
+    assert!(has_code(&diagnostics, "perf/async-md-static-subtree"));
+}
+
+#[test]
+fn async_markdown_token_templates_recognize_opaque_children_inside_control_flow() {
+    let source = r####"
+impl MdRender for Page {
+    fn render_md(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        md! { "# Status\n" {if self.ready { DatabaseBadge }} }.render_md(cx)
+    }
+}
+"####;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    assert!(!has_code(&diagnostics, "render/md-async-unneeded"));
+    assert!(!has_code(&diagnostics, "perf/async-md-static-subtree"));
+}
+
+#[test]
 fn lint_leaves_md_sync_and_html_sync_alone() {
     let source = r####"
 impl<B: WriteBuf> MdRenderSync<::proa_core::NoLoader, B> for Note {
