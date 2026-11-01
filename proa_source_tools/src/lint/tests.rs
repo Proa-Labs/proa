@@ -5214,6 +5214,7 @@ impl<L: DataLoader> MdRenderSync<L> for Markdown {
         cx.write_md_inline_code("<section>literal</section>")
     }
 }
+
 "###;
     let diagnostics = lint_file(Path::new("sample.rs"), source);
     assert!(diagnostics.iter().any(|d| d.code == "md/manual-write"));
@@ -5244,5 +5245,37 @@ impl<L: DataLoader> WebRenderSync<L> for Counter {
             .iter()
             .any(|diag| diag.code == "rsjs/dead-client-primitive"),
         "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn markdown_syntax_errors_are_reported_without_a_cargo_build() {
+    for body in [
+        "{if false {A} elsse {B}}",
+        "{for x in xs {X} ignored}",
+        "{if true {unclosed}",
+    ] {
+        let source = format!("fn f() {{ md_sync! {{ r###\"{body}\"### }}; }}");
+        let diagnostics = lint_file(Path::new("sample.rs"), &source);
+        assert!(
+            diagnostics.iter().any(|d| d.code == "parse/template"),
+            "{body}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn markdown_named_arguments_participate_in_layout_lint() {
+    let source = "fn f() {\n    md_sync! { r###\"\n        {if true {\n        {title}\n        }}\n        \"###, title = self.title\n    };\n}";
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code == "format/markdown-layout"),
+        "{diagnostics:?}"
+    );
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "parse/template"),
+        "{diagnostics:?}"
     );
 }

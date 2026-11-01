@@ -97,6 +97,164 @@ fn template_interpolation() {
     let out = r(md_sync!("Hello {name}!"));
     assert_eq!(out, "Hello Rust!");
 }
+
+#[test]
+fn compact_nested_controls_select_branches_and_iterate() {
+    for enabled in [false, true] {
+        let items = [2, 5];
+        let output = r(md_sync! { r###"
+            {if true {
+                if enabled {visible} else {hidden}
+                for item in items {({item})}
+            }}
+            "###
+        });
+        let expected = if enabled {
+            "visible\n(2)(5)\n\n"
+        } else {
+            "hidden\n(2)(5)\n\n"
+        };
+        assert_eq!(output, expected);
+    }
+}
+
+#[test]
+fn opening_line_whitespace_does_not_change_markdown_layout() {
+    let value = "a*b";
+    let normal = r(md_sync!("{if true {\n    {value}\n}}"));
+    let spaces = r(md_sync!("{if true {  \n    {value}\n}}"));
+    let tab = r(md_sync!("{if true {\t\n    {value}\n}}"));
+    assert_eq!(normal, "a\\*b\n");
+    assert_eq!(spaces, normal);
+    assert_eq!(tab, normal);
+}
+
+#[test]
+fn markdown_body_quotes_and_escaped_braces_are_literal_content() {
+    for show in [false, true] {
+        let output = r(md_sync! { r###"
+            {if show {
+                A 6" screen: {{ and }}.
+            }}
+            "###
+        });
+        assert_eq!(
+            output,
+            if show {
+                "A 6\" screen: { and }.\n\n"
+            } else {
+                "\n"
+            }
+        );
+    }
+    assert_eq!(r(md_sync!("{if true {Use {{value}}.}}")), "Use {value}.");
+    assert_eq!(r(md_sync!("{if true {closing }}}}")), "closing }");
+    assert_eq!(
+        r(md_sync! { r###"{if true {if true {A 6" screen.}}}"### }),
+        "A 6\" screen."
+    );
+    assert_eq!(r(md_sync!("{if true {\n    }}.\n}}")), "}.\n");
+}
+
+#[test]
+fn inline_control_does_not_capture_following_escaped_markdown() {
+    for show in [false, true] {
+        let output = r(md_sync!("start{if show { visible}}end {{tail}}"));
+        assert_eq!(
+            output,
+            if show {
+                "start visibleend {tail}"
+            } else {
+                "startend {tail}"
+            }
+        );
+    }
+}
+
+#[test]
+fn markdown_prose_starting_with_control_words_stays_prose() {
+    let label = "a*b";
+    let output = r(md_sync! { r###"
+        {if true {
+            if you prefer {label}.
+            for example {label}.
+        }}
+        "###
+    });
+    assert_eq!(output, "if you prefer a\\*b.\nfor example a\\*b.\n\n");
+}
+
+#[test]
+fn adjacent_wrapped_controls_preserve_protocol_newlines() {
+    let groups = [["a", "b"], ["c", "d"]];
+    let output = r(md_sync! { r###"
+        {for (index, group) in groups.iter().enumerate() {
+            {if index > 0 {
+
+            }}{for item in group {
+                {item}
+            }}}}
+        "###
+    });
+    assert_eq!(output, "a\nb\n\nc\nd\n\n");
+}
+
+#[test]
+fn rust_literals_comments_and_block_conditions_keep_their_delimiters() {
+    assert_eq!(
+        r(md_sync! { r###"{'}' as u32} {'{' as u32} {/* } */ 17}"### }),
+        "125 123 17"
+    );
+    let value = r#"a " } b"#;
+    assert_eq!(
+        r(md_sync! { r###"{if value == r#"a " } b"# {matched} else {miss}}"### }),
+        "matched"
+    );
+    assert_eq!(
+        r(md_sync! { r###"{if { true } {matched} else {miss}}"### }),
+        "matched"
+    );
+}
+
+#[test]
+fn multiline_inline_code_ignores_control_layout() {
+    let flat = r(md_sync!("{if true {\n`first\nsecond`\n}}"));
+    let indented = r(md_sync! { r###"
+        {if true {
+            `first
+            second`
+        }}
+        "###
+    });
+    assert_eq!(flat, "`first\nsecond`\n");
+    assert_eq!(indented, format!("{flat}\n"));
+}
+
+#[test]
+fn control_headers_support_if_let_and_multiline_rust_whitespace() {
+    let value = Some("a*b");
+    assert_eq!(
+        r(md_sync! { r###"{if let Some(label) = value {{label}} else {missing}}"### }),
+        "a\\*b"
+    );
+    assert_eq!(
+        r(md_sync! { r###"{for item in
+        [2, 3] {({item})}}"### }),
+        "(2)(3)"
+    );
+}
+
+#[test]
+fn named_arguments_seed_conditions_and_iterators() {
+    let values = [2, 4];
+    let output = r(md_sync! { r###"
+        {if show {
+            for item in items {({item})}
+        }}
+        "###, show = true, items = &values
+    });
+    assert_eq!(output, "(2)(4)\n\n");
+}
 #[test]
 fn template_field_access() {
     struct Data {

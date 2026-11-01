@@ -140,6 +140,25 @@ Existing unindented bodies remain supported. `proa fmt --verify` canonicalizes
 branch layout and redundant wrappers on standalone nested controls while
 checking the parsed content and control flow remain equivalent.
 
+Bare nested controls occupy their own line; compact bodies such as
+`if ready {Available} else {Unavailable}` also work. Put subsequent Markdown
+on a new line, or keep the outer `{if ...}` interpolation wrapper when a
+control belongs inside a sentence. Unexpected tokens after a wrapped or bare
+control are errors, including misspelled `else` branches.
+
+Spaces or tabs between an opening body brace and its newline are source
+layout. Markdown quotes and `{{` / `}}` escapes remain literal inside bodies;
+Rust strings, characters and comments are recognized only inside expressions
+and control headers. A standalone closing-brace line is a control delimiter;
+use `{"}"}` to emit a literal brace at that boundary. Multiline code spans
+strip the same branch margin as ordinary Markdown. Named arguments work in
+slots and as bare condition/iterator aliases, and remain visible to formatting
+and layout linting.
+
+File-scoped `proa check` and `proa lint` validate Markdown syntax without
+requiring a Cargo build. Formatting refuses invalid template syntax even
+without `--verify`; verification also rejects failed parses.
+
 See [the marketing homepage](../../proa_marketing/src/pages/home.rs),
 [About/Contact](../../proa_marketing/src/pages/info.rs), and
 [documentation-owned exports](../../proa_marketing/src/pages/docs.rs).

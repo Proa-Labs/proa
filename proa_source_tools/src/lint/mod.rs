@@ -137,9 +137,12 @@ fn lint_file_with_cache(
                     &mut diagnostics,
                 );
             }
-            // A Markdown template has no markup tree, so "did not parse as
-            // markup" is the expected outcome rather than an author error.
-            Err(_) if inv.dialect == MacroDialect::Md => {}
+            // Markdown has its own grammar, including raw-template controls.
+            Err(_) if inv.dialect == MacroDialect::Md => {
+                if let Err(err) = validate_markdown_invocation(source, inv) {
+                    diagnostics.push(parse_error_diag(&display, inv, err));
+                }
+            }
             Err(err) => {
                 diagnostics.push(parse_error_diag(&display, inv, err.clone()));
             }
@@ -3985,6 +3988,16 @@ pub fn parse_invocation(source: &str, inv: &MacroInvocation) -> syn::Result<Html
     let tokens = TokenStream::from_str(body)
         .map_err(|err| syn::Error::new(proc_macro2::Span::call_site(), err.to_string()))?;
     parse_markup_tokens(inv.dialect, tokens)
+}
+
+pub(crate) fn validate_markdown_invocation(source: &str, inv: &MacroInvocation) -> syn::Result<()> {
+    let tokens = TokenStream::from_str(inv.body(source))
+        .map_err(|err| syn::Error::new(proc_macro2::Span::call_site(), err.to_string()))?;
+    if let Ok(template) = syn::parse2::<proa_dsl::md::MdTemplateInput>(tokens.clone()) {
+        template.semantic_nodes().map(|_| ())
+    } else {
+        syn::parse2::<proa_dsl::md::MdRoot>(tokens).map(|_| ())
+    }
 }
 
 /// Parse macro tokens into the markup tree shared by the HTML and XML dialects.

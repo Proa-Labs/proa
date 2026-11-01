@@ -144,6 +144,59 @@ A \"quoted\" word.
 }
 
 #[test]
+fn md_formats_named_arguments_and_multiline_code_spans() {
+    let source = r####"fn f() {
+    md_sync! { r###"
+        {if show {
+        {title}
+        `first
+        second`
+        }}
+        "###, title = self.title
+    };
+}"####;
+    let formatted = format_file(Path::new("named.rs"), source).unwrap();
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert!(formatted
+        .output
+        .contains("            {title}\n            `first\n            second`"));
+    assert!(formatted.output.contains("\"###, title = self.title"));
+    assert!(verify_render_preserving(Path::new("named.rs"), source, &formatted.output).is_empty());
+    assert_eq!(
+        format_file(Path::new("named.rs"), &formatted.output)
+            .unwrap()
+            .output,
+        formatted.output
+    );
+}
+
+#[test]
+fn md_invalid_control_syntax_is_not_formatted_or_verified() {
+    for template in [
+        "{if false {A} elsse {B}}",
+        "{for x in xs {X} ignored}",
+        "{if true {unclosed}",
+    ] {
+        let source = format!("fn f() {{ md_sync! {{ r###\"{template}\"### }}; }}");
+        let formatted = format_file(Path::new("invalid.rs"), &source).unwrap();
+        assert_eq!(formatted.output, source);
+        assert!(formatted
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "parse/template"));
+        assert!(
+            verify_render_preserving(Path::new("invalid.rs"), &source, &source)
+                .iter()
+                .any(|d| d.code == "format/verify")
+        );
+    }
+}
+
+#[test]
 fn md_formats_product_branches_and_unwraps_nested_loop() {
     let source = r####"impl Product {
     fn markdown(self) {

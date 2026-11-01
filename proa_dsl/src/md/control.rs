@@ -4,8 +4,8 @@
 //! Control-flow parsing and source layout, shared by macros and the formatter.
 
 use super::{
-    extract_braces, fenced_code_end, find_body_brace, inline_code_end, layout_prefix_len,
-    split_body, subslice_offset, ExprLocation, IfBranch, TemplateExpr, TplNode,
+    extract_braces, fenced_code_end, inline_code_end, layout_prefix_len, split_body,
+    subslice_offset, syntax, ExprLocation, IfBranch, TemplateExpr, TplNode,
 };
 use std::ops::Range;
 use syn::Expr;
@@ -26,7 +26,7 @@ struct Parser {
 }
 
 pub(super) fn parse(input: &str) -> Result<Vec<TplNode>, String> {
-    Parser::default().nodes(input, 0, "", 0)
+    Parser::default().nodes(input, 0, "", 0, 0)
 }
 
 /// Indent multiline template branches without changing their Markdown content.
@@ -37,7 +37,7 @@ pub fn format_control_flow(input: &str) -> Result<String, String> {
         record_layout: true,
         ..Default::default()
     };
-    let before = parser.nodes(input, 0, "", 0)?;
+    let before = parser.nodes(input, 0, "", 0, 0)?;
     let mut output = String::with_capacity(input.len());
     let mut offset = 0;
     for line in input.split_inclusive('\n') {
@@ -106,6 +106,7 @@ impl Parser {
         base: usize,
         margin: &str,
         depth: usize,
+        closers: usize,
     ) -> Result<Vec<TplNode>, String> {
         let mut nodes = Vec::new();
         let mut pos = 0;
@@ -139,9 +140,13 @@ impl Parser {
                         nodes.push(TplNode::Text(std::mem::take(&mut text)));
                     }
                     let (node, consumed) =
-                        self.control(&input[pos..], base + pos, margin, depth)?;
+                        self.control(&input[pos..], base + pos, margin, depth, closers + 1)?;
                     nodes.push(node);
                     pos += consumed;
+                    let line_tail = input[pos..].split('\n').next().unwrap_or("").trim();
+                    if !line_tail.is_empty() && !line_tail.starts_with('}') {
+                        return Err("unexpected tokens after nested Markdown control block; put following Markdown on a new line".into());
+                    }
                     at_line_start = false;
                     continue;
                 }
@@ -150,7 +155,14 @@ impl Parser {
 
             if bytes[pos] == b'`' {
                 if let Some(end) = inline_code_end(input, pos) {
-                    text.push_str(&input[pos..end]);
+                    for (index, line) in input[pos..end].split_inclusive('\n').enumerate() {
+                        let stripped = if index == 0 {
+                            0
+                        } else {
+                            layout_prefix_len(margin, line)
+                        };
+                        text.push_str(&line[stripped..]);
+                    }
                     at_line_start = input[..end].ends_with('\n');
                     pos = end;
                     continue;
@@ -167,23 +179,35 @@ impl Parser {
                     nodes.push(TplNode::Text(std::mem::take(&mut text)));
                 }
                 let start = pos;
-                pos += 1;
-                let content_start = pos;
-                let (content, end) = extract_braces(input, pos)?;
-                pos = end + 1;
-                let trimmed = content.trim();
-                let origin = base + content_start + subslice_offset(content, trimmed);
-                if trimmed.starts_with("for ") || trimmed.starts_with("if ") {
-                    let (node, _) = self.control(trimmed, origin, margin, depth)?;
+                let content_start = pos + 1;
+                let content = input[content_start..].trim_start();
+                let origin =
+                    base + content_start + subslice_offset(&input[content_start..], content);
+                if syntax::is_control(content) {
+                    let (node, consumed) =
+                        self.control(content, origin, margin, depth, closers + 2)?;
+                    let mut end = origin - base + consumed;
+                    end += input[end..].len() - input[end..].trim_start().len();
+                    if bytes.get(end) != Some(&b'}') {
+                        return Err(
+                            "unexpected tokens after Markdown control block; expected closing `}`"
+                                .into(),
+                        );
+                    }
+                    pos = end + 1;
                     nodes.push(node);
                     if self.record_layout
                         && depth > 0
-                        && content.contains('\n')
+                        && input[start..pos].contains('\n')
                         && standalone_range(input, start..pos)
                     {
                         self.redundant_braces.extend([base + start, base + end]);
                     }
                 } else {
+                    let (content, end) = extract_braces(input, content_start)?;
+                    pos = end + 1;
+                    let trimmed = content.trim();
+                    let origin = base + content_start + subslice_offset(content, trimmed);
                     let expr = syn::parse_str::<Expr>(trimmed)
                         .map_err(|error| format!("bad expression `{trimmed}`: {error}"))?;
                     nodes.push(TplNode::Expr(TemplateExpr {
@@ -217,9 +241,10 @@ impl Parser {
         base: usize,
         parent_margin: &str,
         depth: usize,
+        closers: usize,
     ) -> Result<(Vec<TplNode>, usize), String> {
-        let (body, rest) = split_body(input)?;
-        let margin = if input.starts_with("{\n") {
+        let (body, rest, multiline) = split_body(input, closers)?;
+        let margin = if multiline {
             branch_margin(body, parent_margin)
         } else {
             ""
@@ -233,7 +258,7 @@ impl Parser {
             });
         }
         Ok((
-            self.nodes(body, start, margin, depth)?,
+            self.nodes(body, start, margin, depth, closers)?,
             input.len() - rest.len(),
         ))
     }
@@ -244,19 +269,25 @@ impl Parser {
         base: usize,
         margin: &str,
         depth: usize,
+        closers: usize,
     ) -> Result<(TplNode, usize), String> {
-        if let Some(rest) = input.strip_prefix("for ") {
-            let brace = find_body_brace(rest).ok_or("expected `{` in for body")?;
-            let header = &rest[..brace];
-            let in_pos = header.find(" in ").ok_or("expected `in` in for loop")?;
+        if let Some(rest) = syntax::keyword(input, "for") {
+            let body_start = syntax::control_open(input)?;
+            let header_start = input.len() - rest.len();
+            let header = &input[header_start..body_start];
+            let in_pos = syntax::for_in(header).ok_or("expected `in` in for loop")?;
             let pattern = header[..in_pos].trim();
-            let iterator = header[in_pos + 4..].trim();
+            let iterator = header[in_pos + 2..].trim();
             let pat = syn::parse::Parser::parse_str(syn::Pat::parse_single, pattern)
                 .map_err(|error| format!("bad for pattern `{pattern}`: {error}"))?;
             let iter = expression(iterator, base + subslice_offset(input, iterator))?;
-            let body_start = 4 + brace;
-            let (body, consumed) =
-                self.body(&input[body_start..], base + body_start, margin, depth + 1)?;
+            let (body, consumed) = self.body(
+                &input[body_start..],
+                base + body_start,
+                margin,
+                depth + 1,
+                closers,
+            )?;
             return Ok((
                 TplNode::For {
                     pat: Box::new(pat),
@@ -268,39 +299,46 @@ impl Parser {
         }
 
         let mut branches = Vec::new();
-        let mut offset = 3; // `if `
+        let mut header_start = 0;
+        let mut end;
         loop {
-            let rest = &input[offset..];
-            let brace = find_body_brace(rest).ok_or("expected `{` in if body")?;
-            let condition = rest[..brace].trim();
+            let header = &input[header_start..];
+            let rest = syntax::keyword(header, "if").ok_or("expected `if`")?;
+            let body_start = header_start + syntax::control_open(header)?;
+            let condition = input[input.len() - rest.len()..body_start].trim();
             let cond = expression(condition, base + subslice_offset(input, condition))?;
-            let body_start = offset + brace;
-            let (body, consumed) =
-                self.body(&input[body_start..], base + body_start, margin, depth + 1)?;
+            let (body, consumed) = self.body(
+                &input[body_start..],
+                base + body_start,
+                margin,
+                depth + 1,
+                closers,
+            )?;
             branches.push(IfBranch {
                 cond: Some(cond),
                 body,
             });
-            offset = body_start + consumed;
-            let tail = input[offset..].trim_start();
-            if tail.starts_with("else if ") {
-                offset = subslice_offset(input, tail) + 8;
-            } else if let Some(after_else) = tail
+            end = body_start + consumed;
+            let tail = input[end..].trim_start();
+            let Some(after_else) = tail
                 .strip_prefix("else")
                 .filter(|after| after.starts_with('{') || after.starts_with(char::is_whitespace))
-            {
-                let after_else = after_else.trim_start();
-                let body_start = subslice_offset(input, after_else);
-                let (body, consumed) =
-                    self.body(after_else, base + body_start, margin, depth + 1)?;
-                branches.push(IfBranch { cond: None, body });
-                offset = body_start + consumed;
+            else {
                 break;
-            } else {
-                break;
+            };
+            let after_else = after_else.trim_start();
+            if syntax::keyword(after_else, "if").is_some() {
+                header_start = subslice_offset(input, after_else);
+                continue;
             }
+            let body_start = subslice_offset(input, after_else);
+            let (body, consumed) =
+                self.body(after_else, base + body_start, margin, depth + 1, closers)?;
+            branches.push(IfBranch { cond: None, body });
+            end = body_start + consumed;
+            break;
         }
-        Ok((TplNode::If { branches }, offset))
+        Ok((TplNode::If { branches }, end))
     }
 }
 
@@ -329,11 +367,7 @@ fn branch_margin<'a>(body: &'a str, parent: &str) -> &'a str {
 }
 
 fn standalone_control_start(input: &str) -> bool {
-    if !input.starts_with("for ") && !input.starts_with("if ") {
-        return false;
-    }
-    let line = input.lines().next().unwrap_or("");
-    find_body_brace(line).is_some_and(|brace| line[brace + 1..].trim().is_empty())
+    syntax::is_control(input) && syntax::control_open(input).is_ok()
 }
 
 fn standalone_range(input: &str, range: Range<usize>) -> bool {

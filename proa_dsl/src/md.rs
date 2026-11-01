@@ -16,6 +16,7 @@ use syn::{braced, Expr, LitStr};
 
 mod control;
 mod source;
+mod syntax;
 
 pub use control::format_control_flow;
 
@@ -165,23 +166,31 @@ pub fn substitute_named_args(
 fn substitute_nodes(nodes: &mut [TplNode], args: &[MdTemplateArg], used: &mut [bool]) {
     for node in nodes {
         match node {
-            TplNode::Expr(expr) => {
-                let index =
-                    bare_ident(expr).and_then(|name| args.iter().position(|arg| arg.name == *name));
-                if let Some(index) = index {
-                    used[index] = true;
-                    expr.expr = args[index].value.clone();
-                    expr.location = ExprLocation::Rust(args[index].value.span());
-                }
+            TplNode::Expr(expr) => substitute_expr(expr, args, used),
+            TplNode::For { iter, body, .. } => {
+                substitute_expr(iter, args, used);
+                substitute_nodes(body, args, used);
             }
-            TplNode::For { body, .. } => substitute_nodes(body, args, used),
             TplNode::If { branches } => {
                 for branch in branches {
+                    if let Some(condition) = &mut branch.cond {
+                        substitute_expr(condition, args, used);
+                    }
                     substitute_nodes(&mut branch.body, args, used);
                 }
             }
             TplNode::Text(_) => {}
         }
+    }
+}
+
+fn substitute_expr(expr: &mut TemplateExpr, args: &[MdTemplateArg], used: &mut [bool]) {
+    if let Some(index) =
+        bare_ident(expr).and_then(|name| args.iter().position(|arg| arg.name == *name))
+    {
+        used[index] = true;
+        expr.expr = args[index].value.clone();
+        expr.location = ExprLocation::Rust(args[index].value.span());
     }
 }
 
@@ -319,114 +328,24 @@ fn layout_prefix_len(layout: &str, line: &str) -> usize {
 }
 
 fn extract_braces(src: &str, start: usize) -> Result<(&str, usize), String> {
-    let end = brace_end(src, start)?;
+    let end = syntax::rust_brace_end(src, start)?;
     Ok((&src[start..end], end))
-}
-
-fn brace_end(src: &str, start: usize) -> Result<usize, String> {
-    let mut depth: i32 = 1;
-    let mut in_str = false;
-    let mut esc = false;
-    let mut pos = start;
-    while pos < src.len() {
-        let ch = src[pos..].chars().next().unwrap();
-        let clen = ch.len_utf8();
-        if esc {
-            esc = false;
-            pos += clen;
-            continue;
-        }
-        if in_str {
-            match ch {
-                '\\' => esc = true,
-                '"' => in_str = false,
-                _ => {}
-            }
-            pos += clen;
-            continue;
-        }
-        // Markdown examples are literal even inside control-flow bodies.
-        if pos == 0 || src.as_bytes()[pos - 1] == b'\n' {
-            let line = &src[pos..];
-            let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
-            if let Some(end) = fenced_code_end(src, pos + indent, &line[..indent]) {
-                pos = end;
-                continue;
-            }
-        }
-        if ch == '`' {
-            if let Some(end) = inline_code_end(src, pos) {
-                pos = end;
-                continue;
-            }
-        }
-        match ch {
-            '"' => {
-                in_str = true;
-                pos += clen;
-            }
-            '{' => {
-                depth += 1;
-                pos += clen;
-            }
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Ok(pos);
-                }
-                pos += clen;
-            }
-            _ => {
-                pos += clen;
-            }
-        }
-    }
-    Err("unclosed `{`".into())
 }
 
 fn subslice_offset(parent: &str, child: &str) -> usize {
     child.as_ptr() as usize - parent.as_ptr() as usize
 }
 
-fn find_body_brace(text: &str) -> Option<usize> {
-    let mut pdepth: i32 = 0;
-    let mut bdepth: i32 = 0;
-    let mut in_str = false;
-    let mut esc = false;
-    for (i, ch) in text.char_indices() {
-        if esc {
-            esc = false;
-            continue;
-        }
-        if in_str {
-            match ch {
-                '\\' => esc = true,
-                '"' => in_str = false,
-                _ => {}
-            }
-            continue;
-        }
-        match ch {
-            '"' => in_str = true,
-            '(' => pdepth += 1,
-            ')' => pdepth -= 1,
-            '[' => bdepth += 1,
-            ']' => bdepth -= 1,
-            '{' if pdepth == 0 && bdepth == 0 => return Some(i),
-            _ => {}
-        }
-    }
-    None
-}
-
-fn split_body(text: &str) -> Result<(&str, &str), String> {
+fn split_body(text: &str, closers: usize) -> Result<(&str, &str, bool), String> {
     if !text.starts_with('{') {
         return Err("expected `{`".into());
     }
-    let end = brace_end(text, 1)?;
+    let end = syntax::markdown_body_end(text, 1, closers)?;
     let mut body = &text[1..end];
-    if let Some(stripped) = body.strip_prefix('\n') {
-        body = stripped;
+    let opening = body.trim_start_matches([' ', '\t', '\r']);
+    let multiline = opening.starts_with('\n');
+    if multiline {
+        body = &opening[1..];
     }
     // A standalone closing delimiter contributes no trailing layout spaces.
     if let Some(last_newline) = body.rfind('\n') {
@@ -434,7 +353,7 @@ fn split_body(text: &str) -> Result<(&str, &str), String> {
             body = &body[..last_newline + 1];
         }
     }
-    Ok((body, &text[end + 1..]))
+    Ok((body, &text[end + 1..], multiline))
 }
 
 #[derive(Clone, Debug)]

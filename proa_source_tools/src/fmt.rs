@@ -12,7 +12,7 @@ use syn::spanned::Spanned;
 use syn::{Attribute as SynAttribute, Item, Path as SynPath};
 
 use crate::diagnostic::{Diagnostic, Severity};
-use crate::lint::parse_invocation;
+use crate::lint::{parse_invocation, validate_markdown_invocation};
 use crate::source::{
     display_path, find_macros, find_rust_files, MacroDialect, MacroInvocation, SourceMap,
 };
@@ -107,6 +107,17 @@ pub fn format_file(path: &Path, source: &str) -> Result<FormattedFile> {
 
     for inv in invocations.iter().rev() {
         if inv.dialect == MacroDialect::Md {
+            if let Err(err) = validate_markdown_invocation(source, inv) {
+                diagnostics.push(Diagnostic::new(
+                    &display,
+                    inv.name_line,
+                    inv.name_column + 1,
+                    Severity::Error,
+                    "parse/template",
+                    format!("failed to parse {}! macro body: {err}", inv.name),
+                ));
+                continue;
+            }
             let body = inv.body(source);
             let formatted = format_md_body(inv, body);
             output.replace_range(inv.body_start..inv.body_end, &formatted);
@@ -164,6 +175,19 @@ pub fn verify_render_preserving(path: &Path, original: &str, formatted: &str) ->
     }
     for (inv_before, inv_after) in before.iter().zip(after.iter()) {
         if inv_before.dialect == MacroDialect::Md || inv_after.dialect == MacroDialect::Md {
+            if validate_markdown_invocation(original, inv_before).is_err()
+                || validate_markdown_invocation(formatted, inv_after).is_err()
+            {
+                diagnostics.push(Diagnostic::new(
+                    &display,
+                    inv_before.name_line,
+                    inv_before.name_column + 1,
+                    Severity::Error,
+                    "format/verify",
+                    "cannot verify an invalid Markdown template",
+                ));
+                continue;
+            }
             // Compare the parsed content and Rust expressions. Branch layout
             // and redundant nested-control braces do not contribute output.
             let text_before = md_render_text(original, inv_before);
@@ -560,9 +584,11 @@ struct MdTemplate {
     inner: String,
     /// Closing quote, including any raw-string hashes.
     close: String,
+    /// Named arguments/trailing comma, retained as authored Rust tokens.
+    suffix: String,
 }
 
-/// Recognize a body that is exactly one multi-line string literal.
+/// Recognize a multiline template literal with optional named arguments.
 ///
 /// Returns `None` for token-mode bodies (`md_sync! { "a " {b} }`), for
 /// single-line templates (whose leading whitespace is content, not layout),
@@ -578,13 +604,16 @@ fn md_template(body: &str) -> Option<MdTemplate> {
         return None;
     }
 
-    let lit: syn::LitStr = syn::parse2(proc_macro2::TokenStream::from_str(body).ok()?).ok()?;
+    let template: proa_dsl::md::MdTemplateInput =
+        syn::parse2(proc_macro2::TokenStream::from_str(body).ok()?).ok()?;
+    let lit = template.lit;
     let value = lit.value();
     if !proa_dsl::md_layout::is_multiline_template(&value) {
         return None;
     }
 
     let text = lit.token().to_string();
+    let suffix = body.trim_start().strip_prefix(&text)?.trim_end().to_owned();
     let (open, close) = match text.strip_prefix('r') {
         Some(rest) => {
             let hashes = "#".repeat(rest.len() - rest.trim_start_matches('#').len());
@@ -601,7 +630,12 @@ fn md_template(body: &str) -> Option<MdTemplate> {
         return None;
     }
 
-    Some(MdTemplate { open, inner, close })
+    Some(MdTemplate {
+        open,
+        inner,
+        close,
+        suffix,
+    })
 }
 
 /// Canonical layout for a Markdown template body.
@@ -651,6 +685,7 @@ pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
     }
 
     out.push_str(&tpl.close);
+    out.push_str(&tpl.suffix);
     out.push('\n');
     push_spaces(&mut out, close_indent);
     out
