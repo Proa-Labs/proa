@@ -117,6 +117,29 @@ newline fragments. Raw-template interpolation stays literal inside code
 spans/fences; use an explicit typed code child or token composition when an
 example needs dynamic code values.
 
+Indent multiline `if` and `for` bodies one level. That level is source layout
+and is removed when rendering; deeper indentation still expresses Markdown
+lists or code. Inside a control body, nested controls can omit their outer
+interpolation braces:
+
+```rust
+md_sync! { r###"
+    ### Reviews
+    {if self.reviews.is_empty() {
+        _No reviews yet_
+    } else {
+        for review in self.reviews.iter() {
+            - {review}
+        }
+    }}
+    "###
+}
+```
+
+Existing unindented bodies remain supported. `proa fmt --verify` canonicalizes
+branch layout and redundant wrappers on standalone nested controls while
+checking the parsed content and control flow remain equivalent.
+
 See [the marketing homepage](../../proa_marketing/src/pages/home.rs),
 [About/Contact](../../proa_marketing/src/pages/info.rs), and
 [documentation-owned exports](../../proa_marketing/src/pages/docs.rs).

@@ -18,7 +18,7 @@
 //! # {data.title}
 //!
 //! {for highlight in &data.highlights {
-//! - **{highlight.title}** — {highlight.description}
+//!     - **{highlight.title}** — {highlight.description}
 //! }}
 //! "###
 //! }
@@ -30,6 +30,9 @@
 //! typed render child and `{for ... { ... }}` / `{if ... { ... }}` provide
 //! control flow. Braces inside fenced code blocks and inline code spans remain
 //! literal Markdown; outside code, `{{` and `}}` render literal braces.
+//! Multiline control bodies remove one source indentation level. Nested controls
+//! can omit the interpolation wrapper, for example `for review in reviews {`.
+//! Additional indentation beyond the source level remains Markdown content.
 //!
 //! Three hashes are the default delimiter so ordinary quotes and Rust raw
 //! strings with fewer hashes can appear in the Markdown. Increase the delimiter

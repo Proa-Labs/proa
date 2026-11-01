@@ -14,7 +14,10 @@ use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{braced, Expr, LitStr};
 
+mod control;
 mod source;
+
+pub use control::format_control_flow;
 
 /// Location of an expression in authored source, before template dedenting.
 #[derive(Clone, Debug)]
@@ -197,7 +200,7 @@ pub fn bare_ident(expr: &Expr) -> Option<&syn::Ident> {
 /// or tildes. An unclosed fence consumes the rest of the document. Treating the
 /// complete block as static Markdown prevents Rust examples such as
 /// `Thing { field }` from being mistaken for template interpolation.
-fn fenced_code_end(input: &str, line_start: usize) -> Option<usize> {
+fn fenced_code_end(input: &str, line_start: usize, layout: &str) -> Option<usize> {
     let bytes = input.as_bytes();
     let mut marker_start = line_start;
     while marker_start < bytes.len() && marker_start - line_start < 3 && bytes[marker_start] == b' '
@@ -234,9 +237,10 @@ fn fenced_code_end(input: &str, line_start: usize) -> Option<usize> {
         let candidate_line_end = input[candidate_start..]
             .find('\n')
             .map_or(bytes.len(), |offset| candidate_start + offset);
-        let mut candidate_marker_start = candidate_start;
+        let content_start = candidate_start + layout_prefix_len(layout, &input[candidate_start..]);
+        let mut candidate_marker_start = content_start;
         while candidate_marker_start < candidate_line_end
-            && candidate_marker_start - candidate_start < 3
+            && candidate_marker_start - content_start < 3
             && bytes[candidate_marker_start] == b' '
         {
             candidate_marker_start += 1;
@@ -300,86 +304,26 @@ fn inline_code_end(input: &str, start: usize) -> Option<usize> {
 }
 
 pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
-    parse_tpl_at(input, 0)
+    control::parse(input)
 }
 
-fn parse_tpl_at(input: &str, base: usize) -> Result<Vec<TplNode>, String> {
-    let mut nodes = Vec::new();
-    let mut pos = 0;
-    let bytes = input.as_bytes();
-    let mut text = String::new();
-    let mut at_line_start = true;
-
-    while pos < bytes.len() {
-        if at_line_start {
-            if let Some(end) = fenced_code_end(input, pos) {
-                text.push_str(&input[pos..end]);
-                pos = end;
-                at_line_start = true;
-                continue;
-            }
-        }
-
-        if bytes[pos] == b'`' {
-            if let Some(end) = inline_code_end(input, pos) {
-                text.push_str(&input[pos..end]);
-                at_line_start = input[..end].ends_with('\n');
-                pos = end;
-                continue;
-            }
-        }
-
-        if bytes[pos] == b'{' {
-            if pos + 1 < bytes.len() && bytes[pos + 1] == b'{' {
-                text.push('{');
-                pos += 2;
-                at_line_start = false;
-                continue;
-            }
-            if !text.is_empty() {
-                nodes.push(TplNode::Text(std::mem::take(&mut text)));
-            }
-            pos += 1;
-            let content_start = pos;
-            let (content, end) = extract_braces(input, pos)?;
-            pos = end + 1;
-            at_line_start = false;
-            let trimmed = content.trim();
-            let origin = base + content_start + subslice_offset(&content, trimmed);
-            if trimmed.starts_with("for ") {
-                nodes.push(parse_for(trimmed, origin)?);
-            } else if trimmed.starts_with("if ") || trimmed.starts_with("if let ") {
-                nodes.push(parse_if(trimmed, origin)?);
-            } else {
-                let expr = syn::parse_str::<Expr>(trimmed)
-                    .map_err(|e| format!("bad expression `{trimmed}`: {e}"))?;
-                nodes.push(TplNode::Expr(TemplateExpr {
-                    expr,
-                    location: ExprLocation::Decoded(origin..origin + trimmed.len()),
-                }));
-            }
-        } else if bytes[pos] == b'}' {
-            if pos + 1 < bytes.len() && bytes[pos + 1] == b'}' {
-                text.push('}');
-                pos += 2;
-                at_line_start = false;
-                continue;
-            }
-            return Err(format!("unexpected `}}` at byte {pos}"));
-        } else {
-            let ch = input[pos..].chars().next().unwrap();
-            text.push(ch);
-            pos += ch.len_utf8();
-            at_line_start = ch == '\n';
-        }
-    }
-    if !text.is_empty() {
-        nodes.push(TplNode::Text(text));
-    }
-    Ok(nodes)
+/// Number of source-layout bytes shared with a line (also safe for blank lines).
+fn layout_prefix_len(layout: &str, line: &str) -> usize {
+    layout
+        .char_indices()
+        .zip(line.chars())
+        .take_while(|((_, a), b)| a == b)
+        .map(|((index, ch), _)| index + ch.len_utf8())
+        .last()
+        .unwrap_or(0)
 }
 
-fn extract_braces(src: &str, start: usize) -> Result<(String, usize), String> {
+fn extract_braces(src: &str, start: usize) -> Result<(&str, usize), String> {
+    let end = brace_end(src, start)?;
+    Ok((&src[start..end], end))
+}
+
+fn brace_end(src: &str, start: usize) -> Result<usize, String> {
     let mut depth: i32 = 1;
     let mut in_str = false;
     let mut esc = false;
@@ -401,6 +345,21 @@ fn extract_braces(src: &str, start: usize) -> Result<(String, usize), String> {
             pos += clen;
             continue;
         }
+        // Markdown examples are literal even inside control-flow bodies.
+        if pos == 0 || src.as_bytes()[pos - 1] == b'\n' {
+            let line = &src[pos..];
+            let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+            if let Some(end) = fenced_code_end(src, pos + indent, &line[..indent]) {
+                pos = end;
+                continue;
+            }
+        }
+        if ch == '`' {
+            if let Some(end) = inline_code_end(src, pos) {
+                pos = end;
+                continue;
+            }
+        }
         match ch {
             '"' => {
                 in_str = true;
@@ -413,7 +372,7 @@ fn extract_braces(src: &str, start: usize) -> Result<(String, usize), String> {
             '}' => {
                 depth -= 1;
                 if depth == 0 {
-                    return Ok((src[start..pos].to_string(), pos));
+                    return Ok(pos);
                 }
                 pos += clen;
             }
@@ -464,135 +423,18 @@ fn split_body(text: &str) -> Result<(&str, &str), String> {
     if !text.starts_with('{') {
         return Err("expected `{`".into());
     }
-    let mut depth: i32 = 1;
-    let mut in_str = false;
-    let mut esc = false;
-    let inner_start = 1;
-    let mut pos = inner_start;
-    while pos < text.len() {
-        let ch = text[pos..].chars().next().unwrap();
-        let clen = ch.len_utf8();
-        if esc {
-            esc = false;
-            pos += clen;
-            continue;
-        }
-        if in_str {
-            match ch {
-                '\\' => esc = true,
-                '"' => in_str = false,
-                _ => {}
-            }
-            pos += clen;
-            continue;
-        }
-        match ch {
-            '"' => {
-                in_str = true;
-                pos += clen;
-            }
-            '{' => {
-                depth += 1;
-                pos += clen;
-            }
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    let mut body = &text[inner_start..pos];
-                    if body.starts_with('\n') {
-                        body = &body[1..];
-                    }
-                    return Ok((body, &text[pos + clen..]));
-                }
-                pos += clen;
-            }
-            _ => {
-                pos += clen;
-            }
+    let end = brace_end(text, 1)?;
+    let mut body = &text[1..end];
+    if let Some(stripped) = body.strip_prefix('\n') {
+        body = stripped;
+    }
+    // A standalone closing delimiter contributes no trailing layout spaces.
+    if let Some(last_newline) = body.rfind('\n') {
+        if body[last_newline + 1..].trim().is_empty() {
+            body = &body[..last_newline + 1];
         }
     }
-    Err("unclosed `{` in body".into())
-}
-
-fn parse_for(content: &str, base: usize) -> Result<TplNode, String> {
-    let rest = content.strip_prefix("for ").unwrap();
-    let brace = find_body_brace(rest).ok_or("expected `{` in for body")?;
-    let before = &rest[..brace];
-    let in_pos = before.find(" in ").ok_or("expected `in` in for loop")?;
-    let pat_s = before[..in_pos].trim();
-    let iter_s = before[in_pos + 4..].trim();
-    let pat: syn::Pat = {
-        let ts: proc_macro2::TokenStream = pat_s
-            .parse()
-            .map_err(|e| format!("bad for pattern `{pat_s}`: {e}"))?;
-        let parser = |input: syn::parse::ParseStream| syn::Pat::parse_single(input);
-        syn::parse::Parser::parse2(parser, ts)
-            .map_err(|e| format!("bad for pattern `{pat_s}`: {e}"))?
-    };
-    let iter_expr =
-        syn::parse_str::<Expr>(iter_s).map_err(|e| format!("bad for iterator `{iter_s}`: {e}"))?;
-    let (body_str, _) = split_body(&rest[brace..])?;
-    let body = parse_tpl_at(body_str, base + subslice_offset(content, body_str))?;
-    let iter_start = base + subslice_offset(content, iter_s);
-    Ok(TplNode::For {
-        pat: Box::new(pat),
-        iter: Box::new(TemplateExpr {
-            expr: iter_expr,
-            location: ExprLocation::Decoded(iter_start..iter_start + iter_s.len()),
-        }),
-        body,
-    })
-}
-
-fn parse_if(content: &str, base: usize) -> Result<TplNode, String> {
-    let mut branches = Vec::new();
-    let mut rem = content;
-    rem = rem.strip_prefix("if ").unwrap();
-    let (cond, body, rest) = parse_if_branch(rem, base + subslice_offset(content, rem))?;
-    branches.push(IfBranch {
-        cond: Some(cond),
-        body,
-    });
-    rem = rest;
-    loop {
-        let t = rem.trim_start();
-        if t.starts_with("else if ") {
-            rem = t.strip_prefix("else if ").unwrap();
-            let (cond, body, rest) = parse_if_branch(rem, base + subslice_offset(content, rem))?;
-            branches.push(IfBranch {
-                cond: Some(cond),
-                body,
-            });
-            rem = rest;
-        } else if t.starts_with("else") {
-            let after = t.strip_prefix("else").unwrap().trim_start();
-            let (body_str, _) = split_body(after)?;
-            let body = parse_tpl_at(body_str, base + subslice_offset(content, body_str))?;
-            branches.push(IfBranch { cond: None, body });
-            break;
-        } else {
-            break;
-        }
-    }
-    Ok(TplNode::If { branches })
-}
-
-fn parse_if_branch(text: &str, base: usize) -> Result<(TemplateExpr, Vec<TplNode>, &str), String> {
-    let brace = find_body_brace(text).ok_or("expected `{` in if body")?;
-    let cond_s = text[..brace].trim();
-    let cond =
-        syn::parse_str::<Expr>(cond_s).map_err(|e| format!("bad if condition `{cond_s}`: {e}"))?;
-    let (body_str, rest) = split_body(&text[brace..])?;
-    let body = parse_tpl_at(body_str, base + subslice_offset(text, body_str))?;
-    let start = base + subslice_offset(text, cond_s);
-    Ok((
-        TemplateExpr {
-            expr: cond,
-            location: ExprLocation::Decoded(start..start + cond_s.len()),
-        },
-        body,
-        rest,
-    ))
+    Ok((body, &text[end + 1..]))
 }
 
 #[derive(Clone, Debug)]

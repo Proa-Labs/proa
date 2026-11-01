@@ -52,7 +52,7 @@ fn verify_allows_rsjs_legacy_name_formatting() {
 
 /// The text a Markdown template lowers to, for asserting that formatting
 /// moved the template without changing what it renders.
-fn md_lowered(source: &str) -> Vec<String> {
+fn md_lowered(source: &str) -> Vec<Vec<MdRenderNode>> {
     find_macros(source)
         .iter()
         .filter(|inv| inv.dialect == MacroDialect::Md)
@@ -141,6 +141,104 @@ A \"quoted\" word.
     );
     assert!(formatted.contains("\n        \"###\n    }"), "{formatted}");
     assert_eq!(md_lowered(source), md_lowered(&formatted));
+}
+
+#[test]
+fn md_formats_product_branches_and_unwraps_nested_loop() {
+    let source = r####"impl Product {
+    fn markdown(self) {
+        md_sync! { r###"
+            ## {&self.name}
+            **{&self.price_label}**
+            {if self.stock > 0 {
+            Only {self.stock} left
+            } else {
+            **Sold out**
+            }}
+            ### Reviews
+            {if self.reviews.is_empty() {
+            _No reviews yet_
+            } else {
+            {for review in self.reviews.iter() {
+            - {review}
+            }}
+            }}
+            "###
+        }
+    }
+}"####;
+    let expected = r####"impl Product {
+    fn markdown(self) {
+        md_sync! { r###"
+            ## {&self.name}
+            **{&self.price_label}**
+            {if self.stock > 0 {
+                Only {self.stock} left
+            } else {
+                **Sold out**
+            }}
+            ### Reviews
+            {if self.reviews.is_empty() {
+                _No reviews yet_
+            } else {
+                for review in self.reviews.iter() {
+                    - {review}
+                }
+            }}
+            "###
+        }
+    }
+}"####;
+    let formatted = format_file(Path::new("product.rs"), source).unwrap().output;
+    assert_eq!(formatted, expected);
+    assert_eq!(
+        format_file(Path::new("product.rs"), &formatted)
+            .unwrap()
+            .output,
+        formatted
+    );
+    assert!(verify_render_preserving(Path::new("product.rs"), source, &formatted).is_empty());
+}
+
+#[test]
+fn md_branch_formatting_preserves_markdown_indentation_and_code() {
+    let source = r####"fn f() {
+    md! { r###"
+        {if show {
+            - outer
+              - {child}
+
+                code_line();
+
+            ```rust
+            for item in items {
+                println!("{item}");
+            }
+            ```
+        }}
+        "###
+    }
+}"####;
+    let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
+    assert_eq!(formatted, source);
+    assert!(verify_render_preserving(Path::new("sample.rs"), source, &formatted).is_empty());
+    let corrupted = formatted.replace("              - {child}", "                - {child}");
+    assert!(!verify_render_preserving(Path::new("sample.rs"), source, &corrupted).is_empty());
+}
+
+#[test]
+fn md_preserves_inline_bodies_that_continue_on_another_line() {
+    let source = r####"fn f() {
+    md_sync! { r###"
+        {if show {inline
+            retained
+        }}
+        "###
+    }
+}"####;
+    let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
+    assert_eq!(formatted, source);
+    assert!(verify_render_preserving(Path::new("sample.rs"), source, &formatted).is_empty());
 }
 
 #[test]

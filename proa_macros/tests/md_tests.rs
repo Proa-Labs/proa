@@ -84,7 +84,7 @@ fn raw_template_composes_control_flow_without_escaped_newlines() {
         ## Items
 
         {for item in items {
-        - {item}
+            - {item}
         }}
         "###
     });
@@ -238,12 +238,83 @@ fn template_dedent_applies_inside_control_flow() {
         # Items
 
         {for item in items.iter() {
-        - {item}
+            - {item}
         }}
         "
     });
     // The newline after `}}` is part of the template, as in `template_nested_for`.
     assert_eq!(out, "# Items\n\n- alpha\n- beta\n\n");
+}
+
+#[test]
+fn indented_product_branches_render_dynamic_values_and_bare_nested_loops() {
+    struct Product {
+        name: &'static str,
+        price_label: &'static str,
+        stock: u32,
+        reviews: Vec<&'static str>,
+    }
+    impl Product {
+        fn markdown(&self) -> String {
+            r(md_sync! { r###"
+                ## {&self.name}
+                **{&self.price_label}**
+                {if self.stock > 0 {
+                    Only {self.stock} left
+                } else {
+                    **Sold out**
+                }}
+                ### Reviews
+                {if self.reviews.is_empty() {
+                    _No reviews yet_
+                } else {
+                    for review in self.reviews.iter() {
+                        - {review}
+                    }
+                }}
+                "###
+            })
+        }
+    }
+    let mut product = Product {
+        name: "[untrusted]",
+        price_label: "$17",
+        stock: 3,
+        reviews: vec!["*first*", "second"],
+    };
+    let output = product.markdown();
+    assert!(output.starts_with("## \\[untrusted\\]\n**$17**\nOnly 3 left\n"));
+    assert!(output.contains("\n- \\*first\\*\n- second\n"));
+    assert!(!output.contains("    "));
+    product.stock = 0;
+    product.reviews.clear();
+    let output = product.markdown();
+    assert!(!output.contains("Only "));
+    assert!(output.contains("\n**Sold out**\n"));
+    assert!(output.contains("\n_No reviews yet_\n"));
+    assert!(!output.contains("\n- "));
+}
+
+#[test]
+fn branch_layout_preserves_nested_lists_indented_code_and_fenced_code() {
+    let show = true;
+    let child = "a*b";
+    let output = r(md_sync! { r###"
+        {if show {
+            - parent
+              - {child}
+
+                code_line();
+
+            ```rust
+            for item in items {
+                println!("{item}");
+            }
+            ```
+        }}
+        "###
+    });
+    assert_eq!(output, "- parent\n  - a\\*b\n\n    code_line();\n\n```rust\nfor item in items {\n    println!(\"{item}\");\n}\n```\n\n");
 }
 
 #[test]
@@ -450,6 +521,49 @@ async fn async_md_supports_template_control_flow() {
     .await;
 
     assert_eq!(out, "- alpha\n- beta\n\nDone\n");
+}
+
+#[tokio::test]
+async fn indented_async_nested_conditions_await_children_and_keep_following_prose() {
+    let values = [0, 1, 2];
+    let out = proa_core::render_md_to_string_async(md! { r###"
+        {for value in values {
+            if value == 0 {
+                {DelayedMd("zero")}
+            } else if value == 1 {
+                {DelayedMd("one")}
+            } else {
+                {DelayedMd("other")}
+            }
+            elsewhere
+        }}
+        "###
+    })
+    .await;
+    assert_eq!(
+        out,
+        "zero\n\nelsewhere\none\n\nelsewhere\nother\n\nelsewhere\n\n"
+    );
+}
+
+#[test]
+fn branch_fences_and_inline_code_keep_unbalanced_literal_braces() {
+    let show = true;
+    let output = r(md_sync! { r###"
+        {if show {
+            Literal `{` and `}`.
+
+            ~~~rust
+            if unclosed {
+                "unclosed quote
+            ~~~
+        }}
+        "###
+    });
+    assert_eq!(
+        output,
+        "Literal `{` and `}`.\n\n~~~rust\nif unclosed {\n    \"unclosed quote\n~~~\n\n"
+    );
 }
 
 #[tokio::test]

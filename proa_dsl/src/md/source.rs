@@ -277,6 +277,28 @@ mod tests {
     }
 
     #[test]
+    fn indented_bare_nested_controls_keep_authored_ranges() {
+        let input = "r###\"\n    {if self.ready {\n        for item in &self.items {\n            {item.title}\n        }\n    }}\n    \"###";
+        let template: MdTemplateInput = syn::parse_str(input).unwrap();
+        let nodes = template.semantic_nodes().unwrap();
+        let TplNode::If { branches } = &nodes[0] else {
+            panic!()
+        };
+        let TplNode::For { iter, body, .. } = &branches[0].body[0] else {
+            panic!()
+        };
+        let TplNode::Expr(item) = &body[0] else {
+            panic!()
+        };
+        for (expr, expected) in [(iter.as_ref(), "&self.items"), (item, "item.title")] {
+            let ExprLocation::Literal { range, .. } = &expr.location else {
+                panic!()
+            };
+            assert_eq!(&template.lit.token().to_string()[range.clone()], expected);
+        }
+    }
+
+    #[test]
     fn named_arguments_have_real_rust_spans() {
         let template: MdTemplateInput =
             syn::parse_str("r###\"{title}\"###, title = self.name").unwrap();

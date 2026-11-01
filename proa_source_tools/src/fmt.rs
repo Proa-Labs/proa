@@ -164,8 +164,8 @@ pub fn verify_render_preserving(path: &Path, original: &str, formatted: &str) ->
     }
     for (inv_before, inv_after) in before.iter().zip(after.iter()) {
         if inv_before.dialect == MacroDialect::Md || inv_after.dialect == MacroDialect::Md {
-            // A Markdown template has no node tree; compare the text it lowers
-            // to instead, which is the whole of its rendered output.
+            // Compare the parsed content and Rust expressions. Branch layout
+            // and redundant nested-control braces do not contribute output.
             let text_before = md_render_text(original, inv_before);
             let text_after = md_render_text(formatted, inv_after);
             if text_before != text_after {
@@ -552,8 +552,7 @@ pub struct FormattedFile {
 
 /// The parts of a `md!` / `md_sync!` body that the formatter rewrites.
 ///
-/// A Markdown template is one string literal, so there is no markup tree to
-/// re-emit. Only the layout indentation inside the literal is canonicalized.
+/// Preserve literal spelling while canonicalizing template and branch layout.
 struct MdTemplate {
     /// Opening quote, including any raw-string hashes (`"`, `r#"`, `r###"`).
     open: String,
@@ -609,10 +608,8 @@ fn md_template(body: &str) -> Option<MdTemplate> {
 ///
 /// Every template line and the closing quote are re-anchored one level beneath
 /// the macro invocation. The closing macro brace returns to the invocation's
-/// own column. The macro strips the indentation shared by all lines at compile
-/// time (the rule lives in `proa_dsl::md_layout`, which both sides call), so
-/// re-indenting a template can only move it on the page, never change what it
-/// renders.
+/// own column. The shared Markdown parser also identifies branch layout, so
+/// control bodies can be indented without adding spaces to rendered content.
 pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
     let Some(tpl) = md_template(body) else {
         return body.to_owned();
@@ -623,6 +620,12 @@ pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
         return body.to_owned();
     };
     let common = proa_dsl::md_layout::layout_indent(template);
+    let template = template
+        .split('\n')
+        .map(|line| &line[common_prefix_len(common, line)..])
+        .collect::<Vec<_>>()
+        .join("\n");
+    let template = proa_dsl::md::format_control_flow(&template).unwrap_or(template);
     let close_indent = inv.indentation_column;
     let content_indent = close_indent + INDENT_WIDTH;
 
@@ -634,7 +637,7 @@ pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
     let last = lines.len().saturating_sub(1);
     for (idx, line) in lines.iter().enumerate() {
         out.push('\n');
-        let content = &line[common_prefix_len(common, line)..];
+        let content = *line;
         if idx == last && content.trim().is_empty() {
             // The line that carries the closing quote.
             push_spaces(&mut out, content_indent);
@@ -664,13 +667,50 @@ fn common_prefix_len(common: &str, line: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// The text a Markdown template lowers to, for render-preserving comparison.
-fn md_render_text(source: &str, inv: &MacroInvocation) -> Option<String> {
+#[derive(Debug, PartialEq, Eq)]
+enum MdRenderNode {
+    Text(String),
+    Expr(String),
+    For(String, String, Vec<MdRenderNode>),
+    If(Vec<(Option<String>, Vec<MdRenderNode>)>),
+}
+
+fn md_render_nodes(nodes: Vec<proa_dsl::md::TplNode>) -> Vec<MdRenderNode> {
+    use proa_dsl::md::TplNode;
+    nodes
+        .into_iter()
+        .map(|node| match node {
+            TplNode::Text(text) => MdRenderNode::Text(text),
+            TplNode::Expr(expr) => MdRenderNode::Expr(expr.to_token_stream().to_string()),
+            TplNode::For { pat, iter, body } => MdRenderNode::For(
+                pat.to_token_stream().to_string(),
+                iter.to_token_stream().to_string(),
+                md_render_nodes(body),
+            ),
+            TplNode::If { branches } => MdRenderNode::If(
+                branches
+                    .into_iter()
+                    .map(|branch| {
+                        (
+                            branch.cond.map(|cond| cond.to_token_stream().to_string()),
+                            md_render_nodes(branch.body),
+                        )
+                    })
+                    .collect(),
+            ),
+        })
+        .collect()
+}
+
+/// Content and control flow a Markdown template lowers to, excluding layout
+/// and authored source coordinates. This also checks named template arguments.
+fn md_render_text(source: &str, inv: &MacroInvocation) -> Option<Vec<MdRenderNode>> {
     use std::str::FromStr;
 
     let body = inv.body(source);
-    let lit: syn::LitStr = syn::parse2(proc_macro2::TokenStream::from_str(body).ok()?).ok()?;
-    Some(proa_dsl::md_layout::dedent_template(&lit.value()))
+    let template: proa_dsl::md::MdTemplateInput =
+        syn::parse2(proc_macro2::TokenStream::from_str(body).ok()?).ok()?;
+    Some(md_render_nodes(template.semantic_nodes().ok()?))
 }
 
 pub(crate) fn format_macro_body(

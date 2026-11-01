@@ -7,11 +7,11 @@
 //! of each line is ambiguous: it is either Markdown (an indented code block,
 //! a nested list item) or the indentation that keeps the template aligned with
 //! the Rust code around it. Proa resolves this by treating the *common* prefix
-//! of every line as layout and everything beyond it as content.
+//! of every line as layout. Inside a multiline control body, one additional
+//! indentation level is layout too; deeper whitespace remains Markdown content.
 //!
-//! This module is the single definition of that rule. `proa_macros` applies it
-//! when lowering a template, and `proa-cli` applies it when formatting one, so
-//! re-indenting a template can never change what it renders.
+//! This module defines whole-template layout; `md::control` defines control-body
+//! layout. The macros and formatter share both rules.
 
 /// Whether a template literal carries layout indentation.
 ///
