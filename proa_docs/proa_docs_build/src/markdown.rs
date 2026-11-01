@@ -635,16 +635,17 @@ mod tests {
     #[test]
     fn highlights_rust_inside_markdown_template_control_flow() {
         let code = concat!(
-            "let summary = md_sync! {\"\n",
+            "let summary = md_sync! { r###\"\n",
             "    # {title}\n",
             "\n",
             "    ## Features\n",
             "\n",
             "    {for feature in features.iter() {\n",
-            "    - {feature}\n",
+            "        md_sync! { \"- \" {feature} \"\\n\" }\n",
             "    }}\n",
-            "    {if in_stock {In stock} else {Backordered}}\n",
-            "\"};\n",
+            "    {if in_stock { \"In stock\" } else { \"Backordered\" }}\n",
+            "    \"###\n",
+            "};\n",
         );
         let rendered = render_markdown(
             &format!("```rust\n{code}```"),

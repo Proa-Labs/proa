@@ -46,10 +46,12 @@ fn named_argument_templates_format_and_pass_file_scoped_checks() {
 fn main() {
     let _ = md_sync! { r###"
         {if true {
-        A 6" screen.
-        if false {hidden}
-        {title}
+            md_sync! { r#"
+                A 6" screen.
+                if false, see the note below.
+            "# }
         }}
+        {title}
         "###, title = "Example"
     };
 }
@@ -74,7 +76,10 @@ fn main() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    assert!(fs::read_to_string(&file)
-        .unwrap()
-        .contains("            {title}\n"));
+    let formatted = fs::read_to_string(&file).unwrap();
+    assert!(formatted.contains("        {title}\n"), "{formatted}");
+    assert!(
+        formatted.contains("                A 6\" screen.\n"),
+        "{formatted}"
+    );
 }

@@ -7,10 +7,10 @@ use std::ops::Range;
 /// `md!` and `md_sync!`.
 ///
 /// Syntect sees the literal as Rust string content. Proa adds a language layer
-/// inside it: ordinary bytes are Markdown, while brace-delimited slots and
-/// control-flow headers are Rust. Keeping this scanner specific to those two
-/// macros prevents unrelated Rust strings containing braces from being
-/// reclassified.
+/// inside it: ordinary bytes are Markdown, while each brace-delimited slot is
+/// one Rust expression, control flow included. Keeping this scanner specific to
+/// those two macros prevents unrelated Rust strings containing braces from
+/// being reclassified.
 pub(super) fn rust_ranges(source: &str) -> Vec<Range<usize>> {
     let bytes = source.as_bytes();
     let mut ranges = Vec::new();
@@ -180,112 +180,11 @@ fn collect_ranges(source: &str, template: Range<usize>, raw: bool, ranges: &mut 
         let Some(close) = matching_brace(source, cursor, template.end, raw) else {
             break;
         };
-        let rust_start = skip_whitespace(source, cursor + 1, close);
-        if source[rust_start..close].starts_with("for ") {
-            collect_for_ranges(source, cursor, rust_start, close, raw, ranges);
-        } else if source[rust_start..close].starts_with("if ") {
-            collect_if_ranges(source, cursor, rust_start, close, raw, ranges);
-        } else {
-            ranges.push(cursor..close + 1);
-        }
+        // The whole slot is Rust; a nested template literal inside it is an
+        // ordinary Rust string token.
+        ranges.push(cursor..close + 1);
         cursor = close + 1;
     }
-}
-
-fn collect_for_ranges(
-    source: &str,
-    outer_open: usize,
-    rust_start: usize,
-    outer_close: usize,
-    raw: bool,
-    ranges: &mut Vec<Range<usize>>,
-) {
-    let Some(body_open) = find_body_open(source, rust_start, outer_close, raw) else {
-        ranges.push(outer_open..outer_close + 1);
-        return;
-    };
-    let Some(body_close) = matching_brace(source, body_open, outer_close, raw) else {
-        ranges.push(outer_open..outer_close + 1);
-        return;
-    };
-
-    ranges.push(outer_open..body_open + 1);
-    collect_ranges(source, body_open + 1..body_close, raw, ranges);
-    ranges.push(body_close..outer_close + 1);
-}
-
-fn collect_if_ranges(
-    source: &str,
-    outer_open: usize,
-    rust_start: usize,
-    outer_close: usize,
-    raw: bool,
-    ranges: &mut Vec<Range<usize>>,
-) {
-    let Some(body_open) = find_body_open(source, rust_start, outer_close, raw) else {
-        ranges.push(outer_open..outer_close + 1);
-        return;
-    };
-    let Some(mut body_close) = matching_brace(source, body_open, outer_close, raw) else {
-        ranges.push(outer_open..outer_close + 1);
-        return;
-    };
-
-    ranges.push(outer_open..body_open + 1);
-    collect_ranges(source, body_open + 1..body_close, raw, ranges);
-
-    loop {
-        let next = skip_whitespace(source, body_close + 1, outer_close);
-        if !source[next..outer_close].starts_with("else") {
-            break;
-        }
-        let Some(next_body_open) = find_body_open(source, next, outer_close, raw) else {
-            break;
-        };
-        let Some(next_body_close) = matching_brace(source, next_body_open, outer_close, raw) else {
-            break;
-        };
-        ranges.push(body_close..next_body_open + 1);
-        collect_ranges(source, next_body_open + 1..next_body_close, raw, ranges);
-        body_close = next_body_close;
-    }
-
-    ranges.push(body_close..outer_close + 1);
-}
-
-fn skip_whitespace(source: &str, mut cursor: usize, end: usize) -> usize {
-    while cursor < end && source.as_bytes()[cursor].is_ascii_whitespace() {
-        cursor += 1;
-    }
-    cursor
-}
-
-fn find_body_open(source: &str, start: usize, end: usize, raw: bool) -> Option<usize> {
-    let mut cursor = start;
-    let mut parentheses = 0_i32;
-    let mut brackets = 0_i32;
-    let mut in_string = false;
-    while cursor < end {
-        let (ch, width) = template_char(source, cursor, raw)?;
-        if in_string {
-            if ch == '"' {
-                in_string = false;
-            }
-            cursor += width;
-            continue;
-        }
-        match ch {
-            '"' => in_string = true,
-            '(' => parentheses += 1,
-            ')' => parentheses -= 1,
-            '[' => brackets += 1,
-            ']' => brackets -= 1,
-            '{' if parentheses == 0 && brackets == 0 => return Some(cursor),
-            _ => {}
-        }
-        cursor += width;
-    }
-    None
 }
 
 fn matching_brace(source: &str, open: usize, end: usize, raw: bool) -> Option<usize> {

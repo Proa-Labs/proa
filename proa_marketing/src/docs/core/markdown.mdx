@@ -103,7 +103,7 @@ An async child cannot appear inside `md_sync!`. Move the boundary to `MdRender` 
 
 ## Loops and branches
 
-Control flow is written inside the template, not as Rust blocks between nodes. `{for ...}` and `{if ...}` take a Markdown body and repeat or gate it:
+The template has one lexical rule at every depth: text outside `{ ... }` is Markdown, and text inside is a Rust expression. Control flow is ordinary Rust, exactly as in `html_sync!`, and a branch renders every expression statement written without a semicolon. Markdown re-enters a branch through a nested `md_sync!` call:
 
 ```rust filename="src/pages/summary.rs"
 let summary = md_sync! { r###"
@@ -112,14 +112,30 @@ let summary = md_sync! { r###"
     ## Features
 
     {for feature in features.iter() {
-    - {feature}
+        md_sync! { "- " {feature} "\n" }
     }}
-    {if in_stock {In stock} else {Backordered}}
+    {if in_stock { md_sync! { "**In stock**" } } else { "Backordered" }}
     "###
 };
 ```
 
-The body of a loop or branch is Markdown, not a quoted string, so `- {feature}` is a literal list item with one interpolated value. Both macros share this grammar; in `md!` the interpolated children may await.
+A bare string tail such as `"Backordered"` renders as escaped text; markup needs the nested template. Use the token form for a one-line fragment and a nested raw literal with fewer hashes for a multi-line one:
+
+```rust filename="src/pages/report.rs"
+md_sync! { r###"
+    {for entry in self.entries {
+        md_sync! { r#"
+            ### {entry.question}
+
+            {entry.answer}
+
+        "# }
+    }}
+    "###
+}
+```
+
+Because plain Markdown is never parsed inside a slot, `if`, `for`, and `match` are ordinary words in prose, and a line means the same thing at the top level and inside a branch. Writing Markdown directly inside a branch is a compile error that points at the nested-template form. Both macros share this grammar; in `md!` the nested templates and interpolated children may await.
 
 > **Good to know**: Interpolation, slots, and children follow the same rules as the HTML macros. See [Components](/docs/core/components) for the composition model; the difference here is that a Markdown template is one string literal, so control flow lives inside it.
 
@@ -153,9 +169,7 @@ impl<L: DataLoader> MdRenderSync<L> for &SearchPage {
 
             ---
 
-            {for listing in self.listings.iter() {
-            {listing}
-            }}
+            {for listing in self.listings.iter() { listing }}
             "###
         }
         .render_md(cx)

@@ -117,47 +117,50 @@ newline fragments. Raw-template interpolation stays literal inside code
 spans/fences; use an explicit typed code child or token composition when an
 example needs dynamic code values.
 
-Indent multiline `if` and `for` bodies one level. That level is source layout
-and is removed when rendering; deeper indentation still expresses Markdown
-lists or code. Inside a control body, nested controls can omit their outer
-interpolation braces:
+The grammar has one rule at every depth: text outside `{ ... }` is Markdown,
+and text inside is a Rust expression. Control flow is ordinary Rust (`if`,
+`else if`, `for`, `match`, `if let`), and a branch renders every expression
+statement written without a semicolon, in order. A branch re-enters Markdown
+only through a nested `md_sync!` (or `md!`) call; a bare string tail renders
+as escaped text, so markup needs the nested template:
 
 ```rust
 md_sync! { r###"
     ### Reviews
     {if self.reviews.is_empty() {
-        _No reviews yet_
+        md_sync! { "_No reviews yet_\n" }
     } else {
         for review in self.reviews.iter() {
-            - {review}
+            md_sync! { "- " {review} "\n" }
         }
     }}
+    {if self.stock > 0 { md_sync! { "Only " {self.stock} " left" } } else { "Backordered" }}
     "###
 }
 ```
 
-Existing unindented bodies remain supported. `proa fmt --verify` canonicalizes
-branch layout and redundant wrappers on standalone nested controls while
-checking the parsed content and control flow remain equivalent.
+Use the token form (`md_sync! { "- " {review} "\n" }`) for a one-line
+fragment and a nested raw literal with fewer hashes (`md_sync! { r#" ... "# }`)
+for a multi-line one; the nested literal removes its own common indentation.
+Inside `md!`, a loop body that borrows its item nests `md_sync!`: a nested
+`md!` is a type-erased async fragment and, like a nested `html!`, can only
+borrow data that outlives the whole template.
+Plain Markdown is never parsed inside a slot, so `if`, `for`, and `match` are
+ordinary words in Markdown text, and a line means the same thing at the top
+level and inside a branch. Markdown written directly inside a branch is a
+compile error that names the nested-template form. Named arguments substitute
+into slot expressions of the template they follow, including conditions and
+iterators, but not into the tokens of a nested template.
 
-Bare nested controls occupy their own line; compact bodies such as
-`if ready {Available} else {Unavailable}` also work. Put subsequent Markdown
-on a new line, or keep the outer `{if ...}` interpolation wrapper when a
-control belongs inside a sentence. Unexpected tokens after a wrapped or bare
-control are errors, including misspelled `else` branches.
-
-Spaces or tabs between an opening body brace and its newline are source
-layout. Markdown quotes and `{{` / `}}` escapes remain literal inside bodies;
-Rust strings, characters and comments are recognized only inside expressions
-and control headers. A standalone closing-brace line is a control delimiter;
-use `{"}"}` to emit a literal brace at that boundary. Multiline code spans
-strip the same branch margin as ordinary Markdown. Named arguments work in
-slots and as bare condition/iterator aliases, and remain visible to formatting
-and layout linting.
-
-File-scoped `proa check` and `proa lint` validate Markdown syntax without
-requiring a Cargo build. Formatting refuses invalid template syntax even
-without `--verify`; verification also rejects failed parses.
+Indentation inside a slot is Rust layout and never reaches the output. A
+whitespace-only template such as `md_sync! { "\n" }` is emitted verbatim, so
+a branch can contribute a blank line. `{{` and
+`}}` are literal braces in Markdown text; braces inside inline code spans and
+fenced code blocks are literal without escaping. `proa fmt` re-anchors the
+template one level beneath the invocation and preserves relative indentation;
+it never rewrites slot contents. File-scoped `proa check` and `proa lint`
+validate Markdown syntax without requiring a Cargo build, and `proa fmt`
+refuses invalid templates.
 
 See [the marketing homepage](../../proa_marketing/src/pages/home.rs),
 [About/Contact](../../proa_marketing/src/pages/info.rs), and

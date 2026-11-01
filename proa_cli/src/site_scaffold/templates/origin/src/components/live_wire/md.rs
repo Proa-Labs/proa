@@ -17,7 +17,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for L
             Illustrative replay items using documentation ranges, not live incidents.
 
             {for (what, when) in RESOLVED.iter() {
-            - {*what} ({*when})
+                md_sync! { "- " {*what} " (" {*when} ")\n" }
             }}
             "###
         }

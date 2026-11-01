@@ -190,7 +190,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for L
             ## Who carries its traffic
 
             {for (asn, relation, sessions) in carriers.iter() {
-            - AS{*asn} ({*relation}, seen by {*sessions} RIS peers)
+                md_sync! { "- AS" {*asn} " (" {*relation} ", seen by " {*sessions} " RIS peers)\n" }
             }}
 
             ## Routes traffic takes
@@ -210,7 +210,11 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for L
             md_sync! { r###"
                 ## Open routing situations
 
-                {if site.unusual {**Status:** open · **Severity:** high} else {None reported.}}
+                {if site.unusual {
+                    md_sync! { "**Status:** open · **Severity:** high" }
+                } else {
+                    md_sync! { "None reported." }
+                }}
 
                 {site.unusual_detail}
                 "###

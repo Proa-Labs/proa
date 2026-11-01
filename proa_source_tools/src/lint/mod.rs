@@ -137,7 +137,7 @@ fn lint_file_with_cache(
                     &mut diagnostics,
                 );
             }
-            // Markdown has its own grammar, including raw-template controls.
+            // Markdown has its own grammar; validate it directly.
             Err(_) if inv.dialect == MacroDialect::Md => {
                 if let Err(err) = validate_markdown_invocation(source, inv) {
                     diagnostics.push(parse_error_diag(&display, inv, err));
@@ -817,10 +817,6 @@ fn md_tokens_have_possibly_async_child(tokens: &proc_macro2::TokenStream) -> boo
     fn nodes_have_child(nodes: &[TplNode]) -> bool {
         nodes.iter().any(|node| match node {
             TplNode::Expr(value) => expr_is_bare_uppercase_path(&value.expr),
-            TplNode::For { body, .. } => nodes_have_child(body),
-            TplNode::If { branches } => {
-                branches.iter().any(|branch| nodes_have_child(&branch.body))
-            }
             TplNode::Text(_) => false,
         })
     }

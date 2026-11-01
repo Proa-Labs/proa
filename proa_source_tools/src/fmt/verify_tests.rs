@@ -147,12 +147,12 @@ A \"quoted\" word.
 fn md_formats_named_arguments_and_multiline_code_spans() {
     let source = r####"fn f() {
     md_sync! { r###"
-        {if show {
-        {title}
-        `first
-        second`
-        }}
-        "###, title = self.title
+            {if show {
+            title
+            }}
+            `first
+            second`
+            "###, title = self.title
     };
 }"####;
     let formatted = format_file(Path::new("named.rs"), source).unwrap();
@@ -161,9 +161,9 @@ fn md_formats_named_arguments_and_multiline_code_spans() {
         "{:?}",
         formatted.diagnostics
     );
-    assert!(formatted
-        .output
-        .contains("            {title}\n            `first\n            second`"));
+    assert!(formatted.output.contains(
+        "        {if show {\n        title\n        }}\n        `first\n        second`"
+    ));
     assert!(formatted.output.contains("\"###, title = self.title"));
     assert!(verify_render_preserving(Path::new("named.rs"), source, &formatted.output).is_empty());
     assert_eq!(
@@ -197,26 +197,21 @@ fn md_invalid_control_syntax_is_not_formatted_or_verified() {
 }
 
 #[test]
-fn md_formats_product_branches_and_unwraps_nested_loop() {
+fn md_formats_control_slots_preserving_relative_indentation() {
     let source = r####"impl Product {
     fn markdown(self) {
         md_sync! { r###"
-            ## {&self.name}
-            **{&self.price_label}**
-            {if self.stock > 0 {
-            Only {self.stock} left
-            } else {
-            **Sold out**
-            }}
-            ### Reviews
-            {if self.reviews.is_empty() {
-            _No reviews yet_
-            } else {
-            {for review in self.reviews.iter() {
-            - {review}
-            }}
-            }}
-            "###
+                ## {&self.name}
+                {if self.stock > 0 {
+                    md_sync! { "Only " {self.stock} " left\n" }
+                } else {
+                    md_sync! { "**Sold out**\n" }
+                }}
+                ### Reviews
+                {for review in self.reviews.iter() {
+                    md_sync! { "- " {review} "\n" }
+                }}
+                "###
         }
     }
 }"####;
@@ -224,19 +219,14 @@ fn md_formats_product_branches_and_unwraps_nested_loop() {
     fn markdown(self) {
         md_sync! { r###"
             ## {&self.name}
-            **{&self.price_label}**
             {if self.stock > 0 {
-                Only {self.stock} left
+                md_sync! { "Only " {self.stock} " left\n" }
             } else {
-                **Sold out**
+                md_sync! { "**Sold out**\n" }
             }}
             ### Reviews
-            {if self.reviews.is_empty() {
-                _No reviews yet_
-            } else {
-                for review in self.reviews.iter() {
-                    - {review}
-                }
+            {for review in self.reviews.iter() {
+                md_sync! { "- " {review} "\n" }
             }}
             "###
         }
@@ -254,20 +244,22 @@ fn md_formats_product_branches_and_unwraps_nested_loop() {
 }
 
 #[test]
-fn md_branch_formatting_preserves_markdown_indentation_and_code() {
+fn md_nested_template_literals_keep_markdown_indentation_and_code() {
     let source = r####"fn f() {
     md! { r###"
         {if show {
-            - outer
-              - {child}
+            md! { r#"
+                - outer
+                  - {child}
 
-                code_line();
+                    code_line();
 
-            ```rust
-            for item in items {
-                println!("{item}");
-            }
-            ```
+                ```rust
+                for item in items {
+                    println!("{item}");
+                }
+                ```
+            "# }
         }}
         "###
     }
@@ -275,16 +267,24 @@ fn md_branch_formatting_preserves_markdown_indentation_and_code() {
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert_eq!(formatted, source);
     assert!(verify_render_preserving(Path::new("sample.rs"), source, &formatted).is_empty());
-    let corrupted = formatted.replace("              - {child}", "                - {child}");
+    let corrupted = formatted.replace(
+        "                  - {child}",
+        "                    - {child}",
+    );
     assert!(!verify_render_preserving(Path::new("sample.rs"), source, &corrupted).is_empty());
 }
 
 #[test]
-fn md_preserves_inline_bodies_that_continue_on_another_line() {
+fn md_multiline_rust_slots_keep_their_layout() {
     let source = r####"fn f() {
     md_sync! { r###"
-        {if show {inline
-            retained
+        {for (index, group) in groups.iter().enumerate() {
+            if index > 0 {
+                md_sync! { "\n" }
+            }
+            for item in group {
+                md_sync! { {item} "\n" }
+            }
         }}
         "###
     }

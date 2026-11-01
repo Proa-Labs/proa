@@ -75,48 +75,11 @@ function expressionEnd(source, at, limit) {
   return null;
 }
 
-// Match the raw-template compiler's brace extraction for control-flow bodies.
-// Their prose is Markdown: URLs and apostrophes must not become Rust comments
-// or character literals while locating the enclosing body.
-function templateEnd(source, at, limit) {
-  let depth = 1, string = false, escape = false;
-  for (let i = at + 1; i < limit; i++) {
-    const ch = source[i];
-    if (escape) { escape = false; continue; }
-    if (string) {
-      if (ch === '\\') escape = true;
-      else if (ch === '"') string = false;
-    } else if (ch === '"') string = true;
-    else if (ch === '{') depth++;
-    else if (ch === '}' && --depth === 0) return i + 1;
-  }
-  return null;
-}
-
 // The compiler removes common source indentation before recognizing fences.
 function indentation(source, literal) {
   const lines = source.slice(literal.start, literal.end).split('\n').slice(1);
   const widths = lines.filter(line => line.trim()).map(line => /^[ \t]*/.exec(line)[0].length);
   return widths.length ? Math.min(...widths) : 0;
-}
-
-function bodyBrace(source, start, limit) {
-  let depth = 0;
-  for (let i = start; i < limit;) {
-    const end = comment(source, i);
-    if (end !== i) { i = end; continue; }
-    const raw = source[i] === 'r' ? rawString(source, i) : null;
-    if (raw) { i = raw.after; continue; }
-    if (source[i] === '"' || source[i] === "'") {
-      const end = quoted(source, i);
-      if (end !== i) { i = end; continue; }
-    }
-    if ('(['.includes(source[i])) depth++;
-    if (')]'.includes(source[i])) depth--;
-    if (source[i] === '{' && depth === 0) return i;
-    i++;
-  }
-  return null;
 }
 
 function expressions(source, literal, indent = indentation(source, literal), statement = false) {
@@ -147,37 +110,17 @@ function expressions(source, literal, indent = indentation(source, literal), sta
     }
     if (source.startsWith('{{', i) || source.startsWith('}}', i)) { i += 2; continue; }
     if (source[i] === '{') {
-      const first = trivia(source, i + 1);
-      const control = /^(?:for |if )/.test(source.slice(first));
-      const end = (control ? templateEnd : expressionEnd)(source, i, literal.end);
+      // A slot is one Rust expression, control flow included. Markdown
+      // re-enters a branch only through a nested template literal, which is
+      // an ordinary Rust string token to this scanner.
+      const end = expressionEnd(source, i, literal.end);
       if (end === null) return null;
-      if (control) {
-        if (!statement) { keep(i, i + 1); keep(end - 1, end); }
-        let header = first;
-        while (header < end - 1) {
-          const brace = bodyBrace(source, header, end - 1);
-          if (brace === null) return null;
-          const after = templateEnd(source, brace, end - 1);
-          if (after === null) return null;
-          keep(header, brace + 1);
-          keep(after - 1, after);
-          ranges.push({ start: header - 1, end: brace + 1 });
-          const body = expressions(source, { start: brace + 1, end: after - 1 }, indent, true);
-          if (!body) return null;
-          ranges.push(...body.ranges);
-          copies.push(...body.copies);
-          replacements.push(...body.replacements);
-          header = trivia(source, after);
-          if (header < end - 1 && !/^else\b/.test(source.slice(header))) return null;
-        }
-      } else {
-        ranges.push({ start: i, end });
-        keep(i, end);
-        // A control-flow body is a normal Rust block. Discard each expression
-        // as a statement, retaining its scope and exact source coordinates.
-        // The compiler still checks the original template's render bounds.
-        if (statement) replacements.push([i, ' '], [end - 1, ';']);
-      }
+      ranges.push({ start: i, end });
+      keep(i, end);
+      // In block mode each slot becomes a statement, retaining its scope and
+      // exact source coordinates. The compiler still checks the original
+      // template's render bounds.
+      if (statement) replacements.push([i, ' '], [end - 1, ';']);
       i = end;
     } else if (source[i] === '}') return null;
     else i++;
@@ -217,7 +160,9 @@ export function project(source) {
     // expose an ordinary Rust block instead, so rust-analyzer can recover the
     // expression and complete its fields without needing a macro expansion.
     // Complete templates retain the macro and its actual render result type.
-    const incomplete = parsed.ranges.some(range => /\.\s*$/u.test(source.slice(range.start + 1, range.end - 1)));
+    // An unfinished access may sit at the end of the slot or before the
+    // closing brace of a control-flow body inside it.
+    const incomplete = parsed.ranges.some(range => /\.\s*(?:\}|$)/u.test(source.slice(range.start + 1, range.end - 1)));
     if (incomplete) parsed = expressions(source, literal, indentation(source, literal), true);
     output ??= source.split('');
     if (incomplete) {

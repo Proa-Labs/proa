@@ -5266,7 +5266,7 @@ fn markdown_syntax_errors_are_reported_without_a_cargo_build() {
 
 #[test]
 fn markdown_named_arguments_participate_in_layout_lint() {
-    let source = "fn f() {\n    md_sync! { r###\"\n        {if true {\n        {title}\n        }}\n        \"###, title = self.title\n    };\n}";
+    let source = "fn f() {\n    md_sync! { r###\"\n            {if show {\n                title\n            }}\n            \"###, show = true, title = self.title\n    };\n}";
     let diagnostics = lint_file(Path::new("sample.rs"), source);
     assert!(
         diagnostics

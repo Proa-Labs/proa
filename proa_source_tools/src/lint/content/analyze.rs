@@ -55,6 +55,8 @@ struct Analyzer<'a> {
     bindings: BTreeMap<String, Vec<ContentKey>>,
     bindings_initialized: bool,
     sink_range: Option<SourceRange>,
+    /// The raw Markdown slot being analyzed, for sub-expression locations.
+    slot: Option<TemplateExpr>,
 }
 fn bare(expr: &Expr) -> Option<String> {
     match expr {
@@ -237,6 +239,11 @@ fn bind(pat: &Pat, value: Value, env: &mut Env) {
 }
 impl Analyzer<'_> {
     fn range(&self, span: Span, override_range: Option<&SourceRange>) -> SourceRange {
+        // Inside a raw Markdown slot, point at the sub-expression itself (an
+        // `if` condition, a `for` iterator) rather than at the whole slot.
+        if let Some(location) = self.slot.as_ref().and_then(|slot| slot.locate(span)) {
+            return self.location_range(&location);
+        }
         override_range
             .cloned()
             .unwrap_or_else(|| span_range(self.path, span))
@@ -900,7 +907,9 @@ impl Analyzer<'_> {
         for stmt in &block.stmts {
             match stmt {
                 Stmt::Local(local) => self.local(local, &mut env, override_range),
-                Stmt::Expr(expr, None) => result = self.expr(expr, &env, override_range),
+                // Every expression statement without a semicolon renders, not
+                // only the block tail, so sequential branches contribute in order.
+                Stmt::Expr(expr, None) => result.append(self.expr(expr, &env, override_range)),
                 Stmt::Expr(Expr::Assign(a), _) => {
                     if let Some(name) = bare(&a.left) {
                         env.insert(
@@ -927,14 +936,14 @@ impl Analyzer<'_> {
                 // Side-effect statements may influence output, but unused values
                 // and uncalled closures never contribute content.
                 Stmt::Macro(m) if m.semi_token.is_none() => {
-                    result = self.template(
+                    result.append(self.template(
                         &syn::ExprMacro {
                             attrs: m.attrs.clone(),
                             mac: m.mac.clone(),
                         },
                         &env,
                         override_range,
-                    );
+                    ));
                 }
                 Stmt::Expr(_, Some(_)) | Stmt::Macro(_) | Stmt::Item(_) => {}
             }
@@ -1192,6 +1201,12 @@ impl Analyzer<'_> {
     }
     fn template_range(&self, expr: &TemplateExpr) -> SourceRange {
         match &expr.location {
+            ExprLocation::Decoded(_) => span_range(self.path, expr.expr.span()),
+            location => self.location_range(location),
+        }
+    }
+    fn location_range(&self, location: &ExprLocation) -> SourceRange {
+        match location {
             ExprLocation::Rust(span) => span_range(self.path, *span),
             ExprLocation::Literal { span, range } => {
                 let literal = span_range(self.path, *span);
@@ -1223,7 +1238,12 @@ impl Analyzer<'_> {
                     end_column,
                 }
             }
-            ExprLocation::Decoded(_) => span_range(self.path, expr.expr.span()),
+            // Decoded offsets only exist before a literal is mapped; tooling
+            // always sees mapped locations, so fall back to the active slot.
+            ExprLocation::Decoded(_) => self.slot.as_ref().map_or_else(
+                || span_range(self.path, Span::call_site()),
+                |slot| self.template_range(slot),
+            ),
         }
     }
     fn md(&mut self, nodes: &[TplNode], env: &Env, fallback: &SourceRange) -> Value {
@@ -1235,46 +1255,9 @@ impl Analyzer<'_> {
                 }
                 TplNode::Expr(e) => {
                     let range = self.template_range(e);
+                    let previous = self.slot.replace(e.clone());
                     result.append(self.expr(&e.expr, env, Some(&range)));
-                }
-                TplNode::If { branches } => {
-                    let mut previous = Vec::new();
-                    for branch in branches {
-                        let mut guards = previous.clone();
-                        if let Some(cond) = &branch.cond {
-                            let range = self.template_range(cond);
-                            guards.push(self.predicate(&cond.expr, env, false, Some(&range)));
-                            previous.push(self.predicate(&cond.expr, env, true, Some(&range)));
-                        }
-                        result.append(self.md(&branch.body, env, fallback).guarded(&guards));
-                    }
-                }
-                TplNode::For { pat, iter, body } => {
-                    let range = self.template_range(iter);
-                    let value = self.expr(&iter.expr, env, Some(&range));
-                    if let Some(symbol) = value.symbol {
-                        let mut child = env.clone();
-                        let element = format!("{symbol}[]");
-                        bind(
-                            pat,
-                            Value {
-                                symbol: Some(element.clone()),
-                                deps: BTreeSet::from([element]),
-                                ..Value::default()
-                            },
-                            &mut child,
-                        );
-                        result.append(self.md(body, &child, fallback).guarded(&[Presence {
-                            expression: format!("for {symbol}"),
-                            range,
-                        }]));
-                    } else {
-                        result.boundaries.push(Boundary {
-                            may_hide_content: true,
-                            message: "Markdown iteration source cannot be resolved".into(),
-                            range,
-                        });
-                    }
+                    self.slot = previous;
                 }
             }
         }
@@ -1920,6 +1903,7 @@ pub(super) fn summarize(
         bindings: BTreeMap::new(),
         bindings_initialized: false,
         sink_range: None,
+        slot: None,
     };
     let mut env = Env::new();
     env.insert(

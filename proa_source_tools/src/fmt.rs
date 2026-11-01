@@ -188,8 +188,8 @@ pub fn verify_render_preserving(path: &Path, original: &str, formatted: &str) ->
                 ));
                 continue;
             }
-            // Compare the parsed content and Rust expressions. Branch layout
-            // and redundant nested-control braces do not contribute output.
+            // Compare the parsed content and Rust expressions; layout does not
+            // contribute output.
             let text_before = md_render_text(original, inv_before);
             let text_after = md_render_text(formatted, inv_after);
             if text_before != text_after {
@@ -642,8 +642,8 @@ fn md_template(body: &str) -> Option<MdTemplate> {
 ///
 /// Every template line and the closing quote are re-anchored one level beneath
 /// the macro invocation. The closing macro brace returns to the invocation's
-/// own column. The shared Markdown parser also identifies branch layout, so
-/// control bodies can be indented without adding spaces to rendered content.
+/// own column. Relative indentation is preserved, so a multi-line Rust slot
+/// keeps its own layout and deeper Markdown indentation stays content.
 pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
     let Some(tpl) = md_template(body) else {
         return body.to_owned();
@@ -659,7 +659,6 @@ pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
         .map(|line| &line[common_prefix_len(common, line)..])
         .collect::<Vec<_>>()
         .join("\n");
-    let template = proa_dsl::md::format_control_flow(&template).unwrap_or(template);
     let close_indent = inv.indentation_column;
     let content_indent = close_indent + INDENT_WIDTH;
 
@@ -706,8 +705,6 @@ fn common_prefix_len(common: &str, line: &str) -> usize {
 enum MdRenderNode {
     Text(String),
     Expr(String),
-    For(String, String, Vec<MdRenderNode>),
-    If(Vec<(Option<String>, Vec<MdRenderNode>)>),
 }
 
 fn md_render_nodes(nodes: Vec<proa_dsl::md::TplNode>) -> Vec<MdRenderNode> {
@@ -717,22 +714,6 @@ fn md_render_nodes(nodes: Vec<proa_dsl::md::TplNode>) -> Vec<MdRenderNode> {
         .map(|node| match node {
             TplNode::Text(text) => MdRenderNode::Text(text),
             TplNode::Expr(expr) => MdRenderNode::Expr(expr.to_token_stream().to_string()),
-            TplNode::For { pat, iter, body } => MdRenderNode::For(
-                pat.to_token_stream().to_string(),
-                iter.to_token_stream().to_string(),
-                md_render_nodes(body),
-            ),
-            TplNode::If { branches } => MdRenderNode::If(
-                branches
-                    .into_iter()
-                    .map(|branch| {
-                        (
-                            branch.cond.map(|cond| cond.to_token_stream().to_string()),
-                            md_render_nodes(branch.body),
-                        )
-                    })
-                    .collect(),
-            ),
         })
         .collect()
 }

@@ -433,7 +433,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for FooterLinks {
             ## {self.title}
 
             {for (label, href) in self.links {
-            - [{content_part!("link-label", *label)}]({content_part!("link-url", Url(href))})
+                md_sync! { "- [" {content_part!("link-label", *label)} "](" {content_part!("link-url", Url(href))} ")\n" }
             }}"###
         }
         .render_md(cx)
