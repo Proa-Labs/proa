@@ -26,6 +26,7 @@ mod form_schema_derive;
 mod island_attr;
 mod md;
 mod parse;
+mod render_control;
 mod static_consolidation;
 mod text_macro;
 mod tree_codegen;
@@ -85,7 +86,7 @@ pub fn content_part(input: TokenStream) -> TokenStream {
 ///
 /// This macro analyzes the HTML tree at compile time and consolidates static
 /// portions into single byte literals, dramatically reducing runtime overhead.
-/// Returns an `AsyncHtml` that implements `WebRender`.
+/// Returns a typed async fragment that implements `WebRender`.
 ///
 /// ## Syntax
 ///

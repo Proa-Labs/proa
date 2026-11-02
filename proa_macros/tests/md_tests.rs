@@ -228,16 +228,11 @@ fn match_arms_render_their_tails() {
 }
 
 #[test]
-fn sequential_statements_in_a_body_render_in_order() {
+fn multiple_fragments_compose_in_one_template_tail() {
     let groups = [["a", "b"], ["c", "d"]];
     let output = r(md_sync! { r###"
         {for (index, group) in groups.iter().enumerate() {
-            if index > 0 {
-                md_sync! { "\n" }
-            }
-            for item in group {
-                md_sync! { {item} "\n" }
-            }
+            md_sync! { {if index > 0 { md_sync! { "\n" } }} {for item in group { md_sync! { "{item}\n" } }} }
         }}
         "###
     });

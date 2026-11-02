@@ -718,9 +718,8 @@ fn lint_markdown_render_impl(
 
 /// Markdown mirror of [`check_render_api_perf`].
 ///
-/// `md!` lowers to `async_md_from_fn(Box::new(|cx| Box::pin(async move
-/// { .. })))` exactly like async `html!`, while `md_sync!` lowers to an
-/// unboxed `OptimizedMd`, so the same two rules apply.
+/// `md!` and `html!` use the same typed async continuation without boxing.
+/// Prefer the synchronous surface when no child needs to await.
 fn check_markdown_render_api_perf(
     path: &Path,
     item_impl: &ItemImpl,
@@ -842,11 +841,11 @@ fn md_tokens_have_possibly_async_child(tokens: &proc_macro2::TokenStream) -> boo
 /// it has async work of its own.
 fn md_slot_has_possibly_async_child(expr: &Expr) -> bool {
     fn rendered_block(block: &Block) -> bool {
-        block.stmts.iter().any(|stmt| match stmt {
-            syn::Stmt::Expr(expr, None) => md_slot_has_possibly_async_child(expr),
-            syn::Stmt::Macro(stmt) if stmt.semi_token.is_none() => nested_template(&stmt.mac),
+        match block.stmts.last() {
+            Some(syn::Stmt::Expr(expr, None)) => md_slot_has_possibly_async_child(expr),
+            Some(syn::Stmt::Macro(stmt)) if stmt.semi_token.is_none() => nested_template(&stmt.mac),
             _ => false,
-        })
+        }
     }
     fn nested_template(mac: &syn::Macro) -> bool {
         mac.path
@@ -3417,12 +3416,9 @@ fn check_render_api_perf(
 
 /// Flag `html!` invocations whose whole subtree is synchronous.
 ///
-/// Async `html!` lowers to `async_html_from_fn(Box::new(|cx| Box::pin(async
-/// move { .. })))`: one heap allocation for the erased closure, one for the
-/// future, and dynamically dispatched polls. `html_sync!` lowers to a
-/// monomorphized `OptimizedHtml<B, L, F>` with an `#[inline(always)]` render
-/// and no allocation, so a static subtree inside an otherwise-async component
-/// pays that cost for nothing.
+/// Both async and sync macro output is monomorphized and unboxed. Prefer
+/// `html_sync!` when no child needs to await, keeping the synchronous contract
+/// explicit and avoiding unnecessary future construction.
 fn check_async_html_static_subtree(
     path: &Path,
     block: &Block,

@@ -3324,10 +3324,12 @@ version = "0.2.0"
 dependencies = [
  "base16ct",
  "latex2mathml",
+ "proa_dsl",
  "pulldown-cmark",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "syn 2.0.119",
  "syntect",
  "tempfile",
  "thiserror",

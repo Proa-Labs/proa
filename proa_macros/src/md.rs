@@ -30,7 +30,7 @@
 //! rule at every depth: text outside `{ ... }` is Markdown, text inside is a
 //! Rust expression. `{expr}` composes a typed render child; `{if ...}`,
 //! `{for ...}`, and `{match ...}` are ordinary Rust control flow whose
-//! bodies render expression statements without semicolons in order. A
+//! bodies render only their final expression, just like HTML slots. A
 //! branch re-enters Markdown through a nested `md_sync!` / `md!` call (a
 //! string tail renders as escaped text). Plain Markdown is never parsed inside
 //! a slot, and no word is reserved in Markdown text. Braces inside fenced code
@@ -131,13 +131,11 @@ fn wrap_render(stmts: &[TokenStream], mode: EmitMode) -> TokenStream {
             )
         },
         EmitMode::Async => quote! {
-            ::proa_core::md::async_md_from_fn(::std::boxed::Box::new(|cx| {
-                ::std::boxed::Box::pin(async move {
-                    use ::proa_core::MdRenderAsyncExt as _;
-                    #(#stmts)*
-                    Ok(())
-                })
-            }))
+            ::proa_core::md::async_md_from_closure(async |cx| {
+                use ::proa_core::MdRenderAsyncExt as _;
+                #(#stmts)*
+                Ok(())
+            })
         },
     }
 }
@@ -345,113 +343,11 @@ pub fn generate_tokens(root: &MdRoot, mode: EmitMode) -> TokenStream {
     wrap_render(&stmts, mode)
 }
 
-// -- control-flow transforms for token mode --
-
+// Raw and token templates share the same Rust control-flow lowering as HTML.
 fn gen_block_expr(expr: &Expr, stmts: &mut Vec<TokenStream>, mode: EmitMode) {
-    match expr {
-        Expr::If(e) => {
-            let cond = &e.cond;
-            let then = xform_block(&e.then_branch, mode);
-            let el = e.else_branch.as_ref().map(|(_, ex)| gen_else(ex, mode));
-            stmts.push(quote! { if #cond { #then } #el });
-        }
-        Expr::Match(e) => {
-            let scrut = &e.expr;
-            let arms: Vec<_> = e
-                .arms
-                .iter()
-                .map(|a| {
-                    let pat = &a.pat;
-                    let guard = a.guard.as_ref().map(|(t, g)| quote! { #t #g });
-                    let body = gen_expr_write(&a.body, mode);
-                    quote! { #pat #guard => { #body } }
-                })
-                .collect();
-            stmts.push(quote! { match #scrut { #(#arms),* } });
-        }
-        Expr::ForLoop(e) => {
-            let pat = &e.pat;
-            let it = &e.expr;
-            let body = xform_block(&e.body, mode);
-            stmts.push(quote! { for #pat in #it { #body } });
-        }
-        Expr::While(e) => {
-            let cond = &e.cond;
-            let body = xform_block(&e.body, mode);
-            stmts.push(quote! { while #cond { #body } });
-        }
-        Expr::Loop(e) => {
-            let body = xform_block(&e.body, mode);
-            stmts.push(quote! { loop { #body } });
-        }
-        _ => {
-            stmts.push(emit_md_render(expr, mode));
-        }
-    }
-}
-
-fn gen_else(expr: &Expr, mode: EmitMode) -> TokenStream {
-    match expr {
-        Expr::If(e) => {
-            let cond = &e.cond;
-            let then = xform_block(&e.then_branch, mode);
-            let el = e.else_branch.as_ref().map(|(_, ex)| gen_else(ex, mode));
-            quote! { else if #cond { #then } #el }
-        }
-        Expr::Block(e) => {
-            let body = xform_block(&e.block, mode);
-            quote! { else { #body } }
-        }
-        _ => {
-            let w = gen_expr_write(expr, mode);
-            quote! { else { #w } }
-        }
-    }
-}
-
-/// Lower a control-flow body.
-///
-/// Every expression statement written without a semicolon renders in order,
-/// not only the block tail, so a body can sequence several fragments the way
-/// Rust sequences block-like statements. Statements ending in `;` and `let`
-/// bindings are ordinary Rust.
-fn xform_block(block: &syn::Block, mode: EmitMode) -> TokenStream {
-    let mut out = TokenStream::new();
-    for stmt in &block.stmts {
-        match stmt {
-            syn::Stmt::Expr(expr, None) => out.extend(gen_expr_write(expr, mode)),
-            syn::Stmt::Macro(m) if m.semi_token.is_none() => {
-                let mac = &m.mac;
-                out.extend(match mode {
-                    EmitMode::Sync => quote! {
-                        {
-                            use ::proa_core::MdRenderSyncExt as _;
-                            (#mac).__proa_render_md_sync(cx)?;
-                        }
-                    },
-                    EmitMode::Async => quote! {
-                        {
-                            use ::proa_core::MdRenderAsyncExt as _;
-                            (#mac).__proa_render_md_async(cx).resolve().await?;
-                        }
-                    },
-                });
-            }
-            other => out.extend(quote! { #other }),
-        }
-    }
-    out
-}
-
-fn gen_expr_write(expr: &Expr, mode: EmitMode) -> TokenStream {
-    match expr {
-        Expr::If(_) | Expr::Match(_) | Expr::ForLoop(_) | Expr::While(_) | Expr::Loop(_) => {
-            let mut v = Vec::new();
-            gen_block_expr(expr, &mut v, mode);
-            quote! { #(#v)* }
-        }
-        _ => emit_md_render(expr, mode),
-    }
+    stmts.push(crate::render_control::lower(expr, &|expr| {
+        emit_md_render(expr, mode)
+    }));
 }
 
 #[cfg(test)]

@@ -150,11 +150,11 @@ pub type AsyncHtmlFuture<'a> = Pin<Box<dyn Future<Output = Result<(), WriteError
 pub type AsyncHtmlRenderFn<'env, B, L> =
     dyn for<'a> FnOnce(&'a mut WebContext<L, B>) -> AsyncHtmlFuture<'a> + Send + 'env;
 
-/// Wrapper for async `html!` macro output.
+/// Compatibility wrapper for type-erased async HTML render functions.
 ///
-/// The macro emits only the template-specific closure; this shared wrapper
-/// carries the `WebRender` implementation once in `proa_core` instead of
-/// generating a fresh local type and impl at every `html!` call site.
+/// `html!` uses [`super::async_render::AsyncRender`] so captured borrows and
+/// future types are retained. This erased constructor remains available for
+/// callers that explicitly need it.
 pub struct AsyncHtml<'env, B: WriteBuf, L: DataLoader> {
     pub render_fn: Box<AsyncHtmlRenderFn<'env, B, L>>,
     pub _marker: PhantomData<fn(&mut B, &L)>,

@@ -99,6 +99,7 @@ function expressions(source, literal, indent = indentation(source, literal), sta
       }
       if (marker && (marker[1][0] !== '`' || !marker[2].includes('`'))) { fence = marker[1]; i = lineEnd + 1; continue; }
     }
+    if (source[i] === '\\' && (source[i + 1] === '`' || source[i + 1] === '\\')) { i += 2; continue; }
     if (source[i] === '`') {
       let end = i + 1;
       while (source[end] === '`') end++;

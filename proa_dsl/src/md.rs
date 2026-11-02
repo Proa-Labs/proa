@@ -427,8 +427,19 @@ pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
                     pos = end;
                     continue;
                 }
-                text.push('`');
-                pos += 1;
+                // An unmatched delimiter is one whole run. Retrying from
+                // its second backtick invents a shorter opener.
+                let start = pos;
+                while bytes.get(pos) == Some(&b'`') {
+                    pos += 1;
+                }
+                text.push_str(&input[start..pos]);
+            }
+            b'\\' if matches!(bytes.get(pos + 1), Some(b'`' | b'\\')) => {
+                // Markdown escapes one punctuation character. Consume escaped
+                // backticks and backslash pairs together, preserving spelling.
+                text.push_str(&input[pos..pos + 2]);
+                pos += 2;
             }
             b'{' => {
                 if bytes.get(pos + 1) == Some(&b'{') {
@@ -680,6 +691,40 @@ mod tests {
         );
         assert!(parse_tpl("lonely }").unwrap_err().contains("`}}`"));
         assert!(parse_tpl("{open").unwrap_err().contains("`{{`"));
+    }
+
+    #[test]
+    fn unmatched_and_escaped_backticks_do_not_hide_slots() {
+        for source in [
+            "a `` {value} ` end",
+            "a ``` {value} `` end",
+            r"Escaped \`{value}`",
+            r"Escaped \\\`{value}`",
+        ] {
+            let nodes = parse_tpl(source).unwrap();
+            assert_eq!(
+                nodes
+                    .iter()
+                    .filter(|node| matches!(node, TplNode::Expr(_)))
+                    .count(),
+                1,
+                "{source}"
+            );
+        }
+        for source in [
+            "a `` {literal} `` end",
+            r"Even \\`{literal}`",
+            r"Escaped \``{literal}`",
+            "a `` {literal} ` still code `` end",
+        ] {
+            assert!(
+                parse_tpl(source)
+                    .unwrap()
+                    .iter()
+                    .all(|node| matches!(node, TplNode::Text(_))),
+                "{source}"
+            );
+        }
     }
 
     #[test]

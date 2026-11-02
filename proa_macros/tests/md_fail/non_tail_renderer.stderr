@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+ --> tests/md_fail/non_tail_renderer.rs:4:41
+  |
+4 |       let _ = proa_core::render_to_string(md_sync! { r#"{if true {
+  |  _________________________________________^
+5 | |         md_sync! { "A" }
+6 | |         md_sync! { "B" }
+7 | |     }}"# });
+  | |          ^- help: consider using a semicolon here
+  | |__________|
+  |            expected `()`, found `OptimizedMd<_, _, {closure@...}>`
+  |
+  = note: expected unit type `()`
+                found struct `OptimizedMd<_, _, {closure@$DIR/tests/md_fail/non_tail_renderer.rs:4:41: 7:11}>`
+  = note: this error originates in the macro `md_sync` (in Nightly builds, run with -Z macro-backtrace for more info)

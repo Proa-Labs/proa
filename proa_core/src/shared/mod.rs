@@ -7,6 +7,7 @@
 //! particularly web and email which both output HTML.
 
 // Core HTML building blocks
+pub mod async_render;
 pub mod attr;
 pub mod attr_value;
 pub mod elem;

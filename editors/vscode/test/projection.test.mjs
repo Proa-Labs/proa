@@ -215,3 +215,16 @@ test('guards workspace file-operation edits in unopened template files', () => {
     assert.equal(response.forward.error.code, -32803);
   }
 });
+
+test('backtick runs and escapes match the compiler slot boundaries', () => {
+  for (const body of ['a `` {value} ` end', 'Escaped \\`{value}`', 'Odd \\\\\\`{value}`']) {
+    const text = 'md_sync! { r#"' + body + '"# }';
+    const result = project(text);
+    assert.equal(result.templates[0].expressions.length, 1, body);
+    assert.ok(result.text.includes('{value}'), body);
+  }
+  for (const body of ['a `` {literal} `` end', 'Even \\\\`{literal}`']) {
+    const result = project('md_sync! { r#"' + body + '"# }');
+    assert.equal(result.templates.length, 0, body);
+  }
+});

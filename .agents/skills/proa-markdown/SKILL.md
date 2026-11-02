@@ -52,8 +52,9 @@ Text outside `{ ... }` is Markdown; each slot is Rust at every nesting depth.
 Use ordinary Rust `if`, `for`, and `match` inside slots, and explicitly re-enter
 Markdown with a nested `md_sync!` (or `md!` when it awaits). Never treat bare
 control words in Markdown as executable or write Markdown directly in a Rust
-branch. A body renders expression statements without semicolons in order;
-semicolon-terminated statements are ordinary Rust setup/side effects.
+branch. A body renders only its final expression, matching HTML slots. Earlier
+statements are ordinary Rust setup/side effects; a semicolon discards a value.
+To render several fragments, compose them in one nested template tail.
 
 ```rust
 md_sync! { r###"
@@ -88,9 +89,11 @@ interpolating runtime values into a fenced example needs an explicit typed
 child or token composition. Keep token composition for those cases, generated
 or token-aware tooling, and tests of that API; it remains supported. Explicit
 whitespace-only fragments such as `md_sync! { "\n" }` remain appropriate when
-exact separators are the contract, as in robots.txt. Inside async `md!`, use
-`md_sync!` for a loop fragment borrowing its item; nested erased async
-fragments have the same borrowing limit as nested `html!`.
+exact separators are the contract, as in robots.txt. Nested `md!` and `html!`
+can borrow loop items and local strings across awaits through their shared typed
+async continuation. Use sync nested fragments when they have no async work.
+Raw literals do not disable interpolation: use `{{`/`}}` for literal braces,
+even around quoted text. A Rust string inside a slot stays literal text.
 
 Ordinary slots escape prose. Link destinations need URL-context escaping;
 follow the owning crate's typed URL leaf rather than inserting trusted raw

@@ -119,9 +119,9 @@ example needs dynamic code values.
 
 The grammar has one rule at every depth: text outside `{ ... }` is Markdown,
 and text inside is a Rust expression. Control flow is ordinary Rust (`if`,
-`else if`, `for`, `match`, `if let`), and a branch renders every expression
-statement written without a semicolon, in order. A branch re-enters Markdown
-only through a nested `md_sync!` (or `md!`) call; a bare string tail renders
+`else if`, `for`, `match`, `if let`), and a branch renders only its final
+expression. Earlier statements keep ordinary Rust semantics; a semicolon
+discards a value. A branch re-enters Markdown only through a nested `md_sync!` (or `md!`) call; a bare string tail renders
 as escaped text, so markup needs the nested template:
 
 ```rust
@@ -154,15 +154,22 @@ they substantially reduce escaping. Each multiline literal removes its own
 common indentation and retains its authored trailing newlines. Keep
 token composition for generated/token-aware tooling, tests of that API, and
 dynamic content inside code fences, which raw templates deliberately keep literal.
-Inside `md!`, a loop body that borrows its item nests `md_sync!`: a nested
-`md!` is a type-erased async fragment and, like a nested `html!`, can only
-borrow data that outlives the whole template.
+Nested `md!` and `html!` may borrow loop items and local strings across awaits.
+Their shared typed async continuation keeps those borrows alive until rendering
+finishes; neither requires cloning the input. Use a sync nested fragment when
+it has no async children.
 Plain Markdown is never parsed inside a slot, so `if`, `for`, and `match` are
 ordinary words in Markdown text, and a line means the same thing at the top
 level and inside a branch. Markdown written directly inside a branch is a
 compile error that names the nested-template form. Named arguments substitute
 into slot expressions of the template they follow, including conditions and
 iterators, but not into the tokens of a nested template.
+
+A raw Rust literal disables Rust backslash escaping, not template slots.
+For example, `md_sync! { r#"{"Hello {name}"}"# }` renders `Hello {name}`:
+the outer braces are a slot containing a Rust string. To print the braces and
+quotes too, write `md_sync! { r#"{{"Hello {{name}}"}}"# }`. A string value
+inside a slot is never recursively interpreted as a template.
 
 Indentation inside a slot is Rust layout and never reaches the output. A
 whitespace-only template such as `md_sync! { "\n" }` is emitted verbatim, so

@@ -904,12 +904,14 @@ impl Analyzer<'_> {
     ) -> Value {
         let mut env = env.clone();
         let mut result = Value::default();
-        for stmt in &block.stmts {
+        for (index, stmt) in block.stmts.iter().enumerate() {
+            let is_tail = index + 1 == block.stmts.len();
             match stmt {
                 Stmt::Local(local) => self.local(local, &mut env, override_range),
-                // Every expression statement without a semicolon renders, not
-                // only the block tail, so sequential branches contribute in order.
-                Stmt::Expr(expr, None) => result.append(self.expr(expr, &env, override_range)),
+                // Match the shared macro lowering: only the block tail renders.
+                Stmt::Expr(expr, None) if is_tail => {
+                    result.append(self.expr(expr, &env, override_range))
+                }
                 Stmt::Expr(Expr::Assign(a), _) => {
                     if let Some(name) = bare(&a.left) {
                         env.insert(
@@ -935,7 +937,7 @@ impl Analyzer<'_> {
                 }
                 // Side-effect statements may influence output, but unused values
                 // and uncalled closures never contribute content.
-                Stmt::Macro(m) if m.semi_token.is_none() => {
+                Stmt::Macro(m) if is_tail && m.semi_token.is_none() => {
                     result.append(self.template(
                         &syn::ExprMacro {
                             attrs: m.attrs.clone(),
@@ -945,7 +947,7 @@ impl Analyzer<'_> {
                         override_range,
                     ));
                 }
-                Stmt::Expr(_, Some(_)) | Stmt::Macro(_) | Stmt::Item(_) => {}
+                Stmt::Expr(_, _) | Stmt::Macro(_) | Stmt::Item(_) => {}
             }
         }
         if has_early_exit(block) {
