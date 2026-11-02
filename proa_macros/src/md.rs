@@ -18,10 +18,7 @@
 //!     # {data.title}
 //!
 //!     {for highlight in &data.highlights {
-//!         md_sync! { r#"
-//!             - **{highlight.title}** — {highlight.description}
-//!             "#
-//!         }
+//!         md_sync! { "- **{highlight.title}** — {highlight.description}\n" }
 //!     }}
 //!     "###
 //! }
@@ -40,10 +37,13 @@
 //! blocks and inline code spans remain literal Markdown; outside code, `{{`
 //! and `}}` render literal braces.
 //!
-//! Three hashes are the default delimiter so ordinary quotes and nested
-//! templates with fewer hashes (`md_sync! { r#"..."# }`) can appear in the
-//! Markdown. Increase the delimiter only when the document itself contains the
-//! exact closing sequence `"###`.
+//! Keep short fragments on one line, such as `md_sync! { "- {item}\n" }`.
+//! A single string is still a template; retain its newline to separate rows.
+//! Reserve raw literals for substantial multiline fragments or useful escaping.
+//! Three hashes are the default delimiter for documents; nested raw templates
+//! use fewer hashes so their closing delimiter cannot close the parent.
+//! Increase the delimiter when the document contains the exact closing
+//! sequence `"###`.
 //!
 //! Physically multiline raw templates remove their common source indentation,
 //! preserving relative indentation without leaking the surrounding Rust block's

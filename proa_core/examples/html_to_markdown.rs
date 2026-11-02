@@ -34,11 +34,7 @@ struct Notice<'a>(&'a str);
 
 impl<L: DataLoader> MdRenderSync<L> for Notice<'_> {
     fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        md_sync! { r###"
-            > {self.0}
-            "###
-        }
-        .render_md(cx)
+        md_sync! { "> {self.0}\n" }.render_md(cx)
     }
 }
 

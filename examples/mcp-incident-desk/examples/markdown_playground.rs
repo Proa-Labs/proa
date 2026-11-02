@@ -87,10 +87,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for F
             | Feature | Checks | Ready |
             | :--- | ---: | :---: |
             {for feature in self.0 {
-                md_sync! { r#"
-                    | {feature.name} | {feature.checks} | {if feature.ready { "Yes" } else { "No" }} |
-                    "#
-                }
+                let ready = if feature.ready { "Yes" } else { "No" };
+                md_sync! { "| {feature.name} | {feature.checks} | {ready} |\n" }
             }}
             "###
         }
@@ -109,10 +107,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for C
                     > The optional details are enabled.
                 "# }
             } else {
-                md_sync! { r#"
-                    Optional details are hidden.
-                    "#
-                }
+                md_sync! { "Optional details are hidden.\n" }
             }}
             "###
         }

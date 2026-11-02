@@ -112,22 +112,19 @@ let summary = md_sync! { r###"
     ## Features
 
     {for feature in features.iter() {
-        md_sync! { r#"
-            - {feature}
-            "#
-        }
+        md_sync! { "- {feature}\n" }
     }}
 
     {if in_stock {
-        md_sync! { r#"**In stock**"# }
+        md_sync! { "**In stock**" }
     } else {
-        md_sync! { r#"Backordered"# }
+        md_sync! { "Backordered" }
     }}
     "###
 };
 ```
 
-A bare string tail such as `"Backordered"` renders as escaped text; markup needs the nested template. Prefer raw fragments for inline Markdown as well as multiline sections, so headings, lists, and blank lines stay readable as Markdown. Use fewer hashes for nested literals:
+A bare string tail such as `"Backordered"` renders as escaped text; markup needs the nested template. Use ordinary one-line string templates for short fragments, such as `md_sync! { "- {feature}\n" }`. Keep the row-ending `\n` so iterations do not run together. Reserve raw literals for substantial multiline sections or when they substantially reduce escaping, and use fewer hashes for nested raw literals:
 
 ```rust filename="src/pages/report.rs"
 md_sync! { r###"
@@ -256,7 +253,7 @@ So a component that emits block-level Markdown calls `md_block_boundary()` befor
 impl<L: DataLoader> MdRenderSync<L> for Heading {
     fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         cx.md_block_boundary()?;
-        md_sync! { r###"## {self.0}"### }.render_md(cx)?;
+        md_sync! { "## {self.0}" }.render_md(cx)?;
         cx.md_block_boundary()
     }
 }

@@ -20,8 +20,8 @@ convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
 Review Markdown against the [Markdown authoring skill](../proa-markdown/SKILL.md):
-prefer document-shaped raw templates and nested raw fragments; control flow
-belongs in explicit Rust slots, and ordinary prose never becomes executable.
+prefer raw templates for documents and ordinary one-line strings for short
+fragments. Control flow belongs in explicit Rust slots; prose stays literal.
 
 ## Overview
 

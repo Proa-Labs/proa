@@ -77,7 +77,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_block_boundary()?;
         let prev = cx.md_set_inline(true);
-        md_sync! { r###"**{self.children}**"### }.render_md(cx)?;
+        md_sync! { "**{self.children}**" }.render_md(cx)?;
         cx.md_set_inline(prev);
         cx.md_block_boundary()?;
         Ok(())

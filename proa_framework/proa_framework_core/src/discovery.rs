@@ -800,47 +800,26 @@ impl RobotsTxt {
                     md_sync! { "\n" }
                 }
                 for agent in &group.user_agents {
-                    md_sync! { r#"
-                        User-agent: {TrustedMarkdown(agent)}
-                        "#
-                    }
+                    md_sync! { "User-agent: {TrustedMarkdown(agent)}\n" }
                 }
                 if group.rules.is_empty() {
-                    md_sync! { r#"
-                        Disallow:
-                        "#
-                    }
+                    md_sync! { "Disallow:\n" }
                 }
                 for (field, base, path) in self.rule_lines(group) {
-                    md_sync! { r#"
-                        {TrustedMarkdown(field)}{RobotsMount(base)}{TrustedMarkdown(path)}
-                        "#
-                    }
+                    md_sync! { "{TrustedMarkdown(field)}{RobotsMount(base)}{TrustedMarkdown(path)}\n" }
                 }
                 if let Some(delay) = group.crawl_delay {
-                    md_sync! { r#"
-                        Crawl-delay: {RobotsCrawlDelay(delay)}
-                        "#
-                    }
+                    md_sync! { "Crawl-delay: {RobotsCrawlDelay(delay)}\n" }
                 }
                 for (name, value) in &group.directives {
-                    md_sync! { r#"
-                        {TrustedMarkdown(name)}: {TrustedMarkdown(value)}
-                        "#
-                    }
+                    md_sync! { "{TrustedMarkdown(name)}: {TrustedMarkdown(value)}\n" }
                 }
             }}{if !self.groups.is_empty() && (self.host.is_some() || !self.sitemaps.is_empty()) {
                 md_sync! { "\n" }
             }}{if let Some(host) = &self.host {
-                md_sync! { r#"
-                    Host: {TrustedMarkdown(host)}
-                    "#
-                }
+                md_sync! { "Host: {TrustedMarkdown(host)}\n" }
             }}{for loc in &self.sitemaps {
-                md_sync! { r#"
-                    Sitemap: {TrustedMarkdown(loc)}
-                    "#
-                }
+                md_sync! { "Sitemap: {TrustedMarkdown(loc)}\n" }
             }}"###
         }
         .render_md(&mut cx)

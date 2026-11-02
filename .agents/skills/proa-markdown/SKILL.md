@@ -36,9 +36,17 @@ editorial summary. Omit decorative or interactive-only elements deliberately.
 
 ## Author the template
 
-Prefer one multiline `md_sync! { r###"..."### }` template. Newlines become output
-newlines. Write headings, links, emphasis, lists, and blank lines as normal
-Markdown, rather than splitting them into quoted tokens and `"\n"` fragments.
+Prefer one multiline `md_sync! { r###"..."### }` template for a document or
+substantial section. Its source newlines become output newlines. Write headings,
+links, emphasis, lists, and blank lines as normal Markdown rather than splitting
+the document into quoted token pieces.
+
+Keep short fragments on one line with an ordinary string literal:
+`md_sync! { "- {feature}\n" }` for a list row or
+`md_sync! { "**In stock**" }` for inline markup. A single string is still a
+template, so `{feature}` interpolates normally. Keep `\n` when the fragment
+must end a line; dropping it would join loop iterations. Do not turn a short
+fragment into a multiline raw template just to avoid that one escape.
 
 Text outside `{ ... }` is Markdown; each slot is Rust at every nesting depth.
 Use ordinary Rust `if`, `for`, and `match` inside slots, and explicitly re-enter
@@ -54,27 +62,25 @@ md_sync! { r###"
     ## Features
 
     {for feature in self.features.iter() {
-        md_sync! { r#"
-            - {feature}
-            "#
-        }
+        md_sync! { "- {feature}\n" }
     }}
 
     {if self.in_stock {
-        md_sync! { r#"**In stock**"# }
+        md_sync! { "**In stock**" }
     } else {
-        md_sync! { r#"_Backordered_"# }
+        md_sync! { "_Backordered_" }
     }}
     "###
 }
 ```
 
-Prefer nested raw fragments even for inline Markdown. Use fewer hashes inside
-an outer raw literal (`r###"..."###` outside, `r#"..."#` inside, then `r"..."`
-if another depth is needed); no inner closing delimiter may close its parent.
-Each multiline fragment removes its own common source margin. Its trailing
-newline is output, so do not add another escaped separator between ordinary
-blocks. A bare Rust string tail is escaped text, not Markdown markup.
+Use raw literals for genuinely multiline sections or when they materially
+reduce escaping. Nested raw literals need fewer hashes than their parent
+(`r###"..."###` outside, `r#"..."#` inside, then `r"..."` if needed); no inner
+closing delimiter may close its parent. Each multiline fragment removes its own
+common source margin. Its trailing newline is output, so do not add another
+separator unnecessarily. A bare Rust string tail is escaped text, not Markdown
+markup.
 
 `{expression}` renders a typed child. Outside code fences and inline code,
 `{{` and `}}` produce literal braces. Inside code, braces are already literal;

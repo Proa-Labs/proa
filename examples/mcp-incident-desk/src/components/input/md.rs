@@ -11,7 +11,7 @@ use proa_macros::md_sync;
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Input {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         if let Some(placeholder) = self.placeholder {
-            md_sync! { r###"[{placeholder}]"### }.render_md(cx)?;
+            md_sync! { "[{placeholder}]" }.render_md(cx)?;
         }
         Ok(())
     }

@@ -129,29 +129,29 @@ md_sync! { r###"
     ### Reviews
 
     {if self.reviews.is_empty() {
-        md_sync! { r#"_No reviews yet_"# }
+        md_sync! { "_No reviews yet_" }
     } else {
         for review in self.reviews.iter() {
-            md_sync! { r#"
-                - {review}
-                "#
-            }
+            md_sync! { "- {review}\n" }
         }
     }}
 
     {if self.stock > 0 {
-        md_sync! { r#"Only {self.stock} left"# }
+        md_sync! { "Only {self.stock} left" }
     } else {
-        md_sync! { r#"Backordered"# }
+        md_sync! { "Backordered" }
     }}
     "###
 }
 ```
 
-Use a nested raw literal with fewer hashes for both inline Markdown
-(`md_sync! { r#"**In stock**"# }`) and multiline fragments, rather than splitting
-markup into quoted tokens and escaped newlines. Each multiline literal removes
-its own common indentation and retains its authored trailing newlines. Keep
+Use an ordinary one-line string for short inline markup or list rows:
+`md_sync! { "**In stock**" }` or `md_sync! { "- {review}\n" }`. Keep the newline
+when each iteration must produce a separate line. A single literal still
+interpolates `{expression}`; splitting it into quoted token pieces is unnecessary.
+Use raw literals with fewer hashes for substantial multiline fragments or when
+they substantially reduce escaping. Each multiline literal removes its own
+common indentation and retains its authored trailing newlines. Keep
 token composition for generated/token-aware tooling, tests of that API, and
 dynamic content inside code fences, which raw templates deliberately keep literal.
 Inside `md!`, a loop body that borrows its item nests `md_sync!`: a nested

@@ -20,8 +20,8 @@ convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
 For Markdown representations, follow the [Markdown skill](../proa-markdown/SKILL.md):
-write normal Markdown in raw templates, with explicit Rust slots and nested raw
-fragments for branch and loop output.
+use raw templates for documents and ordinary one-line strings for short branch
+and loop fragments, preserving line separators and explicit Rust slots.
 
 When the user wants interactivity — a click handler, a signal-driven
 update, a bind_value form input, anything that needs JS in the browser —

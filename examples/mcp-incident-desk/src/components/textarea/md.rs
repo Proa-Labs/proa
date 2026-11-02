@@ -24,7 +24,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for T
                 cx.write_md_text(value)?;
             }
         } else if let Some(placeholder) = self.placeholder {
-            md_sync! { r###"[{placeholder}]"### }.render_md(cx)?;
+            md_sync! { "[{placeholder}]" }.render_md(cx)?;
         }
         Ok(())
     }

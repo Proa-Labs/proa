@@ -455,21 +455,18 @@ fn product_branches_render_dynamic_values_and_nested_loops() {
                 **{&self.price_label}**
 
                 {if self.stock > 0 {
-                    md_sync! { r#"Only {self.stock} left"# }
+                    md_sync! { "Only {self.stock} left" }
                 } else {
-                    md_sync! { r#"**Sold out**"# }
+                    md_sync! { "**Sold out**" }
                 }}
 
                 ### Reviews
 
                 {if self.reviews.is_empty() {
-                    md_sync! { r#"_No reviews yet_"# }
+                    md_sync! { "_No reviews yet_" }
                 } else {
                     for review in self.reviews.iter() {
-                        md_sync! { r#"
-                            - {review}
-                            "#
-                        }
+                        md_sync! { "- {review}\n" }
                     }
                 }}
                 "###

@@ -14,11 +14,7 @@ pub struct AgentSurfaceMd {
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for AgentSurfaceMd {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_block_boundary()?;
-        md_sync! { r###"
-            ## Fetch this document again
-            "###
-        }
-        .render_md(cx)?;
+        md_sync! { "## Fetch this document again\n" }.render_md(cx)?;
         cx.md_block_boundary()?;
         // The commands go through `cx.code` so they arrive as copyable code
         // spans (template slots inside backticks stay literal by design).

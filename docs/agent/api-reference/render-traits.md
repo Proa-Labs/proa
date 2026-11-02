@@ -359,7 +359,9 @@ The default authoring form is one multiline raw template delimited with three
 hashes: `md_sync! { r###"..."### }` or `md! { r###"..."### }`. Its source
 newlines are the rendered Markdown newlines, while `{expression}` composes a
 typed child. Slots contain ordinary Rust control flow (`if`, `for`, `match`);
-branches re-enter Markdown through nested raw templates with fewer hashes.
+branches re-enter Markdown through nested macros. Prefer ordinary strings for
+short fragments (`md_sync! { "- {item}\n" }`) and raw templates with fewer
+hashes for substantial multiline content.
 Plain control words in Markdown remain text at every depth. Common Rust
 source indentation is stripped while deeper relative Markdown indentation is
 preserved. Braces inside fenced code blocks and inline code spans stay literal;

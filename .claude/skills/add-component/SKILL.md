@@ -20,8 +20,8 @@ convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
 For Markdown implementations, follow the [Markdown skill](../proa-markdown/SKILL.md):
-write normal Markdown in raw templates, with explicit Rust slots and nested raw
-fragments for branch and loop output.
+use raw templates for documents and ordinary one-line strings for short branch
+and loop fragments, preserving line separators and explicit Rust slots.
 
 Read [`docs/agent/components.md`](../../../docs/agent/components.md) before
 editing. This skill targets components owned by this standalone repository or

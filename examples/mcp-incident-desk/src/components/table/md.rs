@@ -69,11 +69,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for TableRow<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        md_sync! { r###"
-            |{self.children}
-            "###
-        }
-        .render_md(cx)
+        md_sync! { "|{self.children}\n" }.render_md(cx)
     }
 }
 
@@ -87,7 +83,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
         let result = self.children.render_md(cx);
         cx.md_set_inline(prev);
         result?;
-        md_sync! { r###" |"### }.render_md(cx)
+        md_sync! { " |" }.render_md(cx)
     }
 }
 
@@ -101,7 +97,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
         let result = self.children.render_md(cx);
         cx.md_set_inline(prev);
         result?;
-        md_sync! { r###" |"### }.render_md(cx)
+        md_sync! { " |" }.render_md(cx)
     }
 }
 
@@ -110,12 +106,12 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for TableCaption<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        md_sync! { r###"*"### }.render_md(cx)?;
+        md_sync! { "*" }.render_md(cx)?;
         let prev = cx.md_set_inline(true);
         let result = self.children.render_md(cx);
         cx.md_set_inline(prev);
         result?;
-        md_sync! { r###"*"### }.render_md(cx)?;
+        md_sync! { "*" }.render_md(cx)?;
         cx.md_blank_line()?;
         Ok(())
     }
@@ -132,9 +128,9 @@ pub fn write_separator<B: WriteBuf>(
     cx: &mut WebContext<::proa_core::NoLoader, B>,
     col_count: usize,
 ) -> Result<(), WriteError> {
-    md_sync! { r###"|"### }.render_md(cx)?;
+    md_sync! { "|" }.render_md(cx)?;
     for _ in 0..col_count {
-        md_sync! { r###" --- |"### }.render_md(cx)?;
+        md_sync! { " --- |" }.render_md(cx)?;
     }
     md_sync! { "\n" }.render_md(cx)
 }

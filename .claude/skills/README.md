@@ -12,7 +12,7 @@ Code CLI. They are automatically discovered by Claude when you run
 | `add-island` | `/add-island` | Yes (user asks for interactivity or an RSJS component) | Explicit-trait rsjs island scaffold; signal API; analyzed render-body rules; event delegation + microtask batching; common compile-error fixes. |
 | `test-component` | `/test-component` | Yes (user asks for tests, snapshots, a11y / visual regression) | Unit-test patterns (render to `Vec<u8>` + assert); variant loops; XSS-escape tests; `insta` snapshot tests; Playwright + axe-core; criterion benches; what to test vs skip. |
 | `proa-perf-review` | `/proa-perf-review` | Yes (after Proa Rust changes or perf questions) | Runs `scripts/proa_perf_lint.py` and explains how to fix render-path allocation findings. |
-| `proa-markdown` | `/proa-markdown` | Yes (Markdown renderers or exports) | Normal Markdown raw templates, explicit Rust slots, nested raw fragments, shared content, and render verification; follows the shared Codex/Claude authoring guide. |
+| `proa-markdown` | `/proa-markdown` | Yes (Markdown renderers or exports) | Multiline raw documents, short string fragments, explicit Rust slots, shared content, and render verification; follows the shared Codex/Claude authoring guide. |
 
 ## How to add a new skill
 

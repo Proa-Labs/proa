@@ -99,8 +99,9 @@ requested. See
 selection, escaping, source-data boundaries, and verification.
 
 For Markdown, follow [the Markdown skill](.agents/skills/proa-markdown/SKILL.md):
-author normal Markdown in raw templates, keep Rust control flow in explicit
-`{ ... }` slots, and use nested raw templates to re-enter Markdown in branches.
+author documents in multiline raw templates, keep Rust control flow in explicit
+`{ ... }` slots, and use short ordinary-string templates for small branch or
+list-row fragments. Preserve their line separators.
 
 ### Browser behavior
 

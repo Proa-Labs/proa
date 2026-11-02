@@ -203,13 +203,13 @@ fn md_formats_control_slots_preserving_relative_indentation() {
         md_sync! { r###"
                 ## {&self.name}
                 {if self.stock > 0 {
-                    md_sync! { "Only " {self.stock} " left\n" }
+                    md_sync! { "Only {self.stock} left\n" }
                 } else {
                     md_sync! { "**Sold out**\n" }
                 }}
                 ### Reviews
                 {for review in self.reviews.iter() {
-                    md_sync! { "- " {review} "\n" }
+                    md_sync! { "- {review}\n" }
                 }}
                 "###
         }
@@ -220,13 +220,13 @@ fn md_formats_control_slots_preserving_relative_indentation() {
         md_sync! { r###"
             ## {&self.name}
             {if self.stock > 0 {
-                md_sync! { "Only " {self.stock} " left\n" }
+                md_sync! { "Only {self.stock} left\n" }
             } else {
                 md_sync! { "**Sold out**\n" }
             }}
             ### Reviews
             {for review in self.reviews.iter() {
-                md_sync! { "- " {review} "\n" }
+                md_sync! { "- {review}\n" }
             }}
             "###
         }
