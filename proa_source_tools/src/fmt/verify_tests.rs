@@ -62,16 +62,16 @@ fn md_lowered(source: &str) -> Vec<Vec<MdRenderNode>> {
 
 #[test]
 fn anchors_md_template_to_the_macro_indentation() {
-    let source = "impl A {
+    let source = r#"impl A {
     fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
-        md_sync! {\"
+        md_sync! {"
 ## {self.title}
 
 {self.description}
-\"}
+"}
         .render_md(cx)
     }
-}";
+}"#;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
 
     assert!(
@@ -87,13 +87,13 @@ fn anchors_md_template_to_the_macro_indentation() {
 
 #[test]
 fn md_formatting_is_idempotent() {
-    let source = "fn f() {
-    let s = md_sync! {\"
+    let source = r#"fn f() {
+    let s = md_sync! {"
         # Title
 
         Body.
-    \"};
-}";
+    "};
+}"#;
     let once = format_file(Path::new("sample.rs"), source).unwrap().output;
     let twice = format_file(Path::new("sample.rs"), &once).unwrap().output;
     assert_eq!(once, twice);
@@ -102,16 +102,16 @@ fn md_formatting_is_idempotent() {
 
 #[test]
 fn md_formatting_preserves_relative_indentation() {
-    let source = "fn f() {
-    let s = md_sync! {\"
+    let source = r#"fn f() {
+    let s = md_sync! {"
 # List
 
 - top
   - nested
 
     code_line();
-\"};
-}";
+"};
+}"#;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     // Macro indent 4 + one level = 8, and the relative offsets survive.
     assert!(
@@ -127,13 +127,13 @@ fn md_formatting_preserves_relative_indentation() {
 
 #[test]
 fn md_formatting_handles_raw_strings() {
-    let source = "fn f() {
-    let s = md_sync! {r###\"
+    let source = r####"fn f() {
+    let s = md_sync! {r###"
 # {title}
 
-A \"quoted\" word.
-\"###};
-}";
+A "quoted" word.
+"###};
+}"####;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert!(
         formatted.contains("r###\"\n        # {title}\n"),
@@ -181,7 +181,7 @@ fn md_invalid_control_syntax_is_not_formatted_or_verified() {
         "{for x in xs {X} ignored}",
         "{if true {unclosed}",
     ] {
-        let source = format!("fn f() {{ md_sync! {{ r###\"{template}\"### }}; }}");
+        let source = format!(r####"fn f() {{ md_sync! {{ r###"{template}"### }}; }}"####);
         let formatted = format_file(Path::new("invalid.rs"), &source).unwrap();
         assert_eq!(formatted.output, source);
         assert!(formatted
@@ -297,14 +297,14 @@ fn md_multiline_rust_slots_keep_their_layout() {
 #[test]
 fn md_single_line_template_is_left_alone() {
     // Leading whitespace in a single-line template is content.
-    let source = "fn f() { let s = md_sync!(\"    indented\"); }";
+    let source = r#"fn f() { let s = md_sync!("    indented"); }"#;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert_eq!(formatted, source);
 }
 
 #[test]
 fn md_token_mode_body_is_left_alone() {
-    let source = "fn f() { let s = md_sync! { \"# \" {title} \"\\n\" }; }";
+    let source = r##"fn f() { let s = md_sync! { "# " {title} "\n" }; }"##;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert_eq!(formatted, source);
 }
@@ -312,14 +312,14 @@ fn md_token_mode_body_is_left_alone() {
 #[test]
 fn md_body_with_a_comment_is_left_alone() {
     // Rebuilding the body from the literal token would drop the comment.
-    let source = "fn f() {
+    let source = r#"fn f() {
     let s = md_sync! {
         // the product heading
-        \"
+        "
 # Title
-\"
+"
     };
-}";
+}"#;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert_eq!(formatted, source);
 }
@@ -328,27 +328,27 @@ fn md_body_with_a_comment_is_left_alone() {
 fn md_escaped_newlines_are_left_alone() {
     // `\n` escapes decouple source lines from rendered lines, so the
     // layout indentation is not safe to rewrite.
-    let source = "fn f() {
-    let s = md_sync! {\"
-# Title\\n\\nBody.
-\"};
-}";
+    let source = r#"fn f() {
+    let s = md_sync! {"
+# Title\n\nBody.
+"};
+}"#;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert_eq!(formatted, source);
 }
 
 #[test]
 fn verify_accepts_md_reindentation() {
-    let source = "impl A {
+    let source = r#"impl A {
     fn f(&self) {
-        md_sync! {\"
+        md_sync! {"
 # {self.title}
 
 Body.
-\"}
+"}
         .render_md(cx)
     }
-}";
+}"#;
     let formatted = format_file(Path::new("sample.rs"), source).expect("format");
     let diags = verify_render_preserving(Path::new("sample.rs"), source, &formatted.output);
     assert!(diags.is_empty(), "verify failed: {diags:?}");
@@ -356,13 +356,13 @@ Body.
 
 #[test]
 fn verify_rejects_md_bodies_that_render_differently() {
-    let source = "fn f() {
-    let s = md_sync! {\"
+    let source = r#"fn f() {
+    let s = md_sync! {"
 # Title
 
 Body.
-\"};
-}";
+"};
+}"#;
     // Simulate a formatter bug: indent one line of a template whose other
     // lines stay flush left. The common prefix stays empty, so those four
     // spaces survive lowering and turn the paragraph into a code block.

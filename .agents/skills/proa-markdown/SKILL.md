@@ -109,6 +109,12 @@ order, and intentional omissions. A changed-input test should show that both
 HTML and Markdown consume the same content. Avoid tests that merely repeat
 hard-coded prose.
 
+For tests that store Rust source containing Markdown macros, prefer a raw outer
+Rust string to avoid escaping every inner quote. Keep the fixture's decoded
+bytes unchanged. Inner list-row `\n` escapes, CRLF data, and explicit tests of
+cooked strings or source encoding still need their intended escapes; do not
+remove backslashes indiscriminately.
+
 In the Proa checkout, run `cargo proa fmt --check --verify <changed paths>`,
 `cargo proa lint <changed paths> --deny warnings`, the owning crate's tests,
 and `python3 scripts/proa_perf_lint.py`. In an application, use its established

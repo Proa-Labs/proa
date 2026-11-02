@@ -156,7 +156,7 @@ mod tests {
     use super::*;
 
     const HTML: &str = "use crate::product::{Product,Notice}; use proa_core::WebRenderSync; use proa_macros::html_sync; impl WebRenderSync for Product {fn render(self,cx:&mut Cx)->Result {html_sync! {{self.title}}.render(cx)}}";
-    const MD: &str = "use crate::product::Product; use proa_core::MdRenderSync; use proa_macros::md_sync; impl MdRenderSync for Product {fn render_md(self,cx:&mut Cx)->Result {md_sync! {r###\"{self.title}\"###}.render_md(cx)}}";
+    const MD: &str = r####"use crate::product::Product; use proa_core::MdRenderSync; use proa_macros::md_sync; impl MdRenderSync for Product {fn render_md(self,cx:&mut Cx)->Result {md_sync! {r###"{self.title}"###}.render_md(cx)}}"####;
 
     fn fixture() -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();

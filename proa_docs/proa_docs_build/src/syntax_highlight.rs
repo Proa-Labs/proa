@@ -591,7 +591,8 @@ mod tests {
     #[test]
     fn supports_raw_templates_without_reclassifying_legacy_token_literals() {
         let raw = highlight_lines(
-            "let page = md_sync! {r#\"{for item in items { md_sync! { \"- \" {item} } }}\"#};\n",
+            r##"let page = md_sync! {r#"{for item in items { md_sync! { "- " {item} } }}"#};
+"##,
             "rust",
         )
         .unwrap()
@@ -601,7 +602,8 @@ mod tests {
             .contains("<span class=\"hl-keyword\">for</span>"));
 
         let legacy = highlight_lines(
-            "let page = md_sync! { \"{for fake in values {text}}\" {actual} };\n",
+            r#"let page = md_sync! { "{for fake in values {text}}" {actual} };
+"#,
             "rust",
         )
         .unwrap()

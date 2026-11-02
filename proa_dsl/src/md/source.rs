@@ -242,7 +242,11 @@ mod tests {
 
     #[test]
     fn control_slots_keep_their_whole_authored_range() {
-        let input = "r###\"\n    {if self.ready {\n        md_sync! { \"- \" {item.title} }\n    }}\n    \"###";
+        let input = r####"r###"
+    {if self.ready {
+        md_sync! { "- " {item.title} }
+    }}
+    "###"####;
         let template: MdTemplateInput = syn::parse_str(input).unwrap();
         let nodes = template.semantic_nodes().unwrap();
         let TplNode::Expr(slot) = &nodes[0] else {

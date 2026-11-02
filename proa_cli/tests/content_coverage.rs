@@ -25,7 +25,7 @@ fn git(root: &Path, args: &[&str]) {
     );
 }
 const HTML:&str="use crate::product::{Product,RestockNotice};use proa_core::WebRenderSync;use proa_macros::html_sync;impl WebRenderSync for Product {fn render(self,cx:&mut Cx)->Result{html_sync! { {self.title} }.render(cx)}}";
-const MD:&str="use crate::product::Product;use proa_core::MdRenderSync;use proa_macros::md_sync;impl MdRenderSync for Product {fn render_md(self,cx:&mut Cx)->Result{md_sync! {r###\"{self.title}\"###}.render_md(cx)}}";
+const MD: &str = r####"use crate::product::Product;use proa_core::MdRenderSync;use proa_macros::md_sync;impl MdRenderSync for Product {fn render_md(self,cx:&mut Cx)->Result{md_sync! {r###"{self.title}"###}.render_md(cx)}}"####;
 fn fixture() -> TempDir {
     let root = TempDir::new().unwrap();
     std::fs::create_dir(root.path().join("src")).unwrap();

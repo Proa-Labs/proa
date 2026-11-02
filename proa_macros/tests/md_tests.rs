@@ -53,7 +53,16 @@ fn raw_template_preserves_braces_in_fenced_code() {
 
     assert_eq!(
         out,
-        "# Example\n\n```rust\nstruct Card { title: &'static str }\n\nmd_sync! { r#\"{literal}\"# }\n```\n\nAfter `{inline}`.\n"
+        r##"# Example
+
+```rust
+struct Card { title: &'static str }
+
+md_sync! { r#"{literal}"# }
+```
+
+After `{inline}`.
+"##
     );
 }
 

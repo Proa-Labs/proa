@@ -7,7 +7,7 @@ use std::{fs, process::Command};
 fn file_scoped_commands_reject_invalid_markdown_without_rewriting_it() {
     let temp = tempfile::tempdir().unwrap();
     let file = temp.path().join("invalid.rs");
-    let source = "fn main() { let _ = md_sync! { r###\"{if false {A} elsse {B}}\"### }; }";
+    let source = r####"fn main() { let _ = md_sync! { r###"{if false {A} elsse {B}}"### }; }"####;
     fs::write(&file, source).unwrap();
     for args in [
         vec!["fmt", "--verify"],

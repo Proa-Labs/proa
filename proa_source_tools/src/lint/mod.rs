@@ -1075,7 +1075,7 @@ fn push_manual_markdown_write(
         Severity::Warning,
         "md/manual-write",
         "Markdown bytes are written by hand inside a Markdown renderer",
-        "render static and interpolated Markdown with `md_sync! { r###\"...\"### }.render_md(cx)`; use typed `WebContext` helpers such as `write_md_text`, `write_md_url`, `md_code`, or `md_link` when the value needs Markdown-specific escaping",
+        r####"render static and interpolated Markdown with `md_sync! { r###"..."### }.render_md(cx)`; use typed `WebContext` helpers such as `write_md_text`, `write_md_url`, `md_code`, or `md_link` when the value needs Markdown-specific escaping"####,
     );
 }
 

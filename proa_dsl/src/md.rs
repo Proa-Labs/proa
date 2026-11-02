@@ -375,11 +375,9 @@ fn inline_code_end(input: &str, start: usize) -> Option<usize> {
     None
 }
 
-const CONTROL_HINT: &str =
-    "\n\nText inside `{ ... }` is Rust, including the bodies of `if`, `for`, and `match`. \
-A branch renders its final expression, so write Markdown there as a nested template: \
-`{if ready { md_sync! { \"**In stock**\" } } else { \"Backordered\" }}`. \
-Plain Markdown is never parsed inside a slot.";
+const CONTROL_HINT: &str = r#"
+
+Text inside `{ ... }` is Rust, including the bodies of `if`, `for`, and `match`. A branch renders its final expression, so write Markdown there as a nested template: `{if ready { md_sync! { "**In stock**" } } else { "Backordered" }}`. Plain Markdown is never parsed inside a slot."#;
 
 /// Parse a slot's Rust source, pointing authors who wrote Markdown inside a
 /// control body at the nested-template form.
@@ -642,13 +640,21 @@ mod tests {
 
     #[test]
     fn control_flow_is_one_rust_slot() {
-        let nodes = kinds("{if show {\n    md_sync! { \"- \" {label} \"\\n\" }\n}}\n");
+        let nodes = kinds(
+            r#"{if show {
+    md_sync! { "- " {label} "\n" }
+}}
+"#,
+        );
         assert_eq!(nodes.len(), 2, "{nodes:?}");
         assert!(nodes[0].starts_with("expr(if show {"), "{nodes:?}");
         assert_eq!(nodes[1], "text\"\\n\"");
-        let nested =
-            parse_tpl("{for x in xs { md_sync! { r#\"\n    - {x} }} not a closer\n\"# } }}")
-                .unwrap();
+        let nested = parse_tpl(
+            r##"{for x in xs { md_sync! { r#"
+    - {x} }} not a closer
+"# } }}"##,
+        )
+        .unwrap();
         assert!(matches!(&nested[0], TplNode::Expr(expr) if matches!(expr.expr, Expr::ForLoop(_))));
     }
 
@@ -679,7 +685,7 @@ mod tests {
     #[test]
     fn sub_expressions_locate_inside_their_slot() {
         let nodes =
-            parse_tpl("ab {if self.stock > 0 { md_sync! { \"x\" } } else { other }} c").unwrap();
+            parse_tpl(r#"ab {if self.stock > 0 { md_sync! { "x" } } else { other }} c"#).unwrap();
         let TplNode::Expr(slot) = &nodes[1] else {
             panic!("{nodes:?}");
         };
@@ -690,7 +696,7 @@ mod tests {
             panic!("condition not located");
         };
         assert_eq!(
-            &"ab {if self.stock > 0 { md_sync! { \"x\" } } else { other }} c"[range],
+            &r#"ab {if self.stock > 0 { md_sync! { "x" } } else { other }} c"#[range],
             "self.stock > 0"
         );
         let foreign: Expr = syn::parse_str("elsewhere").unwrap();
@@ -700,7 +706,7 @@ mod tests {
     #[test]
     fn named_arguments_substitute_inside_control_expressions() {
         let template: MdTemplateInput = syn::parse_str(
-            "r###\"{if show { md_sync! { \"x\" } }}{for item in items { item }}\"###, show = flag, items = &values",
+            r####"r###"{if show { md_sync! { "x" } }}{for item in items { item }}"###, show = flag, items = &values"####,
         )
         .unwrap();
         let nodes = template.semantic_nodes().unwrap();

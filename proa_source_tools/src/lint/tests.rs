@@ -1740,7 +1740,7 @@ fn async_markdown_recognizes_opaque_children_inside_control_flow_slots() {
         "{if self.ready { \"static\" } else { DatabaseBadge }}",
         "{for _row in self.rows.iter() { DatabaseBadge }}",
         "{match self.state { State::Ready => DatabaseBadge, _ => \"pending\" }}",
-        "{if self.ready { md! { r#\"{DatabaseBadge}\"# } }}",
+        r##"{if self.ready { md! { r#"{DatabaseBadge}"# } }}"##,
     ] {
         let source = format!(
             r####"
@@ -5217,11 +5217,11 @@ fn standalone_markdown_evidence_disables_only_html_checks() {
     for (name, operation) in [
         ("render_md_example", ""),
         ("render_markdown_example", ""),
-        ("render_fragment", "md_sync! { \"sample\" };"),
-        ("render_fragment", "let _ = md_sync! { \"sample\" };"),
+        ("render_fragment", r#"md_sync! { "sample" };"#),
+        ("render_fragment", r#"let _ = md_sync! { "sample" };"#),
         (
             "render_fragment",
-            "let _ = proa_macros::md! { \"sample\" };",
+            r#"let _ = proa_macros::md! { "sample" };"#,
         ),
         ("render_fragment", "cx.write_md_text(\"sample\")?;"),
         ("render_fragment", "cx.md_block_boundary()?;"),
@@ -5309,7 +5309,7 @@ fn markdown_syntax_errors_are_reported_without_a_cargo_build() {
         "{for x in xs {X} ignored}",
         "{if true {unclosed}",
     ] {
-        let source = format!("fn f() {{ md_sync! {{ r###\"{body}\"### }}; }}");
+        let source = format!(r####"fn f() {{ md_sync! {{ r###"{body}"### }}; }}"####);
         let diagnostics = lint_file(Path::new("sample.rs"), &source);
         assert!(
             diagnostics.iter().any(|d| d.code == "parse/template"),
@@ -5320,7 +5320,14 @@ fn markdown_syntax_errors_are_reported_without_a_cargo_build() {
 
 #[test]
 fn markdown_named_arguments_participate_in_layout_lint() {
-    let source = "fn f() {\n    md_sync! { r###\"\n            {if show {\n                title\n            }}\n            \"###, show = true, title = self.title\n    };\n}";
+    let source = r####"fn f() {
+    md_sync! { r###"
+            {if show {
+                title
+            }}
+            "###, show = true, title = self.title
+    };
+}"####;
     let diagnostics = lint_file(Path::new("sample.rs"), source);
     assert!(
         diagnostics
