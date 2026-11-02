@@ -104,6 +104,11 @@ Code boundaries follow CommonMark after dedenting, including list/blockquote
 fences and indented code blocks. Inline code cannot span paragraph boundaries.
 Rust strings and layout inside a slot cannot open Markdown code in its parent.
 
+Named arguments (`md_sync! { "{title}", title = data.title }`) bind once, in
+declaration order, when rendering starts. Their initializers use the caller's
+scope; branches and nested templates use ordinary Rust bindings. Borrow owned
+values used repeatedly (`{&title}`); arguments do not clone automatically.
+
 Ordinary slots escape prose. Link destinations need URL-context escaping;
 follow the owning crate's typed URL leaf rather than inserting trusted raw
 Markdown. Reserve `TrustedMarkdown` for a reviewed, already-authored source

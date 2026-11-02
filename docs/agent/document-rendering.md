@@ -161,9 +161,8 @@ it has no async children.
 Plain Markdown is never parsed inside a slot, so `if`, `for`, and `match` are
 ordinary words in Markdown text, and a line means the same thing at the top
 level and inside a branch. Markdown written directly inside a branch is a
-compile error that names the nested-template form. Named arguments substitute
-into slot expressions of the template they follow, including conditions and
-iterators, but not into the tokens of a nested template.
+compile error that names the nested-template form. Named arguments bind values
+for the whole template, including conditions, iterators, and nested templates.
 
 A raw Rust literal disables Rust backslash escaping, not template slots.
 For example, `md_sync! { r#"{"Hello {name}"}"# }` renders `Hello {name}`:
@@ -203,6 +202,15 @@ template one level beneath the invocation and preserves relative indentation;
 it never rewrites slot contents. File-scoped `proa check` and `proa lint`
 validate Markdown syntax without requiring a Cargo build, and `proa fmt`
 refuses invalid templates.
+
+Named arguments are Rust bindings: `md_sync! { "{value}", value = data.title }`.
+They evaluate once, in declaration order, when rendering starts. Every
+initializer sees the caller's scope; the argument names become visible after
+all initializers finish. Branch locals, loop patterns, closures, and nested
+templates then follow normal Rust scope and ownership rules. Borrow a value
+when it must render more than once (`"{&value} {&value}"`). Duplicate names
+are template errors; Rust diagnoses unused bindings, with the usual `_name`
+convention for intentionally ignored values.
 
 See [the marketing homepage](../../proa_marketing/src/pages/home.rs),
 [About/Contact](../../proa_marketing/src/pages/info.rs), and

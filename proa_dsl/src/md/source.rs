@@ -210,10 +210,11 @@ fn decode_literal(encoded: &str) -> Option<(String, Vec<Range<usize>>)> {
 mod tests {
     use super::*;
     use crate::md::{MdTemplateInput, TplNode};
+    use syn::spanned::Spanned;
 
     fn literal_expression(input: &str) -> (String, String) {
         let template: MdTemplateInput = syn::parse_str(input).unwrap();
-        let nodes = template.semantic_nodes().unwrap();
+        let nodes = template.parse_nodes().unwrap();
         let expression = nodes
             .iter()
             .find_map(|node| match node {
@@ -269,7 +270,7 @@ mod tests {
     }}
     "###"####;
         let template: MdTemplateInput = syn::parse_str(input).unwrap();
-        let nodes = template.semantic_nodes().unwrap();
+        let nodes = template.parse_nodes().unwrap();
         let TplNode::Expr(slot) = &nodes[0] else {
             panic!("{nodes:?}");
         };
@@ -287,12 +288,21 @@ mod tests {
     fn named_arguments_have_real_rust_spans() {
         let template: MdTemplateInput =
             syn::parse_str("r###\"{title}\"###, title = self.name").unwrap();
-        let nodes = template.semantic_nodes().unwrap();
+        let nodes = template.parse_nodes().unwrap();
         let TplNode::Expr(expr) = &nodes[0] else {
             panic!();
         };
-        assert!(matches!(expr.location, ExprLocation::Rust(_)));
-        assert_eq!(quote::quote!(#expr).to_string(), "self . name");
+        assert!(matches!(expr.location, ExprLocation::Literal { .. }));
+        assert_eq!(quote::quote!(#expr).to_string(), "title");
+        let binding = template.argument_binding().unwrap();
+        let value = binding.init.unwrap().expr;
+        let syn::Expr::Tuple(values) = *value else {
+            panic!()
+        };
+        assert_eq!(
+            values.elems[0].span().byte_range(),
+            template.args[0].value.span().byte_range()
+        );
     }
 
     #[test]

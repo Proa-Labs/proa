@@ -1,5 +1,17 @@
-error: named argument `extra` is never used by the template
+error: unused variable: `extra`
   --> tests/md_fail/named_arg_unused.rs:11:9
    |
 11 |         extra = 1
-   |         ^^^^^
+   |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_extra`
+   |
+note: the lint level is defined here
+  --> tests/md_fail/named_arg_unused.rs:8:41
+   |
+ 8 |       let _ = proa_core::render_to_string(md_sync! { r###"
+   |  _________________________________________^
+ 9 | |         # {title}
+10 | |         "###,
+11 | |         extra = 1
+12 | |     });
+   | |_____^
+   = note: this error originates in the macro `md_sync` (in Nightly builds, run with -Z macro-backtrace for more info)

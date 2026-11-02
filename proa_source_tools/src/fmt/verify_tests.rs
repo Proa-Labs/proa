@@ -365,6 +365,17 @@ fn md_single_line_template_is_left_alone() {
 }
 
 #[test]
+fn verify_preserves_markdown_argument_order_and_initializers() {
+    let source = r#"fn f() { md_sync! { "{b} {a}", a = first(), b = second() }; }"#;
+    for changed in [
+        source.replace("a = first(), b = second()", "b = second(), a = first()"),
+        source.replace("first()", "third()"),
+    ] {
+        assert!(!verify_render_preserving(Path::new("sample.rs"), source, &changed).is_empty());
+    }
+}
+
+#[test]
 fn md_token_mode_body_is_left_alone() {
     let source = r##"fn f() { let s = md_sync! { "# " {title} "\n" }; }"##;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;

@@ -507,6 +507,37 @@ fn code_literal_braces_are_never_dynamic_coverage() {
     );
     assert_eq!(missing(&src).len(), 1);
 }
+
+#[test]
+fn markdown_named_arguments_follow_the_same_scopes_as_rust_locals() {
+    let shadowed = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        r####"md_sync! {"{ { let title = self.image; title } }", title = self.title}.render_md(cx)"####,
+    );
+    assert_eq!(
+        missing(&shadowed).len(),
+        1,
+        "a shadowed argument contributes no output"
+    );
+
+    let nested = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        r####"md_sync! {r###"{if true { md_sync! { "{title}" } }}"###, title = self.title}.render_md(cx)"####,
+    );
+    assert!(
+        missing(&nested).is_empty(),
+        "nested templates see the surrounding binding"
+    );
+
+    let simultaneous = fixture(
+        "html_sync! {{self.title}{self.image}}.render(cx)",
+        r####"let title = self.image; md_sync! {"{title}{image}", title = self.title, image = title}.render_md(cx)"####,
+    );
+    assert!(
+        missing(&simultaneous).is_empty(),
+        "all argument initializers use the caller's scope"
+    );
+}
 #[test]
 fn registered_traits_resolve_aliases_not_similar_suffixes() {
     let src = fixture(

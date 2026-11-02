@@ -21,7 +21,6 @@ use std::ops::{Deref, Range};
 use std::sync::Arc;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::visit_mut::VisitMut;
 use syn::{braced, Expr, LitStr};
 
 mod code;
@@ -35,7 +34,7 @@ pub enum ExprLocation {
     Decoded(Range<usize>),
     /// Byte range in the complete Rust literal token, including its delimiters.
     Literal { span: Span, range: Range<usize> },
-    /// Ordinary Rust tokens, including substituted named arguments.
+    /// Ordinary Rust tokens, including named-argument values.
     Rust(Span),
 }
 
@@ -148,9 +147,20 @@ pub struct MdTemplateInput {
 
 impl MdTemplateInput {
     /// Parse with the same layout and grammar used by the Markdown macros.
-    /// Named arguments are deliberately substituted separately, so codegen
-    /// can preserve its IDE shadow before replacing placeholders.
+    /// Named arguments are ordinary bindings surrounding these nodes; they
+    /// must not be substituted into expressions, which would capture locals.
     pub fn parse_nodes(&self) -> syn::Result<Vec<TplNode>> {
+        for (index, arg) in self.args.iter().enumerate() {
+            if self.args[..index]
+                .iter()
+                .any(|prior| prior.name == arg.name)
+            {
+                return Err(syn::Error::new(
+                    arg.name.span(),
+                    format!("duplicate named argument `{}`", arg.name),
+                ));
+            }
+        }
         let source = source::MappedLiteral::new(&self.lit);
         let mut nodes =
             parse_tpl(&source.text).map_err(|message| syn::Error::new(self.lit.span(), message))?;
@@ -158,11 +168,23 @@ impl MdTemplateInput {
         Ok(nodes)
     }
 
-    /// Parse and substitute named arguments for semantic consumers.
-    pub fn semantic_nodes(&self) -> syn::Result<Vec<TplNode>> {
-        let mut nodes = self.parse_nodes()?;
-        substitute_named_args(&mut nodes, &self.args)?;
-        Ok(nodes)
+    /// Bind argument values once, in source order, before rendering the nodes.
+    /// A tuple evaluates every initializer in the caller's scope before any
+    /// argument name is bound. Rust then handles shadowing, closures, nested
+    /// macros, and ownership without a second implementation of its scopes.
+    pub fn argument_binding(&self) -> Option<syn::Local> {
+        if self.args.is_empty() {
+            return None;
+        }
+        let names = self.args.iter().map(|arg| &arg.name);
+        let values = self.args.iter().map(|arg| &arg.value);
+        let syn::Stmt::Local(binding) = syn::parse_quote! (
+            #[deny(unused_variables)]
+            let (#(#names,)*) = (#(#values,)*);
+        ) else {
+            unreachable!()
+        };
+        Some(binding)
     }
 }
 
@@ -181,81 +203,6 @@ impl Parse for MdTemplateInput {
             args.push(MdTemplateArg { name, value });
         }
         Ok(MdTemplateInput { lit, args })
-    }
-}
-
-/// Replace bare-identifier placeholders with their named-argument values.
-///
-/// A placeholder is matched anywhere in a slot expression, including the
-/// condition of an `{if ...}` or the iterator of a `{for ...}`, but never
-/// inside the token stream of a nested macro call. Named arguments are an IDE
-/// convenience for simple placeholders; a loop pattern that shadows an
-/// argument name is not tracked.
-pub fn substitute_named_args(
-    nodes: &mut [TplNode],
-    args: &[MdTemplateArg],
-) -> Result<(), syn::Error> {
-    if args.is_empty() {
-        return Ok(());
-    }
-    for (index, arg) in args.iter().enumerate() {
-        if args[..index].iter().any(|prior| prior.name == arg.name) {
-            return Err(syn::Error::new(
-                arg.name.span(),
-                format!("duplicate named argument `{}`", arg.name),
-            ));
-        }
-    }
-    let mut used = vec![false; args.len()];
-    for node in nodes {
-        if let TplNode::Expr(expr) = node {
-            substitute_expr(expr, args, &mut used);
-        }
-    }
-    for (arg, used) in args.iter().zip(&used) {
-        if !used {
-            return Err(syn::Error::new(
-                arg.name.span(),
-                format!(
-                    "named argument `{}` is never used by the template",
-                    arg.name
-                ),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn substitute_expr(expr: &mut TemplateExpr, args: &[MdTemplateArg], used: &mut [bool]) {
-    if let Some(index) =
-        bare_ident(expr).and_then(|name| args.iter().position(|arg| arg.name == *name))
-    {
-        // A whole-slot placeholder takes the argument's real span so IDE
-        // features land on the macro tokens the author wrote.
-        used[index] = true;
-        expr.expr = args[index].value.clone();
-        expr.location = ExprLocation::Rust(args[index].value.span());
-        expr.source = None;
-        return;
-    }
-    Substitute { args, used }.visit_expr_mut(&mut expr.expr);
-}
-
-struct Substitute<'a> {
-    args: &'a [MdTemplateArg],
-    used: &'a mut [bool],
-}
-
-impl VisitMut for Substitute<'_> {
-    fn visit_expr_mut(&mut self, expr: &mut Expr) {
-        if let Some(index) =
-            bare_ident(expr).and_then(|name| self.args.iter().position(|arg| arg.name == *name))
-        {
-            self.used[index] = true;
-            *expr = self.args[index].value.clone();
-            return;
-        }
-        syn::visit_mut::visit_expr_mut(self, expr);
     }
 }
 
@@ -624,12 +571,12 @@ mod tests {
     }
 
     #[test]
-    fn named_arguments_substitute_inside_control_expressions() {
+    fn named_arguments_bind_outside_control_expressions() {
         let template: MdTemplateInput = syn::parse_str(
             r####"r###"{if show { md_sync! { "x" } }}{for item in items { item }}"###, show = flag, items = &values"####,
         )
         .unwrap();
-        let nodes = template.semantic_nodes().unwrap();
+        let nodes = template.parse_nodes().unwrap();
         let rendered: Vec<String> = nodes
             .iter()
             .map(|node| match node {
@@ -637,9 +584,14 @@ mod tests {
                 TplNode::Text(text) => text.clone(),
             })
             .collect();
-        assert!(rendered[0].starts_with("if flag {"), "{rendered:?}");
+        let binding = template.argument_binding().unwrap();
+        assert_eq!(
+            binding.to_token_stream().to_string(),
+            "# [deny (unused_variables)] let (show , items ,) = (flag , & values ,) ;"
+        );
+        assert!(rendered[0].starts_with("if show {"), "{rendered:?}");
         assert!(
-            rendered[1].starts_with("for item in & values {"),
+            rendered[1].starts_with("for item in items {"),
             "{rendered:?}"
         );
     }

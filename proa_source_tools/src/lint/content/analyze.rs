@@ -1105,9 +1105,13 @@ impl Analyzer<'_> {
             },
             TemplateSyntax::Markdown => {
                 if let Ok(input) = syn::parse2::<MdTemplateInput>(expr.mac.tokens.clone()) {
-                    match input.semantic_nodes() {
+                    match input.parse_nodes() {
                         Ok(nodes) => {
-                            self.md(&nodes, env, &self.range(input.lit.span(), override_range))
+                            let mut env = env.clone();
+                            if let Some(binding) = input.argument_binding() {
+                                self.local(&binding, &mut env, override_range);
+                            }
+                            self.md(&nodes, &env, &self.range(input.lit.span(), override_range))
                         }
                         Err(err) => self.boundary(
                             &Expr::Macro(expr.clone()),

@@ -1,0 +1,27 @@
+error[E0382]: use of moved value: `value`
+  --> tests/md_fail/named_arg_owned_twice.rs:8:41
+   |
+ 8 |       let _ = proa_core::render_to_string(md_sync! {
+   |  _________________________________________^
+ 9 | |         "{value} {value}", value = String::from("once")
+   | |                            ----- move occurs because `value` has type `String`, which does not implement the `Copy` trait
+10 | |     });
+   | |     ^
+   | |     |
+   | |_____`value` moved due to this method call
+   |       value used here after move
+   |
+note: `proa_core::MdRenderSyncExt::__proa_render_md_sync` takes ownership of the receiver `self`, which moves `value`
+  --> $WORKSPACE/proa_core/src/render/md_render.rs
+   |
+   |     fn __proa_render_md_sync(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError>
+   |                              ^^^^
+   = note: this error originates in the macro `md_sync` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: borrow this binding in the pattern to avoid moving the value
+   |
+ 8 |     let _ = proa_core::render_to_string(ref md_sync! {
+   |                                         +++
+help: you can `clone` the value and consume it, but this might not be your desired behavior
+   |
+10 |     }.clone());
+   |      ++++++++

@@ -705,6 +705,7 @@ fn common_prefix_len(common: &str, line: &str) -> usize {
 enum MdRenderNode {
     Text(String),
     Expr(String),
+    Binding(String),
 }
 
 fn md_render_nodes(nodes: Vec<proa_dsl::md::TplNode>) -> Vec<MdRenderNode> {
@@ -726,7 +727,14 @@ fn md_render_text(source: &str, inv: &MacroInvocation) -> Option<Vec<MdRenderNod
     let body = inv.body(source);
     let template: proa_dsl::md::MdTemplateInput =
         syn::parse2(proc_macro2::TokenStream::from_str(body).ok()?).ok()?;
-    Some(md_render_nodes(template.semantic_nodes().ok()?))
+    let mut nodes = md_render_nodes(template.parse_nodes().ok()?);
+    if let Some(binding) = template.argument_binding() {
+        nodes.insert(
+            0,
+            MdRenderNode::Binding(binding.to_token_stream().to_string()),
+        );
+    }
+    Some(nodes)
 }
 
 pub(crate) fn format_macro_body(

@@ -819,11 +819,15 @@ fn md_tokens_have_async_work(tokens: &proc_macro2::TokenStream) -> bool {
 fn md_tokens_have_possibly_async_child(tokens: &proc_macro2::TokenStream) -> bool {
     use proa_dsl::md::{MdNodeKind, MdRoot, MdTemplateInput, TplNode};
     if let Ok(input) = syn::parse2::<MdTemplateInput>(tokens.clone()) {
-        return input.semantic_nodes().is_ok_and(|nodes| {
-            nodes.iter().any(|node| match node {
-                TplNode::Expr(value) => md_slot_has_possibly_async_child(&value.expr),
-                TplNode::Text(_) => false,
-            })
+        return input.parse_nodes().is_ok_and(|nodes| {
+            input
+                .args
+                .iter()
+                .any(|arg| md_slot_has_possibly_async_child(&arg.value))
+                || nodes.iter().any(|node| match node {
+                    TplNode::Expr(value) => md_slot_has_possibly_async_child(&value.expr),
+                    TplNode::Text(_) => false,
+                })
         });
     }
     syn::parse2::<MdRoot>(tokens.clone()).is_ok_and(|root| {
@@ -4033,7 +4037,7 @@ pub(crate) fn validate_markdown_invocation(source: &str, inv: &MacroInvocation) 
     let tokens = TokenStream::from_str(inv.body(source))
         .map_err(|err| syn::Error::new(proc_macro2::Span::call_site(), err.to_string()))?;
     if let Ok(template) = syn::parse2::<proa_dsl::md::MdTemplateInput>(tokens.clone()) {
-        template.semantic_nodes().map(|_| ())
+        template.parse_nodes().map(|_| ())
     } else {
         syn::parse2::<proa_dsl::md::MdRoot>(tokens).map(|_| ())
     }

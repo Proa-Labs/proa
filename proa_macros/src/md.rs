@@ -71,9 +71,7 @@
 //! Raw templates keep Markdown inline with the Rust component. The token
 //! composition form above is also supported for expression-visible tooling.
 
-use proa_dsl::md::{
-    bare_ident, substitute_named_args, text_value, MdNodeKind, MdTemplateArg, TplNode,
-};
+use proa_dsl::md::{bare_ident, text_value, MdNodeKind, MdTemplateArg, TplNode};
 pub use proa_dsl::md::{MdRoot, MdTemplateInput};
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -89,14 +87,19 @@ pub enum EmitMode {
 //  Shared codegen helpers
 // ═══════════════════════════════════════════════════════════════
 
+fn render_context() -> syn::Ident {
+    syn::Ident::new("__proa_md_cx", proc_macro2::Span::mixed_site())
+}
+
 /// Flush accumulated static text into one state-aware prepared-static write.
 fn flush(stmts: &mut Vec<TokenStream>, run: &mut String) {
     if !run.is_empty() {
+        let cx = render_context();
         let bytes = proc_macro2::Literal::byte_string(run.as_bytes());
         stmts.push(quote! {
             {
                 static BYTES: &[u8] = #bytes;
-                cx.write_md_prepared_static(BYTES)?;
+                #cx.write_md_prepared_static(BYTES)?;
             }
         });
         run.clear();
@@ -108,45 +111,48 @@ fn flush(stmts: &mut Vec<TokenStream>, run: &mut String) {
 /// Method syntax preserves Rust's auto-deref behavior (for example,
 /// `&&str` → `&str`) on both the sync and async paths.
 fn emit_md_render(expr: &Expr, mode: EmitMode) -> TokenStream {
+    let cx = render_context();
     match mode {
         EmitMode::Sync => quote! {
-            (#expr).__proa_render_md_sync(cx)?;
+            (#expr).__proa_render_md_sync(#cx)?;
         },
         EmitMode::Async => quote! {
-            (#expr).__proa_render_md_async(cx).resolve().await?;
+            (#expr).__proa_render_md_async(#cx).resolve().await?;
         },
     }
 }
 
 /// Wrap generated body statements in the appropriate runtime fragment.
 fn wrap_render(stmts: &[TokenStream], mode: EmitMode) -> TokenStream {
+    let cx = render_context();
     match mode {
         EmitMode::Sync => quote! {
             ::proa_core::OptimizedMd::new(
-                |cx: &mut ::proa_core::WebContext<_, _>| {
+                |#cx: &mut ::proa_core::WebContext<_, _>| {
                     use ::proa_core::MdRenderSyncExt as _;
                     #(#stmts)*
-                    Ok(())
+                    ::core::result::Result::Ok(())
                 }
             )
         },
         EmitMode::Async => quote! {
-            ::proa_core::md::async_md_from_closure(async move |cx| {
+            ::proa_core::md::async_md_from_closure(async move |#cx| {
                 use ::proa_core::MdRenderAsyncExt as _;
                 #(#stmts)*
-                Ok(())
+                ::core::result::Result::Ok(())
             })
         },
     }
 }
 
 fn static_fragment(bytes: proc_macro2::Literal) -> TokenStream {
+    let cx = render_context();
     quote! {
         ::proa_core::OptimizedMd::new(
-            |cx: &mut ::proa_core::WebContext<_, _>| {
+            |#cx: &mut ::proa_core::WebContext<_, _>| {
                 static BYTES: &[u8] = #bytes;
-                cx.write_md_prepared_static(BYTES)?;
-                Ok(())
+                #cx.write_md_prepared_static(BYTES)?;
+                ::core::result::Result::Ok(())
             }
         )
     }
@@ -158,12 +164,9 @@ fn static_fragment(bytes: proc_macro2::Literal) -> TokenStream {
 
 pub fn generate_template(tpl: &MdTemplateInput, mode: EmitMode) -> Result<TokenStream, syn::Error> {
     let lit = &tpl.lit;
-    let mut nodes = tpl.parse_nodes()?;
-    // Computed before substitution: the shadow describes the placeholders as
-    // written in the string, with named arguments passed through alongside.
+    let nodes = tpl.parse_nodes()?;
     let shadow = format_args_shadow(lit, &nodes, &tpl.args);
-    substitute_named_args(&mut nodes, &tpl.args)?;
-    Ok(codegen_tpl(&nodes, shadow, mode))
+    Ok(codegen_tpl(&nodes, shadow, tpl.argument_binding(), mode))
 }
 
 /// Emit an IDE-only `format_args!` shadow of the template.
@@ -216,8 +219,11 @@ fn format_args_shadow(
     let names = args.iter().map(|arg| &arg.name);
     let values = args.iter().map(|arg| &arg.value);
     Some(quote! {
-        #[cfg(rust_analyzer)]
-        let _ = ::core::format_args!(#lit #(, #names = #values)*);
+        #[allow(unexpected_cfgs)]
+        {
+            #[cfg(rust_analyzer)]
+            let _ = ::core::format_args!(#lit #(, #names = #values)*);
+        }
     })
 }
 
@@ -260,9 +266,14 @@ fn is_bare_ident(s: &str) -> bool {
 
 // -- template codegen --
 
-fn codegen_tpl(nodes: &[TplNode], shadow: Option<TokenStream>, mode: EmitMode) -> TokenStream {
+fn codegen_tpl(
+    nodes: &[TplNode],
+    shadow: Option<TokenStream>,
+    binding: Option<syn::Local>,
+    mode: EmitMode,
+) -> TokenStream {
     // all-static fast path
-    if nodes.iter().all(|n| matches!(n, TplNode::Text(_))) {
+    if binding.is_none() && nodes.iter().all(|n| matches!(n, TplNode::Text(_))) {
         let mut s = String::new();
         for n in nodes {
             if let TplNode::Text(t) = n {
@@ -276,6 +287,7 @@ fn codegen_tpl(nodes: &[TplNode], shadow: Option<TokenStream>, mode: EmitMode) -
     let mut stmts = Vec::new();
     // First so its borrows begin and end before any rendering statement.
     stmts.extend(shadow);
+    stmts.extend(binding.map(|binding| quote! { #binding }));
     let mut run = String::new();
     emit_tpl_nodes(nodes, &mut stmts, &mut run, mode);
     flush(&mut stmts, &mut run);
@@ -328,8 +340,9 @@ pub fn generate_tokens(root: &MdRoot, mode: EmitMode) -> TokenStream {
     let mut run = String::new();
     for node in &root.nodes {
         if node.starts_new_line {
+            let cx = render_context();
             flush(&mut stmts, &mut run);
-            stmts.push(quote! { cx.md_block_boundary()?; });
+            stmts.push(quote! { #cx.md_block_boundary()?; });
         }
         match &node.kind {
             MdNodeKind::Text { value, dedent } => run.push_str(&text_value(value, *dedent)),
@@ -421,7 +434,7 @@ mod template_tests {
     }
 
     #[test]
-    fn named_args_substitute_and_keep_the_shadow() {
+    fn named_args_bind_once_and_keep_the_shadow() {
         let out = expand(quote! { r###"
             | {count} | {min} |
             "###, min = stats.min });
@@ -432,16 +445,19 @@ mod template_tests {
         );
         assert!(
             out.contains("stats . min") || out.contains("stats.min"),
-            "render body must splice the named expression: {out}"
+            "render body must bind the named expression: {out}"
         );
     }
 
     #[test]
-    fn unused_named_arg_is_an_error() {
-        let err = expand_err(quote! { r###"
+    fn named_args_delegate_unused_checks_to_rust() {
+        let out = expand(quote! { r###"
             # {title}
             "###, extra = 1 });
-        assert!(err.contains("never used"), "wrong error: {err}");
+        assert!(
+            out.contains("deny (unused_variables)"),
+            "missing lint: {out}"
+        );
     }
 
     #[test]

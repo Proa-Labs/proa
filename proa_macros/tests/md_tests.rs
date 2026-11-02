@@ -1038,7 +1038,7 @@ fn md_render_chained_bump_large_output() {
 }
 
 #[test]
-fn template_named_args_substitute_field_access() {
+fn template_named_args_bind_field_access() {
     struct Stats {
         min: u32,
         max: u32,
@@ -1060,7 +1060,7 @@ fn template_named_args_substitute_field_access() {
 }
 
 #[test]
-fn template_named_arg_used_twice_splices_twice() {
+fn template_named_arg_can_be_reused_when_copy() {
     let out = r(md_sync! { r###"
         {value} and {value}
         "###,
