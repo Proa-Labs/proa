@@ -2384,7 +2384,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ShowcaseHeading {
 
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ShowcaseDisclaimer {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        md_sync! { r###"{self.text}"### }.render_md(cx)
+        md_sync! { "{self.text}" }.render_md(cx)
     }
 }
 
@@ -2609,8 +2609,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilitiesSection {
             {CapabilitiesHeading::new()}
 
             {for column in self.columns {
-            {CapabilityColumnView { column }}
-
+                md_sync! { "{CapabilityColumnView { column }}\n\n" }
             }}
             "###
         }
@@ -2633,8 +2632,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilityColumnView {
             {column.detail}
 
             {for item in column.supporting {
-            {CapabilitySupportView { card: item }}
-
+                md_sync! { "{CapabilitySupportView { card: item }}\n\n" }
             }}
             "###
         }

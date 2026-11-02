@@ -84,7 +84,7 @@ fn raw_template_composes_control_flow_without_escaped_newlines() {
         ## Items
 
         {for item in items {
-            - {item}
+            md_sync! { "- " {item} "\n" }
         }}
         "###
     });
@@ -96,6 +96,200 @@ fn template_interpolation() {
     let name = "Rust";
     let out = r(md_sync!("Hello {name}!"));
     assert_eq!(out, "Hello Rust!");
+}
+
+#[test]
+fn control_flow_is_rust_and_markdown_re_enters_through_nested_templates() {
+    for enabled in [false, true] {
+        let items = [2, 5];
+        let output = r(md_sync! { r###"
+            {if true {
+                md_sync! { r#"
+                    {if enabled { "visible" } else { "hidden" }}
+                    {for item in items { md_sync! { "(" {item} ")" } }}
+                "# }
+            }}
+            "###
+        });
+        let expected = if enabled {
+            "visible\n(2)(5)\n\n"
+        } else {
+            "hidden\n(2)(5)\n\n"
+        };
+        assert_eq!(output, expected);
+    }
+}
+
+#[test]
+fn whitespace_inside_a_slot_is_rust_layout() {
+    let value = "a*b";
+    let compact = r(md_sync!("{if true { md_sync! { {value} \"\\n\" } }}"));
+    let spread = r(md_sync!("{if true {\n    md_sync! { {value} \"\\n\" }\n}}"));
+    let tabbed = r(md_sync!("{if true {\t\n\tmd_sync! { {value} \"\\n\" }\n}}"));
+    assert_eq!(compact, "a\\*b\n");
+    assert_eq!(spread, compact);
+    assert_eq!(tabbed, compact);
+}
+
+#[test]
+fn markdown_quotes_and_escaped_braces_are_literal_content() {
+    assert_eq!(
+        r(md_sync! { r###"A 6" screen: {{ and }}."### }),
+        "A 6\" screen: { and }."
+    );
+    assert_eq!(
+        r(md_sync! { r###"{if true { md_sync! { r#"Use {{value}}."# } }}"### }),
+        "Use {value}."
+    );
+    assert_eq!(
+        r(md_sync! { r###"{if true { md_sync! { "closing }}" } }}"### }),
+        "closing }"
+    );
+    assert_eq!(
+        r(md_sync! { r###"{if false { "hidden" }} visible }}"### }),
+        " visible }"
+    );
+    assert_eq!(
+        r(md_sync! { r###"{if true { md_sync! { r#"A 6" screen."# } }}"### }),
+        "A 6\" screen."
+    );
+}
+
+#[test]
+fn inline_control_does_not_capture_following_escaped_markdown() {
+    for show in [false, true] {
+        let output = r(md_sync!(
+            "start{if show { md_sync! { \" visible\" } }}end {{tail}}"
+        ));
+        assert_eq!(
+            output,
+            if show {
+                "start visibleend {tail}"
+            } else {
+                "startend {tail}"
+            }
+        );
+    }
+}
+
+#[test]
+fn prose_starting_with_control_words_is_text_at_every_depth() {
+    let label = "a*b";
+    let top = r(md_sync! { r###"
+        if enabled {label}.
+        for guests in rooms {label}.
+        "###
+    });
+    assert_eq!(top, "if enabled a\\*b.\nfor guests in rooms a\\*b.\n");
+    let nested = r(md_sync! { r###"
+        {if true {
+            md_sync! { r#"
+                if you prefer {label}.
+                for example {label}.
+            "# }
+        }}
+        "###
+    });
+    assert_eq!(nested, "if you prefer a\\*b.\nfor example a\\*b.\n\n");
+}
+
+#[test]
+fn string_tails_render_as_escaped_text_and_templates_render_markup() {
+    let escaped = r(md_sync! { r###"{if true { "**loud**" }}"### });
+    assert_eq!(escaped, "\\*\\*loud\\*\\*");
+    let markup = r(md_sync! { r###"{if true { md_sync! { "**loud**" } }}"### });
+    assert_eq!(markup, "**loud**");
+}
+
+#[test]
+fn match_arms_render_their_tails() {
+    let render = |count: usize| {
+        r(md_sync! { r###"
+            {match count {
+                0 => md_sync! { "_none_" },
+                1 => "one",
+                _ => md_sync! { "**" {count} "**" },
+            }}
+            "###
+        })
+    };
+    assert_eq!(render(0), "_none_\n");
+    assert_eq!(render(1), "one\n");
+    assert_eq!(render(7), "**7**\n");
+}
+
+#[test]
+fn sequential_statements_in_a_body_render_in_order() {
+    let groups = [["a", "b"], ["c", "d"]];
+    let output = r(md_sync! { r###"
+        {for (index, group) in groups.iter().enumerate() {
+            if index > 0 {
+                md_sync! { "\n" }
+            }
+            for item in group {
+                md_sync! { {item} "\n" }
+            }
+        }}
+        "###
+    });
+    assert_eq!(output, "a\nb\n\nc\nd\n\n");
+}
+
+#[test]
+fn rust_literals_comments_and_block_conditions_keep_their_delimiters() {
+    assert_eq!(
+        r(md_sync! { r###"{'}' as u32} {'{' as u32} {/* } */ 17}"### }),
+        "125 123 17"
+    );
+    let value = r#"a " } b"#;
+    assert_eq!(
+        r(md_sync! { r###"{if value == r#"a " } b"# { "matched" } else { "miss" }}"### }),
+        "matched"
+    );
+    assert_eq!(
+        r(md_sync! { r###"{if { true } { "matched" } else { "miss" }}"### }),
+        "matched"
+    );
+}
+
+#[test]
+fn nested_template_literals_keep_code_spans_and_relative_layout() {
+    let output = r(md_sync! { r###"
+        {if true {
+            md_sync! { r#"
+                `first
+                second`
+            "# }
+        }}
+        "###
+    });
+    assert_eq!(output, "`first\nsecond`\n\n");
+}
+
+#[test]
+fn control_headers_support_if_let_and_multiline_rust_whitespace() {
+    let value = Some("a*b");
+    assert_eq!(
+        r(md_sync! { r###"{if let Some(label) = value { label } else { "missing" }}"### }),
+        "a\\*b"
+    );
+    assert_eq!(
+        r(md_sync! { r###"{for item in
+        [2, 3] { md_sync! { "(" {item} ")" } }}"### }),
+        "(2)(3)"
+    );
+}
+
+#[test]
+fn named_arguments_seed_conditions_and_iterators() {
+    let values = [2, 4];
+    let output = r(md_sync! { r###"
+        {if show {
+            for item in items { md_sync! { "(" {item} ")" } }
+        }}
+        "###, show = true, items = &values
+    });
+    assert_eq!(output, "(2)(4)\n");
 }
 #[test]
 fn template_field_access() {
@@ -115,9 +309,7 @@ fn template_for_loop() {
     let items = ["alpha", "beta", "gamma"];
     let out = r(md_sync!(
         "
-{for item in items.iter() {
-- {item}
-}}
+{for item in items.iter() { md_sync! { \"- \" {item} \"\\n\" } }}
 "
     ));
     assert_eq!(out, "- alpha\n- beta\n- gamma\n\n");
@@ -125,16 +317,20 @@ fn template_for_loop() {
 #[test]
 fn template_if_else() {
     let x = 5;
-    let out = r(md_sync!("{if x > 0 {positive} else {negative}}"));
+    let out = r(md_sync!(
+        "{if x > 0 { \"positive\" } else { \"negative\" }}"
+    ));
     assert_eq!(out, "positive");
     let y = -1;
-    let out2 = r(md_sync!("{if y > 0 {positive} else {negative}}"));
+    let out2 = r(md_sync!(
+        "{if y > 0 { \"positive\" } else { \"negative\" }}"
+    ));
     assert_eq!(out2, "negative");
 }
 #[test]
 fn template_if_without_else() {
     let show = true;
-    let out = r(md_sync!("start{if show { visible}}end"));
+    let out = r(md_sync!("start{if show { md_sync! { \" visible\" } }}end"));
     assert_eq!(out, "start visibleend");
 }
 #[test]
@@ -154,15 +350,14 @@ fn template_nested_for() {
         ("Fruits", vec!["apple", "banana"]),
         ("Vegs", vec!["carrot"]),
     ];
-    let out = r(md_sync!(
-        "
-{for (name, items) in groups.iter() {
-## {name}
-{for item in items.iter() {
-- {item}
-}}}}
-"
-    ));
+    let out = r(md_sync! { r###"
+        {for (name, items) in groups.iter() {
+            md_sync! { r#"
+        ## {name}
+        {for item in items.iter() { md_sync! { "- " {item} "\n" } }}"# }
+        }}
+        "###
+    });
     assert_eq!(out, "## Fruits\n- apple\n- banana\n## Vegs\n- carrot\n\n");
 }
 #[test]
@@ -237,9 +432,7 @@ fn template_dedent_applies_inside_control_flow() {
     let out = r(md_sync! { "
         # Items
 
-        {for item in items.iter() {
-            - {item}
-        }}
+        {for item in items.iter() { md_sync! { \"- \" {item} \"\\n\" } }}
         "
     });
     // The newline after `}}` is part of the template, as in `template_nested_for`.
@@ -247,7 +440,7 @@ fn template_dedent_applies_inside_control_flow() {
 }
 
 #[test]
-fn indented_product_branches_render_dynamic_values_and_bare_nested_loops() {
+fn product_branches_render_dynamic_values_and_nested_loops() {
     struct Product {
         name: &'static str,
         price_label: &'static str,
@@ -258,18 +451,22 @@ fn indented_product_branches_render_dynamic_values_and_bare_nested_loops() {
         fn markdown(&self) -> String {
             r(md_sync! { r###"
                 ## {&self.name}
+
                 **{&self.price_label}**
+
                 {if self.stock > 0 {
-                    Only {self.stock} left
+                    md_sync! { "Only {self.stock} left" }
                 } else {
-                    **Sold out**
+                    md_sync! { "**Sold out**" }
                 }}
+
                 ### Reviews
+
                 {if self.reviews.is_empty() {
-                    _No reviews yet_
+                    md_sync! { "_No reviews yet_" }
                 } else {
                     for review in self.reviews.iter() {
-                        - {review}
+                        md_sync! { "- {review}\n" }
                     }
                 }}
                 "###
@@ -283,7 +480,7 @@ fn indented_product_branches_render_dynamic_values_and_bare_nested_loops() {
         reviews: vec!["*first*", "second"],
     };
     let output = product.markdown();
-    assert!(output.starts_with("## \\[untrusted\\]\n**$17**\nOnly 3 left\n"));
+    assert!(output.starts_with("## \\[untrusted\\]\n\n**$17**\n\nOnly 3 left\n"));
     assert!(output.contains("\n- \\*first\\*\n- second\n"));
     assert!(!output.contains("    "));
     product.stock = 0;
@@ -296,21 +493,23 @@ fn indented_product_branches_render_dynamic_values_and_bare_nested_loops() {
 }
 
 #[test]
-fn branch_layout_preserves_nested_lists_indented_code_and_fenced_code() {
+fn nested_templates_preserve_nested_lists_indented_code_and_fenced_code() {
     let show = true;
     let child = "a*b";
     let output = r(md_sync! { r###"
         {if show {
-            - parent
-              - {child}
+            md_sync! { r#"
+                - parent
+                  - {child}
 
-                code_line();
+                    code_line();
 
-            ```rust
-            for item in items {
-                println!("{item}");
-            }
-            ```
+                ```rust
+                for item in items {
+                    println!("{item}");
+                }
+                ```
+            "# }
         }}
         "###
     });
@@ -513,10 +712,8 @@ async fn async_md_supports_template_control_flow() {
     let items = ["alpha".to_owned(), "beta".to_owned()];
     let show_footer = true;
     let out = proa_core::render_md_to_string_async(md!("
-{for item in items.iter() {
-- {item}
-}}
-{if show_footer {Done}}
+{for item in items.iter() { md_sync! { \"- \" {item} \"\\n\" } }}
+{if show_footer { md! { \"Done\" } }}
 "))
     .await;
 
@@ -524,18 +721,15 @@ async fn async_md_supports_template_control_flow() {
 }
 
 #[tokio::test]
-async fn indented_async_nested_conditions_await_children_and_keep_following_prose() {
+async fn async_nested_conditions_await_children_and_keep_following_prose() {
     let values = [0, 1, 2];
     let out = proa_core::render_md_to_string_async(md! { r###"
         {for value in values {
-            if value == 0 {
-                {DelayedMd("zero")}
-            } else if value == 1 {
-                {DelayedMd("one")}
-            } else {
-                {DelayedMd("other")}
-            }
-            elsewhere
+            md! { r#"
+                {if value == 0 { DelayedMd("zero") } else if value == 1 { DelayedMd("one") } else { DelayedMd("other") }}
+
+                elsewhere
+            "# }
         }}
         "###
     })
@@ -547,16 +741,18 @@ async fn indented_async_nested_conditions_await_children_and_keep_following_pros
 }
 
 #[test]
-fn branch_fences_and_inline_code_keep_unbalanced_literal_braces() {
+fn nested_template_fences_and_inline_code_keep_unbalanced_literal_braces() {
     let show = true;
     let output = r(md_sync! { r###"
         {if show {
-            Literal `{` and `}`.
+            md_sync! { r#"
+                Literal `{` and `}`.
 
-            ~~~rust
-            if unclosed {
-                "unclosed quote
-            ~~~
+                ~~~rust
+                if unclosed {
+                    "unclosed quote
+                ~~~
+            "# }
         }}
         "###
     });

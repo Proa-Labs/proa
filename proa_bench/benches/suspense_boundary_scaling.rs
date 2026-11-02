@@ -88,13 +88,7 @@ struct TinyMarkdownChild;
 
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for TinyMarkdownChild {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        MdRenderSync::render_md(
-            md_sync! { r###"
-                x
-                "###
-            },
-            cx,
-        )
+        MdRenderSync::render_md(md_sync! { "x\n" }, cx)
     }
 }
 

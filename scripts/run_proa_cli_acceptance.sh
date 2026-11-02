@@ -20,6 +20,7 @@ readonly -a MAIN_SHARD_2=(
   cli
   content_coverage
   live_lint
+  markdown_syntax
   rsjs_final
 )
 readonly -a MAIN_SHARD_3=(
@@ -198,6 +199,7 @@ case "$shard" in
       lifecycle_dev
       lifecycle_start
       live_lint
+      markdown_syntax
     )
     ;;
   pr-2)

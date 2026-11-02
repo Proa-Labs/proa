@@ -93,10 +93,12 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for InfoPage {
             # {self.title}
 
             {for paragraph in self.paragraphs {
-            {content_part!("paragraph", *paragraph)}
-
+                let paragraph = content_part!("paragraph", *paragraph);
+                md_sync! { "{paragraph}\n\n" }
             }}{for (href, label) in self.links {
-            - [{content_part!("link-label", *label)}]({content_part!("link-url", Url(href))})
+                let label = content_part!("link-label", *label);
+                let href = content_part!("link-url", Url(href));
+                md_sync! { "- [{label}]({href})\n" }
             }}"###
         }
         .render_md(cx)

@@ -3,6 +3,14 @@
 
 //! Shared semantic parser for raw and token-composed Markdown templates.
 //!
+//! The raw-template grammar has one lexical rule, identical at every depth:
+//! text outside `{ ... }` is Markdown, and text inside is a Rust expression
+//! parsed by `syn`. Control flow is therefore ordinary Rust (`if`, `for`,
+//! `match`, ...) whose branches render their final expression, and Markdown
+//! re-enters a branch only through a nested `md_sync!` / `md!` call. No word
+//! is ever reserved in Markdown text, and a line means the same thing whether
+//! it sits at the top level or inside a branch.
+//!
 //! Compiler code generation and source tooling consume these same nodes.
 //! Raw expressions retain their authored literal ranges; token expressions
 //! retain their ordinary Rust spans.
@@ -10,14 +18,14 @@
 use proc_macro2::Span;
 use quote::{ToTokens, TokenStreamExt};
 use std::ops::{Deref, Range};
+use std::sync::Arc;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
+use syn::visit_mut::VisitMut;
 use syn::{braced, Expr, LitStr};
 
-mod control;
 mod source;
-
-pub use control::format_control_flow;
+mod syntax;
 
 /// Location of an expression in authored source, before template dedenting.
 #[derive(Clone, Debug)]
@@ -35,6 +43,59 @@ pub enum ExprLocation {
 pub struct TemplateExpr {
     pub expr: Expr,
     pub location: ExprLocation,
+    source: Option<SlotSource>,
+}
+
+/// Where a slot's parsed text sits, so sub-expression spans can be mapped back
+/// to the authored literal by tooling.
+#[derive(Clone, Debug)]
+struct SlotSource {
+    /// Span of the whole parsed slot; sub-spans from the same parse join with it.
+    whole: Span,
+    /// Decoded template offset of the parsed text's first byte.
+    origin: usize,
+    len: usize,
+    literal: Option<Arc<source::LiteralMap>>,
+}
+
+impl TemplateExpr {
+    /// An expression written as ordinary Rust tokens, such as a named argument
+    /// or a custom grammar's output. Its span is already a source location.
+    pub fn rust(expr: Expr, span: Span) -> Self {
+        Self {
+            expr,
+            location: ExprLocation::Rust(span),
+            source: None,
+        }
+    }
+
+    /// Locate a sub-expression of this slot in the authored template.
+    ///
+    /// `span` must belong to the same parse as `self.expr`: a span of one of its
+    /// sub-expressions, or of tokens inside a nested macro call within it. This
+    /// is how tooling points a diagnostic at an `if` condition or a `for`
+    /// iterator rather than at the whole slot. Returns `None` when the span is
+    /// not part of this slot, or when spans carry no location at all (inside a
+    /// running proc macro).
+    pub fn locate(&self, span: Span) -> Option<ExprLocation> {
+        let source = self.source.as_ref()?;
+        source.whole.join(span)?;
+        let relative = span.byte_range();
+        if relative.start > relative.end || relative.end > source.len {
+            return None;
+        }
+        let decoded = source.origin + relative.start..source.origin + relative.end;
+        Some(match &source.literal {
+            Some(literal) => literal.locate(decoded),
+            None => ExprLocation::Decoded(decoded),
+        })
+    }
+
+    fn attach(&mut self, literal: &Arc<source::LiteralMap>) {
+        if let Some(source) = &mut self.source {
+            source.literal = Some(Arc::clone(literal));
+        }
+    }
 }
 
 impl Deref for TemplateExpr {
@@ -50,24 +111,15 @@ impl ToTokens for TemplateExpr {
     }
 }
 
+/// One node of a raw Markdown template.
+///
+/// Control flow is not a separate node kind: an `{if ...}` or `{for ...}` slot
+/// is an [`Expr::If`] / [`Expr::ForLoop`] like any other slot expression, and
+/// code generation lowers it exactly as the token-composition form does.
 #[derive(Clone, Debug)]
 pub enum TplNode {
     Text(String),
     Expr(TemplateExpr),
-    For {
-        pat: Box<syn::Pat>,
-        iter: Box<TemplateExpr>,
-        body: Vec<TplNode>,
-    },
-    If {
-        branches: Vec<IfBranch>,
-    },
-}
-
-#[derive(Clone, Debug)]
-pub struct IfBranch {
-    pub cond: Option<TemplateExpr>, // None = else
-    pub body: Vec<TplNode>,
 }
 
 // -- public entry --
@@ -131,6 +183,13 @@ impl Parse for MdTemplateInput {
     }
 }
 
+/// Replace bare-identifier placeholders with their named-argument values.
+///
+/// A placeholder is matched anywhere in a slot expression, including the
+/// condition of an `{if ...}` or the iterator of a `{for ...}`, but never
+/// inside the token stream of a nested macro call. Named arguments are an IDE
+/// convenience for simple placeholders; a loop pattern that shadows an
+/// argument name is not tracked.
 pub fn substitute_named_args(
     nodes: &mut [TplNode],
     args: &[MdTemplateArg],
@@ -147,7 +206,11 @@ pub fn substitute_named_args(
         }
     }
     let mut used = vec![false; args.len()];
-    substitute_nodes(nodes, args, &mut used);
+    for node in nodes {
+        if let TplNode::Expr(expr) = node {
+            substitute_expr(expr, args, &mut used);
+        }
+    }
     for (arg, used) in args.iter().zip(&used) {
         if !used {
             return Err(syn::Error::new(
@@ -162,26 +225,36 @@ pub fn substitute_named_args(
     Ok(())
 }
 
-fn substitute_nodes(nodes: &mut [TplNode], args: &[MdTemplateArg], used: &mut [bool]) {
-    for node in nodes {
-        match node {
-            TplNode::Expr(expr) => {
-                let index =
-                    bare_ident(expr).and_then(|name| args.iter().position(|arg| arg.name == *name));
-                if let Some(index) = index {
-                    used[index] = true;
-                    expr.expr = args[index].value.clone();
-                    expr.location = ExprLocation::Rust(args[index].value.span());
-                }
-            }
-            TplNode::For { body, .. } => substitute_nodes(body, args, used),
-            TplNode::If { branches } => {
-                for branch in branches {
-                    substitute_nodes(&mut branch.body, args, used);
-                }
-            }
-            TplNode::Text(_) => {}
+fn substitute_expr(expr: &mut TemplateExpr, args: &[MdTemplateArg], used: &mut [bool]) {
+    if let Some(index) =
+        bare_ident(expr).and_then(|name| args.iter().position(|arg| arg.name == *name))
+    {
+        // A whole-slot placeholder takes the argument's real span so IDE
+        // features land on the macro tokens the author wrote.
+        used[index] = true;
+        expr.expr = args[index].value.clone();
+        expr.location = ExprLocation::Rust(args[index].value.span());
+        expr.source = None;
+        return;
+    }
+    Substitute { args, used }.visit_expr_mut(&mut expr.expr);
+}
+
+struct Substitute<'a> {
+    args: &'a [MdTemplateArg],
+    used: &'a mut [bool],
+}
+
+impl VisitMut for Substitute<'_> {
+    fn visit_expr_mut(&mut self, expr: &mut Expr) {
+        if let Some(index) =
+            bare_ident(expr).and_then(|name| self.args.iter().position(|arg| arg.name == *name))
+        {
+            self.used[index] = true;
+            *expr = self.args[index].value.clone();
+            return;
         }
+        syn::visit_mut::visit_expr_mut(self, expr);
     }
 }
 
@@ -200,7 +273,7 @@ pub fn bare_ident(expr: &Expr) -> Option<&syn::Ident> {
 /// or tildes. An unclosed fence consumes the rest of the document. Treating the
 /// complete block as static Markdown prevents Rust examples such as
 /// `Thing { field }` from being mistaken for template interpolation.
-fn fenced_code_end(input: &str, line_start: usize, layout: &str) -> Option<usize> {
+fn fenced_code_end(input: &str, line_start: usize) -> Option<usize> {
     let bytes = input.as_bytes();
     let mut marker_start = line_start;
     while marker_start < bytes.len() && marker_start - line_start < 3 && bytes[marker_start] == b' '
@@ -237,10 +310,9 @@ fn fenced_code_end(input: &str, line_start: usize, layout: &str) -> Option<usize
         let candidate_line_end = input[candidate_start..]
             .find('\n')
             .map_or(bytes.len(), |offset| candidate_start + offset);
-        let content_start = candidate_start + layout_prefix_len(layout, &input[candidate_start..]);
-        let mut candidate_marker_start = content_start;
+        let mut candidate_marker_start = candidate_start;
         while candidate_marker_start < candidate_line_end
-            && candidate_marker_start - content_start < 3
+            && candidate_marker_start - candidate_start < 3
             && bytes[candidate_marker_start] == b' '
         {
             candidate_marker_start += 1;
@@ -303,138 +375,114 @@ fn inline_code_end(input: &str, start: usize) -> Option<usize> {
     None
 }
 
+const CONTROL_HINT: &str =
+    "\n\nText inside `{ ... }` is Rust, including the bodies of `if`, `for`, and `match`. \
+A branch renders its final expression, so write Markdown there as a nested template: \
+`{if ready { md_sync! { \"**In stock**\" } } else { \"Backordered\" }}`. \
+Plain Markdown is never parsed inside a slot.";
+
+/// Parse a slot's Rust source, pointing authors who wrote Markdown inside a
+/// control body at the nested-template form.
+fn parse_slot(source: &str) -> Result<Expr, String> {
+    syn::parse_str::<Expr>(source).map_err(|error| {
+        let mut message = format!("bad expression `{source}`: {error}");
+        let keyword = source.split(|c: char| !c.is_ascii_alphabetic()).next();
+        if matches!(
+            keyword,
+            Some("if" | "for" | "match" | "while" | "loop" | "else")
+        ) {
+            message.push_str(CONTROL_HINT);
+        }
+        message
+    })
+}
+
+/// Split a decoded template into Markdown text and Rust slot expressions.
+///
+/// Only four things are special in text: `{` opens a slot, `{{` and `}}` are
+/// literal braces, and fenced code blocks or inline code spans are copied
+/// verbatim. A slot runs to the brace that balances its opener under Rust
+/// lexical rules, so nested blocks, strings, and nested template literals
+/// never need escaping.
 pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
-    control::parse(input)
-}
+    let bytes = input.as_bytes();
+    let mut nodes = Vec::new();
+    let mut text = String::new();
+    let mut pos = 0;
+    let mut at_line_start = true;
 
-/// Number of source-layout bytes shared with a line (also safe for blank lines).
-fn layout_prefix_len(layout: &str, line: &str) -> usize {
-    layout
-        .char_indices()
-        .zip(line.chars())
-        .take_while(|((_, a), b)| a == b)
-        .map(|((index, ch), _)| index + ch.len_utf8())
-        .last()
-        .unwrap_or(0)
-}
-
-fn extract_braces(src: &str, start: usize) -> Result<(&str, usize), String> {
-    let end = brace_end(src, start)?;
-    Ok((&src[start..end], end))
-}
-
-fn brace_end(src: &str, start: usize) -> Result<usize, String> {
-    let mut depth: i32 = 1;
-    let mut in_str = false;
-    let mut esc = false;
-    let mut pos = start;
-    while pos < src.len() {
-        let ch = src[pos..].chars().next().unwrap();
-        let clen = ch.len_utf8();
-        if esc {
-            esc = false;
-            pos += clen;
-            continue;
-        }
-        if in_str {
-            match ch {
-                '\\' => esc = true,
-                '"' => in_str = false,
-                _ => {}
-            }
-            pos += clen;
-            continue;
-        }
-        // Markdown examples are literal even inside control-flow bodies.
-        if pos == 0 || src.as_bytes()[pos - 1] == b'\n' {
-            let line = &src[pos..];
-            let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
-            if let Some(end) = fenced_code_end(src, pos + indent, &line[..indent]) {
+    while pos < bytes.len() {
+        if at_line_start {
+            if let Some(end) = fenced_code_end(input, pos) {
+                text.push_str(&input[pos..end]);
                 pos = end;
                 continue;
             }
+            at_line_start = false;
         }
-        if ch == '`' {
-            if let Some(end) = inline_code_end(src, pos) {
-                pos = end;
-                continue;
-            }
-        }
-        match ch {
-            '"' => {
-                in_str = true;
-                pos += clen;
-            }
-            '{' => {
-                depth += 1;
-                pos += clen;
-            }
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Ok(pos);
+
+        match bytes[pos] {
+            b'`' => {
+                if let Some(end) = inline_code_end(input, pos) {
+                    text.push_str(&input[pos..end]);
+                    at_line_start = input[..end].ends_with('\n');
+                    pos = end;
+                    continue;
                 }
-                pos += clen;
+                text.push('`');
+                pos += 1;
+            }
+            b'{' => {
+                if bytes.get(pos + 1) == Some(&b'{') {
+                    text.push('{');
+                    pos += 2;
+                    continue;
+                }
+                if !text.is_empty() {
+                    nodes.push(TplNode::Text(std::mem::take(&mut text)));
+                }
+                let content_start = pos + 1;
+                let end = syntax::rust_brace_end(input, content_start)?;
+                let content = &input[content_start..end];
+                let trimmed = content.trim();
+                let origin =
+                    content_start + (trimmed.as_ptr() as usize - content.as_ptr() as usize);
+                let expr = parse_slot(trimmed)?;
+                let whole = expr.span();
+                nodes.push(TplNode::Expr(TemplateExpr {
+                    expr,
+                    location: ExprLocation::Decoded(origin..origin + trimmed.len()),
+                    source: Some(SlotSource {
+                        whole,
+                        origin,
+                        len: trimmed.len(),
+                        literal: None,
+                    }),
+                }));
+                pos = end + 1;
+            }
+            b'}' => {
+                if bytes.get(pos + 1) == Some(&b'}') {
+                    text.push('}');
+                    pos += 2;
+                    continue;
+                }
+                return Err(format!(
+                    "unexpected `}}` at byte {pos}; write `}}}}` for a literal closing brace"
+                ));
             }
             _ => {
-                pos += clen;
+                let ch = input[pos..].chars().next().unwrap();
+                text.push(ch);
+                pos += ch.len_utf8();
+                at_line_start = ch == '\n';
             }
         }
     }
-    Err("unclosed `{`".into())
-}
-
-fn subslice_offset(parent: &str, child: &str) -> usize {
-    child.as_ptr() as usize - parent.as_ptr() as usize
-}
-
-fn find_body_brace(text: &str) -> Option<usize> {
-    let mut pdepth: i32 = 0;
-    let mut bdepth: i32 = 0;
-    let mut in_str = false;
-    let mut esc = false;
-    for (i, ch) in text.char_indices() {
-        if esc {
-            esc = false;
-            continue;
-        }
-        if in_str {
-            match ch {
-                '\\' => esc = true,
-                '"' => in_str = false,
-                _ => {}
-            }
-            continue;
-        }
-        match ch {
-            '"' => in_str = true,
-            '(' => pdepth += 1,
-            ')' => pdepth -= 1,
-            '[' => bdepth += 1,
-            ']' => bdepth -= 1,
-            '{' if pdepth == 0 && bdepth == 0 => return Some(i),
-            _ => {}
-        }
+    if !text.is_empty() {
+        nodes.push(TplNode::Text(text));
     }
-    None
-}
-
-fn split_body(text: &str) -> Result<(&str, &str), String> {
-    if !text.starts_with('{') {
-        return Err("expected `{`".into());
-    }
-    let end = brace_end(text, 1)?;
-    let mut body = &text[1..end];
-    if let Some(stripped) = body.strip_prefix('\n') {
-        body = stripped;
-    }
-    // A standalone closing delimiter contributes no trailing layout spaces.
-    if let Some(last_newline) = body.rfind('\n') {
-        if body[last_newline + 1..].trim().is_empty() {
-            body = &body[..last_newline + 1];
-        }
-    }
-    Ok((body, &text[end + 1..]))
+    Ok(nodes)
 }
 
 #[derive(Clone, Debug)]
@@ -523,12 +571,13 @@ pub fn text_value(value: &LitStr, dedent: bool) -> String {
     }
 }
 
+/// Whether a literal was written as a multiline raw string.
+///
+/// The literal token keeps its authored spelling even when it reaches a macro
+/// through another expansion (a nested `md_sync!` inside a raw template), so
+/// the prefix is read from the token rather than from `source_text`.
 pub fn is_multiline_raw_literal(value: &LitStr) -> bool {
-    let is_raw = value
-        .span()
-        .source_text()
-        .is_some_and(|source| source.trim_start().starts_with('r'));
-    is_raw && value.value().contains(['\n', '\r'])
+    value.token().to_string().starts_with('r') && value.value().contains(['\n', '\r'])
 }
 
 impl Parse for MdRoot {
@@ -561,5 +610,111 @@ impl Parse for MdRoot {
             });
         }
         Ok(MdRoot { nodes })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kinds(input: &str) -> Vec<String> {
+        parse_tpl(input)
+            .unwrap()
+            .into_iter()
+            .map(|node| match node {
+                TplNode::Text(text) => format!("text{text:?}"),
+                TplNode::Expr(expr) => format!("expr({})", expr.to_token_stream()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn prose_is_never_control_flow_at_any_depth() {
+        assert_eq!(
+            kinds("if enabled {label}\n"),
+            ["text\"if enabled \"", "expr(label)", "text\"\\n\""]
+        );
+        assert_eq!(
+            kinds("for guests in rooms {count}\n"),
+            ["text\"for guests in rooms \"", "expr(count)", "text\"\\n\""]
+        );
+    }
+
+    #[test]
+    fn control_flow_is_one_rust_slot() {
+        let nodes = kinds("{if show {\n    md_sync! { \"- \" {label} \"\\n\" }\n}}\n");
+        assert_eq!(nodes.len(), 2, "{nodes:?}");
+        assert!(nodes[0].starts_with("expr(if show {"), "{nodes:?}");
+        assert_eq!(nodes[1], "text\"\\n\"");
+        let nested =
+            parse_tpl("{for x in xs { md_sync! { r#\"\n    - {x} }} not a closer\n\"# } }}")
+                .unwrap();
+        assert!(matches!(&nested[0], TplNode::Expr(expr) if matches!(expr.expr, Expr::ForLoop(_))));
+    }
+
+    #[test]
+    fn markdown_in_a_control_body_is_rejected_with_the_nested_template_hint() {
+        let error = parse_tpl("{if ready { Available } else { **Sold out** }}").unwrap_err();
+        assert!(error.starts_with("bad expression `if ready"), "{error}");
+        assert!(error.contains("nested template"), "{error}");
+        let plain = parse_tpl("{self.title ++}").unwrap_err();
+        assert!(!plain.contains("nested template"), "{plain}");
+    }
+
+    #[test]
+    fn escapes_and_code_stay_literal() {
+        assert_eq!(kinds("Use {{expr}} here"), ["text\"Use {expr} here\""]);
+        assert_eq!(
+            kinds("`{literal}` and {x}"),
+            ["text\"`{literal}` and \"", "expr(x)"]
+        );
+        assert_eq!(
+            kinds("```rust\nThing { field }\n```\n{x}"),
+            ["text\"```rust\\nThing { field }\\n```\\n\"", "expr(x)"]
+        );
+        assert!(parse_tpl("lonely }").unwrap_err().contains("`}}`"));
+        assert!(parse_tpl("{open").unwrap_err().contains("`{{`"));
+    }
+
+    #[test]
+    fn sub_expressions_locate_inside_their_slot() {
+        let nodes =
+            parse_tpl("ab {if self.stock > 0 { md_sync! { \"x\" } } else { other }} c").unwrap();
+        let TplNode::Expr(slot) = &nodes[1] else {
+            panic!("{nodes:?}");
+        };
+        let Expr::If(expr_if) = &slot.expr else {
+            panic!("{slot:?}");
+        };
+        let Some(ExprLocation::Decoded(range)) = slot.locate(expr_if.cond.span()) else {
+            panic!("condition not located");
+        };
+        assert_eq!(
+            &"ab {if self.stock > 0 { md_sync! { \"x\" } } else { other }} c"[range],
+            "self.stock > 0"
+        );
+        let foreign: Expr = syn::parse_str("elsewhere").unwrap();
+        assert!(slot.locate(foreign.span()).is_none());
+    }
+
+    #[test]
+    fn named_arguments_substitute_inside_control_expressions() {
+        let template: MdTemplateInput = syn::parse_str(
+            "r###\"{if show { md_sync! { \"x\" } }}{for item in items { item }}\"###, show = flag, items = &values",
+        )
+        .unwrap();
+        let nodes = template.semantic_nodes().unwrap();
+        let rendered: Vec<String> = nodes
+            .iter()
+            .map(|node| match node {
+                TplNode::Expr(expr) => expr.to_token_stream().to_string(),
+                TplNode::Text(text) => text.clone(),
+            })
+            .collect();
+        assert!(rendered[0].starts_with("if flag {"), "{rendered:?}");
+        assert!(
+            rendered[1].starts_with("for item in & values {"),
+            "{rendered:?}"
+        );
     }
 }

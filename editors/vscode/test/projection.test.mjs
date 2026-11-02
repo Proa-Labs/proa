@@ -57,48 +57,62 @@ test('leaves comments, unrelated literals/macros, and token composition alone', 
   ]) assert.equal(project(text).text, text, text);
 });
 
-test('projects nested control flow with the original bindings and expression positions', () => {
-  const text = 'md! { r#"{for x in xs { - {x.name} {if x.ready { Yes {x.value} } else if flag { {other} } else { No }} }}"# }';
+test('projects control-flow slots verbatim and hides the Markdown around them', () => {
+  const text = 'md! { r#"Intro {for x in xs { md! { "- " {x.name} " " {if x.ready { md! { "Yes " {x.value} } } else if flag { other } else { "No" }} } }} done"# }';
   const result = project(text);
   assert.equal(result.text.length, text.length);
   for (const expr of ['for x in xs', 'x.name', 'if x.ready', 'x.value', 'else if flag', 'other']) {
     assert.equal(result.text.indexOf(expr), text.indexOf(expr));
     assert.ok(safeRange(result, range(text.indexOf(expr), text.indexOf(expr) + expr.length)));
   }
-  assert.ok(result.text.includes(' x.name;'));
-  assert.ok(!result.text.includes('Yes'));
-  assert.ok(!safeRange(result, range(text.indexOf('Yes'))));
+  assert.ok(!result.text.includes('Intro'));
+  assert.ok(!result.text.includes('done'));
+  assert.ok(!safeRange(result, range(text.indexOf('Intro'))));
   assert.equal(project('md! { r#"{unfinished"# }').text, 'md! { r#"{unfinished"# }');
 });
 
-test('keeps if-let bindings and incomplete Rust expressions visible', () => {
-  const text = 'md_sync! { r#"{if let Some(a) = value { **{a.}** } else { None }}"# }';
+test('keeps if-let bindings and incomplete Rust expressions inside control flow visible', () => {
+  const text = 'md_sync! { r#"{if let Some(a) = value { a. } else { "None" }}"# }';
   const result = project(text);
   assert.ok(result.text.includes('if let Some(a) = value'));
-  assert.ok(result.text.includes(' a.;'));
-  assert.equal(result.text.indexOf('a.;'), text.indexOf('a.}'));
+  assert.ok(!result.text.includes('md_sync'));
+  assert.ok(result.text.includes('{ a. }'));
+  assert.equal(result.text.indexOf('a.'), text.indexOf('a.'));
 });
 
 test('uses a position-preserving Rust block for incomplete fields until the macro can expand', () => {
   for (const macro of ['md_sync!', 'proa_macros::md!', '::proa_macros::md_sync!']) {
-    const text = `fn f() { ${macro}[r###"🦀 {a.} {for row in rows { {row.name} }}"###]; }`;
+    const text = `fn f() { ${macro}[r###"🦀 {a.} {for row in rows { md_sync! { "- " {row.name} } }}"###]; }`;
     const projection = project(text);
     assert.equal(projection.text.length, text.length);
-    assert(!projection.text.includes('md'));
+    assert(!projection.text.includes('md') || projection.text.indexOf('md') > text.indexOf('{for'));
     assert.equal(projection.text.indexOf('a.;'), text.indexOf('a.}'));
-    assert.equal(projection.text.indexOf('row.name;'), text.indexOf('row.name}'));
+    assert.equal(projection.text.indexOf('row.name'), text.indexOf('row.name'));
     assert(projection.text.includes('for row in rows'));
     assert(project(text.replace('{a.}', '{a.name}')).text.includes(macro));
   }
   assert(project('return ::proa_macros::md_sync! { r#"{a.}"# };').text.startsWith('return '));
 });
 
-test('URLs and punctuation inside control-flow prose do not hide Rust slots', () => {
-  const text = 'md_sync! { r#"{for item in items { Read [docs](https://example.com) — don\'t forget {item.name} }}"# }';
+test('dots inside Rust strings, characters, and comments do not mark a slot unfinished', () => {
+  for (const text of [
+    'md_sync! { r#"{format!("a.}")}"# }',
+    'md_sync! { r#"{value /* a. */ .name}"# }',
+    "md_sync! { r#\"{name.trim_end_matches('.')}\"# }",
+    'md_sync! { r#"{if ready { r"end." } else { "none" }}"# }',
+  ]) {
+    assert.ok(project(text).text.includes('md_sync!'), text);
+  }
+  assert.ok(!project('md_sync! { r#"{value /* a.} */ .}"# }').text.includes('md_sync!'));
+  assert.ok(!project('md_sync! { r#"{if ready { value. } else { "none" }}"# }').text.includes('md_sync!'));
+});
+
+test('nested template literals inside a slot stay verbatim while outer prose is hidden', () => {
+  const text = 'md_sync! { r#"Read on. {for item in items { md_sync! { r"[docs](https://example.com) — don\'t forget " {item.name} } }}"# }';
   const result = project(text);
   assert.ok(result.templates.length);
-  assert.ok(result.text.includes(' item.name;'));
-  assert.ok(!result.text.includes('https'));
+  assert.ok(result.text.includes('https'));
+  assert.ok(!result.text.includes('Read on.'));
   assert.equal(result.text.indexOf('item.name'), text.indexOf('item.name'));
 });
 

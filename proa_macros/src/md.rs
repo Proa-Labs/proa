@@ -15,28 +15,35 @@
 //!
 //! ```rust,ignore
 //! md_sync! { r###"
-//! # {data.title}
+//!     # {data.title}
 //!
-//! {for highlight in &data.highlights {
-//!     - **{highlight.title}** — {highlight.description}
-//! }}
-//! "###
+//!     {for highlight in &data.highlights {
+//!         md_sync! { "- **{highlight.title}** — {highlight.description}\n" }
+//!     }}
+//!     "###
 //! }
 //! .render_md(cx);
 //! ```
 //!
 //! The raw string is the Markdown document, so source newlines are output
-//! newlines and no escaped `"\n"` separators are needed. `{expr}` composes a
-//! typed render child and `{for ... { ... }}` / `{if ... { ... }}` provide
-//! control flow. Braces inside fenced code blocks and inline code spans remain
-//! literal Markdown; outside code, `{{` and `}}` render literal braces.
-//! Multiline control bodies remove one source indentation level. Nested controls
-//! can omit the interpolation wrapper, for example `for review in reviews {`.
-//! Additional indentation beyond the source level remains Markdown content.
+//! newlines and no escaped `"\n"` separators are needed. The grammar has one
+//! rule at every depth: text outside `{ ... }` is Markdown, text inside is a
+//! Rust expression. `{expr}` composes a typed render child; `{if ...}`,
+//! `{for ...}`, and `{match ...}` are ordinary Rust control flow whose
+//! bodies render expression statements without semicolons in order. A
+//! branch re-enters Markdown through a nested `md_sync!` / `md!` call (a
+//! string tail renders as escaped text). Plain Markdown is never parsed inside
+//! a slot, and no word is reserved in Markdown text. Braces inside fenced code
+//! blocks and inline code spans remain literal Markdown; outside code, `{{`
+//! and `}}` render literal braces.
 //!
-//! Three hashes are the default delimiter so ordinary quotes and Rust raw
-//! strings with fewer hashes can appear in the Markdown. Increase the delimiter
-//! only when the document itself contains the exact closing sequence `"###`.
+//! Keep short fragments on one line, such as `md_sync! { "- {item}\n" }`.
+//! A single string is still a template; retain its newline to separate rows.
+//! Reserve raw literals for substantial multiline fragments or useful escaping.
+//! Three hashes are the default delimiter for documents; nested raw templates
+//! use fewer hashes so their closing delimiter cannot close the parent.
+//! Increase the delimiter when the document contains the exact closing
+//! sequence `"###`.
 //!
 //! Physically multiline raw templates remove their common source indentation,
 //! preserving relative indentation without leaking the surrounding Rust block's
@@ -44,11 +51,11 @@
 //!
 //! ```rust,ignore
 //! md_sync! { r###"
-//! ---
-//! title: Example
-//! description: Source indentation is not rendered.
-//! ---
-//! "###
+//!     ---
+//!     title: Example
+//!     description: Source indentation is not rendered.
+//!     ---
+//!     "###
 //! }
 //! ```
 //!
@@ -65,7 +72,7 @@
 //! composition form above is also supported for expression-visible tooling.
 
 use proa_dsl::md::{
-    bare_ident, substitute_named_args, text_value, IfBranch, MdNodeKind, MdTemplateArg, TplNode,
+    bare_ident, substitute_named_args, text_value, MdNodeKind, MdTemplateArg, TplNode,
 };
 pub use proa_dsl::md::{MdRoot, MdTemplateInput};
 use proc_macro2::TokenStream;
@@ -193,9 +200,9 @@ fn format_args_shadow(
     for node in nodes {
         match node {
             TplNode::Text(_) => {}
+            // A control-flow slot is not a bare identifier, so a template
+            // containing one is not a format string.
             TplNode::Expr(expr) => placeholders.push(bare_ident(expr)?.to_string()),
-            // Control-flow templates are not format strings.
-            TplNode::For { .. } | TplNode::If { .. } => return None,
         }
     }
     if placeholders.is_empty() {
@@ -286,53 +293,15 @@ fn emit_tpl_nodes(
     for node in nodes {
         match node {
             TplNode::Text(t) => run.push_str(t),
+            // Control flow and plain values share the token-mode lowering, so
+            // both template forms render a branch's final expression the same
+            // way.
             TplNode::Expr(expr) => {
                 flush(stmts, run);
-                stmts.push(emit_md_render(expr, mode));
-            }
-            TplNode::For { pat, iter, body } => {
-                flush(stmts, run);
-                let mut inner = Vec::new();
-                let mut inner_run = String::new();
-                emit_tpl_nodes(body, &mut inner, &mut inner_run, mode);
-                flush(&mut inner, &mut inner_run);
-                stmts.push(quote! {
-                    for #pat in #iter { #(#inner)* }
-                });
-            }
-            TplNode::If { branches } => {
-                flush(stmts, run);
-                stmts.push(codegen_if(branches, mode));
+                gen_block_expr(&expr.expr, stmts, mode);
             }
         }
     }
-}
-
-fn codegen_if(branches: &[IfBranch], mode: EmitMode) -> TokenStream {
-    if branches.is_empty() {
-        return quote! {};
-    }
-    let first = &branches[0];
-    let cond = first.cond.as_ref().unwrap();
-    let then = codegen_tpl_body(&first.body, mode);
-    let mut elses = TokenStream::new();
-    for branch in &branches[1..] {
-        let body = codegen_tpl_body(&branch.body, mode);
-        if let Some(c) = &branch.cond {
-            elses.extend(quote! { else if #c { #body } });
-        } else {
-            elses.extend(quote! { else { #body } });
-        }
-    }
-    quote! { if #cond { #then } #elses }
-}
-
-fn codegen_tpl_body(nodes: &[TplNode], mode: EmitMode) -> TokenStream {
-    let mut stmts = Vec::new();
-    let mut run = String::new();
-    emit_tpl_nodes(nodes, &mut stmts, &mut run, mode);
-    flush(&mut stmts, &mut run);
-    quote! { #(#stmts)* }
 }
 
 // -- template parser --
@@ -440,42 +409,38 @@ fn gen_else(expr: &Expr, mode: EmitMode) -> TokenStream {
     }
 }
 
+/// Lower a control-flow body.
+///
+/// Every expression statement written without a semicolon renders in order,
+/// not only the block tail, so a body can sequence several fragments the way
+/// Rust sequences block-like statements. Statements ending in `;` and `let`
+/// bindings are ordinary Rust.
 fn xform_block(block: &syn::Block, mode: EmitMode) -> TokenStream {
-    let s = &block.stmts;
-    if s.is_empty() {
-        return quote! {};
-    }
-    let (init, last) = s.split_at(s.len() - 1);
-    match &last[0] {
-        syn::Stmt::Expr(expr, None) => {
-            let w = gen_expr_write(expr, mode);
-            quote! { #(#init)* #w }
-        }
-        syn::Stmt::Macro(m) if m.semi_token.is_none() => {
-            let mac = &m.mac;
-            match mode {
-                EmitMode::Sync => {
-                    quote! {
-                        #(#init)*
+    let mut out = TokenStream::new();
+    for stmt in &block.stmts {
+        match stmt {
+            syn::Stmt::Expr(expr, None) => out.extend(gen_expr_write(expr, mode)),
+            syn::Stmt::Macro(m) if m.semi_token.is_none() => {
+                let mac = &m.mac;
+                out.extend(match mode {
+                    EmitMode::Sync => quote! {
                         {
                             use ::proa_core::MdRenderSyncExt as _;
                             (#mac).__proa_render_md_sync(cx)?;
                         }
-                    }
-                }
-                EmitMode::Async => {
-                    quote! {
-                        #(#init)*
+                    },
+                    EmitMode::Async => quote! {
                         {
                             use ::proa_core::MdRenderAsyncExt as _;
                             (#mac).__proa_render_md_async(cx).resolve().await?;
                         }
-                    }
-                }
+                    },
+                });
             }
+            other => out.extend(quote! { #other }),
         }
-        _ => quote! { #(#s)* },
     }
+    out
 }
 
 fn gen_expr_write(expr: &Expr, mode: EmitMode) -> TokenStream {
@@ -532,9 +497,7 @@ mod template_tests {
     #[test]
     fn shadow_skipped_for_control_flow() {
         let out = expand(quote! { r###"
-            {for item in &items {
-            - {item}
-            }}
+            {for item in &items { md_sync! { "- " {item} "\n" } }}
             "### });
         assert!(!out.contains("format_args"), "unexpected shadow: {out}");
     }

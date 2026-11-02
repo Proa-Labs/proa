@@ -313,8 +313,7 @@ impl<'a, Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> f
 
             ---
 
-            {for listing in self.listings {
-            {listing}}}
+            {for listing in self.listings { listing }}
             "###
         }
         .render_md(cx)

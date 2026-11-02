@@ -113,7 +113,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Button {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if self.href.is_some() {
             let href = cx.url(self.href.unwrap_or_default());
-            md_sync! { "[" { self.label } "](" { href } ")" }.render_md(cx)
+            md_sync! { "[{self.label}]({href})" }.render_md(cx)
         } else {
             proa_core::MdRenderSync::render_md(self.label, cx)
         }
@@ -168,17 +168,24 @@ pub fn card_classes() -> ClassList<1> {
 }
 
 pub fn card_md_rs() -> &'static str {
-    r###"use proa_core::{WebContext, MdRenderSync, WriteBuf, WriteError};
+    r####"use proa_core::{WebContext, MdRenderSync, WriteBuf, WriteError};
 use proa_macros::md_sync;
 
 use super::Card;
 
 impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Card {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        md_sync! { { self.eyebrow } "\n\n## " { self.title } "\n\n" { self.body } }.render_md(cx)
+        md_sync! { r###"
+            {self.eyebrow}
+
+            ## {self.title}
+
+            {self.body}
+            "###
+        }.render_md(cx)
     }
 }
-"###
+"####
 }
 
 pub fn card_mod_rs() -> &'static str {

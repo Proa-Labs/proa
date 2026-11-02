@@ -87,7 +87,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for F
             | Feature | Checks | Ready |
             | :--- | ---: | :---: |
             {for feature in self.0 {
-            | {feature.name} | {feature.checks} | {(if feature.ready { "Yes" } else { "No" })} |
+                let ready = if feature.ready { "Yes" } else { "No" };
+                md_sync! { "| {feature.name} | {feature.checks} | {ready} |\n" }
             }}
             "###
         }
@@ -101,10 +102,12 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for C
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             {if self.0 {
-            > [!NOTE]
-            > The optional details are enabled.
+                md_sync! { r#"
+                    > [!NOTE]
+                    > The optional details are enabled.
+                "# }
             } else {
-            Optional details are hidden.
+                md_sync! { "Optional details are hidden.\n" }
             }}
             "###
         }

@@ -622,10 +622,7 @@ fn another_grammar_registers_a_parser_and_reuses_targeted_omissions() {
         use syn::spanned::Spanned;
         let span = expr.span();
         Ok(vec![proa_dsl::md::TplNode::Expr(
-            proa_dsl::md::TemplateExpr {
-                expr,
-                location: proa_dsl::md::ExprLocation::Rust(span),
-            },
+            proa_dsl::md::TemplateExpr::rust(expr, span),
         )])
     }
     let mut options = ContentOptions::default();
