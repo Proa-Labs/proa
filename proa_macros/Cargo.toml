@@ -19,7 +19,8 @@ proc-macro = true
 workspace = true
 
 [features]
-default = []
+default = ["markdown"]
+markdown = ["proa_dsl/markdown"]
 no-perf-hints = ["proa_dsl/no-perf-hints"]
 
 [dependencies]
@@ -43,3 +44,31 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 trybuild = { workspace = true }
+
+[[test]]
+name = "markdown_arguments"
+required-features = ["markdown"]
+
+[[test]]
+name = "markdown_escaping"
+required-features = ["markdown"]
+
+[[test]]
+name = "md_tests"
+required-features = ["markdown"]
+
+[[test]]
+name = "md_compile_fail"
+required-features = ["markdown"]
+
+[[test]]
+name = "render_slots"
+required-features = ["markdown"]
+
+[[test]]
+name = "content_markers"
+required-features = ["markdown"]
+
+[[test]]
+name = "content_coverage"
+required-features = ["markdown"]

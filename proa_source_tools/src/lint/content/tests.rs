@@ -1431,3 +1431,39 @@ fn context_url_in_an_imperative_branch_is_preparation_without_hiding_content() {
     );
     assert_eq!(missing(&deleted).len(), 1);
 }
+
+#[test]
+fn nested_markdown_diagnostics_compose_literal_source_maps() {
+    let nested = r####"md_sync! { r###"
+        🦀 { md_sync! { r#"
+            {md_sync! { "\n🦀 {if self.stock>0 {self.title}}\n" }}
+            "# } }
+        "### }.render_md(cx)"####;
+    for body in [nested.to_owned(), nested.replace('\n', "\r\n")] {
+        let src = fixture(
+            "html_sync! {{if self.stock==0 {html_sync! {{self.title}}}}}.render(cx)",
+            &body,
+        );
+        let diagnostics = lint(&src);
+        let diagnostic = diagnostics
+            .iter()
+            .find(|d| d.code == "render/content-coverage-unchecked")
+            .unwrap();
+        let range = &diagnostic.labels[0].range;
+        let expected_line = src
+            .lines()
+            .position(|line| line.contains("self.stock>0"))
+            .unwrap()
+            + 1;
+        assert_eq!(range.line, expected_line, "{diagnostics:#?}");
+        let selected: String = src
+            .lines()
+            .nth(range.line - 1)
+            .unwrap()
+            .chars()
+            .skip(range.column - 1)
+            .take(range.end_column - range.column)
+            .collect();
+        assert_eq!(selected, "self.stock>0");
+    }
+}

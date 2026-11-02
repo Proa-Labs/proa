@@ -145,3 +145,17 @@ async fn quoted_fences_are_opaque_in_sync_and_async_templates() {
     assert_eq!(sync, expected);
     assert_eq!(asynchronous, expected);
 }
+
+#[tokio::test]
+async fn prose_backticks_do_not_close_in_rust_strings() {
+    let value = "Ada";
+    let expected = r"Before ` \` Ada";
+    assert_eq!(
+        render_to_string(md_sync! { r#"Before ` {"`"} {value}"# }),
+        expected
+    );
+    assert_eq!(
+        render_md_to_string_async(md! { r#"Before ` {"`"} {value}"# }).await,
+        expected
+    );
+}

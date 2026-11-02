@@ -180,8 +180,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Card {
 
             ## {self.title}
 
-            {self.body}
-            "###
+            {self.body}"###
         }.render_md(cx)
     }
 }

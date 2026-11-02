@@ -940,3 +940,46 @@ mod tests {
         assert_eq!(parsed.value(), value);
     }
 }
+
+#[cfg(test)]
+mod markdown_fragment_contracts {
+    use super::{app, ui};
+    use proa_dsl::md::{MdTemplateInput, TplNode};
+    use syn::visit::Visit;
+
+    #[test]
+    fn generated_card_fragments_do_not_add_a_trailing_newline() {
+        struct Markdown(Vec<Vec<TplNode>>);
+        impl<'ast> Visit<'ast> for Markdown {
+            fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+                if mac
+                    .path
+                    .segments
+                    .last()
+                    .is_some_and(|s| s.ident == "md_sync")
+                {
+                    self.0.push(
+                        syn::parse2::<MdTemplateInput>(mac.tokens.clone())
+                            .unwrap()
+                            .parse_nodes()
+                            .unwrap(),
+                    );
+                }
+                syn::visit::visit_macro(self, mac);
+            }
+        }
+        for (source, expected) in [
+            (ui::card_md_rs(), "<value>\n\n## <value>\n\n<value>"),
+            (app::database_card_rs(), "## DATA ORIGIN\n\n<value>\n\nTwo component requests resolve through one keyed origin query."),
+        ] {
+            let mut markdown = Markdown(Vec::new());
+            markdown.visit_file(&syn::parse_file(source).unwrap());
+            assert_eq!(markdown.0.len(), 1);
+            let output: String = markdown.0[0].iter().map(|node| match node {
+                TplNode::Text(text) => text.as_str(),
+                TplNode::Expr(_) => "<value>",
+            }).collect();
+            assert_eq!(output, expected);
+        }
+    }
+}

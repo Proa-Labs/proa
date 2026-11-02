@@ -160,9 +160,11 @@ finishes; neither requires cloning the input. Use a sync nested fragment when
 it has no async children.
 Plain Markdown is never parsed inside a slot, so `if`, `for`, and `match` are
 ordinary words in Markdown text, and a line means the same thing at the top
-level and inside a branch. Markdown written directly inside a branch is a
-compile error that names the nested-template form. Named arguments bind values
-for the whole template, including conditions, iterators, and nested templates.
+level and inside a branch. Invalid Rust in a control-flow slot gets a diagnostic
+showing the nested-template form. A bare word is valid Rust syntax and is resolved
+as an identifier; an unknown name gets Rust's ordinary unresolved-name error.
+Named arguments bind values for the whole template, including conditions,
+iterators, and nested templates.
 
 A raw Rust literal disables Rust backslash escaping, not template slots.
 For example, `md_sync! { r#"{"Hello {name}"}"# }` renders `Hello {name}`:
@@ -258,3 +260,12 @@ does not waive the template authoring rule.
 Run Proa formatting/lint and focused checks of rendered behavior: dynamic data,
 escaping, shared HTML/Markdown values, link destinations, JSON types, and HTTP
 status/content negotiation. Do not pin prose copied from the implementation.
+
+### Markdown compiler dependencies
+
+The `markdown` feature on `proa_macros` and `proa_dsl` is enabled by default.
+HTML/XML-only consumers can set `proa_macros = { version = "0.3", default-features = false }`
+to omit the Markdown parsers. Enable `features = ["markdown"]` explicitly when
+using `md!` or `md_sync!` with default features disabled. Cargo unifies features:
+if another dependency enables Markdown, its parser dependencies are still built.
+Source tools and documentation builders enable Markdown explicitly.

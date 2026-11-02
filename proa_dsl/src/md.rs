@@ -78,13 +78,20 @@ impl TemplateExpr {
     /// not part of this slot, or when spans carry no location at all (inside a
     /// running proc macro).
     pub fn locate(&self, span: Span) -> Option<ExprLocation> {
+        self.locate_token_range(span, 0..span.byte_range().len())
+    }
+
+    /// Map bytes within a token parsed from this slot (for example, a nested
+    /// template literal). Compose this with enclosing slots to reach the file.
+    pub fn locate_token_range(&self, span: Span, range: Range<usize>) -> Option<ExprLocation> {
         let source = self.source.as_ref()?;
         source.whole.join(span)?;
         let relative = span.byte_range();
-        if relative.start > relative.end || relative.end > source.len {
+        if range.start > range.end || range.end > relative.len() || relative.end > source.len {
             return None;
         }
-        let decoded = source.origin + relative.start..source.origin + relative.end;
+        let decoded = source.origin + relative.start + range.start
+            ..source.origin + relative.start + range.end;
         Some(match &source.literal {
             Some(literal) => literal.locate(decoded),
             None => ExprLocation::Decoded(decoded),
@@ -257,12 +264,6 @@ pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
         }
 
         match bytes[pos] {
-            b'\\' if matches!(bytes.get(pos + 1), Some(b'`' | b'\\')) => {
-                // Markdown escapes one punctuation character. Consume escaped
-                // backticks and backslash pairs together, preserving spelling.
-                text.push_str(&input[pos..pos + 2]);
-                pos += 2;
-            }
             b'{' => {
                 if bytes.get(pos + 1) == Some(&b'{') {
                     text.push('{');

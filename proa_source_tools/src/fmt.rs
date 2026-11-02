@@ -684,9 +684,53 @@ pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
     }
 
     out.push_str(&tpl.close);
-    out.push_str(&tpl.suffix);
+    out.push_str(&reindent_md_arguments(&tpl.suffix, content_indent));
     out.push('\n');
     push_spaces(&mut out, close_indent);
+    out
+}
+
+fn reindent_md_arguments(suffix: &str, indent: usize) -> String {
+    let mut literals = Vec::new();
+    let mut at = 0;
+    while at < suffix.len() {
+        if let Some(end) = rust_string_literal_end(suffix, at) {
+            literals.push(at..end);
+            at = end;
+        } else {
+            at += suffix[at..].chars().next().unwrap().len_utf8();
+        }
+    }
+    let mut offset = 0;
+    let lines: Vec<_> = suffix
+        .split_inclusive('\n')
+        .map(|line| {
+            let protected = literals
+                .iter()
+                .any(|range| range.start < offset && offset < range.end);
+            offset += line.len();
+            (line, protected)
+        })
+        .collect();
+    let base = lines
+        .iter()
+        .skip(1)
+        .filter(|(line, protected)| !protected && !line.trim().is_empty())
+        .map(|(line, _)| line.len() - line.trim_start_matches([' ', '\t']).len())
+        .min();
+    let Some(base) = base else {
+        return suffix.to_owned();
+    };
+    let mut out = String::new();
+    for (n, (line, protected)) in lines.iter().enumerate() {
+        if n == 0 || *protected || line.trim().is_empty() {
+            out.push_str(line);
+            continue;
+        }
+        let rest = line.trim_start_matches([' ', '\t']);
+        push_spaces(&mut out, indent + line.len() - rest.len() - base);
+        out.push_str(rest);
+    }
     out
 }
 

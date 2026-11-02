@@ -24,6 +24,7 @@ mod const_recipe;
 mod content;
 mod form_schema_derive;
 mod island_attr;
+#[cfg(feature = "markdown")]
 mod md;
 mod parse;
 mod render_control;
@@ -328,6 +329,7 @@ pub fn xml_sync(input: TokenStream) -> TokenStream {
 /// ```rust,ignore
 /// md! { "# Hello " { title } }
 /// ```
+#[cfg(feature = "markdown")]
 #[proc_macro]
 pub fn md(input: TokenStream) -> TokenStream {
     expand_md(input, md::EmitMode::Async)
@@ -366,11 +368,13 @@ pub fn md(input: TokenStream) -> TokenStream {
 ///     "###
 /// };
 /// ```
+#[cfg(feature = "markdown")]
 #[proc_macro]
 pub fn md_sync(input: TokenStream) -> TokenStream {
     expand_md(input, md::EmitMode::Sync)
 }
 
+#[cfg(feature = "markdown")]
 fn expand_md(input: TokenStream, mode: md::EmitMode) -> TokenStream {
     // Preferred template mode: one multiline raw literal, optionally followed
     // by `format!`-style `name = expr` arguments. Token mode's first token is

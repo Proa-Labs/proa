@@ -446,3 +446,44 @@ Body.
         "expected a verify failure: {diags:?}"
     );
 }
+
+#[test]
+fn markdown_named_argument_layout_moves_without_changing_literal_data() {
+    let source = r####"fn f() {
+    md_sync! { r###"
+                {title} {copy}
+                "###,
+                title = {
+                    make_title()
+                },
+                copy = r#"first
+                    literal indentation
+                last"#,
+    };
+}"####;
+    let formatted = format_file(Path::new("arguments.rs"), source).unwrap();
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert!(
+        formatted
+            .output
+            .contains("\n        title = {\n            make_title()\n        },\n        copy ="),
+        "{}",
+        formatted.output
+    );
+    assert!(formatted
+        .output
+        .contains("first\n                    literal indentation\n                last"));
+    assert!(
+        verify_render_preserving(Path::new("arguments.rs"), source, &formatted.output).is_empty()
+    );
+    assert_eq!(
+        format_file(Path::new("arguments.rs"), &formatted.output)
+            .unwrap()
+            .output,
+        formatted.output
+    );
+}

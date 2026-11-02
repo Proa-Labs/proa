@@ -367,7 +367,7 @@ and removes the call-site adapter. Explicit custom components use
 
 ## Markdown render traits (proa_core)
 
-### "`AsyncMd<...>: MdRenderSync<L>` is not satisfied"
+### "`AsyncMdFn<...>: MdRenderSync<L>` is not satisfied"
 
 **Triggered by:** using async-capable `md!` inside an `MdRenderSync` component
 or passing its dynamic output to a synchronous Markdown renderer.

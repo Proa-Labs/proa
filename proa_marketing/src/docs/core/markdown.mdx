@@ -101,9 +101,14 @@ The expression-visible token form, `md_sync! { "# " { title } }`, remains availa
 
 An async child cannot appear inside `md_sync!`. Move the boundary to `MdRender` and `md!`.
 
+The Markdown macros use the default-enabled `markdown` feature of `proa_macros`.
+An HTML/XML-only application can disable default features to omit the Markdown
+parser dependencies. If defaults are disabled, opt in with `features = ["markdown"]`
+when using `md!` or `md_sync!`. Cargo enables a feature if any dependency requests it.
+
 ## Loops and branches
 
-The template has one lexical rule at every depth: text outside `{ ... }` is Markdown, and text inside is a Rust expression. Control flow is ordinary Rust, exactly as in `html_sync!`, and a branch renders every expression statement written without a semicolon. Markdown re-enters a branch through a nested `md_sync!` call:
+The template has one lexical rule at every depth: text outside `{ ... }` is Markdown, and text inside is a Rust expression. Control flow is ordinary Rust, exactly as in `html_sync!`, and a branch renders only its final expression. Earlier statements retain ordinary Rust side effects; a semicolon discards a value. Compose multiple fragments in one nested template. Markdown re-enters a branch through a nested `md_sync!` call:
 
 ```rust filename="src/pages/summary.rs"
 let summary = md_sync! { r###"

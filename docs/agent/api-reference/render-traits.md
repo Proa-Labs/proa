@@ -453,7 +453,7 @@ switches traits.
 
 - `WebRenderSync` is **the** fast path: no future allocation, no `RenderOutcome` wrapper, no async dispatch overhead. Stick with it whenever possible.
 - An ordinary component that returns `RenderOutcome::Done` stays on the immediate body path. `to_async(sync_child)` is exactly that shape.
-- **The macro, not the trait, is what allocates.** An `html!` (or `md!`) block with any dynamic content emits `async_html_from_fn(Box::new(|cx| Box::pin(async move { .. })))`: one heap allocation for the erased closure, one for the future, and dynamically dispatched polls, whether or not the body ever awaits. `html_sync!` emits a monomorphized `OptimizedHtml<B, L, F>` with an `#[inline(always)]` render and no allocation. So an async component whose template happens to be static still pays twice per node.
+- Dynamic `html!` and `md!` retain concrete async closure and future types in `AsyncRender` and `AsyncMdFn`; ordinary macro expansion does not box either. Explicit erased constructors (`async_html_from_fn`, `async_md_from_fn`) retain their allocation costs. `html_sync!` uses a monomorphized `OptimizedHtml<B, L, F>` and avoids async state entirely.
 - Prefer `html_sync!` for every subtree that has no async child, even inside a `WebRender` impl that awaits elsewhere. Wrap the result in `to_async(..)` at the seam if it composes into an async tree.
 
 ### Lints that enforce this

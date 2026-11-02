@@ -340,3 +340,72 @@ async fn typed_async_formats_keep_borrowed_writer_support() {
     }
     assert_eq!(bytes, br"<p>&lt;&amp;*</p>\<\&\*");
 }
+
+#[test]
+#[deny(dependency_on_unit_never_type_fallback)]
+#[allow(unreachable_code)]
+fn diverging_loops_do_not_require_a_renderable_never_type() {
+    use proa_core::WebRenderSync;
+    fn fail() -> Result<(), WriteError> {
+        Err(WriteError::OutOfCapacity)
+    }
+    macro_rules! check {
+        ($template:ident) => {{
+            let mut cx = WebContext::<proa_core::NoLoader>::new();
+            let result = WebRenderSync::render(
+                $template! { {loop {
+                    loop { break; }
+                    fail()?;
+                }} },
+                &mut cx,
+            );
+            assert_eq!(result, Err(WriteError::OutOfCapacity));
+            let mut cx = WebContext::<proa_core::NoLoader>::new();
+            let result = WebRenderSync::render(
+                $template! { {loop { return Err(WriteError::OutOfCapacity); }} },
+                &mut cx,
+            );
+            assert_eq!(result, Err(WriteError::OutOfCapacity));
+        }};
+    }
+    check!(html_sync);
+    check!(xml_sync);
+    check!(md_sync);
+}
+
+#[tokio::test]
+#[allow(unreachable_code)]
+async fn loop_exit_values_respect_iterator_scope_and_macro_expansion() {
+    macro_rules! leave {
+        () => {
+            break "macro&"
+        };
+    }
+    macro_rules! fragment {
+        ($template:ident) => {
+            $template! {
+                {loop {
+                    for _ in { break "iterator&"; [0] } {}
+                }}
+                {loop { leave!(); }}
+            }
+        };
+    }
+    let expected = "iterator&amp;macro&amp;";
+    assert_eq!(proa_core::render_to_string(fragment!(html_sync)), expected);
+    assert_eq!(proa_core::render_to_string(fragment!(xml_sync)), expected);
+    assert_eq!(
+        proa_core::render_to_string_async(fragment!(html)).await,
+        expected
+    );
+    assert_eq!(
+        proa_core::render_to_string_async(fragment!(xml)).await,
+        expected
+    );
+    let expected = "iterator\\&\n\nmacro\\&";
+    assert_eq!(proa_core::render_to_string(fragment!(md_sync)), expected);
+    assert_eq!(
+        proa_core::render_md_to_string_async(fragment!(md)).await,
+        expected
+    );
+}

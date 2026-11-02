@@ -10,6 +10,10 @@ Read [document rendering](../../../docs/agent/document-rendering.md) and the
 in the source checkout. In an application without those files, retrieve the
 corresponding current documentation from `https://proa.so/docs/llms.txt`.
 
+`md!` and `md_sync!` require the default-enabled `markdown` feature of
+`proa_macros`. If the dependency disables defaults, enable `features = ["markdown"]`.
+HTML/XML-only crates may disable it to omit Markdown parser build dependencies.
+
 ## Choose the rendering boundary
 
 When the same Page also renders a managed-head HTML document, declare

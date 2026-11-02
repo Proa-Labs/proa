@@ -911,5 +911,127 @@
     "slots": [
       "value"
     ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust string",
+    "markdown": "Before ` {\"`\"} {value}",
+    "slots": [
+      "\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust string CRLF",
+    "markdown": "Before ` {\"`\"} {value}",
+    "slots": [
+      "\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick before nested Markdown",
+    "markdown": "Before ` {md_sync! { \"`{value}`\" }} after",
+    "slots": [
+      "md_sync! { \"`{value}`\" }"
+    ]
+  },
+  {
+    "name": "stray prose backtick before nested Markdown CRLF",
+    "markdown": "Before ` {md_sync! { \"`{value}`\" }} after",
+    "slots": [
+      "md_sync! { \"`{value}`\" }"
+    ]
+  },
+  {
+    "name": "inline code encloses whole quoted Rust text",
+    "markdown": "`{\"`\"}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code encloses whole quoted Rust text CRLF",
+    "markdown": "`{\"`\"}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "quoted backtick in fenced code stays literal",
+    "markdown": "```rust\n{\"`\"}\n```\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "quoted backtick in fenced code stays literal CRLF",
+    "markdown": "```rust\r\n{\"`\"}\r\n```\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust character",
+    "markdown": "Before ` {'`'}\n{value}",
+    "slots": [
+      "'`'",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust character CRLF",
+    "markdown": "Before ` {'`'}\r\n{value}",
+    "slots": [
+      "'`'",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust raw string",
+    "markdown": "Before ` {r#\"`\"#}\n{value}",
+    "slots": [
+      "r#\"`\"#",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust raw string CRLF",
+    "markdown": "Before ` {r#\"`\"#}\r\n{value}",
+    "slots": [
+      "r#\"`\"#",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust block comment",
+    "markdown": "Before ` { /* ` */ value }\n{other}",
+    "slots": [
+      "/* ` */ value",
+      "other"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust block comment CRLF",
+    "markdown": "Before ` { /* ` */ value }\r\n{other}",
+    "slots": [
+      "/* ` */ value",
+      "other"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust line comment",
+    "markdown": "Before ` {// `\n value}\n{other}",
+    "slots": [
+      "// `\n value",
+      "other"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust line comment CRLF",
+    "markdown": "Before ` {// `\r\n value}\r\n{other}",
+    "slots": [
+      "// `\n value",
+      "other"
+    ]
   }
 ]

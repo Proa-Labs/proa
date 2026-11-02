@@ -288,8 +288,7 @@ impl<L: DataLoader> proa_core::MdRender<L> for DatabaseCard {
 
                 {status.driver}
 
-                Two component requests resolve through one keyed origin query.
-                "###
+                Two component requests resolve through one keyed origin query."###
             }, cx)
         })
     }

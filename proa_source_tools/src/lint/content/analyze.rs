@@ -56,7 +56,7 @@ struct Analyzer<'a> {
     bindings_initialized: bool,
     sink_range: Option<SourceRange>,
     /// The raw Markdown slot being analyzed, for sub-expression locations.
-    slot: Option<TemplateExpr>,
+    slots: Vec<TemplateExpr>,
 }
 fn bare(expr: &Expr) -> Option<String> {
     match expr {
@@ -241,7 +241,7 @@ impl Analyzer<'_> {
     fn range(&self, span: Span, override_range: Option<&SourceRange>) -> SourceRange {
         // Inside a raw Markdown slot, point at the sub-expression itself (an
         // `if` condition, a `for` iterator) rather than at the whole slot.
-        if let Some(location) = self.slot.as_ref().and_then(|slot| slot.locate(span)) {
+        if let Some(location) = self.slots.last().and_then(|slot| slot.locate(span)) {
             return self.location_range(&location);
         }
         override_range
@@ -1212,7 +1212,20 @@ impl Analyzer<'_> {
         }
     }
     fn location_range(&self, location: &ExprLocation) -> SourceRange {
-        match location {
+        let mut location = location.clone();
+        for parent in self.slots.iter().rev() {
+            let mapped = match &location {
+                ExprLocation::Rust(span) => parent.locate(*span),
+                ExprLocation::Literal { span, range } => {
+                    parent.locate_token_range(*span, range.clone())
+                }
+                ExprLocation::Decoded(_) => None,
+            };
+            if let Some(mapped) = mapped {
+                location = mapped;
+            }
+        }
+        match &location {
             ExprLocation::Rust(span) => span_range(self.path, *span),
             ExprLocation::Literal { span, range } => {
                 let literal = span_range(self.path, *span);
@@ -1246,7 +1259,7 @@ impl Analyzer<'_> {
             }
             // Decoded offsets only exist before a literal is mapped; tooling
             // always sees mapped locations, so fall back to the active slot.
-            ExprLocation::Decoded(_) => self.slot.as_ref().map_or_else(
+            ExprLocation::Decoded(_) => self.slots.last().map_or_else(
                 || span_range(self.path, Span::call_site()),
                 |slot| self.template_range(slot),
             ),
@@ -1261,9 +1274,9 @@ impl Analyzer<'_> {
                 }
                 TplNode::Expr(e) => {
                     let range = self.template_range(e);
-                    let previous = self.slot.replace(e.clone());
+                    self.slots.push(e.clone());
                     result.append(self.expr(&e.expr, env, Some(&range)));
-                    self.slot = previous;
+                    self.slots.pop();
                 }
             }
         }
@@ -1909,7 +1922,7 @@ pub(super) fn summarize(
         bindings: BTreeMap::new(),
         bindings_initialized: false,
         sink_range: None,
-        slot: None,
+        slots: Vec::new(),
     };
     let mut env = Env::new();
     env.insert(

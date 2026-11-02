@@ -57,6 +57,11 @@ pub(crate) fn lower(expr: &Expr, render: &impl Fn(&Expr) -> TokenStream) -> Toke
             let attrs = &e.attrs;
             let label = &e.label;
             let body = lower_block(&e.body, render);
+            if !loop_can_break(e) {
+                // A diverging loop has no child value. Do not impose a render
+                // trait on `!` or rely on the pre-2024 fallback to unit.
+                return quote! { #(#attrs)* #label loop { #body } };
+            }
             // Unlike `for` and `while`, a loop can return a value through
             // `break`. Its body still streams each tail; render the final
             // break value once after the loop finishes (unit emits nothing).
@@ -75,6 +80,75 @@ pub(crate) fn lower(expr: &Expr, render: &impl Fn(&Expr) -> TokenStream) -> Toke
         Expr::Path(e) if e.path.is_ident("None") => quote! {},
         _ => render(expr),
     }
+}
+
+fn loop_can_break(expr: &syn::ExprLoop) -> bool {
+    use syn::visit::{self, Visit};
+    struct Exits<'a> {
+        label: Option<&'a syn::Lifetime>,
+        depth: usize,
+        found: bool,
+    }
+    impl<'ast> Visit<'ast> for Exits<'_> {
+        fn visit_expr_break(&mut self, expr: &'ast syn::ExprBreak) {
+            self.found |= match &expr.label {
+                Some(label) => self.label == Some(label),
+                None => self.depth == 0,
+            };
+            visit::visit_expr_break(self, expr);
+        }
+        fn visit_expr_loop(&mut self, expr: &'ast syn::ExprLoop) {
+            if self.label.is_some() && expr.label.as_ref().map(|label| &label.name) == self.label {
+                return;
+            }
+            self.depth += 1;
+            visit::visit_expr_loop(self, expr);
+            self.depth -= 1;
+        }
+        fn visit_expr_for_loop(&mut self, expr: &'ast syn::ExprForLoop) {
+            // The iterator expression is evaluated outside the new loop's
+            // scope, including when its label shadows the enclosing loop.
+            self.visit_expr(&expr.expr);
+            if self.label.is_some() && expr.label.as_ref().map(|label| &label.name) == self.label {
+                return;
+            }
+            self.depth += 1;
+            self.visit_block(&expr.body);
+            self.depth -= 1;
+        }
+        fn visit_expr_while(&mut self, expr: &'ast syn::ExprWhile) {
+            if self.label.is_some() && expr.label.as_ref().map(|label| &label.name) == self.label {
+                return;
+            }
+            self.depth += 1;
+            visit::visit_expr_while(self, expr);
+            self.depth -= 1;
+        }
+        fn visit_expr_closure(&mut self, _: &'ast syn::ExprClosure) {}
+        fn visit_expr_block(&mut self, expr: &'ast syn::ExprBlock) {
+            if self.label.is_some() && expr.label.as_ref().map(|label| &label.name) == self.label {
+                let label = self.label.take();
+                visit::visit_expr_block(self, expr);
+                self.label = label;
+            } else {
+                visit::visit_expr_block(self, expr);
+            }
+        }
+        fn visit_expr_async(&mut self, _: &'ast syn::ExprAsync) {}
+        fn visit_item(&mut self, _: &'ast syn::Item) {}
+        // Expansion can contain a break targeting this loop. Keep Rust's own
+        // inference in that case instead of assuming the macro diverges.
+        fn visit_macro(&mut self, _: &'ast syn::Macro) {
+            self.found = true;
+        }
+    }
+    let mut exits = Exits {
+        label: expr.label.as_ref().map(|label| &label.name),
+        depth: 0,
+        found: false,
+    };
+    exits.visit_block(&expr.body);
+    exits.found
 }
 
 fn lower_block(block: &Block, render: &impl Fn(&Expr) -> TokenStream) -> TokenStream {

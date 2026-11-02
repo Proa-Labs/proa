@@ -111,7 +111,7 @@ proa_html_policy = { path = "proa_html_policy", version = "0.1.0" }
 proa_demo = { path = "proa_demo", version = "0.1.0" }
 proa_docs = { path = "proa_docs/proa_docs", version = "0.2.0" }
 proa_docs_build = { path = "proa_docs/proa_docs_build", version = "0.2.0" }
-proa_dsl = { path = "proa_dsl", version = "0.1.3" }
+proa_dsl = { path = "proa_dsl", version = "0.1.3", default-features = false }
 proa_fonts = { path = "proa_fonts/proa_fonts", version = "0.1.0", default-features = false }
 proa_fonts_build = { path = "proa_fonts/proa_fonts_build", version = "0.1.0" }
 proa_fonts_macros = { path = "proa_fonts/proa_fonts_macros", version = "0.1.0" }

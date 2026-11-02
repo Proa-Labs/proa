@@ -255,12 +255,21 @@ function codeRanges(text) {
   while (pending.length) {
     const node = pending.pop();
     if (node.type === 'inlineCode' || node.type === 'code') {
-      ranges.push({ start: original(node.position.start.offset), end: original(node.position.end.offset) });
+      ranges.push({ start: original(node.position.start.offset), end: original(node.position.end.offset), block: node.type === 'code' });
     } else if (node.children) {
       for (let i = node.children.length - 1; i >= 0; i--) pending.push(node.children[i]);
     }
   }
   return ranges;
+}
+
+// Preserve UTF-8 and UTF-16 widths while making a Rust slot opaque to Markdown.
+function maskSlot(text, start, end) {
+  const mask = [...text.slice(start, end)].map(ch => {
+    const point = ch.codePointAt(0);
+    return point < 128 ? 'x' : point < 2048 ? 'é' : point < 65536 ? '中' : '🦀';
+  }).join('');
+  return text.slice(0, start) + mask + text.slice(end);
 }
 
 function expressions(source, literal, statement = false) {
@@ -269,8 +278,29 @@ function expressions(source, literal, statement = false) {
   let masked = text, code = codeRanges(text), nextCode = 0;
   for (let i = 0; i < text.length;) {
     while (code[nextCode]?.end <= i) nextCode++;
-    if (code[nextCode]?.start <= i) { i = code[nextCode].end; continue; }
-    if (text[i] === '\\' && (text[i + 1] === '`' || text[i + 1] === '\\')) { i += 2; continue; }
+    if (code[nextCode]?.start <= i) {
+      const range = code[nextCode];
+      let crossing;
+      if (!range.block && /["'/]/.test(masked.slice(range.start, range.end))) {
+        for (let at = range.start; at < range.end;) {
+          if (masked.startsWith('{{', at)) { at += 2; continue; }
+          if (masked[at] === '{') {
+            const end = expressionEnd(masked, at, masked.length);
+            if (end === null) break;
+            if (end > range.end) { crossing = [at, end]; break; }
+            at = end;
+          } else at++;
+        }
+      }
+      if (crossing) {
+        masked = maskSlot(masked, ...crossing);
+        code = codeRanges(masked).filter(range => range.end > i);
+        nextCode = 0;
+        continue;
+      }
+      i = range.end;
+      continue;
+    }
     if (text.startsWith('{{', i) || text.startsWith('}}', i)) { i += 2; continue; }
     if (text[i] === '{') {
       const end = expressionEnd(text, i, text.length);
@@ -281,12 +311,8 @@ function expressions(source, literal, statement = false) {
       if (statement) replacements.push([authored.start, ' '], [authored.end - 1, ';']);
       // Rust slots are opaque to Markdown, including their physical newlines.
       // Rescan after masking so Rust strings cannot open a fence outside a slot.
-      if (!/^[a-zA-Z0-9{}_ .:&]+$/.test(text.slice(i, end))) {
-        const mask = [...text.slice(i, end)].map(ch => {
-          const point = ch.codePointAt(0);
-          return point < 128 ? 'x' : point < 2048 ? 'é' : point < 65536 ? '中' : '🦀';
-        }).join('');
-        masked = masked.slice(0, i) + mask + masked.slice(end);
+      if (/[`~\n\r\t<>|\[\]\\"']/.test(masked.slice(i, end))) {
+        masked = maskSlot(masked, i, end);
         code = codeRanges(masked).filter(range => range.start >= end);
         nextCode = 0;
       }
