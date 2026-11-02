@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use proa_core::{DataLoader, MdRender, RenderOutcome, WebContext, WebRender, WriteBuf, WriteError};
-use proa_macros::{html, html_sync, md, md_sync};
+use proa_macros::{html, html_sync, md, md_sync, xml, xml_sync};
 use std::{future::Future, rc::Rc};
 
 struct Delayed<'a>(&'a str);
@@ -26,6 +26,102 @@ impl<L: DataLoader, B: WriteBuf> MdRender<L, B> for Delayed<'_> {
             tokio::task::yield_now().await;
             cx.write_md_text(self.0)
         })
+    }
+}
+
+fn returned_html(title: String) -> impl WebRender {
+    html! {
+        <p>{Delayed(title.as_str())}</p>
+    }
+}
+
+fn returned_xml(title: String) -> impl WebRender {
+    xml! {
+        <title>{Delayed(title.as_str())}</title>
+    }
+}
+
+fn returned_markdown<L: DataLoader, B: WriteBuf>(title: String) -> impl MdRender<L, B> {
+    md! { "# {Delayed(title.as_str())}" }
+}
+
+#[tokio::test]
+async fn returned_async_templates_own_inputs_across_pending_children() {
+    let input = "<&*";
+    let html = returned_html(input.to_owned());
+    let xml = returned_xml(input.to_owned());
+    let markdown = returned_markdown(input.to_owned());
+
+    assert_eq!(
+        proa_core::render_to_string_async(html).await,
+        "<p>&lt;&amp;*</p>"
+    );
+    assert_eq!(
+        proa_core::render_to_string_async(xml).await,
+        "<title>&lt;&amp;*</title>"
+    );
+    assert_eq!(
+        proa_core::render_md_to_string_async(markdown).await,
+        "# \\<\\&\\*"
+    );
+}
+
+#[test]
+fn sync_formats_render_labeled_block_results_once() {
+    for early in [true, false] {
+        let first = "<&*";
+        let fallback = "other&*";
+        let html = proa_core::render_to_string(html_sync! {
+            {'pick: {
+                if early { break 'pick first; }
+                fallback
+            }}
+        });
+        let xml = proa_core::render_to_string(xml_sync! {
+            {'pick: {
+                if early { break 'pick first; }
+                fallback
+            }}
+        });
+        let markdown = proa_core::render_to_string(md_sync! { r#"{'pick: {
+            if early { break 'pick first; }
+            fallback
+        }}"# });
+
+        assert_eq!(html, if early { "&lt;&amp;*" } else { "other&amp;*" });
+        assert_eq!(xml, html);
+        assert_eq!(markdown, if early { r"\<\&\*" } else { r"other\&\*" });
+    }
+}
+
+#[tokio::test]
+async fn async_formats_render_labeled_block_results_once() {
+    for early in [true, false] {
+        let first = "<&*";
+        let fallback = "other&*";
+        let html = proa_core::render_to_string_async(html! {
+            {'pick: {
+                if early { break 'pick Delayed(first); }
+                Delayed(fallback)
+            }}
+        })
+        .await;
+        let xml = proa_core::render_to_string_async(xml! {
+            {'pick: {
+                if early { break 'pick Delayed(first); }
+                Delayed(fallback)
+            }}
+        })
+        .await;
+        let markdown = proa_core::render_md_to_string_async(md! { r#"{'pick: {
+            if early { break 'pick Delayed(first); }
+            Delayed(fallback)
+        }}"# })
+        .await;
+
+        assert_eq!(html, if early { "&lt;&amp;*" } else { "other&amp;*" });
+        assert_eq!(xml, html);
+        assert_eq!(markdown, if early { r"\<\&\*" } else { r"other\&\*" });
     }
 }
 
@@ -54,16 +150,19 @@ async fn async_formats_borrow_local_strings_across_pending_children() {
 #[tokio::test]
 async fn nested_async_formats_borrow_loop_locals() {
     let values = [String::from("a"), String::from("b")];
+    let values = &values;
     let html_output = proa_core::render_to_string_async(html! {
-        {for value in &values {
+        {for value in values {
             let local = value.repeat(2);
-            html! { <p>{Delayed(&local)}</p> }
+            let borrowed = local.as_str();
+            html! { <p>{Delayed(borrowed)}</p> }
         }}
     })
     .await;
-    let md_output = proa_core::render_md_to_string_async(md! { r###"{for value in &values {
+    let md_output = proa_core::render_md_to_string_async(md! { r###"{for value in values {
         let local = value.repeat(2);
-        md! { "{Delayed(&local)}\n" }
+        let borrowed = local.as_str();
+        md! { "{Delayed(borrowed)}\n" }
     }}"### })
     .await;
     assert_eq!(html_output, "<p>aa</p><p>bb</p>");
@@ -73,6 +172,7 @@ async fn nested_async_formats_borrow_loop_locals() {
 #[tokio::test]
 async fn local_async_formats_allow_non_send_captures() {
     let value = Rc::new(String::from("local"));
+    let value = &value;
     assert_eq!(
         proa_core::render_to_string_async(html! { {Delayed(value.as_str())} }).await,
         "local"
@@ -168,19 +268,20 @@ fn rust_string_in_slot_and_literal_braces_are_distinct() {
 #[tokio::test]
 async fn typed_async_formats_keep_borrowed_writer_support() {
     let input = String::from("<&*");
+    let input = input.as_str();
     let mut bytes = Vec::new();
     {
         let mut cx = WebContext::with_buffer(&mut bytes);
         WebRender::render(
             html! {
-                <p>{Delayed(&input)}</p>
+                <p>{Delayed(input)}</p>
             },
             &mut cx,
         )
         .resolve()
         .await
         .unwrap();
-        MdRender::render_md(md! { "{Delayed(&input)}" }, &mut cx)
+        MdRender::render_md(md! { "{Delayed(input)}" }, &mut cx)
             .resolve()
             .await
             .unwrap();

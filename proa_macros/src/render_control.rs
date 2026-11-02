@@ -59,11 +59,12 @@ pub(crate) fn lower(expr: &Expr, render: &impl Fn(&Expr) -> TokenStream) -> Toke
             let body = lower_block(&e.body, render);
             quote! { #(#attrs)* #label loop { #body } }
         }
-        Expr::Block(e) => {
+        // A labeled block may produce its value through `break 'label value`.
+        // Render that value once, rather than turning only its tail into output.
+        Expr::Block(e) if e.label.is_none() => {
             let attrs = &e.attrs;
-            let label = &e.label;
             let body = lower_block(&e.block, render);
-            quote! { #(#attrs)* #label { #body } }
+            quote! { #(#attrs)* { #body } }
         }
         // These transfer control; their never type is not a renderable value.
         Expr::Break(_) | Expr::Continue(_) | Expr::Return(_) => quote! { #expr },

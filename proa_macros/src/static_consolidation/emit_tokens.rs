@@ -647,7 +647,7 @@ fn generate_optimized_async_with_dialect(root: &HtmlRoot, dialect: MarkupDialect
 
     if dialect == MarkupDialect::Html {
         return quote! {
-            ::proa_core::shared::async_render::async_render(async |cx| {
+            ::proa_core::shared::async_render::async_render(async move |cx| {
                 #(#statements)*
                 Ok(())
             })
@@ -658,7 +658,7 @@ fn generate_optimized_async_with_dialect(root: &HtmlRoot, dialect: MarkupDialect
     let restore_dialect = dialect.runtime_restore_tokens();
 
     quote! {
-        ::proa_core::shared::async_render::async_render(async |cx| {
+        ::proa_core::shared::async_render::async_render(async move |cx| {
             #enter_dialect
             let __proa_render_result: Result<(), ::proa_core::shared::write_buf::WriteError> = async {
                 #(#statements)*

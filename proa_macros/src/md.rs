@@ -131,7 +131,7 @@ fn wrap_render(stmts: &[TokenStream], mode: EmitMode) -> TokenStream {
             )
         },
         EmitMode::Async => quote! {
-            ::proa_core::md::async_md_from_closure(async |cx| {
+            ::proa_core::md::async_md_from_closure(async move |cx| {
                 use ::proa_core::MdRenderAsyncExt as _;
                 #(#stmts)*
                 Ok(())
