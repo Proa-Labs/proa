@@ -154,10 +154,10 @@ Author Markdown as one multiline raw template, using three hashes by default:
 
 ```rust
 md_sync! { r###"
-# {self.title}
+    # {self.title}
 
-{self.body}
-"###
+    {self.body}
+    "###
 }
 ```
 
@@ -166,6 +166,13 @@ ordinary blocks. `{expression}` composes a typed child. Braces inside fenced
 code blocks and inline code spans stay literal. Increase the raw-string hash
 count only if the Markdown itself contains the exact closing sequence `"###`.
 Outside code spans and fences, write `{{` or `}}` for a literal brace.
+Text outside slots is always Markdown; each `{ ... }` slot is Rust. Use
+ordinary Rust `if`, `for`, and `match` there, and re-enter Markdown through a
+nested raw template, using fewer hashes than the outer literal. Prefer
+`md_sync! { r#"**In stock**"# }` and multiline raw list fragments over quoted
+token pieces. Never remove the explicit slot boundary around control flow.
+See [the Markdown skill](.agents/skills/proa-markdown/SKILL.md) for a complete
+loop/branch example and the exceptions for code fences and exact separators.
 The token composition form (`md_sync! { "# " { title } }`) remains supported
 for generated code and cases that need the expressions visible as Rust tokens.
 Run `proa fmt` to normalize raw-template indentation and keep the closing macro

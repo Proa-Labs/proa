@@ -1221,12 +1221,18 @@ pub fn render_md_with(data: &ListingData<'_>) -> String {
         ## Highlights
 
         {for highlight in data.highlights.iter() {
-            md_sync! { "- **" {highlight.title} "** — " {highlight.description} "\n" }
+            md_sync! { r#"
+                - **{highlight.title}** — {highlight.description}
+                "#
+            }
         }}
         ## Amenities
 
         {for amenity in data.amenities.iter() {
-            md_sync! { "- " {amenity} "\n" }
+            md_sync! { r#"
+                - {amenity}
+                "#
+            }
         }}
         ## Booking snapshot
 
@@ -1239,15 +1245,24 @@ pub fn render_md_with(data: &ListingData<'_>) -> String {
 
         House rules:
         {for rule in data.house_rules.iter() {
-            md_sync! { "- " {rule} "\n" }
+            md_sync! { r#"
+                - {rule}
+                "#
+            }
         }}
         Safety & property:
         {for safety_item in data.safety_items.iter() {
-            md_sync! { "- " {safety_item} "\n" }
+            md_sync! { r#"
+                - {safety_item}
+                "#
+            }
         }}
         Cancellation policy:
         {for policy in data.cancellation_items.iter() {
-            md_sync! { "- " {policy} "\n" }
+            md_sync! { r#"
+                - {policy}
+                "#
+            }
         }}
         ## Host
 

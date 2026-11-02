@@ -21,17 +21,29 @@ pub fn report(a: &Activity, rows: &[Activity], person: Option<&Activity>) -> Str
                 - {row.user_name.as_str()}: {row.note.as_str()}
                 Read [docs](https://example.com) — don't forget {row.user_name.as_str()}
                 {if row.note.is_empty() {
-                    md_sync! { "No note.\n" }
+                    md_sync! { r"
+                        No note.
+                        "
+                    }
                 } else {
-                    md_sync! { "Note: " {row.note.as_str()} "\n" }
+                    md_sync! { r"
+                        Note: {row.note.as_str()}
+                        "
+                    }
                 }}
             "# }
         }}
 
         {if let Some(person) = person {
-            md_sync! { "Author: " {person.user_name.as_str()} "\n" }
+            md_sync! { r#"
+                Author: {person.user_name.as_str()}
+                "#
+            }
         } else {
-            md_sync! { "Anonymous.\n" }
+            md_sync! { r#"
+                Anonymous.
+                "#
+            }
         }}
 
         ```rust

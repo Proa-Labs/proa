@@ -2609,7 +2609,11 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilitiesSection {
             {CapabilitiesHeading::new()}
 
             {for column in self.columns {
-                md_sync! { {CapabilityColumnView { column }} "\n\n" }
+                md_sync! { r#"
+                    {CapabilityColumnView { column }}
+
+                    "#
+                }
             }}
             "###
         }
@@ -2632,7 +2636,11 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilityColumnView {
             {column.detail}
 
             {for item in column.supporting {
-                md_sync! { {CapabilitySupportView { card: item }} "\n\n" }
+                md_sync! { r#"
+                    {CapabilitySupportView { card: item }}
+
+                    "#
+                }
             }}
             "###
         }

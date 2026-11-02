@@ -123,7 +123,10 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for DocumentationIndex<'_> {
                     page.route_path == prefix || page.route_path.strip_prefix(prefix).is_some_and(|tail| tail.starts_with('/'))
                 })
             }) {
-                md_sync! { "- [" {page.title} "](" {Url(self.origin)} {Url(page.markdown_path)} "): " {page.description.unwrap_or("Proa documentation")} "\n" }
+                md_sync! { r#"
+                    - [{page.title}]({Url(self.origin)}{Url(page.markdown_path)}): {page.description.unwrap_or("Proa documentation")}
+                    "#
+                }
             }}"###
         }.render_md(cx)
     }

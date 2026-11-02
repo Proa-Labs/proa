@@ -358,7 +358,9 @@ An async child cannot be placed inside `md_sync!`.
 The default authoring form is one multiline raw template delimited with three
 hashes: `md_sync! { r###"..."### }` or `md! { r###"..."### }`. Its source
 newlines are the rendered Markdown newlines, while `{expression}` composes a
-typed child and template `for` / `if` blocks provide control flow. Common Rust
+typed child. Slots contain ordinary Rust control flow (`if`, `for`, `match`);
+branches re-enter Markdown through nested raw templates with fewer hashes.
+Plain control words in Markdown remain text at every depth. Common Rust
 source indentation is stripped while deeper relative Markdown indentation is
 preserved. Braces inside fenced code blocks and inline code spans stay literal;
 outside code, double a literal brace as `{{` or `}}`. Increase the hash count

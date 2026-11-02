@@ -44,13 +44,19 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for EcosystemIndex {
             ## Applications and showcases
 
             {for app in data.apps {
-                md_sync! { "- [" {app.name} "](" {Url(app.href)} "): " {app.product_kind} "\n" }
+                md_sync! { r#"
+                    - [{app.name}]({Url(app.href)}): {app.product_kind}
+                    "#
+                }
             }}
 
             ## Developer tools
 
             {for tool in data.tools {
-                md_sync! { "- [" {tool.name} "](" {Url(tool.href)} "): " {tool.description} "\n" }
+                md_sync! { r#"
+                    - [{tool.name}]({Url(tool.href)}): {tool.description}
+                    "#
+                }
             }}"###
         }
         .render_md(cx)

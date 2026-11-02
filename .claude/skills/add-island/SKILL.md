@@ -19,6 +19,10 @@ Markdown sections for the core page structure; do not duplicate literals or
 convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
+For Markdown representations, follow the [Markdown skill](../proa-markdown/SKILL.md):
+write normal Markdown in raw templates, with explicit Rust slots and nested raw
+fragments for branch and loop output.
+
 When the user wants interactivity — a click handler, a signal-driven
 update, a bind_value form input, anything that needs JS in the browser —
 write a complete `#[rsjs(component, client)] impl WebRenderSync<L>` block

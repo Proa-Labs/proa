@@ -37,10 +37,54 @@ editorial summary. Omit decorative or interactive-only elements deliberately.
 ## Author the template
 
 Prefer one multiline `md_sync! { r###"..."### }` template. Newlines become output
-newlines. `{expression}` renders a typed child. Outside code fences and inline
-code, `{{` and `}}` produce literal braces. Inside code, braces are already
-literal; interpolating runtime values into a fenced example needs an explicit
-typed child or token composition.
+newlines. Write headings, links, emphasis, lists, and blank lines as normal
+Markdown, rather than splitting them into quoted tokens and `"\n"` fragments.
+
+Text outside `{ ... }` is Markdown; each slot is Rust at every nesting depth.
+Use ordinary Rust `if`, `for`, and `match` inside slots, and explicitly re-enter
+Markdown with a nested `md_sync!` (or `md!` when it awaits). Never treat bare
+control words in Markdown as executable or write Markdown directly in a Rust
+branch. A body renders expression statements without semicolons in order;
+semicolon-terminated statements are ordinary Rust setup/side effects.
+
+```rust
+md_sync! { r###"
+    # {self.title}
+
+    ## Features
+
+    {for feature in self.features.iter() {
+        md_sync! { r#"
+            - {feature}
+            "#
+        }
+    }}
+
+    {if self.in_stock {
+        md_sync! { r#"**In stock**"# }
+    } else {
+        md_sync! { r#"_Backordered_"# }
+    }}
+    "###
+}
+```
+
+Prefer nested raw fragments even for inline Markdown. Use fewer hashes inside
+an outer raw literal (`r###"..."###` outside, `r#"..."#` inside, then `r"..."`
+if another depth is needed); no inner closing delimiter may close its parent.
+Each multiline fragment removes its own common source margin. Its trailing
+newline is output, so do not add another escaped separator between ordinary
+blocks. A bare Rust string tail is escaped text, not Markdown markup.
+
+`{expression}` renders a typed child. Outside code fences and inline code,
+`{{` and `}}` produce literal braces. Inside code, braces are already literal;
+interpolating runtime values into a fenced example needs an explicit typed
+child or token composition. Keep token composition for those cases, generated
+or token-aware tooling, and tests of that API; it remains supported. Explicit
+whitespace-only fragments such as `md_sync! { "\n" }` remain appropriate when
+exact separators are the contract, as in robots.txt. Inside async `md!`, use
+`md_sync!` for a loop fragment borrowing its item; nested erased async
+fragments have the same borrowing limit as nested `html!`.
 
 Ordinary slots escape prose. Link destinations need URL-context escaping;
 follow the owning crate's typed URL leaf rather than inserting trusted raw

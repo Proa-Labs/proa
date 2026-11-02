@@ -19,6 +19,10 @@ Markdown sections for the core page structure; do not duplicate literals or
 convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
+For Markdown implementations, follow the [Markdown skill](../proa-markdown/SKILL.md):
+write normal Markdown in raw templates, with explicit Rust slots and nested raw
+fragments for branch and loop output.
+
 Read [`docs/agent/components.md`](../../../docs/agent/components.md) before
 editing. This skill targets components owned by this standalone repository or
 by the current application. It does not assume `proa_ui`, a component catalog,

@@ -19,6 +19,10 @@ Markdown sections for the core page structure; do not duplicate literals or
 convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
+Review Markdown against the [Markdown authoring skill](../proa-markdown/SKILL.md):
+prefer document-shaped raw templates and nested raw fragments; control flow
+belongs in explicit Rust slots, and ordinary prose never becomes executable.
+
 ## Overview
 
 Use Proa CLI lint/check as the first reviewer and the focused perf lint as the

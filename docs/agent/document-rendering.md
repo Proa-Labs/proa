@@ -127,21 +127,33 @@ as escaped text, so markup needs the nested template:
 ```rust
 md_sync! { r###"
     ### Reviews
+
     {if self.reviews.is_empty() {
-        md_sync! { "_No reviews yet_\n" }
+        md_sync! { r#"_No reviews yet_"# }
     } else {
         for review in self.reviews.iter() {
-            md_sync! { "- " {review} "\n" }
+            md_sync! { r#"
+                - {review}
+                "#
+            }
         }
     }}
-    {if self.stock > 0 { md_sync! { "Only " {self.stock} " left" } } else { "Backordered" }}
+
+    {if self.stock > 0 {
+        md_sync! { r#"Only {self.stock} left"# }
+    } else {
+        md_sync! { r#"Backordered"# }
+    }}
     "###
 }
 ```
 
-Use the token form (`md_sync! { "- " {review} "\n" }`) for a one-line
-fragment and a nested raw literal with fewer hashes (`md_sync! { r#" ... "# }`)
-for a multi-line one; the nested literal removes its own common indentation.
+Use a nested raw literal with fewer hashes for both inline Markdown
+(`md_sync! { r#"**In stock**"# }`) and multiline fragments, rather than splitting
+markup into quoted tokens and escaped newlines. Each multiline literal removes
+its own common indentation and retains its authored trailing newlines. Keep
+token composition for generated/token-aware tooling, tests of that API, and
+dynamic content inside code fences, which raw templates deliberately keep literal.
 Inside `md!`, a loop body that borrows its item nests `md_sync!`: a nested
 `md!` is a type-erased async fragment and, like a nested `html!`, can only
 borrow data that outlives the whole template.

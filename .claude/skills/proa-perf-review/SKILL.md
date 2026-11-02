@@ -19,6 +19,10 @@ Markdown sections for the core page structure; do not duplicate literals or
 convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
+Review Markdown against the [Markdown skill](../proa-markdown/SKILL.md):
+prefer raw documents and nested raw fragments, with control flow confined to
+explicit Rust slots. Prose must never be inferred to be executable.
+
 ## Browser code review
 
 Inspect changed executable JavaScript strings, inline scripts/handlers, and

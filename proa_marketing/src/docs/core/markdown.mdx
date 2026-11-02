@@ -95,7 +95,7 @@ Strings and numbers work directly in both macros. Lift a custom sync-only child 
 
 The canonical form is one multiline raw Markdown template. Use three hashes by default: `md_sync! { r###"..."### }` or `md! { r###"..."### }`. Source newlines render directly, so ordinary paragraphs, sections, and lists do not need `"\n"` or `"\n\n"`. Common Rust source indentation is stripped while deeper relative Markdown indentation is preserved.
 
-Each `{expression}` is a typed render child. Template `for` and `if` blocks compose the same way, while braces inside fenced code blocks and inline code spans remain literal Markdown. Outside code, write `{{` or `}}` for a literal brace. Three hashes let ordinary quotes and Rust raw strings with fewer hashes appear without escaping; increase the delimiter only when the document itself contains the exact closing sequence `"###`.
+Each `{expression}` is a typed render child. Slots contain ordinary Rust control flow; branches re-enter Markdown through nested templates. Braces inside fenced code blocks and inline code spans remain literal Markdown. Outside code, write `{{` or `}}` for a literal brace. Three hashes let ordinary quotes and Rust raw strings with fewer hashes appear without escaping; increase the delimiter only when the document itself contains the exact closing sequence `"###`.
 
 The expression-visible token form, `md_sync! { "# " { title } }`, remains available for generated templates and tooling that needs interpolations represented as Rust tokens.
 
@@ -112,14 +112,22 @@ let summary = md_sync! { r###"
     ## Features
 
     {for feature in features.iter() {
-        md_sync! { "- " {feature} "\n" }
+        md_sync! { r#"
+            - {feature}
+            "#
+        }
     }}
-    {if in_stock { md_sync! { "**In stock**" } } else { "Backordered" }}
+
+    {if in_stock {
+        md_sync! { r#"**In stock**"# }
+    } else {
+        md_sync! { r#"Backordered"# }
+    }}
     "###
 };
 ```
 
-A bare string tail such as `"Backordered"` renders as escaped text; markup needs the nested template. Use the token form for a one-line fragment and a nested raw literal with fewer hashes for a multi-line one:
+A bare string tail such as `"Backordered"` renders as escaped text; markup needs the nested template. Prefer raw fragments for inline Markdown as well as multiline sections, so headings, lists, and blank lines stay readable as Markdown. Use fewer hashes for nested literals:
 
 ```rust filename="src/pages/report.rs"
 md_sync! { r###"
@@ -129,7 +137,8 @@ md_sync! { r###"
 
             {entry.answer}
 
-        "# }
+            "#
+        }
     }}
     "###
 }

@@ -15,12 +15,15 @@
 //!
 //! ```rust,ignore
 //! md_sync! { r###"
-//! # {data.title}
+//!     # {data.title}
 //!
-//! {for highlight in &data.highlights {
-//!     md_sync! { "- **" {highlight.title} "** — " {highlight.description} "\n" }
-//! }}
-//! "###
+//!     {for highlight in &data.highlights {
+//!         md_sync! { r#"
+//!             - **{highlight.title}** — {highlight.description}
+//!             "#
+//!         }
+//!     }}
+//!     "###
 //! }
 //! .render_md(cx);
 //! ```
@@ -30,7 +33,7 @@
 //! rule at every depth: text outside `{ ... }` is Markdown, text inside is a
 //! Rust expression. `{expr}` composes a typed render child; `{if ...}`,
 //! `{for ...}`, and `{match ...}` are ordinary Rust control flow whose
-//! branches render their final expression, exactly as in `html_sync!`. A
+//! bodies render expression statements without semicolons in order. A
 //! branch re-enters Markdown through a nested `md_sync!` / `md!` call (a
 //! string tail renders as escaped text). Plain Markdown is never parsed inside
 //! a slot, and no word is reserved in Markdown text. Braces inside fenced code
@@ -48,11 +51,11 @@
 //!
 //! ```rust,ignore
 //! md_sync! { r###"
-//! ---
-//! title: Example
-//! description: Source indentation is not rendered.
-//! ---
-//! "###
+//!     ---
+//!     title: Example
+//!     description: Source indentation is not rendered.
+//!     ---
+//!     "###
 //! }
 //! ```
 //!

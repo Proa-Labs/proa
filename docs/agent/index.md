@@ -88,6 +88,9 @@ Agents should treat these as the canonical reference shapes. Read before writing
 - Use `md_sync!` inside `MdRenderSync`; use `md!` inside async-capable `MdRender`.
   Author either as one multiline `r###"..."###` Markdown template by default;
   its source newlines render directly and `{expression}` composes typed children.
+  Slots are Rust at every depth; re-enter Markdown in a branch through a nested
+  raw template. Follow the [Markdown skill](../../.agents/skills/proa-markdown/SKILL.md)
+  for document-shaped loops and branches.
 - Before finishing Rust render changes, run `python3 scripts/proa_perf_lint.py`.
 
 ## When stuck

@@ -451,18 +451,25 @@ fn product_branches_render_dynamic_values_and_nested_loops() {
         fn markdown(&self) -> String {
             r(md_sync! { r###"
                 ## {&self.name}
+
                 **{&self.price_label}**
+
                 {if self.stock > 0 {
-                    md_sync! { "Only " {self.stock} " left\n" }
+                    md_sync! { r#"Only {self.stock} left"# }
                 } else {
-                    md_sync! { "**Sold out**\n" }
+                    md_sync! { r#"**Sold out**"# }
                 }}
+
                 ### Reviews
+
                 {if self.reviews.is_empty() {
-                    md_sync! { "_No reviews yet_\n" }
+                    md_sync! { r#"_No reviews yet_"# }
                 } else {
                     for review in self.reviews.iter() {
-                        md_sync! { "- " {review} "\n" }
+                        md_sync! { r#"
+                            - {review}
+                            "#
+                        }
                     }
                 }}
                 "###
@@ -476,7 +483,7 @@ fn product_branches_render_dynamic_values_and_nested_loops() {
         reviews: vec!["*first*", "second"],
     };
     let output = product.markdown();
-    assert!(output.starts_with("## \\[untrusted\\]\n**$17**\nOnly 3 left\n"));
+    assert!(output.starts_with("## \\[untrusted\\]\n\n**$17**\n\nOnly 3 left\n"));
     assert!(output.contains("\n- \\*first\\*\n- second\n"));
     assert!(!output.contains("    "));
     product.stock = 0;
