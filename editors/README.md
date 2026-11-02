@@ -71,14 +71,17 @@ From this repository's root:
 
 ```sh
 rustup component add rust-analyzer rustfmt
+pnpm -C editors/lsp install --frozen-lockfile
 pnpm add --global ./editors/lsp
 proa-lsp --version
 ```
 
-The language-server package has no runtime dependencies and can be installed from this
-checkout; these instructions do not depend on an npm registry release. To avoid
-a global installation, use `node /absolute/path/to/proa/editors/lsp/bin/proa-lsp.mjs`
-as the editor's command and arguments.
+The bridge uses JavaScript Markdown and Rust parsers installed by pnpm. These
+instructions install from the checkout without requiring a published Proa npm
+release. To avoid a global installation, run the dependency-install command
+above, then use `node /absolute/path/to/proa/editors/lsp/bin/proa-lsp.mjs` as the
+editor's command and arguments. Installing the repository's root package alone
+does not install the bridge's dependencies.
 
 By default the bridge runs `rust-analyzer` from `PATH`. To use a specific binary:
 

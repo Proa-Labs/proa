@@ -13,7 +13,7 @@ for (const name of ['protocol.mjs', 'format.mjs', 'lint.mjs']) {
   await copyFile(new URL(`../../lsp/src/${name}`, import.meta.url), new URL(name, destination));
 }
 
-// Bundle the CommonMark parser into the VSIX. --no-dependencies packaging must
+// Bundle the Markdown and Rust parsers into the VSIX. --no-dependencies packaging must
 // work without pnpm's node_modules tree on the user's machine.
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bundle = await build({

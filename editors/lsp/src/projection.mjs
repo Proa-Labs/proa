@@ -4,6 +4,26 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { gfmTableFromMarkdown } from 'mdast-util-gfm-table';
 import { gfmTable } from 'micromark-extension-gfm-table';
+import { parser as rustParser } from '@lezer/rust';
+
+const rustExpressions = rustParser.configure({ strict: true });
+
+// Brace balance alone cannot distinguish Rust from a quoted Markdown example.
+// Require one complete expression, without parser error recovery, before
+// repairing a code span that appears to close inside that expression.
+function isRustExpression(text) {
+  const prefix = 'fn __proa() { let _ = (';
+  try {
+    const tree = rustExpressions.parse(prefix + rustValidationSource(text) + '\n); }');
+    const expression = tree.topNode.getChild('FunctionItem')?.getChild('Block')
+      ?.getChild('LetDeclaration')?.getChild('ParenthesizedExpression');
+    return expression?.from === prefix.length - 1
+      && expression.to === prefix.length + text.length + 2;
+  } catch (error) {
+    if (error instanceof SyntaxError) return false;
+    throw error;
+  }
+}
 
 const tableDelimiter = /^\|?[ \t\v\f]*:?-+:?[ \t\v\f]*(?:\|[ \t\v\f]*:?-+:?[ \t\v\f]*)*\|?[ \t\v\f]*$/;
 
@@ -70,6 +90,26 @@ function quoted(source, at) {
     else if (source[i] === quote) return i + 1;
   }
   return source.length;
+}
+
+function rustValidationSource(source) {
+  // Lezer 1.0.3 recognizes raw byte strings but not raw C strings. For syntax
+  // validation only, give each raw C-string token the equivalent byte prefix.
+  // Skip other literals/comments so their contents remain opaque.
+  let text = source;
+  for (let at = 0; at < source.length;) {
+    const end = comment(source, at);
+    if (end !== at) { at = end; continue; }
+    const cString = source.startsWith('cr', at) && (at === 0 || !ident.test(source[at - 1]));
+    const raw = rawString(source, cString ? at + 1 : at);
+    if (raw) {
+      if (cString) text = text.slice(0, at) + 'b' + text.slice(at + 1);
+      at = raw.after;
+    } else if (source[at] === '"' || source[at] === "'") {
+      at = Math.max(at + 1, quoted(source, at));
+    } else at++;
+  }
+  return text;
 }
 
 function comment(source, at) {
@@ -287,7 +327,9 @@ function expressions(source, literal, statement = false) {
           if (masked[at] === '{') {
             const end = expressionEnd(masked, at, masked.length);
             if (end === null) break;
-            if (end > range.end) { crossing = [at, end]; break; }
+            if (end > range.end && isRustExpression(masked.slice(at + 1, end - 1))) {
+              crossing = [at, end]; break;
+            }
             at = end;
           } else at++;
         }

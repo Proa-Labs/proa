@@ -453,6 +453,7 @@ fn markdown_named_argument_layout_moves_without_changing_literal_data() {
     md_sync! { r###"
                 {title} {copy}
                 "###,
+                mark = '"' as u32,
                 title = {
                     make_title()
                 },

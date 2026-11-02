@@ -691,16 +691,25 @@ pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
 }
 
 fn reindent_md_arguments(suffix: &str, indent: usize) -> String {
-    let mut literals = Vec::new();
-    let mut at = 0;
-    while at < suffix.len() {
-        if let Some(end) = rust_string_literal_end(suffix, at) {
-            literals.push(at..end);
-            at = end;
-        } else {
-            at += suffix[at..].chars().next().unwrap().len_utf8();
+    fn collect_literals(
+        tokens: proc_macro2::TokenStream,
+        literals: &mut Vec<std::ops::Range<usize>>,
+    ) {
+        for token in tokens {
+            match token {
+                proc_macro2::TokenTree::Literal(literal) => {
+                    literals.push(literal.span().byte_range())
+                }
+                proc_macro2::TokenTree::Group(group) => collect_literals(group.stream(), literals),
+                _ => {}
+            }
         }
     }
+    let Ok(tokens) = suffix.parse() else {
+        return suffix.to_owned();
+    };
+    let mut literals = Vec::new();
+    collect_literals(tokens, &mut literals);
     let mut offset = 0;
     let lines: Vec<_> = suffix
         .split_inclusive('\n')

@@ -140,8 +140,9 @@ fn loop_can_break(expr: &syn::ExprLoop) -> bool {
             // Proa render macros evaluate their slots inside a new closure, so
             // their control flow cannot exit this loop. Other macro expansions
             // are opaque and may contain a break targeting it.
-            let proa_path = mac.path.segments.len() == 1
-                || (mac.path.segments.len() == 2 && mac.path.segments[0].ident == "proa_macros");
+            let proa_path = mac.path.leading_colon.is_some()
+                && mac.path.segments.len() == 2
+                && mac.path.segments[0].ident == "proa_macros";
             let render_macro = proa_path
                 && mac.path.segments.last().is_some_and(|segment| {
                     matches!(

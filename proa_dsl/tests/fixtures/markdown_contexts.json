@@ -1033,5 +1033,223 @@
       "// `\n value",
       "other"
     ]
+  },
+  {
+    "name": "invalid Rust inside truncated inline code",
+    "markdown": "Example `{not rust \"`\"}} {value}\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "invalid Rust inside truncated inline code CRLF",
+    "markdown": "Example `{not rust \"`\"}} {value}\r\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "comment alone inside truncated inline code",
+    "markdown": "Example `{/* ` */}} {value}\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "comment alone inside truncated inline code CRLF",
+    "markdown": "Example `{/* ` */}} {value}\r\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "comma expression inside truncated inline code",
+    "markdown": "Example `{name, \"`\"}} {value}\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "comma expression inside truncated inline code CRLF",
+    "markdown": "Example `{name, \"`\"}} {value}\r\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 1 repairs prose backtick",
+    "markdown": "Example ` { if let Some(x) = item { \"`\" } else { \"other\" } }\n{value}",
+    "slots": [
+      "if let Some(x) = item { \"`\" } else { \"other\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 1 repairs prose backtick CRLF",
+    "markdown": "Example ` { if let Some(x) = item { \"`\" } else { \"other\" } }\r\n{value}",
+    "slots": [
+      "if let Some(x) = item { \"`\" } else { \"other\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 2 repairs prose backtick",
+    "markdown": "Example ` { 'a: loop { break 'a \"`\"; } }\n{value}",
+    "slots": [
+      "'a: loop { break 'a \"`\"; }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 2 repairs prose backtick CRLF",
+    "markdown": "Example ` { 'a: loop { break 'a \"`\"; } }\r\n{value}",
+    "slots": [
+      "'a: loop { break 'a \"`\"; }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 3 repairs prose backtick",
+    "markdown": "Example ` { async move || { \"`\" } }\n{value}",
+    "slots": [
+      "async move || { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 3 repairs prose backtick CRLF",
+    "markdown": "Example ` { async move || { \"`\" } }\r\n{value}",
+    "slots": [
+      "async move || { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 4 repairs prose backtick",
+    "markdown": "Example ` { match value { Some(x) if x==0 => \"`\", _ => \"other\" } }\n{value}",
+    "slots": [
+      "match value { Some(x) if x==0 => \"`\", _ => \"other\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 4 repairs prose backtick CRLF",
+    "markdown": "Example ` { match value { Some(x) if x==0 => \"`\", _ => \"other\" } }\r\n{value}",
+    "slots": [
+      "match value { Some(x) if x==0 => \"`\", _ => \"other\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 5 repairs prose backtick",
+    "markdown": "Example ` { value.method::<&'static str>(\"`\") }\n{value}",
+    "slots": [
+      "value.method::<&'static str>(\"`\")",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 5 repairs prose backtick CRLF",
+    "markdown": "Example ` { value.method::<&'static str>(\"`\") }\r\n{value}",
+    "slots": [
+      "value.method::<&'static str>(\"`\")",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 6 repairs prose backtick",
+    "markdown": "Example ` { { let local = \"`\"; local } }\n{value}",
+    "slots": [
+      "{ let local = \"`\"; local }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 6 repairs prose backtick CRLF",
+    "markdown": "Example ` { { let local = \"`\"; local } }\r\n{value}",
+    "slots": [
+      "{ let local = \"`\"; local }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 7 repairs prose backtick",
+    "markdown": "Example ` { const { \"`\" } }\n{value}",
+    "slots": [
+      "const { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 7 repairs prose backtick CRLF",
+    "markdown": "Example ` { const { \"`\" } }\r\n{value}",
+    "slots": [
+      "const { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 8 repairs prose backtick",
+    "markdown": "Example ` { unsafe { \"`\" } }\n{value}",
+    "slots": [
+      "unsafe { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 8 repairs prose backtick CRLF",
+    "markdown": "Example ` { unsafe { \"`\" } }\r\n{value}",
+    "slots": [
+      "unsafe { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 9 repairs prose backtick",
+    "markdown": "Example ` { b\"`\" }\n{value}",
+    "slots": [
+      "b\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 9 repairs prose backtick CRLF",
+    "markdown": "Example ` { b\"`\" }\r\n{value}",
+    "slots": [
+      "b\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 10 repairs prose backtick",
+    "markdown": "Example ` { c\"`\" }\n{value}",
+    "slots": [
+      "c\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 10 repairs prose backtick CRLF",
+    "markdown": "Example ` { c\"`\" }\r\n{value}",
+    "slots": [
+      "c\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 11 repairs prose backtick",
+    "markdown": "Example ` { cr#\"`\"# }\n{value}",
+    "slots": [
+      "cr#\"`\"#",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 11 repairs prose backtick CRLF",
+    "markdown": "Example ` { cr#\"`\"# }\r\n{value}",
+    "slots": [
+      "cr#\"`\"#",
+      "value"
+    ]
   }
 ]

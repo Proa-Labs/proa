@@ -391,7 +391,7 @@ async fn diverging_loops_stream_nested_templates_before_propagating_errors() {
                 let mut count = 0;
                 loop {
                     next_row(&mut count)?;
-                    $child! { "row" }
+                    ::proa_macros::$child! { "row" }
                 }
             }} }
         };
@@ -462,4 +462,52 @@ async fn loop_exit_values_respect_iterator_scope_and_macro_expansion() {
         proa_core::render_md_to_string_async(fragment!(md)).await,
         expected
     );
+}
+
+#[tokio::test]
+async fn user_macros_with_render_macro_names_keep_loop_break_values() {
+    macro_rules! check {
+        ($name:ident) => {{
+            macro_rules! $name {
+                () => {
+                    break "done&"
+                };
+            }
+            let expected = "done&amp;";
+            assert_eq!(
+                proa_core::render_to_string(::proa_macros::html_sync! { {loop { $name!(); }} }),
+                expected
+            );
+            assert_eq!(
+                proa_core::render_to_string(::proa_macros::xml_sync! { {loop { $name!(); }} }),
+                expected
+            );
+            assert_eq!(
+                proa_core::render_to_string_async(::proa_macros::html! { {loop { $name!(); }} })
+                    .await,
+                expected
+            );
+            assert_eq!(
+                proa_core::render_to_string_async(::proa_macros::xml! { {loop { $name!(); }} })
+                    .await,
+                expected
+            );
+            let expected = r"done\&";
+            assert_eq!(
+                proa_core::render_to_string(::proa_macros::md_sync! { {loop { $name!(); }} }),
+                expected
+            );
+            assert_eq!(
+                proa_core::render_md_to_string_async(::proa_macros::md! { {loop { $name!(); }} })
+                    .await,
+                expected
+            );
+        }};
+    }
+    check!(md);
+    check!(md_sync);
+    check!(html);
+    check!(html_sync);
+    check!(xml);
+    check!(xml_sync);
 }

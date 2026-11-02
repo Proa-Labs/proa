@@ -63,6 +63,7 @@
   ],
   "packageManager": "pnpm@9.15.2",
   "devDependencies": {
+    "@lezer/rust": "1.0.3",
     "esbuild": "0.28.2",
     "mdast-util-from-markdown": "2.1.0",
     "mdast-util-gfm-table": "2.0.0",
