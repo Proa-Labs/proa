@@ -50,10 +50,92 @@ impl<F: Future<Output = Result<(), WriteError>>> RenderOutcome<F> {
     /// Used by the async root driver (`render_to_vec_async` etc.). For
     /// the sync fast path in `TwoSync`, components call their children's
     /// `WebRenderSync::render` directly and never reach this method.
-    pub async fn resolve(self) -> Result<(), WriteError> {
+    pub fn resolve(self) -> impl Future<Output = Result<(), WriteError>> {
         match self {
-            RenderOutcome::Done(r) => r,
-            RenderOutcome::Pending(fut) => fut.await,
+            RenderOutcome::Done(result) => Resolve::Done {
+                result: Some(result),
+            },
+            RenderOutcome::Pending(future) => Resolve::Pending { future },
         }
+    }
+}
+
+// An async `match self { Pending(future) => future.await, ... }` keeps room for
+// both the original outcome and the extracted future in its state machine.
+// Nested renderers then double their future size at each resolve boundary.
+// Project the existing future in place instead: no boxing or duplicate state.
+pin_project_lite::pin_project! {
+    #[project = ResolveProj]
+    enum Resolve<F> {
+        Done { result: Option<Result<(), WriteError>> },
+        Pending { #[pin] future: F },
+    }
+}
+
+impl<F: Future<Output = Result<(), WriteError>>> Future for Resolve<F> {
+    type Output = Result<(), WriteError>;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match self.project() {
+            ResolveProj::Done { result } => std::task::Poll::Ready(
+                result
+                    .take()
+                    .expect("render outcome polled after completion"),
+            ),
+            ResolveProj::Pending { future } => future.poll(cx),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn nest(
+        future: impl Future<Output = Result<(), WriteError>>,
+    ) -> impl Future<Output = Result<(), WriteError>> {
+        RenderOutcome::Pending(future).resolve()
+    }
+
+    #[tokio::test]
+    async fn nested_resolution_keeps_future_size_linear() {
+        let data = [7_u8; 4096];
+        let leaf = async move {
+            tokio::task::yield_now().await;
+            assert!(std::hint::black_box(&data).iter().all(|byte| *byte == 7));
+            Ok(())
+        };
+        let leaf_size = std::mem::size_of_val(&leaf);
+        let nested = nest(nest(nest(nest(leaf))));
+        assert!(
+            std::mem::size_of_val(&nested)
+                <= leaf_size + 4 * std::mem::size_of::<Result<(), WriteError>>(),
+            "resolving a child must not duplicate its future's storage"
+        );
+        nested.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn resolution_preserves_done_pending_and_errors() {
+        let done: RenderOutcome<std::future::Ready<Result<(), WriteError>>> =
+            RenderOutcome::Done(Ok(()));
+        done.resolve().await.unwrap();
+        let failed: RenderOutcome<std::future::Ready<Result<(), WriteError>>> =
+            RenderOutcome::Done(Err(WriteError::OutOfCapacity));
+        assert!(matches!(
+            failed.resolve().await,
+            Err(WriteError::OutOfCapacity)
+        ));
+        let pending = RenderOutcome::Pending(async {
+            tokio::task::yield_now().await;
+            Err(WriteError::OutOfCapacity)
+        });
+        assert!(matches!(
+            pending.resolve().await,
+            Err(WriteError::OutOfCapacity)
+        ));
     }
 }
