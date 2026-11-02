@@ -166,6 +166,11 @@ as an identifier; an unknown name gets Rust's ordinary unresolved-name error.
 Named arguments bind values for the whole template, including conditions,
 iterators, and nested templates.
 
+An unbounded `loop` can stream nested Proa templates and exit through `return`
+or `?`, including on Rust 2024. Other macro expansions are opaque to loop-exit
+analysis: a loop containing an arbitrary macro may still need a concrete result
+type if it diverges. Write control-flow exits directly in Rust when possible.
+
 A raw Rust literal disables Rust backslash escaping, not template slots.
 For example, `md_sync! { r#"{"Hello {name}"}"# }` renders `Hello {name}`:
 the outer braces are a slot containing a Rust string. To print the braces and

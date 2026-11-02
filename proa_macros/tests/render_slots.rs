@@ -374,6 +374,60 @@ fn diverging_loops_do_not_require_a_renderable_never_type() {
 }
 
 #[tokio::test]
+#[deny(dependency_on_unit_never_type_fallback)]
+#[allow(unreachable_code)]
+async fn diverging_loops_stream_nested_templates_before_propagating_errors() {
+    use proa_core::WebRenderSync;
+    fn next_row(count: &mut usize) -> Result<(), WriteError> {
+        *count += 1;
+        if *count > 1 {
+            return Err(WriteError::OutOfCapacity);
+        }
+        Ok(())
+    }
+    macro_rules! fragment {
+        ($template:ident, $child:ident) => {
+            $template! { {{
+                let mut count = 0;
+                loop {
+                    next_row(&mut count)?;
+                    $child! { "row" }
+                }
+            }} }
+        };
+    }
+    macro_rules! sync {
+        ($template:ident) => {{
+            let mut cx = WebContext::<proa_core::NoLoader>::new();
+            let result = WebRenderSync::render(fragment!($template, $template), &mut cx);
+            assert_eq!(result, Err(WriteError::OutOfCapacity));
+            assert_eq!(cx.into_output().into_string(), "row");
+        }};
+    }
+    sync!(html_sync);
+    sync!(xml_sync);
+    sync!(md_sync);
+    let mut cx = WebContext::<proa_core::NoLoader>::new();
+    let result = WebRender::render(fragment!(html, html), &mut cx)
+        .resolve()
+        .await;
+    assert_eq!(result, Err(WriteError::OutOfCapacity));
+    assert_eq!(cx.into_output().into_string(), "row");
+    let mut cx = WebContext::<proa_core::NoLoader>::new();
+    let result = WebRender::render(fragment!(xml, xml), &mut cx)
+        .resolve()
+        .await;
+    assert_eq!(result, Err(WriteError::OutOfCapacity));
+    assert_eq!(cx.into_output().into_string(), "row");
+    let mut cx = WebContext::<proa_core::NoLoader>::new();
+    let result = MdRender::render_md(fragment!(md, md), &mut cx)
+        .resolve()
+        .await;
+    assert_eq!(result, Err(WriteError::OutOfCapacity));
+    assert_eq!(cx.into_output().into_string(), "row");
+}
+
+#[tokio::test]
 #[allow(unreachable_code)]
 async fn loop_exit_values_respect_iterator_scope_and_macro_expansion() {
     macro_rules! leave {

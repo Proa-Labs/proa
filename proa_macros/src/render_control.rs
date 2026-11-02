@@ -136,10 +136,20 @@ fn loop_can_break(expr: &syn::ExprLoop) -> bool {
         }
         fn visit_expr_async(&mut self, _: &'ast syn::ExprAsync) {}
         fn visit_item(&mut self, _: &'ast syn::Item) {}
-        // Expansion can contain a break targeting this loop. Keep Rust's own
-        // inference in that case instead of assuming the macro diverges.
-        fn visit_macro(&mut self, _: &'ast syn::Macro) {
-            self.found = true;
+        fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+            // Proa render macros evaluate their slots inside a new closure, so
+            // their control flow cannot exit this loop. Other macro expansions
+            // are opaque and may contain a break targeting it.
+            let proa_path = mac.path.segments.len() == 1
+                || (mac.path.segments.len() == 2 && mac.path.segments[0].ident == "proa_macros");
+            let render_macro = proa_path
+                && mac.path.segments.last().is_some_and(|segment| {
+                    matches!(
+                        segment.ident.to_string().as_str(),
+                        "html" | "html_sync" | "xml" | "xml_sync" | "md" | "md_sync"
+                    )
+                });
+            self.found |= !render_macro;
         }
     }
     let mut exits = Exits {
