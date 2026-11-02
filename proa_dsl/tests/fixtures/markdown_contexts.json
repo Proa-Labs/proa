@@ -515,5 +515,401 @@
       "{ value }",
       "value"
     ]
+  },
+  {
+    "name": "table body cells are separate inline contexts",
+    "markdown": "| One | Two |\n| --- | --- |\n| ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table body cells are separate inline contexts CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table header cells are separate inline contexts",
+    "markdown": "| ` | {value} ` |\n| --- | --- |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table header cells are separate inline contexts CRLF",
+    "markdown": "| ` | {value} ` |\r\n| --- | --- |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross table rows",
+    "markdown": "| One | Two |\n| --- | --- |\n| ` | {value} |\n| ` | other |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross table rows CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| ` | {value} |\r\n| ` | other |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code within table cell stays literal",
+    "markdown": "| One | Two |\n| --- | --- |\n| `{not_rust` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code within table cell stays literal CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| `{not_rust` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped table pipes inside inline code",
+    "markdown": "| One | Two |\n| --- | --- |\n| `{left}\\|{right}` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped table pipes inside inline code CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| `{left}\\|{right}` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "invalid table delimiter remains a paragraph",
+    "markdown": "| ` | {literal} ` |\n| --- |",
+    "slots": []
+  },
+  {
+    "name": "invalid table delimiter remains a paragraph CRLF",
+    "markdown": "| ` | {literal} ` |\r\n| --- |",
+    "slots": []
+  },
+  {
+    "name": "table in quote with unmatched code spans",
+    "markdown": "> | One | Two |\n> | --- | --- |\n> | ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table in quote with unmatched code spans CRLF",
+    "markdown": "> | One | Two |\r\n> | --- | --- |\r\n> | ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table in list with unmatched code spans",
+    "markdown": "\n- | One | Two |\n  | --- | --- |\n  | ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table in list with unmatched code spans CRLF",
+    "markdown": "\r\n- | One | Two |\r\n  | --- | --- |\r\n  | ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "Rust pipe expression is opaque inside table",
+    "markdown": "| One | Two |\n| --- | --- |\n| {1 | 2} | `{literal}` {value} |",
+    "slots": [
+      "1 | 2",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust pipe expression is opaque inside table CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| {1 | 2} | `{literal}` {value} |",
+    "slots": [
+      "1 | 2",
+      "value"
+    ]
+  },
+  {
+    "name": "missing table cells have no authored source range",
+    "markdown": "| One | Two |\n| --- | --- |\n{value}\\`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "missing table cells have no authored source range CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n{value}\\`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "failed table delimiter does not retry in same paragraph",
+    "markdown": "|\n-|-\n-|-\n`|}`{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "failed table delimiter does not retry in same paragraph CRLF",
+    "markdown": "|\r\n-|-\r\n-|-\r\n`|}`{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "failed table delimiter survives intervening paragraph lines",
+    "markdown": "|\n-|\ntext\nnext||\n-|-\n`|{literal}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "failed table delimiter survives intervening paragraph lines CRLF",
+    "markdown": "|\r\n-|\r\ntext\r\nnext||\r\n-|-\r\n`|{literal}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented table header continues existing paragraph",
+    "markdown": "{value}\n    |||\n-|-\n`|{other}`",
+    "slots": [
+      "value",
+      "other"
+    ]
+  },
+  {
+    "name": "indented table header continues existing paragraph CRLF",
+    "markdown": "{value}\r\n    |||\r\n-|-\r\n`|{other}`",
+    "slots": [
+      "value",
+      "other"
+    ]
+  },
+  {
+    "name": "indented header remains inline when it starts with backticks",
+    "markdown": "{value}\n    ```|{other}`\n-|-",
+    "slots": [
+      "value",
+      "other"
+    ]
+  },
+  {
+    "name": "indented header remains inline when it starts with backticks CRLF",
+    "markdown": "{value}\r\n    ```|{other}`\r\n-|-",
+    "slots": [
+      "value",
+      "other"
+    ]
+  },
+  {
+    "name": "indented table header inside list",
+    "markdown": "\n- text\n      `|{value}`\n  -|-",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented table header inside list CRLF",
+    "markdown": "\r\n- text\r\n      `|{value}`\r\n  -|-",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented table header inside quote",
+    "markdown": "> text\n>     `|{value}`\n> -|-",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented table header inside quote CRLF",
+    "markdown": "> text\r\n>     `|{value}`\r\n> -|-",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented code follows table before empty list",
+    "markdown": "|\n    name||\n-|-\n\t{not rust}\n-",
+    "slots": []
+  },
+  {
+    "name": "indented code follows table before empty list CRLF",
+    "markdown": "|\r\n    name||\r\n-|-\r\n\t{not rust}\r\n-",
+    "slots": []
+  },
+  {
+    "name": "nested list follows table without a blank line",
+    "markdown": "name||\n-|-\n-\n\t1. {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "nested list follows table without a blank line CRLF",
+    "markdown": "name||\r\n-|-\r\n-\r\n\t1. {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "lazy quote delimiter does not poison table header",
+    "markdown": ">{value}\n--\n{other}`` `|{third}`\n>-|-",
+    "slots": [
+      "value",
+      "other",
+      "third"
+    ]
+  },
+  {
+    "name": "lazy quote delimiter does not poison table header CRLF",
+    "markdown": ">{value}\r\n--\r\n{other}`` `|{third}`\r\n>-|-",
+    "slots": [
+      "value",
+      "other",
+      "third"
+    ]
+  },
+  {
+    "name": "backslash before pipe is a cell escape after another backslash",
+    "markdown": "\\\\||\n-|\n{value}\n    {not rust}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "backslash before pipe is a cell escape after another backslash CRLF",
+    "markdown": "\\\\||\r\n-|\r\n{value}\r\n    {not rust}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped pipe retains Unicode code offsets",
+    "markdown": "| One | Two |\n| --- | --- |\n| 🦀 \\| `{not rust}` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped pipe retains Unicode code offsets CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| 🦀 \\| `{not rust}` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "link definitions retain following code offsets",
+    "markdown": "[ref]: /target\n`{not rust}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "link definitions retain following code offsets CRLF",
+    "markdown": "[ref]: /target\r\n`{not rust}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "extra table cells retain authored inline code",
+    "markdown": "| One |\n| --- |\n| text | `{not rust}` {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "extra table cells retain authored inline code CRLF",
+    "markdown": "| One |\r\n| --- |\r\n| text | `{not rust}` {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented table header does not reclassify later indented code",
+    "markdown": "|\n    name||\n-|-\n\t{not rust}|\n-",
+    "slots": []
+  },
+  {
+    "name": "indented table header does not reclassify later indented code CRLF",
+    "markdown": "|\r\n    name||\r\n-|-\r\n\t{not rust}|\r\n-",
+    "slots": []
+  },
+  {
+    "name": "indented mismatched delimiter remains setext heading content",
+    "markdown": "`|{not rust}`\n\t-|-\n-",
+    "slots": []
+  },
+  {
+    "name": "indented mismatched delimiter remains setext heading content CRLF",
+    "markdown": "`|{not rust}`\r\n\t-|-\r\n-",
+    "slots": []
+  },
+  {
+    "name": "single pipe ends table and begins a paragraph",
+    "markdown": "name||\n-|-\n|\n    {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "single pipe ends table and begins a paragraph CRLF",
+    "markdown": "name||\r\n-|-\r\n|\r\n    {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented delimiter becomes header without consuming preceding paragraph",
+    "markdown": "`|{not rust}`\n\t-|-\n-|-",
+    "slots": []
+  },
+  {
+    "name": "indented delimiter becomes header without consuming preceding paragraph CRLF",
+    "markdown": "`|{not rust}`\r\n\t-|-\r\n-|-",
+    "slots": []
+  },
+  {
+    "name": "one-column table can omit pipes",
+    "markdown": "One\n:---\n`\n{value}\n`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "one-column table can omit pipes CRLF",
+    "markdown": "One\r\n:---\r\n`\r\n{value}\r\n`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented one-column table header can omit pipes",
+    "markdown": "text\n    `\n:---\n{value}\n`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented one-column table header can omit pipes CRLF",
+    "markdown": "text\r\n    `\r\n:---\r\n{value}\r\n`",
+    "slots": [
+      "value"
+    ]
   }
 ]

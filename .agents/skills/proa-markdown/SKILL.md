@@ -100,8 +100,9 @@ emits `{Ada}`. A Rust block slot needs a space between its opening braces:
 `{ { name } }`; `{{ name }}` emits literal `{ name }`. Escaping happens once;
 runtime strings are not parsed as templates. Code spans and fences (including
 fences inside blockquotes) preserve braces verbatim, even doubled braces.
-Code boundaries follow CommonMark after dedenting, including list/blockquote
-fences and indented code blocks. Inline code cannot span paragraph boundaries.
+Code boundaries follow CommonMark with GFM tables after dedenting, including
+list/blockquote fences and indented code blocks. Inline code cannot span
+paragraph or table-cell boundaries.
 Rust strings and layout inside a slot cannot open Markdown code in its parent.
 
 Named arguments (`md_sync! { "{title}", title = data.title }`) bind once, in

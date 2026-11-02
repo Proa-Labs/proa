@@ -2,6 +2,48 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { fromMarkdown } from 'mdast-util-from-markdown';
+import { gfmTableFromMarkdown } from 'mdast-util-gfm-table';
+import { gfmTable } from 'micromark-extension-gfm-table';
+
+const tableDelimiter = /^\|?[ \t\v\f]*:?-+:?[ \t\v\f]*(?:\|[ \t\v\f]*:?-+:?[ \t\v\f]*)*\|?[ \t\v\f]*$/;
+
+function tableCellCount(row) {
+  const cells = row.trim().split(/(?<!\\)\|/);
+  if (cells[0] === '') cells.shift();
+  if (cells.at(-1) === '') cells.pop();
+  return cells.length;
+}
+
+function markdownParse(text) {
+  const extension = gfmTable();
+  const tokenize = extension.flow.null.tokenize;
+  extension.flow.null.tokenize = function (effects, ok, nok) {
+    const current = /^[^\r\n]*/.exec(text.slice(this.now().offset))[0];
+    // A single pipe has no cells and ends a table in cmark's grammar.
+    if (current.trim() === '|') return nok;
+    if (this.interrupt) {
+      const chunks = [];
+      for (let i = this.events.length - 1; i >= 0; i--) {
+        const [kind, token] = this.events[i];
+        if (token.type === 'content') break;
+        if (kind === 'enter' && token.type === 'chunkContent') chunks.push(token);
+      }
+      const lines = chunks.reverse().flatMap(token => this.sliceSerialize(token)
+        .split(/\r\n?|\n/).map((value, n) => ({ value, line: token.start.line + n })));
+      // cmark does not retry table detection in a paragraph after a valid
+      // delimiter failed to match its header's cell count. micromark does.
+      if (lines.length) {
+        const candidates = [...lines.slice(1), { value: current, line: this.now().line }];
+        if (candidates.some(({ value, line }) => !this.parser.lazy[line] && tableDelimiter.test(value))) return nok;
+      }
+    }
+    return tokenize.call(this, effects, ok, nok);
+  };
+  // GFM treats a pipe preceded by a backslash as cell content even when more
+  // backslashes precede it. Neutralize the earlier slashes without moving spans.
+  const view = text.replace(/\\+(?=\|)/g, run => 'x'.repeat(run.length - 1) + '\\');
+  return fromMarkdown(view, { extensions: [extension], mdastExtensions: [gfmTableFromMarkdown()] });
+}
 
 // Editor-only projection. Never write this text to a source file.
 // Offsets are JavaScript/LSP UTF-16 code units; retain every line break.
@@ -93,7 +135,7 @@ function templateSource(source, literal) {
   if (!text.startsWith('\n')) {
     const lines = text.split('\n');
     const widths = lines.slice(1).filter(line => line.replace(/[ \t\r]/g, '')).map(line => /^[ \t]*/.exec(line)[0].length);
-    const margin = widths.length ? Math.min(...widths) : 0;
+    const margin = widths.reduce((minimum, width) => Math.min(minimum, width), widths[0] ?? 0);
     if (!margin) return { text, offsets };
     const normalized = [], mapped = [];
     let cursor = 0;
@@ -139,8 +181,8 @@ function templateSource(source, literal) {
 }
 
 function markdownTree(text) {
-  let tree = fromMarkdown(text);
-  const breaks = new Set(), pending = [tree];
+  let tree = markdownParse(text);
+  const breaks = new Set(), adjustments = [], pending = [tree];
   while (pending.length) {
     const node = pending.pop();
     let paragraph = node.children?.[0];
@@ -154,24 +196,57 @@ function markdownTree(text) {
       // changes emitted text, and offsets below map back to the real source.
       if (line > 0 && /^(?:[-+*]|\d{1,9}[.)])(?:[ \t]+(?:[-+*]|\d{1,9}[.)]))*[ \t]*$/.test(first)) breaks.add(line);
     }
+    if (node.type === 'paragraph' || (node.type === 'heading' && text[node.position.start.offset] !== '#')) {
+      // An indented continuation of an existing paragraph may become a table
+      // header. micromark skips table detection at four columns of indentation.
+      // Removing only excess continuation whitespace preserves the container.
+      const baseline = node.position.start.column - 1;
+      let start = text.indexOf('\n', node.position.start.offset) + 1;
+      while (start > 0 && start < node.position.end.offset) {
+        const end = text.indexOf('\n', start);
+        const line = text.slice(start, end < 0 ? text.length : end);
+        const prefix = /^[> \t]*/.exec(line)[0];
+        let keep = 0, column = 0;
+        while (keep < prefix.length && column < baseline) {
+          column += prefix[keep++] === '\t' ? 4 - column % 4 : 1;
+        }
+        const following = end >= 0 ? /^[^\r\n]*/.exec(text.slice(end + 1))[0].replace(/^[> \t]*/, '') : '';
+        if (end < node.position.end.offset && tableDelimiter.test(following)
+            && /[|:]/.test(following) && /^[ \t]+$/.test(prefix.slice(keep))
+            && tableCellCount(line.slice(prefix.length)) === tableCellCount(following)) {
+          // A leading pipe keeps a header that starts with a fence/list marker
+          // inline without introducing another cell.
+          adjustments.push([start + keep, start + prefix.length, line[prefix.length] === '|' ? '' : '|']);
+          if (tableDelimiter.test(line.slice(prefix.length))) {
+            // This is a header, not a delimiter for the preceding paragraph.
+            // Its punctuation contains no code; change one marker in the view
+            // so removing indentation cannot turn it into that delimiter.
+            const marker = start + line.indexOf('-', prefix.length);
+            adjustments.push([marker, marker + 1, 'x']);
+          }
+          break;
+        }
+        start = end + 1;
+      }
+    }
     if (node.children) for (const child of node.children) pending.push(child);
   }
-  const inserted = [...breaks].sort((a, b) => a - b);
-  if (!inserted.length) return { tree, original: offset => offset };
-  let normalized = '', start = 0;
-  for (const end of inserted) { normalized += text.slice(start, end) + '\n'; start = end; }
-  normalized += text.slice(start);
-  tree = fromMarkdown(normalized);
-  const positions = inserted.map((position, i) => position + i);
-  return { tree, original: offset => {
-    let low = 0, high = positions.length;
-    while (low < high) {
-      const mid = (low + high) >>> 1;
-      if (positions[mid] < offset) low = mid + 1;
-      else high = mid;
-    }
-    return offset - low;
-  } };
+  const edits = [...breaks].map(at => [at, at, '\n']).concat(adjustments).sort((a, b) => a[0] - b[0]);
+  if (!edits.length) return { tree, original: offset => offset };
+  const chunks = [], boundaries = [0];
+  let start = 0;
+  for (const [at, end, replacement] of edits) {
+    chunks.push(text.slice(start, at), replacement);
+    for (let i = start; i < at; i++) boundaries.push(i + 1);
+    for (let i = 0; i < replacement.length; i++) boundaries.push(at);
+    boundaries[boundaries.length - 1] = end;
+    start = end;
+  }
+  chunks.push(text.slice(start));
+  for (let i = start; i < text.length; i++) boundaries.push(i + 1);
+  const normalized = chunks.join('');
+  tree = markdownParse(normalized);
+  return { tree, original: offset => boundaries[offset] };
 }
 
 function codeRanges(text) {

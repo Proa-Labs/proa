@@ -5,6 +5,33 @@ use proa_core::{render_md_to_string_async, render_to_string};
 use proa_macros::{md, md_sync};
 
 #[tokio::test]
+async fn table_cell_code_boundaries_are_independent() {
+    let value = "Ada";
+    let sync = render_to_string(md_sync! { r###"
+        | One | Two |
+        | --- | --- |
+        | `{not_rust` | {value} |
+        | ` | {value} ` |
+        | ` | {value} |
+        | ` | other |
+        "###
+    });
+    let asynchronous = render_md_to_string_async(md! { r###"
+        | One | Two |
+        | --- | --- |
+        | `{not_rust` | {value} |
+        | ` | {value} ` |
+        | ` | {value} |
+        | ` | other |
+        "###
+    })
+    .await;
+    let expected = "| One | Two |\n| --- | --- |\n| `{not_rust` | Ada |\n| ` | Ada ` |\n| ` | Ada |\n| ` | other |\n";
+    assert_eq!(sync, expected);
+    assert_eq!(asynchronous, expected);
+}
+
+#[tokio::test]
 async fn commonmark_containers_and_paragraphs_control_interpolation() {
     let value = "Ada";
     let sync = render_to_string(md_sync! { r###"

@@ -28,6 +28,8 @@
   },
   "packageManager": "pnpm@9.15.2",
   "dependencies": {
-    "mdast-util-from-markdown": "2.1.0"
+    "mdast-util-from-markdown": "2.1.0",
+    "mdast-util-gfm-table": "2.0.0",
+    "micromark-extension-gfm-table": "2.1.2"
   }
 }

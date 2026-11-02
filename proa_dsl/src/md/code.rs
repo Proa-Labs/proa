@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! CommonMark code boundaries around opaque Rust slots.
+//! CommonMark/GFM code boundaries around opaque Rust slots.
 
 use std::{borrow::Cow, ops::Range};
 
@@ -68,6 +68,112 @@ impl<'a> CodeContexts<'a> {
 }
 
 fn code_ranges(source: &str) -> Vec<Range<usize>> {
+    // A one-column table can omit pipes if its delimiter has an alignment colon.
+    if !source.contains(['|', ':']) {
+        return tab_code_ranges(source);
+    }
+    // Comrak follows cmark's table/block grammar, including failed header
+    // attempts and indented continuations. Its inline source columns drift
+    // after escaped table pipes and link definitions, so use pulldown-cmark
+    // for byte-accurate inline ranges, independently within each table cell.
+    let mut options = comrak::Options::default();
+    options.extension.table = true;
+    let arena = comrak::Arena::new();
+    let tree = comrak::parse_document(&arena, source, &options);
+    let mut lines = vec![0];
+    for (index, byte) in source.bytes().enumerate() {
+        if byte == b'\n' || (byte == b'\r' && source.as_bytes().get(index + 1) != Some(&b'\n')) {
+            lines.push(index + 1);
+        }
+    }
+    let mut breaks = Vec::new();
+    let mut tables = Vec::new();
+    let mut cells = Vec::new();
+    for node in tree.descendants() {
+        let node = node.data.borrow();
+        match node.value {
+            comrak::nodes::NodeValue::Table(_) => {
+                tables.push(
+                    (lines[node.sourcepos.start.line - 1] + node.sourcepos.start.column - 1)
+                        ..(lines[node.sourcepos.end.line - 1] + node.sourcepos.end.column),
+                );
+                breaks.push(lines[node.sourcepos.start.line - 1]);
+                if let Some(end) = lines.get(node.sourcepos.end.line) {
+                    breaks.push(*end);
+                }
+            }
+            comrak::nodes::NodeValue::TableRow(_) => {
+                let start = lines[node.sourcepos.start.line - 1] + node.sourcepos.start.column - 1;
+                let end = lines[node.sourcepos.end.line - 1] + node.sourcepos.end.column;
+                // Read authored cells, including extra cells a renderer may
+                // discard. Autocompleted cells have no source, and Comrak's
+                // inline columns shift after escaped pipes. GFM only splits
+                // pipes not immediately preceded by a backslash.
+                let mut cell = start;
+                for offset in start..end {
+                    if source.as_bytes()[offset] == b'|'
+                        && (offset == start || source.as_bytes()[offset - 1] != b'\\')
+                    {
+                        if cell < offset {
+                            cells.push(cell..offset);
+                        }
+                        cell = offset + 1;
+                    }
+                }
+                if cell < end {
+                    cells.push(cell..end);
+                }
+            }
+            _ => {}
+        }
+    }
+    if tables.is_empty() {
+        return tab_code_ranges(source);
+    }
+    // Explicit block boundaries prevent the CommonMark-only offset parser
+    // from continuing a paragraph or code span across an extracted table.
+    breaks.sort_unstable();
+    breaks.dedup();
+    breaks.retain(|position| *position > 0 && *position < source.len());
+    let mut view = String::with_capacity(source.len() + breaks.len());
+    let mut previous = 0;
+    for &position in &breaks {
+        view.push_str(&source[previous..position]);
+        view.push('\n');
+        previous = position;
+    }
+    view.push_str(&source[previous..]);
+    let inserted: Vec<_> = breaks
+        .iter()
+        .enumerate()
+        .map(|(index, position)| index + position)
+        .collect();
+    let original = |offset| offset - inserted.partition_point(|position| *position < offset);
+    let mut ranges: Vec<_> = tab_code_ranges(&view)
+        .into_iter()
+        .map(|range| original(range.start)..original(range.end))
+        .filter(|range| {
+            let next = tables.partition_point(|table| table.end <= range.start);
+            !tables
+                .get(next)
+                .is_some_and(|table| table.start < range.end)
+        })
+        .collect();
+    for cell in cells {
+        // Cells contain inline Markdown, even if their text starts with a
+        // heading, fence, or list marker. A plain prefix prevents block parsing.
+        let text = format!("x {}", &source[cell.clone()]);
+        ranges.extend(
+            raw_code_ranges(&text)
+                .into_iter()
+                .map(|range| (cell.start + range.start - 2)..(cell.start + range.end - 2)),
+        );
+    }
+    ranges.sort_unstable_by_key(|range| range.start);
+    ranges
+}
+
+fn tab_code_ranges(source: &str) -> Vec<Range<usize>> {
     if !source.contains('\t') {
         return raw_code_ranges(source);
     }
