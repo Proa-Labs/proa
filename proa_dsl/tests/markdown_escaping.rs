@@ -26,7 +26,10 @@ proptest! {
             '{', '}', '\\', '"', '\'', '\n', '\r', '\t', ':', ' ', 'a', 'é', '🦀',
         ]), 0..128)
     ) {
-        let original: String = chars.into_iter().collect();
+        // Prefix every physical line so random indentation cannot create an
+        // indented code block, where braces must instead remain verbatim.
+        let prose: String = chars.into_iter().collect();
+        let original = format!("text {}", prose.replace('\n', "\ntext ").replace('\r', "\rtext "));
         let escaped = original.replace('{', "{{").replace('}', "}}");
         prop_assert_eq!(text_only(&escaped), original);
     }

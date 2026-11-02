@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { fromMarkdown } from 'mdast-util-from-markdown';
+
 // Editor-only projection. Never write this text to a source file.
 // Offsets are JavaScript/LSP UTF-16 code units; retain every line break.
 const ident = /[\p{ID_Continue}]/u;
@@ -75,75 +77,146 @@ function expressionEnd(source, at, limit) {
   return null;
 }
 
-// The compiler removes common source indentation before recognizing fences.
-function indentation(source, literal) {
-  const lines = source.slice(literal.start, literal.end).split('\n').slice(1);
-  const widths = lines.filter(line => line.trim()).map(line => /^[ \t]*/.exec(line)[0].length);
-  return widths.length ? Math.min(...widths) : 0;
-}
-
-// Match the compiler's blockquote-contained fences, including an unclosed
-// fence that ends when its containing quote ends. Keep source offsets intact.
-function quoteContent(line, depth = Infinity) {
-  let consumed = 0;
-  while (consumed < depth) {
-    const prefix = /^ {0,3}>[ \t]?/.exec(line);
-    if (!prefix) break;
-    line = line.slice(prefix[0].length);
-    consumed++;
+// Apply the compiler's CRLF normalization and exact common-prefix dedenting,
+// retaining a map from normalized UTF-16 offsets to the authored raw literal.
+function templateSource(source, literal) {
+  const chars = [], offsets = [];
+  for (let i = literal.start; i < literal.end; i++) {
+    if (source[i] === '\r' && source[i + 1] === '\n') continue;
+    chars.push(source[i]);
+    offsets.push(i);
   }
-  return { line, depth: consumed };
+  const text = chars.join('');
+  if (!text.includes('\n') || !text.replace(/\p{White_Space}/gu, '')) return { text, offsets };
+  // Raw literals without an opening newline retain the first line and remove
+  // the existing continuation margin, matching MappedLiteral in proa_dsl.
+  if (!text.startsWith('\n')) {
+    const lines = text.split('\n');
+    const widths = lines.slice(1).filter(line => line.replace(/[ \t\r]/g, '')).map(line => /^[ \t]*/.exec(line)[0].length);
+    const margin = widths.length ? Math.min(...widths) : 0;
+    if (!margin) return { text, offsets };
+    const normalized = [], mapped = [];
+    let cursor = 0;
+    for (let n = 0; n < lines.length; n++) {
+      const line = lines[n];
+      const skip = n === 0 ? 0 : line.replace(/[ \t\r]/g, '') ? margin : line.length;
+      for (let i = cursor + skip; i < cursor + line.length; i++) { normalized.push(chars[i]); mapped.push(offsets[i]); }
+      cursor += line.length;
+      if (n + 1 < lines.length) { normalized.push('\n'); mapped.push(offsets[cursor++]); }
+    }
+    return { text: normalized.join(''), offsets: mapped };
+  }
+  const lines = text.slice(1).split('\n');
+  let common;
+  for (const line of lines) {
+    if (!line.replace(/\p{White_Space}/gu, '')) continue;
+    const prefix = /^\p{White_Space}*/u.exec(line)[0];
+    if (common === undefined) common = prefix;
+    else {
+      let end = 0;
+      while (end < common.length && common[end] === prefix[end]) end++;
+      common = common.slice(0, end);
+    }
+  }
+  common ??= '';
+  const normalized = [], mapped = [];
+  let cursor = 1;
+  for (let n = 0; n < lines.length; n++) {
+    const line = lines[n];
+    let margin = 0;
+    while (margin < common.length && line[margin] === common[margin]) margin++;
+    for (let i = cursor + margin; i < cursor + line.length; i++) {
+      normalized.push(chars[i]);
+      mapped.push(offsets[i]);
+    }
+    cursor += line.length;
+    if (n + 1 < lines.length) {
+      normalized.push('\n');
+      mapped.push(offsets[cursor++]);
+    }
+  }
+  return { text: normalized.join(''), offsets: mapped };
 }
 
-function expressions(source, literal, indent = indentation(source, literal), statement = false) {
+function markdownTree(text) {
+  let tree = fromMarkdown(text);
+  const breaks = new Set(), pending = [tree];
+  while (pending.length) {
+    const node = pending.pop();
+    let paragraph = node.children?.[0];
+    while (paragraph && ['list', 'listItem'].includes(paragraph.type)) paragraph = paragraph.children[0];
+    if (node.type === 'blockquote' && paragraph?.type === 'paragraph') {
+      const first = text.slice(paragraph.position.start.offset, paragraph.position.end.offset).split('\n')[0];
+      const line = text.lastIndexOf('\n', node.position.start.offset - 1) + 1;
+      // micromark 4 carries paragraph-interruption restrictions into a new
+      // blockquote, treating an empty list marker as paragraph text. A virtual
+      // blank line resets that state at an existing block boundary. It never
+      // changes emitted text, and offsets below map back to the real source.
+      if (line > 0 && /^(?:[-+*]|\d{1,9}[.)])(?:[ \t]+(?:[-+*]|\d{1,9}[.)]))*[ \t]*$/.test(first)) breaks.add(line);
+    }
+    if (node.children) for (const child of node.children) pending.push(child);
+  }
+  const inserted = [...breaks].sort((a, b) => a - b);
+  if (!inserted.length) return { tree, original: offset => offset };
+  let normalized = '', start = 0;
+  for (const end of inserted) { normalized += text.slice(start, end) + '\n'; start = end; }
+  normalized += text.slice(start);
+  tree = fromMarkdown(normalized);
+  const positions = inserted.map((position, i) => position + i);
+  return { tree, original: offset => {
+    let low = 0, high = positions.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (positions[mid] < offset) low = mid + 1;
+      else high = mid;
+    }
+    return offset - low;
+  } };
+}
+
+function codeRanges(text) {
+  const { tree, original } = markdownTree(text);
+  const ranges = [], pending = [tree];
+  while (pending.length) {
+    const node = pending.pop();
+    if (node.type === 'inlineCode' || node.type === 'code') {
+      ranges.push({ start: original(node.position.start.offset), end: original(node.position.end.offset) });
+    } else if (node.children) {
+      for (let i = node.children.length - 1; i >= 0; i--) pending.push(node.children[i]);
+    }
+  }
+  return ranges;
+}
+
+function expressions(source, literal, statement = false) {
+  const { text, offsets } = templateSource(source, literal);
   const ranges = [], copies = [], replacements = [];
-  const keep = (start, end) => copies.push({ start, end });
-  let fence = null;
-  for (let i = literal.start; i < literal.end;) {
-    if (i === literal.start || source[i - 1] === '\n') {
-      const lineEnd = Math.min(source.indexOf('\n', i) < 0 ? literal.end : source.indexOf('\n', i), literal.end);
-      const line = source.slice(i, lineEnd);
-      const leading = /^[ \t]*/.exec(line)[0].length;
-      const content = line.slice(Math.min(indent, leading));
-      if (fence) {
-        const quote = quoteContent(content, fence.depth);
-        if (quote.depth === fence.depth) {
-          const marker = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/.exec(quote.line);
-          if (marker && marker[1][0] === fence.marker[0] && marker[1].length >= fence.marker.length && /^[ \t\r]*$/.test(marker[2])) fence = null;
-          i = lineEnd + 1;
-          continue;
-        }
-        fence = null;
-      }
-      const quote = quoteContent(content);
-      const marker = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/.exec(quote.line);
-      if (marker && (marker[1][0] !== '`' || !marker[2].includes('`'))) { fence = { marker: marker[1], depth: quote.depth }; i = lineEnd + 1; continue; }
-    }
-    if (source[i] === '\\' && (source[i + 1] === '`' || source[i + 1] === '\\')) { i += 2; continue; }
-    if (source[i] === '`') {
-      let end = i + 1;
-      while (source[end] === '`') end++;
-      const ticks = source.slice(i, end);
-      let close = source.indexOf(ticks, end);
-      while (close >= 0 && close < literal.end && (source[close - 1] === '`' || source[close + ticks.length] === '`')) close = source.indexOf(ticks, close + ticks.length);
-      i = close >= 0 && close < literal.end ? close + ticks.length : end;
-      continue;
-    }
-    if (source.startsWith('{{', i) || source.startsWith('}}', i)) { i += 2; continue; }
-    if (source[i] === '{') {
-      // A slot is one Rust expression, control flow included. Markdown
-      // re-enters a branch only through a nested template literal, which is
-      // an ordinary Rust string token to this scanner.
-      const end = expressionEnd(source, i, literal.end);
+  let masked = text, code = codeRanges(text), nextCode = 0;
+  for (let i = 0; i < text.length;) {
+    while (code[nextCode]?.end <= i) nextCode++;
+    if (code[nextCode]?.start <= i) { i = code[nextCode].end; continue; }
+    if (text[i] === '\\' && (text[i + 1] === '`' || text[i + 1] === '\\')) { i += 2; continue; }
+    if (text.startsWith('{{', i) || text.startsWith('}}', i)) { i += 2; continue; }
+    if (text[i] === '{') {
+      const end = expressionEnd(text, i, text.length);
       if (end === null) return null;
-      ranges.push({ start: i, end });
-      keep(i, end);
-      // In block mode each slot becomes a statement, retaining its scope and
-      // exact source coordinates. The compiler still checks the original
-      // template's render bounds.
-      if (statement) replacements.push([i, ' '], [end - 1, ';']);
+      const authored = { start: offsets[i], end: offsets[end - 1] + 1 };
+      ranges.push(authored);
+      copies.push(authored);
+      if (statement) replacements.push([authored.start, ' '], [authored.end - 1, ';']);
+      // Rust slots are opaque to Markdown, including their physical newlines.
+      // Rescan after masking so Rust strings cannot open a fence outside a slot.
+      if (!/^[a-zA-Z0-9{}_ .:&]+$/.test(text.slice(i, end))) {
+        const mask = [...text.slice(i, end)].map(ch => {
+          const point = ch.codePointAt(0);
+          return point < 128 ? 'x' : point < 2048 ? 'é' : point < 65536 ? '中' : '🦀';
+        }).join('');
+        masked = masked.slice(0, i) + mask + masked.slice(end);
+        code = codeRanges(masked).filter(range => range.start >= end);
+        nextCode = 0;
+      }
       i = end;
-    } else if (source[i] === '}') return null;
+    } else if (text[i] === '}') return null;
     else i++;
   }
   return { ranges, copies, replacements };
@@ -207,7 +280,7 @@ export function project(source) {
     // expression and complete its fields without needing a macro expansion.
     // Complete templates retain the macro and its actual render result type.
     const incomplete = parsed.ranges.some(range => unfinishedAccess(source, range.start + 1, range.end - 1));
-    if (incomplete) parsed = expressions(source, literal, indentation(source, literal), true);
+    if (incomplete) parsed = expressions(source, literal, true);
     output ??= source.split('');
     if (incomplete) {
       let pathStart = wordStart;

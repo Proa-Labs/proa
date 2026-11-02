@@ -3343,7 +3343,9 @@ dependencies = [
  "proa_ir",
  "proc-macro2",
  "proptest",
+ "pulldown-cmark",
  "quote",
+ "serde_json",
  "syn 2.0.119",
 ]
 

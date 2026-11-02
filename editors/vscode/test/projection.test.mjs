@@ -3,11 +3,24 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { project, applyChanges, safeRange } from '../src/projection.mjs';
 import { Bridge } from '../src/protocol.mjs';
 
 const source = 'fn show() { md_sync! { r###"**{a.user_name.as_str()}** · via {client}"### }; }';
 const uri = 'file:///project/src/lib.rs';
+
+test('CommonMark code contexts match the shared compiler corpus', () => {
+  const cases = JSON.parse(readFileSync(new URL('../../../proa_dsl/tests/fixtures/markdown_contexts.json', import.meta.url), 'utf8'));
+  for (const fixture of cases) {
+    const text = 'md_sync! { r#####"' + fixture.markdown + '"##### }';
+    const projection = project(text);
+    const actual = projection.templates.flatMap(template => template.expressions.map(range => text.slice(range.start + 1, range.end - 1).trim().replace(/\s+/gu, ' ')));
+    assert.deepEqual(actual, fixture.slots.map(slot => slot.replace(/\s+/gu, ' ')), fixture.name);
+    assert.equal(projection.text.length, text.length, fixture.name);
+    assert.deepEqual([...projection.text.matchAll(/\r?\n/g)].map(match => match.index), [...text.matchAll(/\r?\n/g)].map(match => match.index), fixture.name);
+  }
+});
 function range(start, end = start) { return { start: { line: 0, character: start }, end: { line: 0, character: end } }; }
 function bridgeFor(text = source) {
   const bridge = new Bridge();

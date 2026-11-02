@@ -24,6 +24,8 @@ proa_html_policy = { workspace = true }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 quote = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits", "visit-mut"] }
+pulldown-cmark = { workspace = true }
 
 [dev-dependencies]
 proptest = { version = "1.5" }
+serde_json = { workspace = true }

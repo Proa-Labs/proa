@@ -40,12 +40,17 @@ pub(super) struct MappedLiteral {
 
 impl MappedLiteral {
     pub fn new(lit: &LitStr) -> Self {
-        let value = lit.value();
-        let encoded = lit
-            .span()
-            .source_text()
-            .unwrap_or_else(|| lit.token().to_string());
-        let original_ranges = decode_ranges(&encoded, &value);
+        let token = lit.token().to_string();
+        // rustc normalizes physical CRLFs in literals before macro expansion;
+        // proc_macro2's source parser preserves them. Decode the spelling so
+        // tooling follows rustc while explicit `\r\n` escapes remain content.
+        let value = decode_literal(&token)
+            .map(|(value, _)| value)
+            .unwrap_or_else(|| lit.value());
+        let encoded = lit.span().source_text().unwrap_or(token);
+        let original_ranges = decode_literal(&encoded)
+            .filter(|(decoded, _)| decoded == &value)
+            .map(|(_, ranges)| ranges);
         let mut text = String::with_capacity(value.len());
         let mut kept = Vec::with_capacity(value.len());
         let mut append = |range: Range<usize>| {
@@ -129,7 +134,7 @@ impl MappedLiteral {
 /// Map decoded bytes to the source character/escape that produces them.
 /// If the lexical token differs from the decoded value, preserve the literal's
 /// span rather than manufacturing a precise but incorrect source range.
-fn decode_ranges(encoded: &str, expected: &str) -> Option<Vec<Range<usize>>> {
+fn decode_literal(encoded: &str) -> Option<(String, Vec<Range<usize>>)> {
     let quote = encoded.find('"')?;
     let raw = encoded[..quote].starts_with('r');
     let hashes = if raw {
@@ -139,8 +144,8 @@ fn decode_ranges(encoded: &str, expected: &str) -> Option<Vec<Range<usize>>> {
     };
     let end = encoded.len().checked_sub(1 + hashes)?;
     let mut position = quote + 1;
-    let mut decoded = String::with_capacity(expected.len());
-    let mut ranges = Vec::with_capacity(expected.len());
+    let mut decoded = String::with_capacity(encoded.len());
+    let mut ranges = Vec::with_capacity(encoded.len());
     while position < end {
         let start = position;
         let ch = encoded[position..end].chars().next()?;
@@ -198,7 +203,7 @@ fn decode_ranges(encoded: &str, expected: &str) -> Option<Vec<Range<usize>>> {
         decoded.push(produced);
         ranges.extend(std::iter::repeat_n(start..position, produced.len_utf8()));
     }
-    (decoded == expected).then_some(ranges)
+    Some((decoded, ranges))
 }
 
 #[cfg(test)]
@@ -223,6 +228,22 @@ mod tests {
             template.lit.token().to_string()[range.clone()].to_string(),
             quote::quote!(#expression).to_string(),
         )
+    }
+
+    #[test]
+    fn physical_crlf_normalizes_but_cooked_carriage_returns_remain_content() {
+        let input = "\"\r\n    {value}\\r\\n\"";
+        let template: MdTemplateInput = syn::parse_str(input).unwrap();
+        let nodes = template.parse_nodes().unwrap();
+        assert_eq!(nodes.len(), 2);
+        let TplNode::Expr(expr) = &nodes[0] else {
+            panic!("{nodes:?}")
+        };
+        let ExprLocation::Literal { range, .. } = &expr.location else {
+            panic!("missing map")
+        };
+        assert_eq!(&input[range.clone()], "value");
+        assert!(matches!(&nodes[1], TplNode::Text(text) if text == "\r\n"));
     }
 
     #[test]

@@ -114,6 +114,8 @@ runs:
       shell: bash
       run: |
         corepack enable
+        pnpm -C editors/lsp install --frozen-lockfile --ignore-scripts
+        pnpm -C editors/vscode install --frozen-lockfile --ignore-scripts
         pnpm run editor:test
         PROA_TEST_LINT="$(realpath "${CARGO_TARGET_DIR:-target}/debug/proa")" pnpm -C editors/lsp test:lint
 

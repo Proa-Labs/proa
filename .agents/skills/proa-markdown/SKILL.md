@@ -100,10 +100,9 @@ emits `{Ada}`. A Rust block slot needs a space between its opening braces:
 `{ { name } }`; `{{ name }}` emits literal `{ name }`. Escaping happens once;
 runtime strings are not parsed as templates. Code spans and fences (including
 fences inside blockquotes) preserve braces verbatim, even doubled braces.
-Known scanner gaps: fences indented four or more spaces inside lists can still
-interpolate, and unmatched inline backticks can pair across paragraph breaks.
-Keep authored fences at the top level or directly in blockquotes, and balance
-inline code delimiters within their paragraph until these gaps are fixed.
+Code boundaries follow CommonMark after dedenting, including list/blockquote
+fences and indented code blocks. Inline code cannot span paragraph boundaries.
+Rust strings and layout inside a slot cannot open Markdown code in its parent.
 
 Ordinary slots escape prose. Link destinations need URL-context escaping;
 follow the owning crate's typed URL leaf rather than inserting trusted raw

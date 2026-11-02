@@ -188,12 +188,11 @@ block's opening brace with whitespace, as in the last row. Inside inline code
 and fences, including fences in blockquotes, leave braces as authored:
 `{{name}}` in code stays doubled. Runtime strings are never scanned for slots.
 
-The code-context scanner still has two known boundary gaps: fences indented
-four or more spaces inside a list can be treated as template prose, and an
-unmatched inline backtick can pair with one in a later paragraph. Until those
-are fixed, keep authored fences at the top level or directly in blockquotes,
-and balance inline code delimiters within their paragraph. These limitations
-affect slot recognition independently of the brace escape convention.
+Code boundaries follow CommonMark after template dedenting. Fences inside lists
+and blockquotes, indented code blocks, and inline code all keep braces literal.
+An inline code span cannot cross a paragraph or another block boundary. Rust
+slots are opaque: strings and layout inside a slot cannot open a Markdown fence
+or HTML block in the surrounding template.
 
 Indentation inside a slot is Rust layout and never reaches the output. A
 whitespace-only template such as `md_sync! { "\n" }` is emitted verbatim, so

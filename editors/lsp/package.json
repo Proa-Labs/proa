@@ -26,5 +26,8 @@
     "test:lint": "node --test test/lint.integration.mjs",
     "test:neovim": "node ../neovim/test/run.mjs"
   },
-  "packageManager": "pnpm@9.15.2"
+  "packageManager": "pnpm@9.15.2",
+  "dependencies": {
+    "mdast-util-from-markdown": "2.1.0"
+  }
 }

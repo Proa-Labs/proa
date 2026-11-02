@@ -61,5 +61,9 @@
     "README.md",
     "LICENSE"
   ],
-  "packageManager": "pnpm@9.15.2"
+  "packageManager": "pnpm@9.15.2",
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "mdast-util-from-markdown": "2.1.0"
+  }
 }

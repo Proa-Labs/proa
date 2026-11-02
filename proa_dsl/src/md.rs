@@ -24,6 +24,7 @@ use syn::spanned::Spanned;
 use syn::visit_mut::VisitMut;
 use syn::{braced, Expr, LitStr};
 
+mod code;
 mod source;
 mod syntax;
 
@@ -267,148 +268,6 @@ pub fn bare_ident(expr: &Expr) -> Option<&syn::Ident> {
     }
 }
 
-/// Return the end of a fenced Markdown code block that starts at `line_start`.
-///
-/// CommonMark permits up to three leading spaces, then at least three backticks
-/// or tildes. A fence inside blockquotes ends at its closing fence or when a
-/// containing quote ends; an unclosed top-level fence consumes the document.
-/// Treating the complete block as static Markdown prevents Rust examples such as
-/// `Thing { field }` from being mistaken for template interpolation.
-fn fenced_code_end(input: &str, line_start: usize) -> Option<usize> {
-    let bytes = input.as_bytes();
-    let mut content_start = line_start;
-    let mut quote_depth = 0;
-    while let Some(after_quote) = blockquote_prefix_end(bytes, content_start) {
-        content_start = after_quote;
-        quote_depth += 1;
-    }
-    let mut marker_start = content_start;
-    while marker_start < bytes.len()
-        && marker_start - content_start < 3
-        && bytes[marker_start] == b' '
-    {
-        marker_start += 1;
-    }
-
-    let marker = *bytes.get(marker_start)?;
-    if marker != b'`' && marker != b'~' {
-        return None;
-    }
-
-    let mut marker_end = marker_start;
-    while bytes.get(marker_end) == Some(&marker) {
-        marker_end += 1;
-    }
-    let marker_len = marker_end - marker_start;
-    if marker_len < 3 {
-        return None;
-    }
-
-    let opening_line_end = input[marker_end..]
-        .find('\n')
-        .map_or(bytes.len(), |offset| marker_end + offset);
-    if marker == b'`' && bytes[marker_end..opening_line_end].contains(&b'`') {
-        return None;
-    }
-    if opening_line_end == bytes.len() {
-        return Some(bytes.len());
-    }
-
-    let mut candidate_start = opening_line_end + 1;
-    while candidate_start < bytes.len() {
-        let candidate_line_end = input[candidate_start..]
-            .find('\n')
-            .map_or(bytes.len(), |offset| candidate_start + offset);
-        let mut content_start = candidate_start;
-        for _ in 0..quote_depth {
-            let Some(after_quote) = blockquote_prefix_end(bytes, content_start) else {
-                // A code block cannot lazily continue a blockquote. Leave this
-                // line for the template scanner once a containing quote ends.
-                return Some(candidate_start);
-            };
-            content_start = after_quote;
-        }
-        let mut candidate_marker_start = content_start;
-        while candidate_marker_start < candidate_line_end
-            && candidate_marker_start - content_start < 3
-            && bytes[candidate_marker_start] == b' '
-        {
-            candidate_marker_start += 1;
-        }
-
-        let mut candidate_marker_end = candidate_marker_start;
-        while candidate_marker_end < candidate_line_end && bytes[candidate_marker_end] == marker {
-            candidate_marker_end += 1;
-        }
-        let trailing = &input[candidate_marker_end..candidate_line_end];
-        if candidate_marker_end - candidate_marker_start >= marker_len
-            && trailing
-                .chars()
-                .all(|character| matches!(character, ' ' | '\t' | '\r'))
-        {
-            return Some(if candidate_line_end < bytes.len() {
-                candidate_line_end + 1
-            } else {
-                candidate_line_end
-            });
-        }
-
-        if candidate_line_end == bytes.len() {
-            break;
-        }
-        candidate_start = candidate_line_end + 1;
-    }
-
-    Some(bytes.len())
-}
-
-/// Consume one blockquote marker, preserving all source bytes in the caller.
-fn blockquote_prefix_end(bytes: &[u8], start: usize) -> Option<usize> {
-    let mut cursor = start;
-    while cursor - start < 3 && bytes.get(cursor) == Some(&b' ') {
-        cursor += 1;
-    }
-    if bytes.get(cursor) != Some(&b'>') {
-        return None;
-    }
-    cursor += 1;
-    if matches!(bytes.get(cursor), Some(b' ' | b'\t')) {
-        cursor += 1;
-    }
-    Some(cursor)
-}
-
-/// Return the end of an inline Markdown code span beginning at `start`.
-/// Delimiter runs must be the same length, matching CommonMark's code-span
-/// rules. The returned range includes both delimiter runs.
-fn inline_code_end(input: &str, start: usize) -> Option<usize> {
-    let bytes = input.as_bytes();
-    let mut opener_end = start;
-    while bytes.get(opener_end) == Some(&b'`') {
-        opener_end += 1;
-    }
-    let delimiter_len = opener_end - start;
-    let mut candidate = opener_end;
-
-    while candidate < bytes.len() {
-        if bytes[candidate] != b'`' {
-            candidate += input[candidate..].chars().next()?.len_utf8();
-            continue;
-        }
-
-        let mut candidate_end = candidate;
-        while bytes.get(candidate_end) == Some(&b'`') {
-            candidate_end += 1;
-        }
-        if candidate_end - candidate == delimiter_len {
-            return Some(candidate_end);
-        }
-        candidate = candidate_end;
-    }
-
-    None
-}
-
 const CONTROL_HINT: &str = r#"
 
 Text inside `{ ... }` is Rust, including the bodies of `if`, `for`, and `match`. A branch renders its final expression, so write Markdown there as a nested template: `{if ready { md_sync! { "**In stock**" } } else { "Backordered" }}`. Plain Markdown is never parsed inside a slot."#;
@@ -432,7 +291,7 @@ fn parse_slot(source: &str) -> Result<Expr, String> {
 /// Split a decoded template into Markdown text and Rust slot expressions.
 ///
 /// Only four things are special in text: `{` opens a slot, `{{` and `}}` are
-/// literal braces, and fenced code blocks or inline code spans are copied
+/// literal braces, and Markdown code blocks or inline code spans are copied
 /// verbatim. A slot runs to the brace that balances its opener under Rust
 /// lexical rules, so nested blocks, strings, and nested template literals
 /// never need escaping.
@@ -441,34 +300,16 @@ pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
     let mut nodes = Vec::new();
     let mut text = String::new();
     let mut pos = 0;
-    let mut at_line_start = true;
+    let mut code = code::CodeContexts::new(input);
 
     while pos < bytes.len() {
-        if at_line_start {
-            if let Some(end) = fenced_code_end(input, pos) {
-                text.push_str(&input[pos..end]);
-                pos = end;
-                continue;
-            }
-            at_line_start = false;
+        if let Some(end) = code.end_at(pos) {
+            text.push_str(&input[pos..end]);
+            pos = end;
+            continue;
         }
 
         match bytes[pos] {
-            b'`' => {
-                if let Some(end) = inline_code_end(input, pos) {
-                    text.push_str(&input[pos..end]);
-                    at_line_start = input[..end].ends_with('\n');
-                    pos = end;
-                    continue;
-                }
-                // An unmatched delimiter is one whole run. Retrying from
-                // its second backtick invents a shorter opener.
-                let start = pos;
-                while bytes.get(pos) == Some(&b'`') {
-                    pos += 1;
-                }
-                text.push_str(&input[start..pos]);
-            }
             b'\\' if matches!(bytes.get(pos + 1), Some(b'`' | b'\\')) => {
                 // Markdown escapes one punctuation character. Consume escaped
                 // backticks and backslash pairs together, preserving spelling.
@@ -502,6 +343,7 @@ pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
                         literal: None,
                     }),
                 }));
+                code.exclude_slot(pos..end + 1);
                 pos = end + 1;
             }
             b'}' => {
@@ -518,7 +360,6 @@ pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
                 let ch = input[pos..].chars().next().unwrap();
                 text.push(ch);
                 pos += ch.len_utf8();
-                at_line_start = ch == '\n';
             }
         }
     }
