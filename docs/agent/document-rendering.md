@@ -171,6 +171,30 @@ the outer braces are a slot containing a Rust string. To print the braces and
 quotes too, write `md_sync! { r#"{{"Hello {{name}}"}}"# }`. A string value
 inside a slot is never recursively interpreted as a template.
 
+Brace escaping happens once, before Markdown is rendered. With `name = "Ada"`:
+
+| Template content | Markdown source emitted |
+| --- | --- |
+| `{{name}}` | `{name}` |
+| `{{{name}}}` | `{Ada}` |
+| `\{name}` | `\Ada` |
+| `{{ name }}` | `{ name }` |
+| `{ { name } }` | `Ada` |
+
+A backslash is Markdown content, not a template-brace escape. In a cooked Rust
+literal, write `\\` to produce that backslash; raw literals preserve it directly.
+To enter a Rust block expression, separate the slot's opening brace from the
+block's opening brace with whitespace, as in the last row. Inside inline code
+and fences, including fences in blockquotes, leave braces as authored:
+`{{name}}` in code stays doubled. Runtime strings are never scanned for slots.
+
+The code-context scanner still has two known boundary gaps: fences indented
+four or more spaces inside a list can be treated as template prose, and an
+unmatched inline backtick can pair with one in a later paragraph. Until those
+are fixed, keep authored fences at the top level or directly in blockquotes,
+and balance inline code delimiters within their paragraph. These limitations
+affect slot recognition independently of the brace escape convention.
+
 Indentation inside a slot is Rust layout and never reaches the output. A
 whitespace-only template such as `md_sync! { "\n" }` is emitted verbatim, so
 a branch can contribute a blank line. `{{` and

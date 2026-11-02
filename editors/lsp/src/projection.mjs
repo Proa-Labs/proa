@@ -82,6 +82,19 @@ function indentation(source, literal) {
   return widths.length ? Math.min(...widths) : 0;
 }
 
+// Match the compiler's blockquote-contained fences, including an unclosed
+// fence that ends when its containing quote ends. Keep source offsets intact.
+function quoteContent(line, depth = Infinity) {
+  let consumed = 0;
+  while (consumed < depth) {
+    const prefix = /^ {0,3}>[ \t]?/.exec(line);
+    if (!prefix) break;
+    line = line.slice(prefix[0].length);
+    consumed++;
+  }
+  return { line, depth: consumed };
+}
+
 function expressions(source, literal, indent = indentation(source, literal), statement = false) {
   const ranges = [], copies = [], replacements = [];
   const keep = (start, end) => copies.push({ start, end });
@@ -91,13 +104,20 @@ function expressions(source, literal, indent = indentation(source, literal), sta
       const lineEnd = Math.min(source.indexOf('\n', i) < 0 ? literal.end : source.indexOf('\n', i), literal.end);
       const line = source.slice(i, lineEnd);
       const leading = /^[ \t]*/.exec(line)[0].length;
-      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.slice(Math.min(indent, leading)));
+      const content = line.slice(Math.min(indent, leading));
       if (fence) {
-        if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
-        i = lineEnd + 1;
-        continue;
+        const quote = quoteContent(content, fence.depth);
+        if (quote.depth === fence.depth) {
+          const marker = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/.exec(quote.line);
+          if (marker && marker[1][0] === fence.marker[0] && marker[1].length >= fence.marker.length && /^[ \t\r]*$/.test(marker[2])) fence = null;
+          i = lineEnd + 1;
+          continue;
+        }
+        fence = null;
       }
-      if (marker && (marker[1][0] !== '`' || !marker[2].includes('`'))) { fence = marker[1]; i = lineEnd + 1; continue; }
+      const quote = quoteContent(content);
+      const marker = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/.exec(quote.line);
+      if (marker && (marker[1][0] !== '`' || !marker[2].includes('`'))) { fence = { marker: marker[1], depth: quote.depth }; i = lineEnd + 1; continue; }
     }
     if (source[i] === '\\' && (source[i + 1] === '`' || source[i + 1] === '\\')) { i += 2; continue; }
     if (source[i] === '`') {

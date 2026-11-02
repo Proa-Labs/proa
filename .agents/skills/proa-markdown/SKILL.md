@@ -94,6 +94,16 @@ can borrow loop items and local strings across awaits through their shared typed
 async continuation. Use sync nested fragments when they have no async work.
 Raw literals do not disable interpolation: use `{{`/`}}` for literal braces,
 even around quoted text. A Rust string inside a slot stays literal text.
+Do not use `\{name}` to escape a slot: it emits a backslash followed by the
+rendered value. With `name = "Ada"`, `{{name}}` emits `{name}` and `{{{name}}}`
+emits `{Ada}`. A Rust block slot needs a space between its opening braces:
+`{ { name } }`; `{{ name }}` emits literal `{ name }`. Escaping happens once;
+runtime strings are not parsed as templates. Code spans and fences (including
+fences inside blockquotes) preserve braces verbatim, even doubled braces.
+Known scanner gaps: fences indented four or more spaces inside lists can still
+interpolate, and unmatched inline backticks can pair across paragraph breaks.
+Keep authored fences at the top level or directly in blockquotes, and balance
+inline code delimiters within their paragraph until these gaps are fixed.
 
 Ordinary slots escape prose. Link destinations need URL-context escaping;
 follow the owning crate's typed URL leaf rather than inserting trusted raw

@@ -48,6 +48,37 @@ test('balances nested Rust blocks, raw strings, chars, and nested comments', () 
   assert.ok(result.text.includes('foo({ let x = r#"}"#; /* } /* { */ */ x }, \'}\')'));
 });
 
+test('quoted fences preserve braces and stop at their containing quote boundary', () => {
+  for (const body of [
+    '> ~~~text\n> {{literal}} {not_rust\n> ~~~\n{a.name}',
+    '> ```text\n> {{literal}} {not_rust\n> ```\n{a.name}',
+    '> > ~~~text\n> > {{literal}} {not_rust\n> > ~~~\n{a.name}',
+    '> ~~~text\n> {{literal}} {not_rust\n{a.name}',
+    '> > ~~~text\n> > {{literal}} {not_rust\n> {a.name}',
+    '> ~~~~text\n> ~~~\n> {{literal}} {not_rust\n> ~~~~\n{a.name}',
+    '> ~~~text\n> ~~~\u00a0\n> {{literal}} {not_rust\n> ~~~\n{a.name}',
+  ]) {
+    for (const newline of ['\n', '\r\n']) {
+      const text = ('md_sync! { r###"\n    ' + body.replaceAll('\n', '\n    ') + '\n    "### }').replaceAll('\n', newline);
+      const result = project(text);
+      assert.equal(result.templates[0].expressions.length, 1, body);
+      assert.equal(result.text.indexOf('{a.name}'), text.indexOf('{a.name}'));
+      assert.ok(!result.text.includes('literal'));
+      assert.ok(!result.text.includes('not_rust'));
+    }
+  }
+});
+
+test('brace escapes, backslashes, and block slots match the compiler', () => {
+  const text = 'md_sync! { r#"{{name}} {{{name}}} \\{name} \\{{name}} `{{name}}` {{ name }} { { name } }"# }';
+  const result = project(text);
+  assert.equal(result.templates[0].expressions.length, 3);
+  assert.equal(result.text.length, text.length);
+  for (const slot of result.templates[0].expressions) {
+    assert.equal(result.text.slice(slot.start, slot.end), text.slice(slot.start, slot.end));
+  }
+});
+
 test('leaves comments, unrelated literals/macros, and token composition alone', () => {
   for (const text of [
     '// md_sync! { r#"{x}"# }', '/* outer /* md! { r#"{x}"# } */ */',

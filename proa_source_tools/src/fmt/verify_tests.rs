@@ -175,6 +175,37 @@ fn md_formats_named_arguments_and_multiline_code_spans() {
 }
 
 #[test]
+fn md_formatting_preserves_escapes_and_quoted_code() {
+    let source = r####"fn f() {
+    md_sync! { r###"
+{{name}} {{{name}}} \{name} \{{name}} `{{name}}`
+{ { name } } {md_sync! { "{{{name}}}" }}
+> ~~~text
+> {{name}} {not_rust
+> ~~~
+{name}
+> > ```text
+> > {{name}} {not_rust
+> {name}
+"### };
+}"####;
+    let path = Path::new("escaped.rs");
+    let formatted = format_file(path, source).unwrap();
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert_ne!(formatted.output, source);
+    assert_eq!(md_lowered(source), md_lowered(&formatted.output));
+    assert!(verify_render_preserving(path, source, &formatted.output).is_empty());
+    assert_eq!(
+        format_file(path, &formatted.output).unwrap().output,
+        formatted.output
+    );
+}
+
+#[test]
 fn md_invalid_control_syntax_is_not_formatted_or_verified() {
     for template in [
         "{if false {A} elsse {B}}",

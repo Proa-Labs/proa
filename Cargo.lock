@@ -3342,6 +3342,7 @@ dependencies = [
  "proa_html_policy",
  "proa_ir",
  "proc-macro2",
+ "proptest",
  "quote",
  "syn 2.0.119",
 ]

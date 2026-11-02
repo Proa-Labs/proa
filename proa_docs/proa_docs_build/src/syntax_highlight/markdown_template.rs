@@ -204,6 +204,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn escapes_and_quoted_fences_leave_only_real_slots_highlighted() {
+        let source = r####"md_sync! { r###"
+            {{name}} {{{name}}} \{name} \{{name}} `{{name}}`
+            > ~~~text
+            > {{name}} {not_rust
+            > ~~~
+            {name}
+            > > ```text
+            > > {{name}} {not_rust
+            > {name}
+            "###
+        }"####;
+        let ranges = rust_ranges(source);
+        assert_eq!(ranges.len(), 4);
+        for range in ranges {
+            assert_eq!(&source[range], "{name}");
+        }
+    }
+
+    #[test]
     fn slot_ranges_share_compiler_backtick_and_rust_string_rules() {
         for source in [
             r##"md_sync! { r#"a `` {value} ` end"# }"##,

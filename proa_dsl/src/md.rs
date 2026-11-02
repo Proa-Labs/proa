@@ -270,13 +270,22 @@ pub fn bare_ident(expr: &Expr) -> Option<&syn::Ident> {
 /// Return the end of a fenced Markdown code block that starts at `line_start`.
 ///
 /// CommonMark permits up to three leading spaces, then at least three backticks
-/// or tildes. An unclosed fence consumes the rest of the document. Treating the
-/// complete block as static Markdown prevents Rust examples such as
+/// or tildes. A fence inside blockquotes ends at its closing fence or when a
+/// containing quote ends; an unclosed top-level fence consumes the document.
+/// Treating the complete block as static Markdown prevents Rust examples such as
 /// `Thing { field }` from being mistaken for template interpolation.
 fn fenced_code_end(input: &str, line_start: usize) -> Option<usize> {
     let bytes = input.as_bytes();
-    let mut marker_start = line_start;
-    while marker_start < bytes.len() && marker_start - line_start < 3 && bytes[marker_start] == b' '
+    let mut content_start = line_start;
+    let mut quote_depth = 0;
+    while let Some(after_quote) = blockquote_prefix_end(bytes, content_start) {
+        content_start = after_quote;
+        quote_depth += 1;
+    }
+    let mut marker_start = content_start;
+    while marker_start < bytes.len()
+        && marker_start - content_start < 3
+        && bytes[marker_start] == b' '
     {
         marker_start += 1;
     }
@@ -310,9 +319,18 @@ fn fenced_code_end(input: &str, line_start: usize) -> Option<usize> {
         let candidate_line_end = input[candidate_start..]
             .find('\n')
             .map_or(bytes.len(), |offset| candidate_start + offset);
-        let mut candidate_marker_start = candidate_start;
+        let mut content_start = candidate_start;
+        for _ in 0..quote_depth {
+            let Some(after_quote) = blockquote_prefix_end(bytes, content_start) else {
+                // A code block cannot lazily continue a blockquote. Leave this
+                // line for the template scanner once a containing quote ends.
+                return Some(candidate_start);
+            };
+            content_start = after_quote;
+        }
+        let mut candidate_marker_start = content_start;
         while candidate_marker_start < candidate_line_end
-            && candidate_marker_start - candidate_start < 3
+            && candidate_marker_start - content_start < 3
             && bytes[candidate_marker_start] == b' '
         {
             candidate_marker_start += 1;
@@ -342,6 +360,22 @@ fn fenced_code_end(input: &str, line_start: usize) -> Option<usize> {
     }
 
     Some(bytes.len())
+}
+
+/// Consume one blockquote marker, preserving all source bytes in the caller.
+fn blockquote_prefix_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut cursor = start;
+    while cursor - start < 3 && bytes.get(cursor) == Some(&b' ') {
+        cursor += 1;
+    }
+    if bytes.get(cursor) != Some(&b'>') {
+        return None;
+    }
+    cursor += 1;
+    if matches!(bytes.get(cursor), Some(b' ' | b'\t')) {
+        cursor += 1;
+    }
+    Some(cursor)
 }
 
 /// Return the end of an inline Markdown code span beginning at `start`.
