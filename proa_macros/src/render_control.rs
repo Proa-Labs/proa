@@ -57,7 +57,10 @@ pub(crate) fn lower(expr: &Expr, render: &impl Fn(&Expr) -> TokenStream) -> Toke
             let attrs = &e.attrs;
             let label = &e.label;
             let body = lower_block(&e.body, render);
-            quote! { #(#attrs)* #label loop { #body } }
+            // Unlike `for` and `while`, a loop can return a value through
+            // `break`. Its body still streams each tail; render the final
+            // break value once after the loop finishes (unit emits nothing).
+            render(&Expr::Verbatim(quote! { #(#attrs)* #label loop { #body } }))
         }
         // A labeled block may produce its value through `break 'label value`.
         // Render that value once, rather than turning only its tail into output.

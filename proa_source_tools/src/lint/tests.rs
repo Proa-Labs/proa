@@ -1739,6 +1739,8 @@ fn async_markdown_recognizes_opaque_children_inside_control_flow_slots() {
         "{if self.ready { DatabaseBadge }}",
         "{if self.ready { \"static\" } else { DatabaseBadge }}",
         "{for _row in self.rows.iter() { DatabaseBadge }}",
+        "{loop { break DatabaseBadge; }}",
+        "{'done: loop { if self.ready { break 'done DatabaseBadge; } }}",
         "{match self.state { State::Ready => DatabaseBadge, _ => \"pending\" }}",
         r##"{if self.ready { md! { r#"{DatabaseBadge}"# } }}"##,
     ] {

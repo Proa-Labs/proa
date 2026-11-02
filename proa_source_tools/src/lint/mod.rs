@@ -868,7 +868,23 @@ fn md_slot_has_possibly_async_child(expr: &Expr) -> bool {
         }
         Expr::ForLoop(expr) => rendered_block(&expr.body),
         Expr::While(expr) => rendered_block(&expr.body),
-        Expr::Loop(expr) => rendered_block(&expr.body),
+        Expr::Loop(expr) => {
+            // A loop also renders its final `break value`. Conservatively
+            // inspect early exits, including exits nested in branch bodies.
+            struct BreakValues(bool);
+            impl<'ast> Visit<'ast> for BreakValues {
+                fn visit_expr_break(&mut self, expr: &'ast syn::ExprBreak) {
+                    self.0 |= expr
+                        .expr
+                        .as_deref()
+                        .is_some_and(md_slot_has_possibly_async_child);
+                    visit::visit_expr_break(self, expr);
+                }
+            }
+            let mut exits = BreakValues(false);
+            exits.visit_block(&expr.body);
+            rendered_block(&expr.body) || exits.0
+        }
         Expr::Match(expr) => expr
             .arms
             .iter()

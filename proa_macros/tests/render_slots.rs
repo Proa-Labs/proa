@@ -29,6 +29,58 @@ impl<L: DataLoader, B: WriteBuf> MdRender<L, B> for Delayed<'_> {
     }
 }
 
+#[test]
+fn sync_formats_stream_loop_bodies_and_render_break_values_once() {
+    macro_rules! fragment {
+        ($template:ident) => {
+            $template! {
+                {{
+                    let mut count = 0;
+                    'rows: loop {
+                        if count == 2 { break 'rows "end&"; }
+                        count += 1;
+                        "row&"
+                    }
+                }}
+            }
+        };
+    }
+    let html = proa_core::render_to_string(fragment!(html_sync));
+    let xml = proa_core::render_to_string(fragment!(xml_sync));
+    let markdown = proa_core::render_to_string(fragment!(md_sync));
+    assert_eq!(html, "row&amp;row&amp;end&amp;");
+    assert_eq!(xml, html);
+    assert_eq!(markdown, r"row\&row\&end\&");
+    assert_eq!(
+        proa_core::render_to_string(md_sync! { r#"{loop { break "done"; }}"# }),
+        "done"
+    );
+}
+
+#[tokio::test]
+async fn async_formats_await_loop_break_values() {
+    macro_rules! fragment {
+        ($template:ident) => {
+            $template! {
+                {{
+                    let mut count = 0;
+                    'rows: loop {
+                        if count == 2 { break 'rows Delayed("end&"); }
+                        count += 1;
+                        Delayed("row&")
+                    }
+                }}
+            }
+        };
+    }
+    let html = proa_core::render_to_string_async(fragment!(html)).await;
+    let xml = proa_core::render_to_string_async(fragment!(xml)).await;
+    let markdown = proa_core::render_md_to_string_async(fragment!(md)).await;
+    assert_eq!(html, "row&amp;row&amp;end&amp;");
+    assert_eq!(xml, html);
+    assert_eq!(markdown, r"row\&row\&end\&");
+}
+
 fn returned_html(title: String) -> impl WebRender {
     html! {
         <p>{Delayed(title.as_str())}</p>
