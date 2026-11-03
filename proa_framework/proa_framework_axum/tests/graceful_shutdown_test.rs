@@ -179,9 +179,12 @@ async fn shutdown_deadline_cancels_a_stalled_streaming_boundary() {
         },
     ));
 
+    // Construct the client before timing server I/O: platform client setup
+    // can take several seconds even for an HTTP request.
+    let client = reqwest::Client::new();
     let mut response = tokio::time::timeout(
         Duration::from_secs(1),
-        reqwest::get(format!("http://{address}/stalled")),
+        client.get(format!("http://{address}/stalled")).send(),
     )
     .await
     .expect("the streamed response should start")

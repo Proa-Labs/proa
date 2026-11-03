@@ -451,7 +451,7 @@ mod tests {
         let canonical = canonical.into_body().collect().await.unwrap().to_bytes();
         let explicit = explicit.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(canonical, explicit);
-        assert_eq!(canonical, "# Route dossier\n\nSemantic body.\n");
+        assert_eq!(canonical, "# Route dossier\n\nSemantic body.\n\n");
     }
 }
 

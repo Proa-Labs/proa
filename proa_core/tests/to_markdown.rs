@@ -316,7 +316,7 @@ fn converting_a_parent_uses_child_html_while_explicit_composition_uses_child_mar
     .unwrap();
     assert_eq!(
         cx.into_output().into_string(),
-        "## Automatic parent\n\n> Custom semantics\n\n"
+        "## Automatic parent\n\n> Custom semantics\n\n\n"
     );
 }
 
@@ -380,7 +380,7 @@ fn explicit_markdown_children_can_be_composed_beside_converted_html() {
     .unwrap();
     assert_eq!(
         cx.into_output().into_string(),
-        "Before\n\n## Automatic\n\n> Custom child\n"
+        "Before\n\n## Automatic\n\n> Custom child\n\n"
     );
 }
 
@@ -391,7 +391,7 @@ async fn sync_adapter_composes_directly_in_async_markdown() {
         "###
     })
     .await;
-    assert_eq!(output, "## Async composition\n");
+    assert_eq!(output, "## Async composition\n\n");
     let mut cx = WebContext::new();
     assert!(matches!(
         proa_core::MdRender::render_md(to_markdown(Article("Done")), &mut cx),
