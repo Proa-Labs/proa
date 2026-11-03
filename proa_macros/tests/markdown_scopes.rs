@@ -625,7 +625,7 @@ fn empty_and_whitespace_only_templates_have_explicit_byte_contracts() {
     let mut cx = context();
     md_sync! { "Intro" }.render_md(&mut cx).unwrap();
     md_sync! { r#"
-        {for _ in 0..0 { "unused" }}
+        {for _ in std::iter::empty::<()>() { "unused" }}
         "#
     }
     .render_md(&mut cx)
@@ -633,14 +633,14 @@ fn empty_and_whitespace_only_templates_have_explicit_byte_contracts() {
     assert_eq!(cx.into_output(), b"Intro\n\n\n");
 
     let mut cx = context();
-    md_sync! { r#"{for _ in 0..0 {
+    md_sync! { r#"{for _ in std::iter::empty::<()>() {
         "unused"
     }}"# }
     .render_md(&mut cx)
     .unwrap();
     assert!(cx.out.is_empty());
     md_sync! { "Intro" }.render_md(&mut cx).unwrap();
-    md_sync! { r#"{for _ in 0..0 {
+    md_sync! { r#"{for _ in std::iter::empty::<()>() {
         "unused"
     }}"# }
     .render_md(&mut cx)
