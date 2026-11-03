@@ -36,6 +36,7 @@ unsafe impl GlobalAlloc for CountAlloc {
 fn literal_mode_scopes_and_rejection_do_not_allocate() {
     let mut cx = WebContext::with_buffer(BumpWriter::<256>::new());
     COUNT.with(|count| count.set(Some(0)));
+    let mut headings = cx.md_heading_scope(1);
     let label = "A * B";
     let result = md_sync! { r###"
         # {label}
@@ -43,15 +44,17 @@ fn literal_mode_scopes_and_rejection_do_not_allocate() {
         {md_sync! { "**Inline**" }}
         "###
     }
-    .render_md(&mut cx);
+    .render_md(headings.context());
     let block = md_sync! { r#"
         Rejected
         "#
     };
-    let rejected = md_sync! { "{block}" }.render_md(&mut cx);
+    let rejected = md_sync! { "{block}" }.render_md(headings.context());
+    drop(headings);
     let allocations = COUNT.with(|count| count.replace(None).unwrap());
     assert!(result.is_ok());
     assert!(rejected.is_err());
     assert!(!cx.md_inline());
+    assert_eq!(cx.md_heading_offset(), 0);
     assert_eq!(allocations, 0);
 }

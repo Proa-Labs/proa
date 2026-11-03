@@ -14,10 +14,10 @@ use crate::render::DataLoader;
 use crate::render::{MdRender, MdRenderSync, RenderOutcome, WebRender, WebRenderSync};
 use crate::shared::write_buf::{WriteBuf, WriteError};
 use crate::web::WebContext;
-pub use context::MdState;
 #[doc(hidden)]
 pub use context::MdTemplateScope as __MdTemplateScope;
 use context::{MdFragmentScope, MdTemplateScope};
+pub use context::{MdHeadingScope, MdState};
 #[doc(hidden)]
 pub use context::{MD_TEMPLATE_BLOCK, MD_TEMPLATE_INHERIT, MD_TEMPLATE_INLINE};
 use core::future::Future;

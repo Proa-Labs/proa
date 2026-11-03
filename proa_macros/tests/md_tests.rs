@@ -644,14 +644,11 @@ fn braced_source_lines_do_not_break_inline_contexts() {
 
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlinePair {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            let previous_inline = cx.md_set_inline(true);
-            let result = md_sync! {
+            let pair = md_sync! {
                 "Before"
                 "After"
-            }
-            .render_md(cx);
-            cx.md_set_inline(previous_inline);
-            result
+            };
+            md_sync! { "{pair}" }.render_md(cx)
         }
     }
 

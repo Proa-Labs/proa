@@ -43,14 +43,31 @@ fn deletion_catches_child_even_when_inputs_are_equal() {
 }
 
 #[test]
-fn markdown_layout_state_does_not_hide_missing_content() {
+fn markdown_scopes_do_not_hide_missing_content() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        r####"let previous=cx.md_set_inline(true); md_sync! {r###"{self.title}"###}.render_md(cx)?; cx.md_set_inline(previous); cx.md_blank_line()?; Ok(())"####,
+        r#"md_sync! {"{self.title}"}.render_md(cx)?; cx.md_blank_line()?; Ok(())"#,
+    )
+    .replace("&mut Cx", "&mut proa_core::WebContext");
+    assert!(lint(&src).is_empty());
+    let missing_title = src.replace("md_sync! {\"{self.title}\"}", "md_sync! {\"\"}");
+    assert_eq!(missing(&missing_title).len(), 1);
+}
+
+#[test]
+fn markdown_heading_scope_keeps_context_and_child_provenance() {
+    let src = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        r#"let mut headings=cx.md_heading_scope(1); let cx=headings.context(); md_sync! {"{self.title}"}.render_md(cx)"#,
     ).replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&src).is_empty());
-    let missing_title = src.replace("{self.title}\"###", "\"###");
-    assert_eq!(missing(&missing_title).len(), 1);
+    let absent = src.replace("md_sync! {\"{self.title}\"}", "md_sync! {\"\"}");
+    assert_eq!(missing(&absent).len(), 1);
+    let shadowed = src.replace(
+        "let cx=headings.context();",
+        "let headings=other(); let cx=headings.context();",
+    );
+    assert!(code(&lint(&shadowed), "render/content-coverage-unchecked") > 0);
 }
 
 #[test]

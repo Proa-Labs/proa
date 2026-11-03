@@ -17,3 +17,8 @@ content. Text outside `{ ... }` is Markdown; slots are Rust at every depth.
 Re-enter Markdown through a nested macro inside Rust `if`, `for`, or `match`
 bodies. Use fewer hashes when a nested fragment really needs a raw literal.
 Bare control words in prose stay text.
+
+Use automatic template scopes instead of manual inline save/restore. Heading
+nesting uses `cx.md_heading_scope(...)` and its `context()` reborrow. Follow the
+shared skill's migration checklist for exact separators, scaffold copies, and
+error recovery; a block section cannot render inside an inline wrapper.

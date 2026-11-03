@@ -288,6 +288,22 @@ Block templates inside an inline scope are errors, including typed children in l
 
 Raw-string hashes only control delimiting. All physically multiline raw literals select block mode, including `r"..."`; single-line raw literals select inline mode. Ordinary strings stay inline even when they contain newlines. Legacy token-composition templates inherit their caller's mode. Existing dedenting and authored whitespace are unchanged: only automatic boundaries are deduplicated, and an empty block can still establish a boundary after preceding prose.
 
+### Nested heading offsets
+
+Inline/block scopes restore rendering mode only. Components that temporarily
+increase heading depth use a separate borrowed scope:
+
+```rust filename="src/components/card/md.rs"
+let mut scope = cx.md_heading_scope(1);
+self.children.render_md(scope.context())?;
+```
+
+The guard restores its parent's heading offset on success, errors, panic
+unwinding, and async cancellation. Partial output and boundary tracking remain
+live. A manual `md_pop_heading_offset` after `?` would be skipped on failure.
+Restoring a full `MdState` snapshot is also unsuitable for formatting cleanup,
+because it would replace suffix tracking without undoing emitted bytes.
+
 ## Embedded HTML
 
 Markdown permits inline HTML, but keep it on the typed HTML path instead of mixing an HTML parser into the Markdown macro:

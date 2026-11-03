@@ -11,9 +11,9 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_block_boundary()?;
-        let prev = cx.md_push_heading_offset(1);
+        let mut scope = cx.md_heading_scope(1);
+        let cx = scope.context();
         self.children.render_md(cx)?;
-        cx.md_pop_heading_offset(prev);
         cx.md_block_boundary()?;
         Ok(())
     }
@@ -71,5 +71,52 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
         self.children.render_md(cx)?;
         cx.md_blank_line()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    struct Stops(bool);
+    impl<B: WriteBuf> MdRenderSync<proa_core::NoLoader, B> for Stops {
+        fn render_md(self, cx: &mut WebContext<proa_core::NoLoader, B>) -> Result<(), WriteError> {
+            assert_eq!(cx.md_heading_offset(), 2);
+            cx.write_md_prepared_static(b"Partial")?;
+            if self.0 {
+                panic!("injected Card child panic");
+            }
+            Err(WriteError::render("injected Card child error"))
+        }
+    }
+
+    #[test]
+    fn nested_cards_restore_heading_offset_after_errors_and_unwinding() {
+        for panic in [false, true] {
+            let mut cx = WebContext::with_buffer(Vec::new());
+            cx.write_md_prepared_static(b"Intro").unwrap();
+            let cards = Card {
+                class: None,
+                children: Some(Card {
+                    class: None,
+                    children: Some(Stops(panic)),
+                }),
+            };
+            let result = catch_unwind(AssertUnwindSafe(|| cards.render_md(&mut cx)));
+            if panic {
+                assert!(result.is_err());
+            } else {
+                assert_eq!(
+                    result.unwrap(),
+                    Err(WriteError::render("injected Card child error"))
+                );
+            }
+            assert_eq!(cx.md_heading_offset(), 0);
+            assert_eq!(cx.out, b"Intro\n\nPartial");
+            cx.md_block_boundary().unwrap();
+            cx.md_heading(1, "Fallback").unwrap();
+            assert_eq!(cx.into_output(), b"Intro\n\nPartial\n\n# Fallback\n\n");
+        }
     }
 }

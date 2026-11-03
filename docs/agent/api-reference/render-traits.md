@@ -382,6 +382,10 @@ cancellation, keeping partial output and boundary tracking. Blocks in inline
 scopes, link labels, headings, emphasis, and table cells are rejected rather
 than flattened. Token composition retains inherited mode. See
 [automatic scopes](../document-rendering.md#automatic-inline-and-block-scopes).
+For independent heading nesting, use `cx.md_heading_scope(additional)` and
+render through the guard's `context()` method. Dropping it restores heading
+offset only, including on errors, unwinding, and cancellation. See the
+[formatting migration guide](../document-rendering.md#migrate-existing-formatting-scopes).
 
 ### Convert existing HTML components to Markdown
 

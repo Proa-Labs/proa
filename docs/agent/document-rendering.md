@@ -162,6 +162,44 @@ keep their literal whitespace, including closing-line indentation under the
 existing parser contract, then complete a trailing boundary. An empty ordinary
 or single-line raw literal emits nothing.
 
+### Migrate existing formatting scopes
+
+Use an ordinary-string template for inline children rather than saving a
+`Result` to restore `md_set_inline`. A component can propagate errors directly:
+
+```rust
+md_sync! { "**{self.children}**" }.render_md(cx)?;
+```
+
+For document children, choose a multiline raw template. An ordinary-string
+wrapper such as `md_sync! { "{section}" }` selects inline mode and rejects block
+sections. If existing separators must remain exact, token composition can
+inherit the caller's mode: `md_sync! { {section} "\n\n" }`.
+
+Heading offsets have a separate explicit scope. Keep the guard alive while
+rendering nested children, then let it drop:
+
+```rust
+let mut scope = cx.md_heading_scope(1);
+self.children.render_md(scope.context())?;
+```
+
+This restores only the immediate parent's heading offset on success, error,
+panic unwinding, or cancellation while awaiting. It preserves output and its
+boundary tracking, inline mode, and list depth. Automatic inline/block scopes
+do not implicitly reset heading offsets or list depth. Low-level push/pop
+methods remain available, but manual pop after `?` skips cleanup on failure.
+
+Do not restore an entire `md_state()` snapshot just to clean up formatting:
+that snapshot also contains the logical output suffix. Snapshot restoration
+is appropriate for intentional fragment isolation or after clearing a reused
+buffer, not for keeping partial output after a rendering error.
+
+Audit application renderers, scaffold copies, source fixtures, and helper
+rustdoc together. Deliberate state-setting tests should keep exercising the
+low-level APIs. Add recovery tests that check the enclosing setting and the
+bytes retained before a child fails or panics.
+
 The grammar has one rule at every depth: text outside `{ ... }` is Markdown,
 and text inside is a Rust expression. Control flow is ordinary Rust (`if`,
 `else if`, `for`, `match`, `if let`), and a branch renders only its final

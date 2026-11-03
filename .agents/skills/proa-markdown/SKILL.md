@@ -137,6 +137,27 @@ For negotiated HTTP exports, serve `text/markdown; charset=utf-8` and
 `Vary: Accept`; provide a discoverable `.md` or `llms.txt` link. Cache the final
 owned document at the response boundary when its inputs are immutable.
 
+## Migrate manual formatting cleanup
+
+- Replace inline `md_set_inline` save/render/restore sequences with an ordinary
+  single-literal template, such as `md_sync! { "**{self.children}**" }.render_md(cx)?`.
+  Saving a `Result` only to restore inline mode is unnecessary; restoring after
+  `?` is incorrect, and manual cleanup does not cover panic unwinding.
+- A document wrapper must allow block children. Use a multiline raw template;
+  retain inherited token composition when exact existing separators must stay
+  byte-for-byte identical. `md_sync! { "{section}" }` is an inline wrapper and
+  rejects a block section, even when the section is a typed component.
+- For temporary heading offsets, use `let mut scope = cx.md_heading_scope(1)`
+  and render through `scope.context()`. The guard restores only heading offset
+  on every exit, including async cancellation. Inline/block template scopes do
+  not restore heading offset or list depth for you.
+- Never restore a whole `md_state()` snapshot solely to clean up formatting:
+  it also replaces output-suffix tracking, even though partial bytes remain.
+  Keep deliberate snapshot/low-level-setter tests and buffer-reset benchmarks.
+- Audit scaffold copies, source fixtures, and helper rustdoc alongside production
+  components. Test a failing or panicking child followed by fallback rendering;
+  verify both formatting restoration and the exact retained output.
+
 ## Verify behavior
 
 Check dynamic titles, escaped Markdown punctuation, URL destinations, section

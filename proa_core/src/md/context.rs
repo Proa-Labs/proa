@@ -270,6 +270,10 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     }
 
     /// Restore Markdown state without rolling back output or request metadata.
+    ///
+    /// This also replaces suffix tracking. Use a snapshot only with its matching
+    /// output position or intentional fragment isolation; use template/heading
+    /// scopes for formatting cleanup when partial output must remain visible.
     pub fn set_md_state(&mut self, state: MdState) {
         self.md_state = state;
     }
@@ -514,7 +518,21 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         self.write_md_prepared_str(value)
     }
 
+    /// Temporarily increase heading offset for nested components.
+    ///
+    /// The borrowed scope restores only heading offset on drop, including when
+    /// rendering errors, unwinds, or an awaiting future is cancelled. Emitted
+    /// output, suffix tracking, and the other formatting settings remain live.
+    #[inline(always)]
+    pub fn md_heading_scope(&mut self, additional: u8) -> MdHeadingScope<'_, L, B> {
+        let previous = self.md_push_heading_offset(additional);
+        MdHeadingScope { cx: self, previous }
+    }
+
     /// Push heading offset for nesting. Returns the previous offset to restore later.
+    ///
+    /// Prefer [`Self::md_heading_scope`] when rendering children: manual push/pop
+    /// does not restore the setting on early returns or panic unwinding.
     pub fn md_push_heading_offset(&mut self, n: u8) -> u8 {
         let prev = self.md_state.heading_offset;
         self.md_state.heading_offset = self.md_state.heading_offset.saturating_add(n);
@@ -537,6 +555,8 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     }
 
     /// Push list depth. Returns previous depth.
+    /// This low-level operation requires its own unwinding-safe cleanup;
+    /// inline/block template scopes do not restore list depth.
     pub fn md_push_list_depth(&mut self) -> u8 {
         let prev = self.md_state.list_depth;
         self.md_state.list_depth = self.md_state.list_depth.saturating_add(1);
@@ -564,6 +584,8 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     /// Set the low-level inline mode. Returns the previous value.
     ///
     /// Single-literal Markdown templates scope this setting automatically.
+    /// Prefer an ordinary-string `md_sync!` or `md!` template around inline
+    /// children; manual save/restore is not safe across all render exits.
     /// Setting it to false cannot permit a block inside an active inline scope.
     pub fn md_set_inline(&mut self, inline: bool) -> bool {
         let prev = self.md_state.inline;
@@ -619,6 +641,30 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 pub(crate) struct MdFragmentScope<'cx, L: DataLoader, B: WriteBuf> {
     cx: &'cx mut WebContext<L, B>,
     saved: MdState,
+}
+
+/// A borrowed heading-offset scope returned by [`WebContext::md_heading_scope`].
+/// Dropping the scope restores the immediate parent's offset without changing
+/// output, boundary tracking, inline mode, or list depth.
+#[must_use = "keep the heading scope alive while rendering its children"]
+pub struct MdHeadingScope<'cx, L: DataLoader, B: WriteBuf> {
+    cx: &'cx mut WebContext<L, B>,
+    previous: u8,
+}
+
+impl<L: DataLoader, B: WriteBuf> MdHeadingScope<'_, L, B> {
+    /// Reborrow the live context with this scope's heading offset.
+    #[inline(always)]
+    pub fn context(&mut self) -> &mut WebContext<L, B> {
+        self.cx
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf> Drop for MdHeadingScope<'_, L, B> {
+    #[inline(always)]
+    fn drop(&mut self) {
+        self.cx.md_pop_heading_offset(self.previous);
+    }
 }
 
 /// The literal-form mode selected by a compiled Markdown template.
