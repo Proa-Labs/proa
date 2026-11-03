@@ -653,6 +653,11 @@ pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
     let Some(template) = tpl.inner.strip_prefix('\n') else {
         return body.to_owned();
     };
+    // Without a nonblank content line, the parser retains closing-line spaces
+    // as authored content. Re-anchoring them would change rendered bytes.
+    if template.trim().is_empty() {
+        return body.to_owned();
+    }
     let common = proa_dsl::md_layout::layout_indent(template);
     let template = template
         .split('\n')
@@ -756,6 +761,7 @@ fn common_prefix_len(common: &str, line: &str) -> usize {
 
 #[derive(Debug, PartialEq, Eq)]
 enum MdRenderNode {
+    TemplateMode(bool),
     Text(String),
     Expr(String),
     Binding(String),
@@ -781,6 +787,10 @@ fn md_render_text(source: &str, inv: &MacroInvocation) -> Option<Vec<MdRenderNod
     let template: proa_dsl::md::MdTemplateInput =
         syn::parse2(proc_macro2::TokenStream::from_str(body).ok()?).ok()?;
     let mut nodes = md_render_nodes(template.parse_nodes().ok()?);
+    nodes.insert(
+        0,
+        MdRenderNode::TemplateMode(proa_dsl::md::is_multiline_raw_literal(&template.lit)),
+    );
     if let Some(binding) = template.argument_binding() {
         nodes.insert(
             0,

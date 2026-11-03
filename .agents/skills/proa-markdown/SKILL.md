@@ -52,6 +52,19 @@ template, so `{feature}` interpolates normally. Keep `\n` when the fragment
 must end a line; dropping it would join loop iterations. Do not turn a short
 fragment into a multiline raw template just to avoid that one escape.
 
+Single-literal templates scope their mode automatically at render time:
+physically multiline raw literals are blocks, ordinary strings and single-line
+raw literals are inline. Hash count never selects the mode. Blocks add only
+missing paragraph-boundary bytes before rendering and after success; inline
+fragments retain explicit newlines. Scopes restore the caller's mode on errors,
+unwinding, and async cancellation, preserving output and its suffix tracking.
+Use `.render_md(cx)?` directly instead of manual `md_set_inline` save/restore.
+Do not put a block template in an inline scope, link label, heading, emphasis,
+or table cell: known direct nesting is a compile error, and typed children fail
+at render time before the block writes anything. Give those children an inline
+representation. Legacy token composition keeps the caller's mode. See the
+document-rendering guide for empty/whitespace-only blocks and boundary examples.
+
 Text outside `{ ... }` is Markdown; each slot is Rust at every nesting depth.
 Use ordinary Rust `if`, `for`, and `match` inside slots, and explicitly re-enter
 Markdown with a nested `md_sync!` (or `md!` when it awaits). Never treat bare

@@ -45,6 +45,12 @@
 //! Increase the delimiter when the document contains the exact closing
 //! sequence `"###`.
 //!
+//! Physically multiline raw literals select block mode and complete paragraph
+//! boundaries before their body and after successful rendering. Ordinary strings
+//! and single-line raw literals select inline mode without adding boundaries.
+//! Scopes restore the enclosing mode on errors, unwinding, or async cancellation;
+//! blocks cannot render inside inline scopes. Token composition inherits its mode.
+//!
 //! Physically multiline raw templates remove their common source indentation,
 //! preserving relative indentation without leaking the surrounding Rust block's
 //! alignment into the rendered Markdown:
@@ -165,8 +171,61 @@ fn static_fragment(bytes: proc_macro2::Literal) -> TokenStream {
 pub fn generate_template(tpl: &MdTemplateInput, mode: EmitMode) -> Result<TokenStream, syn::Error> {
     let lit = &tpl.lit;
     let nodes = tpl.parse_nodes()?;
+    let block = proa_dsl::md::is_multiline_raw_literal(lit);
+    let inline_slots = proa_dsl::md::inline_slot_contexts(&nodes);
+    let mut slots = inline_slots.iter();
+    for node in &nodes {
+        if let TplNode::Expr(expr) = node {
+            if !block || *slots.next().expect("one context per expression") {
+                reject_direct_block_child(expr)?;
+            }
+        }
+    }
     let shadow = format_args_shadow(lit, &nodes, &tpl.args);
-    Ok(codegen_tpl(&nodes, shadow, tpl.argument_binding(), mode))
+    let body = codegen_tpl(&nodes, &inline_slots, shadow, tpl.argument_binding(), mode);
+    let template_mode = if block {
+        quote! { ::proa_core::md::MD_TEMPLATE_BLOCK }
+    } else {
+        quote! { ::proa_core::md::MD_TEMPLATE_INLINE }
+    };
+    Ok(quote! {
+        (#body).__proa_template_mode::<{ #template_mode }>()
+    })
+}
+
+/// Directly rendered block macros have a known mode. Opaque/typed children
+/// retain the runtime check, including when they are reached through helpers.
+fn reject_direct_block_child(expr: &Expr) -> syn::Result<()> {
+    let error = std::cell::RefCell::new(None);
+    crate::render_control::lower(expr, &|child| {
+        if let Expr::Macro(child) = child {
+            // Unqualified names may be shadowed by user macros. Only claim
+            // the known Proa path; other children retain the runtime check.
+            if child.mac.path.segments.len() == 2
+                && child.mac.path.segments[0].ident == "proa_macros"
+                && child
+                    .mac
+                    .path
+                    .segments
+                    .last()
+                    .is_some_and(|segment| segment.ident == "md_sync" || segment.ident == "md")
+            {
+                if let Ok(template) = syn::parse2::<MdTemplateInput>(child.mac.tokens.clone()) {
+                    if proa_dsl::md::is_multiline_raw_literal(&template.lit) {
+                        *error.borrow_mut() = Some(syn::Error::new_spanned(
+                            child,
+                            "cannot render a block Markdown template inside an inline scope; use an ordinary-string inline template",
+                        ));
+                    }
+                }
+            }
+        }
+        TokenStream::new()
+    });
+    match error.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 /// Emit an IDE-only `format_args!` shadow of the template.
@@ -268,6 +327,7 @@ fn is_bare_ident(s: &str) -> bool {
 
 fn codegen_tpl(
     nodes: &[TplNode],
+    inline_slots: &[bool],
     shadow: Option<TokenStream>,
     binding: Option<syn::Local>,
     mode: EmitMode,
@@ -289,17 +349,19 @@ fn codegen_tpl(
     stmts.extend(shadow);
     stmts.extend(binding.map(|binding| quote! { #binding }));
     let mut run = String::new();
-    emit_tpl_nodes(nodes, &mut stmts, &mut run, mode);
+    emit_tpl_nodes(nodes, inline_slots, &mut stmts, &mut run, mode);
     flush(&mut stmts, &mut run);
     wrap_render(&stmts, mode)
 }
 
 fn emit_tpl_nodes(
     nodes: &[TplNode],
+    inline_slots: &[bool],
     stmts: &mut Vec<TokenStream>,
     run: &mut String,
     mode: EmitMode,
 ) {
+    let mut slots = inline_slots.iter().copied();
     for node in nodes {
         match node {
             TplNode::Text(t) => run.push_str(t),
@@ -308,7 +370,22 @@ fn emit_tpl_nodes(
             // way.
             TplNode::Expr(expr) => {
                 flush(stmts, run);
-                gen_block_expr(&expr.expr, stmts, mode);
+                if slots.next().expect("one context per expression") {
+                    let cx = render_context();
+                    let scope =
+                        syn::Ident::new("__proa_md_inline_scope", proc_macro2::Span::mixed_site());
+                    let mut child = Vec::new();
+                    gen_block_expr(&expr.expr, &mut child, mode);
+                    stmts.push(quote! {
+                        {
+                            let mut #scope = ::proa_core::md::__MdTemplateScope::<_, _, { ::proa_core::md::MD_TEMPLATE_INLINE }>::enter(#cx)?;
+                            let #cx = #scope.context();
+                            #(#child)*
+                        }
+                    });
+                } else {
+                    gen_block_expr(&expr.expr, stmts, mode);
+                }
             }
         }
     }
@@ -379,6 +456,31 @@ mod template_tests {
         generate_template(&tpl, EmitMode::Sync)
             .expect_err("template must fail")
             .to_string()
+    }
+
+    #[test]
+    fn literal_modes_are_independent_of_every_supported_raw_hash_count() {
+        for count in 0..=255 {
+            let hashes = "#".repeat(count);
+            for (body, expected) in [
+                ("\n## Heading\n", "MD_TEMPLATE_BLOCK"),
+                ("inline", "MD_TEMPLATE_INLINE"),
+            ] {
+                let source = format!("r{hashes}\"{body}\"{hashes}");
+                let template: MdTemplateInput = syn::parse_str(&source).unwrap();
+                for mode in [EmitMode::Sync, EmitMode::Async] {
+                    let output = generate_template(&template, mode).unwrap().to_string();
+                    assert!(output.contains(expected), "{count} hashes: {output}");
+                }
+            }
+        }
+        for source in ["\"one\\ntwo\"", "\"one\ntwo\""] {
+            let cooked: MdTemplateInput = syn::parse_str(source).unwrap();
+            assert!(generate_template(&cooked, EmitMode::Sync)
+                .unwrap()
+                .to_string()
+                .contains("MD_TEMPLATE_INLINE"));
+        }
     }
 
     #[test]

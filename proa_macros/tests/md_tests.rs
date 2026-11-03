@@ -32,7 +32,7 @@ fn raw_template_is_the_canonical_document_form() {
         "###
     });
 
-    assert_eq!(out, "# Markdown rendering\n\nTyped body\n");
+    assert_eq!(out, "# Markdown rendering\n\nTyped body\n\n");
 }
 
 #[test]
@@ -62,6 +62,7 @@ md_sync! { r#"{literal}"# }
 ```
 
 After `{inline}`.
+
 "##
     );
 }
@@ -82,7 +83,7 @@ fn raw_template_preserves_braces_in_tilde_fences() {
 
     assert_eq!(
         out,
-        "Before rendered.\n\n~~~rust\nThing { field: value }\n~~~\n\nAfter rendered.\n"
+        "Before rendered.\n\n~~~rust\nThing { field: value }\n~~~\n\nAfter rendered.\n\n"
     );
 }
 
@@ -121,9 +122,9 @@ fn control_flow_is_rust_and_markdown_re_enters_through_nested_templates() {
             "###
         });
         let expected = if enabled {
-            "visible\n(2)(5)\n\n"
+            "visible\n(2)(5)\n\n\n"
         } else {
-            "hidden\n(2)(5)\n\n"
+            "hidden\n(2)(5)\n\n\n"
         };
         assert_eq!(output, expected);
     }
@@ -189,7 +190,7 @@ fn prose_starting_with_control_words_is_text_at_every_depth() {
         for guests in rooms {label}.
         "###
     });
-    assert_eq!(top, "if enabled a\\*b.\nfor guests in rooms a\\*b.\n");
+    assert_eq!(top, "if enabled a\\*b.\nfor guests in rooms a\\*b.\n\n");
     let nested = r(md_sync! { r###"
         {if true {
             md_sync! { r#"
@@ -199,7 +200,7 @@ fn prose_starting_with_control_words_is_text_at_every_depth() {
         }}
         "###
     });
-    assert_eq!(nested, "if you prefer a\\*b.\nfor example a\\*b.\n\n");
+    assert_eq!(nested, "if you prefer a\\*b.\nfor example a\\*b.\n\n\n");
 }
 
 #[test]
@@ -222,9 +223,9 @@ fn match_arms_render_their_tails() {
             "###
         })
     };
-    assert_eq!(render(0), "_none_\n");
-    assert_eq!(render(1), "one\n");
-    assert_eq!(render(7), "**7**\n");
+    assert_eq!(render(0), "_none_\n\n");
+    assert_eq!(render(1), "one\n\n");
+    assert_eq!(render(7), "**7**\n\n");
 }
 
 #[test]
@@ -267,7 +268,7 @@ fn nested_template_literals_keep_code_spans_and_relative_layout() {
         }}
         "###
     });
-    assert_eq!(output, "`first\nsecond`\n\n");
+    assert_eq!(output, "`first\nsecond`\n\n\n");
 }
 
 #[test]
@@ -280,7 +281,7 @@ fn control_headers_support_if_let_and_multiline_rust_whitespace() {
     assert_eq!(
         r(md_sync! { r###"{for item in
         [2, 3] { md_sync! { "(" {item} ")" } }}"### }),
-        "(2)(3)"
+        "(2)(3)\n\n"
     );
 }
 
@@ -293,7 +294,7 @@ fn named_arguments_seed_conditions_and_iterators() {
         }}
         "###, show = true, items = &values
     });
-    assert_eq!(output, "(2)(4)\n");
+    assert_eq!(output, "(2)(4)\n\n");
 }
 #[test]
 fn template_field_access() {
@@ -362,7 +363,10 @@ fn template_nested_for() {
         }}
         "###
     });
-    assert_eq!(out, "## Fruits\n- apple\n- banana\n## Vegs\n- carrot\n\n");
+    assert_eq!(
+        out,
+        "## Fruits\n- apple\n- banana\n\n## Vegs\n- carrot\n\n\n"
+    );
 }
 #[test]
 fn template_dedents_layout_indentation() {
@@ -517,7 +521,7 @@ fn nested_templates_preserve_nested_lists_indented_code_and_fenced_code() {
         }}
         "###
     });
-    assert_eq!(output, "- parent\n  - a\\*b\n\n    code_line();\n\n```rust\nfor item in items {\n    println!(\"{item}\");\n}\n```\n\n");
+    assert_eq!(output, "- parent\n  - a\\*b\n\n    code_line();\n\n```rust\nfor item in items {\n    println!(\"{item}\");\n}\n```\n\n\n");
 }
 
 #[test]
@@ -591,7 +595,7 @@ fn multiline_raw_strings_dedent_source_indentation() {
 
     assert_eq!(
         out,
-        "---\ntitle: Markdown rendering\ndescription: Render typed Rust values to Markdown.\n---"
+        "---\ntitle: Markdown rendering\ndescription: Render typed Rust values to Markdown.\n---\n\n"
     );
 }
 
@@ -607,7 +611,7 @@ fn multiline_raw_strings_preserve_relative_indentation() {
 
     assert_eq!(
         out,
-        "## Features\n\n- Fast\n  - No runtime parsing\n- Typed"
+        "## Features\n\n- Fast\n  - No runtime parsing\n- Typed\n\n"
     );
 }
 
@@ -698,7 +702,7 @@ async fn async_md_composes_async_and_immediate_children() {
     })
     .await;
 
-    assert_eq!(out, "Result: ready (3)\n");
+    assert_eq!(out, "Result: ready (3)\n\n");
 }
 
 #[tokio::test]
@@ -740,7 +744,7 @@ async fn async_nested_conditions_await_children_and_keep_following_prose() {
     .await;
     assert_eq!(
         out,
-        "zero\n\nelsewhere\none\n\nelsewhere\nother\n\nelsewhere\n\n"
+        "zero\n\nelsewhere\n\none\n\nelsewhere\n\nother\n\nelsewhere\n\n\n"
     );
 }
 
@@ -762,7 +766,7 @@ fn nested_template_fences_and_inline_code_keep_unbalanced_literal_braces() {
     });
     assert_eq!(
         output,
-        "Literal `{` and `}`.\n\n~~~rust\nif unclosed {\n    \"unclosed quote\n~~~\n\n"
+        "Literal `{` and `}`.\n\n~~~rust\nif unclosed {\n    \"unclosed quote\n~~~\n\n\n"
     );
 }
 
@@ -1055,7 +1059,7 @@ fn template_named_args_bind_field_access() {
     });
     assert_eq!(
         out,
-        "| Points | Min (ms) | Max (ms) |\n| --- | --- | --- |\n| 40 | 12 | 95 |\n"
+        "| Points | Min (ms) | Max (ms) |\n| --- | --- | --- |\n| 40 | 12 | 95 |\n\n"
     );
 }
 
@@ -1066,7 +1070,7 @@ fn template_named_arg_can_be_reused_when_copy() {
         "###,
         value = 2 + 3
     });
-    assert_eq!(out, "5 and 5\n");
+    assert_eq!(out, "5 and 5\n\n");
 }
 
 #[test]
@@ -1078,7 +1082,7 @@ fn template_named_arg_shadows_like_named_local() {
         "###,
         value = "named"
     });
-    assert_eq!(out, "named\n");
+    assert_eq!(out, "named\n\n");
 }
 
 #[tokio::test]
@@ -1093,7 +1097,7 @@ async fn async_template_supports_named_args() {
         median = stats.median,
     })
     .await;
-    assert_eq!(out, "Median: 7\n");
+    assert_eq!(out, "Median: 7\n\n");
 }
 
 #[test]
@@ -1103,5 +1107,5 @@ fn template_spaced_placeholder_renders_like_bare() {
         # { title }
         "###
     });
-    assert_eq!(out, "# Spaced\n");
+    assert_eq!(out, "# Spaced\n\n");
 }

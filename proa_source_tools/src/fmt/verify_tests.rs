@@ -50,6 +50,18 @@ fn verify_allows_rsjs_legacy_name_formatting() {
 
 // ── Markdown templates ───────────────────────────────────────────────
 
+#[test]
+fn verification_preserves_literal_mode_but_ignores_raw_hash_count() {
+    let path = Path::new("mode.rs");
+    let inline = r#"fn f() { md_sync! { "One\nTwo" }; }"#;
+    let block = "fn f() { md_sync! { r\"One\nTwo\" }; }";
+    let hashed_block = "fn f() { md_sync! { r###\"One\nTwo\"### }; }";
+    assert!(!verify_render_preserving(path, inline, block).is_empty());
+    assert!(verify_render_preserving(path, block, hashed_block).is_empty());
+    let formatted = format_file(path, block).unwrap();
+    assert!(verify_render_preserving(path, block, &formatted.output).is_empty());
+}
+
 /// The text a Markdown template lowers to, for asserting that formatting
 /// moved the template without changing what it renders.
 fn md_lowered(source: &str) -> Vec<Vec<MdRenderNode>> {
@@ -483,6 +495,20 @@ fn markdown_named_argument_layout_moves_without_changing_literal_data() {
     );
     assert_eq!(
         format_file(Path::new("arguments.rs"), &formatted.output)
+            .unwrap()
+            .output,
+        formatted.output
+    );
+}
+
+#[test]
+fn whitespace_only_markdown_retains_authored_closing_indentation() {
+    let source = "fn f() {\n    md_sync! { r\"\n    \" };\n}";
+    let formatted = format_file(Path::new("empty.rs"), source).unwrap();
+    assert!(formatted.output.contains("r\"\n    \""));
+    assert!(verify_render_preserving(Path::new("empty.rs"), source, &formatted.output).is_empty());
+    assert_eq!(
+        format_file(Path::new("empty.rs"), &formatted.output)
             .unwrap()
             .output,
         formatted.output

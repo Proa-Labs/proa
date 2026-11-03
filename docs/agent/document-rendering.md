@@ -117,6 +117,51 @@ newline fragments. Raw-template interpolation stays literal inside code
 spans/fences; use an explicit typed code child or token composition when an
 example needs dynamic code values.
 
+### Automatic inline and block scopes
+
+The single-literal forms of `md_sync!` and `md!` select their rendering mode
+when rendered, never when constructed:
+
+| Literal form | Rendering mode |
+| --- | --- |
+| A raw literal containing a physical source-line break | Block |
+| An ordinary string, including one containing `\n` or physical line breaks | Inline |
+| A single-line raw literal | Inline |
+| Legacy token composition (`"**" {child} "**"`) | Inherit the caller's mode |
+
+Raw delimiter hashes only delimit the literal; all supported hash counts,
+including zero, follow the same rule. Existing dedenting is unchanged.
+An inline template preserves explicit newlines and adds no paragraph boundaries.
+A block template establishes a boundary before its body and after success:
+it adds no leading whitespace at the start of output and otherwise adds only
+the missing LF bytes needed for a blank line. Automatically inserted boundaries
+are deduplicated; authored whitespace is never collapsed.
+
+The framework restores the immediately enclosing inline setting on success,
+error, panic unwinding, and (for `md!`) cancellation. It does not reset heading
+offset or list depth. Partial output and its boundary tracking remain live;
+cleanup never rolls back bytes or appends a trailing boundary after failure.
+Authors can use `.render_md(cx)?` directly:
+
+```rust
+md_sync! { "**{self.children}**" }.render_md(cx)?;
+```
+
+Blocks inside active inline scopes are errors. This includes link labels,
+headings, emphasis, and table cells in literal templates, as well as inline
+scopes entered by typed components. A directly rendered qualified Proa block
+macro is rejected at compile time when its mode is visible; other children are checked
+at render time before that block's boundary or body writes. Earlier prefix bytes
+remain. Provide an inline representation instead of embedding a document in
+a link or table cell. Legacy token composition inherits these restrictions.
+
+An empty block body emits nothing at the start of output, but can still finish
+a boundary after preceding prose. A body with no rendered loop items still
+retains any authored newlines around that loop. Whitespace-only raw literals
+keep their literal whitespace, including closing-line indentation under the
+existing parser contract, then complete a trailing boundary. An empty ordinary
+or single-line raw literal emits nothing.
+
 The grammar has one rule at every depth: text outside `{ ... }` is Markdown,
 and text inside is a Rust expression. Control flow is ordinary Rust (`if`,
 `else if`, `for`, `match`, `if let`), and a branch renders only its final

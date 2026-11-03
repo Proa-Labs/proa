@@ -794,9 +794,12 @@ impl RobotsTxt {
         // protocol punctuation (including `*`, `$`, and URL query separators).
         // An empty Disallow preserves empty group boundaries; blank lines do not:
         // https://www.rfc-editor.org/rfc/rfc9309.html#section-2.1
-        md_sync! { r###"
+        // Legacy token composition intentionally inherits the caller's mode.
+        // Adjacent controls preserve protocol bytes without Markdown paragraph
+        // boundaries; each inline row owns its explicit line ending.
+        md_sync! {
             {for (index, group) in self.groups.iter().enumerate() {
-                md_sync! { r#"{if index > 0 {
+                md_sync! { {if index > 0 {
                     md_sync! { "\n" }
                 }}{for agent in &group.user_agents {
                     md_sync! { "User-agent: {TrustedMarkdown(agent)}\n" }
@@ -808,14 +811,14 @@ impl RobotsTxt {
                     md_sync! { "Crawl-delay: {RobotsCrawlDelay(delay)}\n" }
                 }}{for (name, value) in &group.directives {
                     md_sync! { "{TrustedMarkdown(name)}: {TrustedMarkdown(value)}\n" }
-                }}"# }
+                }} }
             }}{if !self.groups.is_empty() && (self.host.is_some() || !self.sitemaps.is_empty()) {
                 md_sync! { "\n" }
             }}{if let Some(host) = &self.host {
                 md_sync! { "Host: {TrustedMarkdown(host)}\n" }
             }}{for loc in &self.sitemaps {
                 md_sync! { "Sitemap: {TrustedMarkdown(loc)}\n" }
-            }}"###
+            }}
         }
         .render_md(&mut cx)
         .expect("validated robots.txt renders into an owned buffer");

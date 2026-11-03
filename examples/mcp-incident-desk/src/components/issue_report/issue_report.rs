@@ -366,7 +366,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for I
         let runbook = Runbook::new(self.data);
         let actions = ActionSummary::new(self.data);
         let activity = ActivityLog::new(self.data);
-        md_sync! { "{overview}{impact}{release}{runbook}{actions}{activity}" }.render_md(cx)
+        md_sync! { {overview}{impact}{release}{runbook}{actions}{activity} }.render_md(cx)
     }
 }
 pub fn markdown(data: &IssueProjection) -> Result<String, WriteError> {

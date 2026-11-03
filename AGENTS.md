@@ -166,6 +166,14 @@ ordinary blocks. `{expression}` composes a typed child. Braces inside fenced
 code blocks and inline code spans stay literal. Increase the raw-string hash
 count only if the Markdown itself contains the exact closing sequence `"###`.
 Outside code spans and fences, write `{{` or `}}` for a literal brace.
+Single-literal templates select their mode at render time: physically multiline
+raw literals are block scopes, while ordinary strings and single-line raw
+literals are inline scopes. Hash count has no effect. Scopes restore the
+enclosing mode on errors, unwinding, and async cancellation; block boundaries
+are completed only before the body and after success. Authored whitespace and
+partial output remain. Block templates cannot appear inside inline scopes,
+link labels, headings, emphasis, or table cells. Use `.render_md(cx)?` directly,
+without manual inline-mode restoration. Legacy token composition inherits mode.
 Text outside slots is always Markdown; each `{ ... }` slot is Rust. Use
 ordinary Rust `if`, `for`, and `match` there, and re-enter Markdown through a
 nested macro. Prefer ordinary one-line strings for short fragments, such as

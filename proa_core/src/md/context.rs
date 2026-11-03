@@ -15,6 +15,7 @@ pub struct MdState {
     heading_offset: u8,
     list_depth: u8,
     inline: bool,
+    inline_scope: bool,
     trailing_line: TrailingLineState,
     pending_cr: bool,
 }
@@ -25,6 +26,7 @@ impl Default for MdState {
             heading_offset: 0,
             list_depth: 0,
             inline: false,
+            inline_scope: false,
             trailing_line: TrailingLineState::Start,
             pending_cr: false,
         }
@@ -246,6 +248,19 @@ impl<B: WriteBuf> WriteBuf for ObservedMdWriteBuf<'_, B> {
     }
 }
 
+/// Merge accepted escape-writer output even if a later write fails or panics.
+struct MdOutputScope<'a, B: WriteBuf> {
+    out: ObservedMdWriteBuf<'a, B>,
+    state: &'a mut MdState,
+}
+
+impl<B: WriteBuf> Drop for MdOutputScope<'_, B> {
+    #[inline(always)]
+    fn drop(&mut self) {
+        self.out.merge_suffix(self.state);
+    }
+}
+
 impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     /// Snapshot Markdown formatting and logical suffix state, independently of
     /// the physical buffer. Direct `out` writes bypass this bookkeeping; use
@@ -286,10 +301,10 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             self.write_md_prepared_static(b"#")?;
         }
         self.write_md_prepared_static(b" ")?;
-        let previous_inline = self.md_set_inline(true);
-        let result = render(self);
-        self.md_set_inline(previous_inline);
-        result?;
+        {
+            let mut scope = MdTemplateScope::<_, _, MD_TEMPLATE_INLINE>::enter(self)?;
+            render(scope.context())?;
+        }
         self.write_md_prepared_static(b"\n\n")
     }
 
@@ -367,12 +382,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         if s.is_empty() {
             return Ok(());
         }
-        super::escape::escape_md(&mut self.out, s)?;
-        // Literal text never contains a source-level Markdown line ending:
-        // CRLF/CR/LF/tab are normalized to spaces by the escaper.
-        self.md_state.trailing_line = TrailingLineState::Text;
-        self.md_state.pending_cr = false;
-        Ok(())
+        self.write_md_observed(|out| super::escape::escape_md(out, s))
     }
 
     /// Write a runtime heading label as literal, single-line Markdown text.
@@ -380,10 +390,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         if value.is_empty() {
             return Ok(());
         }
-        super::escape::write_heading_label(&mut self.out, value)?;
-        self.md_state.trailing_line = TrailingLineState::Text;
-        self.md_state.pending_cr = false;
-        Ok(())
+        self.write_md_observed(|out| super::escape::write_heading_label(out, value))
     }
 
     /// Write runtime blockquote content as literal, single-line Markdown text.
@@ -391,18 +398,12 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         if value.is_empty() {
             return Ok(());
         }
-        super::escape::write_blockquote_text(&mut self.out, value)?;
-        self.md_state.trailing_line = TrailingLineState::Text;
-        self.md_state.pending_cr = false;
-        Ok(())
+        self.write_md_observed(|out| super::escape::write_blockquote_text(out, value))
     }
 
     /// Write arbitrary runtime text as a delimiter-safe inline-code span.
     pub fn write_md_inline_code(&mut self, value: &str) -> Result<(), WriteError> {
-        super::escape::write_inline_code(&mut self.out, value)?;
-        self.md_state.trailing_line = TrailingLineState::Text;
-        self.md_state.pending_cr = false;
-        Ok(())
+        self.write_md_observed(|out| super::escape::write_inline_code(out, value))
     }
 
     /// Write a sanitized CommonMark link destination without delimiters.
@@ -410,11 +411,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     /// Dangerous schemes emit no bytes. Whitespace, controls, backslashes,
     /// and parentheses are neutralized for an unbracketed destination.
     pub fn write_md_url(&mut self, value: &str) -> Result<(), WriteError> {
-        if super::escape::write_link_destination(&mut self.out, value)? {
-            self.md_state.trailing_line = TrailingLineState::Text;
-            self.md_state.pending_cr = false;
-        }
-        Ok(())
+        self.write_md_observed(|out| super::escape::write_link_destination(out, value).map(|_| ()))
     }
 
     /// Write runtime code in an adaptive fenced block.
@@ -423,10 +420,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     /// block boundary before the fence and leaves one after it.
     pub fn md_fenced_code(&mut self, info: &str, value: &str) -> Result<(), WriteError> {
         self.md_block_boundary()?;
-        super::escape::write_fenced_code(&mut self.out, info, value)?;
-        self.md_state.trailing_line = TrailingLineState::Blank;
-        self.md_state.pending_cr = false;
-        Ok(())
+        self.write_md_observed(|out| super::escape::write_fenced_code(out, info, value))
     }
 
     /// Ensure output is at a Markdown block boundary.
@@ -469,6 +463,18 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     fn observe_written(&mut self, bytes: &[u8]) {
         (self.md_state.trailing_line, self.md_state.pending_cr) =
             state_after_write(self.md_state.trailing_line, self.md_state.pending_cr, bytes);
+    }
+
+    #[inline(always)]
+    fn write_md_observed(
+        &mut self,
+        write: impl FnOnce(&mut ObservedMdWriteBuf<'_, B>) -> Result<(), WriteError>,
+    ) -> Result<(), WriteError> {
+        let mut scope = MdOutputScope {
+            out: ObservedMdWriteBuf::new(&mut self.out, self.md_state),
+            state: &mut self.md_state,
+        };
+        write(&mut scope.out)
     }
 
     /// Write generated numeric ASCII directly into spare output capacity while
@@ -555,7 +561,10 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         self.md_state.inline
     }
 
-    /// Set inline mode. Returns previous value.
+    /// Set the low-level inline mode. Returns the previous value.
+    ///
+    /// Single-literal Markdown templates scope this setting automatically.
+    /// Setting it to false cannot permit a block inside an active inline scope.
     pub fn md_set_inline(&mut self, inline: bool) -> bool {
         let prev = self.md_state.inline;
         self.md_state.inline = inline;
@@ -593,10 +602,10 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         F: FnOnce(&mut Self) -> Result<(), WriteError>,
     {
         self.write_md_prepared_static(b"[")?;
-        let previous_inline = self.md_set_inline(true);
-        let result = render_label(self);
-        self.md_set_inline(previous_inline);
-        result?;
+        {
+            let mut scope = MdTemplateScope::<_, _, MD_TEMPLATE_INLINE>::enter(self)?;
+            render_label(scope.context())?;
+        }
         self.write_md_prepared_static(b"](")?;
         self.write_md_url(url)?;
         self.write_md_prepared_static(b")")
@@ -610,6 +619,75 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 pub(crate) struct MdFragmentScope<'cx, L: DataLoader, B: WriteBuf> {
     cx: &'cx mut WebContext<L, B>,
     saved: MdState,
+}
+
+/// The literal-form mode selected by a compiled Markdown template.
+/// Token-composed templates retain the inherited mode for compatibility.
+#[doc(hidden)]
+pub const MD_TEMPLATE_INHERIT: u8 = 0;
+#[doc(hidden)]
+pub const MD_TEMPLATE_INLINE: u8 = 1;
+#[doc(hidden)]
+pub const MD_TEMPLATE_BLOCK: u8 = 2;
+
+/// Borrow the live context while restoring only the template's inline setting.
+/// In particular, successful writes remain reflected in the suffix tracker on
+/// errors, unwinding, and cancellation. Finishing a block is an explicit success
+/// operation; dropping a scope never writes to the output.
+#[doc(hidden)]
+pub struct MdTemplateScope<'cx, L: DataLoader, B: WriteBuf, const MODE: u8> {
+    cx: &'cx mut WebContext<L, B>,
+    inline: bool,
+    inline_scope: bool,
+}
+
+impl<'cx, L: DataLoader, B: WriteBuf, const MODE: u8> MdTemplateScope<'cx, L, B, MODE> {
+    #[inline(always)]
+    pub fn enter(cx: &'cx mut WebContext<L, B>) -> Result<Self, WriteError> {
+        let inline = cx.md_inline();
+        let inline_scope = cx.md_state.inline_scope;
+        if MODE == MD_TEMPLATE_BLOCK && (inline || inline_scope) {
+            return Err(WriteError::render(
+                "cannot render a block Markdown template inside an inline scope; use an ordinary-string inline template",
+            ));
+        }
+        let scope = Self {
+            cx,
+            inline,
+            inline_scope,
+        };
+        if MODE == MD_TEMPLATE_INLINE {
+            scope.cx.md_set_inline(true);
+            scope.cx.md_state.inline_scope = true;
+        } else if MODE == MD_TEMPLATE_BLOCK {
+            scope.cx.md_block_boundary()?;
+        }
+        Ok(scope)
+    }
+
+    #[inline(always)]
+    pub fn context(&mut self) -> &mut WebContext<L, B> {
+        self.cx
+    }
+
+    #[inline(always)]
+    pub(crate) fn finish(&mut self) -> Result<(), WriteError> {
+        if MODE == MD_TEMPLATE_BLOCK {
+            self.cx.md_set_inline(false);
+            self.cx.md_block_boundary()?;
+        }
+        Ok(())
+    }
+}
+
+impl<L: DataLoader, B: WriteBuf, const MODE: u8> Drop for MdTemplateScope<'_, L, B, MODE> {
+    #[inline(always)]
+    fn drop(&mut self) {
+        if MODE != MD_TEMPLATE_INHERIT {
+            self.cx.md_set_inline(self.inline);
+            self.cx.md_state.inline_scope = self.inline_scope;
+        }
+    }
 }
 
 impl<'cx, L: DataLoader, B: WriteBuf> MdFragmentScope<'cx, L, B> {

@@ -288,6 +288,15 @@ pub fn xml_sync(input: TokenStream) -> TokenStream {
 /// - `{for ...}` and `{if ...}` provide template control flow
 /// - Wrap synchronous custom children with `proa_core::to_md_async(...)`
 ///
+/// A single physically multiline raw literal selects block mode, independent
+/// of its hash count. It completes paragraph boundaries before rendering and
+/// after success. Ordinary strings and single-line raw literals select inline
+/// mode and preserve explicit newlines without adding boundaries. Mode scopes
+/// begin at render time and restore their enclosing mode on error, unwinding,
+/// and cancellation, preserving partial output. Blocks inside inline scopes
+/// (including link labels and table cells) are rejected. Token composition
+/// inherits the caller's mode.
+///
 /// ## Editor support
 ///
 /// The [Proa extension](https://github.com/Proa-Labs/proa/tree/main/editors/vscode)
@@ -341,6 +350,8 @@ pub fn md(input: TokenStream) -> TokenStream {
 /// [`md!`]. Its syntax is identical — including `format!`-style named
 /// arguments and the rust-analyzer placeholder support described there — but
 /// every interpolated `{expr}` must implement `MdRenderSync`.
+/// The same automatic inline/block scopes apply, restoring the enclosing mode
+/// on success, errors, and panic unwinding without buffering or rolling back output.
 /// See [`md!`]'s editor-support documentation for the Proa extension and
 /// native IDE support through named arguments.
 ///

@@ -1,0 +1,793 @@
+// Copyright Proa Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+use proa_core::{
+    DataLoader, MdRenderSync, MeteredWriteBuf, OutputMeter, StreamingZeroCopyBuf, WebContext,
+    WriteBuf, WriteError, ZeroCopyBuf,
+};
+use proa_macros::{md, md_sync};
+use std::{
+    future::Future,
+    panic::{catch_unwind, AssertUnwindSafe},
+    task::{Context, Poll, Waker},
+};
+
+fn context() -> WebContext<proa_core::NoLoader, Vec<u8>> {
+    WebContext::with_buffer(Vec::new())
+}
+
+#[test]
+fn every_raw_delimiter_selects_the_same_block_mode() {
+    macro_rules! check {
+        ($template:expr) => {{
+            let mut cx = context();
+            $template.render_md(&mut cx).unwrap();
+            assert!(!cx.md_inline());
+            assert_eq!(cx.into_output(), b"## Heading\n\n");
+        }};
+    }
+    check!(md_sync! { r"
+        ## Heading
+        " });
+    check!(md_sync! { r#"
+        ## Heading
+        "# });
+    check!(md_sync! { r##"
+        ## Heading
+        "## });
+    check!(md_sync! { r###"
+        ## Heading
+        "### });
+    check!(md_sync! { r####"
+        ## Heading
+        "#### });
+    check!(md_sync! { r#####"
+        ## Heading
+        "##### });
+}
+
+#[test]
+fn block_boundaries_only_add_missing_line_breaks() {
+    for prefix in ["", "Intro", "Intro\n", "Intro\n\n", "Intro\n\n\n"] {
+        let mut cx = context();
+        // Authored whitespace must survive the inline scope verbatim.
+        proa_core::md::TrustedMarkdown(prefix)
+            .render_md(&mut cx)
+            .unwrap();
+        md_sync! { r#"
+            ## Heading
+            "#
+        }
+        .render_md(&mut cx)
+        .unwrap();
+        let expected = match prefix {
+            "" => "## Heading\n\n",
+            "Intro\n\n\n" => "Intro\n\n\n## Heading\n\n",
+            _ => "Intro\n\n## Heading\n\n",
+        };
+        assert_eq!(cx.into_output(), expected.as_bytes());
+    }
+
+    let mut cx = context();
+    md_sync! { r#"
+        First
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    md_sync! { r#"
+        Second
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    assert_eq!(cx.into_output(), b"First\n\nSecond\n\n");
+}
+
+#[test]
+fn inline_templates_preserve_sentences_and_authored_newlines() {
+    let mut cx = context();
+    let name = "Ada";
+    md_sync! { "Hello " }.render_md(&mut cx).unwrap();
+    md_sync! { "**{name}**" }.render_md(&mut cx).unwrap();
+    md_sync! { ", welcome" }.render_md(&mut cx).unwrap();
+    assert_eq!(cx.into_output(), b"Hello **Ada**, welcome");
+
+    let mut cx = context();
+    for item in ["Alpha", "Beta"] {
+        md_sync! { "- {item}\n" }.render_md(&mut cx).unwrap();
+    }
+    assert_eq!(cx.into_output(), b"- Alpha\n- Beta\n");
+
+    let mut cx = context();
+    md_sync! { "First\n\n\nSecond" }.render_md(&mut cx).unwrap();
+    assert_eq!(cx.into_output(), b"First\n\n\nSecond");
+}
+
+struct Mode(bool);
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Mode {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        assert_eq!(cx.md_inline(), self.0);
+        Ok(())
+    }
+}
+
+#[test]
+fn scope_is_entered_only_when_rendered_and_restores_the_enclosing_mode() {
+    let mut cx = context();
+    let status = md_sync! { "**Ready**{Mode(true)}" };
+    let block = md_sync! { r#"
+        {Mode(false)}Status: {status}{Mode(false)}
+        "#
+    };
+    assert!(!cx.md_inline());
+    assert!(cx.out.is_empty());
+    block.render_md(&mut cx).unwrap();
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"Status: **Ready**\n\n");
+}
+
+#[test]
+fn single_line_raw_and_multiline_cooked_literals_are_inline() {
+    let mut cx = context();
+    md_sync! { r"first{Mode(true)}" }
+        .render_md(&mut cx)
+        .unwrap();
+    md_sync! { r###" second{Mode(true)}"### }
+        .render_md(&mut cx)
+        .unwrap();
+    md_sync! { "third{Mode(true)}\nfourth\n" }
+        .render_md(&mut cx)
+        .unwrap();
+    assert_eq!(cx.into_output(), b"first secondthird\nfourth\n");
+}
+
+#[test]
+fn legacy_token_composition_inherits_the_callers_mode() {
+    let mut cx = context();
+    md_sync! { "**" {Mode(false)} "**" }
+        .render_md(&mut cx)
+        .unwrap();
+    cx.md_set_inline(true);
+    md_sync! { "**" {Mode(true)} "**" }
+        .render_md(&mut cx)
+        .unwrap();
+    assert!(cx.md_inline());
+    assert_eq!(cx.into_output(), b"********");
+}
+
+#[test]
+fn dynamic_prose_stays_escaped_and_other_formatting_is_inherited() {
+    let mut cx = context();
+    cx.md_push_heading_offset(2);
+    cx.md_push_list_depth();
+    let label = "A * B";
+    md_sync! { "{label}" }.render_md(&mut cx).unwrap();
+    assert_eq!(cx.md_heading_offset(), 2);
+    assert_eq!(cx.md_list_depth(), 1);
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), br"A \* B");
+}
+
+struct Fail(bool);
+
+#[test]
+fn generated_inline_context_bindings_do_not_capture_authored_names() {
+    let __proa_md_inline_scope = "caller";
+    let mut cx = context();
+    md_sync! { "[{__proa_md_inline_scope}](/target)" }
+        .render_md(&mut cx)
+        .unwrap();
+    assert_eq!(cx.into_output(), b"[caller](/target)");
+}
+
+#[test]
+fn static_scoped_templates_keep_the_immediate_async_path() {
+    let mut cx = context();
+    assert!(matches!(
+        proa_core::MdRender::render_md(md! { "Inline" }, &mut cx),
+        proa_core::RenderOutcome::Done(Ok(()))
+    ));
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"Inline");
+}
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Fail {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        if self.0 {
+            cx.write_md_prepared_static(b"Partial")?;
+        }
+        Err(WriteError::render("test child failed"))
+    }
+}
+
+#[test]
+fn catchable_errors_restore_mode_without_rolling_back_output() {
+    for partial in [true, false] {
+        for initial_inline in [true, false] {
+            let mut cx = context();
+            cx.md_set_inline(initial_inline);
+            let result = md_sync! { "{Fail(partial)}" }.render_md(&mut cx);
+            assert_eq!(result, Err(WriteError::render("test child failed")));
+            assert_eq!(cx.md_inline(), initial_inline);
+            cx.md_set_inline(false);
+            md_sync! { r#"
+                Fallback
+                "#
+            }
+            .render_md(&mut cx)
+            .unwrap();
+            assert_eq!(
+                cx.into_output(),
+                if partial {
+                    b"Partial\n\nFallback\n\n".as_slice()
+                } else {
+                    b"Fallback\n\n"
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn failing_blocks_keep_the_leading_boundary_but_do_not_finish_the_block() {
+    let mut cx = context();
+    md_sync! { "Intro" }.render_md(&mut cx).unwrap();
+    let result = md_sync! { r#"
+        {Fail(true)}
+        "#
+    }
+    .render_md(&mut cx);
+    assert!(result.is_err());
+    assert!(!cx.md_inline());
+    assert_eq!(cx.out, b"Intro\n\nPartial");
+    md_sync! { r#"
+        Fallback
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    assert_eq!(cx.into_output(), b"Intro\n\nPartial\n\nFallback\n\n");
+}
+
+struct Recover;
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Recover {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        assert!(!cx.md_inline());
+        assert!(md_sync! { "{Fail(true)}" }.render_md(cx).is_err());
+        assert!(!cx.md_inline());
+        cx.write_md_prepared_static(b" recovered")
+    }
+}
+
+struct Panic;
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Panic {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        cx.write_md_prepared_static(b"Partial")?;
+        panic!("test child panicked")
+    }
+}
+
+#[test]
+fn nested_error_and_panic_scopes_restore_each_parent() {
+    let mut cx = context();
+    md_sync! { r#"
+        {Recover}
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"Partial recovered\n\n");
+
+    for initial_inline in [false, true] {
+        let mut cx = context();
+        cx.md_set_inline(initial_inline);
+        assert!(catch_unwind(AssertUnwindSafe(|| {
+            md_sync! { "{Panic}" }.render_md(&mut cx)
+        }))
+        .is_err());
+        assert_eq!(cx.md_inline(), initial_inline);
+        assert_eq!(cx.into_output(), b"Partial");
+    }
+
+    let mut cx = context();
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        md_sync! { r###"
+            {md_sync! { "{Panic}" }}
+            "### }
+        .render_md(&mut cx)
+    }))
+    .is_err());
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"Partial");
+}
+
+struct Block;
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Block {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        md_sync! { r#"
+            ## Heading
+            "#
+        }
+        .render_md(cx)
+    }
+}
+
+#[test]
+fn typed_block_children_are_rejected_before_writing_their_boundary_or_body() {
+    let mut cx = context();
+    let block = md_sync! { r#"
+        ## Heading
+        "#
+    };
+    let error = md_sync! { "Label: {block}" }
+        .render_md(&mut cx)
+        .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("block Markdown template inside an inline scope"));
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"Label: ");
+
+    let mut cx = context();
+    cx.md_set_inline(true);
+    assert!(Block.render_md(&mut cx).is_err());
+    assert!(cx.md_inline());
+    assert!(cx.out.is_empty());
+
+    let mut cx = context();
+    assert!(cx
+        .md_link_with("/target", |cx| Block.render_md(cx))
+        .is_err());
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"[");
+
+    let mut cx = context();
+    assert!(md_sync! { "| {Block} |\n" }.render_md(&mut cx).is_err());
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"| ");
+
+    let mut cx = context();
+    assert!(md_sync! { r#"
+        [{Block}](/target)
+        "# }
+    .render_md(&mut cx)
+    .is_err());
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"[");
+
+    let mut cx = context();
+    assert!(md_sync! { r#"
+        | Title |
+        | --- |
+        | {Block} |
+        "# }
+    .render_md(&mut cx)
+    .is_err());
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"| Title |\n| --- |\n| ");
+}
+
+struct ForceBlock;
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ForceBlock {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        cx.md_set_inline(false);
+        Block.render_md(cx)
+    }
+}
+
+#[test]
+fn a_manual_mode_toggle_cannot_override_an_active_inline_scope() {
+    let mut cx = context();
+    assert!(md_sync! { "{ForceBlock}" }.render_md(&mut cx).is_err());
+    assert!(!cx.md_inline());
+    assert!(cx.out.is_empty());
+    Block.render_md(&mut cx).unwrap();
+    assert_eq!(cx.into_output(), b"## Heading\n\n");
+}
+
+#[test]
+fn link_label_helpers_restore_mode_on_unwinding() {
+    let mut cx = context();
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        cx.md_link_with("/target", |cx| Panic.render_md(cx))
+    }))
+    .is_err());
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"[Partial");
+}
+
+#[test]
+fn document_rows_and_conditionals_preserve_all_authored_whitespace() {
+    for in_stock in [true, false] {
+        let title = "Widget";
+        let features = ["Fast", "Lightweight"];
+        let mut cx = context();
+        let summary = md_sync! { r###"
+            # {title}
+
+            ## Features
+
+            {for feature in features.iter() {
+                md_sync! { "- {feature}\n" }
+            }}
+
+            {if in_stock {
+                md_sync! { "**In stock**" }
+            } else {
+                md_sync! { "Backordered" }
+            }}
+            "###
+        };
+        assert!(cx.out.is_empty());
+        assert!(!cx.md_inline());
+        summary.render_md(&mut cx).unwrap();
+        assert_eq!(
+            cx.into_output(),
+            if in_stock {
+                b"# Widget\n\n## Features\n\n- Fast\n- Lightweight\n\n\n**In stock**\n\n".as_slice()
+            } else {
+                b"# Widget\n\n## Features\n\n- Fast\n- Lightweight\n\n\nBackordered\n\n"
+            }
+        );
+    }
+}
+
+#[test]
+fn repeated_nested_blocks_deduplicate_only_automatic_boundaries() {
+    let entries = [
+        ("Shipping", "Ships tomorrow"),
+        ("Returns", "Returns accepted"),
+    ];
+    let mut cx = context();
+    md_sync! { r###"
+        {for (question, answer) in entries {
+            md_sync! { r#"
+                ### {question}
+
+                {answer}
+
+                "# }
+        }}
+        "###
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    assert_eq!(
+        cx.into_output(),
+        b"### Shipping\n\nShips tomorrow\n\n### Returns\n\nReturns accepted\n\n\n"
+    );
+}
+
+fn writer_contract<B: WriteBuf>(out: B) -> B {
+    let mut cx = WebContext::with_buffer(out);
+    md_sync! { "Intro" }.render_md(&mut cx).unwrap();
+    md_sync! { r#"
+        First
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    md_sync! { r#"
+        Second
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    assert!(!cx.md_inline());
+    cx.into_output()
+}
+
+#[test]
+fn contiguous_segmented_bounded_and_metered_writers_share_boundaries() {
+    let expected = b"Intro\n\nFirst\n\nSecond\n\n";
+    assert_eq!(writer_contract(Vec::new()), expected);
+    assert_eq!(
+        writer_contract(ZeroCopyBuf::with_capacity(8, 64)).to_vec(),
+        expected
+    );
+    assert_eq!(
+        writer_contract(StreamingZeroCopyBuf::new()).to_vec(),
+        expected
+    );
+    let mut bytes = [0; 64];
+    assert_eq!(
+        writer_contract(proa_core::stack::WriteCursor::new(&mut bytes)).as_slice(),
+        expected
+    );
+    let meter = OutputMeter::new(expected.len() as u64);
+    assert_eq!(
+        writer_contract(MeteredWriteBuf::new(Vec::new(), meter.borrow())).as_slice(),
+        expected
+    );
+    assert_eq!(meter.remaining(), 0);
+}
+
+#[test]
+fn capacity_failures_restore_mode_and_keep_partial_escaping_state() {
+    let mut bytes = [0; 3];
+    let mut cx = WebContext::with_buffer(proa_core::stack::WriteCursor::new(&mut bytes));
+    let label = "A * B";
+    assert_eq!(
+        md_sync! { "{label}" }.render_md(&mut cx),
+        Err(WriteError::OutOfCapacity)
+    );
+    assert!(!cx.md_inline());
+    assert_eq!(cx.out.as_slice(), b"A \\");
+
+    let meter = OutputMeter::new(3);
+    let mut cx = WebContext::with_buffer(MeteredWriteBuf::new(Vec::new(), meter.borrow()));
+    assert_eq!(
+        md_sync! { "{label}" }.render_md(&mut cx),
+        Err(WriteError::OutputLimitExceeded {
+            requested: 1,
+            remaining: 0
+        })
+    );
+    assert!(!cx.md_inline());
+    // Transfer the actual suffix to an unrestricted writer to exercise recovery.
+    let state = cx.md_state();
+    let bytes = cx.into_output().to_vec();
+    let mut cx = WebContext::with_buffer(bytes).with_md_state(state);
+    md_sync! { r#"
+        Fallback
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    assert_eq!(cx.into_output(), b"A \\\n\nFallback\n\n");
+}
+
+#[test]
+fn leading_and_trailing_boundary_failures_preserve_the_original_error() {
+    for budget in [0, 1] {
+        let meter = OutputMeter::new(budget);
+        let mut out = Vec::new();
+        out.extend_from_slice(b"Intro");
+        let mut cx = WebContext::with_buffer(MeteredWriteBuf::new(out, meter.borrow()));
+        // The prepared write is how all Markdown writers establish suffix state.
+        cx.write_md_prepared_static(b"").unwrap();
+        // Seed a matching state without charging this writer for the prefix.
+        let mut seed = context();
+        seed.write_md_prepared_static(b"Intro").unwrap();
+        cx.set_md_state(seed.md_state());
+        let result = md_sync! { r#"
+            Body
+            "#
+        }
+        .render_md(&mut cx);
+        assert_eq!(
+            result,
+            Err(WriteError::OutputLimitExceeded {
+                requested: 2,
+                remaining: budget
+            })
+        );
+        assert!(!cx.md_inline());
+        assert_eq!(cx.out.as_slice(), b"Intro");
+    }
+    let meter = OutputMeter::new(5);
+    let mut cx = WebContext::with_buffer(MeteredWriteBuf::new(Vec::new(), meter.borrow()));
+    let result = md_sync! { r#"
+        Body
+        "#
+    }
+    .render_md(&mut cx);
+    assert_eq!(
+        result,
+        Err(WriteError::OutputLimitExceeded {
+            requested: 1,
+            remaining: 0
+        })
+    );
+    assert!(!cx.md_inline());
+    assert_eq!(cx.out.as_slice(), b"Body\n");
+}
+
+#[test]
+fn empty_and_whitespace_only_templates_have_explicit_byte_contracts() {
+    let mut cx = context();
+    md_sync! { "" }.render_md(&mut cx).unwrap();
+    md_sync! { r"" }.render_md(&mut cx).unwrap();
+    md_sync! { r"
+    " }
+    .render_md(&mut cx)
+    .unwrap();
+    // Whitespace-only literals keep their closing-line indentation as content,
+    // matching the existing parser rather than introducing a dedent change.
+    assert_eq!(cx.into_output(), b"\n    \n\n");
+
+    let mut cx = context();
+    md_sync! { "Intro" }.render_md(&mut cx).unwrap();
+    md_sync! { r#"
+        {for _ in 0..0 { "unused" }}
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    assert_eq!(cx.into_output(), b"Intro\n\n\n");
+
+    let mut cx = context();
+    md_sync! { r#"{for _ in 0..0 {
+        "unused"
+    }}"# }
+    .render_md(&mut cx)
+    .unwrap();
+    assert!(cx.out.is_empty());
+    md_sync! { "Intro" }.render_md(&mut cx).unwrap();
+    md_sync! { r#"{for _ in 0..0 {
+        "unused"
+    }}"# }
+    .render_md(&mut cx)
+    .unwrap();
+    assert_eq!(cx.into_output(), b"Intro\n\n");
+}
+
+struct PendingPartial;
+impl<L: DataLoader, B: WriteBuf> proa_core::MdRender<L, B> for PendingPartial {
+    fn render_md(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> proa_core::RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        proa_core::RenderOutcome::Pending(async move {
+            cx.write_md_prepared_static(b"Partial")?;
+            std::future::pending().await
+        })
+    }
+}
+
+#[test]
+fn async_scope_restores_mode_on_cancellation_without_a_trailing_boundary() {
+    for inline in [false, true] {
+        let mut cx = context();
+        cx.md_set_inline(inline);
+        let mut future =
+            Box::pin(proa_core::MdRender::render_md(md! { "{PendingPartial}" }, &mut cx).resolve());
+        assert!(future
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending());
+        drop(future);
+        assert_eq!(cx.md_inline(), inline);
+        assert_eq!(cx.into_output(), b"Partial");
+    }
+    let mut cx = context();
+    let mut future = Box::pin(
+        proa_core::MdRender::render_md(
+            md! { r#"
+                {PendingPartial}
+                "#
+            },
+            &mut cx,
+        )
+        .resolve(),
+    );
+    assert!(future
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
+    drop(future);
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"Partial");
+
+    let mut cx = context();
+    let mut future = Box::pin(
+        proa_core::MdRender::render_md(
+            md! { r###"
+                {md! { "{PendingPartial}" }}
+                "###
+            },
+            &mut cx,
+        )
+        .resolve(),
+    );
+    assert!(future
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
+    drop(future);
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"Partial");
+}
+
+#[test]
+fn dropping_an_unpolled_async_template_does_not_enter_its_scope() {
+    let mut cx = context();
+    let template = md! { "{PendingPartial}" };
+    assert!(!cx.md_inline());
+    assert!(cx.out.is_empty());
+    drop(proa_core::MdRender::render_md(template, &mut cx));
+    assert!(!cx.md_inline());
+    assert!(cx.out.is_empty());
+}
+
+struct AsyncFailure(bool);
+impl<L: DataLoader, B: WriteBuf> proa_core::MdRender<L, B> for AsyncFailure {
+    fn render_md(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> proa_core::RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        proa_core::RenderOutcome::Pending(async move {
+            cx.write_md_prepared_static(b"Partial")?;
+            tokio::task::yield_now().await;
+            if self.0 {
+                panic!("async child panicked");
+            }
+            Err(WriteError::render("async child failed"))
+        })
+    }
+}
+
+#[test]
+fn async_errors_and_unwinding_restore_nested_scopes() {
+    for panic in [false, true] {
+        let mut cx = context();
+        let mut future = Box::pin(
+            proa_core::MdRender::render_md(
+                md! { r###"
+                    {md! { "{AsyncFailure(panic)}" }}
+                    "###
+                },
+                &mut cx,
+            )
+            .resolve(),
+        );
+        let mut task = Context::from_waker(Waker::noop());
+        assert!(future.as_mut().poll(&mut task).is_pending());
+        let result = catch_unwind(AssertUnwindSafe(|| future.as_mut().poll(&mut task)));
+        if panic {
+            assert!(result.is_err());
+        } else {
+            assert_eq!(
+                result.unwrap(),
+                Poll::Ready(Err(WriteError::render("async child failed")))
+            );
+        }
+        drop(future);
+        assert!(!cx.md_inline());
+        assert_eq!(cx.into_output(), b"Partial");
+    }
+}
+
+#[tokio::test]
+async fn async_templates_share_the_sync_literal_mode_contract() {
+    let mut cx = context();
+    proa_core::MdRender::render_md(md! { "Intro" }, &mut cx)
+        .resolve()
+        .await
+        .unwrap();
+    let label = "A * B";
+    proa_core::MdRender::render_md(
+        md! { r#"
+            {label}
+            "#
+        },
+        &mut cx,
+    )
+    .resolve()
+    .await
+    .unwrap();
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"Intro\n\nA \\* B\n\n");
+}
+
+#[tokio::test]
+async fn async_link_labels_reject_blocks_after_suspension_and_restore_mode() {
+    let mut cx = context();
+    let block = md! { r#"
+        ## Heading
+        "#
+    };
+    let result = proa_core::MdRender::render_md(
+        md! { r###"
+            [{if { tokio::task::yield_now().await; true } { block }}](/target)
+            "###
+        },
+        &mut cx,
+    )
+    .resolve()
+    .await;
+    assert!(result.is_err());
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"[");
+}

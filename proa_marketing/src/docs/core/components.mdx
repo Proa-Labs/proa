@@ -224,17 +224,14 @@ use super::Button;
 /// Button renders as just its label text; the visual chrome is meaningless in Markdown.
 impl<L: DataLoader, C: MdRenderSync<L>> MdRenderSync<L> for Button<C> {
     fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        let prev = cx.md_set_inline(true);
-        let result = self.children.render_md(cx);
-        cx.md_set_inline(prev);
-        result
+        proa_macros::md_sync! { "{self.children}" }.render_md(cx)
     }
 }
 ```
 
-`md_set_inline(true)` marks the span as inline so nested block components degrade instead of injecting newlines into a table cell or a link label. It returns the previous value, which the impl restores rather than assuming the context started inline.
+The ordinary-string template selects inline mode while its children render and restores the enclosing mode on success, error, or panic unwinding. Block templates are rejected inside that scope, including through typed children. Give a block component an inline representation when it needs to appear in a label or table cell.
 
-A component that emits block-level Markdown (a heading, a table, a list) has the opposite obligation: call `cx.md_block_boundary()` before its first block byte and after its last, because it cannot know what its previous sibling wrote. `md_block_boundary` is a no-op in inline context, so the same impl stays correct in both.
+A physically multiline raw template selects block mode and inserts only the missing paragraph-boundary bytes before its body and after successful rendering. The hash count only delimits the literal. Single-line raw literals are inline; legacy token composition inherits the caller's mode. Lower-level renderers can still call `cx.md_block_boundary()` explicitly.
 
 > **Good to know**: Target implementations are independent. A component can support one target or several. For HTML, use `WebRenderSync` by default and `WebRender` when rendering needs to `.await`; Markdown has the same split with `MdRenderSync` and `MdRender`. See [HTML rendering](/docs/core/html-rendering) and [Markdown rendering](/docs/core/markdown) for those built-in traits and macros.
 

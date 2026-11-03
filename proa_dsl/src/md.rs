@@ -129,6 +129,49 @@ pub enum TplNode {
     Expr(TemplateExpr),
 }
 
+/// Identify slots whose surrounding Markdown requires inline content.
+/// Rust slots are opaque single values when resolving links, headings, inline
+/// formatting, and GFM table cells; their Rust layout is not Markdown layout.
+/// The returned flags follow expression order, without changing authored bytes.
+pub fn inline_slot_contexts(nodes: &[TplNode]) -> Vec<bool> {
+    use pulldown_cmark::{Event, Options, Parser, Tag};
+
+    let mut source = String::new();
+    let mut slots = Vec::new();
+    for node in nodes {
+        match node {
+            TplNode::Text(text) => source.push_str(text),
+            TplNode::Expr(_) => {
+                slots.push(source.len());
+                source.push('x');
+            }
+        }
+    }
+    let mut inline = vec![false; slots.len()];
+    if slots.is_empty() {
+        return inline;
+    }
+    for (event, range) in Parser::new_ext(&source, Options::ENABLE_TABLES).into_offset_iter() {
+        if matches!(
+            event,
+            Event::Start(
+                Tag::Link { .. }
+                    | Tag::Image { .. }
+                    | Tag::Heading { .. }
+                    | Tag::Emphasis
+                    | Tag::Strong
+                    | Tag::Strikethrough
+                    | Tag::TableCell
+            )
+        ) {
+            for (slot, restricted) in slots.iter().zip(&mut inline) {
+                *restricted |= range.contains(slot);
+            }
+        }
+    }
+    inline
+}
+
 // -- public entry --
 
 /// One `name = expr` argument following the template literal, mirroring

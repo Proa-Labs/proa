@@ -252,14 +252,14 @@ A component with no text form renders its content instead: a button becomes its 
 
 Markdown is whitespace-sensitive, which is what usually makes it uncomposable. A heading is only a heading at the start of a line, and a component cannot know what its previous sibling wrote.
 
-So a component that emits block-level Markdown calls `md_block_boundary()` before its first block byte and after its last:
+A physically multiline raw template establishes block boundaries automatically:
 
 ```rust filename="src/components/section.rs"
 impl<L: DataLoader> MdRenderSync<L> for Heading {
     fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        cx.md_block_boundary()?;
-        md_sync! { "## {self.0}" }.render_md(cx)?;
-        cx.md_block_boundary()
+        md_sync! { r#"
+            ## {self.0}
+            "# }.render_md(cx)
     }
 }
 ```
@@ -276,16 +276,17 @@ Intro line.
 
 That is what lets any block component sit next to any other, in any order.
 
-Inline context is the other half. A newline would break a table cell or a link label, so a parent marks the span inline and boundaries become no-ops:
+An ordinary-string template selects inline mode and adds no automatic paragraph boundaries. Explicit newlines, such as the one in `md_sync! { "- {item}\n" }`, remain output. Use an inline template for a label:
 
 ```rust filename="src/components/button/md.rs"
-let prev = cx.md_set_inline(true);
-let result = self.children.render_md(cx);
-cx.md_set_inline(prev);
-result?;
+md_sync! { "{self.children}" }.render_md(cx)?;
 ```
 
-The same `Heading` that emits `\n\n## Inline\n\n` at block level emits `## Inline` there. Components degrade instead of corrupting the document. `md_set_inline` returns the previous value, so a nested span restores what it found rather than assuming it started at block level.
+The mode is selected when the template renders, not when it is constructed. Nested scopes restore their enclosing mode on success, error, and panic unwinding. Async `md!` also restores it when a pending render is dropped. No closure or manual `md_set_inline` restoration is needed. Partial bytes and boundary tracking remain live after failure; error cleanup adds no trailing boundary.
+
+Block templates inside an inline scope are errors, including typed children in link labels and table cells. A directly rendered qualified block macro is rejected at compile time when detectable; other block children fail at render time before writing their boundary or body. Earlier prefix bytes remain. Supply an inline representation instead of silently flattening a block.
+
+Raw-string hashes only control delimiting. All physically multiline raw literals select block mode, including `r"..."`; single-line raw literals select inline mode. Ordinary strings stay inline even when they contain newlines. Legacy token-composition templates inherit their caller's mode. Existing dedenting and authored whitespace are unchanged: only automatic boundaries are deduplicated, and an empty block can still establish a boundary after preceding prose.
 
 ## Embedded HTML
 

@@ -14,8 +14,12 @@ use crate::render::DataLoader;
 use crate::render::{MdRender, MdRenderSync, RenderOutcome, WebRender, WebRenderSync};
 use crate::shared::write_buf::{WriteBuf, WriteError};
 use crate::web::WebContext;
-use context::MdFragmentScope;
 pub use context::MdState;
+#[doc(hidden)]
+pub use context::MdTemplateScope as __MdTemplateScope;
+use context::{MdFragmentScope, MdTemplateScope};
+#[doc(hidden)]
+pub use context::{MD_TEMPLATE_BLOCK, MD_TEMPLATE_INHERIT, MD_TEMPLATE_INLINE};
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
@@ -179,7 +183,7 @@ pub fn fmt_err_to_write(_: core::fmt::Error) -> WriteError {
 /// Contains a closure that renders markdown into an [`WebContext`].
 /// Implements the synchronous render traits directly and can also complete
 /// immediately in async composition.
-pub struct OptimizedMd<L, B, F> {
+pub struct OptimizedMd<L, B, F, const MODE: u8 = MD_TEMPLATE_INHERIT> {
     pub render_fn: F,
     pub _marker: PhantomData<fn(&L, &mut B)>,
 }
@@ -191,20 +195,32 @@ impl<L: DataLoader, B, F> OptimizedMd<L, B, F> {
             _marker: PhantomData,
         }
     }
+
+    /// Compiler-selected literal mode; constructing the value does not render.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn __proa_template_mode<const MODE: u8>(self) -> OptimizedMd<L, B, F, MODE> {
+        OptimizedMd {
+            render_fn: self.render_fn,
+            _marker: PhantomData,
+        }
+    }
 }
 /// Primary path: compose inside `MdRenderSync` impls via `.render_md(cx)`.
-impl<L: DataLoader, B, F> MdRenderSync<L, B> for OptimizedMd<L, B, F>
+impl<L: DataLoader, B, F, const MODE: u8> MdRenderSync<L, B> for OptimizedMd<L, B, F, MODE>
 where
     B: WriteBuf,
     F: FnOnce(&mut WebContext<L, B>) -> Result<(), WriteError>,
 {
     #[inline(always)]
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        (self.render_fn)(cx)
+        let mut scope = MdTemplateScope::<_, _, MODE>::enter(cx)?;
+        (self.render_fn)(scope.context())?;
+        scope.finish()
     }
 }
 
-impl<L: DataLoader, B, F> MdRender<L, B> for OptimizedMd<L, B, F>
+impl<L: DataLoader, B, F, const MODE: u8> MdRender<L, B> for OptimizedMd<L, B, F, MODE>
 where
     B: WriteBuf,
     F: FnOnce(&mut WebContext<L, B>) -> Result<(), WriteError>,
@@ -223,7 +239,7 @@ where
 /// Bridge path: allows `render_to_string(md_sync!(...))` and
 /// Markdown children in WebRender. Reuses the live context while isolating
 /// the fragment's Markdown formatting state.
-impl<L, B, F> WebRenderSync<L, B> for OptimizedMd<L, B, F>
+impl<L, B, F, const MODE: u8> WebRenderSync<L, B> for OptimizedMd<L, B, F, MODE>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -232,12 +248,12 @@ where
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let mut scope = MdFragmentScope::new(cx);
-        (self.render_fn)(scope.context())
+        MdRenderSync::render_md(self, scope.context())
     }
 }
 
 // proa-perf-ok(scope): intentional immediate sync-to-async composition bridge
-impl<L, B, F> WebRender<L, B> for OptimizedMd<L, B, F>
+impl<L, B, F, const MODE: u8> WebRender<L, B> for OptimizedMd<L, B, F, MODE>
 where
     B: WriteBuf,
     L: DataLoader,
@@ -255,8 +271,17 @@ where
 }
 
 /// Typed async Markdown fragment, backed by the same continuation as HTML.
-pub struct AsyncMdFn<L, B, F> {
+pub struct AsyncMdFn<L, B, F, const MODE: u8 = MD_TEMPLATE_INHERIT> {
     inner: crate::shared::async_render::AsyncRender<L, B, F>,
+}
+
+impl<L, B, F> AsyncMdFn<L, B, F> {
+    /// Compiler-selected literal mode; entering the scope is deferred to polling.
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn __proa_template_mode<const MODE: u8>(self) -> AsyncMdFn<L, B, F, MODE> {
+        AsyncMdFn { inner: self.inner }
+    }
 }
 
 #[inline(always)]
@@ -271,7 +296,7 @@ where
     }
 }
 
-impl<L, B, F> MdRender<L, B> for AsyncMdFn<L, B, F>
+impl<L, B, F, const MODE: u8> MdRender<L, B> for AsyncMdFn<L, B, F, MODE>
 where
     L: DataLoader,
     B: WriteBuf,
@@ -281,11 +306,15 @@ where
         self,
         cx: &mut WebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
-        WebRender::render(self.inner, cx)
+        RenderOutcome::Pending(async move {
+            let mut scope = MdTemplateScope::<_, _, MODE>::enter(cx)?;
+            self.inner.render(scope.context()).resolve().await?;
+            scope.finish()
+        })
     }
 }
 
-impl<L, B, F> WebRender<L, B> for AsyncMdFn<L, B, F>
+impl<L, B, F, const MODE: u8> WebRender<L, B> for AsyncMdFn<L, B, F, MODE>
 where
     L: DataLoader,
     B: WriteBuf,
@@ -297,7 +326,7 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::Pending(async move {
             let mut scope = MdFragmentScope::new(cx);
-            self.inner.render(scope.context()).resolve().await
+            MdRender::render_md(self, scope.context()).resolve().await
         })
     }
 }

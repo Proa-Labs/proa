@@ -372,6 +372,17 @@ The expression-visible token form remains supported for generated templates:
 `md_sync! { "# " { title } }`. In that form, a new top-level source line
 establishes a context-aware Markdown block boundary.
 
+Single-literal `md_sync!` and `md!` templates also scope their mode: a raw
+literal containing a physical source-line break is a block; ordinary strings
+and single-line raw literals are inline. Hash count does not select the mode.
+Blocks complete paragraph boundaries before their body and after success.
+Inline templates preserve explicit whitespace without adding boundaries.
+Scopes restore the immediately enclosing mode on errors, unwinding, and async
+cancellation, keeping partial output and boundary tracking. Blocks in inline
+scopes, link labels, headings, emphasis, and table cells are rejected rather
+than flattened. Token composition retains inherited mode. See
+[automatic scopes](../document-rendering.md#automatic-inline-and-block-scopes).
+
 ### Convert existing HTML components to Markdown
 
 Enable the optional converter on the core dependency:

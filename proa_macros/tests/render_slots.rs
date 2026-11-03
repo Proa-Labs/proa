@@ -142,7 +142,14 @@ fn sync_formats_render_labeled_block_results_once() {
 
         assert_eq!(html, if early { "&lt;&amp;*" } else { "other&amp;*" });
         assert_eq!(xml, html);
-        assert_eq!(markdown, if early { r"\<\&\*" } else { r"other\&\*" });
+        assert_eq!(
+            markdown,
+            if early {
+                "\\<\\&\\*\n\n"
+            } else {
+                "other\\&\\*\n\n"
+            }
+        );
     }
 }
 
@@ -173,7 +180,14 @@ async fn async_formats_render_labeled_block_results_once() {
 
         assert_eq!(html, if early { "&lt;&amp;*" } else { "other&amp;*" });
         assert_eq!(xml, html);
-        assert_eq!(markdown, if early { r"\<\&\*" } else { r"other\&\*" });
+        assert_eq!(
+            markdown,
+            if early {
+                "\\<\\&\\*\n\n"
+            } else {
+                "other\\&\\*\n\n"
+            }
+        );
     }
 }
 
@@ -218,7 +232,7 @@ async fn nested_async_formats_borrow_loop_locals() {
     }}"### })
     .await;
     assert_eq!(html_output, "<p>aa</p><p>bb</p>");
-    assert_eq!(md_output, "aa\nbb\n");
+    assert_eq!(md_output, "aa\nbb\n\n");
 }
 
 #[tokio::test]
@@ -260,7 +274,7 @@ fn sync_formats_share_block_attribute_and_jump_lowering() {
     }}"### },
     );
     assert_eq!(html_output, "123");
-    assert_eq!(md_output, html_output);
+    assert_eq!(md_output, "123\n\n");
 }
 
 #[tokio::test]
@@ -290,7 +304,7 @@ async fn async_formats_share_block_attribute_and_jump_lowering() {
     )
     .await;
     assert_eq!(html_output, "123");
-    assert_eq!(md_output, html_output);
+    assert_eq!(md_output, "123\n\n");
 }
 
 #[tokio::test]
