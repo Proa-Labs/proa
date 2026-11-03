@@ -1437,9 +1437,18 @@ impl Analyzer<'_> {
         }
     }
     fn output_arg(&self, expr: &Expr, env: &Env) -> bool {
-        bare(expr).is_some_and(|name| {
-            env.get(&name).and_then(|v| v.symbol.as_deref()) == Some("@context")
-        })
+        match expr {
+            Expr::Paren(p) => self.output_arg(&p.expr, env),
+            Expr::Group(g) => self.output_arg(&g.expr, env),
+            Expr::Reference(r) => self.output_arg(&r.expr, env),
+            Expr::Unary(u) if matches!(u.op, syn::UnOp::Deref(_)) => self.output_arg(&u.expr, env),
+            Expr::MethodCall(m) if m.method == "context" && m.args.is_empty() => {
+                self.heading_scope_receiver(&m.receiver, env)
+            }
+            _ => bare(expr).is_some_and(|name| {
+                env.get(&name).and_then(|v| v.symbol.as_deref()) == Some("@context")
+            }),
+        }
     }
     fn heading_scope_receiver(&self, expr: &Expr, env: &Env) -> bool {
         bare(expr).is_some_and(|name| {

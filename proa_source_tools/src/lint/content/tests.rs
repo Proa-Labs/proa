@@ -56,18 +56,46 @@ fn markdown_scopes_do_not_hide_missing_content() {
 
 #[test]
 fn markdown_heading_scope_keeps_context_and_child_provenance() {
-    let src = fixture(
-        "html_sync! {{self.title}}.render(cx)",
-        r#"let mut headings=cx.md_heading_scope(1); let cx=headings.context(); md_sync! {"{self.title}"}.render_md(cx)"#,
-    ).replace("&mut Cx", "&mut proa_core::WebContext");
-    assert!(lint(&src).is_empty());
-    let absent = src.replace("md_sync! {\"{self.title}\"}", "md_sync! {\"\"}");
-    assert_eq!(missing(&absent).len(), 1);
-    let shadowed = src.replace(
-        "let cx=headings.context();",
-        "let headings=other(); let cx=headings.context();",
-    );
-    assert!(code(&lint(&shadowed), "render/content-coverage-unchecked") > 0);
+    for render in [
+        r#"let cx=headings.context(); md_sync! {"{self.title}"}.render_md(cx)"#,
+        r#"md_sync! {"{self.title}"}.render_md(headings.context())"#,
+    ] {
+        let markdown = format!("let mut headings=cx.md_heading_scope(1); {render}");
+        let src = fixture("html_sync! {{self.title}}.render(cx)", &markdown)
+            .replace("&mut Cx", "&mut proa_core::WebContext");
+        assert!(lint(&src).is_empty(), "{render}: {:?}", lint(&src));
+        let absent = src.replace("md_sync! {\"{self.title}\"}", "md_sync! {\"\"}");
+        assert_eq!(missing(&absent).len(), 1);
+        let shadowed = src.replace(
+            "let mut headings=cx.md_heading_scope(1);",
+            "let mut headings=other();",
+        );
+        assert!(code(&lint(&shadowed), "render/content-coverage-unchecked") > 0);
+    }
+}
+
+#[test]
+fn typed_children_render_directly_through_heading_scopes() {
+    for context in [
+        "headings.context()",
+        "(headings.context())",
+        "&mut *headings.context()",
+    ] {
+        let markdown = format!(
+            "let mut headings=cx.md_heading_scope(1); RestockNotice::new(self.data).render_md({context})"
+        );
+        let src = fixture(
+            "html_sync! {{RestockNotice::new(self.data)}}.render(cx)",
+            &markdown,
+        )
+        .replace("&mut Cx", "&mut proa_core::WebContext");
+        assert!(lint(&src).is_empty(), "{context}: {:?}", lint(&src));
+        let absent = src.replace(
+            &format!("RestockNotice::new(self.data).render_md({context})"),
+            "Ok(())",
+        );
+        assert_eq!(missing(&absent).len(), 1);
+    }
 }
 
 #[test]
