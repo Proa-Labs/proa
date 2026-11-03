@@ -368,7 +368,32 @@ fn typed_block_children_are_rejected_before_writing_their_boundary_or_body() {
     assert_eq!(cx.into_output(), b"| Title |\n| --- |\n| ");
 }
 
+#[test]
+fn strikethrough_rejects_typed_blocks_and_accepts_inline_children() {
+    let mut cx = context();
+    let result = md_sync! { r#"
+        ~~{Block}~~
+        "#
+    }
+    .render_md(&mut cx);
+    assert!(result.is_err());
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"~~");
+
+    let mut cx = context();
+    let status = md_sync! { "**Ready**" };
+    md_sync! { r#"
+        ~~{status}{Mode(true)}~~
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"~~**Ready**~~\n\n");
+}
+
 struct ForceBlock;
+
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ForceBlock {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.md_set_inline(false);
@@ -790,4 +815,22 @@ async fn async_link_labels_reject_blocks_after_suspension_and_restore_mode() {
     assert!(result.is_err());
     assert!(!cx.md_inline());
     assert_eq!(cx.into_output(), b"[");
+}
+
+#[tokio::test]
+async fn async_strikethrough_rejects_typed_blocks_after_suspension() {
+    let mut cx = context();
+    let block = proa_core::to_md_async(Block);
+    let result = proa_core::MdRender::render_md(
+        md! { r#"
+            ~~{if { tokio::task::yield_now().await; true } { block }}~~
+            "#
+        },
+        &mut cx,
+    )
+    .resolve()
+    .await;
+    assert!(result.is_err());
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"~~");
 }

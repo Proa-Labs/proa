@@ -131,7 +131,8 @@ pub enum TplNode {
 
 /// Identify slots whose surrounding Markdown requires inline content.
 /// Rust slots are opaque single values when resolving links, headings, inline
-/// formatting, and GFM table cells; their Rust layout is not Markdown layout.
+/// formatting (including GFM strikethrough), and table cells; their Rust layout
+/// is not Markdown layout.
 /// The returned flags follow expression order, without changing authored bytes.
 pub fn inline_slot_contexts(nodes: &[TplNode]) -> Vec<bool> {
     use pulldown_cmark::{Event, Options, Parser, Tag};
@@ -151,7 +152,8 @@ pub fn inline_slot_contexts(nodes: &[TplNode]) -> Vec<bool> {
     if slots.is_empty() {
         return inline;
     }
-    for (event, range) in Parser::new_ext(&source, Options::ENABLE_TABLES).into_offset_iter() {
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    for (event, range) in Parser::new_ext(&source, options).into_offset_iter() {
         if matches!(
             event,
             Event::Start(
@@ -491,6 +493,14 @@ impl Parse for MdRoot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strikethrough_slots_require_inline_children_but_escaped_tildes_do_not() {
+        let nodes = parse_tpl("{outside} ~~{inside}~~").unwrap();
+        assert_eq!(inline_slot_contexts(&nodes), [false, true]);
+        let nodes = parse_tpl(r"\~\~{child}\~\~").unwrap();
+        assert_eq!(inline_slot_contexts(&nodes), [false]);
+    }
 
     fn kinds(input: &str) -> Vec<String> {
         parse_tpl(input)
