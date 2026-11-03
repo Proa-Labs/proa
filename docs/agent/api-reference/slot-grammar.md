@@ -76,7 +76,15 @@ the client matches it: precision rounds the exact binary value half-to-even
 (`{:.0}` of `2.5` is `2`), output without a precision is the shortest
 round-trip value in plain positional notation, and `f32` values are narrowed to
 `f32` before formatting. A non-finite seed reaches the client as JSON `null`
-and renders no digits there. Float scientific (`e`/`E`), radix, debug, pointer
+and renders no digits there. The value must come from a typed signal or prop, or
+a memo over one, or from arithmetic and conditionals over one of those. Other
+float arguments produce `rsjs/text-format-unsupported`: float literals
+(including a prelude alias, typed closure parameter or memo built from
+literals), because the client types every float literal as `f64` while Rust
+may type it `f32`; block and handler locals, because their type comes from an
+initializer; query data, because it reaches server rendering as JSON text; and
+DOM, event and browser reads. Format the expression inline
+(`text!("{:.2}", price.get() * 2.0)`) rather than through a local. Float scientific (`e`/`E`), radix, debug, pointer
 and custom formatting traits remain server-only and produce
 `rsjs/text-format-unsupported` when used reactively.
 Server-only `text!` invocations keep the full existing Rust fmt support.

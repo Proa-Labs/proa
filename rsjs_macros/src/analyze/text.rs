@@ -110,6 +110,16 @@ impl Analyzer {
                     // exact round-half-to-even with precision, sign-aware zero
                     // padding, and right alignment by default. Exponent (`e`/`E`)
                     // and radix traits stay server-only for floats.
+                    // Only trust F64 when a typed producer fixes it; see
+                    // `TypeEnv::float_width_proven`. Literals, locals and
+                    // query data could be f32 in Rust (or reach SSR as JSON
+                    // text), so formatting them would print the wrong digits.
+                    if ty == ClientType::F64
+                        && !self.frontend_float_width_proven(&args[index], scope.handler_locals)
+                    {
+                        return Err(syn::Error::new(parsed.span,
+                            "rsjs/text-format-unsupported: reactive text! float formatting needs the value to come from a typed signal or prop, or a memo over one (arithmetic over one is fine); float literals, block locals, query data and browser reads are not proven f32 or f64 on the client, so format such values on the server or read them through a `Signal<f32>` / `Signal<f64>`"));
+                    }
                     if matches!(ty, ClientType::F32 | ClientType::F64) {
                         let Some(plan) = integer_plan.filter(|plan| plan.kind == 0) else {
                             return Err(syn::Error::new(parsed.span,

@@ -115,6 +115,16 @@ Rust's per-operation `f32` rounding in the two cases above. For example,
 `b = 2^-24`, `1.0 + b + b` is `1.0000000` in Rust at `{:.7}` and
 `1.0000001` on the client.
 
+Client typing has no `f32` literal type: every float literal types as `f64`,
+whatever its suffix, binding annotation or closure parameter type says. Formatted
+float placeholders are therefore accepted only when a typed signal or prop, or
+a memo over one, fixes the width. Literal-only values (`text!("{:.9}", 0.1_f32)`,
+or a prelude alias or memo built from literals), block and handler locals,
+query data, and DOM/event/browser reads are rejected with
+`rsjs/text-format-unsupported` instead of rendering the wrong digits. One case still reaches the client as `f64`: an unannotated
+`signal(0.1)` that Rust infers as `f32` from a later use. Give `f32` signals a
+suffix or a `Signal<f32>` annotation.
+
 ### Use case
 
 A product page that computed a display value in an `f32` signal handler

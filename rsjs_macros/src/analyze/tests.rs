@@ -5261,6 +5261,90 @@ fn reactive_text_unsupported_format_does_not_fall_back_to_ssr() {
     }
 }
 
+fn float_text_test_analyzer() -> (Analyzer, rsjs_ir::NodeId) {
+    let mut analyzer = test_analyzer();
+    for (name, init, ty) in [
+        ("count", Value::Int(3), ClientType::U32),
+        ("amount", Value::Float(1.25), ClientType::F32),
+        ("price", Value::Float(9.5), ClientType::F64),
+    ] {
+        let signal = analyzer.builder.signal_typed(init, ty);
+        analyzer.signals.insert(name.to_owned(), signal);
+    }
+    let parent = analyzer.builder.element("p", None);
+    (analyzer, parent)
+}
+
+#[test]
+fn reactive_text_rejects_floats_typed_only_by_literals() {
+    // Client typing types every float literal as F64, but Rust may type it
+    // f32 (`format!("{:.9}", 0.1_f32)` is `0.100000001`, f64 formatting gives
+    // `0.100000000`), so a float whose width rests on literals is rejected.
+    for literal in [
+        quote::quote! { 0.1_f32 },
+        quote::quote! { -2.5f32 },
+        quote::quote! { (0.1_f32) },
+        quote::quote! { 0.1_f32 * 2.0 },
+        quote::quote! { 0.1_f32 + 0.2_f32 },
+        quote::quote! { if count.get() > 1 { 0.1_f32 } else { 0.2_f32 } },
+        quote::quote! { if count.get() > 1 { 0.1 } else { 0.2 } },
+        quote::quote! { 0.1 },
+        quote::quote! { 0.1_f64 },
+    ] {
+        let (mut analyzer, parent) = float_text_test_analyzer();
+        let expr = syn::parse_quote! { proa_macros::text!("{} {:.9}", count.get(), #literal) };
+        let error = analyzer
+            .lower_text_binding_expr(&expr, parent, false)
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("rsjs/text-format-unsupported")
+                && error
+                    .to_string()
+                    .contains("float literals, block locals, query data and browser reads"),
+            "{literal}: {error}"
+        );
+        assert!(analyzer.server_expressions.is_empty());
+    }
+}
+
+#[test]
+fn reactive_text_formats_floats_pinned_by_a_typed_producer() {
+    for (arg, f32) in [
+        // F32 by the operand; literal precision is KNOWN_LIMITATIONS §2.
+        (quote::quote! { amount.get() * 1.5_f32 }, Some(true)),
+        (quote::quote! { price.get() * 2.0 }, Some(false)),
+        (
+            quote::quote! { if count.get() > 1 { price.get() } else { 0.0 } },
+            Some(false),
+        ),
+        (
+            quote::quote! { if amount.get() > 0.5_f32 { price.get() } else { 2.25 } },
+            Some(false),
+        ),
+        // Not a float: an f32 literal in the condition does not matter.
+        (
+            quote::quote! { if amount.get() >= 0.5_f32 { "high" } else { "low" } },
+            None,
+        ),
+    ] {
+        let (mut analyzer, parent) = float_text_test_analyzer();
+        let expr = syn::parse_quote! { proa_macros::text!("{} {:>9.3}", count.get(), #arg) };
+        analyzer
+            .lower_text_binding_expr(&expr, parent, false)
+            .unwrap_or_else(|err| panic!("{arg} should lower: {err}"));
+        let island = format!("{:?}", analyzer.builder.build());
+        if let Some(f32) = f32 {
+            for needle in [
+                "\\\"float\\\":true".to_owned(),
+                format!("\\\"f32\\\":{f32}"),
+                "\\\"precision\\\":3".to_owned(),
+            ] {
+                assert!(island.contains(&needle), "{needle} missing for {arg}");
+            }
+        }
+    }
+}
+
 #[test]
 fn reactive_text_float_display_lowers_to_a_float_plan() {
     for (ty, template, precision, f32) in [
