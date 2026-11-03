@@ -5241,21 +5241,58 @@ fn client_block_snapshot_json(block: &ClientBlock) -> serde_json::Value {
 
 #[test]
 fn reactive_text_unsupported_format_does_not_fall_back_to_ssr() {
-    let mut analyzer = test_analyzer();
-    let signal = analyzer
-        .builder
-        .signal_typed(Value::Float(1.25), ClientType::F64);
-    analyzer.signals.insert("amount".to_owned(), signal);
-    let parent = analyzer.builder.element("p", None);
-    let expr = syn::parse_quote! { proa_macros::text!("{:.2}", amount.get()) };
-    let error = analyzer
-        .lower_text_binding_expr(&expr, parent, false)
-        .unwrap_err();
-    assert!(
-        error.to_string().contains("rsjs/text-format-unsupported"),
-        "{error}"
-    );
-    assert!(analyzer.server_expressions.is_empty());
+    for template in ["{:e}", "{:.2E}", "{:x}"] {
+        let mut analyzer = test_analyzer();
+        let signal = analyzer
+            .builder
+            .signal_typed(Value::Float(1.25), ClientType::F64);
+        analyzer.signals.insert("amount".to_owned(), signal);
+        let parent = analyzer.builder.element("p", None);
+        let template = syn::LitStr::new(template, proc_macro2::Span::call_site());
+        let expr = syn::parse_quote! { proa_macros::text!(#template, amount.get()) };
+        let error = analyzer
+            .lower_text_binding_expr(&expr, parent, false)
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("rsjs/text-format-unsupported"),
+            "{error}"
+        );
+        assert!(analyzer.server_expressions.is_empty());
+    }
+}
+
+#[test]
+fn reactive_text_float_display_lowers_to_a_float_plan() {
+    for (ty, template, precision, f32) in [
+        (ClientType::F64, "{:.2}", "2", false),
+        (ClientType::F64, "{:+08.1}", "1", false),
+        (ClientType::F64, "{:>6}", "null", false),
+        (ClientType::F32, "{:.3}", "3", true),
+    ] {
+        let mut analyzer = test_analyzer();
+        let signal = analyzer.builder.signal_typed(Value::Float(1.25), ty);
+        analyzer.signals.insert("amount".to_owned(), signal);
+        let parent = analyzer.builder.element("p", None);
+        let template = syn::LitStr::new(template, proc_macro2::Span::call_site());
+        let expr = syn::parse_quote! { proa_macros::text!(#template, amount.get()) };
+        analyzer
+            .lower_text_binding_expr(&expr, parent, false)
+            .unwrap_or_else(|err| panic!("{} should lower: {err}", template.value()));
+        assert!(analyzer.server_expressions.is_empty());
+        let island = format!("{:?}", analyzer.builder.build());
+        for needle in [
+            "\\\"float\\\":true".to_owned(),
+            format!("\\\"f32\\\":{f32}"),
+            format!("\\\"precision\\\":{precision}"),
+            "\\\"domain\\\":null".to_owned(),
+        ] {
+            assert!(
+                island.contains(&needle),
+                "{needle} missing for {}",
+                template.value()
+            );
+        }
+    }
 }
 
 #[test]

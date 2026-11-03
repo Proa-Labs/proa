@@ -69,8 +69,16 @@ Typed integer literals retain their Rust width, including signed radix output
 such as `text!("{} {:x}", quantity.get(), -1_i32)`. Conditional string arguments
 borrow signal text and can also select owned string transforms. Bare float
 placeholders retain Rust's `inf` / `-inf` spelling, including opaque float seeds.
-Float precision, scientific, debug, pointer and custom formatting traits remain
-server-only and produce `rsjs/text-format-unsupported` when used reactively.
+Reactive `f32`/`f64` placeholders also support Display with literal precision,
+width, fill, alignment, sign and zero padding, for example
+`text!("{:.1} MB", mb.get())`. These render through core::fmt on the server, so
+the client matches it: precision rounds the exact binary value half-to-even
+(`{:.0}` of `2.5` is `2`), output without a precision is the shortest
+round-trip value in plain positional notation, and `f32` values are narrowed to
+`f32` before formatting. A non-finite seed reaches the client as JSON `null`
+and renders no digits there. Float scientific (`e`/`E`), radix, debug, pointer
+and custom formatting traits remain server-only and produce
+`rsjs/text-format-unsupported` when used reactively.
 Server-only `text!` invocations keep the full existing Rust fmt support.
 
 Bare native Rust boolean arguments write no bytes in ordinary attributes,

@@ -2472,6 +2472,11 @@ fn reactive_text_ssr_preserves_integer_formatting_and_escaping() {
             html.contains(&format!("title=\"Price {:.2}\"", quantity as f64 * 1.25)),
             "{html}"
         );
+        let size = quantity as f64 * 1.25;
+        assert!(
+            html.contains(&format!("Size {size:.1} MB {size:>+9.3}|{size:08.2}")),
+            "{html}"
+        );
         assert!(
             html.contains(&format!("ServerOnlyText {{ code: {quantity} }}")),
             "{html}"
@@ -2493,8 +2498,10 @@ fn reactive_text_js_matches_conformance_snapshot() {
         island.js_source,
         "rsjs_conformance/snapshots/expressions/reactive_text.island.js",
     );
+    // The fixture declares ten client signals (__sig_0..=__sig_9); the
+    // server-only `{:.2}` / `{:?}` formats of `self` fields must not add one.
     assert!(
-        !island.js_source.contains("__sig_9"),
+        !island.js_source.contains("__sig_10"),
         "server-only formatting must not allocate an unused client signal"
     );
 }

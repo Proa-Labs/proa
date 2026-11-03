@@ -622,10 +622,10 @@ fn unify(a: ClientType, b: ClientType) -> ClientType {
 }
 
 /// Unify arithmetic operand types into a result type. Same-width
-/// operands keep their (left) type; mixing the two Number-backed
-/// classes yields `F64` (JS arithmetic on Numbers produces a Number
-/// with no integer proof); anything involving `Unknown` or a
-/// Number/BigInt mix stays `Unknown`.
+/// operands keep their (left) type, except that a float pair containing
+/// `F32` is `F32`; mixing the two Number-backed classes yields `F64` (JS
+/// arithmetic on Numbers produces a Number with no integer proof); anything
+/// involving `Unknown` or a Number/BigInt mix stays `Unknown`.
 fn unify_arithmetic(left: ClientType, right: ClientType) -> ClientType {
     // A runtime-pinned operand absorbs: the result's representation is whatever
     // the helper produced, which is only known at run time.
@@ -636,6 +636,15 @@ fn unify_arithmetic(left: ClientType, right: ClientType) -> ClientType {
         return ClientType::Unknown;
     };
     if lw == rw {
+        // Rust has no mixed f32/f64 arithmetic, so in code that compiled an
+        // F64 operand beside an F32 one is an unsuffixed float literal that
+        // Rust inferred as f32 (`2.0 * price` with `price: f32`). Float
+        // literals always lower to `Value::Float` (typed F64), so keep the
+        // F32 side regardless of operand order.
+        if lw == NumericWidth::NumberFloat && (left == ClientType::F32 || right == ClientType::F32)
+        {
+            return ClientType::F32;
+        }
         return left;
     }
     match (lw, rw) {
@@ -883,6 +892,27 @@ mod tests {
         assert_eq!(env.type_of(&ClientExpr::float(1.5)), ClientType::F64);
         assert_eq!(env.type_of(&ClientExpr::string("x")), ClientType::String);
         assert_eq!(env.type_of(&ClientExpr::bool(true)), ClientType::Bool);
+    }
+
+    #[test]
+    fn float_arithmetic_with_an_f32_operand_is_f32_in_either_order() {
+        // `2.0 * price` with `price: f32`: the literal types F64, but Rust
+        // inferred it as f32, so the product must stay F32.
+        for (left, right) in [
+            (ClientType::F64, ClientType::F32),
+            (ClientType::F32, ClientType::F64),
+            (ClientType::F32, ClientType::F32),
+        ] {
+            assert_eq!(unify_arithmetic(left, right), ClientType::F32);
+        }
+        assert_eq!(
+            unify_arithmetic(ClientType::F64, ClientType::F64),
+            ClientType::F64
+        );
+        assert_eq!(
+            unify_arithmetic(ClientType::I32, ClientType::F32),
+            ClientType::F64
+        );
     }
 
     #[test]
