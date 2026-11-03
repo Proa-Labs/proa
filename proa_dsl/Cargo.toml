@@ -13,7 +13,8 @@ repository.workspace = true
 homepage.workspace = true
 
 [features]
-default = []
+default = ["markdown"]
+markdown = ["dep:comrak", "dep:pulldown-cmark"]
 # Disable the compile-time perf-hint warnings in the consolidation
 # validation pass (forwarded from proa_macros' feature of the same name).
 no-perf-hints = []
@@ -24,3 +25,17 @@ proa_html_policy = { workspace = true }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 quote = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits"] }
+comrak = { workspace = true, optional = true }
+pulldown-cmark = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest = { version = "1.5" }
+serde_json = { workspace = true }
+
+[[test]]
+name = "markdown_contexts"
+required-features = ["markdown"]
+
+[[test]]
+name = "markdown_escaping"
+required-features = ["markdown"]

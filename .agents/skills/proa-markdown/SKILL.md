@@ -10,6 +10,10 @@ Read [document rendering](../../../docs/agent/document-rendering.md) and the
 in the source checkout. In an application without those files, retrieve the
 corresponding current documentation from `https://proa.so/docs/llms.txt`.
 
+`md!` and `md_sync!` require the default-enabled `markdown` feature of
+`proa_macros`. If the dependency disables defaults, enable `features = ["markdown"]`.
+HTML/XML-only crates may disable it to omit Markdown parser build dependencies.
+
 ## Choose the rendering boundary
 
 When the same Page also renders a managed-head HTML document, declare
@@ -36,11 +40,79 @@ editorial summary. Omit decorative or interactive-only elements deliberately.
 
 ## Author the template
 
-Prefer one multiline `md_sync! { r###"..."### }` template. Newlines become output
-newlines. `{expression}` renders a typed child. Outside code fences and inline
-code, `{{` and `}}` produce literal braces. Inside code, braces are already
-literal; interpolating runtime values into a fenced example needs an explicit
-typed child or token composition.
+Prefer one multiline `md_sync! { r###"..."### }` template for a document or
+substantial section. Its source newlines become output newlines. Write headings,
+links, emphasis, lists, and blank lines as normal Markdown rather than splitting
+the document into quoted token pieces.
+
+Keep short fragments on one line with an ordinary string literal:
+`md_sync! { "- {feature}\n" }` for a list row or
+`md_sync! { "**In stock**" }` for inline markup. A single string is still a
+template, so `{feature}` interpolates normally. Keep `\n` when the fragment
+must end a line; dropping it would join loop iterations. Do not turn a short
+fragment into a multiline raw template just to avoid that one escape.
+
+Text outside `{ ... }` is Markdown; each slot is Rust at every nesting depth.
+Use ordinary Rust `if`, `for`, and `match` inside slots, and explicitly re-enter
+Markdown with a nested `md_sync!` (or `md!` when it awaits). Never treat bare
+control words in Markdown as executable or write Markdown directly in a Rust
+branch. A body renders only its final expression, matching HTML slots. Earlier
+statements are ordinary Rust setup/side effects; a semicolon discards a value.
+To render several fragments, compose them in one nested template tail.
+
+```rust
+md_sync! { r###"
+    # {self.title}
+
+    ## Features
+
+    {for feature in self.features.iter() {
+        md_sync! { "- {feature}\n" }
+    }}
+
+    {if self.in_stock {
+        md_sync! { "**In stock**" }
+    } else {
+        md_sync! { "_Backordered_" }
+    }}
+    "###
+}
+```
+
+Use raw literals for genuinely multiline sections or when they materially
+reduce escaping. Nested raw literals need fewer hashes than their parent
+(`r###"..."###` outside, `r#"..."#` inside, then `r"..."` if needed); no inner
+closing delimiter may close its parent. Each multiline fragment removes its own
+common source margin. Its trailing newline is output, so do not add another
+separator unnecessarily. A bare Rust string tail is escaped text, not Markdown
+markup.
+
+`{expression}` renders a typed child. Outside code fences and inline code,
+`{{` and `}}` produce literal braces. Inside code, braces are already literal;
+interpolating runtime values into a fenced example needs an explicit typed
+child or token composition. Keep token composition for those cases, generated
+or token-aware tooling, and tests of that API; it remains supported. Explicit
+whitespace-only fragments such as `md_sync! { "\n" }` remain appropriate when
+exact separators are the contract, as in robots.txt. Nested `md!` and `html!`
+can borrow loop items and local strings across awaits through their shared typed
+async continuation. Use sync nested fragments when they have no async work.
+Raw literals do not disable interpolation: use `{{`/`}}` for literal braces,
+even around quoted text. A Rust string inside a slot stays literal text.
+Do not use `\{name}` to escape a slot: it emits a backslash followed by the
+rendered value. With `name = "Ada"`, `{{name}}` emits `{name}` and `{{{name}}}`
+emits `{Ada}`. A Rust block slot needs a space between its opening braces:
+`{ { name } }`; `{{ name }}` emits literal `{ name }`. Escaping happens once;
+runtime strings are not parsed as templates. Code spans and fences (including
+fences inside blockquotes) preserve braces verbatim, even doubled braces.
+Code boundaries follow CommonMark with GFM tables after dedenting, including
+list/blockquote fences and indented code blocks. Inline code cannot span
+paragraph or table-cell boundaries.
+Rust strings and layout inside a slot cannot open Markdown code in its parent.
+
+Named arguments (`md_sync! { "{title}", title = data.title }`) bind once, in
+declaration order, when rendering starts. Their initializers use the caller's
+scope; branches and nested templates use ordinary Rust bindings. Borrow owned
+values used repeatedly (`{&title}`); arguments do not clone automatically.
 
 Ordinary slots escape prose. Link destinations need URL-context escaping;
 follow the owning crate's typed URL leaf rather than inserting trusted raw
@@ -58,6 +130,12 @@ Check dynamic titles, escaped Markdown punctuation, URL destinations, section
 order, and intentional omissions. A changed-input test should show that both
 HTML and Markdown consume the same content. Avoid tests that merely repeat
 hard-coded prose.
+
+For tests that store Rust source containing Markdown macros, prefer a raw outer
+Rust string to avoid escaping every inner quote. Keep the fixture's decoded
+bytes unchanged. Inner list-row `\n` escapes, CRLF data, and explicit tests of
+cooked strings or source encoding still need their intended escapes; do not
+remove backslashes indiscriminately.
 
 In the Proa checkout, run `cargo proa fmt --check --verify <changed paths>`,
 `cargo proa lint <changed paths> --deny warnings`, the owning crate's tests,

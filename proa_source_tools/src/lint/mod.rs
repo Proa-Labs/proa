@@ -137,9 +137,12 @@ fn lint_file_with_cache(
                     &mut diagnostics,
                 );
             }
-            // A Markdown template has no markup tree, so "did not parse as
-            // markup" is the expected outcome rather than an author error.
-            Err(_) if inv.dialect == MacroDialect::Md => {}
+            // Markdown has its own grammar; validate it directly.
+            Err(_) if inv.dialect == MacroDialect::Md => {
+                if let Err(err) = validate_markdown_invocation(source, inv) {
+                    diagnostics.push(parse_error_diag(&display, inv, err));
+                }
+            }
             Err(err) => {
                 diagnostics.push(parse_error_diag(&display, inv, err.clone()));
             }
@@ -715,9 +718,8 @@ fn lint_markdown_render_impl(
 
 /// Markdown mirror of [`check_render_api_perf`].
 ///
-/// `md!` lowers to `async_md_from_fn(Box::new(|cx| Box::pin(async move
-/// { .. })))` exactly like async `html!`, while `md_sync!` lowers to an
-/// unboxed `OptimizedMd`, so the same two rules apply.
+/// `md!` and `html!` use the same typed async continuation without boxing.
+/// Prefer the synchronous surface when no child needs to await.
 fn check_markdown_render_api_perf(
     path: &Path,
     item_impl: &ItemImpl,
@@ -779,12 +781,7 @@ fn check_async_md_static_body(
     impl<'ast> Visit<'ast> for Visitor<'_> {
         fn visit_expr_macro(&mut self, node: &'ast ExprMacro) {
             if macro_path_ends(node, "md") {
-                let tokens = &node.mac.tokens;
-                let has_async = tokens_mention_ident(tokens, &["await"])
-                    || tokens_mention_ident(tokens, MD_ASYNC_RENDER_MARKERS)
-                    || tokens_contain_await_in_literal(tokens)
-                    || md_tokens_have_possibly_async_child(tokens);
-                if !has_async {
+                if !md_tokens_have_async_work(&node.mac.tokens) {
                     push_expr_diag(
                         self.path,
                         SpanOrigin::File,
@@ -809,28 +806,96 @@ fn check_async_md_static_body(
     visitor.visit_block(block);
 }
 
+/// True when a `md!` template's tokens contain async work: an `.await`, an
+/// explicit async marker, or a child that may itself render asynchronously.
+fn md_tokens_have_async_work(tokens: &proc_macro2::TokenStream) -> bool {
+    tokens_mention_ident(tokens, &["await"])
+        || tokens_mention_ident(tokens, MD_ASYNC_RENDER_MARKERS)
+        || tokens_contain_await_in_literal(tokens)
+        || md_tokens_have_possibly_async_child(tokens)
+}
+
+/// True when any slot of a `md!` template renders an opaque unit-struct child.
 fn md_tokens_have_possibly_async_child(tokens: &proc_macro2::TokenStream) -> bool {
     use proa_dsl::md::{MdNodeKind, MdRoot, MdTemplateInput, TplNode};
-    fn nodes_have_child(nodes: &[TplNode]) -> bool {
-        nodes.iter().any(|node| match node {
-            TplNode::Expr(value) => expr_is_bare_uppercase_path(&value.expr),
-            TplNode::For { body, .. } => nodes_have_child(body),
-            TplNode::If { branches } => {
-                branches.iter().any(|branch| nodes_have_child(&branch.body))
-            }
-            TplNode::Text(_) => false,
-        })
-    }
     if let Ok(input) = syn::parse2::<MdTemplateInput>(tokens.clone()) {
-        return input
-            .semantic_nodes()
-            .is_ok_and(|nodes| nodes_have_child(&nodes));
+        return input.parse_nodes().is_ok_and(|nodes| {
+            input
+                .args
+                .iter()
+                .any(|arg| md_slot_has_possibly_async_child(&arg.value))
+                || nodes.iter().any(|node| match node {
+                    TplNode::Expr(value) => md_slot_has_possibly_async_child(&value.expr),
+                    TplNode::Text(_) => false,
+                })
+        });
     }
     syn::parse2::<MdRoot>(tokens.clone()).is_ok_and(|root| {
         root.nodes.iter().any(|node| {
-        matches!(&node.kind, MdNodeKind::Block(expr) if expr_is_bare_uppercase_path(expr))
+            matches!(&node.kind, MdNodeKind::Block(expr) if md_slot_has_possibly_async_child(expr))
+        })
     })
-    })
+}
+
+/// True when a slot expression renders an opaque unit-struct child.
+///
+/// A slot is one Rust expression, so control flow is walked down to every
+/// rendered tail: `{if ready { DatabaseBadge }}` keeps the template async
+/// exactly as a top-level `{DatabaseBadge}` does. A nested `md!` counts when
+/// it has async work of its own.
+fn md_slot_has_possibly_async_child(expr: &Expr) -> bool {
+    fn rendered_block(block: &Block) -> bool {
+        match block.stmts.last() {
+            Some(syn::Stmt::Expr(expr, None)) => md_slot_has_possibly_async_child(expr),
+            Some(syn::Stmt::Macro(stmt)) if stmt.semi_token.is_none() => nested_template(&stmt.mac),
+            _ => false,
+        }
+    }
+    fn nested_template(mac: &syn::Macro) -> bool {
+        mac.path
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "md")
+            && md_tokens_have_async_work(&mac.tokens)
+    }
+    match expr {
+        Expr::If(expr) => {
+            rendered_block(&expr.then_branch)
+                || expr
+                    .else_branch
+                    .as_ref()
+                    .is_some_and(|(_, tail)| md_slot_has_possibly_async_child(tail))
+        }
+        Expr::ForLoop(expr) => rendered_block(&expr.body),
+        Expr::While(expr) => rendered_block(&expr.body),
+        Expr::Loop(expr) => {
+            // A loop also renders its final `break value`. Conservatively
+            // inspect early exits, including exits nested in branch bodies.
+            struct BreakValues(bool);
+            impl<'ast> Visit<'ast> for BreakValues {
+                fn visit_expr_break(&mut self, expr: &'ast syn::ExprBreak) {
+                    self.0 |= expr
+                        .expr
+                        .as_deref()
+                        .is_some_and(md_slot_has_possibly_async_child);
+                    visit::visit_expr_break(self, expr);
+                }
+            }
+            let mut exits = BreakValues(false);
+            exits.visit_block(&expr.body);
+            rendered_block(&expr.body) || exits.0
+        }
+        Expr::Match(expr) => expr
+            .arms
+            .iter()
+            .any(|arm| md_slot_has_possibly_async_child(&arm.body)),
+        Expr::Block(expr) => rendered_block(&expr.block),
+        Expr::Unsafe(expr) => rendered_block(&expr.block),
+        Expr::Group(expr) => md_slot_has_possibly_async_child(&expr.expr),
+        Expr::Paren(expr) => md_slot_has_possibly_async_child(&expr.expr),
+        Expr::Macro(expr) => nested_template(&expr.mac),
+        _ => expr_is_bare_uppercase_path(expr),
+    }
 }
 
 fn block_has_possibly_async_md_template_child(block: &Block) -> bool {
@@ -1029,7 +1094,7 @@ fn push_manual_markdown_write(
         Severity::Warning,
         "md/manual-write",
         "Markdown bytes are written by hand inside a Markdown renderer",
-        "render static and interpolated Markdown with `md_sync! { r###\"...\"### }.render_md(cx)`; use typed `WebContext` helpers such as `write_md_text`, `write_md_url`, `md_code`, or `md_link` when the value needs Markdown-specific escaping",
+        r####"render static and interpolated Markdown with `md_sync! { r###"..."### }.render_md(cx)`; use typed `WebContext` helpers such as `write_md_text`, `write_md_url`, `md_code`, or `md_link` when the value needs Markdown-specific escaping"####,
     );
 }
 
@@ -3371,12 +3436,9 @@ fn check_render_api_perf(
 
 /// Flag `html!` invocations whose whole subtree is synchronous.
 ///
-/// Async `html!` lowers to `async_html_from_fn(Box::new(|cx| Box::pin(async
-/// move { .. })))`: one heap allocation for the erased closure, one for the
-/// future, and dynamically dispatched polls. `html_sync!` lowers to a
-/// monomorphized `OptimizedHtml<B, L, F>` with an `#[inline(always)]` render
-/// and no allocation, so a static subtree inside an otherwise-async component
-/// pays that cost for nothing.
+/// Both async and sync macro output is monomorphized and unboxed. Prefer
+/// `html_sync!` when no child needs to await, keeping the synchronous contract
+/// explicit and avoiding unnecessary future construction.
 fn check_async_html_static_subtree(
     path: &Path,
     block: &Block,
@@ -3985,6 +4047,16 @@ pub fn parse_invocation(source: &str, inv: &MacroInvocation) -> syn::Result<Html
     let tokens = TokenStream::from_str(body)
         .map_err(|err| syn::Error::new(proc_macro2::Span::call_site(), err.to_string()))?;
     parse_markup_tokens(inv.dialect, tokens)
+}
+
+pub(crate) fn validate_markdown_invocation(source: &str, inv: &MacroInvocation) -> syn::Result<()> {
+    let tokens = TokenStream::from_str(inv.body(source))
+        .map_err(|err| syn::Error::new(proc_macro2::Span::call_site(), err.to_string()))?;
+    if let Ok(template) = syn::parse2::<proa_dsl::md::MdTemplateInput>(tokens.clone()) {
+        template.parse_nodes().map(|_| ())
+    } else {
+        syn::parse2::<proa_dsl::md::MdRoot>(tokens).map(|_| ())
+    }
 }
 
 /// Parse macro tokens into the markup tree shared by the HTML and XML dialects.

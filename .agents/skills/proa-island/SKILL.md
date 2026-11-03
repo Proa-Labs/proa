@@ -19,6 +19,10 @@ Markdown sections for the core page structure; do not duplicate literals or
 convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
+For Markdown representations, follow the [Markdown authoring skill](../proa-markdown/SKILL.md):
+use document-shaped raw templates, ordinary one-line strings for short fragments,
+and Rust control flow inside explicit `{ ... }` slots.
+
 ## Browser behavior defaults
 
 Use RSJS for application browser behavior whenever supported. Check existing

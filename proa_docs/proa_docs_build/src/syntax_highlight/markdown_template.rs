@@ -7,10 +7,10 @@ use std::ops::Range;
 /// `md!` and `md_sync!`.
 ///
 /// Syntect sees the literal as Rust string content. Proa adds a language layer
-/// inside it: ordinary bytes are Markdown, while brace-delimited slots and
-/// control-flow headers are Rust. Keeping this scanner specific to those two
-/// macros prevents unrelated Rust strings containing braces from being
-/// reclassified.
+/// inside it: ordinary bytes are Markdown, while each brace-delimited slot is
+/// one Rust expression, control flow included. Keeping this scanner specific to
+/// those two macros prevents unrelated Rust strings containing braces from
+/// being reclassified.
 pub(super) fn rust_ranges(source: &str) -> Vec<Range<usize>> {
     let bytes = source.as_bytes();
     let mut ranges = Vec::new();
@@ -50,10 +50,10 @@ pub(super) fn rust_ranges(source: &str) -> Vec<Range<usize>> {
             continue;
         }
 
-        let Some((content, literal_end, raw)) = macro_literal(source, cursor) else {
+        let Some((literal, literal_end)) = macro_literal(source, cursor) else {
             continue;
         };
-        collect_ranges(source, content, raw, &mut ranges);
+        collect_ranges(source, literal, &mut ranges);
         cursor = literal_end;
     }
 
@@ -61,7 +61,7 @@ pub(super) fn rust_ranges(source: &str) -> Vec<Range<usize>> {
     ranges
 }
 
-fn macro_literal(source: &str, after_identifier: usize) -> Option<(Range<usize>, usize, bool)> {
+fn macro_literal(source: &str, after_identifier: usize) -> Option<(Range<usize>, usize)> {
     let mut cursor = skip_rust_trivia(source, after_identifier);
     if source.as_bytes().get(cursor) != Some(&b'!') {
         return None;
@@ -75,12 +75,12 @@ fn macro_literal(source: &str, after_identifier: usize) -> Option<(Range<usize>,
     };
     cursor = skip_rust_trivia(source, cursor + 1);
 
-    let (start, end, literal_end, raw) = if source.as_bytes().get(cursor) == Some(&b'"') {
+    let (_, _, literal_end) = if source.as_bytes().get(cursor) == Some(&b'"') {
         let (start, end, literal_end) = normal_string_bounds(source, cursor)?;
-        (start, end, literal_end, false)
+        (start, end, literal_end)
     } else {
         let (start, end, literal_end) = raw_string_bounds(source, cursor)?;
-        (start, end, literal_end, true)
+        (start, end, literal_end)
     };
     let after_literal = skip_rust_trivia(source, literal_end);
     if source.as_bytes().get(after_literal) != Some(&closing_delimiter) {
@@ -88,7 +88,7 @@ fn macro_literal(source: &str, after_identifier: usize) -> Option<(Range<usize>,
         // of its string literals are ordinary string bytes.
         return None;
     }
-    Some((start..end, literal_end, raw))
+    Some((cursor..literal_end, literal_end))
 }
 
 fn skip_rust_trivia(source: &str, mut cursor: usize) -> usize {
@@ -165,166 +165,83 @@ fn raw_string_bounds(source: &str, start: usize) -> Option<(usize, usize, usize)
     Some((content_start, content_end, content_end + closing.len()))
 }
 
-fn collect_ranges(source: &str, template: Range<usize>, raw: bool, ranges: &mut Vec<Range<usize>>) {
-    let mut cursor = template.start;
-    while cursor < template.end {
-        if source[cursor..template.end].starts_with("{{") {
-            cursor += 2;
+/// Use the compiler's decoded/dedented parser and literal source map rather
+/// than maintaining a second Markdown/Rust lexer in the documentation layer.
+fn collect_ranges(source: &str, literal: Range<usize>, ranges: &mut Vec<Range<usize>>) {
+    use proa_dsl::md::{ExprLocation, MdTemplateInput, TplNode};
+    let Ok(template) = syn::parse_str::<MdTemplateInput>(&source[literal.clone()]) else {
+        return;
+    };
+    let Ok(nodes) = template.parse_nodes() else {
+        return;
+    };
+    for node in nodes {
+        let TplNode::Expr(expr) = node else { continue };
+        let ExprLocation::Literal { range, .. } = expr.location else {
             continue;
-        }
-        if source.as_bytes()[cursor] != b'{' {
-            cursor += source[cursor..].chars().next().map_or(1, char::len_utf8);
-            continue;
-        }
-
-        let Some(close) = matching_brace(source, cursor, template.end, raw) else {
-            break;
         };
-        let rust_start = skip_whitespace(source, cursor + 1, close);
-        if source[rust_start..close].starts_with("for ") {
-            collect_for_ranges(source, cursor, rust_start, close, raw, ranges);
-        } else if source[rust_start..close].starts_with("if ") {
-            collect_if_ranges(source, cursor, rust_start, close, raw, ranges);
-        } else {
-            ranges.push(cursor..close + 1);
+        let mut start = literal.start + range.start;
+        let mut end = literal.start + range.end;
+        // Include adjacent slot delimiters in Rust punctuation highlighting.
+        while start > literal.start && source.as_bytes()[start - 1].is_ascii_whitespace() {
+            start -= 1;
         }
-        cursor = close + 1;
+        while end < literal.end && source.as_bytes()[end].is_ascii_whitespace() {
+            end += 1;
+        }
+        if source.as_bytes().get(start.wrapping_sub(1)) == Some(&b'{') {
+            start -= 1;
+        }
+        if source.as_bytes().get(end) == Some(&b'}') {
+            end += 1;
+        }
+        ranges.push(start..end);
     }
 }
 
-fn collect_for_ranges(
-    source: &str,
-    outer_open: usize,
-    rust_start: usize,
-    outer_close: usize,
-    raw: bool,
-    ranges: &mut Vec<Range<usize>>,
-) {
-    let Some(body_open) = find_body_open(source, rust_start, outer_close, raw) else {
-        ranges.push(outer_open..outer_close + 1);
-        return;
-    };
-    let Some(body_close) = matching_brace(source, body_open, outer_close, raw) else {
-        ranges.push(outer_open..outer_close + 1);
-        return;
-    };
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    ranges.push(outer_open..body_open + 1);
-    collect_ranges(source, body_open + 1..body_close, raw, ranges);
-    ranges.push(body_close..outer_close + 1);
-}
-
-fn collect_if_ranges(
-    source: &str,
-    outer_open: usize,
-    rust_start: usize,
-    outer_close: usize,
-    raw: bool,
-    ranges: &mut Vec<Range<usize>>,
-) {
-    let Some(body_open) = find_body_open(source, rust_start, outer_close, raw) else {
-        ranges.push(outer_open..outer_close + 1);
-        return;
-    };
-    let Some(mut body_close) = matching_brace(source, body_open, outer_close, raw) else {
-        ranges.push(outer_open..outer_close + 1);
-        return;
-    };
-
-    ranges.push(outer_open..body_open + 1);
-    collect_ranges(source, body_open + 1..body_close, raw, ranges);
-
-    loop {
-        let next = skip_whitespace(source, body_close + 1, outer_close);
-        if !source[next..outer_close].starts_with("else") {
-            break;
+    #[test]
+    fn escapes_and_quoted_fences_leave_only_real_slots_highlighted() {
+        let source = r####"md_sync! { r###"
+            {{name}} {{{name}}} \{name} \{{name}} `{{name}}`
+            > ~~~text
+            > {{name}} {not_rust
+            > ~~~
+            {name}
+            > > ```text
+            > > {{name}} {not_rust
+            > {name}
+            "###
+        }"####;
+        let ranges = rust_ranges(source);
+        assert_eq!(ranges.len(), 4);
+        for range in ranges {
+            assert_eq!(&source[range], "{name}");
         }
-        let Some(next_body_open) = find_body_open(source, next, outer_close, raw) else {
-            break;
-        };
-        let Some(next_body_close) = matching_brace(source, next_body_open, outer_close, raw) else {
-            break;
-        };
-        ranges.push(body_close..next_body_open + 1);
-        collect_ranges(source, next_body_open + 1..next_body_close, raw, ranges);
-        body_close = next_body_close;
     }
 
-    ranges.push(body_close..outer_close + 1);
-}
-
-fn skip_whitespace(source: &str, mut cursor: usize, end: usize) -> usize {
-    while cursor < end && source.as_bytes()[cursor].is_ascii_whitespace() {
-        cursor += 1;
-    }
-    cursor
-}
-
-fn find_body_open(source: &str, start: usize, end: usize, raw: bool) -> Option<usize> {
-    let mut cursor = start;
-    let mut parentheses = 0_i32;
-    let mut brackets = 0_i32;
-    let mut in_string = false;
-    while cursor < end {
-        let (ch, width) = template_char(source, cursor, raw)?;
-        if in_string {
-            if ch == '"' {
-                in_string = false;
-            }
-            cursor += width;
-            continue;
+    #[test]
+    fn slot_ranges_share_compiler_backtick_and_rust_string_rules() {
+        for source in [
+            r##"md_sync! { r#"a `` {value} ` end"# }"##,
+            r##"md_sync! { r#"Escaped \`{value}`"# }"##,
+            r##"md_sync! { r#"{if ready { r"}" } else { "{" }}"# }"##,
+        ] {
+            let ranges = rust_ranges(source);
+            assert_eq!(ranges.len(), 1, "{source}");
+            assert!(source[ranges[0].clone()].starts_with('{'));
         }
-        match ch {
-            '"' => in_string = true,
-            '(' => parentheses += 1,
-            ')' => parentheses -= 1,
-            '[' => brackets += 1,
-            ']' => brackets -= 1,
-            '{' if parentheses == 0 && brackets == 0 => return Some(cursor),
-            _ => {}
+        for source in [
+            r##"md_sync! { r#"`{literal}`"# }"##,
+            r##"md_sync! { r#"a `` {literal} `` end"# }"##,
+            r##"md_sync! { r#"Even \\`{literal}`"# }"##,
+        ] {
+            assert!(rust_ranges(source).is_empty(), "{source}");
         }
-        cursor += width;
     }
-    None
-}
-
-fn matching_brace(source: &str, open: usize, end: usize, raw: bool) -> Option<usize> {
-    let mut cursor = open;
-    let mut depth = 0_i32;
-    let mut in_string = false;
-    while cursor < end {
-        let (ch, width) = template_char(source, cursor, raw)?;
-        if in_string {
-            if ch == '"' {
-                in_string = false;
-            }
-            cursor += width;
-            continue;
-        }
-        match ch {
-            '"' => in_string = true,
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(cursor);
-                }
-            }
-            _ => {}
-        }
-        cursor += width;
-    }
-    None
-}
-
-/// Return the next logical template character and its source width. Quotes in
-/// an ordinary Rust string appear as `\"`; raw strings contain them directly.
-fn template_char(source: &str, cursor: usize, raw: bool) -> Option<(char, usize)> {
-    if !raw && source[cursor..].starts_with("\\\"") {
-        return Some(('"', 2));
-    }
-    let ch = source[cursor..].chars().next()?;
-    Some((ch, ch.len_utf8()))
 }
 
 const fn is_identifier_start(byte: u8) -> bool {

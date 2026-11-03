@@ -28,7 +28,10 @@ fn missing(source: &str) -> Vec<Diagnostic> {
 
 #[test]
 fn deletion_catches_child_even_when_inputs_are_equal() {
-    let original=fixture("html_sync! { {RestockNotice::new(self.data)} {Impact::new(self.data)} }.render(cx)","let restock=RestockNotice::new(self.data); let impact=Impact::new(self.data); md_sync! { r###\"{restock} {impact}\"### }.render_md(cx)");
+    let original = fixture(
+        "html_sync! { {RestockNotice::new(self.data)} {Impact::new(self.data)} }.render(cx)",
+        r####"let restock=RestockNotice::new(self.data); let impact=Impact::new(self.data); md_sync! { r###"{restock} {impact}"### }.render_md(cx)"####,
+    );
     assert_eq!(code(&lint(&original), "render/content-coverage"), 0);
     let mutated = original.replace("{restock} {impact}", "{restock}");
     let diags = missing(&mutated);
@@ -43,7 +46,7 @@ fn deletion_catches_child_even_when_inputs_are_equal() {
 fn markdown_layout_state_does_not_hide_missing_content() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "let previous=cx.md_set_inline(true); md_sync! {r###\"{self.title}\"###}.render_md(cx)?; cx.md_set_inline(previous); cx.md_blank_line()?; Ok(())",
+        r####"let previous=cx.md_set_inline(true); md_sync! {r###"{self.title}"###}.render_md(cx)?; cx.md_set_inline(previous); cx.md_blank_line()?; Ok(())"####,
     ).replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&src).is_empty());
     let missing_title = src.replace("{self.title}\"###", "\"###");
@@ -70,12 +73,12 @@ impl<C: MdCodeContent> MdRenderSync for Badge<C> {
 #[test]
 fn unused_template_and_uncalled_closure_never_count() {
     for extra in [
-        "let unused=md_sync! {r###\"{self.title}\"###};",
-        "let closure=|| md_sync! {r###\"{self.title}\"###};",
+        r####"let unused=md_sync! {r###"{self.title}"###};"####,
+        r####"let closure=|| md_sync! {r###"{self.title}"###};"####,
     ] {
         let src = fixture(
             "html_sync! {{self.title}}.render(cx)",
-            &format!("{extra} md_sync! {{r###\"\"###}}.render_md(cx)"),
+            &format!(r####"{extra} md_sync! {{r###""###}}.render_md(cx)"####),
         );
         assert_eq!(missing(&src).len(), 1);
     }
@@ -84,7 +87,7 @@ fn unused_template_and_uncalled_closure_never_count() {
 fn alias_uses_definition_time_binding_with_shadowing() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "let x=self.title;let alias=x;let x=self.image;md_sync! {r###\"{alias}\"###}.render_md(cx)",
+        r####"let x=self.title;let alias=x;let x=self.image;md_sync! {r###"{alias}"###}.render_md(cx)"####,
     );
     assert!(missing(&src).is_empty());
     let bad = src.replace("{alias}", "{x}");
@@ -92,7 +95,7 @@ fn alias_uses_definition_time_binding_with_shadowing() {
 }
 #[test]
 fn conditions_do_not_count_as_output_and_wrong_guard_is_unchecked() {
-    let src=fixture("html_sync! { {if self.stock == 0 {html_sync! {{RestockNotice::new(self.data)}}}} }.render(cx)","md_sync! { r###\"{if self.stock > 0 {{RestockNotice::new(self.data)}}}\"###}.render_md(cx)");
+    let src=fixture("html_sync! { {if self.stock == 0 {html_sync! {{RestockNotice::new(self.data)}}}} }.render(cx)",r####"md_sync! { r###"{if self.stock > 0 {{RestockNotice::new(self.data)}}}"###}.render_md(cx)"####);
     let diags = lint(&src);
     assert_eq!(code(&diags, "render/content-coverage-unchecked"), 1);
     assert_eq!(code(&diags, "render/content-coverage"), 0);
@@ -103,7 +106,7 @@ fn conditions_do_not_count_as_output_and_wrong_guard_is_unchecked() {
         .any(|n| n.contains("same input states")));
     let tested = fixture(
         "html_sync! {{self.stock}}.render(cx)",
-        "if self.stock>0 {} md_sync! {r###\"\"###}.render_md(cx)",
+        r####"if self.stock>0 {} md_sync! {r###""###}.render_md(cx)"####,
     );
     assert_eq!(missing(&tested).len(), 1);
 }
@@ -123,7 +126,7 @@ fn opaque_helpers_are_not_confirmed_absence() {
 fn unresolved_render_trait_discovery_is_a_warning() {
     let source = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{self.title}"###}.render_md(cx)"####,
     )
     .replace(
         IMPORTS,
@@ -149,14 +152,14 @@ fn context_and_loader_preparation_do_not_create_content_obligations() {
     ] {
         let src = fixture(
             "html_sync! {{self.title}}.render(cx)",
-            &format!("{preparation} md_sync! {{r###\"{{self.title}}\"###}}.render_md(cx)"),
+            &format!(r####"{preparation} md_sync! {{r###"{{self.title}}"###}}.render_md(cx)"####),
         )
         .replace("&mut Cx", "&mut proa_core::WebContext");
         assert!(lint(&src).is_empty(), "{preparation}: {:?}", lint(&src));
     }
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "let unused = cx.load_typed::<Data>(query).await?; md_sync! {r###\"\"###}.render_md(cx)",
+        r####"let unused = cx.load_typed::<Data>(query).await?; md_sync! {r###""###}.render_md(cx)"####,
     )
     .replace("&mut Cx", "&mut RenderCx");
     let src = format!("use proa_core::WebContext as RenderCx; {src}");
@@ -171,16 +174,20 @@ fn context_and_loader_preparation_do_not_create_content_obligations() {
 fn rendered_loader_and_context_data_need_explicit_correspondence() {
     let src = fixture(
         "let stock = cx.load_typed::<Data>(html_query).await?; html_sync! {{content_part!(\"stock\", badge(stock))}}.render(cx)",
-        "let stock = cx.load_typed::<Data>(md_query).await?; md_sync! {r###\"{content_part!(\"stock\", summary(stock))}\"###}.render_md(cx)",
+        r####"let stock = cx.load_typed::<Data>(md_query).await?; md_sync! {r###"{content_part!("stock", summary(stock))}"###}.render_md(cx)"####,
     ).replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&src).is_empty(), "{:?}", lint(&src));
     for output in [
-        "let stock = cx.load_typed::<Data>(query).await?; md_sync! {r###\"{stock}\"###}.render_md(cx)",
-        "let response = cx.response(); md_sync! {r###\"{response}\"###}.render_md(cx)",
+        r####"let stock = cx.load_typed::<Data>(query).await?; md_sync! {r###"{stock}"###}.render_md(cx)"####,
+        r####"let response = cx.response(); md_sync! {r###"{response}"###}.render_md(cx)"####,
     ] {
         let src = fixture("html_sync! {{self.title}}.render(cx)", output)
             .replace("&mut Cx", "&mut proa_core::WebContext");
-        assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1, "{output}");
+        assert_eq!(
+            code(&lint(&src), "render/content-coverage-unchecked"),
+            1,
+            "{output}"
+        );
         assert!(missing(&src).is_empty());
     }
 }
@@ -197,7 +204,7 @@ fn infrastructure_exemptions_preserve_actual_and_opaque_output() {
     ] {
         let src = fixture(
             "html_sync! {{self.title}}.render(cx)",
-            &format!("{preparation} md_sync! {{r###\"\"###}}.render_md(cx)"),
+            &format!(r####"{preparation} md_sync! {{r###""###}}.render_md(cx)"####),
         )
         .replace("&mut Cx", "&mut proa_core::WebContext");
         assert_eq!(
@@ -212,7 +219,7 @@ fn infrastructure_exemptions_preserve_actual_and_opaque_output() {
 fn borrowed_loader_arguments_preserve_opaque_output_writes() {
     let source = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "let loader = cx.loader().clone(); let _unused = loader.load(&{ write_summary(self.title, cx)?; request }).await?; md_sync! {r###\"\"###}.render_md(cx)",
+        r####"let loader = cx.loader().clone(); let _unused = loader.load(&{ write_summary(self.title, cx)?; request }).await?; md_sync! {r###""###}.render_md(cx)"####,
     )
     .replace("&mut Cx", "&mut proa_core::WebContext");
     let diagnostics = lint(&source);
@@ -242,7 +249,7 @@ fn borrowed_callbacks_remain_unchecked_instead_of_confirmed_missing() {
 fn familiar_method_names_do_not_exempt_custom_or_shadowed_contexts() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "cx.load(query); md_sync! {r###\"\"###}.render_md(cx)",
+        r####"cx.load(query); md_sync! {r###""###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
     let local = format!("mod proa_core {{ pub struct WebContext; }} {src}")
@@ -257,7 +264,7 @@ fn familiar_method_names_do_not_exempt_custom_or_shadowed_contexts() {
     );
     let shadowed = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "let cx = custom_context(); cx.load(query); md_sync! {r###\"\"###}.render_md(cx)",
+        r####"let cx = custom_context(); cx.load(query); md_sync! {r###""###}.render_md(cx)"####,
     )
     .replace("&mut Cx", "&mut proa_core::WebContext");
     assert_eq!(
@@ -266,7 +273,7 @@ fn familiar_method_names_do_not_exempt_custom_or_shadowed_contexts() {
     );
     let reassigned = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "let mut locals = cx.locals_mut(); locals = custom_storage(); locals.insert(value); md_sync! {r###\"\"###}.render_md(cx)",
+        r####"let mut locals = cx.locals_mut(); locals = custom_storage(); locals.insert(value); md_sync! {r###""###}.render_md(cx)"####,
     ).replace("&mut Cx", "&mut proa_core::WebContext");
     assert_eq!(
         code(&lint(&reassigned), "render/content-coverage-unchecked"),
@@ -277,32 +284,35 @@ fn familiar_method_names_do_not_exempt_custom_or_shadowed_contexts() {
 fn line_omissions_are_precise_and_checked_for_rot() {
     let source = "html_sync! {{RestockNotice::new(self.data)} {Impact::new(self.data)}}.render(cx)";
     let target =
-        "omit!(RestockNotice); md_sync! {r###\"{Impact::new(self.data)}\"###}.render_md(cx)";
+        r####"omit!(RestockNotice); md_sync! {r###"{Impact::new(self.data)}"###}.render_md(cx)"####;
     assert!(lint(&fixture(source, target)).is_empty());
     let ambiguous = fixture(
         source,
-        "omit!(self.data);md_sync! {r###\"\"###}.render_md(cx)",
+        r####"omit!(self.data);md_sync! {r###""###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&ambiguous), "render/content-omit-ambiguous"), 1);
     assert_eq!(missing(&ambiguous).len(), 2);
     let stale = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "omit!(self.image);md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        r####"omit!(self.image);md_sync! {r###"{self.title}"###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&stale), "render/content-omit-stale"), 1);
     let redundant = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "omit!(self.title);md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        r####"omit!(self.title);md_sync! {r###"{self.title}"###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&redundant), "render/content-omit-redundant"), 1);
 }
 #[test]
 fn local_and_role_omissions_allow_intentional_differences() {
-    let src=fixture("html_sync! {{RestockNotice::new(self.data)}}.render(cx)","let notice=RestockNotice::new(self.data);omit!(&notice, \"Web only\", from=\"html\");md_sync! {r###\"\"###}.render_md(cx)");
+    let src = fixture(
+        "html_sync! {{RestockNotice::new(self.data)}}.render(cx)",
+        r####"let notice=RestockNotice::new(self.data);omit!(&notice, "Web only", from="html");md_sync! {r###""###}.render_md(cx)"####,
+    );
     assert!(lint(&src).is_empty());
     let src = fixture(
         "html_sync! {{content_part!(\"notice\", RestockNotice::new(self.data))}}.render(cx)",
-        "omit!(\"notice\");md_sync! {r###\"\"###}.render_md(cx)",
+        r####"omit!("notice");md_sync! {r###""###}.render_md(cx)"####,
     );
     assert!(lint(&src).is_empty());
 }
@@ -310,12 +320,12 @@ fn local_and_role_omissions_allow_intentional_differences() {
 fn named_parts_map_transforms_and_static_copy() {
     let src = fixture(
         "html_sync! {{content_part!(\"status\", badge(self.stock))}}.render(cx)",
-        "md_sync! {r###\"{content_part!(\"status\", status_text(self.stock))}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{content_part!("status", status_text(self.stock))}"###}.render_md(cx)"####,
     );
     assert!(lint(&src).is_empty());
     let src = fixture(
         "html_sync! {{content_part!(\"notice\", text(\"Available soon\"))}}.render(cx)",
-        "md_sync! {r###\"\"###}.render_md(cx)",
+        r####"md_sync! {r###""###}.render_md(cx)"####,
     );
     assert_eq!(missing(&src).len(), 1);
 }
@@ -323,12 +333,12 @@ fn named_parts_map_transforms_and_static_copy() {
 fn ordinary_static_copy_does_not_hide_a_missing_dynamic_child() {
     let src = fixture(
         "html_sync! { \"Notice\" {RestockNotice::new(self.data)}}.render(cx)",
-        "md_sync! {r###\"# Product\"###}.render_md(cx)",
+        r####"md_sync! {r###"# Product"###}.render_md(cx)"####,
     );
     assert_eq!(missing(&src).len(), 2);
     let static_only = fixture(
         "html_sync! {\"Available\"}.render(cx)",
-        "md_sync! {r###\"\"###}.render_md(cx)",
+        r####"md_sync! {r###""###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&static_only), "render/content-coverage"), 1);
 }
@@ -336,7 +346,7 @@ fn ordinary_static_copy_does_not_hide_a_missing_dynamic_child() {
 fn semantic_attributes_count_styling_does_not() {
     let src = fixture(
         "html_sync! {<img class={self.title} alt={self.image} />}.render(cx)",
-        "md_sync! {r###\"{self.image}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{self.image}"###}.render_md(cx)"####,
     );
     assert!(lint(&src).is_empty());
     let omitted = src.replace("{self.image}\"###", "\"###");
@@ -344,11 +354,14 @@ fn semantic_attributes_count_styling_does_not() {
 }
 #[test]
 fn adapter_and_actual_sink_initializer_are_supported() {
-    let src=fixture("let output=html_sync! {{text(self.title)}};let result=output.render(cx);result", "let output=md_sync! {r###\"{text(self.title)}\"###};let result=output.render_md(cx);result");
+    let src = fixture(
+        "let output=html_sync! {{text(self.title)}};let result=output.render(cx);result",
+        r####"let output=md_sync! {r###"{text(self.title)}"###};let result=output.render_md(cx);result"####,
+    );
     assert!(lint(&src).is_empty());
     let src = fixture(
         "html! {{to_async(RestockNotice::new(self.data))}}.render(cx)",
-        "md! {r###\"{to_md_async(RestockNotice::new(self.data))}\"###}.render_md(cx)",
+        r####"md! {r###"{to_md_async(RestockNotice::new(self.data))}"###}.render_md(cx)"####,
     );
     assert!(lint(&src).is_empty());
 }
@@ -356,7 +369,7 @@ fn adapter_and_actual_sink_initializer_are_supported() {
 fn loop_elements_are_not_a_collection_length() {
     let src = fixture(
         "html_sync! {{for item in self.items {html_sync! {{item}}}}}.render(cx)",
-        "md_sync! {r###\"{for item in self.items {{item}}}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{for item in self.items {{item}}}"###}.render_md(cx)"####,
     );
     assert!(lint(&src).is_empty());
     let bad = src.replace(
@@ -373,7 +386,7 @@ fn whole_view_skip_on_impl_or_method_and_single_target_are_valid() {
     ] {
         let mut src = fixture(
             "html_sync! {{self.title}}.render(cx)",
-            "md_sync! {r###\"\"###}.render_md(cx)",
+            r####"md_sync! {r###""###}.render_md(cx)"####,
         );
         src = src.replace("impl MdRenderSync", attr);
         if attr == "impl MdRenderSync" {
@@ -381,11 +394,13 @@ fn whole_view_skip_on_impl_or_method_and_single_target_are_valid() {
         }
         assert!(lint(&src).is_empty());
     }
-    let src=format!("{IMPORTS} struct OnlyMd;impl MdRenderSync for OnlyMd {{fn render_md(self,cx:&mut Cx)->Result {{md_sync! {{r###\"\"###}}.render_md(cx)}}}}");
+    let src = format!(
+        r####"{IMPORTS} struct OnlyMd;impl MdRenderSync for OnlyMd {{fn render_md(self,cx:&mut Cx)->Result {{md_sync! {{r###""###}}.render_md(cx)}}}}"####
+    );
     assert!(lint(&src).is_empty());
     let html = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"\"###}.render_md(cx)",
+        r####"md_sync! {r###""###}.render_md(cx)"####,
     );
     let html = html.split("impl MdRenderSync").next().unwrap();
     assert!(lint(html).is_empty());
@@ -394,7 +409,7 @@ fn whole_view_skip_on_impl_or_method_and_single_target_are_valid() {
 fn removed_counterpart_requirement_is_rejected_as_an_unknown_option() {
     let source = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{self.title}"###}.render_md(cx)"####,
     )
     .replace(
         "impl WebRenderSync",
@@ -419,7 +434,7 @@ fn registered_future_target_reuses_coverage_and_omissions() {
     options.comparisons.push(("html".into(), "text".into()));
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{self.title}"###}.render_md(cx)"####,
     );
     let src=format!("{src}\nimpl my_render::TextRender for Product {{fn render_text(self,cx:&mut Cx)->Result {{my_render::plain! {{r###\"\"###}}.render_text(cx)}}}}");
     // External qualified registrations must not need suffix guessing.
@@ -436,7 +451,10 @@ fn registered_future_target_reuses_coverage_and_omissions() {
 
 #[test]
 fn child_local_does_not_waive_another_child_sharing_data() {
-    let src=fixture("html_sync! {{RestockNotice::new(self.data)} {Impact::new(self.data)}}.render(cx)","let notice=RestockNotice::new(self.data);omit!(&notice);md_sync! {r###\"\"###}.render_md(cx)");
+    let src = fixture(
+        "html_sync! {{RestockNotice::new(self.data)} {Impact::new(self.data)}}.render(cx)",
+        r####"let notice=RestockNotice::new(self.data);omit!(&notice);md_sync! {r###""###}.render_md(cx)"####,
+    );
     let diags = missing(&src);
     assert_eq!(diags.len(), 1);
     assert!(diags[0].message.contains("Impact"));
@@ -446,7 +464,9 @@ fn child_local_does_not_waive_another_child_sharing_data() {
 fn raw_literals_named_args_and_unicode_keep_authored_ranges() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"\n    🦀 {self.title}\n    \"###}.render_md(cx)",
+        r####"md_sync! {r###"
+    🦀 {self.title}
+    "###}.render_md(cx)"####,
     );
     let source = src.replace("{self.title}\n", "{self.image}\n");
     let diags = missing(&source);
@@ -455,7 +475,9 @@ fn raw_literals_named_args_and_unicode_keep_authored_ranges() {
     assert!(label.source.iter().any(|l| l.text.contains("self.title")));
     let guards = fixture(
         "html_sync! {{if self.stock==0 {html_sync! {{self.title}}}}}.render(cx)",
-        "md_sync! {r###\"\n    🦀 {if self.stock>0 {{self.title}}}\n    \"###}.render_md(cx)",
+        r####"md_sync! {r###"
+    🦀 {if self.stock>0 {{self.title}}}
+    "###}.render_md(cx)"####,
     );
     let diags = lint(&guards);
     let primary = &diags
@@ -473,7 +495,7 @@ fn raw_literals_named_args_and_unicode_keep_authored_ranges() {
     );
     let named = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"{title}\"###,title=self.title}.render_md(cx)",
+        r####"md_sync! {r###"{title}"###,title=self.title}.render_md(cx)"####,
     );
     assert!(lint(&named).is_empty());
 }
@@ -481,15 +503,46 @@ fn raw_literals_named_args_and_unicode_keep_authored_ranges() {
 fn code_literal_braces_are_never_dynamic_coverage() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"`{self.title}`\"###}.render_md(cx)",
+        r####"md_sync! {r###"`{self.title}`"###}.render_md(cx)"####,
     );
     assert_eq!(missing(&src).len(), 1);
+}
+
+#[test]
+fn markdown_named_arguments_follow_the_same_scopes_as_rust_locals() {
+    let shadowed = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        r####"md_sync! {"{ { let title = self.image; title } }", title = self.title}.render_md(cx)"####,
+    );
+    assert_eq!(
+        missing(&shadowed).len(),
+        1,
+        "a shadowed argument contributes no output"
+    );
+
+    let nested = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        r####"md_sync! {r###"{if true { md_sync! { "{title}" } }}"###, title = self.title}.render_md(cx)"####,
+    );
+    assert!(
+        missing(&nested).is_empty(),
+        "nested templates see the surrounding binding"
+    );
+
+    let simultaneous = fixture(
+        "html_sync! {{self.title}{self.image}}.render(cx)",
+        r####"let title = self.image; md_sync! {"{title}{image}", title = self.title, image = title}.render_md(cx)"####,
+    );
+    assert!(
+        missing(&simultaneous).is_empty(),
+        "all argument initializers use the caller's scope"
+    );
 }
 #[test]
 fn registered_traits_resolve_aliases_not_similar_suffixes() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"\"###}.render_md(cx)",
+        r####"md_sync! {r###""###}.render_md(cx)"####,
     )
     .replace(
         "use proa_core::{",
@@ -516,8 +569,12 @@ fn changed_file_pairs_unchanged_counterpart_and_modules_do_not_collide() {
     let root = "mod product;mod html;mod markdown;mod unrelated;";
     let product = "pub struct Product;";
     let html=format!("{IMPORTS} use crate::product::Product;impl WebRenderSync for Product {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!(\"notice\", text(\"available\"))}}}}.render(cx)}}}}");
-    let md=format!("{IMPORTS} use crate::product::Product;impl MdRenderSync for Product {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###\"\"###}}.render_md(cx)}}}}");
-    let unrelated=format!("{IMPORTS} struct Product;impl MdRenderSync for Product {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###\"\"###}}.render_md(cx)}}}}");
+    let md = format!(
+        r####"{IMPORTS} use crate::product::Product;impl MdRenderSync for Product {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
+    );
+    let unrelated = format!(
+        r####"{IMPORTS} struct Product;impl MdRenderSync for Product {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
+    );
     let files = [
         ("src/lib.rs", root),
         ("src/product.rs", product),
@@ -539,7 +596,9 @@ fn changed_file_pairs_unchanged_counterpart_and_modules_do_not_collide() {
 }
 #[test]
 fn separate_types_require_named_semantic_mapping() {
-    let src=format!("{IMPORTS} struct HtmlProduct;struct MdProduct;impl WebRenderSync for HtmlProduct {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!(\"notice\", text(\"Available\"))}}}}.render(cx)}}}} #[proa_macros::content(source=HtmlProduct,from=\"html\")] impl MdRenderSync for MdProduct {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###\"{{content_part!(\"notice\", text(\"Available\"))}}\"###}}.render_md(cx)}}}}");
+    let src = format!(
+        r####"{IMPORTS} struct HtmlProduct;struct MdProduct;impl WebRenderSync for HtmlProduct {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!("notice", text("Available"))}}}}.render(cx)}}}} #[proa_macros::content(source=HtmlProduct,from="html")] impl MdRenderSync for MdProduct {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###"{{content_part!("notice", text("Available"))}}"###}}.render_md(cx)}}}}"####
+    );
     assert_eq!(code(&lint(&src), "render/content-coverage"), 0);
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 0);
     let bad = src.replace(
@@ -552,18 +611,20 @@ fn separate_types_require_named_semantic_mapping() {
 fn configuration_and_generic_identity_do_not_guess() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{self.title}"###}.render_md(cx)"####,
     )
     .replace(
         "impl MdRenderSync",
         "#[cfg(feature=\"md\")] impl MdRenderSync",
     );
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
-    let generic=format!("{IMPORTS} struct Product<T> {{value:T}} impl<L,T> WebRenderSync<L> for Product<T> {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{self.value}}}}.render(cx)}}}} impl<X,U> MdRenderSync<X> for Product<U> {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###\"{{self.value}}\"###}}.render_md(cx)}}}}");
+    let generic = format!(
+        r####"{IMPORTS} struct Product<T> {{value:T}} impl<L,T> WebRenderSync<L> for Product<T> {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{self.value}}}}.render(cx)}}}} impl<X,U> MdRenderSync<X> for Product<U> {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###"{{self.value}}"###}}.render_md(cx)}}}}"####
+    );
     assert!(lint(&generic).is_empty());
     let refs = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"\"###}.render_md(cx)",
+        r####"md_sync! {r###""###}.render_md(cx)"####,
     )
     .replace("MdRenderSync for Product", "MdRenderSync for &Product");
     assert!(lint(&refs).is_empty());
@@ -576,7 +637,7 @@ fn incomplete_module_graph_does_not_create_a_counterpart_requirement() {
         (
             "MdRenderSync",
             "render_md",
-            "md_sync! {r###\"{self.title}\"###}",
+            r####"md_sync! {r###"{self.title}"###}"####,
         ),
     ] {
         let source = format!("{IMPORTS} mod missing;struct Product {{title:String}} impl {render_trait} for Product {{fn {method}(self,cx:&mut Cx)->Result {{{template}.{method}(cx)}}}}");
@@ -586,7 +647,9 @@ fn incomplete_module_graph_does_not_create_a_counterpart_requirement() {
 #[test]
 fn nested_inline_module_resolves_out_of_line_counterpart() {
     let root=format!("{IMPORTS} pub struct Product;impl WebRenderSync for Product {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!(\"notice\",text(\"Notice\"))}}}}.render(cx)}}}} mod views {{mod markdown;}}");
-    let md=format!("{IMPORTS} use crate::Product;impl MdRenderSync for Product {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###\"\"###}}.render_md(cx)}}}}");
+    let md = format!(
+        r####"{IMPORTS} use crate::Product;impl MdRenderSync for Product {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
+    );
     assert_eq!(
         code(
             &multi(
@@ -602,7 +665,7 @@ fn nested_inline_module_resolves_out_of_line_counterpart() {
 fn unknown_selector_is_distinct_from_stale_selector() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "omit!(&missing);md_sync! {r###\"\"###}.render_md(cx)",
+        r####"omit!(&missing);md_sync! {r###""###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&src), "render/content-omit-unresolved"), 1);
     assert_eq!(code(&lint(&src), "render/content-omit-stale"), 0);
@@ -610,9 +673,12 @@ fn unknown_selector_is_distinct_from_stale_selector() {
 
 #[test]
 fn async_outcomes_analyze_polled_output_but_unused_futures_never_count() {
-    let src=fixture("proa_core::RenderOutcome::pending(async move {html! {{self.title}}.render(cx).await})","proa_core::RenderOutcome::pending(async move {md! {r###\"{self.title}\"###}.render_md(cx).await})");
+    let src = fixture(
+        "proa_core::RenderOutcome::pending(async move {html! {{self.title}}.render(cx).await})",
+        r####"proa_core::RenderOutcome::pending(async move {md! {r###"{self.title}"###}.render_md(cx).await})"####,
+    );
     assert!(lint(&src).is_empty());
-    let bad=src.replace("proa_core::RenderOutcome::pending(async move {md! {r###\"{self.title}\"###}.render_md(cx).await})","let future=async move {md! {r###\"{self.title}\"###}.render_md(cx).await};md_sync! {r###\"\"###}.render_md(cx)");
+    let bad=src.replace(r####"proa_core::RenderOutcome::pending(async move {md! {r###"{self.title}"###}.render_md(cx).await})"####,r####"let future=async move {md! {r###"{self.title}"###}.render_md(cx).await};md_sync! {r###""###}.render_md(cx)"####);
     assert_eq!(missing(&bad).len(), 1);
 }
 #[test]
@@ -622,10 +688,7 @@ fn another_grammar_registers_a_parser_and_reuses_targeted_omissions() {
         use syn::spanned::Spanned;
         let span = expr.span();
         Ok(vec![proa_dsl::md::TplNode::Expr(
-            proa_dsl::md::TemplateExpr {
-                expr,
-                location: proa_dsl::md::ExprLocation::Rust(span),
-            },
+            proa_dsl::md::TemplateExpr::rust(expr, span),
         )])
     }
     let mut options = ContentOptions::default();
@@ -638,7 +701,7 @@ fn another_grammar_registers_a_parser_and_reuses_targeted_omissions() {
     t.syntax = TemplateSyntax::Custom(parser);
     options.targets.push(t);
     options.comparisons = vec![("html".into(), "plain".into())];
-    let src=format!("{} impl plain::PlainRender for Product {{fn render_plain(self,cx:&mut Cx)->Result{{plain::plain! {{self.title}}.render_plain(cx)}}}}",fixture("html_sync! {{self.title} {RestockNotice::new(self.data)}}.render(cx)","md_sync! {r###\"\"###}.render_md(cx)"));
+    let src=format!("{} impl plain::PlainRender for Product {{fn render_plain(self,cx:&mut Cx)->Result{{plain::plain! {{self.title}}.render_plain(cx)}}}}",fixture("html_sync! {{self.title} {RestockNotice::new(self.data)}}.render(cx)",r####"md_sync! {r###""###}.render_md(cx)"####));
     let p = PathBuf::from("/fixture/src/lib.rs");
     let run = |s: String| {
         lint_sources(
@@ -670,7 +733,7 @@ fn constructor_argument_roles_and_literals_are_not_field_set_equality() {
     ] {
         let src = fixture(
             &format!("html_sync! {{{{{html}}}}}.render(cx)"),
-            &format!("md_sync! {{r###\"{{{md}}}\"###}}.render_md(cx)"),
+            &format!(r####"md_sync! {{r###"{{{md}}}"###}}.render_md(cx)"####),
         );
         assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
         assert!(missing(&src).is_empty());
@@ -678,11 +741,13 @@ fn constructor_argument_roles_and_literals_are_not_field_set_equality() {
 }
 #[test]
 fn generic_non_render_bounds_and_execution_variants_are_explicit() {
-    let src=format!("{IMPORTS} struct Product<T>{{value:T}} impl<T:Clone> WebRenderSync for Product<T>{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{self.value}}}}.render(cx)}}}} impl<U:Copy> MdRenderSync for Product<U>{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###\"{{self.value}}\"###}}.render_md(cx)}}}}");
+    let src = format!(
+        r####"{IMPORTS} struct Product<T>{{value:T}} impl<T:Clone> WebRenderSync for Product<T>{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{self.value}}}}.render(cx)}}}} impl<U:Copy> MdRenderSync for Product<U>{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###"{{self.value}}"###}}.render_md(cx)}}}}"####
+    );
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{self.title}"###}.render_md(cx)"####,
     );
     let variant="impl WebRenderSend for Product {fn render_send(self,cx:&mut Cx)->Result{html_sync! {{self.title}}.render_send(cx)}}";
     assert!(lint(&format!("{src}{variant}")).is_empty());
@@ -697,7 +762,7 @@ fn generic_non_render_bounds_and_execution_variants_are_explicit() {
 }
 #[test]
 fn macro_declared_components_are_identified_from_lexical_render_impls() {
-    let src=fixture("html_sync! {{RestockNotice::new(self.data)}}.render(cx)","md_sync! {r###\"\"###}.render_md(cx)").replace("struct Product {title: String, data: Data, stock:u32, items: Vec<Data>, image: String}","component!(Product);").replace("struct RestockNotice;","component!(RestockNotice);impl WebRenderSync for RestockNotice {fn render(self,cx:&mut Cx)->Result{html_sync! {}.render(cx)}}");
+    let src=fixture("html_sync! {{RestockNotice::new(self.data)}}.render(cx)",r####"md_sync! {r###""###}.render_md(cx)"####).replace("struct Product {title: String, data: Data, stock:u32, items: Vec<Data>, image: String}","component!(Product);").replace("struct RestockNotice;","component!(RestockNotice);impl WebRenderSync for RestockNotice {fn render(self,cx:&mut Cx)->Result{html_sync! {}.render(cx)}}");
     assert_eq!(missing(&src).len(), 1);
 }
 
@@ -716,7 +781,9 @@ fn skip_is_available_for_unresolved_types_and_status_is_honest() {
 }
 #[test]
 fn removing_source_impl_makes_its_omission_stale_without_forcing_a_pair() {
-    let src=format!("{IMPORTS} struct Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{omit!(\"notice\");md_sync!{{r###\"\"###}}.render_md(cx)}}}}");
+    let src = format!(
+        r####"{IMPORTS} struct Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{omit!("notice");md_sync!{{r###""###}}.render_md(cx)}}}}"####
+    );
     let d = lint(&src);
     assert_eq!(code(&d, "render/content-omit-stale"), 1);
     assert_eq!(d.len(), 1);
@@ -725,9 +792,11 @@ fn removing_source_impl_makes_its_omission_stale_without_forcing_a_pair() {
 fn package_entry_points_keep_equal_names_separate() {
     let a = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{self.title}"###}.render_md(cx)"####,
     );
-    let b=format!("{IMPORTS} struct Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###\"\"###}}.render_md(cx)}}}}");
+    let b = format!(
+        r####"{IMPORTS} struct Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
+    );
     let files = [("a/src/lib.rs", a.as_str()), ("b/src/lib.rs", b.as_str())];
     assert!(multi(&files, &["b/src/lib.rs"]).is_empty());
 }
@@ -770,7 +839,7 @@ fn actual_product_fixture_and_real_incident_report_deletions_are_caught() {
 fn rust_and_cooked_markdown_ranges_select_authored_conditions() {
     let src = fixture(
         "html_sync! {{if self.stock==0 {html_sync! {{self.title}}}}}.render(cx)",
-        "md_sync! {\"\\n    🦀 {if self.stock>0 {{self.title}}}\\n\"}.render_md(cx)",
+        r#"md_sync! {"\n    🦀 {if self.stock>0 {{self.title}}}\n"}.render_md(cx)"#,
     );
     let d = lint(&src);
     let d = d
@@ -792,19 +861,22 @@ fn rust_and_cooked_markdown_ranges_select_authored_conditions() {
 fn guard_aliases_keep_definition_time_provenance_and_helpers_stay_unknown() {
     let src = fixture(
         "let show=self.stock==0;html_sync! {{if show {html_sync! {{self.title}}}}}.render(cx)",
-        "let visible=self.stock==0;md_sync! {r###\"{if visible {{self.title}}}\"###}.render_md(cx)",
+        r####"let visible=self.stock==0;md_sync! {r###"{if visible {{self.title}}}"###}.render_md(cx)"####,
     );
     assert!(lint(&src).is_empty());
-    let opaque=fixture("let show=first_policy(self.stock);html_sync! {{if show {html_sync! {{self.title}}}}}.render(cx)","let show=second_policy(self.stock);md_sync! {r###\"{if show {{self.title}}}\"###}.render_md(cx)");
+    let opaque=fixture("let show=first_policy(self.stock);html_sync! {{if show {html_sync! {{self.title}}}}}.render(cx)",r####"let show=second_policy(self.stock);md_sync! {r###"{if show {{self.title}}}"###}.render_md(cx)"####);
     assert_eq!(code(&lint(&opaque), "render/content-coverage-unchecked"), 1);
-    let shadowed=fixture("html_sync! {{if self.stock==0 {html_sync! {{self.title}}}}}.render(cx)","let stock=self.stock;let show=stock==0;let stock=self.image;md_sync! {r###\"{if show {{self.title}}}\"###}.render_md(cx)");
+    let shadowed = fixture(
+        "html_sync! {{if self.stock==0 {html_sync! {{self.title}}}}}.render(cx)",
+        r####"let stock=self.stock;let show=stock==0;let stock=self.image;md_sync! {r###"{if show {{self.title}}}"###}.render_md(cx)"####,
+    );
     assert!(lint(&shadowed).is_empty());
 }
 #[test]
 fn missing_child_primary_is_the_template_and_alias_evidence_is_at_the_sink() {
     let src = fixture(
         "let child=RestockNotice::new(self.data);html_sync! {{child}}.render(cx)",
-        "let notice=RestockNotice::new(self.data);md_sync! {r###\"\"###}.render_md(cx)",
+        r####"let notice=RestockNotice::new(self.data);md_sync! {r###""###}.render_md(cx)"####,
     );
     let d = missing(&src);
     assert_eq!(d.len(), 1);
@@ -832,7 +904,7 @@ fn missing_child_primary_is_the_template_and_alias_evidence_is_at_the_sink() {
 
 #[test]
 fn named_parts_retain_structural_guards_and_can_map_direct_writes() {
-    let src=fixture("html_sync! {{content_part!(\"notice\", if self.stock==0 {html_sync! {{self.title}}}else{()})}}.render(cx)","md_sync! {r###\"{content_part!(\"notice\", if self.stock>0 {md_sync! {r#\"{self.title}\"#}}else{()})}\"###}.render_md(cx)");
+    let src=fixture("html_sync! {{content_part!(\"notice\", if self.stock==0 {html_sync! {{self.title}}}else{()})}}.render(cx)",r####"md_sync! {r###"{content_part!("notice", if self.stock>0 {md_sync! {r#"{self.title}"#}}else{()})}"###}.render_md(cx)"####);
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
     let direct = fixture(
         "content_part!(\"notice\", write_html(self.data,cx));Ok(())",
@@ -841,7 +913,7 @@ fn named_parts_retain_structural_guards_and_can_map_direct_writes() {
     assert!(lint(&direct).is_empty());
     let unused = direct.replace(
         "content_part!(\"notice\", write_md(self.data,cx));Ok(())",
-        "let unused=content_part!(\"notice\", md_sync! {r###\"{self.title}\"###});Ok(())",
+        r####"let unused=content_part!("notice", md_sync! {r###"{self.title}"###});Ok(())"####,
     );
     assert_eq!(missing(&unused).len(), 1);
 }
@@ -872,12 +944,12 @@ fn loop_exits_compound_assignment_and_obvious_mutation_are_unchecked() {
     );
     let src = fixture(
         "html_sync! {{self.stock}}.render(cx)",
-        "let stock=self.stock;stock+=1;md_sync! {r###\"{stock}\"###}.render_md(cx)",
+        r####"let stock=self.stock;stock+=1;md_sync! {r###"{stock}"###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "let title=self.title.clone();title.push('x');md_sync! {r###\"{title}\"###}.render_md(cx)",
+        r####"let title=self.title.clone();title.push('x');md_sync! {r###"{title}"###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
 }
@@ -891,7 +963,7 @@ fn item_macro_discovery_does_not_create_a_counterpart_requirement() {
 fn child_presentation_fields_can_differ_without_changing_content_inputs() {
     let source = fixture(
         "html_sync! {{RestockNotice {data:self.data,class:self.image}}}.render(cx)",
-        "md_sync! {r###\"{RestockNotice {data:self.data,class:None}}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{RestockNotice {data:self.data,class:None}}"###}.render_md(cx)"####,
     );
     assert!(lint(&source).is_empty());
 }
@@ -899,7 +971,7 @@ fn child_presentation_fields_can_differ_without_changing_content_inputs() {
 fn missing_field_repair_names_the_field_or_its_local_instead_of_self() {
     let source = fixture(
         "html_sync! {<img src={self.image} alt=\"\" />}.render(cx)",
-        "md_sync! {r###\"{self.title}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{self.title}"###}.render_md(cx)"####,
     );
     let diagnostics = missing(&source);
     assert_eq!(diagnostics.len(), 1);
@@ -908,8 +980,8 @@ fn missing_field_repair_names_the_field_or_its_local_instead_of_self() {
         Some("render `self.image` in the Markdown view")
     );
     let with_local = source.replace(
-        "md_sync! {r###\"{self.title}\"###}",
-        "let image=self.image;md_sync! {r###\"{self.title}\"###}",
+        r####"md_sync! {r###"{self.title}"###}"####,
+        r####"let image=self.image;md_sync! {r###"{self.title}"###}"####,
     );
     let diagnostics = missing(&with_local);
     assert_eq!(diagnostics.len(), 1);
@@ -923,7 +995,7 @@ fn missing_field_repair_names_the_field_or_its_local_instead_of_self() {
 fn omission_suggestions_never_use_method_calls_or_collection_pseudo_paths() {
     let source = fixture(
         "html_sync! {{self.items.len()}}.render(cx)",
-        "let count=self.items.len();md_sync! {r###\"\"###}.render_md(cx)",
+        r####"let count=self.items.len();md_sync! {r###""###}.render_md(cx)"####,
     );
     let d = missing(&source);
     assert_eq!(d.len(), 1);
@@ -939,7 +1011,7 @@ fn omission_suggestions_never_use_method_calls_or_collection_pseudo_paths() {
     }
     let field = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "md_sync! {r###\"\"###}.render_md(cx)",
+        r####"md_sync! {r###""###}.render_md(cx)"####,
     );
     let d = missing(&field);
     assert_eq!(
@@ -958,7 +1030,9 @@ fn nested_library_named_module_is_not_another_cargo_entry_point() {
     )
     .unwrap();
     let root=format!("{IMPORTS} pub struct Product;impl WebRenderSync for Product{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!(\"notice\",text(\"Notice\"))}}}}.render(cx)}}}} #[path=\"view/lib.rs\"] mod view;");
-    let view=format!("{IMPORTS} use crate::Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###\"\"###}}.render_md(cx)}}}}");
+    let view = format!(
+        r####"{IMPORTS} use crate::Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
+    );
     std::fs::write(temp.path().join("src/lib.rs"), root).unwrap();
     let path = temp.path().join("src/view/lib.rs");
     std::fs::write(&path, view).unwrap();
@@ -971,22 +1045,31 @@ fn nested_library_named_module_is_not_another_cargo_entry_point() {
 fn destructuring_preserves_individual_inputs_and_condition_identity() {
     let src = fixture(
         "html_sync! {{self.title} {self.image}}.render(cx)",
-        "let (title,image)=(self.title,self.image);md_sync! {r###\"{image}\"###}.render_md(cx)",
+        r####"let (title,image)=(self.title,self.image);md_sync! {r###"{image}"###}.render_md(cx)"####,
     );
     let d = missing(&src);
     assert_eq!(d.len(), 1);
     assert!(d[0].message.contains("self.title"));
-    let src=fixture("let Product{stock,..}=self;html_sync! {{if stock==0 {html_sync! {{self.title}}}}}.render(cx)","let Product{stock,..}=self;md_sync! {r###\"{if stock==0 {{self.title}}}\"###}.render_md(cx)");
+    let src=fixture("let Product{stock,..}=self;html_sync! {{if stock==0 {html_sync! {{self.title}}}}}.render(cx)",r####"let Product{stock,..}=self;md_sync! {r###"{if stock==0 {{self.title}}}"###}.render_md(cx)"####);
     assert!(lint(&src).is_empty());
-    let src=fixture("html_sync! {{self.title}}.render(cx)","let RestockNotice{at}=RestockNotice {at:self.title};md_sync! {r###\"{at}\"###}.render_md(cx)");
+    let src = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        r####"let RestockNotice{at}=RestockNotice {at:self.title};md_sync! {r###"{at}"###}.render_md(cx)"####,
+    );
     assert!(lint(&src).is_empty());
-    let opaque=fixture("html_sync! {{RestockNotice::new(self.data)}}.render(cx)","let RestockNotice{at}=RestockNotice::new(self.data);md_sync! {r###\"{at}\"###}.render_md(cx)");
+    let opaque = fixture(
+        "html_sync! {{RestockNotice::new(self.data)}}.render(cx)",
+        r####"let RestockNotice{at}=RestockNotice::new(self.data);md_sync! {r###"{at}"###}.render_md(cx)"####,
+    );
     assert_eq!(code(&lint(&opaque), "render/content-coverage-unchecked"), 1);
 }
 
 #[test]
 fn unsupported_shadowing_patterns_never_reuse_outer_variable_provenance() {
-    let src=fixture("html_sync! {{self.title}}.render(cx)","let title=self.title;let [title,..]=opaque(self.items);md_sync! {r###\"{title}\"###}.render_md(cx)");
+    let src = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        r####"let title=self.title;let [title,..]=opaque(self.items);md_sync! {r###"{title}"###}.render_md(cx)"####,
+    );
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
     assert!(missing(&src).is_empty());
 }
@@ -1000,14 +1083,16 @@ fn an_unresolved_single_target_is_not_a_counterpart_warning() {
 fn opaque_tuple_destructuring_does_not_render_the_whole_constructed_child() {
     let source = fixture(
         "html_sync! {{RestockNotice::new(self.data)}}.render(cx)",
-        "let (value,)=RestockNotice::new(self.data);md_sync! {r###\"{value}\"###}.render_md(cx)",
+        r####"let (value,)=RestockNotice::new(self.data);md_sync! {r###"{value}"###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&source), "render/content-coverage-unchecked"), 1);
 }
 
 #[test]
 fn locally_shadowed_render_trait_paths_are_not_registered_external_targets() {
-    let source=format!("{IMPORTS} mod proa_core {{pub trait WebRenderSync{{}} pub trait MdRenderSync{{}}}} struct Product;impl proa_core::WebRenderSync for Product{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!(\"notice\",text(\"Notice\"))}}}}.render(cx)}}}} impl proa_core::MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###\"\"###}}.render_md(cx)}}}}");
+    let source = format!(
+        r####"{IMPORTS} mod proa_core {{pub trait WebRenderSync{{}} pub trait MdRenderSync{{}}}} struct Product;impl proa_core::WebRenderSync for Product{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!("notice",text("Notice"))}}}}.render(cx)}}}} impl proa_core::MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
+    );
     assert!(lint(&source).is_empty());
 }
 
@@ -1015,13 +1100,13 @@ fn locally_shadowed_render_trait_paths_are_not_registered_external_targets() {
 fn unresolved_render_contexts_and_context_presence_are_not_coverage_proofs() {
     let source = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        "let wrapper=Some(cx);md_sync! {r###\"{self.title}\"###}.render_md(wrapper.unwrap())",
+        r####"let wrapper=Some(cx);md_sync! {r###"{self.title}"###}.render_md(wrapper.unwrap())"####,
     );
     assert_eq!(code(&lint(&source), "render/content-coverage-unchecked"), 1);
     assert!(missing(&source).is_empty());
     let source = fixture(
         "html_sync! {{if cx.show {html_sync! {{self.title}}}}}.render(cx)",
-        "md_sync! {r###\"{if cx.show {{self.title}}}\"###}.render_md(cx)",
+        r####"md_sync! {r###"{if cx.show {{self.title}}}"###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&source), "render/content-coverage-unchecked"), 1);
 }
@@ -1029,7 +1114,7 @@ fn unresolved_render_contexts_and_context_presence_are_not_coverage_proofs() {
 #[test]
 fn child_types_resolve_imports_without_confusing_value_bindings() {
     let source = "html_sync! {{RestockNotice::new(self.data)}}.render(cx)";
-    let target = "omit!(Notice);md_sync! {r###\"\"###}.render_md(cx)";
+    let target = r####"omit!(Notice);md_sync! {r###""###}.render_md(cx)"####;
     let valid = format!(
         "use crate::RestockNotice as Notice;{}",
         fixture(source, target)
@@ -1056,7 +1141,7 @@ fn child_types_resolve_imports_without_confusing_value_bindings() {
 fn child_type_suggestions_include_lifetimes_and_never_guess_generic_arguments() {
     let source = fixture(
         "html_sync! {{RestockNotice::new(self.data)}}.render(cx)",
-        "md_sync! {r###\"\"###}.render_md(cx)",
+        r####"md_sync! {r###""###}.render_md(cx)"####,
     );
     let lifetimes = source.replace(
         "struct RestockNotice;",
@@ -1321,7 +1406,7 @@ fn inline_code_projection_is_supported_but_arbitrary_callbacks_are_opaque() {
 fn context_url_preserves_path_content_without_trusting_arbitrary_url_methods() {
     let source = fixture(
         "html_sync! { <a href={cx.url(self.image)}>{self.title}</a> }.render(cx)",
-        "let url = cx.url(self.image); md_sync! {r###\"[{self.title}]({url})\"###}.render_md(cx)",
+        r####"let url = cx.url(self.image); md_sync! {r###"[{self.title}]({url})"###}.render_md(cx)"####,
     )
     .replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
@@ -1337,12 +1422,48 @@ fn context_url_preserves_path_content_without_trusting_arbitrary_url_methods() {
 fn context_url_in_an_imperative_branch_is_preparation_without_hiding_content() {
     let source = fixture(
         "if self.stock == 0 { let url = cx.url(self.image); html_sync! { <a href={url}>{self.title}</a> }.render(cx) } else { html_sync! {}.render(cx) }",
-        "if self.stock == 0 { let url = cx.url(self.image); md_sync! {r###\"[{self.title}]({url})\"###}.render_md(cx) } else { md_sync! {r###\"\"###}.render_md(cx) }",
+        r####"if self.stock == 0 { let url = cx.url(self.image); md_sync! {r###"[{self.title}]({url})"###}.render_md(cx) } else { md_sync! {r###""###}.render_md(cx) }"####,
     ).replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
     let deleted = source.replace(
         "let url = cx.url(self.image); md_sync!",
-        "let url = \"/other\"; md_sync!",
+        r#"let url = "/other"; md_sync!"#,
     );
     assert_eq!(missing(&deleted).len(), 1);
+}
+
+#[test]
+fn nested_markdown_diagnostics_compose_literal_source_maps() {
+    let nested = r####"md_sync! { r###"
+        🦀 { md_sync! { r#"
+            {md_sync! { "\n🦀 {if self.stock>0 {self.title}}\n" }}
+            "# } }
+        "### }.render_md(cx)"####;
+    for body in [nested.to_owned(), nested.replace('\n', "\r\n")] {
+        let src = fixture(
+            "html_sync! {{if self.stock==0 {html_sync! {{self.title}}}}}.render(cx)",
+            &body,
+        );
+        let diagnostics = lint(&src);
+        let diagnostic = diagnostics
+            .iter()
+            .find(|d| d.code == "render/content-coverage-unchecked")
+            .unwrap();
+        let range = &diagnostic.labels[0].range;
+        let expected_line = src
+            .lines()
+            .position(|line| line.contains("self.stock>0"))
+            .unwrap()
+            + 1;
+        assert_eq!(range.line, expected_line, "{diagnostics:#?}");
+        let selected: String = src
+            .lines()
+            .nth(range.line - 1)
+            .unwrap()
+            .chars()
+            .skip(range.column - 1)
+            .take(range.end_column - range.column)
+            .collect();
+        assert_eq!(selected, "self.stock>0");
+    }
 }

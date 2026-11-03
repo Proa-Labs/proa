@@ -98,6 +98,11 @@ requested. See
 [`docs/agent/document-rendering.md`](docs/agent/document-rendering.md) for format
 selection, escaping, source-data boundaries, and verification.
 
+For Markdown, follow [the Markdown skill](.agents/skills/proa-markdown/SKILL.md):
+author documents in multiline raw templates, keep Rust control flow in explicit
+`{ ... }` slots, and use short ordinary-string templates for small branch or
+list-row fragments. Preserve their line separators.
+
 ### Browser behavior
 
 Use RSJS for application browser behavior whenever supported: typed signals,

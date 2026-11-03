@@ -403,3 +403,59 @@ fn markdown_flush_retains_suffix_and_commits_metadata_even_when_handoff_fails() 
     cx.md_block_boundary().unwrap();
     assert_eq!(cx.into_output().into_vec(), b"\n\n");
 }
+
+fn typed_scoped_fragment(exit: FragmentExit, label: &str) -> impl WebRender + '_ {
+    proa_core::md::async_md_from_closure(async move |cx| {
+        assert_eq!(cx.md_state(), proa_core::md::MdState::default());
+        cx.md_push_heading_offset(4);
+        cx.md_push_list_depth();
+        cx.md_set_inline(true);
+        cx.write_md_prepared(label.as_bytes())?;
+        YieldOnce(false).await;
+        match exit {
+            FragmentExit::Success => Ok(()),
+            FragmentExit::Error => Err(WriteError::OutOfCapacity),
+            FragmentExit::Panic => panic!("typed fragment unwind"),
+            FragmentExit::Pending => std::future::pending().await,
+        }
+    })
+}
+
+#[test]
+fn typed_async_fragment_restores_state_on_completion_error_panic_and_cancellation() {
+    let owned = String::from("borrowed");
+    for exit in [
+        FragmentExit::Success,
+        FragmentExit::Error,
+        FragmentExit::Panic,
+    ] {
+        let mut cx = outer_context();
+        let saved = cx.md_state();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            complete(WebRender::render(typed_scoped_fragment(exit, &owned), &mut cx).resolve())
+        }));
+        match exit {
+            FragmentExit::Success => assert!(result.unwrap().is_ok()),
+            FragmentExit::Error => assert!(result.unwrap().is_err()),
+            FragmentExit::Panic => assert!(result.is_err()),
+            FragmentExit::Pending => unreachable!(),
+        }
+        assert_eq!(cx.md_state(), saved);
+        assert_eq!(cx.into_output().into_vec(), b"outer\rborrowed");
+    }
+    let mut cx = outer_context();
+    let saved = cx.md_state();
+    let mut future = Box::pin(
+        WebRender::render(
+            typed_scoped_fragment(FragmentExit::Pending, &owned),
+            &mut cx,
+        )
+        .resolve(),
+    );
+    let mut task = TaskContext::from_waker(Waker::noop());
+    assert!(future.as_mut().poll(&mut task).is_pending());
+    assert!(future.as_mut().poll(&mut task).is_pending());
+    drop(future);
+    assert_eq!(cx.md_state(), saved);
+    assert_eq!(cx.into_output().into_vec(), b"outer\rborrowed");
+}

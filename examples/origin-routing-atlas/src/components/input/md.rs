@@ -19,7 +19,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for I
             "Screen-reader labels are HTML control metadata."
         );
         if let Some(placeholder) = self.placeholder {
-            md_sync! { "[" { placeholder } "]" }.render_md(cx)?;
+            md_sync! { "[{placeholder}]" }.render_md(cx)?;
         }
         Ok(())
     }

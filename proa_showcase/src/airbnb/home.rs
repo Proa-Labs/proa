@@ -687,10 +687,7 @@ pub fn render_md() -> String {
     cx.md_heading(2, "Featured Rails");
     for listing in data.listings.iter().take(6) {
         cx.md_heading(3, listing.title);
-        proa_macros::md_sync! { r###"
-            {listing.location} · ${listing.price_per_night} per night · ★{listing.rating}
-            "###
-        }
+        proa_macros::md_sync! { "{listing.location} · ${listing.price_per_night} per night · ★{listing.rating}\n" }
         .render_md(&mut cx);
         cx.md_link("View listing", "/showcase/airbnb/proa/listing");
         cx.md_blank_line();

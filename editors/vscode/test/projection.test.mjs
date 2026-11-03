@@ -3,11 +3,24 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { project, applyChanges, safeRange } from '../src/projection.mjs';
 import { Bridge } from '../src/protocol.mjs';
 
 const source = 'fn show() { md_sync! { r###"**{a.user_name.as_str()}** · via {client}"### }; }';
 const uri = 'file:///project/src/lib.rs';
+
+test('CommonMark code contexts match the shared compiler corpus', () => {
+  const cases = JSON.parse(readFileSync(new URL('../../../proa_dsl/tests/fixtures/markdown_contexts.json', import.meta.url), 'utf8'));
+  for (const fixture of cases) {
+    const text = 'md_sync! { r#####"' + fixture.markdown + '"##### }';
+    const projection = project(text);
+    const actual = projection.templates.flatMap(template => template.expressions.map(range => text.slice(range.start + 1, range.end - 1).trim().replace(/\s+/gu, ' ')));
+    assert.deepEqual(actual, fixture.slots.map(slot => slot.replace(/\s+/gu, ' ')), fixture.name);
+    assert.equal(projection.text.length, text.length, fixture.name);
+    assert.deepEqual([...projection.text.matchAll(/\r?\n/g)].map(match => match.index), [...text.matchAll(/\r?\n/g)].map(match => match.index), fixture.name);
+  }
+});
 function range(start, end = start) { return { start: { line: 0, character: start }, end: { line: 0, character: end } }; }
 function bridgeFor(text = source) {
   const bridge = new Bridge();
@@ -48,6 +61,37 @@ test('balances nested Rust blocks, raw strings, chars, and nested comments', () 
   assert.ok(result.text.includes('foo({ let x = r#"}"#; /* } /* { */ */ x }, \'}\')'));
 });
 
+test('quoted fences preserve braces and stop at their containing quote boundary', () => {
+  for (const body of [
+    '> ~~~text\n> {{literal}} {not_rust\n> ~~~\n{a.name}',
+    '> ```text\n> {{literal}} {not_rust\n> ```\n{a.name}',
+    '> > ~~~text\n> > {{literal}} {not_rust\n> > ~~~\n{a.name}',
+    '> ~~~text\n> {{literal}} {not_rust\n{a.name}',
+    '> > ~~~text\n> > {{literal}} {not_rust\n> {a.name}',
+    '> ~~~~text\n> ~~~\n> {{literal}} {not_rust\n> ~~~~\n{a.name}',
+    '> ~~~text\n> ~~~\u00a0\n> {{literal}} {not_rust\n> ~~~\n{a.name}',
+  ]) {
+    for (const newline of ['\n', '\r\n']) {
+      const text = ('md_sync! { r###"\n    ' + body.replaceAll('\n', '\n    ') + '\n    "### }').replaceAll('\n', newline);
+      const result = project(text);
+      assert.equal(result.templates[0].expressions.length, 1, body);
+      assert.equal(result.text.indexOf('{a.name}'), text.indexOf('{a.name}'));
+      assert.ok(!result.text.includes('literal'));
+      assert.ok(!result.text.includes('not_rust'));
+    }
+  }
+});
+
+test('brace escapes, backslashes, and block slots match the compiler', () => {
+  const text = 'md_sync! { r#"{{name}} {{{name}}} \\{name} \\{{name}} `{{name}}` {{ name }} { { name } }"# }';
+  const result = project(text);
+  assert.equal(result.templates[0].expressions.length, 3);
+  assert.equal(result.text.length, text.length);
+  for (const slot of result.templates[0].expressions) {
+    assert.equal(result.text.slice(slot.start, slot.end), text.slice(slot.start, slot.end));
+  }
+});
+
 test('leaves comments, unrelated literals/macros, and token composition alone', () => {
   for (const text of [
     '// md_sync! { r#"{x}"# }', '/* outer /* md! { r#"{x}"# } */ */',
@@ -57,48 +101,62 @@ test('leaves comments, unrelated literals/macros, and token composition alone', 
   ]) assert.equal(project(text).text, text, text);
 });
 
-test('projects nested control flow with the original bindings and expression positions', () => {
-  const text = 'md! { r#"{for x in xs { - {x.name} {if x.ready { Yes {x.value} } else if flag { {other} } else { No }} }}"# }';
+test('projects control-flow slots verbatim and hides the Markdown around them', () => {
+  const text = 'md! { r#"Intro {for x in xs { md! { "- " {x.name} " " {if x.ready { md! { "Yes " {x.value} } } else if flag { other } else { "No" }} } }} done"# }';
   const result = project(text);
   assert.equal(result.text.length, text.length);
   for (const expr of ['for x in xs', 'x.name', 'if x.ready', 'x.value', 'else if flag', 'other']) {
     assert.equal(result.text.indexOf(expr), text.indexOf(expr));
     assert.ok(safeRange(result, range(text.indexOf(expr), text.indexOf(expr) + expr.length)));
   }
-  assert.ok(result.text.includes(' x.name;'));
-  assert.ok(!result.text.includes('Yes'));
-  assert.ok(!safeRange(result, range(text.indexOf('Yes'))));
+  assert.ok(!result.text.includes('Intro'));
+  assert.ok(!result.text.includes('done'));
+  assert.ok(!safeRange(result, range(text.indexOf('Intro'))));
   assert.equal(project('md! { r#"{unfinished"# }').text, 'md! { r#"{unfinished"# }');
 });
 
-test('keeps if-let bindings and incomplete Rust expressions visible', () => {
-  const text = 'md_sync! { r#"{if let Some(a) = value { **{a.}** } else { None }}"# }';
+test('keeps if-let bindings and incomplete Rust expressions inside control flow visible', () => {
+  const text = 'md_sync! { r#"{if let Some(a) = value { a. } else { "None" }}"# }';
   const result = project(text);
   assert.ok(result.text.includes('if let Some(a) = value'));
-  assert.ok(result.text.includes(' a.;'));
-  assert.equal(result.text.indexOf('a.;'), text.indexOf('a.}'));
+  assert.ok(!result.text.includes('md_sync'));
+  assert.ok(result.text.includes('{ a. }'));
+  assert.equal(result.text.indexOf('a.'), text.indexOf('a.'));
 });
 
 test('uses a position-preserving Rust block for incomplete fields until the macro can expand', () => {
   for (const macro of ['md_sync!', 'proa_macros::md!', '::proa_macros::md_sync!']) {
-    const text = `fn f() { ${macro}[r###"🦀 {a.} {for row in rows { {row.name} }}"###]; }`;
+    const text = `fn f() { ${macro}[r###"🦀 {a.} {for row in rows { md_sync! { "- " {row.name} } }}"###]; }`;
     const projection = project(text);
     assert.equal(projection.text.length, text.length);
-    assert(!projection.text.includes('md'));
+    assert(!projection.text.includes('md') || projection.text.indexOf('md') > text.indexOf('{for'));
     assert.equal(projection.text.indexOf('a.;'), text.indexOf('a.}'));
-    assert.equal(projection.text.indexOf('row.name;'), text.indexOf('row.name}'));
+    assert.equal(projection.text.indexOf('row.name'), text.indexOf('row.name'));
     assert(projection.text.includes('for row in rows'));
     assert(project(text.replace('{a.}', '{a.name}')).text.includes(macro));
   }
   assert(project('return ::proa_macros::md_sync! { r#"{a.}"# };').text.startsWith('return '));
 });
 
-test('URLs and punctuation inside control-flow prose do not hide Rust slots', () => {
-  const text = 'md_sync! { r#"{for item in items { Read [docs](https://example.com) — don\'t forget {item.name} }}"# }';
+test('dots inside Rust strings, characters, and comments do not mark a slot unfinished', () => {
+  for (const text of [
+    'md_sync! { r#"{format!("a.}")}"# }',
+    'md_sync! { r#"{value /* a. */ .name}"# }',
+    "md_sync! { r#\"{name.trim_end_matches('.')}\"# }",
+    'md_sync! { r#"{if ready { r"end." } else { "none" }}"# }',
+  ]) {
+    assert.ok(project(text).text.includes('md_sync!'), text);
+  }
+  assert.ok(!project('md_sync! { r#"{value /* a.} */ .}"# }').text.includes('md_sync!'));
+  assert.ok(!project('md_sync! { r#"{if ready { value. } else { "none" }}"# }').text.includes('md_sync!'));
+});
+
+test('nested template literals inside a slot stay verbatim while outer prose is hidden', () => {
+  const text = 'md_sync! { r#"Read on. {for item in items { md_sync! { r"[docs](https://example.com) — don\'t forget " {item.name} } }}"# }';
   const result = project(text);
   assert.ok(result.templates.length);
-  assert.ok(result.text.includes(' item.name;'));
-  assert.ok(!result.text.includes('https'));
+  assert.ok(result.text.includes('https'));
+  assert.ok(!result.text.includes('Read on.'));
   assert.equal(result.text.indexOf('item.name'), text.indexOf('item.name'));
 });
 
@@ -199,5 +257,18 @@ test('guards workspace file-operation edits in unopened template files', () => {
     bridge.fromClient({ id: 1, method, params: { files: [] } });
     const response = bridge.fromServer({ id: 1, result: { changes: { [uri]: [{ range: range(0, source.length), newText: '' }] } } });
     assert.equal(response.forward.error.code, -32803);
+  }
+});
+
+test('backtick runs and escapes match the compiler slot boundaries', () => {
+  for (const body of ['a `` {value} ` end', 'Escaped \\`{value}`', 'Odd \\\\\\`{value}`']) {
+    const text = 'md_sync! { r#"' + body + '"# }';
+    const result = project(text);
+    assert.equal(result.templates[0].expressions.length, 1, body);
+    assert.ok(result.text.includes('{value}'), body);
+  }
+  for (const body of ['a `` {literal} `` end', 'Even \\\\`{literal}`']) {
+    const result = project('md_sync! { r#"' + body + '"# }');
+    assert.equal(result.templates.length, 0, body);
   }
 });

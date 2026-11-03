@@ -536,16 +536,17 @@ mod tests {
     fn highlights_rust_control_flow_inside_markdown_templates() {
         let lines = highlight_lines(
             concat!(
-                "let summary = md_sync! {\"\n",
+                "let summary = md_sync! { r###\"\n",
                 "    # {title}\n",
                 "\n",
                 "    ## Features\n",
                 "\n",
                 "    {for feature in features.iter() {\n",
-                "    - {feature}\n",
+                "        md_sync! { \"- \" {feature} \"\\n\" }\n",
                 "    }}\n",
-                "    {if in_stock {In stock} else {Backordered}}\n",
-                "\"};\n",
+                "    {if in_stock { \"In stock\" } else { \"Backordered\" }}\n",
+                "    \"###\n",
+                "};\n",
             ),
             "rust",
         )
@@ -590,7 +591,8 @@ mod tests {
     #[test]
     fn supports_raw_templates_without_reclassifying_legacy_token_literals() {
         let raw = highlight_lines(
-            "let page = md_sync! {r#\"{for item in items {\n- {item}\n}}\"#};\n",
+            r##"let page = md_sync! {r#"{for item in items { md_sync! { "- " {item} } }}"#};
+"##,
             "rust",
         )
         .unwrap()
@@ -600,7 +602,8 @@ mod tests {
             .contains("<span class=\"hl-keyword\">for</span>"));
 
         let legacy = highlight_lines(
-            "let page = md_sync! { \"{for fake in values {text}}\" {actual} };\n",
+            r#"let page = md_sync! { "{for fake in values {text}}" {actual} };
+"#,
             "rust",
         )
         .unwrap()

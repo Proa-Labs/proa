@@ -15,7 +15,7 @@ homepage.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 pathdiff = "0.2"
-proa_dsl = { workspace = true }
+proa_dsl = { workspace = true, features = ["markdown"] }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 pulldown-cmark = { workspace = true }
 quote = { workspace = true }

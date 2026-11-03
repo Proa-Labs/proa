@@ -64,10 +64,12 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for FaqSection<'_> {
             ## {content_part!("title", TITLE)}
 
             {for entry in self.entries {
-            ### {entry.question}
+                md_sync! { r#"
+                    ### {entry.question}
 
-            {entry.answer}
+                    {entry.answer}
 
+                "# }
             }}"###
         }
         .render_md(cx)

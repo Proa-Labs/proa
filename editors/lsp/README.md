@@ -6,7 +6,8 @@ shares its template parser, formatting implementation, and edit guards with
 the Proa VS Code extension.
 
 Requires Node.js 22+, a working rust-analyzer executable, and the project's
-Rust toolchain with Cargo and rustfmt. There are no npm runtime dependencies.
+Rust toolchain with Cargo and rustfmt. The JavaScript Markdown and Rust parser
+dependencies are installed with pnpm.
 
 Live Proa lint diagnostics additionally require an updated Proa CLI on PATH.
 Build/install it from this checkout with
@@ -21,9 +22,15 @@ From a Proa checkout:
 
 ```sh
 rustup component add rust-analyzer rustfmt
+pnpm -C editors/lsp install --frozen-lockfile
 pnpm add --global ./editors/lsp
 proa-lsp --version
 ```
+
+For direct Node launch without a global installation, install dependencies with
+the same `pnpm -C editors/lsp install --frozen-lockfile` command, then configure
+`node /absolute/path/to/proa/editors/lsp/bin/proa-lsp.mjs --stdio`. Installing the
+repository's root package alone does not install these dependencies.
 
 Configure your editor's Rust language-server command as `proa-lsp --stdio`.
 The bridge starts one rust-analyzer process. To select a different analyzer,

@@ -3,10 +3,35 @@
 
 //! Build-time mapping from normalized template bytes to authored Rust literals.
 
-use super::{ExprLocation, TemplateExpr, TplNode};
+use super::{ExprLocation, TplNode};
 use proc_macro2::Span;
 use std::ops::Range;
+use std::sync::Arc;
 use syn::LitStr;
+
+/// Decoded-byte to authored-token mapping for one template literal.
+#[derive(Debug)]
+pub(super) struct LiteralMap {
+    span: Span,
+    ranges: Option<Vec<Range<usize>>>,
+}
+
+impl LiteralMap {
+    /// Map a decoded byte range to the literal token, falling back to the
+    /// whole literal when the lexical token differs from its decoded value.
+    pub(super) fn locate(&self, decoded: Range<usize>) -> ExprLocation {
+        self.ranges
+            .as_ref()
+            .and_then(|ranges| {
+                Some(ExprLocation::Literal {
+                    span: self.span,
+                    range: ranges.get(decoded.start)?.start
+                        ..ranges.get(decoded.end.checked_sub(1)?)?.end,
+                })
+            })
+            .unwrap_or(ExprLocation::Rust(self.span))
+    }
+}
 
 pub(super) struct MappedLiteral {
     pub text: String,
@@ -15,19 +40,29 @@ pub(super) struct MappedLiteral {
 
 impl MappedLiteral {
     pub fn new(lit: &LitStr) -> Self {
-        let value = lit.value();
-        let encoded = lit
-            .span()
-            .source_text()
-            .unwrap_or_else(|| lit.token().to_string());
-        let original_ranges = decode_ranges(&encoded, &value);
+        let token = lit.token().to_string();
+        // rustc normalizes physical CRLFs in literals before macro expansion;
+        // proc_macro2's source parser preserves them. Decode the spelling so
+        // tooling follows rustc while explicit `\r\n` escapes remain content.
+        let value = decode_literal(&token)
+            .map(|(value, _)| value)
+            .unwrap_or_else(|| lit.value());
+        let encoded = lit.span().source_text().unwrap_or(token);
+        let original_ranges = decode_literal(&encoded)
+            .filter(|(decoded, _)| decoded == &value)
+            .map(|(_, ranges)| ranges);
         let mut text = String::with_capacity(value.len());
         let mut kept = Vec::with_capacity(value.len());
         let mut append = |range: Range<usize>| {
             text.push_str(&value[range.clone()]);
             kept.extend(range);
         };
-        if let Some(body) = value.strip_prefix('\n') {
+        // A leading newline is layout only when content follows it; a
+        // whitespace-only literal such as `"\n"` is itself the content.
+        if let Some(body) = value
+            .strip_prefix('\n')
+            .filter(|body| !body.trim().is_empty())
+        {
             let common = crate::md_layout::layout_indent(body);
             let mut offset = 1;
             for line in body.split_inclusive('\n') {
@@ -81,48 +116,25 @@ impl MappedLiteral {
     }
 
     pub fn map_nodes(&self, nodes: &mut [TplNode], span: Span) {
+        let literal = Arc::new(LiteralMap {
+            span,
+            ranges: self.ranges.clone(),
+        });
         for node in nodes {
-            match node {
-                TplNode::Text(_) => {}
-                TplNode::Expr(expr) => self.map_expr(expr, span),
-                TplNode::For { iter, body, .. } => {
-                    self.map_expr(iter, span);
-                    self.map_nodes(body, span);
+            if let TplNode::Expr(expr) = node {
+                if let ExprLocation::Decoded(range) = &expr.location {
+                    expr.location = literal.locate(range.clone());
                 }
-                TplNode::If { branches } => {
-                    for branch in branches {
-                        if let Some(cond) = &mut branch.cond {
-                            self.map_expr(cond, span);
-                        }
-                        self.map_nodes(&mut branch.body, span);
-                    }
-                }
+                expr.attach(&literal);
             }
         }
-    }
-
-    fn map_expr(&self, expr: &mut TemplateExpr, span: Span) {
-        let ExprLocation::Decoded(range) = &expr.location else {
-            return;
-        };
-        expr.location = self
-            .ranges
-            .as_ref()
-            .and_then(|ranges| {
-                Some(ExprLocation::Literal {
-                    span,
-                    range: ranges.get(range.start)?.start
-                        ..ranges.get(range.end.checked_sub(1)?)?.end,
-                })
-            })
-            .unwrap_or(ExprLocation::Rust(span));
     }
 }
 
 /// Map decoded bytes to the source character/escape that produces them.
 /// If the lexical token differs from the decoded value, preserve the literal's
 /// span rather than manufacturing a precise but incorrect source range.
-fn decode_ranges(encoded: &str, expected: &str) -> Option<Vec<Range<usize>>> {
+fn decode_literal(encoded: &str) -> Option<(String, Vec<Range<usize>>)> {
     let quote = encoded.find('"')?;
     let raw = encoded[..quote].starts_with('r');
     let hashes = if raw {
@@ -132,8 +144,8 @@ fn decode_ranges(encoded: &str, expected: &str) -> Option<Vec<Range<usize>>> {
     };
     let end = encoded.len().checked_sub(1 + hashes)?;
     let mut position = quote + 1;
-    let mut decoded = String::with_capacity(expected.len());
-    let mut ranges = Vec::with_capacity(expected.len());
+    let mut decoded = String::with_capacity(encoded.len());
+    let mut ranges = Vec::with_capacity(encoded.len());
     while position < end {
         let start = position;
         let ch = encoded[position..end].chars().next()?;
@@ -191,17 +203,18 @@ fn decode_ranges(encoded: &str, expected: &str) -> Option<Vec<Range<usize>>> {
         decoded.push(produced);
         ranges.extend(std::iter::repeat_n(start..position, produced.len_utf8()));
     }
-    (decoded == expected).then_some(ranges)
+    Some((decoded, ranges))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::md::{MdTemplateInput, TplNode};
+    use syn::spanned::Spanned;
 
     fn literal_expression(input: &str) -> (String, String) {
         let template: MdTemplateInput = syn::parse_str(input).unwrap();
-        let nodes = template.semantic_nodes().unwrap();
+        let nodes = template.parse_nodes().unwrap();
         let expression = nodes
             .iter()
             .find_map(|node| match node {
@@ -216,6 +229,22 @@ mod tests {
             template.lit.token().to_string()[range.clone()].to_string(),
             quote::quote!(#expression).to_string(),
         )
+    }
+
+    #[test]
+    fn physical_crlf_normalizes_but_cooked_carriage_returns_remain_content() {
+        let input = "\"\r\n    {value}\\r\\n\"";
+        let template: MdTemplateInput = syn::parse_str(input).unwrap();
+        let nodes = template.parse_nodes().unwrap();
+        assert_eq!(nodes.len(), 2);
+        let TplNode::Expr(expr) = &nodes[0] else {
+            panic!("{nodes:?}")
+        };
+        let ExprLocation::Literal { range, .. } = &expr.location else {
+            panic!("missing map")
+        };
+        assert_eq!(&input[range.clone()], "value");
+        assert!(matches!(&nodes[1], TplNode::Text(text) if text == "\r\n"));
     }
 
     #[test]
@@ -234,80 +263,46 @@ mod tests {
     }
 
     #[test]
-    fn nested_conditions_and_loops_keep_ranges() {
-        let input = "r###\"\n    {if self.ready {\n    {for item in &self.items {\n    {item.title}\n    }}\n    }}\n    \"###";
+    fn control_slots_keep_their_whole_authored_range() {
+        let input = r####"r###"
+    {if self.ready {
+        md_sync! { "- " {item.title} }
+    }}
+    "###"####;
         let template: MdTemplateInput = syn::parse_str(input).unwrap();
-        let nodes = template.semantic_nodes().unwrap();
-        let TplNode::If { branches } = &nodes[0] else {
-            panic!();
+        let nodes = template.parse_nodes().unwrap();
+        let TplNode::Expr(slot) = &nodes[0] else {
+            panic!("{nodes:?}");
         };
-        let cond = branches[0].cond.as_ref().unwrap();
-        let ExprLocation::Literal { range, .. } = &cond.location else {
-            panic!();
+        assert!(matches!(slot.expr, syn::Expr::If(_)));
+        let ExprLocation::Literal { range, .. } = &slot.location else {
+            panic!("literal range missing");
         };
-        assert_eq!(
-            &template.lit.token().to_string()[range.clone()],
-            "self.ready"
-        );
-        let loop_node = branches[0]
-            .body
-            .iter()
-            .find(|node| matches!(node, TplNode::For { .. }))
-            .unwrap();
-        let TplNode::For { iter, body, .. } = loop_node else {
-            panic!();
-        };
-        let ExprLocation::Literal { range, .. } = &iter.location else {
-            panic!();
-        };
-        assert_eq!(
-            &template.lit.token().to_string()[range.clone()],
-            "&self.items"
-        );
-        let TplNode::Expr(item) = &body[0] else {
-            panic!();
-        };
-        let ExprLocation::Literal { range, .. } = &item.location else {
-            panic!();
-        };
-        assert_eq!(
-            &template.lit.token().to_string()[range.clone()],
-            "item.title"
-        );
-    }
-
-    #[test]
-    fn indented_bare_nested_controls_keep_authored_ranges() {
-        let input = "r###\"\n    {if self.ready {\n        for item in &self.items {\n            {item.title}\n        }\n    }}\n    \"###";
-        let template: MdTemplateInput = syn::parse_str(input).unwrap();
-        let nodes = template.semantic_nodes().unwrap();
-        let TplNode::If { branches } = &nodes[0] else {
-            panic!()
-        };
-        let TplNode::For { iter, body, .. } = &branches[0].body[0] else {
-            panic!()
-        };
-        let TplNode::Expr(item) = &body[0] else {
-            panic!()
-        };
-        for (expr, expected) in [(iter.as_ref(), "&self.items"), (item, "item.title")] {
-            let ExprLocation::Literal { range, .. } = &expr.location else {
-                panic!()
-            };
-            assert_eq!(&template.lit.token().to_string()[range.clone()], expected);
-        }
+        let source = &template.lit.token().to_string()[range.clone()];
+        assert!(source.starts_with("if self.ready {"), "{source}");
+        assert!(source.ends_with('}'), "{source}");
+        assert!(source.contains("{item.title}"), "{source}");
     }
 
     #[test]
     fn named_arguments_have_real_rust_spans() {
         let template: MdTemplateInput =
             syn::parse_str("r###\"{title}\"###, title = self.name").unwrap();
-        let nodes = template.semantic_nodes().unwrap();
+        let nodes = template.parse_nodes().unwrap();
         let TplNode::Expr(expr) = &nodes[0] else {
             panic!();
         };
-        assert!(matches!(expr.location, ExprLocation::Rust(_)));
-        assert_eq!(quote::quote!(#expr).to_string(), "self . name");
+        assert!(matches!(expr.location, ExprLocation::Literal { .. }));
+        assert_eq!(quote::quote!(#expr).to_string(), "title");
+        let binding = template.argument_binding().unwrap();
+        let value = binding.init.unwrap().expr;
+        let syn::Expr::Tuple(values) = *value else {
+            panic!()
+        };
+        assert_eq!(
+            values.elems[0].span().byte_range(),
+            template.args[0].value.span().byte_range()
+        );
     }
 
     #[test]
@@ -319,6 +314,8 @@ mod tests {
             "first\n  second\n  ",
             "first\n\tsecond\n\t",
             "first\n    a\n\r\n    b\n",
+            "\n",
+            "\n    ",
         ] {
             let lit = LitStr::new(value, Span::call_site());
             let mapped = MappedLiteral::new(&lit);

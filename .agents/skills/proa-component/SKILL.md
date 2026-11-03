@@ -19,6 +19,10 @@ Markdown sections for the core page structure; do not duplicate literals or
 convert the entire HTML view. Preserve existing copy and `PageMeta`. The
 linter is a backstop, not proof that separately written strings stay in sync.
 
+For Markdown implementations, follow the [Markdown authoring skill](../proa-markdown/SKILL.md):
+use document-shaped raw templates, ordinary one-line strings for short fragments,
+and Rust control flow inside explicit `{ ... }` slots.
+
 Use this workflow for components owned by the current Proa crate or
 application. Do not assume a component-library repository, catalog, theme
 module, or sibling checkout.

@@ -13,6 +13,8 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+proa_dsl = { workspace = true, features = ["markdown"] }
+syn = { workspace = true }
 base16ct = { workspace = true }
 latex2mathml = { version = "0.2" }
 pulldown-cmark = { workspace = true }

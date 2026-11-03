@@ -93,9 +93,9 @@ erasure for eligible owned components; their bounds and allocation costs are
 documented in [render traits](render-traits.md#genuinely-runtime-selected-children).
 
 This is not a claim that every pair of templates has different types. Fully
-static templates can share `StaticHtml`; dynamic `html!` already uses an erased
-`AsyncHtml` wrapper. Branches *inside* one template also differ from returning
-two separate template values.
+static templates can share `StaticHtml`; dynamic `html!` retains the concrete
+async closure type in `AsyncRender`. Branches *inside* one template also differ
+from returning two separate template values.
 
 ## What direct rendering does and does not imply
 
@@ -109,9 +109,9 @@ Direct output also keeps static byte consolidation and generic synchronous
 dispatch without requiring a retained node allocation per component. It does
 **not** prove a returning-view design would be twice as slow, nor that every
 current rendering path is allocation-free. The writer can allocate output
-pages, application code can allocate, and dynamic async templates already use
-boxed closures and futures. Measure any proposed replacement against the
-existing path.
+pages and application code can allocate. Dynamic async templates retain typed
+closures and futures; the explicitly erased constructors still box them. Measure
+any proposed replacement against the existing path.
 
 Writing to a buffer is separate from sending bytes over HTTP. The response
 adapter decides whether output is buffered or streamed; a write does not imply
@@ -126,8 +126,9 @@ by itself provides child discovery.
 
 - [`WebRenderSync` and `WebRender`](../../../proa_core/src/render/web_render.rs):
   completion-oriented signatures and compile-fail doctests for both constraints.
-- [`OptimizedHtml` and `AsyncHtml`](../../../proa_core/src/shared/html_node.rs):
-  current closure storage and execution.
+- [`OptimizedHtml`](../../../proa_core/src/shared/html_node.rs) and
+  [`AsyncRender`](../../../proa_core/src/shared/async_render.rs): closure storage
+  and execution.
 - [Template emission](../../../proa_macros/src/static_consolidation/emit_tokens.rs):
   static consolidation and generated render closures.
 

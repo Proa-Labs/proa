@@ -69,7 +69,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for TableRow<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        md_sync! { "|" { self.children } "\n" }.render_md(cx)
+        md_sync! { "|{self.children}\n" }.render_md(cx)
     }
 }
 
@@ -132,5 +132,5 @@ pub fn write_separator<B: WriteBuf>(
     for _ in 0..col_count {
         md_sync! { " --- |" }.render_md(cx)?;
     }
-    md_sync! { "" "\n" }.render_md(cx)
+    md_sync! { "\n" }.render_md(cx)
 }

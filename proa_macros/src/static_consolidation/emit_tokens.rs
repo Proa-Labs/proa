@@ -592,7 +592,7 @@ fn generate_optimized_with_dialect(root: &HtmlRoot, dialect: MarkupDialect) -> T
     }
 }
 
-/// Generate async-capable code for an HTML root that returns an `AsyncHtml`.
+/// Generate async-capable code for an HTML root with a typed continuation.
 ///
 /// This is the implementation behind the public `html!` macro. Static runs are
 /// still consolidated into byte literals at compile time, but interpolated
@@ -647,12 +647,10 @@ fn generate_optimized_async_with_dialect(root: &HtmlRoot, dialect: MarkupDialect
 
     if dialect == MarkupDialect::Html {
         return quote! {
-            ::proa_core::shared::html_node::async_html_from_fn(::std::boxed::Box::new(|cx| {
-                ::std::boxed::Box::pin(async move {
-                    #(#statements)*
-                    Ok(())
-                })
-            }))
+            ::proa_core::shared::async_render::async_render(async move |cx| {
+                #(#statements)*
+                Ok(())
+            })
         };
     }
 
@@ -660,17 +658,15 @@ fn generate_optimized_async_with_dialect(root: &HtmlRoot, dialect: MarkupDialect
     let restore_dialect = dialect.runtime_restore_tokens();
 
     quote! {
-        ::proa_core::shared::html_node::async_html_from_fn(::std::boxed::Box::new(|cx| {
-            ::std::boxed::Box::pin(async move {
-                #enter_dialect
-                let __proa_render_result: Result<(), ::proa_core::shared::write_buf::WriteError> = async {
-                    #(#statements)*
-                    Ok(())
-                }.await;
-                #restore_dialect
-                __proa_render_result
-            })
-        }))
+        ::proa_core::shared::async_render::async_render(async move |cx| {
+            #enter_dialect
+            let __proa_render_result: Result<(), ::proa_core::shared::write_buf::WriteError> = async {
+                #(#statements)*
+                Ok(())
+            }.await;
+            #restore_dialect
+            __proa_render_result
+        })
     }
 }
 
@@ -695,450 +691,35 @@ fn static_html_tokens(html: &str) -> TokenStream {
     }
 }
 
-// ---------------------------------------------------------------------------
-// `{expr}` block lowering (sync)
-// ---------------------------------------------------------------------------
-
-/// Generate code for a block expression, pushing `WebRender::render` down into
-/// control flow branches instead of wrapping the whole expression.
+// All formats and execution modes share one Rust slot/control-flow transform.
 fn generate_block_expr(expr: &Expr, statements: &mut Vec<TokenStream>) {
-    match expr {
-        Expr::If(expr_if) => {
-            let cond = &expr_if.cond;
-            let then_body = transform_block(&expr_if.then_branch);
-            let else_branch = expr_if
-                .else_branch
-                .as_ref()
-                .map(|(_, else_expr)| generate_else_branch(else_expr));
-            statements.push(quote! {
-                if #cond { #then_body } #else_branch
-            });
+    statements.push(crate::render_control::lower(expr, &|expr| {
+        quote! {
+            ::proa_core::head_dispatch::sync(#expr, cx)?;
         }
-        Expr::Match(expr_match) => {
-            let scrutinee = &expr_match.expr;
-            let attrs = &expr_match.attrs;
-            let arms: Vec<TokenStream> = expr_match
-                .arms
-                .iter()
-                .map(|arm| {
-                    let attrs = &arm.attrs;
-                    let pat = &arm.pat;
-                    let guard = arm.guard.as_ref().map(|(if_tok, guard_expr)| {
-                        quote! { #if_tok #guard_expr }
-                    });
-                    let body = generate_expr_as_render(&arm.body);
-                    quote! {
-                        #(#attrs)* #pat #guard => { #body }
-                    }
-                })
-                .collect();
-            statements.push(quote! {
-                #(#attrs)* match #scrutinee { #(#arms),* }
-            });
-        }
-        Expr::ForLoop(expr_for) => {
-            let attrs = &expr_for.attrs;
-            let pat = &expr_for.pat;
-            let iter_expr = &expr_for.expr;
-            let body = transform_block(&expr_for.body);
-            statements.push(quote! {
-                #(#attrs)* for #pat in #iter_expr { #body }
-            });
-        }
-        Expr::While(expr_while) => {
-            let attrs = &expr_while.attrs;
-            let cond = &expr_while.cond;
-            let body = transform_block(&expr_while.body);
-            statements.push(quote! {
-                #(#attrs)* while #cond { #body }
-            });
-        }
-        Expr::Loop(expr_loop) => {
-            let attrs = &expr_loop.attrs;
-            let body = transform_block(&expr_loop.body);
-            statements.push(quote! {
-                #(#attrs)* loop { #body }
-            });
-        }
-        _ => {
-            // Default: wrap the whole expression in WebRender::render
-            statements.push(quote! {
-                ::proa_core::head_dispatch::sync(#expr, cx)?;
-            });
-        }
-    }
+    }));
 }
 
-/// Generate code for an else branch, recursing into `else if` chains.
-fn generate_else_branch(expr: &Expr) -> TokenStream {
-    match expr {
-        Expr::If(expr_if) => {
-            let cond = &expr_if.cond;
-            let then_body = transform_block(&expr_if.then_branch);
-            let else_branch = expr_if
-                .else_branch
-                .as_ref()
-                .map(|(_, else_expr)| generate_else_branch(else_expr));
-            quote! { else if #cond { #then_body } #else_branch }
-        }
-        Expr::Block(expr_block) => {
-            let body = transform_block(&expr_block.block);
-            quote! { else { #body } }
-        }
-        _ => {
-            // Fallback: treat as a plain expression
-            let rendered = generate_expr_as_render(expr);
-            quote! { else { #rendered } }
-        }
-    }
-}
-
-/// Transform a block by wrapping its trailing expression (if any) in `WebRender::render`.
-///
-/// - All statements are emitted as-is
-/// - If the last statement is a trailing expression (no semicolon) → wrap in `WebRender::render`
-/// - If the last statement is a brace-delimited macro without semicolon (e.g. `html! { ... }`)
-///   → also wrap in `WebRender::render` (syn parses these as `Stmt::Macro`)
-/// - If the last statement has a semicolon or there's no trailing expression → emit as-is
-fn transform_block(block: &syn::Block) -> TokenStream {
-    let stmts = &block.stmts;
-    if stmts.is_empty() {
-        return quote! {};
-    }
-
-    let (init, last) = stmts.split_at(stmts.len() - 1);
-    let last_stmt = &last[0];
-
-    match last_stmt {
-        syn::Stmt::Expr(expr, None) => {
-            // Trailing expression without semicolon — wrap in render
-            let rendered = generate_expr_as_render(expr);
-            quote! { #(#init)* #rendered }
-        }
-        // Brace-delimited macro invocations (e.g. `html! { ... }`) at statement position
-        // are parsed by syn as Stmt::Macro. Handle the trailing case (no semicolon)
-        // by wrapping in WebRender::render.
-        syn::Stmt::Macro(stmt_mac) if stmt_mac.semi_token.is_none() => {
-            let mac = &stmt_mac.mac;
-            quote! { #(#init)* { let __r = #mac; ::proa_core::head_dispatch::sync(__r, cx)?; } }
-        }
-        _ => {
-            // Statement with semicolon or non-expression — emit all as-is
-            quote! { #(#stmts)* }
-        }
-    }
-}
-
-/// Generate code to render a single expression, recursing into control flow.
-fn generate_expr_as_render(expr: &Expr) -> TokenStream {
-    match expr {
-        Expr::If(_) | Expr::Match(_) | Expr::ForLoop(_) | Expr::While(_) | Expr::Loop(_) => {
-            let mut stmts = Vec::new();
-            generate_block_expr(expr, &mut stmts);
-            quote! { #(#stmts)* }
-        }
-        // `None` always renders as nothing (Option<T>::None where T: WebRender).
-        // Skip the render call to avoid type inference issues when branches are
-        // rendered individually (e.g. `if cond { Some(x) } else { None }`).
-        Expr::Path(p) if p.path.is_ident("None") => {
-            quote! {}
-        }
-        _ => {
-            quote! { ::proa_core::head_dispatch::sync(#expr, cx)?; }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// `{expr}` block lowering (async)
-// ---------------------------------------------------------------------------
-
-/// Generate code for a block expression in async `html!`.
 fn generate_block_expr_async(expr: &Expr, statements: &mut Vec<TokenStream>) {
-    match expr {
-        Expr::If(expr_if) => {
-            let cond = &expr_if.cond;
-            let then_body = transform_block_async(&expr_if.then_branch);
-            let else_branch = expr_if
-                .else_branch
-                .as_ref()
-                .map(|(_, else_expr)| generate_else_branch_async(else_expr));
-            statements.push(quote! {
-                if #cond { #then_body } #else_branch
-            });
-        }
-        Expr::Match(expr_match) => {
-            let scrutinee = &expr_match.expr;
-            let attrs = &expr_match.attrs;
-            let arms: Vec<TokenStream> = expr_match
-                .arms
-                .iter()
-                .map(|arm| {
-                    let attrs = &arm.attrs;
-                    let pat = &arm.pat;
-                    let guard = arm.guard.as_ref().map(|(if_tok, guard_expr)| {
-                        quote! { #if_tok #guard_expr }
-                    });
-                    let body = generate_expr_as_render_async(&arm.body);
-                    quote! {
-                        #(#attrs)* #pat #guard => { #body }
-                    }
-                })
-                .collect();
-            statements.push(quote! {
-                #(#attrs)* match #scrutinee { #(#arms),* }
-            });
-        }
-        Expr::ForLoop(expr_for) => {
-            let attrs = &expr_for.attrs;
-            let pat = &expr_for.pat;
-            let iter_expr = &expr_for.expr;
-            let body = transform_block_async(&expr_for.body);
-            statements.push(quote! {
-                #(#attrs)* for #pat in #iter_expr { #body }
-            });
-        }
-        Expr::While(expr_while) => {
-            let attrs = &expr_while.attrs;
-            let cond = &expr_while.cond;
-            let body = transform_block_async(&expr_while.body);
-            statements.push(quote! {
-                #(#attrs)* while #cond { #body }
-            });
-        }
-        Expr::Loop(expr_loop) => {
-            let attrs = &expr_loop.attrs;
-            let body = transform_block_async(&expr_loop.body);
-            statements.push(quote! {
-                #(#attrs)* loop { #body }
-            });
-        }
-        _ => {
-            statements.push(quote! {
-                match ::proa_core::head_dispatch::begin(#expr, cx) {
-                    ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
-                    ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
-                }
-            });
-        }
-    }
-}
-
-/// Generate code for an else branch in async `html!`, recursing into `else if` chains.
-fn generate_else_branch_async(expr: &Expr) -> TokenStream {
-    match expr {
-        Expr::If(expr_if) => {
-            let cond = &expr_if.cond;
-            let then_body = transform_block_async(&expr_if.then_branch);
-            let else_branch = expr_if
-                .else_branch
-                .as_ref()
-                .map(|(_, else_expr)| generate_else_branch_async(else_expr));
-            quote! { else if #cond { #then_body } #else_branch }
-        }
-        Expr::Block(expr_block) => {
-            let body = transform_block_async(&expr_block.block);
-            quote! { else { #body } }
-        }
-        _ => {
-            let rendered = generate_expr_as_render_async(expr);
-            quote! { else { #rendered } }
-        }
-    }
-}
-
-/// Transform a block for async `html!`, awaiting the trailing render expression if present.
-fn transform_block_async(block: &syn::Block) -> TokenStream {
-    let stmts = &block.stmts;
-    if stmts.is_empty() {
-        return quote! {};
-    }
-
-    let (init, last) = stmts.split_at(stmts.len() - 1);
-    let last_stmt = &last[0];
-
-    match last_stmt {
-        syn::Stmt::Expr(expr, None) => {
-            let rendered = generate_expr_as_render_async(expr);
-            quote! { #(#init)* #rendered }
-        }
-        syn::Stmt::Macro(stmt_mac) if stmt_mac.semi_token.is_none() => {
-            let mac = &stmt_mac.mac;
-            quote! {
-                #(#init)*
-                {
-                    let __r = #mac;
-                    match ::proa_core::head_dispatch::begin(__r, cx) {
-                    ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
-                    ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
-                }
-                }
-            }
-        }
-        _ => {
-            quote! { #(#stmts)* }
-        }
-    }
-}
-
-/// Generate code to render a single expression in async `html!`.
-fn generate_expr_as_render_async(expr: &Expr) -> TokenStream {
-    match expr {
-        Expr::If(_) | Expr::Match(_) | Expr::ForLoop(_) | Expr::While(_) | Expr::Loop(_) => {
-            let mut stmts = Vec::new();
-            generate_block_expr_async(expr, &mut stmts);
-            quote! { #(#stmts)* }
-        }
-        Expr::Path(p) if p.path.is_ident("None") => {
-            quote! {}
-        }
-        _ => {
-            quote! { match ::proa_core::head_dispatch::begin(#expr, cx) {
+    statements.push(crate::render_control::lower(expr, &|expr| {
+        quote! {
+            match ::proa_core::head_dispatch::begin(#expr, cx) {
                 ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
                 ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
-            } }
+            };
         }
-    }
+    }));
 }
-
-// ---------------------------------------------------------------------------
-// `{expr}` block lowering (Send async)
-// ---------------------------------------------------------------------------
 
 fn generate_block_expr_send_async(expr: &Expr, statements: &mut Vec<TokenStream>) {
-    match expr {
-        Expr::If(expr_if) => {
-            let cond = &expr_if.cond;
-            let then_body = transform_block_send_async(&expr_if.then_branch);
-            let else_branch = expr_if
-                .else_branch
-                .as_ref()
-                .map(|(_, else_expr)| generate_else_branch_send_async(else_expr));
-            statements.push(quote! {
-                if #cond { #then_body } #else_branch
-            });
+    statements.push(crate::render_control::lower(expr, &|expr| {
+        quote! {
+            match ::proa_core::head_dispatch::send_begin(#expr, cx) {
+                ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
+                ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
+            };
         }
-        Expr::Match(expr_match) => {
-            let scrutinee = &expr_match.expr;
-            let attrs = &expr_match.attrs;
-            let arms: Vec<TokenStream> = expr_match
-                .arms
-                .iter()
-                .map(|arm| {
-                    let attrs = &arm.attrs;
-                    let pat = &arm.pat;
-                    let guard = arm.guard.as_ref().map(|(if_tok, guard_expr)| {
-                        quote! { #if_tok #guard_expr }
-                    });
-                    let body = generate_expr_as_render_send_async(&arm.body);
-                    quote! {
-                        #(#attrs)* #pat #guard => { #body }
-                    }
-                })
-                .collect();
-            statements.push(quote! {
-                #(#attrs)* match #scrutinee { #(#arms),* }
-            });
-        }
-        Expr::ForLoop(expr_for) => {
-            let attrs = &expr_for.attrs;
-            let pat = &expr_for.pat;
-            let iter_expr = &expr_for.expr;
-            let body = transform_block_send_async(&expr_for.body);
-            statements.push(quote! {
-                #(#attrs)* for #pat in #iter_expr { #body }
-            });
-        }
-        Expr::While(expr_while) => {
-            let attrs = &expr_while.attrs;
-            let cond = &expr_while.cond;
-            let body = transform_block_send_async(&expr_while.body);
-            statements.push(quote! {
-                #(#attrs)* while #cond { #body }
-            });
-        }
-        Expr::Loop(expr_loop) => {
-            let attrs = &expr_loop.attrs;
-            let body = transform_block_send_async(&expr_loop.body);
-            statements.push(quote! {
-                #(#attrs)* loop { #body }
-            });
-        }
-        _ => {
-            statements.push(quote! {
-                match ::proa_core::head_dispatch::send_begin(#expr, cx) {
-                    ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
-                    ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
-                }
-            });
-        }
-    }
-}
-
-fn generate_else_branch_send_async(expr: &Expr) -> TokenStream {
-    match expr {
-        Expr::If(expr_if) => {
-            let cond = &expr_if.cond;
-            let then_body = transform_block_send_async(&expr_if.then_branch);
-            let else_branch = expr_if
-                .else_branch
-                .as_ref()
-                .map(|(_, else_expr)| generate_else_branch_send_async(else_expr));
-            quote! { else if #cond { #then_body } #else_branch }
-        }
-        Expr::Block(expr_block) => {
-            let body = transform_block_send_async(&expr_block.block);
-            quote! { else { #body } }
-        }
-        _ => {
-            let rendered = generate_expr_as_render_send_async(expr);
-            quote! { else { #rendered } }
-        }
-    }
-}
-
-fn transform_block_send_async(block: &syn::Block) -> TokenStream {
-    let stmts = &block.stmts;
-    if stmts.is_empty() {
-        return quote! {};
-    }
-
-    let (init, last) = stmts.split_at(stmts.len() - 1);
-    match &last[0] {
-        syn::Stmt::Expr(expr, None) => {
-            let rendered = generate_expr_as_render_send_async(expr);
-            quote! { #(#init)* #rendered }
-        }
-        syn::Stmt::Macro(stmt_mac) if stmt_mac.semi_token.is_none() => {
-            let mac = &stmt_mac.mac;
-            quote! {
-                #(#init)*
-                {
-                    let __r = #mac;
-                    match ::proa_core::head_dispatch::send_begin(__r, cx) {
-                    ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
-                    ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
-                }
-                }
-            }
-        }
-        _ => quote! { #(#stmts)* },
-    }
-}
-
-fn generate_expr_as_render_send_async(expr: &Expr) -> TokenStream {
-    match expr {
-        Expr::If(_) | Expr::Match(_) | Expr::ForLoop(_) | Expr::While(_) | Expr::Loop(_) => {
-            let mut statements = Vec::new();
-            generate_block_expr_send_async(expr, &mut statements);
-            quote! { #(#statements)* }
-        }
-        Expr::Path(path) if path.path.is_ident("None") => quote! {},
-        _ => quote! { match ::proa_core::head_dispatch::send_begin(#expr, cx) {
-            ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
-            ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
-        } },
-    }
+    }));
 }
 
 #[cfg(test)]

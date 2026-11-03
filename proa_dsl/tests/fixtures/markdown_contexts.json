@@ -1,0 +1,1255 @@
+[
+  {
+    "name": "list fence with four-space indentation",
+    "markdown": "- Example\n\n    ~~~text\n    {{literal}} {not_rust\n    ~~~\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "nested list fence",
+    "markdown": "- Outer\n  - Inner\n\n        ```text\n        {{literal}} {not_rust\n        ```\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "wide ordered list",
+    "markdown": "123456789. Example\n\n           ~~~text\n           {not_rust\n           ~~~\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "fence starts with list marker",
+    "markdown": "- ~~~text\n  {not_rust\n  ~~~\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "unclosed list fence ends on outdent",
+    "markdown": "- Example\n\n    ~~~text\n    {not_rust\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "unclosed list fence ends at sibling",
+    "markdown": "- ~~~text\n  {not_rust\n- {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "quote inside list",
+    "markdown": "- Example\n\n  > ~~~text\n  > {not_rust\n  > ~~~\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "list inside quote",
+    "markdown": "> - Example\n>\n>     ~~~text\n>     {not_rust\n>     ~~~\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented code",
+    "markdown": "Paragraph\n\n    {not_rust\n\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "tab-indented code",
+    "markdown": "Paragraph\n\n\t{not_rust\n\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indentation cannot interrupt paragraph",
+    "markdown": "Paragraph\n    {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "single-line indentation is content",
+    "markdown": "    {not_rust",
+    "slots": []
+  },
+  {
+    "name": "inline code cannot cross paragraphs",
+    "markdown": "Before `\n\n{value}\n\nAfter `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross heading",
+    "markdown": "Before `\n# {value}\nAfter `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross thematic break",
+    "markdown": "Before `\n***\n{value}\nAfter `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross list items",
+    "markdown": "- Before `\n- {value}\n  After `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code permits soft line breaks",
+    "markdown": "Before `\n{not_rust\nAfter `\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code permits lazy quote continuation",
+    "markdown": "> Before `\n{not_rust\nAfter `\n\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code permits explicit quote continuation",
+    "markdown": "> Before `\n> {not_rust\n> After `\n\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code stops at blank quote line",
+    "markdown": "> Before `\n>\n> {value}\n>\n> After `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "HTML block is not a code span",
+    "markdown": "<div>\n`{value}`\n</div>",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline HTML attribute is not a code span",
+    "markdown": "<span title=\"`{value}`\">Text</span>",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "link destination backticks are literal",
+    "markdown": "[docs](https://example.org/`{value}`)",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code in link label",
+    "markdown": "[`{not_rust`](url) {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped and unmatched delimiter runs",
+    "markdown": "\\`{value}` `` {other} `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped braces next to code",
+    "markdown": "{{value}} {{{value}}} `{{literal}}`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "normal dedent",
+    "markdown": "\n    ~~~text\n    {not_rust\n    ~~~\n    {value}\n    ",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "mixed indentation does not dedent",
+    "markdown": "\n\t{not_rust\n    {also_literal\n\n{value}\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "Unicode whitespace common margin",
+    "markdown": "\n ~~~text\n {not_rust\n ~~~\n {value}\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "Rust string cannot open a Markdown fence",
+    "markdown": "{if true { md_sync! { r\"\n~~~\n{not_rust\n\" } }}\n{value}",
+    "slots": [
+      "if true { md_sync! { r\"\n~~~\n{not_rust\n\" } }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust string cannot open a Markdown HTML block",
+    "markdown": "{if true { md_sync! { \"<div>\" } }}\n\n~~~\n{not_rust\n~~~\n{value}",
+    "slots": [
+      "if true { md_sync! { \"<div>\" } }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust strings do not close subsequent code spans",
+    "markdown": "{\"`\"} `{not_rust` {value}",
+    "slots": [
+      "\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust source contains Unicode",
+    "markdown": "{if ready { \"🦀 `\" } else { \"é\" }} `{not_rust` {value}",
+    "slots": [
+      "if ready { \"🦀 `\" } else { \"é\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "list fence with four-space indentation (CRLF)",
+    "markdown": "- Example\r\n\r\n    ~~~text\r\n    {{literal}} {not_rust\r\n    ~~~\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "nested list fence (CRLF)",
+    "markdown": "- Outer\r\n  - Inner\r\n\r\n        ```text\r\n        {{literal}} {not_rust\r\n        ```\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "wide ordered list (CRLF)",
+    "markdown": "123456789. Example\r\n\r\n           ~~~text\r\n           {not_rust\r\n           ~~~\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "fence starts with list marker (CRLF)",
+    "markdown": "- ~~~text\r\n  {not_rust\r\n  ~~~\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "unclosed list fence ends on outdent (CRLF)",
+    "markdown": "- Example\r\n\r\n    ~~~text\r\n    {not_rust\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "unclosed list fence ends at sibling (CRLF)",
+    "markdown": "- ~~~text\r\n  {not_rust\r\n- {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "quote inside list (CRLF)",
+    "markdown": "- Example\r\n\r\n  > ~~~text\r\n  > {not_rust\r\n  > ~~~\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "list inside quote (CRLF)",
+    "markdown": "> - Example\r\n>\r\n>     ~~~text\r\n>     {not_rust\r\n>     ~~~\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented code (CRLF)",
+    "markdown": "Paragraph\r\n\r\n    {not_rust\r\n\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "tab-indented code (CRLF)",
+    "markdown": "Paragraph\r\n\r\n\t{not_rust\r\n\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indentation cannot interrupt paragraph (CRLF)",
+    "markdown": "Paragraph\r\n    {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross paragraphs (CRLF)",
+    "markdown": "Before `\r\n\r\n{value}\r\n\r\nAfter `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross heading (CRLF)",
+    "markdown": "Before `\r\n# {value}\r\nAfter `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross thematic break (CRLF)",
+    "markdown": "Before `\r\n***\r\n{value}\r\nAfter `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross list items (CRLF)",
+    "markdown": "- Before `\r\n- {value}\r\n  After `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code permits soft line breaks (CRLF)",
+    "markdown": "Before `\r\n{not_rust\r\nAfter `\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code permits lazy quote continuation (CRLF)",
+    "markdown": "> Before `\r\n{not_rust\r\nAfter `\r\n\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code permits explicit quote continuation (CRLF)",
+    "markdown": "> Before `\r\n> {not_rust\r\n> After `\r\n\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code stops at blank quote line (CRLF)",
+    "markdown": "> Before `\r\n>\r\n> {value}\r\n>\r\n> After `",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "HTML block is not a code span (CRLF)",
+    "markdown": "<div>\r\n`{value}`\r\n</div>",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "normal dedent (CRLF)",
+    "markdown": "\r\n    ~~~text\r\n    {not_rust\r\n    ~~~\r\n    {value}\r\n    ",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "mixed indentation does not dedent (CRLF)",
+    "markdown": "\r\n\t{not_rust\r\n    {also_literal\r\n\r\n{value}\r\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "Unicode whitespace common margin (CRLF)",
+    "markdown": "\r\n ~~~text\r\n {not_rust\r\n ~~~\r\n {value}\r\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "Rust string cannot open a Markdown fence (CRLF)",
+    "markdown": "{if true { md_sync! { r\"\r\n~~~\r\n{not_rust\r\n\" } }}\r\n{value}",
+    "slots": [
+      "if true { md_sync! { r\"\n~~~\n{not_rust\n\" } }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust string cannot open a Markdown HTML block (CRLF)",
+    "markdown": "{if true { md_sync! { \"<div>\" } }}\r\n\r\n~~~\r\n{not_rust\r\n~~~\r\n{value}",
+    "slots": [
+      "if true { md_sync! { \"<div>\" } }",
+      "value"
+    ]
+  },
+  {
+    "name": "escaped tick leaves an opener",
+    "markdown": "\\``{literal}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped tick leaves a long opener",
+    "markdown": "\\````{literal}``` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped run after slot",
+    "markdown": "{value}\\``{literal}`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "even backslashes leave full run",
+    "markdown": "\\\\``{literal}`` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "unmatched run after escaped tick",
+    "markdown": "\\```{value}`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "closing fence permits trailing tabs",
+    "markdown": "~~~\n{not_rust\n~~~\t\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "tab after quote marker",
+    "markdown": ">\t {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "tab after quote marker in list",
+    "markdown": "1. >\t{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indentation ends an empty quote",
+    "markdown": ">\n    >}\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "empty quote list after paragraph",
+    "markdown": "{value}\n>-\n\t{not_rust",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "nested empty quote list after paragraph",
+    "markdown": "{value}\n> - - \n\t{not_rust",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "empty ordered quote list after paragraph",
+    "markdown": "{value}\n> 2.\n\t{not_rust",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "empty quote list within a list",
+    "markdown": "- {value}\n  > -\n\n    {other}",
+    "slots": [
+      "value",
+      "other"
+    ]
+  },
+  {
+    "name": "tab ends empty quote before indented code",
+    "markdown": ">\n\t>{\"\"}\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "tab preserves lazy quote paragraph",
+    "markdown": "{ { value } }\n>(\n\t>>\t\t{value}",
+    "slots": [
+      "{ value }",
+      "value"
+    ]
+  },
+  {
+    "name": "table body cells are separate inline contexts",
+    "markdown": "| One | Two |\n| --- | --- |\n| ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table body cells are separate inline contexts CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table header cells are separate inline contexts",
+    "markdown": "| ` | {value} ` |\n| --- | --- |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table header cells are separate inline contexts CRLF",
+    "markdown": "| ` | {value} ` |\r\n| --- | --- |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross table rows",
+    "markdown": "| One | Two |\n| --- | --- |\n| ` | {value} |\n| ` | other |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code cannot cross table rows CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| ` | {value} |\r\n| ` | other |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code within table cell stays literal",
+    "markdown": "| One | Two |\n| --- | --- |\n| `{not_rust` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code within table cell stays literal CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| `{not_rust` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped table pipes inside inline code",
+    "markdown": "| One | Two |\n| --- | --- |\n| `{left}\\|{right}` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped table pipes inside inline code CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| `{left}\\|{right}` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "invalid table delimiter remains a paragraph",
+    "markdown": "| ` | {literal} ` |\n| --- |",
+    "slots": []
+  },
+  {
+    "name": "invalid table delimiter remains a paragraph CRLF",
+    "markdown": "| ` | {literal} ` |\r\n| --- |",
+    "slots": []
+  },
+  {
+    "name": "table in quote with unmatched code spans",
+    "markdown": "> | One | Two |\n> | --- | --- |\n> | ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table in quote with unmatched code spans CRLF",
+    "markdown": "> | One | Two |\r\n> | --- | --- |\r\n> | ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table in list with unmatched code spans",
+    "markdown": "\n- | One | Two |\n  | --- | --- |\n  | ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "table in list with unmatched code spans CRLF",
+    "markdown": "\r\n- | One | Two |\r\n  | --- | --- |\r\n  | ` | {value} ` |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "Rust pipe expression is opaque inside table",
+    "markdown": "| One | Two |\n| --- | --- |\n| {1 | 2} | `{literal}` {value} |",
+    "slots": [
+      "1 | 2",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust pipe expression is opaque inside table CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| {1 | 2} | `{literal}` {value} |",
+    "slots": [
+      "1 | 2",
+      "value"
+    ]
+  },
+  {
+    "name": "missing table cells have no authored source range",
+    "markdown": "| One | Two |\n| --- | --- |\n{value}\\`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "missing table cells have no authored source range CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n{value}\\`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "failed table delimiter does not retry in same paragraph",
+    "markdown": "|\n-|-\n-|-\n`|}`{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "failed table delimiter does not retry in same paragraph CRLF",
+    "markdown": "|\r\n-|-\r\n-|-\r\n`|}`{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "failed table delimiter survives intervening paragraph lines",
+    "markdown": "|\n-|\ntext\nnext||\n-|-\n`|{literal}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "failed table delimiter survives intervening paragraph lines CRLF",
+    "markdown": "|\r\n-|\r\ntext\r\nnext||\r\n-|-\r\n`|{literal}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented table header continues existing paragraph",
+    "markdown": "{value}\n    |||\n-|-\n`|{other}`",
+    "slots": [
+      "value",
+      "other"
+    ]
+  },
+  {
+    "name": "indented table header continues existing paragraph CRLF",
+    "markdown": "{value}\r\n    |||\r\n-|-\r\n`|{other}`",
+    "slots": [
+      "value",
+      "other"
+    ]
+  },
+  {
+    "name": "indented header remains inline when it starts with backticks",
+    "markdown": "{value}\n    ```|{other}`\n-|-",
+    "slots": [
+      "value",
+      "other"
+    ]
+  },
+  {
+    "name": "indented header remains inline when it starts with backticks CRLF",
+    "markdown": "{value}\r\n    ```|{other}`\r\n-|-",
+    "slots": [
+      "value",
+      "other"
+    ]
+  },
+  {
+    "name": "indented table header inside list",
+    "markdown": "\n- text\n      `|{value}`\n  -|-",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented table header inside list CRLF",
+    "markdown": "\r\n- text\r\n      `|{value}`\r\n  -|-",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented table header inside quote",
+    "markdown": "> text\n>     `|{value}`\n> -|-",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented table header inside quote CRLF",
+    "markdown": "> text\r\n>     `|{value}`\r\n> -|-",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented code follows table before empty list",
+    "markdown": "|\n    name||\n-|-\n\t{not rust}\n-",
+    "slots": []
+  },
+  {
+    "name": "indented code follows table before empty list CRLF",
+    "markdown": "|\r\n    name||\r\n-|-\r\n\t{not rust}\r\n-",
+    "slots": []
+  },
+  {
+    "name": "nested list follows table without a blank line",
+    "markdown": "name||\n-|-\n-\n\t1. {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "nested list follows table without a blank line CRLF",
+    "markdown": "name||\r\n-|-\r\n-\r\n\t1. {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "lazy quote delimiter does not poison table header",
+    "markdown": ">{value}\n--\n{other}`` `|{third}`\n>-|-",
+    "slots": [
+      "value",
+      "other",
+      "third"
+    ]
+  },
+  {
+    "name": "lazy quote delimiter does not poison table header CRLF",
+    "markdown": ">{value}\r\n--\r\n{other}`` `|{third}`\r\n>-|-",
+    "slots": [
+      "value",
+      "other",
+      "third"
+    ]
+  },
+  {
+    "name": "backslash before pipe is a cell escape after another backslash",
+    "markdown": "\\\\||\n-|\n{value}\n    {not rust}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "backslash before pipe is a cell escape after another backslash CRLF",
+    "markdown": "\\\\||\r\n-|\r\n{value}\r\n    {not rust}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped pipe retains Unicode code offsets",
+    "markdown": "| One | Two |\n| --- | --- |\n| 🦀 \\| `{not rust}` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "escaped pipe retains Unicode code offsets CRLF",
+    "markdown": "| One | Two |\r\n| --- | --- |\r\n| 🦀 \\| `{not rust}` | {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "link definitions retain following code offsets",
+    "markdown": "[ref]: /target\n`{not rust}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "link definitions retain following code offsets CRLF",
+    "markdown": "[ref]: /target\r\n`{not rust}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "extra table cells retain authored inline code",
+    "markdown": "| One |\n| --- |\n| text | `{not rust}` {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "extra table cells retain authored inline code CRLF",
+    "markdown": "| One |\r\n| --- |\r\n| text | `{not rust}` {value} |",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented table header does not reclassify later indented code",
+    "markdown": "|\n    name||\n-|-\n\t{not rust}|\n-",
+    "slots": []
+  },
+  {
+    "name": "indented table header does not reclassify later indented code CRLF",
+    "markdown": "|\r\n    name||\r\n-|-\r\n\t{not rust}|\r\n-",
+    "slots": []
+  },
+  {
+    "name": "indented mismatched delimiter remains setext heading content",
+    "markdown": "`|{not rust}`\n\t-|-\n-",
+    "slots": []
+  },
+  {
+    "name": "indented mismatched delimiter remains setext heading content CRLF",
+    "markdown": "`|{not rust}`\r\n\t-|-\r\n-",
+    "slots": []
+  },
+  {
+    "name": "single pipe ends table and begins a paragraph",
+    "markdown": "name||\n-|-\n|\n    {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "single pipe ends table and begins a paragraph CRLF",
+    "markdown": "name||\r\n-|-\r\n|\r\n    {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented delimiter becomes header without consuming preceding paragraph",
+    "markdown": "`|{not rust}`\n\t-|-\n-|-",
+    "slots": []
+  },
+  {
+    "name": "indented delimiter becomes header without consuming preceding paragraph CRLF",
+    "markdown": "`|{not rust}`\r\n\t-|-\r\n-|-",
+    "slots": []
+  },
+  {
+    "name": "one-column table can omit pipes",
+    "markdown": "One\n:---\n`\n{value}\n`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "one-column table can omit pipes CRLF",
+    "markdown": "One\r\n:---\r\n`\r\n{value}\r\n`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented one-column table header can omit pipes",
+    "markdown": "text\n    `\n:---\n{value}\n`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "indented one-column table header can omit pipes CRLF",
+    "markdown": "text\r\n    `\r\n:---\r\n{value}\r\n`",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust string",
+    "markdown": "Before ` {\"`\"} {value}",
+    "slots": [
+      "\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust string CRLF",
+    "markdown": "Before ` {\"`\"} {value}",
+    "slots": [
+      "\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick before nested Markdown",
+    "markdown": "Before ` {md_sync! { \"`{value}`\" }} after",
+    "slots": [
+      "md_sync! { \"`{value}`\" }"
+    ]
+  },
+  {
+    "name": "stray prose backtick before nested Markdown CRLF",
+    "markdown": "Before ` {md_sync! { \"`{value}`\" }} after",
+    "slots": [
+      "md_sync! { \"`{value}`\" }"
+    ]
+  },
+  {
+    "name": "inline code encloses whole quoted Rust text",
+    "markdown": "`{\"`\"}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "inline code encloses whole quoted Rust text CRLF",
+    "markdown": "`{\"`\"}` {value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "quoted backtick in fenced code stays literal",
+    "markdown": "```rust\n{\"`\"}\n```\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "quoted backtick in fenced code stays literal CRLF",
+    "markdown": "```rust\r\n{\"`\"}\r\n```\r\n{value}",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust character",
+    "markdown": "Before ` {'`'}\n{value}",
+    "slots": [
+      "'`'",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust character CRLF",
+    "markdown": "Before ` {'`'}\r\n{value}",
+    "slots": [
+      "'`'",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust raw string",
+    "markdown": "Before ` {r#\"`\"#}\n{value}",
+    "slots": [
+      "r#\"`\"#",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust raw string CRLF",
+    "markdown": "Before ` {r#\"`\"#}\r\n{value}",
+    "slots": [
+      "r#\"`\"#",
+      "value"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust block comment",
+    "markdown": "Before ` { /* ` */ value }\n{other}",
+    "slots": [
+      "/* ` */ value",
+      "other"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust block comment CRLF",
+    "markdown": "Before ` { /* ` */ value }\r\n{other}",
+    "slots": [
+      "/* ` */ value",
+      "other"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust line comment",
+    "markdown": "Before ` {// `\n value}\n{other}",
+    "slots": [
+      "// `\n value",
+      "other"
+    ]
+  },
+  {
+    "name": "stray prose backtick cannot close in Rust line comment CRLF",
+    "markdown": "Before ` {// `\r\n value}\r\n{other}",
+    "slots": [
+      "// `\n value",
+      "other"
+    ]
+  },
+  {
+    "name": "invalid Rust inside truncated inline code",
+    "markdown": "Example `{not rust \"`\"}} {value}\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "invalid Rust inside truncated inline code CRLF",
+    "markdown": "Example `{not rust \"`\"}} {value}\r\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "comment alone inside truncated inline code",
+    "markdown": "Example `{/* ` */}} {value}\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "comment alone inside truncated inline code CRLF",
+    "markdown": "Example `{/* ` */}} {value}\r\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "comma expression inside truncated inline code",
+    "markdown": "Example `{name, \"`\"}} {value}\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "comma expression inside truncated inline code CRLF",
+    "markdown": "Example `{name, \"`\"}} {value}\r\n",
+    "slots": [
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 1 repairs prose backtick",
+    "markdown": "Example ` { if let Some(x) = item { \"`\" } else { \"other\" } }\n{value}",
+    "slots": [
+      "if let Some(x) = item { \"`\" } else { \"other\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 1 repairs prose backtick CRLF",
+    "markdown": "Example ` { if let Some(x) = item { \"`\" } else { \"other\" } }\r\n{value}",
+    "slots": [
+      "if let Some(x) = item { \"`\" } else { \"other\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 2 repairs prose backtick",
+    "markdown": "Example ` { 'a: loop { break 'a \"`\"; } }\n{value}",
+    "slots": [
+      "'a: loop { break 'a \"`\"; }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 2 repairs prose backtick CRLF",
+    "markdown": "Example ` { 'a: loop { break 'a \"`\"; } }\r\n{value}",
+    "slots": [
+      "'a: loop { break 'a \"`\"; }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 3 repairs prose backtick",
+    "markdown": "Example ` { async move || { \"`\" } }\n{value}",
+    "slots": [
+      "async move || { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 3 repairs prose backtick CRLF",
+    "markdown": "Example ` { async move || { \"`\" } }\r\n{value}",
+    "slots": [
+      "async move || { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 4 repairs prose backtick",
+    "markdown": "Example ` { match value { Some(x) if x==0 => \"`\", _ => \"other\" } }\n{value}",
+    "slots": [
+      "match value { Some(x) if x==0 => \"`\", _ => \"other\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 4 repairs prose backtick CRLF",
+    "markdown": "Example ` { match value { Some(x) if x==0 => \"`\", _ => \"other\" } }\r\n{value}",
+    "slots": [
+      "match value { Some(x) if x==0 => \"`\", _ => \"other\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 5 repairs prose backtick",
+    "markdown": "Example ` { value.method::<&'static str>(\"`\") }\n{value}",
+    "slots": [
+      "value.method::<&'static str>(\"`\")",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 5 repairs prose backtick CRLF",
+    "markdown": "Example ` { value.method::<&'static str>(\"`\") }\r\n{value}",
+    "slots": [
+      "value.method::<&'static str>(\"`\")",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 6 repairs prose backtick",
+    "markdown": "Example ` { { let local = \"`\"; local } }\n{value}",
+    "slots": [
+      "{ let local = \"`\"; local }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 6 repairs prose backtick CRLF",
+    "markdown": "Example ` { { let local = \"`\"; local } }\r\n{value}",
+    "slots": [
+      "{ let local = \"`\"; local }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 7 repairs prose backtick",
+    "markdown": "Example ` { const { \"`\" } }\n{value}",
+    "slots": [
+      "const { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 7 repairs prose backtick CRLF",
+    "markdown": "Example ` { const { \"`\" } }\r\n{value}",
+    "slots": [
+      "const { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 8 repairs prose backtick",
+    "markdown": "Example ` { unsafe { \"`\" } }\n{value}",
+    "slots": [
+      "unsafe { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 8 repairs prose backtick CRLF",
+    "markdown": "Example ` { unsafe { \"`\" } }\r\n{value}",
+    "slots": [
+      "unsafe { \"`\" }",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 9 repairs prose backtick",
+    "markdown": "Example ` { b\"`\" }\n{value}",
+    "slots": [
+      "b\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 9 repairs prose backtick CRLF",
+    "markdown": "Example ` { b\"`\" }\r\n{value}",
+    "slots": [
+      "b\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 10 repairs prose backtick",
+    "markdown": "Example ` { c\"`\" }\n{value}",
+    "slots": [
+      "c\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 10 repairs prose backtick CRLF",
+    "markdown": "Example ` { c\"`\" }\r\n{value}",
+    "slots": [
+      "c\"`\"",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 11 repairs prose backtick",
+    "markdown": "Example ` { cr#\"`\"# }\n{value}",
+    "slots": [
+      "cr#\"`\"#",
+      "value"
+    ]
+  },
+  {
+    "name": "Rust expression 11 repairs prose backtick CRLF",
+    "markdown": "Example ` { cr#\"`\"# }\r\n{value}",
+    "slots": [
+      "cr#\"`\"#",
+      "value"
+    ]
+  }
+]

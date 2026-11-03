@@ -12,7 +12,7 @@ use syn::spanned::Spanned;
 use syn::{Attribute as SynAttribute, Item, Path as SynPath};
 
 use crate::diagnostic::{Diagnostic, Severity};
-use crate::lint::parse_invocation;
+use crate::lint::{parse_invocation, validate_markdown_invocation};
 use crate::source::{
     display_path, find_macros, find_rust_files, MacroDialect, MacroInvocation, SourceMap,
 };
@@ -107,6 +107,17 @@ pub fn format_file(path: &Path, source: &str) -> Result<FormattedFile> {
 
     for inv in invocations.iter().rev() {
         if inv.dialect == MacroDialect::Md {
+            if let Err(err) = validate_markdown_invocation(source, inv) {
+                diagnostics.push(Diagnostic::new(
+                    &display,
+                    inv.name_line,
+                    inv.name_column + 1,
+                    Severity::Error,
+                    "parse/template",
+                    format!("failed to parse {}! macro body: {err}", inv.name),
+                ));
+                continue;
+            }
             let body = inv.body(source);
             let formatted = format_md_body(inv, body);
             output.replace_range(inv.body_start..inv.body_end, &formatted);
@@ -164,8 +175,21 @@ pub fn verify_render_preserving(path: &Path, original: &str, formatted: &str) ->
     }
     for (inv_before, inv_after) in before.iter().zip(after.iter()) {
         if inv_before.dialect == MacroDialect::Md || inv_after.dialect == MacroDialect::Md {
-            // Compare the parsed content and Rust expressions. Branch layout
-            // and redundant nested-control braces do not contribute output.
+            if validate_markdown_invocation(original, inv_before).is_err()
+                || validate_markdown_invocation(formatted, inv_after).is_err()
+            {
+                diagnostics.push(Diagnostic::new(
+                    &display,
+                    inv_before.name_line,
+                    inv_before.name_column + 1,
+                    Severity::Error,
+                    "format/verify",
+                    "cannot verify an invalid Markdown template",
+                ));
+                continue;
+            }
+            // Compare the parsed content and Rust expressions; layout does not
+            // contribute output.
             let text_before = md_render_text(original, inv_before);
             let text_after = md_render_text(formatted, inv_after);
             if text_before != text_after {
@@ -560,9 +584,11 @@ struct MdTemplate {
     inner: String,
     /// Closing quote, including any raw-string hashes.
     close: String,
+    /// Named arguments/trailing comma, retained as authored Rust tokens.
+    suffix: String,
 }
 
-/// Recognize a body that is exactly one multi-line string literal.
+/// Recognize a multiline template literal with optional named arguments.
 ///
 /// Returns `None` for token-mode bodies (`md_sync! { "a " {b} }`), for
 /// single-line templates (whose leading whitespace is content, not layout),
@@ -578,13 +604,16 @@ fn md_template(body: &str) -> Option<MdTemplate> {
         return None;
     }
 
-    let lit: syn::LitStr = syn::parse2(proc_macro2::TokenStream::from_str(body).ok()?).ok()?;
+    let template: proa_dsl::md::MdTemplateInput =
+        syn::parse2(proc_macro2::TokenStream::from_str(body).ok()?).ok()?;
+    let lit = template.lit;
     let value = lit.value();
     if !proa_dsl::md_layout::is_multiline_template(&value) {
         return None;
     }
 
     let text = lit.token().to_string();
+    let suffix = body.trim_start().strip_prefix(&text)?.trim_end().to_owned();
     let (open, close) = match text.strip_prefix('r') {
         Some(rest) => {
             let hashes = "#".repeat(rest.len() - rest.trim_start_matches('#').len());
@@ -601,15 +630,20 @@ fn md_template(body: &str) -> Option<MdTemplate> {
         return None;
     }
 
-    Some(MdTemplate { open, inner, close })
+    Some(MdTemplate {
+        open,
+        inner,
+        close,
+        suffix,
+    })
 }
 
 /// Canonical layout for a Markdown template body.
 ///
 /// Every template line and the closing quote are re-anchored one level beneath
 /// the macro invocation. The closing macro brace returns to the invocation's
-/// own column. The shared Markdown parser also identifies branch layout, so
-/// control bodies can be indented without adding spaces to rendered content.
+/// own column. Relative indentation is preserved, so a multi-line Rust slot
+/// keeps its own layout and deeper Markdown indentation stays content.
 pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
     let Some(tpl) = md_template(body) else {
         return body.to_owned();
@@ -625,7 +659,6 @@ pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
         .map(|line| &line[common_prefix_len(common, line)..])
         .collect::<Vec<_>>()
         .join("\n");
-    let template = proa_dsl::md::format_control_flow(&template).unwrap_or(template);
     let close_indent = inv.indentation_column;
     let content_indent = close_indent + INDENT_WIDTH;
 
@@ -651,8 +684,62 @@ pub(crate) fn format_md_body(inv: &MacroInvocation, body: &str) -> String {
     }
 
     out.push_str(&tpl.close);
+    out.push_str(&reindent_md_arguments(&tpl.suffix, content_indent));
     out.push('\n');
     push_spaces(&mut out, close_indent);
+    out
+}
+
+fn reindent_md_arguments(suffix: &str, indent: usize) -> String {
+    fn collect_literals(
+        tokens: proc_macro2::TokenStream,
+        literals: &mut Vec<std::ops::Range<usize>>,
+    ) {
+        for token in tokens {
+            match token {
+                proc_macro2::TokenTree::Literal(literal) => {
+                    literals.push(literal.span().byte_range())
+                }
+                proc_macro2::TokenTree::Group(group) => collect_literals(group.stream(), literals),
+                _ => {}
+            }
+        }
+    }
+    let Ok(tokens) = suffix.parse() else {
+        return suffix.to_owned();
+    };
+    let mut literals = Vec::new();
+    collect_literals(tokens, &mut literals);
+    let mut offset = 0;
+    let lines: Vec<_> = suffix
+        .split_inclusive('\n')
+        .map(|line| {
+            let protected = literals
+                .iter()
+                .any(|range| range.start < offset && offset < range.end);
+            offset += line.len();
+            (line, protected)
+        })
+        .collect();
+    let base = lines
+        .iter()
+        .skip(1)
+        .filter(|(line, protected)| !protected && !line.trim().is_empty())
+        .map(|(line, _)| line.len() - line.trim_start_matches([' ', '\t']).len())
+        .min();
+    let Some(base) = base else {
+        return suffix.to_owned();
+    };
+    let mut out = String::new();
+    for (n, (line, protected)) in lines.iter().enumerate() {
+        if n == 0 || *protected || line.trim().is_empty() {
+            out.push_str(line);
+            continue;
+        }
+        let rest = line.trim_start_matches([' ', '\t']);
+        push_spaces(&mut out, indent + line.len() - rest.len() - base);
+        out.push_str(rest);
+    }
     out
 }
 
@@ -671,8 +758,7 @@ fn common_prefix_len(common: &str, line: &str) -> usize {
 enum MdRenderNode {
     Text(String),
     Expr(String),
-    For(String, String, Vec<MdRenderNode>),
-    If(Vec<(Option<String>, Vec<MdRenderNode>)>),
+    Binding(String),
 }
 
 fn md_render_nodes(nodes: Vec<proa_dsl::md::TplNode>) -> Vec<MdRenderNode> {
@@ -682,22 +768,6 @@ fn md_render_nodes(nodes: Vec<proa_dsl::md::TplNode>) -> Vec<MdRenderNode> {
         .map(|node| match node {
             TplNode::Text(text) => MdRenderNode::Text(text),
             TplNode::Expr(expr) => MdRenderNode::Expr(expr.to_token_stream().to_string()),
-            TplNode::For { pat, iter, body } => MdRenderNode::For(
-                pat.to_token_stream().to_string(),
-                iter.to_token_stream().to_string(),
-                md_render_nodes(body),
-            ),
-            TplNode::If { branches } => MdRenderNode::If(
-                branches
-                    .into_iter()
-                    .map(|branch| {
-                        (
-                            branch.cond.map(|cond| cond.to_token_stream().to_string()),
-                            md_render_nodes(branch.body),
-                        )
-                    })
-                    .collect(),
-            ),
         })
         .collect()
 }
@@ -710,7 +780,14 @@ fn md_render_text(source: &str, inv: &MacroInvocation) -> Option<Vec<MdRenderNod
     let body = inv.body(source);
     let template: proa_dsl::md::MdTemplateInput =
         syn::parse2(proc_macro2::TokenStream::from_str(body).ok()?).ok()?;
-    Some(md_render_nodes(template.semantic_nodes().ok()?))
+    let mut nodes = md_render_nodes(template.parse_nodes().ok()?);
+    if let Some(binding) = template.argument_binding() {
+        nodes.insert(
+            0,
+            MdRenderNode::Binding(binding.to_token_stream().to_string()),
+        );
+    }
+    Some(nodes)
 }
 
 pub(crate) fn format_macro_body(

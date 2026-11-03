@@ -1734,6 +1734,62 @@ impl MdRender for Page {
 }
 
 #[test]
+fn async_markdown_recognizes_opaque_children_inside_control_flow_slots() {
+    for slot in [
+        "{if self.ready { DatabaseBadge }}",
+        "{if self.ready { \"static\" } else { DatabaseBadge }}",
+        "{for _row in self.rows.iter() { DatabaseBadge }}",
+        "{loop { break DatabaseBadge; }}",
+        "{'done: loop { if self.ready { break 'done DatabaseBadge; } }}",
+        "{match self.state { State::Ready => DatabaseBadge, _ => \"pending\" }}",
+        r##"{if self.ready { md! { r#"{DatabaseBadge}"# } }}"##,
+    ] {
+        let source = format!(
+            r####"
+impl MdRender for Page {{
+    fn render_md(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {{
+        md! {{ r###"{slot}"### }}.render_md(cx)
+    }}
+}}
+"####
+        );
+        let diagnostics = lint_file(Path::new("sample.rs"), &source);
+        assert!(
+            !has_code(&diagnostics, "render/md-async-unneeded"),
+            "{slot}"
+        );
+        assert!(
+            !has_code(&diagnostics, "perf/async-md-static-subtree"),
+            "{slot}"
+        );
+    }
+    let source = r####"
+impl MdRender for Page {
+    fn render_md(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        md! { r###"{if self.ready { "ready" } else { "pending" }}"### }.render_md(cx)
+    }
+}
+"####;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    assert!(has_code(&diagnostics, "render/md-async-unneeded"));
+    assert!(has_code(&diagnostics, "perf/async-md-static-subtree"));
+}
+
+#[test]
+fn async_markdown_token_templates_recognize_opaque_children_inside_control_flow() {
+    let source = r####"
+impl MdRender for Page {
+    fn render_md(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        md! { "# Status\n" {if self.ready { DatabaseBadge }} }.render_md(cx)
+    }
+}
+"####;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    assert!(!has_code(&diagnostics, "render/md-async-unneeded"));
+    assert!(!has_code(&diagnostics, "perf/async-md-static-subtree"));
+}
+
+#[test]
 fn lint_leaves_md_sync_and_html_sync_alone() {
     let source = r####"
 impl<B: WriteBuf> MdRenderSync<::proa_core::NoLoader, B> for Note {
@@ -5163,11 +5219,11 @@ fn standalone_markdown_evidence_disables_only_html_checks() {
     for (name, operation) in [
         ("render_md_example", ""),
         ("render_markdown_example", ""),
-        ("render_fragment", "md_sync! { \"sample\" };"),
-        ("render_fragment", "let _ = md_sync! { \"sample\" };"),
+        ("render_fragment", r#"md_sync! { "sample" };"#),
+        ("render_fragment", r#"let _ = md_sync! { "sample" };"#),
         (
             "render_fragment",
-            "let _ = proa_macros::md! { \"sample\" };",
+            r#"let _ = proa_macros::md! { "sample" };"#,
         ),
         ("render_fragment", "cx.write_md_text(\"sample\")?;"),
         ("render_fragment", "cx.md_block_boundary()?;"),
@@ -5214,6 +5270,7 @@ impl<L: DataLoader> MdRenderSync<L> for Markdown {
         cx.write_md_inline_code("<section>literal</section>")
     }
 }
+
 "###;
     let diagnostics = lint_file(Path::new("sample.rs"), source);
     assert!(diagnostics.iter().any(|d| d.code == "md/manual-write"));
@@ -5244,5 +5301,44 @@ impl<L: DataLoader> WebRenderSync<L> for Counter {
             .iter()
             .any(|diag| diag.code == "rsjs/dead-client-primitive"),
         "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn markdown_syntax_errors_are_reported_without_a_cargo_build() {
+    for body in [
+        "{if false {A} elsse {B}}",
+        "{for x in xs {X} ignored}",
+        "{if true {unclosed}",
+    ] {
+        let source = format!(r####"fn f() {{ md_sync! {{ r###"{body}"### }}; }}"####);
+        let diagnostics = lint_file(Path::new("sample.rs"), &source);
+        assert!(
+            diagnostics.iter().any(|d| d.code == "parse/template"),
+            "{body}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn markdown_named_arguments_participate_in_layout_lint() {
+    let source = r####"fn f() {
+    md_sync! { r###"
+            {if show {
+                title
+            }}
+            "###, show = true, title = self.title
+    };
+}"####;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code == "format/markdown-layout"),
+        "{diagnostics:?}"
+    );
+    assert!(
+        !diagnostics.iter().any(|d| d.code == "parse/template"),
+        "{diagnostics:?}"
     );
 }

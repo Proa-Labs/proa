@@ -31,6 +31,7 @@
 pub mod consolidate;
 pub mod content;
 pub mod emit;
+#[cfg(feature = "markdown")]
 pub mod md;
 pub mod md_layout;
 pub mod parse;

@@ -254,6 +254,54 @@ where
     }
 }
 
+/// Typed async Markdown fragment, backed by the same continuation as HTML.
+pub struct AsyncMdFn<L, B, F> {
+    inner: crate::shared::async_render::AsyncRender<L, B, F>,
+}
+
+#[inline(always)]
+pub fn async_md_from_closure<L, B, F>(render_fn: F) -> AsyncMdFn<L, B, F>
+where
+    L: DataLoader,
+    B: WriteBuf,
+    F: for<'a> AsyncFnOnce(&'a mut WebContext<L, B>) -> Result<(), WriteError>,
+{
+    AsyncMdFn {
+        inner: crate::shared::async_render::async_render(render_fn),
+    }
+}
+
+impl<L, B, F> MdRender<L, B> for AsyncMdFn<L, B, F>
+where
+    L: DataLoader,
+    B: WriteBuf,
+    F: for<'a> AsyncFnOnce(&'a mut WebContext<L, B>) -> Result<(), WriteError>,
+{
+    fn render_md(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        WebRender::render(self.inner, cx)
+    }
+}
+
+impl<L, B, F> WebRender<L, B> for AsyncMdFn<L, B, F>
+where
+    L: DataLoader,
+    B: WriteBuf,
+    F: for<'a> AsyncFnOnce(&'a mut WebContext<L, B>) -> Result<(), WriteError>,
+{
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::Pending(async move {
+            let mut scope = MdFragmentScope::new(cx);
+            self.inner.render(scope.context()).resolve().await
+        })
+    }
+}
+
 /// Boxed future returned by [`AsyncMd`]'s type-erased render closure.
 pub type AsyncMdFuture<'a> = Pin<Box<dyn Future<Output = Result<(), WriteError>> + 'a>>;
 
@@ -261,10 +309,10 @@ pub type AsyncMdFuture<'a> = Pin<Box<dyn Future<Output = Result<(), WriteError>>
 pub type AsyncMdRenderFn<'env, L, B> =
     dyn for<'a> FnOnce(&'a mut WebContext<L, B>) -> AsyncMdFuture<'a> + Send + 'env;
 
-/// Wrapper for dynamic async-capable `md!` macro output.
+/// Compatibility wrapper for type-erased async Markdown render functions.
 ///
-/// The macro emits the template-specific closure. This shared wrapper carries
-/// the `MdRender` and `WebRender` implementations once in `proa_core`.
+/// `md!` uses [`AsyncMdFn`] to retain captured borrows and future types. The
+/// erased constructor remains available for callers that explicitly need it.
 pub struct AsyncMd<'env, L: DataLoader, B: WriteBuf> {
     pub render_fn: Box<AsyncMdRenderFn<'env, L, B>>,
     pub _marker: PhantomData<fn(&L, &mut B)>,

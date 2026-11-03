@@ -358,7 +358,11 @@ An async child cannot be placed inside `md_sync!`.
 The default authoring form is one multiline raw template delimited with three
 hashes: `md_sync! { r###"..."### }` or `md! { r###"..."### }`. Its source
 newlines are the rendered Markdown newlines, while `{expression}` composes a
-typed child and template `for` / `if` blocks provide control flow. Common Rust
+typed child. Slots contain ordinary Rust control flow (`if`, `for`, `match`);
+branches re-enter Markdown through nested macros. Prefer ordinary strings for
+short fragments (`md_sync! { "- {item}\n" }`) and raw templates with fewer
+hashes for substantial multiline content.
+Plain control words in Markdown remain text at every depth. Common Rust
 source indentation is stripped while deeper relative Markdown indentation is
 preserved. Braces inside fenced code blocks and inline code spans stay literal;
 outside code, double a literal brace as `{{` or `}}`. Increase the hash count
@@ -449,7 +453,7 @@ switches traits.
 
 - `WebRenderSync` is **the** fast path: no future allocation, no `RenderOutcome` wrapper, no async dispatch overhead. Stick with it whenever possible.
 - An ordinary component that returns `RenderOutcome::Done` stays on the immediate body path. `to_async(sync_child)` is exactly that shape.
-- **The macro, not the trait, is what allocates.** An `html!` (or `md!`) block with any dynamic content emits `async_html_from_fn(Box::new(|cx| Box::pin(async move { .. })))`: one heap allocation for the erased closure, one for the future, and dynamically dispatched polls, whether or not the body ever awaits. `html_sync!` emits a monomorphized `OptimizedHtml<B, L, F>` with an `#[inline(always)]` render and no allocation. So an async component whose template happens to be static still pays twice per node.
+- Dynamic `html!` and `md!` retain concrete async closure and future types in `AsyncRender` and `AsyncMdFn`; ordinary macro expansion does not box either. Explicit erased constructors (`async_html_from_fn`, `async_md_from_fn`) retain their allocation costs. `html_sync!` uses a monomorphized `OptimizedHtml<B, L, F>` and avoids async state entirely.
 - Prefer `html_sync!` for every subtree that has no async child, even inside a `WebRender` impl that awaits elsewhere. Wrap the result in `to_async(..)` at the seam if it composes into an async tree.
 
 ### Lints that enforce this

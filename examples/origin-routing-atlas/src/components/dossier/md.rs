@@ -123,11 +123,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for L
             cx.write_md_text(" — network dossier")
         })?;
         cx.md_block_boundary()?;
-        md_sync! { r###"
-            ## How the internet reaches it
-            "###
-        }
-        .render_md(cx)?;
+        md_sync! { "## How the internet reaches it\n" }.render_md(cx)?;
         cx.md_block_boundary()?;
         cx.write_md_prepared_static(b"1. DNS resolves ")?;
         cx.md_code(self.host)?;
@@ -170,11 +166,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for L
         .render_md(cx)?;
         cx.md_block_boundary()?;
         if dossier.prefixes.is_empty() {
-            md_sync! { r###"
-                Range list unavailable: it exceeded this page's data budget.
-                "###
-            }
-            .render_md(cx)?;
+            md_sync! { "Range list unavailable: it exceeded this page's data budget.\n" }
+                .render_md(cx)?;
         } else {
             cx.write_md_prepared_static(b"| prefix | observed |\n| --- | --- |\n")?;
             for (prefix, since) in &ranges {
@@ -190,7 +183,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for L
             ## Who carries its traffic
 
             {for (asn, relation, sessions) in carriers.iter() {
-            - AS{*asn} ({*relation}, seen by {*sessions} RIS peers)
+                md_sync! { "- AS{*asn} ({*relation}, seen by {*sessions} RIS peers)\n" }
             }}
 
             ## Routes traffic takes
@@ -210,7 +203,11 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for L
             md_sync! { r###"
                 ## Open routing situations
 
-                {if site.unusual {**Status:** open · **Severity:** high} else {None reported.}}
+                {if site.unusual {
+                    md_sync! { "**Status:** open · **Severity:** high" }
+                } else {
+                    md_sync! { "None reported." }
+                }}
 
                 {site.unusual_detail}
                 "###

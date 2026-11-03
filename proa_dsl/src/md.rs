@@ -3,6 +3,14 @@
 
 //! Shared semantic parser for raw and token-composed Markdown templates.
 //!
+//! The raw-template grammar has one lexical rule, identical at every depth:
+//! text outside `{ ... }` is Markdown, and text inside is a Rust expression
+//! parsed by `syn`. Control flow is therefore ordinary Rust (`if`, `for`,
+//! `match`, ...) whose branches render their final expression, and Markdown
+//! re-enters a branch only through a nested `md_sync!` / `md!` call. No word
+//! is ever reserved in Markdown text, and a line means the same thing whether
+//! it sits at the top level or inside a branch.
+//!
 //! Compiler code generation and source tooling consume these same nodes.
 //! Raw expressions retain their authored literal ranges; token expressions
 //! retain their ordinary Rust spans.
@@ -10,14 +18,14 @@
 use proc_macro2::Span;
 use quote::{ToTokens, TokenStreamExt};
 use std::ops::{Deref, Range};
+use std::sync::Arc;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{braced, Expr, LitStr};
 
-mod control;
+mod code;
 mod source;
-
-pub use control::format_control_flow;
+mod syntax;
 
 /// Location of an expression in authored source, before template dedenting.
 #[derive(Clone, Debug)]
@@ -26,7 +34,7 @@ pub enum ExprLocation {
     Decoded(Range<usize>),
     /// Byte range in the complete Rust literal token, including its delimiters.
     Literal { span: Span, range: Range<usize> },
-    /// Ordinary Rust tokens, including substituted named arguments.
+    /// Ordinary Rust tokens, including named-argument values.
     Rust(Span),
 }
 
@@ -35,6 +43,66 @@ pub enum ExprLocation {
 pub struct TemplateExpr {
     pub expr: Expr,
     pub location: ExprLocation,
+    source: Option<SlotSource>,
+}
+
+/// Where a slot's parsed text sits, so sub-expression spans can be mapped back
+/// to the authored literal by tooling.
+#[derive(Clone, Debug)]
+struct SlotSource {
+    /// Span of the whole parsed slot; sub-spans from the same parse join with it.
+    whole: Span,
+    /// Decoded template offset of the parsed text's first byte.
+    origin: usize,
+    len: usize,
+    literal: Option<Arc<source::LiteralMap>>,
+}
+
+impl TemplateExpr {
+    /// An expression written as ordinary Rust tokens, such as a named argument
+    /// or a custom grammar's output. Its span is already a source location.
+    pub fn rust(expr: Expr, span: Span) -> Self {
+        Self {
+            expr,
+            location: ExprLocation::Rust(span),
+            source: None,
+        }
+    }
+
+    /// Locate a sub-expression of this slot in the authored template.
+    ///
+    /// `span` must belong to the same parse as `self.expr`: a span of one of its
+    /// sub-expressions, or of tokens inside a nested macro call within it. This
+    /// is how tooling points a diagnostic at an `if` condition or a `for`
+    /// iterator rather than at the whole slot. Returns `None` when the span is
+    /// not part of this slot, or when spans carry no location at all (inside a
+    /// running proc macro).
+    pub fn locate(&self, span: Span) -> Option<ExprLocation> {
+        self.locate_token_range(span, 0..span.byte_range().len())
+    }
+
+    /// Map bytes within a token parsed from this slot (for example, a nested
+    /// template literal). Compose this with enclosing slots to reach the file.
+    pub fn locate_token_range(&self, span: Span, range: Range<usize>) -> Option<ExprLocation> {
+        let source = self.source.as_ref()?;
+        source.whole.join(span)?;
+        let relative = span.byte_range();
+        if range.start > range.end || range.end > relative.len() || relative.end > source.len {
+            return None;
+        }
+        let decoded = source.origin + relative.start + range.start
+            ..source.origin + relative.start + range.end;
+        Some(match &source.literal {
+            Some(literal) => literal.locate(decoded),
+            None => ExprLocation::Decoded(decoded),
+        })
+    }
+
+    fn attach(&mut self, literal: &Arc<source::LiteralMap>) {
+        if let Some(source) = &mut self.source {
+            source.literal = Some(Arc::clone(literal));
+        }
+    }
 }
 
 impl Deref for TemplateExpr {
@@ -50,24 +118,15 @@ impl ToTokens for TemplateExpr {
     }
 }
 
+/// One node of a raw Markdown template.
+///
+/// Control flow is not a separate node kind: an `{if ...}` or `{for ...}` slot
+/// is an [`Expr::If`] / [`Expr::ForLoop`] like any other slot expression, and
+/// code generation lowers it exactly as the token-composition form does.
 #[derive(Clone, Debug)]
 pub enum TplNode {
     Text(String),
     Expr(TemplateExpr),
-    For {
-        pat: Box<syn::Pat>,
-        iter: Box<TemplateExpr>,
-        body: Vec<TplNode>,
-    },
-    If {
-        branches: Vec<IfBranch>,
-    },
-}
-
-#[derive(Clone, Debug)]
-pub struct IfBranch {
-    pub cond: Option<TemplateExpr>, // None = else
-    pub body: Vec<TplNode>,
 }
 
 // -- public entry --
@@ -95,9 +154,20 @@ pub struct MdTemplateInput {
 
 impl MdTemplateInput {
     /// Parse with the same layout and grammar used by the Markdown macros.
-    /// Named arguments are deliberately substituted separately, so codegen
-    /// can preserve its IDE shadow before replacing placeholders.
+    /// Named arguments are ordinary bindings surrounding these nodes; they
+    /// must not be substituted into expressions, which would capture locals.
     pub fn parse_nodes(&self) -> syn::Result<Vec<TplNode>> {
+        for (index, arg) in self.args.iter().enumerate() {
+            if self.args[..index]
+                .iter()
+                .any(|prior| prior.name == arg.name)
+            {
+                return Err(syn::Error::new(
+                    arg.name.span(),
+                    format!("duplicate named argument `{}`", arg.name),
+                ));
+            }
+        }
         let source = source::MappedLiteral::new(&self.lit);
         let mut nodes =
             parse_tpl(&source.text).map_err(|message| syn::Error::new(self.lit.span(), message))?;
@@ -105,11 +175,23 @@ impl MdTemplateInput {
         Ok(nodes)
     }
 
-    /// Parse and substitute named arguments for semantic consumers.
-    pub fn semantic_nodes(&self) -> syn::Result<Vec<TplNode>> {
-        let mut nodes = self.parse_nodes()?;
-        substitute_named_args(&mut nodes, &self.args)?;
-        Ok(nodes)
+    /// Bind argument values once, in source order, before rendering the nodes.
+    /// A tuple evaluates every initializer in the caller's scope before any
+    /// argument name is bound. Rust then handles shadowing, closures, nested
+    /// macros, and ownership without a second implementation of its scopes.
+    pub fn argument_binding(&self) -> Option<syn::Local> {
+        if self.args.is_empty() {
+            return None;
+        }
+        let names = self.args.iter().map(|arg| &arg.name);
+        let values = self.args.iter().map(|arg| &arg.value);
+        let syn::Stmt::Local(binding) = syn::parse_quote! (
+            #[deny(unused_variables)]
+            let (#(#names,)*) = (#(#values,)*);
+        ) else {
+            unreachable!()
+        };
+        Some(binding)
     }
 }
 
@@ -131,60 +213,6 @@ impl Parse for MdTemplateInput {
     }
 }
 
-pub fn substitute_named_args(
-    nodes: &mut [TplNode],
-    args: &[MdTemplateArg],
-) -> Result<(), syn::Error> {
-    if args.is_empty() {
-        return Ok(());
-    }
-    for (index, arg) in args.iter().enumerate() {
-        if args[..index].iter().any(|prior| prior.name == arg.name) {
-            return Err(syn::Error::new(
-                arg.name.span(),
-                format!("duplicate named argument `{}`", arg.name),
-            ));
-        }
-    }
-    let mut used = vec![false; args.len()];
-    substitute_nodes(nodes, args, &mut used);
-    for (arg, used) in args.iter().zip(&used) {
-        if !used {
-            return Err(syn::Error::new(
-                arg.name.span(),
-                format!(
-                    "named argument `{}` is never used by the template",
-                    arg.name
-                ),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn substitute_nodes(nodes: &mut [TplNode], args: &[MdTemplateArg], used: &mut [bool]) {
-    for node in nodes {
-        match node {
-            TplNode::Expr(expr) => {
-                let index =
-                    bare_ident(expr).and_then(|name| args.iter().position(|arg| arg.name == *name));
-                if let Some(index) = index {
-                    used[index] = true;
-                    expr.expr = args[index].value.clone();
-                    expr.location = ExprLocation::Rust(args[index].value.span());
-                }
-            }
-            TplNode::For { body, .. } => substitute_nodes(body, args, used),
-            TplNode::If { branches } => {
-                for branch in branches {
-                    substitute_nodes(&mut branch.body, args, used);
-                }
-            }
-            TplNode::Text(_) => {}
-        }
-    }
-}
-
 pub fn bare_ident(expr: &Expr) -> Option<&syn::Ident> {
     let Expr::Path(path) = expr else { return None };
     if path.attrs.is_empty() && path.qself.is_none() {
@@ -194,247 +222,99 @@ pub fn bare_ident(expr: &Expr) -> Option<&syn::Ident> {
     }
 }
 
-/// Return the end of a fenced Markdown code block that starts at `line_start`.
+const CONTROL_HINT: &str = r#"
+
+Text inside `{ ... }` is Rust, including the bodies of `if`, `for`, and `match`. A branch renders its final expression, so write Markdown there as a nested template: `{if ready { md_sync! { "**In stock**" } } else { "Backordered" }}`. Plain Markdown is never parsed inside a slot."#;
+
+/// Parse a slot's Rust source, pointing authors who wrote Markdown inside a
+/// control body at the nested-template form.
+fn parse_slot(source: &str) -> Result<Expr, String> {
+    syn::parse_str::<Expr>(source).map_err(|error| {
+        let mut message = format!("bad expression `{source}`: {error}");
+        let keyword = source.split(|c: char| !c.is_ascii_alphabetic()).next();
+        if matches!(
+            keyword,
+            Some("if" | "for" | "match" | "while" | "loop" | "else")
+        ) {
+            message.push_str(CONTROL_HINT);
+        }
+        message
+    })
+}
+
+/// Split a decoded template into Markdown text and Rust slot expressions.
 ///
-/// CommonMark permits up to three leading spaces, then at least three backticks
-/// or tildes. An unclosed fence consumes the rest of the document. Treating the
-/// complete block as static Markdown prevents Rust examples such as
-/// `Thing { field }` from being mistaken for template interpolation.
-fn fenced_code_end(input: &str, line_start: usize, layout: &str) -> Option<usize> {
-    let bytes = input.as_bytes();
-    let mut marker_start = line_start;
-    while marker_start < bytes.len() && marker_start - line_start < 3 && bytes[marker_start] == b' '
-    {
-        marker_start += 1;
-    }
-
-    let marker = *bytes.get(marker_start)?;
-    if marker != b'`' && marker != b'~' {
-        return None;
-    }
-
-    let mut marker_end = marker_start;
-    while bytes.get(marker_end) == Some(&marker) {
-        marker_end += 1;
-    }
-    let marker_len = marker_end - marker_start;
-    if marker_len < 3 {
-        return None;
-    }
-
-    let opening_line_end = input[marker_end..]
-        .find('\n')
-        .map_or(bytes.len(), |offset| marker_end + offset);
-    if marker == b'`' && bytes[marker_end..opening_line_end].contains(&b'`') {
-        return None;
-    }
-    if opening_line_end == bytes.len() {
-        return Some(bytes.len());
-    }
-
-    let mut candidate_start = opening_line_end + 1;
-    while candidate_start < bytes.len() {
-        let candidate_line_end = input[candidate_start..]
-            .find('\n')
-            .map_or(bytes.len(), |offset| candidate_start + offset);
-        let content_start = candidate_start + layout_prefix_len(layout, &input[candidate_start..]);
-        let mut candidate_marker_start = content_start;
-        while candidate_marker_start < candidate_line_end
-            && candidate_marker_start - content_start < 3
-            && bytes[candidate_marker_start] == b' '
-        {
-            candidate_marker_start += 1;
-        }
-
-        let mut candidate_marker_end = candidate_marker_start;
-        while candidate_marker_end < candidate_line_end && bytes[candidate_marker_end] == marker {
-            candidate_marker_end += 1;
-        }
-        let trailing = &input[candidate_marker_end..candidate_line_end];
-        if candidate_marker_end - candidate_marker_start >= marker_len
-            && trailing
-                .chars()
-                .all(|character| matches!(character, ' ' | '\t' | '\r'))
-        {
-            return Some(if candidate_line_end < bytes.len() {
-                candidate_line_end + 1
-            } else {
-                candidate_line_end
-            });
-        }
-
-        if candidate_line_end == bytes.len() {
-            break;
-        }
-        candidate_start = candidate_line_end + 1;
-    }
-
-    Some(bytes.len())
-}
-
-/// Return the end of an inline Markdown code span beginning at `start`.
-/// Delimiter runs must be the same length, matching CommonMark's code-span
-/// rules. The returned range includes both delimiter runs.
-fn inline_code_end(input: &str, start: usize) -> Option<usize> {
-    let bytes = input.as_bytes();
-    let mut opener_end = start;
-    while bytes.get(opener_end) == Some(&b'`') {
-        opener_end += 1;
-    }
-    let delimiter_len = opener_end - start;
-    let mut candidate = opener_end;
-
-    while candidate < bytes.len() {
-        if bytes[candidate] != b'`' {
-            candidate += input[candidate..].chars().next()?.len_utf8();
-            continue;
-        }
-
-        let mut candidate_end = candidate;
-        while bytes.get(candidate_end) == Some(&b'`') {
-            candidate_end += 1;
-        }
-        if candidate_end - candidate == delimiter_len {
-            return Some(candidate_end);
-        }
-        candidate = candidate_end;
-    }
-
-    None
-}
-
+/// Only four things are special in text: `{` opens a slot, `{{` and `}}` are
+/// literal braces, and Markdown code blocks or inline code spans are copied
+/// verbatim. A slot runs to the brace that balances its opener under Rust
+/// lexical rules, so nested blocks, strings, and nested template literals
+/// never need escaping.
 pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
-    control::parse(input)
-}
+    let bytes = input.as_bytes();
+    let mut nodes = Vec::new();
+    let mut text = String::new();
+    let mut pos = 0;
+    let mut code = code::CodeContexts::new(input);
 
-/// Number of source-layout bytes shared with a line (also safe for blank lines).
-fn layout_prefix_len(layout: &str, line: &str) -> usize {
-    layout
-        .char_indices()
-        .zip(line.chars())
-        .take_while(|((_, a), b)| a == b)
-        .map(|((index, ch), _)| index + ch.len_utf8())
-        .last()
-        .unwrap_or(0)
-}
-
-fn extract_braces(src: &str, start: usize) -> Result<(&str, usize), String> {
-    let end = brace_end(src, start)?;
-    Ok((&src[start..end], end))
-}
-
-fn brace_end(src: &str, start: usize) -> Result<usize, String> {
-    let mut depth: i32 = 1;
-    let mut in_str = false;
-    let mut esc = false;
-    let mut pos = start;
-    while pos < src.len() {
-        let ch = src[pos..].chars().next().unwrap();
-        let clen = ch.len_utf8();
-        if esc {
-            esc = false;
-            pos += clen;
+    while pos < bytes.len() {
+        if let Some(end) = code.end_at(pos) {
+            text.push_str(&input[pos..end]);
+            pos = end;
             continue;
         }
-        if in_str {
-            match ch {
-                '\\' => esc = true,
-                '"' => in_str = false,
-                _ => {}
-            }
-            pos += clen;
-            continue;
-        }
-        // Markdown examples are literal even inside control-flow bodies.
-        if pos == 0 || src.as_bytes()[pos - 1] == b'\n' {
-            let line = &src[pos..];
-            let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
-            if let Some(end) = fenced_code_end(src, pos + indent, &line[..indent]) {
-                pos = end;
-                continue;
-            }
-        }
-        if ch == '`' {
-            if let Some(end) = inline_code_end(src, pos) {
-                pos = end;
-                continue;
-            }
-        }
-        match ch {
-            '"' => {
-                in_str = true;
-                pos += clen;
-            }
-            '{' => {
-                depth += 1;
-                pos += clen;
-            }
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Ok(pos);
+
+        match bytes[pos] {
+            b'{' => {
+                if bytes.get(pos + 1) == Some(&b'{') {
+                    text.push('{');
+                    pos += 2;
+                    continue;
                 }
-                pos += clen;
+                if !text.is_empty() {
+                    nodes.push(TplNode::Text(std::mem::take(&mut text)));
+                }
+                let content_start = pos + 1;
+                let end = syntax::rust_brace_end(input, content_start)?;
+                let content = &input[content_start..end];
+                let trimmed = content.trim();
+                let origin =
+                    content_start + (trimmed.as_ptr() as usize - content.as_ptr() as usize);
+                let expr = parse_slot(trimmed)?;
+                let whole = expr.span();
+                nodes.push(TplNode::Expr(TemplateExpr {
+                    expr,
+                    location: ExprLocation::Decoded(origin..origin + trimmed.len()),
+                    source: Some(SlotSource {
+                        whole,
+                        origin,
+                        len: trimmed.len(),
+                        literal: None,
+                    }),
+                }));
+                code.exclude_slot(pos..end + 1);
+                pos = end + 1;
+            }
+            b'}' => {
+                if bytes.get(pos + 1) == Some(&b'}') {
+                    text.push('}');
+                    pos += 2;
+                    continue;
+                }
+                return Err(format!(
+                    "unexpected `}}` at byte {pos}; write `}}}}` for a literal closing brace"
+                ));
             }
             _ => {
-                pos += clen;
+                let ch = input[pos..].chars().next().unwrap();
+                text.push(ch);
+                pos += ch.len_utf8();
             }
         }
     }
-    Err("unclosed `{`".into())
-}
-
-fn subslice_offset(parent: &str, child: &str) -> usize {
-    child.as_ptr() as usize - parent.as_ptr() as usize
-}
-
-fn find_body_brace(text: &str) -> Option<usize> {
-    let mut pdepth: i32 = 0;
-    let mut bdepth: i32 = 0;
-    let mut in_str = false;
-    let mut esc = false;
-    for (i, ch) in text.char_indices() {
-        if esc {
-            esc = false;
-            continue;
-        }
-        if in_str {
-            match ch {
-                '\\' => esc = true,
-                '"' => in_str = false,
-                _ => {}
-            }
-            continue;
-        }
-        match ch {
-            '"' => in_str = true,
-            '(' => pdepth += 1,
-            ')' => pdepth -= 1,
-            '[' => bdepth += 1,
-            ']' => bdepth -= 1,
-            '{' if pdepth == 0 && bdepth == 0 => return Some(i),
-            _ => {}
-        }
+    if !text.is_empty() {
+        nodes.push(TplNode::Text(text));
     }
-    None
-}
-
-fn split_body(text: &str) -> Result<(&str, &str), String> {
-    if !text.starts_with('{') {
-        return Err("expected `{`".into());
-    }
-    let end = brace_end(text, 1)?;
-    let mut body = &text[1..end];
-    if let Some(stripped) = body.strip_prefix('\n') {
-        body = stripped;
-    }
-    // A standalone closing delimiter contributes no trailing layout spaces.
-    if let Some(last_newline) = body.rfind('\n') {
-        if body[last_newline + 1..].trim().is_empty() {
-            body = &body[..last_newline + 1];
-        }
-    }
-    Ok((body, &text[end + 1..]))
+    Ok(nodes)
 }
 
 #[derive(Clone, Debug)]
@@ -523,12 +403,13 @@ pub fn text_value(value: &LitStr, dedent: bool) -> String {
     }
 }
 
+/// Whether a literal was written as a multiline raw string.
+///
+/// The literal token keeps its authored spelling even when it reaches a macro
+/// through another expansion (a nested `md_sync!` inside a raw template), so
+/// the prefix is read from the token rather than from `source_text`.
 pub fn is_multiline_raw_literal(value: &LitStr) -> bool {
-    let is_raw = value
-        .span()
-        .source_text()
-        .is_some_and(|source| source.trim_start().starts_with('r'));
-    is_raw && value.value().contains(['\n', '\r'])
+    value.token().to_string().starts_with('r') && value.value().contains(['\n', '\r'])
 }
 
 impl Parse for MdRoot {
@@ -561,5 +442,158 @@ impl Parse for MdRoot {
             });
         }
         Ok(MdRoot { nodes })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kinds(input: &str) -> Vec<String> {
+        parse_tpl(input)
+            .unwrap()
+            .into_iter()
+            .map(|node| match node {
+                TplNode::Text(text) => format!("text{text:?}"),
+                TplNode::Expr(expr) => format!("expr({})", expr.to_token_stream()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn prose_is_never_control_flow_at_any_depth() {
+        assert_eq!(
+            kinds("if enabled {label}\n"),
+            ["text\"if enabled \"", "expr(label)", "text\"\\n\""]
+        );
+        assert_eq!(
+            kinds("for guests in rooms {count}\n"),
+            ["text\"for guests in rooms \"", "expr(count)", "text\"\\n\""]
+        );
+    }
+
+    #[test]
+    fn control_flow_is_one_rust_slot() {
+        let nodes = kinds(
+            r#"{if show {
+    md_sync! { "- " {label} "\n" }
+}}
+"#,
+        );
+        assert_eq!(nodes.len(), 2, "{nodes:?}");
+        assert!(nodes[0].starts_with("expr(if show {"), "{nodes:?}");
+        assert_eq!(nodes[1], "text\"\\n\"");
+        let nested = parse_tpl(
+            r##"{for x in xs { md_sync! { r#"
+    - {x} }} not a closer
+"# } }}"##,
+        )
+        .unwrap();
+        assert!(matches!(&nested[0], TplNode::Expr(expr) if matches!(expr.expr, Expr::ForLoop(_))));
+    }
+
+    #[test]
+    fn markdown_in_a_control_body_is_rejected_with_the_nested_template_hint() {
+        let error = parse_tpl("{if ready { Available } else { **Sold out** }}").unwrap_err();
+        assert!(error.starts_with("bad expression `if ready"), "{error}");
+        assert!(error.contains("nested template"), "{error}");
+        let plain = parse_tpl("{self.title ++}").unwrap_err();
+        assert!(!plain.contains("nested template"), "{plain}");
+    }
+
+    #[test]
+    fn escapes_and_code_stay_literal() {
+        assert_eq!(kinds("Use {{expr}} here"), ["text\"Use {expr} here\""]);
+        assert_eq!(
+            kinds("`{literal}` and {x}"),
+            ["text\"`{literal}` and \"", "expr(x)"]
+        );
+        assert_eq!(
+            kinds("```rust\nThing { field }\n```\n{x}"),
+            ["text\"```rust\\nThing { field }\\n```\\n\"", "expr(x)"]
+        );
+        assert!(parse_tpl("lonely }").unwrap_err().contains("`}}`"));
+        assert!(parse_tpl("{open").unwrap_err().contains("`{{`"));
+    }
+
+    #[test]
+    fn unmatched_and_escaped_backticks_do_not_hide_slots() {
+        for source in [
+            "a `` {value} ` end",
+            "a ``` {value} `` end",
+            r"Escaped \`{value}`",
+            r"Escaped \\\`{value}`",
+        ] {
+            let nodes = parse_tpl(source).unwrap();
+            assert_eq!(
+                nodes
+                    .iter()
+                    .filter(|node| matches!(node, TplNode::Expr(_)))
+                    .count(),
+                1,
+                "{source}"
+            );
+        }
+        for source in [
+            "a `` {literal} `` end",
+            r"Even \\`{literal}`",
+            r"Escaped \``{literal}`",
+            "a `` {literal} ` still code `` end",
+        ] {
+            assert!(
+                parse_tpl(source)
+                    .unwrap()
+                    .iter()
+                    .all(|node| matches!(node, TplNode::Text(_))),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn sub_expressions_locate_inside_their_slot() {
+        let nodes =
+            parse_tpl(r#"ab {if self.stock > 0 { md_sync! { "x" } } else { other }} c"#).unwrap();
+        let TplNode::Expr(slot) = &nodes[1] else {
+            panic!("{nodes:?}");
+        };
+        let Expr::If(expr_if) = &slot.expr else {
+            panic!("{slot:?}");
+        };
+        let Some(ExprLocation::Decoded(range)) = slot.locate(expr_if.cond.span()) else {
+            panic!("condition not located");
+        };
+        assert_eq!(
+            &r#"ab {if self.stock > 0 { md_sync! { "x" } } else { other }} c"#[range],
+            "self.stock > 0"
+        );
+        let foreign: Expr = syn::parse_str("elsewhere").unwrap();
+        assert!(slot.locate(foreign.span()).is_none());
+    }
+
+    #[test]
+    fn named_arguments_bind_outside_control_expressions() {
+        let template: MdTemplateInput = syn::parse_str(
+            r####"r###"{if show { md_sync! { "x" } }}{for item in items { item }}"###, show = flag, items = &values"####,
+        )
+        .unwrap();
+        let nodes = template.parse_nodes().unwrap();
+        let rendered: Vec<String> = nodes
+            .iter()
+            .map(|node| match node {
+                TplNode::Expr(expr) => expr.to_token_stream().to_string(),
+                TplNode::Text(text) => text.clone(),
+            })
+            .collect();
+        let binding = template.argument_binding().unwrap();
+        assert_eq!(
+            binding.to_token_stream().to_string(),
+            "# [deny (unused_variables)] let (show , items ,) = (flag , & values ,) ;"
+        );
+        assert!(rendered[0].starts_with("if show {"), "{rendered:?}");
+        assert!(
+            rendered[1].starts_with("for item in items {"),
+            "{rendered:?}"
+        );
     }
 }

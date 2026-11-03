@@ -69,6 +69,7 @@ runs:
         cargo check --locked -p proa_framework_axum --lib
         cargo check --locked -p proa_framework_core --no-default-features --lib
         cargo check --locked -p proa_fonts -p rsjs_transport --no-default-features --lib
+        cargo check --locked -p proa_macros -p proa_dsl --no-default-features --lib
 
     - name: Check quickstart examples against the workspace CLI
       shell: bash
@@ -114,6 +115,8 @@ runs:
       shell: bash
       run: |
         corepack enable
+        pnpm -C editors/lsp install --frozen-lockfile --ignore-scripts
+        pnpm -C editors/vscode install --frozen-lockfile --ignore-scripts
         pnpm run editor:test
         PROA_TEST_LINT="$(realpath "${CARGO_TARGET_DIR:-target}/debug/proa")" pnpm -C editors/lsp test:lint
 

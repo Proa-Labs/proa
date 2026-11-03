@@ -7,11 +7,10 @@
 //! of each line is ambiguous: it is either Markdown (an indented code block,
 //! a nested list item) or the indentation that keeps the template aligned with
 //! the Rust code around it. Proa resolves this by treating the *common* prefix
-//! of every line as layout. Inside a multiline control body, one additional
-//! indentation level is layout too; deeper whitespace remains Markdown content.
+//! of every line as layout; deeper whitespace remains Markdown content.
 //!
-//! This module defines whole-template layout; `md::control` defines control-body
-//! layout. The macros and formatter share both rules.
+//! The macros and formatter share this rule. Control flow lives inside Rust
+//! slots, whose whitespace is Rust layout and never reaches the output.
 
 /// Whether a template literal carries layout indentation.
 ///
@@ -36,6 +35,11 @@ pub fn dedent_template(value: &str) -> String {
     let Some(body) = value.strip_prefix('\n') else {
         return value.to_owned();
     };
+    // Nothing but whitespace means there is no content to lay out: the
+    // literal is the output, so `"\n"` renders one blank line.
+    if body.trim().is_empty() {
+        return value.to_owned();
+    }
 
     let common = layout_indent(body);
     if common.is_empty() {
@@ -89,6 +93,12 @@ mod tests {
     fn single_line_template_is_untouched() {
         assert_eq!(dedent_template("  indented"), "  indented");
         assert!(!is_multiline_template("  indented"));
+    }
+
+    #[test]
+    fn whitespace_only_templates_are_content() {
+        assert_eq!(dedent_template("\n"), "\n");
+        assert_eq!(dedent_template("\n\n"), "\n\n");
     }
 
     #[test]

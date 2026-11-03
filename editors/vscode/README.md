@@ -52,10 +52,12 @@ it through that recommendation.
 To package from this directory:
 
 ```sh
+pnpm install --frozen-lockfile
 pnpm dlx @vscode/vsce package --no-dependencies
 ```
 
-Packaging refreshes the shared modules from `../lsp/src` into the VSIX. For
+Packaging refreshes the shared modules from `../lsp/src` and bundles the
+Markdown parser and its license notices into the VSIX. For
 extension development, run `pnpm test` first to refresh those modules locally.
 
 ## How it works

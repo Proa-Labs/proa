@@ -1,11 +1,12 @@
-error[E0277]: the trait bound `AsyncMd<'_, _, _>: MdRenderSync<proa_core::NoLoader, Vec<u8>>` is not satisfied
+error[E0277]: the trait bound `AsyncMdFn<_, _, {async closure@$DIR/tests/md_fail/async_fragment_in_sync.rs:13:18: 13:36}>: MdRenderSync<proa_core::NoLoader, Vec<u8>>` is not satisfied
   --> tests/md_fail/async_fragment_in_sync.rs:13:18
    |
 13 |     require_sync(md!("# {title}\n"));
-   |     ------------ ^^^^^^^^^^^^^^^^^^ the trait `MdRenderSync<proa_core::NoLoader, Vec<u8>>` is not implemented for `AsyncMd<'_, _, _>`
+   |     ------------ ^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
    |     |
    |     required by a bound introduced by this call
    |
+   = help: the trait `MdRenderSync<proa_core::NoLoader, Vec<u8>>` is not implemented for `AsyncMdFn<_, _, {async closure@$DIR/tests/md_fail/async_fragment_in_sync.rs:13:18: 13:36}>`
    = help: the following other types implement trait `MdRenderSync<Loader, B>`:
              `&String` implements `MdRenderSync<Loader, B>`
              `&str` implements `MdRenderSync<Loader, B>`

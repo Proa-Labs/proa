@@ -62,16 +62,16 @@ fn md_lowered(source: &str) -> Vec<Vec<MdRenderNode>> {
 
 #[test]
 fn anchors_md_template_to_the_macro_indentation() {
-    let source = "impl A {
+    let source = r#"impl A {
     fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
-        md_sync! {\"
+        md_sync! {"
 ## {self.title}
 
 {self.description}
-\"}
+"}
         .render_md(cx)
     }
-}";
+}"#;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
 
     assert!(
@@ -87,13 +87,13 @@ fn anchors_md_template_to_the_macro_indentation() {
 
 #[test]
 fn md_formatting_is_idempotent() {
-    let source = "fn f() {
-    let s = md_sync! {\"
+    let source = r#"fn f() {
+    let s = md_sync! {"
         # Title
 
         Body.
-    \"};
-}";
+    "};
+}"#;
     let once = format_file(Path::new("sample.rs"), source).unwrap().output;
     let twice = format_file(Path::new("sample.rs"), &once).unwrap().output;
     assert_eq!(once, twice);
@@ -102,16 +102,16 @@ fn md_formatting_is_idempotent() {
 
 #[test]
 fn md_formatting_preserves_relative_indentation() {
-    let source = "fn f() {
-    let s = md_sync! {\"
+    let source = r#"fn f() {
+    let s = md_sync! {"
 # List
 
 - top
   - nested
 
     code_line();
-\"};
-}";
+"};
+}"#;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     // Macro indent 4 + one level = 8, and the relative offsets survive.
     assert!(
@@ -127,13 +127,13 @@ fn md_formatting_preserves_relative_indentation() {
 
 #[test]
 fn md_formatting_handles_raw_strings() {
-    let source = "fn f() {
-    let s = md_sync! {r###\"
+    let source = r####"fn f() {
+    let s = md_sync! {r###"
 # {title}
 
-A \"quoted\" word.
-\"###};
-}";
+A "quoted" word.
+"###};
+}"####;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert!(
         formatted.contains("r###\"\n        # {title}\n"),
@@ -144,26 +144,136 @@ A \"quoted\" word.
 }
 
 #[test]
-fn md_formats_product_branches_and_unwraps_nested_loop() {
+fn md_formats_named_arguments_and_multiline_code_spans() {
+    let source = r####"fn f() {
+    md_sync! { r###"
+            {if show {
+            title
+            }}
+            `first
+            second`
+            "###, title = self.title
+    };
+}"####;
+    let formatted = format_file(Path::new("named.rs"), source).unwrap();
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert!(formatted.output.contains(
+        "        {if show {\n        title\n        }}\n        `first\n        second`"
+    ));
+    assert!(formatted.output.contains("\"###, title = self.title"));
+    assert!(verify_render_preserving(Path::new("named.rs"), source, &formatted.output).is_empty());
+    assert_eq!(
+        format_file(Path::new("named.rs"), &formatted.output)
+            .unwrap()
+            .output,
+        formatted.output
+    );
+}
+
+#[test]
+fn md_formatting_preserves_commonmark_containers_with_crlf() {
+    let source = r####"fn f() {
+    md_sync! { r###"
+- Example
+
+    ~~~text
+    {{literal}} {not_rust
+    ~~~
+Before `
+
+{value}
+
+After `
+"### };
+}"####
+        .replace('\n', "\r\n");
+    let path = Path::new("containers.rs");
+    let formatted = format_file(path, &source).unwrap();
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert!(verify_render_preserving(path, &source, &formatted.output).is_empty());
+    assert_eq!(
+        format_file(path, &formatted.output).unwrap().output,
+        formatted.output
+    );
+}
+
+#[test]
+fn md_formatting_preserves_escapes_and_quoted_code() {
+    let source = r####"fn f() {
+    md_sync! { r###"
+{{name}} {{{name}}} \{name} \{{name}} `{{name}}`
+{ { name } } {md_sync! { "{{{name}}}" }}
+> ~~~text
+> {{name}} {not_rust
+> ~~~
+{name}
+> > ```text
+> > {{name}} {not_rust
+> {name}
+"### };
+}"####;
+    let path = Path::new("escaped.rs");
+    let formatted = format_file(path, source).unwrap();
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert_ne!(formatted.output, source);
+    assert_eq!(md_lowered(source), md_lowered(&formatted.output));
+    assert!(verify_render_preserving(path, source, &formatted.output).is_empty());
+    assert_eq!(
+        format_file(path, &formatted.output).unwrap().output,
+        formatted.output
+    );
+}
+
+#[test]
+fn md_invalid_control_syntax_is_not_formatted_or_verified() {
+    for template in [
+        "{if false {A} elsse {B}}",
+        "{for x in xs {X} ignored}",
+        "{if true {unclosed}",
+    ] {
+        let source = format!(r####"fn f() {{ md_sync! {{ r###"{template}"### }}; }}"####);
+        let formatted = format_file(Path::new("invalid.rs"), &source).unwrap();
+        assert_eq!(formatted.output, source);
+        assert!(formatted
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "parse/template"));
+        assert!(
+            verify_render_preserving(Path::new("invalid.rs"), &source, &source)
+                .iter()
+                .any(|d| d.code == "format/verify")
+        );
+    }
+}
+
+#[test]
+fn md_formats_control_slots_preserving_relative_indentation() {
     let source = r####"impl Product {
     fn markdown(self) {
         md_sync! { r###"
-            ## {&self.name}
-            **{&self.price_label}**
-            {if self.stock > 0 {
-            Only {self.stock} left
-            } else {
-            **Sold out**
-            }}
-            ### Reviews
-            {if self.reviews.is_empty() {
-            _No reviews yet_
-            } else {
-            {for review in self.reviews.iter() {
-            - {review}
-            }}
-            }}
-            "###
+                ## {&self.name}
+                {if self.stock > 0 {
+                    md_sync! { "Only {self.stock} left\n" }
+                } else {
+                    md_sync! { "**Sold out**\n" }
+                }}
+                ### Reviews
+                {for review in self.reviews.iter() {
+                    md_sync! { "- {review}\n" }
+                }}
+                "###
         }
     }
 }"####;
@@ -171,19 +281,14 @@ fn md_formats_product_branches_and_unwraps_nested_loop() {
     fn markdown(self) {
         md_sync! { r###"
             ## {&self.name}
-            **{&self.price_label}**
             {if self.stock > 0 {
-                Only {self.stock} left
+                md_sync! { "Only {self.stock} left\n" }
             } else {
-                **Sold out**
+                md_sync! { "**Sold out**\n" }
             }}
             ### Reviews
-            {if self.reviews.is_empty() {
-                _No reviews yet_
-            } else {
-                for review in self.reviews.iter() {
-                    - {review}
-                }
+            {for review in self.reviews.iter() {
+                md_sync! { "- {review}\n" }
             }}
             "###
         }
@@ -201,20 +306,22 @@ fn md_formats_product_branches_and_unwraps_nested_loop() {
 }
 
 #[test]
-fn md_branch_formatting_preserves_markdown_indentation_and_code() {
+fn md_nested_template_literals_keep_markdown_indentation_and_code() {
     let source = r####"fn f() {
     md! { r###"
         {if show {
-            - outer
-              - {child}
+            md! { r#"
+                - outer
+                  - {child}
 
-                code_line();
+                    code_line();
 
-            ```rust
-            for item in items {
-                println!("{item}");
-            }
-            ```
+                ```rust
+                for item in items {
+                    println!("{item}");
+                }
+                ```
+            "# }
         }}
         "###
     }
@@ -222,16 +329,24 @@ fn md_branch_formatting_preserves_markdown_indentation_and_code() {
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert_eq!(formatted, source);
     assert!(verify_render_preserving(Path::new("sample.rs"), source, &formatted).is_empty());
-    let corrupted = formatted.replace("              - {child}", "                - {child}");
+    let corrupted = formatted.replace(
+        "                  - {child}",
+        "                    - {child}",
+    );
     assert!(!verify_render_preserving(Path::new("sample.rs"), source, &corrupted).is_empty());
 }
 
 #[test]
-fn md_preserves_inline_bodies_that_continue_on_another_line() {
+fn md_multiline_rust_slots_keep_their_layout() {
     let source = r####"fn f() {
     md_sync! { r###"
-        {if show {inline
-            retained
+        {for (index, group) in groups.iter().enumerate() {
+            if index > 0 {
+                md_sync! { "\n" }
+            }
+            for item in group {
+                md_sync! { {item} "\n" }
+            }
         }}
         "###
     }
@@ -244,14 +359,25 @@ fn md_preserves_inline_bodies_that_continue_on_another_line() {
 #[test]
 fn md_single_line_template_is_left_alone() {
     // Leading whitespace in a single-line template is content.
-    let source = "fn f() { let s = md_sync!(\"    indented\"); }";
+    let source = r#"fn f() { let s = md_sync!("    indented"); }"#;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert_eq!(formatted, source);
 }
 
 #[test]
+fn verify_preserves_markdown_argument_order_and_initializers() {
+    let source = r#"fn f() { md_sync! { "{b} {a}", a = first(), b = second() }; }"#;
+    for changed in [
+        source.replace("a = first(), b = second()", "b = second(), a = first()"),
+        source.replace("first()", "third()"),
+    ] {
+        assert!(!verify_render_preserving(Path::new("sample.rs"), source, &changed).is_empty());
+    }
+}
+
+#[test]
 fn md_token_mode_body_is_left_alone() {
-    let source = "fn f() { let s = md_sync! { \"# \" {title} \"\\n\" }; }";
+    let source = r##"fn f() { let s = md_sync! { "# " {title} "\n" }; }"##;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert_eq!(formatted, source);
 }
@@ -259,14 +385,14 @@ fn md_token_mode_body_is_left_alone() {
 #[test]
 fn md_body_with_a_comment_is_left_alone() {
     // Rebuilding the body from the literal token would drop the comment.
-    let source = "fn f() {
+    let source = r#"fn f() {
     let s = md_sync! {
         // the product heading
-        \"
+        "
 # Title
-\"
+"
     };
-}";
+}"#;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert_eq!(formatted, source);
 }
@@ -275,27 +401,27 @@ fn md_body_with_a_comment_is_left_alone() {
 fn md_escaped_newlines_are_left_alone() {
     // `\n` escapes decouple source lines from rendered lines, so the
     // layout indentation is not safe to rewrite.
-    let source = "fn f() {
-    let s = md_sync! {\"
-# Title\\n\\nBody.
-\"};
-}";
+    let source = r#"fn f() {
+    let s = md_sync! {"
+# Title\n\nBody.
+"};
+}"#;
     let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
     assert_eq!(formatted, source);
 }
 
 #[test]
 fn verify_accepts_md_reindentation() {
-    let source = "impl A {
+    let source = r#"impl A {
     fn f(&self) {
-        md_sync! {\"
+        md_sync! {"
 # {self.title}
 
 Body.
-\"}
+"}
         .render_md(cx)
     }
-}";
+}"#;
     let formatted = format_file(Path::new("sample.rs"), source).expect("format");
     let diags = verify_render_preserving(Path::new("sample.rs"), source, &formatted.output);
     assert!(diags.is_empty(), "verify failed: {diags:?}");
@@ -303,13 +429,13 @@ Body.
 
 #[test]
 fn verify_rejects_md_bodies_that_render_differently() {
-    let source = "fn f() {
-    let s = md_sync! {\"
+    let source = r#"fn f() {
+    let s = md_sync! {"
 # Title
 
 Body.
-\"};
-}";
+"};
+}"#;
     // Simulate a formatter bug: indent one line of a template whose other
     // lines stay flush left. The common prefix stays empty, so those four
     // spaces survive lowering and turn the paragraph into a code block.
@@ -318,5 +444,47 @@ Body.
     assert!(
         diags.iter().any(|d| d.code == "format/verify"),
         "expected a verify failure: {diags:?}"
+    );
+}
+
+#[test]
+fn markdown_named_argument_layout_moves_without_changing_literal_data() {
+    let source = r####"fn f() {
+    md_sync! { r###"
+                {title} {copy}
+                "###,
+                mark = '"' as u32,
+                title = {
+                    make_title()
+                },
+                copy = r#"first
+                    literal indentation
+                last"#,
+    };
+}"####;
+    let formatted = format_file(Path::new("arguments.rs"), source).unwrap();
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert!(
+        formatted
+            .output
+            .contains("\n        title = {\n            make_title()\n        },\n        copy ="),
+        "{}",
+        formatted.output
+    );
+    assert!(formatted
+        .output
+        .contains("first\n                    literal indentation\n                last"));
+    assert!(
+        verify_render_preserving(Path::new("arguments.rs"), source, &formatted.output).is_empty()
+    );
+    assert_eq!(
+        format_file(Path::new("arguments.rs"), &formatted.output)
+            .unwrap()
+            .output,
+        formatted.output
     );
 }

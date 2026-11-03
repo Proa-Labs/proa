@@ -1,0 +1,15 @@
+error: unused variable: `value`
+ --> tests/md_fail/named_arg_shadowed.rs:8:47
+  |
+8 |         "{if true { let value = 2; value }}", value = 1
+  |                                               ^^^^^ help: if this is intentional, prefix it with an underscore: `_value`
+  |
+note: the lint level is defined here
+ --> tests/md_fail/named_arg_shadowed.rs:7:41
+  |
+7 |       let _ = proa_core::render_to_string(md_sync! {
+  |  _________________________________________^
+8 | |         "{if true { let value = 2; value }}", value = 1
+9 | |     });
+  | |_____^
+  = note: this error originates in the macro `md_sync` (in Nightly builds, run with -Z macro-backtrace for more info)

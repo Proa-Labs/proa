@@ -173,12 +173,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for I
             "###
         }.render_md(cx)?;
         if d.events.is_empty() {
-            md_sync! { r###"
-                No event samples recorded.
-
-                "###
-            }
-            .render_md(cx)?;
+            md_sync! { "No event samples recorded.\n\n" }.render_md(cx)?;
         }
         for event in &d.events {
             Telemetry(event).render_md(cx)?;
@@ -255,11 +250,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for R
         }
         .render_md(cx)?;
         for step in &self.data.runbook_steps {
-            md_sync! { r###"
-                1. {step.as_str()}
-                "###
-            }
-            .render_md(cx)?;
+            md_sync! { "1. {step.as_str()}\n" }.render_md(cx)?;
         }
         cx.md_block_boundary()
     }
@@ -286,18 +277,9 @@ impl<L: DataLoader> WebRenderSync<L> for ActionSummary<'_> {
 }
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ActionSummary<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        md_sync! { r###"
-            ## Next step
-
-            "###
-        }
-        .render_md(cx)?;
+        md_sync! { "## Next step\n\n" }.render_md(cx)?;
         if self.data.issue.status == "resolved" {
-            md_sync! { r###"
-                **Resolved.** Review the recovery notes in Activity. No resolution action is available.
-
-                "###
-            }.render_md(cx)
+            md_sync! { "**Resolved.** Review the recovery notes in Activity. No resolution action is available.\n\n" }.render_md(cx)
         } else if self.data.can_resolve {
             let id = InlineCode(&self.data.issue.id);
             md_sync! { r###"
@@ -312,11 +294,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for A
             }
             .render_md(cx)
         } else {
-            md_sync! { r###"
-                **Read access.** Share your findings with a workspace maintainer. This session cannot resolve the issue.
-
-                "###
-            }.render_md(cx)
+            md_sync! { "**Read access.** Share your findings with a workspace maintainer. This session cannot resolve the issue.\n\n" }.render_md(cx)
         }
     }
 }
@@ -350,12 +328,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for A
         if self.data.activity.is_empty() {
             return Ok(());
         }
-        md_sync! { r###"
-            ## Activity
-
-            "###
-        }
-        .render_md(cx)?;
+        md_sync! { "## Activity\n\n" }.render_md(cx)?;
         for a in &self.data.activity {
             let client = InlineCode(&a.client_id);
             md_sync! { r###"
@@ -393,7 +366,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for I
         let runbook = Runbook::new(self.data);
         let actions = ActionSummary::new(self.data);
         let activity = ActivityLog::new(self.data);
-        md_sync! { r###"{overview}{impact}{release}{runbook}{actions}{activity}"### }.render_md(cx)
+        md_sync! { "{overview}{impact}{release}{runbook}{actions}{activity}" }.render_md(cx)
     }
 }
 pub fn markdown(data: &IssueProjection) -> Result<String, WriteError> {

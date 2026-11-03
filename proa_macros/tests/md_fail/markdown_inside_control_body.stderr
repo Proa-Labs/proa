@@ -1,0 +1,31 @@
+error: bad expression `for x in [1] { "X" } ignored`: unexpected token
+
+       Text inside `{ ... }` is Rust, including the bodies of `if`, `for`, and `match`. A branch renders its final expression, so write Markdown there as a nested template: `{if ready { md_sync! { "**In stock**" } } else { "Backordered" }}`. Plain Markdown is never parsed inside a slot.
+  --> tests/md_fail/markdown_inside_control_body.rs:10:22
+   |
+10 |     let _ = md_sync!("{for x in [1] { \"X\" } ignored}");
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: bad expression `if ready { "ok" } elsse { "no" }`: unexpected token
+
+       Text inside `{ ... }` is Rust, including the bodies of `if`, `for`, and `match`. A branch renders its final expression, so write Markdown there as a nested template: `{if ready { md_sync! { "**In stock**" } } else { "Backordered" }}`. Plain Markdown is never parsed inside a slot.
+  --> tests/md_fail/markdown_inside_control_body.rs:11:22
+   |
+11 |     let _ = md_sync!("{if ready { \"ok\" } elsse { \"no\" }}");
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0425]: cannot find value `Available` in this scope
+ --> tests/md_fail/markdown_inside_control_body.rs:9:13
+  |
+9 |     let _ = md_sync!("{if ready {Available} else {Unavailable}}");
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+  |
+  = note: this error originates in the macro `md_sync` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0425]: cannot find value `Unavailable` in this scope
+ --> tests/md_fail/markdown_inside_control_body.rs:9:13
+  |
+9 |     let _ = md_sync!("{if ready {Available} else {Unavailable}}");
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+  |
+  = note: this error originates in the macro `md_sync` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -117,28 +117,109 @@ newline fragments. Raw-template interpolation stays literal inside code
 spans/fences; use an explicit typed code child or token composition when an
 example needs dynamic code values.
 
-Indent multiline `if` and `for` bodies one level. That level is source layout
-and is removed when rendering; deeper indentation still expresses Markdown
-lists or code. Inside a control body, nested controls can omit their outer
-interpolation braces:
+The grammar has one rule at every depth: text outside `{ ... }` is Markdown,
+and text inside is a Rust expression. Control flow is ordinary Rust (`if`,
+`else if`, `for`, `match`, `if let`), and a branch renders only its final
+expression. Earlier statements keep ordinary Rust semantics; a semicolon
+discards a value. A branch re-enters Markdown only through a nested `md_sync!` (or `md!`) call; a bare string tail renders
+as escaped text, so markup needs the nested template:
 
 ```rust
 md_sync! { r###"
     ### Reviews
+
     {if self.reviews.is_empty() {
-        _No reviews yet_
+        md_sync! { "_No reviews yet_" }
     } else {
         for review in self.reviews.iter() {
-            - {review}
+            md_sync! { "- {review}\n" }
         }
+    }}
+
+    {if self.stock > 0 {
+        md_sync! { "Only {self.stock} left" }
+    } else {
+        md_sync! { "Backordered" }
     }}
     "###
 }
 ```
 
-Existing unindented bodies remain supported. `proa fmt --verify` canonicalizes
-branch layout and redundant wrappers on standalone nested controls while
-checking the parsed content and control flow remain equivalent.
+Use an ordinary one-line string for short inline markup or list rows:
+`md_sync! { "**In stock**" }` or `md_sync! { "- {review}\n" }`. Keep the newline
+when each iteration must produce a separate line. A single literal still
+interpolates `{expression}`; splitting it into quoted token pieces is unnecessary.
+Use raw literals with fewer hashes for substantial multiline fragments or when
+they substantially reduce escaping. Each multiline literal removes its own
+common indentation and retains its authored trailing newlines. Keep
+token composition for generated/token-aware tooling, tests of that API, and
+dynamic content inside code fences, which raw templates deliberately keep literal.
+Nested `md!` and `html!` may borrow loop items and local strings across awaits.
+Their shared typed async continuation keeps those borrows alive until rendering
+finishes; neither requires cloning the input. Use a sync nested fragment when
+it has no async children.
+Plain Markdown is never parsed inside a slot, so `if`, `for`, and `match` are
+ordinary words in Markdown text, and a line means the same thing at the top
+level and inside a branch. Invalid Rust in a control-flow slot gets a diagnostic
+showing the nested-template form. A bare word is valid Rust syntax and is resolved
+as an identifier; an unknown name gets Rust's ordinary unresolved-name error.
+Named arguments bind values for the whole template, including conditions,
+iterators, and nested templates.
+
+An unbounded `loop` can stream nested Proa templates and exit through `return`
+or `?`, including on Rust 2024. Use absolute paths such as
+`::proa_macros::md_sync!` for nested templates in these loops. Unqualified names
+can refer to user macros, so their expansions remain opaque to loop-exit
+analysis. A divergent loop containing an opaque macro may need a concrete
+result type. Write control-flow exits directly in Rust when possible.
+
+A raw Rust literal disables Rust backslash escaping, not template slots.
+For example, `md_sync! { r#"{"Hello {name}"}"# }` renders `Hello {name}`:
+the outer braces are a slot containing a Rust string. To print the braces and
+quotes too, write `md_sync! { r#"{{"Hello {{name}}"}}"# }`. A string value
+inside a slot is never recursively interpreted as a template.
+
+Brace escaping happens once, before Markdown is rendered. With `name = "Ada"`:
+
+| Template content | Markdown source emitted |
+| --- | --- |
+| `{{name}}` | `{name}` |
+| `{{{name}}}` | `{Ada}` |
+| `\{name}` | `\Ada` |
+| `{{ name }}` | `{ name }` |
+| `{ { name } }` | `Ada` |
+
+A backslash is Markdown content, not a template-brace escape. In a cooked Rust
+literal, write `\\` to produce that backslash; raw literals preserve it directly.
+To enter a Rust block expression, separate the slot's opening brace from the
+block's opening brace with whitespace, as in the last row. Inside inline code
+and fences, including fences in blockquotes, leave braces as authored:
+`{{name}}` in code stays doubled. Runtime strings are never scanned for slots.
+
+Code boundaries follow CommonMark with GFM tables after template dedenting.
+Fences inside lists and blockquotes, indented code blocks, and inline code all
+keep braces literal. An inline code span cannot cross a paragraph, table cell,
+or another block boundary. Rust slots are opaque: strings and layout inside a
+slot cannot open a Markdown fence or HTML block in the surrounding template.
+
+Indentation inside a slot is Rust layout and never reaches the output. A
+whitespace-only template such as `md_sync! { "\n" }` is emitted verbatim, so
+a branch can contribute a blank line. `{{` and
+`}}` are literal braces in Markdown text; braces inside inline code spans and
+fenced code blocks are literal without escaping. `proa fmt` re-anchors the
+template one level beneath the invocation and preserves relative indentation;
+it never rewrites slot contents. File-scoped `proa check` and `proa lint`
+validate Markdown syntax without requiring a Cargo build, and `proa fmt`
+refuses invalid templates.
+
+Named arguments are Rust bindings: `md_sync! { "{value}", value = data.title }`.
+They evaluate once, in declaration order, when rendering starts. Every
+initializer sees the caller's scope; the argument names become visible after
+all initializers finish. Branch locals, loop patterns, closures, and nested
+templates then follow normal Rust scope and ownership rules. Borrow a value
+when it must render more than once (`"{&value} {&value}"`). Duplicate names
+are template errors; Rust diagnoses unused bindings, with the usual `_name`
+convention for intentionally ignored values.
 
 See [the marketing homepage](../../proa_marketing/src/pages/home.rs),
 [About/Contact](../../proa_marketing/src/pages/info.rs), and
@@ -186,3 +267,12 @@ does not waive the template authoring rule.
 Run Proa formatting/lint and focused checks of rendered behavior: dynamic data,
 escaping, shared HTML/Markdown values, link destinations, JSON types, and HTTP
 status/content negotiation. Do not pin prose copied from the implementation.
+
+### Markdown compiler dependencies
+
+The `markdown` feature on `proa_macros` and `proa_dsl` is enabled by default.
+HTML/XML-only consumers can set `proa_macros = { version = "0.3", default-features = false }`
+to omit the Markdown parsers. Enable `features = ["markdown"]` explicitly when
+using `md!` or `md_sync!` with default features disabled. Cargo unifies features:
+if another dependency enables Markdown, its parser dependencies are still built.
+Source tools and documentation builders enable Markdown explicitly.
