@@ -5,7 +5,8 @@ error: cannot render a block Markdown template inside an inline scope; use an or
  7 | |         [{::proa_macros::md_sync! { r#"
  8 | |             ## Heading
  9 | |             "# }}](/target)
-10 | |         "### }
-   | |______________^
+10 | |         "###
+11 | |     }
+   | |_____^
    |
    = note: this error originates in the macro `md_sync` (in Nightly builds, run with -Z macro-backtrace for more info)

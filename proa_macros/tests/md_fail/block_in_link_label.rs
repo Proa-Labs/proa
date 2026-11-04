@@ -7,7 +7,8 @@ fn main() {
         [{::proa_macros::md_sync! { r#"
             ## Heading
             "# }}](/target)
-        "### }
+        "###
+    }
     .render_md(&mut cx)
     .unwrap();
 }
