@@ -212,12 +212,13 @@ fn reject_direct_block_child(expr: &Expr) -> syn::Result<()> {
     let error = std::cell::RefCell::new(None);
     crate::render_control::lower(expr, &|child| {
         if let Expr::Macro(child) = child {
-            // Match the macro by name however it is imported: the usual
-            // `use proa_macros::md_sync;`, the qualified path, and re-exports.
-            // A user macro sharing the name is claimed only when its input is
-            // a single multiline raw literal, and that false positive is a
-            // compile error at the nested call, not a miscompile. Children
-            // behind helpers keep the runtime check.
+            // Match the macro under its own name: the usual
+            // `use proa_macros::md_sync;`, qualified paths, and re-exports.
+            // A renamed import cannot be recognized and keeps the runtime
+            // check, as do children behind helpers. A user macro sharing the
+            // name is claimed only when its input is a single multiline raw
+            // literal, and that false positive is a compile error at the
+            // nested call, not a miscompile.
             if child
                 .mac
                 .path

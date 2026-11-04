@@ -150,10 +150,12 @@ md_sync! { "**{self.children}**" }.render_md(cx)?;
 Blocks inside active inline scopes are errors. This includes link labels,
 headings, emphasis, and table cells in literal templates, as well as inline
 scopes entered by typed components. A directly rendered `md_sync!` or `md!`
-block literal is rejected at compile time however the macro is imported; typed
-children and children reached through helpers are checked at render time before
-that block's boundary or body writes. Earlier prefix bytes remain. Provide an inline representation instead of embedding a document in
-a link or table cell. Legacy token composition inherits these restrictions.
+block literal is rejected at compile time when the macro is called under its
+own name, including qualified paths and re-exports. Renamed imports, typed
+children, and children reached through helpers are checked at render time
+before that block's boundary or body writes. Earlier prefix bytes remain.
+Provide an inline representation instead of embedding a document in a link or
+table cell. Legacy token composition inherits these restrictions.
 
 An empty block body emits nothing at the start of output, but can still finish
 a boundary after preceding prose. A body with no rendered loop items still
