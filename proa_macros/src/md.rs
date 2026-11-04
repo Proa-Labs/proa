@@ -172,11 +172,24 @@ pub fn generate_template(tpl: &MdTemplateInput, mode: EmitMode) -> Result<TokenS
     let lit = &tpl.lit;
     let nodes = tpl.parse_nodes()?;
     let block = proa_dsl::md::is_multiline_raw_literal(lit);
-    let inline_slots = proa_dsl::md::inline_slot_contexts(&nodes);
-    let mut slots = inline_slots.iter();
+    // An inline template is itself one inline scope, so every slot in it is
+    // already restricted: a block child anywhere is rejected, and a per-slot
+    // scope could only save and restore state that cannot change. Only block
+    // templates classify their slots.
+    let inline_slots = if block {
+        proa_dsl::md::inline_slot_contexts(&nodes)
+    } else {
+        let slot_count = nodes
+            .iter()
+            .filter(|node| matches!(node, TplNode::Expr(_)))
+            .count();
+        vec![false; slot_count]
+    };
+    let mut slots = inline_slots.iter().copied();
     for node in &nodes {
         if let TplNode::Expr(expr) = node {
-            if !block || *slots.next().expect("one context per expression") {
+            let restricted = slots.next().expect("one context per expression");
+            if !block || restricted {
                 reject_direct_block_child(expr)?;
             }
         }
@@ -199,16 +212,18 @@ fn reject_direct_block_child(expr: &Expr) -> syn::Result<()> {
     let error = std::cell::RefCell::new(None);
     crate::render_control::lower(expr, &|child| {
         if let Expr::Macro(child) = child {
-            // Unqualified names may be shadowed by user macros. Only claim
-            // the known Proa path; other children retain the runtime check.
-            if child.mac.path.segments.len() == 2
-                && child.mac.path.segments[0].ident == "proa_macros"
-                && child
-                    .mac
-                    .path
-                    .segments
-                    .last()
-                    .is_some_and(|segment| segment.ident == "md_sync" || segment.ident == "md")
+            // Match the macro by name however it is imported: the usual
+            // `use proa_macros::md_sync;`, the qualified path, and re-exports.
+            // A user macro sharing the name is claimed only when its input is
+            // a single multiline raw literal, and that false positive is a
+            // compile error at the nested call, not a miscompile. Children
+            // behind helpers keep the runtime check.
+            if child
+                .mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "md_sync" || segment.ident == "md")
             {
                 if let Ok(template) = syn::parse2::<MdTemplateInput>(child.mac.tokens.clone()) {
                     if proa_dsl::md::is_multiline_raw_literal(&template.lit) {
@@ -568,6 +583,39 @@ mod template_tests {
             {value} {value}
             "###, value = 1, value = 2 });
         assert!(err.contains("duplicate"), "wrong error: {err}");
+    }
+
+    #[test]
+    fn nested_block_literals_are_rejected_however_the_macro_is_named() {
+        for path in [
+            "md_sync",
+            "md",
+            "proa_macros::md_sync",
+            "::proa_macros::md",
+            "crate::prelude::md_sync",
+        ] {
+            let value = format!("**{{{path}! {{ r#\"\n## Heading\n\"# }}}}**");
+            let lit = proc_macro2::Literal::string(&value);
+            let err = expand_err(quote! { #lit });
+            assert!(err.contains("inside an inline scope"), "{path}: {err}");
+        }
+        // Nested inline literals and block literals in block slots stay legal.
+        expand(quote! { r#"**{md_sync! { "inline" }}**"# });
+        expand(quote! { r###"
+            {md_sync! { r#"
+                ## Heading
+                "# }}
+            "### });
+    }
+
+    #[test]
+    fn inline_templates_do_not_open_per_slot_scopes() {
+        let out = expand(quote! { "**{value}** [{label}](/target)" });
+        assert!(!out.contains("__MdTemplateScope"), "redundant scope: {out}");
+        let out = expand(quote! { r###"
+            **{value}**
+            "### });
+        assert!(out.contains("__MdTemplateScope"), "missing scope: {out}");
     }
 
     #[test]
