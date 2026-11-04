@@ -288,14 +288,18 @@ pub fn xml_sync(input: TokenStream) -> TokenStream {
 /// - `{for ...}` and `{if ...}` provide template control flow
 /// - Wrap synchronous custom children with `proa_core::to_md_async(...)`
 ///
-/// A single physically multiline raw literal selects block mode, independent
-/// of its hash count. It completes paragraph boundaries before rendering and
-/// after success. Ordinary strings and single-line raw literals select inline
-/// mode and preserve explicit newlines without adding boundaries. Mode scopes
-/// begin at render time and restore their enclosing mode on error, unwinding,
-/// and cancellation, preserving partial output. Blocks inside inline scopes
-/// (including link labels and table cells) are rejected. Token composition
-/// inherits the caller's mode.
+/// Every template renders in one of three modes, chosen by the literal's shape
+/// when the template renders:
+///
+/// | Mode | Literal | Around the body |
+/// |---|---|---|
+/// | Block | raw literal spanning source lines, any hash count | completes a paragraph boundary before and after, adding only missing line feeds; errors inside an inline scope |
+/// | Inline | ordinary string or one-line raw literal | writes bytes as authored, including `\n`; rejects block children |
+/// | Inherit | token composition such as `md! { "# " {title} }` | nothing; follows the caller |
+///
+/// Scopes restore the enclosing mode on error, unwinding, and cancellation and
+/// never roll back partial output. See the "Template modes" section of
+/// `docs/agent/document-rendering.md` for byte examples.
 ///
 /// ## Editor support
 ///
@@ -350,8 +354,9 @@ pub fn md(input: TokenStream) -> TokenStream {
 /// [`md!`]. Its syntax is identical — including `format!`-style named
 /// arguments and the rust-analyzer placeholder support described there — but
 /// every interpolated `{expr}` must implement `MdRenderSync`.
-/// The same automatic inline/block scopes apply, restoring the enclosing mode
-/// on success, errors, and panic unwinding without buffering or rolling back output.
+/// The same three template modes apply (block, inline, inherit; see [`md!`]),
+/// restoring the enclosing mode on success, errors, and panic unwinding without
+/// buffering or rolling back output.
 /// See [`md!`]'s editor-support documentation for the Proa extension and
 /// native IDE support through named arguments.
 ///

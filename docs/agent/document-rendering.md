@@ -117,52 +117,85 @@ newline fragments. Raw-template interpolation stays literal inside code
 spans/fences; use an explicit typed code child or token composition when an
 example needs dynamic code values.
 
-### Automatic inline and block scopes
+### Template modes
 
-The single-literal forms of `md_sync!` and `md!` select their rendering mode
-when rendered, never when constructed:
+Every `md_sync!` and `md!` template renders in one of three modes. The shape of
+the literal selects the mode, the mode is applied when the template renders,
+and it decides what the framework writes around the body:
 
-| Literal form | Rendering mode |
-| --- | --- |
-| A raw literal containing a physical source-line break | Block |
-| An ordinary string, including one containing `\n` or physical line breaks | Inline |
-| A single-line raw literal | Inline |
-| Legacy token composition (`"**" {child} "**"`) | Inherit the caller's mode |
+| Mode | Select it with | Before the body | After the body | Use it for |
+| --- | --- | --- | --- | --- |
+| Block | A raw literal spanning source lines | Completes a paragraph boundary, adding only the missing line feeds and nothing at the start of output; errors inside an inline scope | Completes a paragraph boundary | Documents and sections: anything with headings, paragraphs, or lists |
+| Inline | An ordinary string, or a raw literal on one line | Marks the output as inline content, so a block child errors | Restores the caller's mode | Labels, bold or link text, table cells, list rows |
+| Inherit | Token composition such as `md_sync! { "- " {item} "\n" }` | Nothing | Nothing | Byte-exact output that must not gain boundaries, such as `robots.txt` |
 
-Raw delimiter hashes only delimit the literal; all supported hash counts,
-including zero, follow the same rule. Existing dedenting is unchanged.
-An inline template preserves explicit newlines and adds no paragraph boundaries.
-A block template establishes a boundary before its body and after success:
-it adds no leading whitespace at the start of output and otherwise adds only
-the missing LF bytes needed for a blank line. Automatically inserted boundaries
-are deduplicated; authored whitespace is never collapsed.
+Raw delimiter hashes only delimit the literal: `r"`, `r#"`, and `r###"` follow
+the same rule, and dedenting is unchanged.
 
-The framework restores the immediately enclosing inline setting on success,
-error, panic unwinding, and (for `md!`) cancellation. It does not reset heading
-offset or list depth. Partial output and its boundary tracking remain live;
-cleanup never rolls back bytes or appends a trailing boundary after failure.
-Authors can use `.render_md(cx)?` directly:
+**Block.** The body starts and ends on a paragraph boundary, and authored
+whitespace is never collapsed. After inline text:
+
+```rust
+md_sync! { "Intro" }.render_md(cx)?;
+md_sync! { r#"
+    ## Heading
+
+    Body
+    "#
+}
+.render_md(cx)?;
+```
+
+writes `Intro\n\n## Heading\n\nBody\n\n`. The two line feeds after `Intro` and
+the final one after `Body` were added; every other byte is the literal.
+
+**Inline.** Bytes are written exactly as authored, including `\n`:
+
+```rust
+md_sync! { "**{status}**" }.render_md(cx)?; // **Ready**
+for item in items {
+    md_sync! { "- {item}\n" }.render_md(cx)?; // - a\n- b\n
+}
+```
+
+An inline template is an inline scope, so a block child inside it is an error:
+
+```rust
+md_sync! { "[{Section}](/docs)" } // Section renders a block template
+```
+
+fails with `cannot render a block Markdown template inside an inline scope`
+after writing `[`. The inline parts of a block template behave the same way:
+link text, headings, emphasis, strikethrough, and table cells. A directly
+nested `md_sync!` or `md!` block literal called under its own name is rejected
+at compile time; typed children, renamed imports, and children reached through
+helpers fail at render time before the block writes its boundary or body.
+Earlier bytes remain. Give such children an inline representation instead of
+embedding a document in a link or table cell.
+
+**Inherit.** Token composition adds no bytes of its own and follows the caller.
+`md_sync! { "Intro" }` followed by `md_sync! { "- " {item} "\n" }` writes
+`Intro- a\n`. Use it only when the output must not gain boundaries, and spell
+every separator yourself. It also inherits the inline restriction: a block
+child inside an inline caller still errors.
+
+**Guarantees in every mode.** The framework restores the enclosing inline
+setting on success, error, panic unwinding, and (for `md!`) cancellation. It
+does not reset heading offset or list depth. Partial output and its boundary
+tracking remain live; cleanup never rolls back bytes or appends a trailing
+boundary after failure. Call `.render_md(cx)?` directly rather than saving and
+restoring `md_set_inline`:
 
 ```rust
 md_sync! { "**{self.children}**" }.render_md(cx)?;
 ```
 
-Blocks inside active inline scopes are errors. This includes link labels,
-headings, emphasis, and table cells in literal templates, as well as inline
-scopes entered by typed components. A directly rendered `md_sync!` or `md!`
-block literal is rejected at compile time when the macro is called under its
-own name, including qualified paths and re-exports. Renamed imports, typed
-children, and children reached through helpers are checked at render time
-before that block's boundary or body writes. Earlier prefix bytes remain.
-Provide an inline representation instead of embedding a document in a link or
-table cell. Legacy token composition inherits these restrictions.
-
-An empty block body emits nothing at the start of output, but can still finish
-a boundary after preceding prose. A body with no rendered loop items still
-retains any authored newlines around that loop. Whitespace-only raw literals
-keep their literal whitespace, including closing-line indentation under the
-existing parser contract, then complete a trailing boundary. An empty ordinary
-or single-line raw literal emits nothing.
+**Edge cases.** An empty block body emits nothing at the start of output, but
+can still finish a boundary after preceding prose. A body with no rendered loop
+items still retains any authored newlines around that loop. Whitespace-only raw
+literals keep their literal whitespace, including closing-line indentation under
+the existing parser contract, then complete a trailing boundary. An empty
+ordinary or single-line raw literal emits nothing.
 
 ### Migrate existing formatting scopes
 

@@ -52,18 +52,25 @@ template, so `{feature}` interpolates normally. Keep `\n` when the fragment
 must end a line; dropping it would join loop iterations. Do not turn a short
 fragment into a multiline raw template just to avoid that one escape.
 
-Single-literal templates scope their mode automatically at render time:
-physically multiline raw literals are blocks, ordinary strings and single-line
-raw literals are inline. Hash count never selects the mode. Blocks add only
-missing paragraph-boundary bytes before rendering and after success; inline
-fragments retain explicit newlines. Scopes restore the caller's mode on errors,
+Every template renders in one of three modes, chosen by the literal's shape:
+
+- Block: a raw literal spanning source lines. Adds only the missing line feeds
+  so the body starts and ends on a paragraph boundary. Use for documents and
+  sections.
+- Inline: an ordinary string or a one-line raw literal. Writes bytes exactly as
+  authored, including `\n`, and rejects block children. Use for labels, bold or
+  link text, table cells, and list rows.
+- Inherit: token composition such as `md_sync! { "- " {item} "\n" }`. Adds
+  nothing and follows the caller. Use only for byte-exact output.
+
+Hash count never selects the mode. Scopes restore the caller's mode on errors,
 unwinding, and async cancellation, preserving output and its suffix tracking.
 Use `.render_md(cx)?` directly instead of manual `md_set_inline` save/restore.
-Do not put a block template in an inline scope, link label, heading, emphasis,
-or table cell: known direct nesting is a compile error, and typed children fail
-at render time before the block writes anything. Give those children an inline
-representation. Legacy token composition keeps the caller's mode. See the
-document-rendering guide for empty/whitespace-only blocks and boundary examples.
+Do not put a block template in an inline template, link text, heading,
+emphasis, strikethrough, or table cell: a directly nested `md_sync!` or `md!`
+block literal is a compile error, and typed children fail at render time before
+the block writes anything. Give those children an inline representation. See
+the "Template modes" section of the document-rendering guide for byte examples.
 
 Text outside `{ ... }` is Markdown; each slot is Rust at every nesting depth.
 Use ordinary Rust `if`, `for`, and `match` inside slots, and explicitly re-enter

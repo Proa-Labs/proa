@@ -669,12 +669,43 @@ impl<L: DataLoader, B: WriteBuf> Drop for MdHeadingScope<'_, L, B> {
     }
 }
 
-/// The literal-form mode selected by a compiled Markdown template.
-/// Token-composed templates retain the inherited mode for compatibility.
+/// Template modes: the behavior a compiled Markdown template wraps around its
+/// body at render time. This constant is the inherit mode; the table below
+/// covers all three.
+///
+/// `md_sync!` and `md!` pick one of these constants at expansion time from the
+/// shape of the literal and stamp it on the template as the `MODE` const
+/// parameter of `OptimizedMd` and `AsyncMdFn`, through the hidden
+/// `__proa_template_mode` method. When the template renders,
+/// `MdTemplateScope<MODE>` turns the value into a prologue that runs before the
+/// render closure and an epilogue that runs after it succeeds:
+///
+/// | Mode | Literal form | Before the body | After the body |
+/// |---|---|---|---|
+/// | [`MD_TEMPLATE_BLOCK`] | multiline raw string | error inside an inline scope, otherwise complete a paragraph boundary | complete a paragraph boundary |
+/// | [`MD_TEMPLATE_INLINE`] | ordinary string or single-line raw string | mark the inline scope so block children are rejected | restore the caller's flags |
+/// | [`MD_TEMPLATE_INHERIT`] | token composition such as `md_sync! { {a} "x" }` | nothing | nothing |
+///
+/// The modes are `u8` constants rather than an enum because stable const
+/// generics accept only integer, `bool`, and `char` parameters. Carrying the
+/// mode in the type means each variant is monomorphized separately: a template
+/// stores no mode byte and branches on nothing at render time. The constants
+/// are hidden from the public documentation because only macro output names
+/// them; application code selects a mode by choosing the literal form.
+///
+/// Inherit mode: no prologue or epilogue. The template renders in the caller's
+/// mode, as every template did before literal modes existed.
 #[doc(hidden)]
 pub const MD_TEMPLATE_INHERIT: u8 = 0;
+/// Inline mode, selected by an ordinary string or a single-line raw literal:
+/// marks the inline scope so block children are rejected, then restores the
+/// caller's flags. Explicit newlines in the body are written as authored.
+/// See [`MD_TEMPLATE_INHERIT`] for the full mode table.
 #[doc(hidden)]
 pub const MD_TEMPLATE_INLINE: u8 = 1;
+/// Block mode, selected by a multiline raw literal: errors inside an inline
+/// scope, otherwise completes a paragraph boundary before the body and again
+/// after it succeeds. See [`MD_TEMPLATE_INHERIT`] for the full mode table.
 #[doc(hidden)]
 pub const MD_TEMPLATE_BLOCK: u8 = 2;
 
