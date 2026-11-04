@@ -238,7 +238,9 @@ where
 
 /// Bridge path: allows `render_to_string(md_sync!(...))` and
 /// Markdown children in WebRender. Reuses the live context while isolating
-/// the fragment's Markdown formatting state.
+/// the fragment's heading offset and list depth. Inline-scope flags and output
+/// suffix tracking carry across the bridge, so block templates still obey the
+/// inline rule and boundaries are not duplicated around the fragment.
 impl<L, B, F, const MODE: u8> WebRenderSync<L, B> for OptimizedMd<L, B, F, MODE>
 where
     B: WriteBuf,

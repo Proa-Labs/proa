@@ -634,10 +634,12 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     }
 }
 
-/// A Markdown fragment entered through a web trait starts with fresh formatting
-/// state. A borrowed guard restores the complete outer state even when an
-/// awaited fragment is cancelled or panics. The output and request state stay
-/// live, so this scope neither allocates nor rolls back their mutations.
+/// A Markdown fragment entered through a web trait starts with a fresh heading
+/// offset and list depth but keeps the caller's inline-scope flags and output
+/// suffix tracking. A borrowed guard restores the formatting and scope state
+/// even when an awaited fragment is cancelled or panics, while the suffix
+/// tracking follows the bytes actually written. The output and request state
+/// stay live, so this scope neither allocates nor rolls back their mutations.
 pub(crate) struct MdFragmentScope<'cx, L: DataLoader, B: WriteBuf> {
     cx: &'cx mut WebContext<L, B>,
     saved: MdState,
@@ -738,7 +740,16 @@ impl<L: DataLoader, B: WriteBuf, const MODE: u8> Drop for MdTemplateScope<'_, L,
 
 impl<'cx, L: DataLoader, B: WriteBuf> MdFragmentScope<'cx, L, B> {
     pub(crate) fn new(cx: &'cx mut WebContext<L, B>) -> Self {
-        let saved = std::mem::take(&mut cx.md_state);
+        let saved = cx.md_state;
+        // Formatting state starts fresh. The inline-scope flags carry in so a
+        // block fragment inside an inline scope is still rejected, and the
+        // suffix tracking carries in so the fragment's leading boundary sees
+        // the bytes already written to the shared buffer.
+        cx.md_state = MdState {
+            heading_offset: 0,
+            list_depth: 0,
+            ..saved
+        };
         Self { cx, saved }
     }
 
@@ -749,7 +760,15 @@ impl<'cx, L: DataLoader, B: WriteBuf> MdFragmentScope<'cx, L, B> {
 
 impl<L: DataLoader, B: WriteBuf> Drop for MdFragmentScope<'_, L, B> {
     fn drop(&mut self) {
-        self.cx.md_state = self.saved;
+        // Restore formatting and scope flags; keep the suffix tracking that
+        // describes the bytes the fragment actually wrote, so the caller's
+        // next boundary is not emitted twice.
+        let live = self.cx.md_state;
+        self.cx.md_state = MdState {
+            trailing_line: live.trailing_line,
+            pending_cr: live.pending_cr,
+            ..self.saved
+        };
     }
 }
 

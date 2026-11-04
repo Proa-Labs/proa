@@ -834,3 +834,79 @@ async fn async_strikethrough_rejects_typed_blocks_after_suspension() {
     assert!(!cx.md_inline());
     assert_eq!(cx.into_output(), b"~~");
 }
+
+struct BridgedBlock;
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BridgedBlock {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        proa_core::WebRenderSync::render(
+            md_sync! { r#"
+                ## Heading
+                "#
+            },
+            cx,
+        )
+    }
+}
+
+#[test]
+fn web_bridged_blocks_obey_inline_scopes_and_keep_boundaries_continuous() {
+    // The inline rule applies to a block reached through the Web-trait bridge.
+    let mut cx = context();
+    let result = md_sync! { "Label: [{BridgedBlock}](/target) end" }.render_md(&mut cx);
+    assert_eq!(
+        result,
+        Err(WriteError::render(
+            "cannot render a block Markdown template inside an inline scope; use an ordinary-string inline template"
+        ))
+    );
+    assert!(!cx.md_inline());
+    assert_eq!(cx.into_output(), b"Label: [");
+
+    // Suffix tracking carries into the bridge (one boundary before the block)
+    // and back out (no duplicate boundary after it).
+    let mut cx = context();
+    md_sync! { "Intro" }.render_md(&mut cx).unwrap();
+    proa_core::WebRenderSync::render(
+        md_sync! { r#"
+            ## Heading
+            "#
+        },
+        &mut cx,
+    )
+    .unwrap();
+    md_sync! { r#"
+        Next
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    assert_eq!(cx.into_output(), b"Intro\n\n## Heading\n\nNext\n\n");
+
+    // The async bridge shares the same scope.
+    let mut cx = context();
+    md_sync! { "Intro" }.render_md(&mut cx).unwrap();
+    let mut future = Box::pin(
+        proa_core::WebRender::render(
+            md! { r#"
+                ## Heading
+                "#
+            },
+            &mut cx,
+        )
+        .resolve(),
+    );
+    assert_eq!(
+        future
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop())),
+        Poll::Ready(Ok(()))
+    );
+    drop(future);
+    md_sync! { r#"
+        Next
+        "#
+    }
+    .render_md(&mut cx)
+    .unwrap();
+    assert_eq!(cx.into_output(), b"Intro\n\n## Heading\n\nNext\n\n");
+}

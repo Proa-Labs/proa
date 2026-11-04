@@ -205,7 +205,14 @@ enum FragmentExit {
 fn scoped_fragment(exit: FragmentExit) -> proa_core::md::AsyncMd<'static, NoLoader, RenderBuffer> {
     proa_core::md::async_md_from_fn(Box::new(move |cx| {
         Box::pin(async move {
-            assert_eq!(cx.md_state(), proa_core::md::MdState::default());
+            // Formatting state starts fresh; the inline flags and the output
+            // suffix tracking carry in from the outer context.
+            assert_eq!(cx.md_heading_offset(), 0);
+            assert_eq!(cx.md_list_depth(), 0);
+            assert!(!cx.md_inline());
+            let mut probe = WebContext::new();
+            probe.write_md_prepared_static(b"outer\r").unwrap();
+            assert_eq!(cx.md_state(), probe.md_state());
             cx.md_push_heading_offset(4);
             cx.md_push_list_depth();
             cx.md_set_inline(true);
@@ -406,7 +413,12 @@ fn markdown_flush_retains_suffix_and_commits_metadata_even_when_handoff_fails() 
 
 fn typed_scoped_fragment(exit: FragmentExit, label: &str) -> impl WebRender + '_ {
     proa_core::md::async_md_from_closure(async move |cx| {
-        assert_eq!(cx.md_state(), proa_core::md::MdState::default());
+        assert_eq!(cx.md_heading_offset(), 0);
+        assert_eq!(cx.md_list_depth(), 0);
+        assert!(!cx.md_inline());
+        let mut probe = WebContext::new();
+        probe.write_md_prepared_static(b"outer\r").unwrap();
+        assert_eq!(cx.md_state(), probe.md_state());
         cx.md_push_heading_offset(4);
         cx.md_push_list_depth();
         cx.md_set_inline(true);
@@ -421,6 +433,14 @@ fn typed_scoped_fragment(exit: FragmentExit, label: &str) -> impl WebRender + '_
     })
 }
 
+/// Formatting and scope state restored to the outer context, with the suffix
+/// tracking following the fragment's bytes.
+fn after_typed_fragment() -> proa_core::md::MdState {
+    let mut cx = outer_context();
+    cx.write_md_prepared_static(b"borrowed").unwrap();
+    cx.md_state()
+}
+
 #[test]
 fn typed_async_fragment_restores_state_on_completion_error_panic_and_cancellation() {
     let owned = String::from("borrowed");
@@ -430,7 +450,6 @@ fn typed_async_fragment_restores_state_on_completion_error_panic_and_cancellatio
         FragmentExit::Panic,
     ] {
         let mut cx = outer_context();
-        let saved = cx.md_state();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             complete(WebRender::render(typed_scoped_fragment(exit, &owned), &mut cx).resolve())
         }));
@@ -440,11 +459,10 @@ fn typed_async_fragment_restores_state_on_completion_error_panic_and_cancellatio
             FragmentExit::Panic => assert!(result.is_err()),
             FragmentExit::Pending => unreachable!(),
         }
-        assert_eq!(cx.md_state(), saved);
+        assert_eq!(cx.md_state(), after_typed_fragment());
         assert_eq!(cx.into_output().into_vec(), b"outer\rborrowed");
     }
     let mut cx = outer_context();
-    let saved = cx.md_state();
     let mut future = Box::pin(
         WebRender::render(
             typed_scoped_fragment(FragmentExit::Pending, &owned),
@@ -456,6 +474,6 @@ fn typed_async_fragment_restores_state_on_completion_error_panic_and_cancellatio
     assert!(future.as_mut().poll(&mut task).is_pending());
     assert!(future.as_mut().poll(&mut task).is_pending());
     drop(future);
-    assert_eq!(cx.md_state(), saved);
+    assert_eq!(cx.md_state(), after_typed_fragment());
     assert_eq!(cx.into_output().into_vec(), b"outer\rborrowed");
 }
