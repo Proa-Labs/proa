@@ -187,8 +187,9 @@ row-ending `\n`. Use raw templates for substantial multiline fragments, with
 fewer hashes inside an outer raw literal. Never remove the explicit slot boundary around control flow.
 See [the Markdown skill](.agents/skills/proa-markdown/SKILL.md) for a complete
 loop/branch example and the exceptions for code fences and exact separators.
-The token composition form (`md_sync! { "# " { title } }`) remains supported
-for generated code and cases that need the expressions visible as Rust tokens.
+The body is always one string literal; token composition such as
+`md_sync! { "# " { title } }` is a compile error. To render values in sequence
+without authoring Markdown, use a tuple: `(overview, impact).render_md(cx)`.
 Run `proa fmt` to normalize raw-template indentation and keep the closing macro
 brace aligned with the invocation; `proa lint` enforces the same layout.
 
