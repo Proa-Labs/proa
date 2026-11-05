@@ -6,8 +6,8 @@ use axum::{
     response::Response,
 };
 use proa_core::{
-    ComponentRole, DataLoader, HeadMetadata, MdRenderSync, WebContext, WebRenderSync, WriteBuf,
-    WriteError,
+    ClassList, ComponentRole, DataLoader, HeadMetadata, MdRenderSync, WebContext, WebRenderSync,
+    WriteBuf, WriteError,
 };
 use proa_macros::{content_part, html_sync, md_sync, omit};
 
@@ -25,6 +25,7 @@ const MEMBERS: &[TeamMember] = &[TeamMember {
     role: "Founder",
     organization: site::ORGANIZATION,
     portrait: "/static/images/team/andrew-hariri.jpg",
+    class: None,
     links: &[
         TeamLink::Website("https://hariri.dev/"),
         TeamLink::GitHub("https://github.com/hariria"),
@@ -32,7 +33,19 @@ const MEMBERS: &[TeamMember] = &[TeamMember {
     ],
 }];
 
-struct TeamPage(&'static [TeamMember]);
+struct TeamPage {
+    members: &'static [TeamMember],
+    class: Option<&'static str>,
+}
+
+impl TeamPage {
+    const fn new(members: &'static [TeamMember]) -> Self {
+        Self {
+            members,
+            class: None,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 struct TeamMember {
@@ -40,6 +53,7 @@ struct TeamMember {
     role: &'static str,
     organization: &'static str,
     portrait: &'static str,
+    class: Option<&'static str>,
     links: &'static [TeamLink],
 }
 
@@ -84,10 +98,14 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamPage {
     }
 
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let classes = ClassList::<2>::new()
+            .add("mx-auto max-w-[1400px] px-4 py-16 sm:px-6 sm:py-24 lg:px-8")
+            .add_opt(self.class);
         html_sync! {
             <article
                 data-team-page
-                class="mx-auto max-w-[1400px] px-4 py-16 sm:px-6 sm:py-24 lg:px-8"
+                data-component="team-page"
+                class={classes}
             >
                 <h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">
                     {content_part!("title", TITLE)}
@@ -95,7 +113,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamPage {
                 <p class="mt-6 max-w-2xl text-lg leading-8 text-zinc-600 dark:text-zinc-300">
                     {content_part!("intro", INTRO)}
                 </p>
-                {for member in self.0 {
+                {for member in self.members {
                     content_part!("member", *member)
                 }}
             </article>
@@ -106,8 +124,11 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamPage {
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let classes = ClassList::<2>::new()
+            .add("mt-8 grid gap-8 sm:grid-cols-[200px_1fr] sm:gap-12")
+            .add_opt(self.class);
         html_sync! {
-            <div data-team-member class="mt-8 grid gap-8 sm:grid-cols-[200px_1fr] sm:gap-12">
+            <div data-team-member data-component="team-member" class={classes}>
                 <img
                     src={content_part!("portrait", self.portrait)}
                     alt={content_part!("name", self.name)}
@@ -166,7 +187,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamPage {
 
             {intro}
 
-            {for member in self.0 {
+            {for member in self.members {
                 content_part!("member", *member)
             }}
             "###
@@ -208,7 +229,7 @@ pub async fn handler(headers: HeaderMap) -> Response {
     let mut response = if crate::utils::http::accepts_markdown(&headers) {
         markdown_handler().await
     } else {
-        render_managed_page(routes::TEAM, TeamPage(MEMBERS))
+        render_managed_page(routes::TEAM, TeamPage::new(MEMBERS))
     };
     response
         .headers_mut()
@@ -221,7 +242,7 @@ pub async fn handler(headers: HeaderMap) -> Response {
     responses((status = 200, description = "Team profiles as Markdown.", body = String, content_type = "text/markdown")))]
 pub async fn markdown_handler() -> Response {
     crate::endpoints::agent_discovery::text_response(
-        render_markdown(TeamPage(MEMBERS)),
+        render_markdown(TeamPage::new(MEMBERS)),
         "text/markdown; charset=utf-8",
     )
 }
