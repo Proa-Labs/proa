@@ -28,13 +28,16 @@ pub(crate) const META: PageMeta = PageMeta {
 
 const TEAM: TeamPage = TeamPage {
     title: "Meet the team",
-    intro: const_format::concatcp!("The people behind Proa. ", site::ORGANIZATION, " builds the Proa Rust web framework."),
+    intro: const_format::concatcp!(
+        "The people behind Proa. ",
+        site::ORGANIZATION,
+        " builds the Proa Rust web framework."
+    ),
     section: "Founders and leadership",
     founder: TeamMember {
         name: "Andrew Hariri",
         role: "Founder",
         organization: site::ORGANIZATION,
-        bio: "Andrew builds Proa and leads its technical direction, from the template compiler and rendering engine to the developer tools and documentation.",
         portrait: "/static/images/team/andrew-hariri.jpg",
         links: &[
             ("Website", "https://hariri.dev/"),
@@ -57,7 +60,6 @@ pub(crate) struct TeamMember {
     pub(crate) name: &'static str,
     pub(crate) role: &'static str,
     pub(crate) organization: &'static str,
-    pub(crate) bio: &'static str,
     pub(crate) portrait: &'static str,
     pub(crate) links: &'static [(&'static str, &'static str)],
 }
@@ -108,9 +110,6 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
                         {content_part!("name", self.name)}
                     </h3>
                     <p class="mt-2 text-base font-medium">{self.role}", "{self.organization}</p>
-                    <p class="mt-5 max-w-2xl text-base leading-7 text-zinc-600 dark:text-zinc-300">
-                        {self.bio}
-                    </p>
                     <ul class="mt-6 flex flex-wrap gap-6 text-sm font-medium">
                         {for (label, href) in self.links {
                             html_sync! {
@@ -179,8 +178,6 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamMember {
 
             ![{name}]({portrait})
 
-            {self.bio}
-
             {for (label, href) in self.links {
                 let label = content_part!("profile-label", *label);
                 let href = content_part!("profile-url", Url(href));
@@ -233,7 +230,6 @@ mod tests {
                 name: "Ada <Lovelace>",
                 role: "Technical lead",
                 organization: "Example & Co.",
-                bio: "Builds [typed] interfaces.",
                 portrait: "/static/portrait.jpg",
                 links: &[("Work [profile]", "https://example.test/a (b)")],
             },
@@ -244,7 +240,6 @@ mod tests {
         assert!(html.contains("Ada &lt;Lovelace&gt;"));
         assert!(!html.contains("Ada <Lovelace>"));
         assert!(markdown.contains(r"Ada \<Lovelace\>"));
-        assert!(markdown.contains(r"Builds \[typed\]"));
         assert!(markdown.contains(r"[Work \[profile\]](https://example.test/a%20\(b\))"));
         for output in [&html, &markdown] {
             assert!(output.contains(page.intro));

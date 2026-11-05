@@ -683,7 +683,6 @@ async fn team_page_shares_content_metadata_and_footer_discovery() {
     let person = &metadata["@graph"][1]["founder"];
     assert_eq!(person["name"], founder.name);
     assert_eq!(person["jobTitle"], founder.role);
-    assert_eq!(person["description"], founder.bio);
     assert_eq!(
         person["sameAs"],
         json!(founder

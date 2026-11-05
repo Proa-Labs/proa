@@ -56,7 +56,6 @@ struct Person<'a> {
     kind: &'static str,
     name: &'static str,
     job_title: &'static str,
-    description: &'static str,
     image: SiteUrl<'a>,
     same_as: Vec<&'static str>,
 }
@@ -85,7 +84,6 @@ fn team_document(origin: &str) -> String {
                     kind: "Person",
                     name: founder.name,
                     job_title: founder.role,
-                    description: founder.bio,
                     image: url(founder.portrait),
                     same_as: founder.links.iter().map(|(_, href)| *href).collect(),
                 },
