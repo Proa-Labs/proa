@@ -384,10 +384,6 @@ scopes, link labels, headings, emphasis, and table cells are rejected rather
 than flattened. The macro body is one string literal; sequence children
 without authored Markdown through a tuple, which adds no boundaries. See
 [template modes](../document-rendering.md#template-modes).
-For independent heading nesting, use `cx.md_heading_scope(additional)` and
-render through the guard's `context()` method. Dropping it restores heading
-offset only, including on errors, unwinding, and cancellation. See the
-[formatting migration guide](../document-rendering.md#migrate-existing-formatting-scopes).
 
 ### Convert existing HTML components to Markdown
 

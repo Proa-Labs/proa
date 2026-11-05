@@ -159,10 +159,6 @@ owned document at the response boundary when its inputs are immutable.
   separators must stay byte-for-byte identical. `md_sync! { "{section}" }` is
   an inline wrapper and rejects a block section, even when the section is a
   typed component.
-- For temporary heading offsets, use `let mut scope = cx.md_heading_scope(1)`
-  and render through `scope.context()`. The guard restores only heading offset
-  on every exit, including async cancellation. Inline/block template scopes do
-  not restore heading offset or list depth for you.
 - Never restore a whole `md_state()` snapshot solely to clean up formatting:
   it also replaces output-suffix tracking, even though partial bytes remain.
   Keep deliberate snapshot/low-level-setter tests and buffer-reset benchmarks.

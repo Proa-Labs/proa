@@ -207,13 +207,11 @@ fn scoped_fragment(exit: FragmentExit) -> proa_core::md::AsyncMd<'static, NoLoad
         Box::pin(async move {
             // Formatting state starts fresh; the inline flags and the output
             // suffix tracking carry in from the outer context.
-            assert_eq!(cx.md_heading_offset(), 0);
             assert_eq!(cx.md_list_depth(), 0);
             assert!(!cx.md_inline());
             let mut probe = WebContext::new();
             probe.write_md_prepared_static(b"outer\r").unwrap();
             assert_eq!(cx.md_state(), probe.md_state());
-            cx.md_push_heading_offset(4);
             cx.md_push_list_depth();
             cx.md_set_inline(true);
             cx.write_md_prepared_static(b"fragment\r")?;
@@ -231,7 +229,6 @@ fn scoped_fragment(exit: FragmentExit) -> proa_core::md::AsyncMd<'static, NoLoad
 
 fn outer_context() -> WebContext {
     let mut cx = WebContext::new();
-    cx.md_push_heading_offset(2);
     cx.md_push_list_depth();
     cx.write_md_prepared_static(b"outer\r").unwrap();
     cx
@@ -280,12 +277,12 @@ fn async_fragment_restores_complete_state_on_cancellation() {
 fn direct_markdown_composition_keeps_formatting_changes() {
     let mut cx = outer_context();
     let fragment = OptimizedMd::new(|cx: &mut WebContext| {
-        assert_eq!(cx.md_heading_offset(), 2);
-        cx.md_push_heading_offset(1);
+        assert_eq!(cx.md_list_depth(), 1);
+        cx.md_push_list_depth();
         cx.write_md_prepared_static(b"\n")
     });
     MdRenderSync::render_md(fragment, &mut cx).unwrap();
-    assert_eq!(cx.md_heading_offset(), 3);
+    assert_eq!(cx.md_list_depth(), 2);
     cx.md_block_boundary().unwrap();
     assert_eq!(cx.into_output().into_vec(), b"outer\r\n\n");
 }
@@ -308,13 +305,12 @@ impl<B: WriteBuf> WebRenderSync<TestLoader, B> for NestedHtml {
         WebRenderSync::render(
             OptimizedMd::new(|inner: &mut WebContext<TestLoader, B>| {
                 assert_eq!(inner.md_state(), proa_core::md::MdState::default());
-                inner.md_push_heading_offset(5);
+                inner.md_push_list_depth();
                 inner.write_md_prepared_static(b"\n")
             }),
             cx,
         )?;
         cx.md_set_inline(true);
-        cx.md_push_heading_offset(3);
         cx.enter_mode(proa_core::ContentMode::Style);
         if self.fail {
             Err(WriteError::OutOfCapacity)
@@ -332,7 +328,6 @@ fn tracked_html_preserves_loader_metadata_and_observed_suffix_across_nested_mark
             calls: AtomicUsize::new(0),
         });
         let mut cx = WebContext::with_loader(Arc::clone(&loader));
-        cx.md_push_heading_offset(2);
         cx.md_push_list_depth();
         cx.enter_mode(proa_core::ContentMode::Script);
         let result = cx.render_html_in_md(NestedHtml {
@@ -340,7 +335,6 @@ fn tracked_html_preserves_loader_metadata_and_observed_suffix_across_nested_mark
             fail,
         });
         assert_eq!(result.is_err(), fail);
-        assert_eq!(cx.md_heading_offset(), 2);
         assert_eq!(cx.md_list_depth(), 1);
         assert!(!cx.md_inline());
         assert_eq!(cx.current_mode(), proa_core::ContentMode::Script);
@@ -413,13 +407,11 @@ fn markdown_flush_retains_suffix_and_commits_metadata_even_when_handoff_fails() 
 
 fn typed_scoped_fragment(exit: FragmentExit, label: &str) -> impl WebRender + '_ {
     proa_core::md::async_md_from_closure(async move |cx| {
-        assert_eq!(cx.md_heading_offset(), 0);
         assert_eq!(cx.md_list_depth(), 0);
         assert!(!cx.md_inline());
         let mut probe = WebContext::new();
         probe.write_md_prepared_static(b"outer\r").unwrap();
         assert_eq!(cx.md_state(), probe.md_state());
-        cx.md_push_heading_offset(4);
         cx.md_push_list_depth();
         cx.md_set_inline(true);
         cx.write_md_prepared(label.as_bytes())?;

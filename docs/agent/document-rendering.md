@@ -188,8 +188,8 @@ compile error that points back to the string form.
 
 **Guarantees in every mode.** The framework restores the enclosing inline
 setting on success, error, panic unwinding, and (for `md!`) cancellation. It
-does not reset heading offset or list depth. Partial output and its boundary
-tracking remain live; cleanup never rolls back bytes or appends a trailing
+does not reset list depth. Partial output and its boundary tracking remain
+live; cleanup never rolls back bytes or appends a trailing
 boundary after failure. Call `.render_md(cx)?` directly rather than saving and
 restoring `md_set_inline`:
 
@@ -218,20 +218,6 @@ wrapper such as `md_sync! { "{section}" }` selects inline mode and rejects block
 sections. If existing separators must remain exact, render the sections in
 sequence with a tuple or `.render_md(cx)?` calls and spell each separator as
 its own inline template, such as `md_sync! { "\n\n" }`.
-
-Heading offsets have a separate explicit scope. Keep the guard alive while
-rendering nested children, then let it drop:
-
-```rust
-let mut scope = cx.md_heading_scope(1);
-self.children.render_md(scope.context())?;
-```
-
-This restores only the immediate parent's heading offset on success, error,
-panic unwinding, or cancellation while awaiting. It preserves output and its
-boundary tracking, inline mode, and list depth. Automatic inline/block scopes
-do not implicitly reset heading offsets or list depth. Low-level push/pop
-methods remain available, but manual pop after `?` skips cleanup on failure.
 
 Do not restore an entire `md_state()` snapshot just to clean up formatting:
 that snapshot also contains the logical output suffix. Snapshot restoration

@@ -12,7 +12,6 @@ use crate::web::WebContext;
 /// Markdown state without replacing the buffer or request environment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MdState {
-    heading_offset: u8,
     list_depth: u8,
     inline: bool,
     inline_scope: bool,
@@ -23,7 +22,6 @@ pub struct MdState {
 impl Default for MdState {
     fn default() -> Self {
         Self {
-            heading_offset: 0,
             list_depth: 0,
             inline: false,
             inline_scope: false,
@@ -286,7 +284,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 
     /// Write a heading at the given logical level (1-based).
     ///
-    /// The actual `#` count is `level + md_heading_offset`, clamped to 6.
+    /// The `#` count is `level`, clamped to 6.
     pub fn md_heading(&mut self, level: u8, text: &str) -> Result<(), WriteError> {
         self.md_heading_with(level, |cx| cx.write_md_heading_label(text))
     }
@@ -300,7 +298,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     where
         F: FnOnce(&mut Self) -> Result<(), WriteError>,
     {
-        let actual = level.saturating_add(self.md_state.heading_offset).min(6);
+        let actual = level.min(6);
         for _ in 0..actual {
             self.write_md_prepared_static(b"#")?;
         }
@@ -518,37 +516,6 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         self.write_md_prepared_str(value)
     }
 
-    /// Temporarily increase heading offset for nested components.
-    ///
-    /// The borrowed scope restores only heading offset on drop, including when
-    /// rendering errors, unwinds, or an awaiting future is cancelled. Emitted
-    /// output, suffix tracking, and the other formatting settings remain live.
-    #[inline(always)]
-    pub fn md_heading_scope(&mut self, additional: u8) -> MdHeadingScope<'_, L, B> {
-        let previous = self.md_push_heading_offset(additional);
-        MdHeadingScope { cx: self, previous }
-    }
-
-    /// Push heading offset for nesting. Returns the previous offset to restore later.
-    ///
-    /// Prefer [`Self::md_heading_scope`] when rendering children: manual push/pop
-    /// does not restore the setting on early returns or panic unwinding.
-    pub fn md_push_heading_offset(&mut self, n: u8) -> u8 {
-        let prev = self.md_state.heading_offset;
-        self.md_state.heading_offset = self.md_state.heading_offset.saturating_add(n);
-        prev
-    }
-
-    /// Restore heading offset from a previous `md_push_heading_offset` call.
-    pub fn md_pop_heading_offset(&mut self, prev: u8) {
-        self.md_state.heading_offset = prev;
-    }
-
-    /// Current heading offset.
-    pub fn md_heading_offset(&self) -> u8 {
-        self.md_state.heading_offset
-    }
-
     /// Current list depth.
     pub fn md_list_depth(&self) -> u8 {
         self.md_state.list_depth
@@ -634,8 +601,8 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     }
 }
 
-/// A Markdown fragment entered through a web trait starts with a fresh heading
-/// offset and list depth but keeps the caller's inline-scope flags and output
+/// A Markdown fragment entered through a web trait starts with a fresh list
+/// depth but keeps the caller's inline-scope flags and output
 /// suffix tracking. A borrowed guard restores the formatting and scope state
 /// even when an awaited fragment is cancelled or panics, while the suffix
 /// tracking follows the bytes actually written. The output and request state
@@ -643,30 +610,6 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
 pub(crate) struct MdFragmentScope<'cx, L: DataLoader, B: WriteBuf> {
     cx: &'cx mut WebContext<L, B>,
     saved: MdState,
-}
-
-/// A borrowed heading-offset scope returned by [`WebContext::md_heading_scope`].
-/// Dropping the scope restores the immediate parent's offset without changing
-/// output, boundary tracking, inline mode, or list depth.
-#[must_use = "keep the heading scope alive while rendering its children"]
-pub struct MdHeadingScope<'cx, L: DataLoader, B: WriteBuf> {
-    cx: &'cx mut WebContext<L, B>,
-    previous: u8,
-}
-
-impl<L: DataLoader, B: WriteBuf> MdHeadingScope<'_, L, B> {
-    /// Reborrow the live context with this scope's heading offset.
-    #[inline(always)]
-    pub fn context(&mut self) -> &mut WebContext<L, B> {
-        self.cx
-    }
-}
-
-impl<L: DataLoader, B: WriteBuf> Drop for MdHeadingScope<'_, L, B> {
-    #[inline(always)]
-    fn drop(&mut self) {
-        self.cx.md_pop_heading_offset(self.previous);
-    }
 }
 
 /// Template modes: the behavior a compiled Markdown template wraps around its
@@ -779,7 +722,6 @@ impl<'cx, L: DataLoader, B: WriteBuf> MdFragmentScope<'cx, L, B> {
         // suffix tracking carries in so the fragment's leading boundary sees
         // the bytes already written to the shared buffer.
         cx.md_state = MdState {
-            heading_offset: 0,
             list_depth: 0,
             ..saved
         };
@@ -1105,13 +1047,11 @@ mod tests {
         let mut child_out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut parent_out);
         cx.write_md_prepared_static(b"parent\n\n").unwrap();
-        cx.md_push_heading_offset(1);
         cx.md_push_list_depth();
         cx.set_render_mode(RenderMode::ChunkedInOrder);
         cx.set_stream_chunk_flusher(Rc::clone(&original_flusher));
 
         cx.with_output(&mut child_out, |child| {
-            assert_eq!(child.md_heading_offset(), 1);
             assert_eq!(child.md_list_depth(), 1);
             assert!(!child.md_inline());
             assert_eq!(child.md_state.trailing_line, TrailingLineState::Blank);
@@ -1121,7 +1061,6 @@ mod tests {
                 child.stream_chunk_flusher().unwrap(),
                 &original_flusher
             ));
-            child.md_push_heading_offset(2);
             child.md_push_list_depth();
             child.md_set_inline(true);
             child.set_render_mode(RenderMode::Agent);
@@ -1132,7 +1071,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(child_out, b"child\r");
-        assert_eq!(cx.md_heading_offset(), 3);
         assert_eq!(cx.md_list_depth(), 2);
         assert!(cx.md_inline());
         assert_eq!(cx.md_state.trailing_line, TrailingLineState::OneBreak);
@@ -1181,7 +1119,6 @@ mod tests {
         let mut cx = WebContext::with_buffer(&mut parent_out);
 
         let result = cx.with_output(&mut child_out, |child| {
-            child.md_push_heading_offset(4);
             child.md_push_list_depth();
             child.md_set_inline(true);
             child.set_render_mode(RenderMode::ChunkedOutOfOrder);
@@ -1191,7 +1128,6 @@ mod tests {
         });
 
         assert_eq!(result, Err(WriteError::OutOfCapacity));
-        assert_eq!(cx.md_heading_offset(), 4);
         assert_eq!(cx.md_list_depth(), 1);
         assert!(cx.md_inline());
         assert_eq!(cx.md_state.trailing_line, TrailingLineState::OneBreak);
@@ -1209,7 +1145,6 @@ mod tests {
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             cx.with_output(&mut child_out, |child| {
-                child.md_push_heading_offset(2);
                 child.md_push_list_depth();
                 child.md_set_inline(true);
                 child.set_render_mode(RenderMode::Agent);
@@ -1220,7 +1155,6 @@ mod tests {
         }));
 
         assert!(panic.is_err());
-        assert_eq!(cx.md_heading_offset(), 2);
         assert_eq!(cx.md_list_depth(), 1);
         assert!(cx.md_inline());
         assert_eq!(cx.md_state.trailing_line, TrailingLineState::OneBreak);
@@ -1234,11 +1168,9 @@ mod tests {
         let meter = OutputMeter::new(32);
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
-        cx.md_push_heading_offset(1);
 
         let value = cx
             .with_metered_output(meter.borrow(), |child| {
-                child.md_push_heading_offset(2);
                 child.md_push_list_depth();
                 child.md_set_inline(true);
                 child.set_render_mode(RenderMode::Agent);
@@ -1249,7 +1181,6 @@ mod tests {
 
         assert_eq!(value, 17);
         assert_eq!(meter.consumed(), 8);
-        assert_eq!(cx.md_heading_offset(), 3);
         assert_eq!(cx.md_list_depth(), 1);
         assert!(cx.md_inline());
         assert_eq!(cx.md_state.trailing_line, TrailingLineState::OneBreak);
@@ -1267,7 +1198,6 @@ mod tests {
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             cx.with_metered_output(meter.borrow(), |child| {
-                child.md_push_heading_offset(3);
                 child.md_push_list_depth();
                 child.md_set_inline(true);
                 panic!("test metered unwind");
@@ -1275,7 +1205,6 @@ mod tests {
         }));
 
         assert!(panic.is_err());
-        assert_eq!(cx.md_heading_offset(), 3);
         assert_eq!(cx.md_list_depth(), 1);
         assert!(cx.md_inline());
     }
@@ -1289,7 +1218,6 @@ mod tests {
 
         let value = cx
             .with_reserved_output(reservation, |child| {
-                child.md_push_heading_offset(2);
                 child.md_set_inline(true);
                 child.write_md_prepared_static(b"hello")?;
                 Ok(23)
@@ -1302,7 +1230,6 @@ mod tests {
             5,
             "reserved bytes must not be double-debited"
         );
-        assert_eq!(cx.md_heading_offset(), 2);
         assert!(cx.md_inline());
         assert_eq!(cx.into_output().as_slice(), b"hello");
     }
@@ -1340,14 +1267,14 @@ mod tests {
 
         let error = cx
             .with_reserved_output(reservation, |child| {
-                child.md_push_heading_offset(1);
+                child.md_push_list_depth();
                 child.write_md_prepared_static(b"x")?;
                 Ok(())
             })
             .unwrap_err();
 
         assert_eq!(error, WriteError::OutOfCapacity);
-        assert_eq!(cx.md_heading_offset(), 1);
+        assert_eq!(cx.md_list_depth(), 1);
     }
 
     #[test]
@@ -1359,7 +1286,6 @@ mod tests {
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = cx.with_reserved_output(reservation, |child| -> Result<(), WriteError> {
-                child.md_push_heading_offset(2);
                 child.md_push_list_depth();
                 child.set_render_mode(RenderMode::Agent);
                 panic!("test reserved unwind");
@@ -1368,7 +1294,6 @@ mod tests {
 
         assert!(panic.is_err());
         assert_eq!(meter.consumed(), 3);
-        assert_eq!(cx.md_heading_offset(), 2);
         assert_eq!(cx.md_list_depth(), 1);
         assert_eq!(cx.render_mode(), RenderMode::Agent);
     }
@@ -1435,21 +1360,10 @@ mod tests {
     }
 
     #[test]
-    fn heading_with_offset() {
-        let mut buf = Vec::new();
-        let mut cx = WebContext::with_buffer(&mut buf);
-        let prev = cx.md_push_heading_offset(1);
-        cx.md_heading(2, "Nested").unwrap();
-        cx.md_pop_heading_offset(prev);
-        assert_eq!(String::from_utf8(buf).unwrap(), "### Nested\n\n");
-    }
-
-    #[test]
     fn heading_clamps_at_6() {
         let mut buf = Vec::new();
         let mut cx = WebContext::with_buffer(&mut buf);
-        cx.md_push_heading_offset(5);
-        cx.md_heading(3, "Deep").unwrap();
+        cx.md_heading(8, "Deep").unwrap();
         assert_eq!(String::from_utf8(buf).unwrap(), "###### Deep\n\n");
     }
 

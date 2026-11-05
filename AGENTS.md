@@ -173,11 +173,9 @@ enclosing mode on errors, unwinding, and async cancellation; block boundaries
 are completed only before the body and after success. Authored whitespace and
 partial output remain. Block templates cannot appear inside inline scopes,
 link labels, headings, emphasis, or table cells. Use `.render_md(cx)?` directly,
-without manual inline-mode restoration. Legacy token composition inherits mode.
-For temporary heading nesting, use `cx.md_heading_scope(...)` and render through
-its `context()` reborrow; a manual pop after `?` leaks state on errors. Do not
-restore whole `MdState` snapshots solely for formatting cleanup, since that
-also replaces suffix tracking while partial output remains. Audit scaffold
+without manual inline-mode restoration. Do not restore whole `MdState`
+snapshots solely for formatting cleanup, since that also replaces suffix
+tracking while partial output remains. Audit scaffold
 copies and fixtures when migrating these patterns.
 Text outside slots is always Markdown; each `{ ... }` slot is Rust. Use
 ordinary Rust `if`, `for`, and `match` there, and re-enter Markdown through a

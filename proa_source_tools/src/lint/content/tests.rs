@@ -55,50 +55,6 @@ fn markdown_scopes_do_not_hide_missing_content() {
 }
 
 #[test]
-fn markdown_heading_scope_keeps_context_and_child_provenance() {
-    for render in [
-        r#"let cx=headings.context(); md_sync! {"{self.title}"}.render_md(cx)"#,
-        r#"md_sync! {"{self.title}"}.render_md(headings.context())"#,
-    ] {
-        let markdown = format!("let mut headings=cx.md_heading_scope(1); {render}");
-        let src = fixture("html_sync! {{self.title}}.render(cx)", &markdown)
-            .replace("&mut Cx", "&mut proa_core::WebContext");
-        assert!(lint(&src).is_empty(), "{render}: {:?}", lint(&src));
-        let absent = src.replace("md_sync! {\"{self.title}\"}", "md_sync! {\"\"}");
-        assert_eq!(missing(&absent).len(), 1);
-        let shadowed = src.replace(
-            "let mut headings=cx.md_heading_scope(1);",
-            "let mut headings=other();",
-        );
-        assert!(code(&lint(&shadowed), "render/content-coverage-unchecked") > 0);
-    }
-}
-
-#[test]
-fn typed_children_render_directly_through_heading_scopes() {
-    for context in [
-        "headings.context()",
-        "(headings.context())",
-        "&mut *headings.context()",
-    ] {
-        let markdown = format!(
-            "let mut headings=cx.md_heading_scope(1); RestockNotice::new(self.data).render_md({context})"
-        );
-        let src = fixture(
-            "html_sync! {{RestockNotice::new(self.data)}}.render(cx)",
-            &markdown,
-        )
-        .replace("&mut Cx", "&mut proa_core::WebContext");
-        assert!(lint(&src).is_empty(), "{context}: {:?}", lint(&src));
-        let absent = src.replace(
-            &format!("RestockNotice::new(self.data).render_md({context})"),
-            "Ok(())",
-        );
-        assert_eq!(missing(&absent).len(), 1);
-    }
-}
-
-#[test]
 fn markdown_code_content_is_a_render_capability_not_a_cfg_variant() {
     let source = r#"
 use proa_core::{WebRenderSync, MdRenderSync, MdCodeContent};

@@ -36,8 +36,7 @@ Audit manual `md_set_inline` save/render/restore patterns, including saved
 multiline raw template for block sections. Where authored separators must
 remain exact, render the parts in sequence with a tuple or `.render_md(cx)?`
 calls instead of a wrapper template. Never put block sections inside
-an ordinary-string wrapper. Use `cx.md_heading_scope(...)` for temporary
-heading offsets; template mode cleanup does not restore other settings.
+an ordinary-string wrapper. Template mode cleanup restores inline mode only.
 Do not replace local cleanup with whole `MdState` restoration: it would also
 replace suffix tracking while partial output remains. Verify error/panic
 recovery and allocation-free guards, including mirrored scaffold components.

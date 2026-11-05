@@ -5,14 +5,12 @@ use super::{Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitl
 use proa_core::WebContext;
 use proa_core::{MdRenderSync, WriteBuf, WriteError};
 
-/// Card pushes heading offset so nested cards get deeper headings.
+/// Card is a block wrapper: a boundary before and after its children.
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for Card<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_block_boundary()?;
-        let mut scope = cx.md_heading_scope(1);
-        let cx = scope.context();
         self.children.render_md(cx)?;
         cx.md_block_boundary()?;
         Ok(())
@@ -29,15 +27,15 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     }
 }
 
-/// CardTitle renders as a heading at the current level.
+/// CardTitle renders as a `##` heading.
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for CardTitle<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_block_boundary()?;
-        // `heading` adds the current offset itself, so the logical level is
-        // constant: a top-level Card title is `##`, one nesting deeper `###`.
-        cx.md_heading_with(1, |cx| self.children.render_md(cx))
+        // The level is fixed, like the `<h3>` the HTML twin renders: nesting
+        // a Card inside another does not deepen its title.
+        cx.md_heading_with(2, |cx| self.children.render_md(cx))
     }
 }
 
@@ -82,7 +80,6 @@ mod tests {
     struct Stops(bool);
     impl<B: WriteBuf> MdRenderSync<proa_core::NoLoader, B> for Stops {
         fn render_md(self, cx: &mut WebContext<proa_core::NoLoader, B>) -> Result<(), WriteError> {
-            assert_eq!(cx.md_heading_offset(), 2);
             cx.write_md_prepared_static(b"Partial")?;
             if self.0 {
                 panic!("injected Card child panic");
@@ -92,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_cards_restore_heading_offset_after_errors_and_unwinding() {
+    fn nested_cards_keep_partial_output_after_errors_and_unwinding() {
         for panic in [false, true] {
             let mut cx = WebContext::with_buffer(Vec::new());
             cx.write_md_prepared_static(b"Intro").unwrap();
@@ -112,11 +109,33 @@ mod tests {
                     Err(WriteError::render("injected Card child error"))
                 );
             }
-            assert_eq!(cx.md_heading_offset(), 0);
             assert_eq!(cx.out, b"Intro\n\nPartial");
             cx.md_block_boundary().unwrap();
             cx.md_heading(1, "Fallback").unwrap();
             assert_eq!(cx.into_output(), b"Intro\n\nPartial\n\n# Fallback\n\n");
         }
+    }
+
+    #[test]
+    fn nested_card_titles_keep_the_same_level() {
+        let mut cx = WebContext::with_buffer(Vec::new());
+        let cards = Card {
+            class: None,
+            children: Some((
+                CardTitle {
+                    class: None,
+                    children: Some(proa_macros::md_sync! { "Outer" }),
+                },
+                Card {
+                    class: None,
+                    children: Some(CardTitle {
+                        class: None,
+                        children: Some(proa_macros::md_sync! { "Inner" }),
+                    }),
+                },
+            )),
+        };
+        cards.render_md(&mut cx).unwrap();
+        assert_eq!(cx.into_output(), b"## Outer\n\n## Inner\n\n");
     }
 }

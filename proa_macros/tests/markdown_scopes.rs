@@ -161,11 +161,9 @@ fn closure_renderers_built_without_the_macro_inherit_the_callers_mode() {
 #[test]
 fn dynamic_prose_stays_escaped_and_other_formatting_is_inherited() {
     let mut cx = context();
-    cx.md_push_heading_offset(2);
     cx.md_push_list_depth();
     let label = "A * B";
     md_sync! { "{label}" }.render_md(&mut cx).unwrap();
-    assert_eq!(cx.md_heading_offset(), 2);
     assert_eq!(cx.md_list_depth(), 1);
     assert!(!cx.md_inline());
     assert_eq!(cx.into_output(), br"A \* B");

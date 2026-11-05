@@ -675,25 +675,6 @@ impl Analyzer<'_> {
                 }
             }
             Expr::MethodCall(m) => {
-                if self.proa_context
-                    && self.output_arg(&m.receiver, env)
-                    && m.method == "md_heading_scope"
-                    && m.args.len() == 1
-                {
-                    return Value {
-                        symbol: Some("@md-heading-scope".into()),
-                        ..Value::default()
-                    };
-                }
-                if m.method == "context"
-                    && m.args.is_empty()
-                    && self.heading_scope_receiver(&m.receiver, env)
-                {
-                    return Value {
-                        symbol: Some("@context".into()),
-                        ..Value::default()
-                    };
-                }
                 // WebContext::url only changes the deployment mount. Its
                 // semantic contribution remains the application-local path.
                 // Recognize the typed context receiver, never arbitrary `url`
@@ -708,10 +689,7 @@ impl Analyzer<'_> {
                 if self.metadata_receiver(expr, env)
                     || (self.proa_context
                         && self.output_arg(&m.receiver, env)
-                        && matches!(
-                            m.method.to_string().as_str(),
-                            "md_set_inline" | "md_push_heading_offset" | "md_pop_heading_offset"
-                        ))
+                        && m.method == "md_set_inline")
                 {
                     let mut value = self.boundary(
                         expr,
@@ -1424,18 +1402,10 @@ impl Analyzer<'_> {
             Expr::Group(g) => self.output_arg(&g.expr, env),
             Expr::Reference(r) => self.output_arg(&r.expr, env),
             Expr::Unary(u) if matches!(u.op, syn::UnOp::Deref(_)) => self.output_arg(&u.expr, env),
-            Expr::MethodCall(m) if m.method == "context" && m.args.is_empty() => {
-                self.heading_scope_receiver(&m.receiver, env)
-            }
             _ => bare(expr).is_some_and(|name| {
                 env.get(&name).and_then(|v| v.symbol.as_deref()) == Some("@context")
             }),
         }
-    }
-    fn heading_scope_receiver(&self, expr: &Expr, env: &Env) -> bool {
-        bare(expr).is_some_and(|name| {
-            env.get(&name).and_then(|v| v.symbol.as_deref()) == Some("@md-heading-scope")
-        })
     }
     fn callback_arg(&self, expr: &Expr, env: &Env) -> bool {
         match expr {
@@ -1541,9 +1511,6 @@ impl Analyzer<'_> {
                     | "load_typed"
                     | "load_typed_request"
                     | "md_set_inline"
-                    | "md_heading_scope"
-                    | "md_push_heading_offset"
-                    | "md_pop_heading_offset"
                     | "md_blank_line"
                     | "md_block_boundary"
                     | "md_line_boundary"
@@ -1805,11 +1772,7 @@ impl Analyzer<'_> {
                 // Context/loader usage is preparation, not an obligation.
                 // This applies only to proven WebContext APIs and metadata
                 // handles, never arbitrary methods with familiar spellings.
-                if (self.context_preparation(m, env)
-                    || self.metadata_receiver(&m.receiver, env)
-                    || (m.method == "context"
-                        && m.args.is_empty()
-                        && self.heading_scope_receiver(&m.receiver, env)))
+                if (self.context_preparation(m, env) || self.metadata_receiver(&m.receiver, env))
                     && !m.args.iter().any(|arg| self.output_arg(arg, env))
                 {
                     let mut value = self.sinks(&m.receiver, env, guards);

@@ -429,7 +429,6 @@ impl WebRenderSync for StateProbe {
         assert_eq!(cx.render_mode(), RenderMode::Static);
         assert!(cx.stream_chunk_flusher().is_none());
         assert!(cx.stream_recorder().is_none());
-        assert_eq!(cx.md_heading_offset(), 0);
         assert_eq!(cx.md_list_depth(), 0);
         assert!(!cx.md_inline());
         cx.locals_mut().insert(9usize);
@@ -438,7 +437,6 @@ impl WebRenderSync for StateProbe {
         }
         .render(cx)?;
         cx.flush_stream_chunk()?;
-        cx.md_push_heading_offset(3);
         cx.md_push_list_depth();
         cx.md_set_inline(true);
         cx.write_md_trusted("\n\n")?;
@@ -465,7 +463,6 @@ fn capture_restores_formatting_hooks_and_loader_on_success_error_and_panic() {
         let mut cx = WebContext::with_loader(loader.clone());
         cx.locals_mut().insert(7usize);
         cx.write_md_text("Prefix").unwrap();
-        cx.md_push_heading_offset(1);
         cx.md_push_list_depth();
         cx.md_set_inline(true);
         cx.enter_mode(ContentMode::Script);
@@ -494,7 +491,6 @@ fn capture_restores_formatting_hooks_and_loader_on_success_error_and_panic() {
         assert_eq!(cx.current_mode(), ContentMode::Script);
         assert_eq!(cx.__proa_current_escape_dialect(), EscapeDialect::Xml);
         assert_eq!(cx.render_mode(), RenderMode::ChunkedOutOfOrder);
-        assert_eq!(cx.md_heading_offset(), 1);
         assert_eq!(cx.md_list_depth(), 1);
         assert!(cx.md_inline());
         assert!(Rc::ptr_eq(cx.stream_chunk_flusher().unwrap(), &flusher));
