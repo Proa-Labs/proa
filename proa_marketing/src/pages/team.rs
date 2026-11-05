@@ -19,9 +19,9 @@ use crate::{
 pub(crate) const META: PageMeta = PageMeta {
     title: const_format::concatcp!("Team: ", site::ORGANIZATION_NAME),
     description: const_format::concatcp!(
-        "Meet the founder behind ",
+        "Meet the people behind Proa and ",
         site::ORGANIZATION_NAME,
-        " and the Proa Rust web framework."
+        "."
     ),
     path: routes::TEAM,
 };

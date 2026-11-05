@@ -14,13 +14,13 @@ use crate::layout::{render_page, PageMeta};
 
 fn about_content() -> (PageMeta, InfoPage) {
     (PageMeta {
-        title: const_format::concatcp!("About Proa: Rust web framework by ", site::ORGANIZATION_NAME),
+        title: "About Proa: Rust web framework",
         description: "What Proa builds, who it is for, and where to find its source, documentation, and community.",
         path: routes::ABOUT,
     }, InfoPage {
         title: "About Proa",
         paragraphs: &[
-            const_format::concatcp!("Proa is a Rust web framework published by ", site::ORGANIZATION, " It is built for developers creating server-rendered websites, documentation, and interactive applications. Proa compiles Rust-authored templates into optimized output and supports composable HTML and Markdown rendering."),
+            const_format::concatcp!("Proa is a Rust web framework. ", site::ORGANIZATION, " is a maintainer of the project. Proa is built for developers creating server-rendered websites, documentation, and interactive applications. It compiles Rust-authored templates into optimized output and supports composable HTML and Markdown rendering."),
             "The framework combines typed components, request-scoped data loading, streaming server rendering, routing, and response metadata. RSJS islands let developers author browser state and event handlers in Rust, with the build producing the JavaScript used for interactivity. Applications can adopt Proa one route at a time alongside an existing stack.",
             "This website publishes the framework documentation, installation instructions, examples, and a playground. Its public search API and MCP server help coding agents find and read the same documentation available to people. These tools are read-only and do not require an account.",
             const_format::concatcp!(site::ORGANIZATION_NAME, " operates from the United States. Source code, release downloads, contribution information, and licensing terms are maintained in the official Proa repository. Check the repository's licensing documents for the terms that apply to a particular package or release."),
@@ -45,7 +45,7 @@ fn contact_content() -> (PageMeta, InfoPage) {
             "For help building with Proa, start with the quickstart and troubleshooting documentation. The guides cover component rendering, RSJS islands, application routing, deployment, and compiler diagnostics. Search the documentation using the website search or the public documentation API to find the relevant reference.",
             const_format::concatcp!("For reproducible bugs or documentation issues, use the issue tracker in the official ", site::GITHUB_REPOSITORY_SLUG, " GitHub repository. Include the Proa version, operating system, relevant compiler output, and a minimal example when possible. Remove secrets, credentials, and private application data before posting a public issue."),
             "The Proa community is also available through the Discord link below. Use community channels for questions and discussion; they are public or shared spaces, so avoid including confidential project information. The repository is the source of truth for code, releases, and contribution guidance.",
-            const_format::concatcp!("For privacy questions or requests about this website, email ", site::PRIVACY_EMAIL, " and consult the published privacy policy. For licensing questions and questions about the website terms, email ", site::LEGAL_EMAIL, ". These contacts are operated by ", site::ORGANIZATION, ", the publisher of Proa."),
+            const_format::concatcp!("For privacy questions or requests about this website, email ", site::PRIVACY_EMAIL, " and consult the published privacy policy. For licensing questions and questions about the website terms, email ", site::LEGAL_EMAIL, ". These contacts are operated by ", site::ORGANIZATION, ", a maintainer of Proa."),
         ],
         links: &[
             ("/docs/guides/troubleshooting", "Troubleshooting guide"),

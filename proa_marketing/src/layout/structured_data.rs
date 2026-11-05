@@ -390,7 +390,7 @@ fn serialize(origin: &str) -> String {
                 id: url(ORGANIZATION_ID),
                 name: site::ORGANIZATION,
                 url: url(routes::HOME),
-                description: "Publisher of Proa, a Rust web framework for composable, multi-target rendering.",
+                description: "A maintainer of Proa, a Rust web framework for composable, multi-target rendering.",
                 logo: url("/static/apple-touch-icon.png"),
                 same_as: [site::GITHUB_ORGANIZATION_URL, site::YOUTUBE_URL, site::LINKEDIN_URL],
                 address: Address { kind: "PostalAddress", address_country: "US" },

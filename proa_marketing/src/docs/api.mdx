@@ -51,7 +51,7 @@ curl -H 'Accept: text/markdown' 'https://proa.so/'
 
 `GET /api/v1/docs/page` returns metadata plus the complete `markdown` field. Its `path` must identify a public documentation page; arbitrary URLs and filesystem paths are rejected. `GET /api/v1/docs` lists all public pages with the same pagination shape as search.
 
-Every documentation page has a `.md` representation. The homepage is also available at `/index.md` and `/?mode=agent`. Company founders and leadership are published at [/team](/team), with the same content available at [/team.md](/team.md) or by requesting `text/markdown` from `/team`. These website routes are described in [/openapi/site.json](/openapi/site.json); the documentation API and MCP tools remain scoped to framework documentation. HTML and negotiated Markdown responses carry `Vary: Accept` so caches can distinguish the representations. Use [/llms-full.txt](/llms-full.txt) only when you need the entire corpus.
+Every documentation page has a `.md` representation. The homepage is also available at `/index.md` and `/?mode=agent`. HTML and negotiated Markdown responses carry `Vary: Accept` so caches can distinguish the representations. Use [/llms-full.txt](/llms-full.txt) only when you need the entire corpus.
 
 ## Sandbox
 
