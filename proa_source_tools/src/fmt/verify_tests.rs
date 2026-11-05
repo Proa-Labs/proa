@@ -357,7 +357,7 @@ fn md_multiline_rust_slots_keep_their_layout() {
                 md_sync! { "\n" }
             }
             for item in group {
-                md_sync! { {item} "\n" }
+                md_sync! { "{item}\n" }
             }
         }}
         "###
@@ -388,10 +388,15 @@ fn verify_preserves_markdown_argument_order_and_initializers() {
 }
 
 #[test]
-fn md_token_mode_body_is_left_alone() {
+fn md_token_composition_is_reported_and_left_alone() {
+    // The compiler rejects token composition; the formatter reports the same
+    // message and does not rewrite the body.
     let source = r##"fn f() { let s = md_sync! { "# " {title} "\n" }; }"##;
-    let formatted = format_file(Path::new("sample.rs"), source).unwrap().output;
-    assert_eq!(formatted, source);
+    let formatted = format_file(Path::new("sample.rs"), source).unwrap();
+    assert_eq!(formatted.output, source);
+    assert!(formatted.diagnostics.iter().any(|diagnostic| diagnostic
+        .message
+        .contains("unexpected tokens after the template string")));
 }
 
 #[test]

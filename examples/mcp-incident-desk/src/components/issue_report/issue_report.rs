@@ -360,13 +360,18 @@ impl<L: DataLoader> WebRenderSync<L> for IssueReport<'_> {
 }
 impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for IssueReport<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        let overview = IssueOverview::new(self.data);
-        let impact = Impact::new(self.data);
-        let release = ReleaseEvidence::new(self.data);
-        let runbook = Runbook::new(self.data);
-        let actions = ActionSummary::new(self.data);
-        let activity = ActivityLog::new(self.data);
-        md_sync! { {overview}{impact}{release}{runbook}{actions}{activity} }.render_md(cx)
+        // Every section is a block template that supplies its own paragraph
+        // boundaries, so the report renders them in order without authoring
+        // Markdown of its own.
+        (
+            IssueOverview::new(self.data),
+            Impact::new(self.data),
+            ReleaseEvidence::new(self.data),
+            Runbook::new(self.data),
+            ActionSummary::new(self.data),
+            ActivityLog::new(self.data),
+        )
+            .render_md(cx)
     }
 }
 pub fn markdown(data: &IssueProjection) -> Result<String, WriteError> {

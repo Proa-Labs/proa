@@ -114,20 +114,20 @@ See [the converter contract](api-reference/render-traits.md#convert-existing-htm
 Write Markdown as one multiline `r###"..."###` template. Newlines are literal;
 avoid constructing paragraphs with `push_str`, `format!`, joins, or escaped
 newline fragments. Raw-template interpolation stays literal inside code
-spans/fences; use an explicit typed code child or token composition when an
-example needs dynamic code values.
+spans/fences; use an explicit typed code child when an example needs dynamic
+code values.
 
 ### Template modes
 
-Every `md_sync!` and `md!` template renders in one of three modes. The shape of
-the literal selects the mode, the mode is applied when the template renders,
+The body of `md_sync!` and `md!` is one string literal, optionally followed by
+`name = value` arguments. Every template renders in one of two modes. The shape
+of the literal selects the mode, the mode is applied when the template renders,
 and it decides what the framework writes around the body:
 
 | Mode | Select it with | Before the body | After the body | Use it for |
 | --- | --- | --- | --- | --- |
 | Block | A raw literal spanning source lines | Completes a paragraph boundary, adding only the missing line feeds and nothing at the start of output; errors inside an inline scope | Completes a paragraph boundary | Documents and sections: anything with headings, paragraphs, or lists |
 | Inline | An ordinary string, or a raw literal on one line | Marks the output as inline content, so a block child errors | Restores the caller's mode | Labels, bold or link text, table cells, list rows |
-| Inherit | Token composition such as `md_sync! { "- " {item} "\n" }` | Nothing | Nothing | Byte-exact output that must not gain boundaries, such as `robots.txt` |
 
 Raw delimiter hashes only delimit the literal: `r"`, `r#"`, and `r###"` follow
 the same rule, and dedenting is unchanged.
@@ -173,11 +173,18 @@ helpers fail at render time before the block writes its boundary or body.
 Earlier bytes remain. Give such children an inline representation instead of
 embedding a document in a link or table cell.
 
-**Inherit.** Token composition adds no bytes of its own and follows the caller.
-`md_sync! { "Intro" }` followed by `md_sync! { "- " {item} "\n" }` writes
-`Intro- a\n`. Use it only when the output must not gain boundaries, and spell
-every separator yourself. It also inherits the inline restriction: a block
-child inside an inline caller still errors.
+**Composing without authored Markdown.** When a renderer only sequences
+children that write their own Markdown, do not wrap them in a template. Use a
+tuple, which renders its elements in order and stops at the first error, or a
+loop of `.render_md(cx)?` calls. Each child applies its own mode, so block
+sections keep their paragraph boundaries and byte-exact output such as
+`robots.txt` gains none. Token composition such as
+`md_sync! { {overview}{impact} }` or `md_sync! { "- " {item} "\n" }` is a
+compile error that points back to the string form.
+
+```rust
+(overview, impact, activity).render_md(cx)
+```
 
 **Guarantees in every mode.** The framework restores the enclosing inline
 setting on success, error, panic unwinding, and (for `md!`) cancellation. It
@@ -208,8 +215,9 @@ md_sync! { "**{self.children}**" }.render_md(cx)?;
 
 For document children, choose a multiline raw template. An ordinary-string
 wrapper such as `md_sync! { "{section}" }` selects inline mode and rejects block
-sections. If existing separators must remain exact, token composition can
-inherit the caller's mode: `md_sync! { {section} "\n\n" }`.
+sections. If existing separators must remain exact, render the sections in
+sequence with a tuple or `.render_md(cx)?` calls and spell each separator as
+its own inline template, such as `md_sync! { "\n\n" }`.
 
 Heading offsets have a separate explicit scope. Keep the guard alive while
 rendering nested children, then let it drop:
@@ -265,13 +273,14 @@ md_sync! { r###"
 
 Use an ordinary one-line string for short inline markup or list rows:
 `md_sync! { "**In stock**" }` or `md_sync! { "- {review}\n" }`. Keep the newline
-when each iteration must produce a separate line. A single literal still
-interpolates `{expression}`; splitting it into quoted token pieces is unnecessary.
+when each iteration must produce a separate line. A single literal
+interpolates `{expression}`; splitting it into quoted token pieces such as
+`md_sync! { "- " {review} "\n" }` is a compile error.
 Use raw literals with fewer hashes for substantial multiline fragments or when
 they substantially reduce escaping. Each multiline literal removes its own
-common indentation and retains its authored trailing newlines. Keep
-token composition for generated/token-aware tooling, tests of that API, and
-dynamic content inside code fences, which raw templates deliberately keep literal.
+common indentation and retains its authored trailing newlines. Dynamic
+content inside code fences, which raw templates deliberately keep literal,
+goes through an explicit typed code child.
 Nested `md!` and `html!` may borrow loop items and local strings across awaits.
 Their shared typed async continuation keeps those borrows alive until rendering
 finishes; neither requires cloning the input. Use a sync nested fragment when

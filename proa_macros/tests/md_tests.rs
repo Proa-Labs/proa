@@ -94,7 +94,7 @@ fn raw_template_composes_control_flow_without_escaped_newlines() {
         ## Items
 
         {for item in items {
-            md_sync! { "- " {item} "\n" }
+            md_sync! { "- {item}\n" }
         }}
         "###
     });
@@ -116,7 +116,7 @@ fn control_flow_is_rust_and_markdown_re_enters_through_nested_templates() {
             {if true {
                 md_sync! { r#"
                     {if enabled { "visible" } else { "hidden" }}
-                    {for item in items { md_sync! { "(" {item} ")" } }}
+                    {for item in items { md_sync! { "({item})" } }}
                 "# }
             }}
             "###
@@ -133,9 +133,9 @@ fn control_flow_is_rust_and_markdown_re_enters_through_nested_templates() {
 #[test]
 fn whitespace_inside_a_slot_is_rust_layout() {
     let value = "a*b";
-    let compact = r(md_sync!("{if true { md_sync! { {value} \"\\n\" } }}"));
-    let spread = r(md_sync!("{if true {\n    md_sync! { {value} \"\\n\" }\n}}"));
-    let tabbed = r(md_sync!("{if true {\t\n\tmd_sync! { {value} \"\\n\" }\n}}"));
+    let compact = r(md_sync!("{if true { md_sync! { \"{value}\\n\" } }}"));
+    let spread = r(md_sync!("{if true {\n    md_sync! { \"{value}\\n\" }\n}}"));
+    let tabbed = r(md_sync!("{if true {\t\n\tmd_sync! { \"{value}\\n\" }\n}}"));
     assert_eq!(compact, "a\\*b\n");
     assert_eq!(spread, compact);
     assert_eq!(tabbed, compact);
@@ -218,7 +218,7 @@ fn match_arms_render_their_tails() {
             {match count {
                 0 => md_sync! { "_none_" },
                 1 => "one",
-                _ => md_sync! { "**" {count} "**" },
+                _ => md_sync! { "**{count}**" },
             }}
             "###
         })
@@ -233,7 +233,7 @@ fn multiple_fragments_compose_in_one_template_tail() {
     let groups = [["a", "b"], ["c", "d"]];
     let output = r(md_sync! { r###"
         {for (index, group) in groups.iter().enumerate() {
-            md_sync! { {if index > 0 { md_sync! { "\n" } }} {for item in group { md_sync! { "{item}\n" } }} }
+            md_sync! { r#"{if index > 0 { md_sync! { "\n" } }}{for item in group { md_sync! { "{item}\n" } }}"# }
         }}
         "###
     });
@@ -280,7 +280,7 @@ fn control_headers_support_if_let_and_multiline_rust_whitespace() {
     );
     assert_eq!(
         r(md_sync! { r###"{for item in
-        [2, 3] { md_sync! { "(" {item} ")" } }}"### }),
+        [2, 3] { md_sync! { "({item})" } }}"### }),
         "(2)(3)\n\n"
     );
 }
@@ -290,7 +290,7 @@ fn named_arguments_seed_conditions_and_iterators() {
     let values = [2, 4];
     let output = r(md_sync! { r###"
         {if show {
-            for item in items { md_sync! { "(" {item} ")" } }
+            for item in items { md_sync! { "({item})" } }
         }}
         "###, show = true, items = &values
     });
@@ -314,7 +314,7 @@ fn template_for_loop() {
     let items = ["alpha", "beta", "gamma"];
     let out = r(md_sync!(
         "
-{for item in items.iter() { md_sync! { \"- \" {item} \"\\n\" } }}
+{for item in items.iter() { md_sync! { \"- {item}\\n\" } }}
 "
     ));
     assert_eq!(out, "- alpha\n- beta\n- gamma\n\n");
@@ -359,7 +359,7 @@ fn template_nested_for() {
         {for (name, items) in groups.iter() {
             md_sync! { r#"
         ## {name}
-        {for item in items.iter() { md_sync! { "- " {item} "\n" } }}"# }
+        {for item in items.iter() { md_sync! { "- {item}\n" } }}"# }
         }}
         "###
     });
@@ -440,7 +440,7 @@ fn template_dedent_applies_inside_control_flow() {
     let out = r(md_sync! { "
         # Items
 
-        {for item in items.iter() { md_sync! { \"- \" {item} \"\\n\" } }}
+        {for item in items.iter() { md_sync! { \"- {item}\\n\" } }}
         "
     });
     // The newline after `}}` is part of the template, as in `template_nested_for`.
@@ -554,37 +554,6 @@ fn template_mixed_tabs_and_spaces_are_left_alone() {
 }
 
 #[test]
-fn braced_component_mode_basic() {
-    let name = "World";
-    let out = r(md_sync! {
-        "# Hello " { name } "\n"
-    });
-    assert_eq!(out, "# Hello World\n");
-}
-
-#[test]
-fn braced_source_lines_insert_block_boundaries() {
-    let title = "Hello";
-    let body = "World";
-    let out = r(md_sync! {
-        "# " { title }
-        { body }
-    });
-
-    assert_eq!(out, "# Hello\n\nWorld");
-}
-
-#[test]
-fn braced_source_lines_complete_existing_line_breaks() {
-    let out = r(md_sync! {
-        "First\n"
-        "Second"
-    });
-
-    assert_eq!(out, "First\n\nSecond");
-}
-
-#[test]
 fn multiline_raw_strings_dedent_source_indentation() {
     let out = r(md_sync! {
         r"---
@@ -616,47 +585,10 @@ fn multiline_raw_strings_preserve_relative_indentation() {
 }
 
 #[test]
-fn braced_multiline_raw_strings_dedent_before_composed_children() {
-    let body = "Body";
-    let out = r(md_sync! {
-        r"---
-        title: Markdown rendering
-        ---"
-        { body }
-    });
-
-    assert_eq!(out, "---\ntitle: Markdown rendering\n---\n\nBody");
-}
-
-#[test]
 fn escaped_newlines_preserve_intentional_indentation() {
     let out = r(md_sync! { "Paragraph\n    indented code" });
 
     assert_eq!(out, "Paragraph\n    indented code");
-}
-
-#[test]
-fn braced_source_lines_do_not_break_inline_contexts() {
-    use proa_core::WebContext;
-    use proa_core::{MdRenderSync, WriteBuf};
-
-    struct InlinePair;
-
-    impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlinePair {
-        fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            let pair = md_sync! {
-                "Before"
-                "After"
-            };
-            md_sync! { "{pair}" }.render_md(cx)
-        }
-    }
-
-    let mut buf = Vec::new();
-    InlinePair
-        .render_md(&mut WebContext::with_buffer(&mut buf))
-        .unwrap();
-    assert_eq!(String::from_utf8(buf).unwrap(), "BeforeAfter");
 }
 
 struct DelayedMd(&'static str);
@@ -705,7 +637,7 @@ async fn async_md_composes_async_and_immediate_children() {
 #[tokio::test]
 async fn async_md_accepts_explicitly_lifted_sync_children() {
     let out = proa_core::render_md_to_string_async(md! {
-        "Wrapped: " { proa_core::to_md_async(SyncOnlyMd("sync")) }
+        r#"Wrapped: {proa_core::to_md_async(SyncOnlyMd("sync"))}"#
     })
     .await;
 
@@ -717,7 +649,7 @@ async fn async_md_supports_template_control_flow() {
     let items = ["alpha".to_owned(), "beta".to_owned()];
     let show_footer = true;
     let out = proa_core::render_md_to_string_async(md!("
-{for item in items.iter() { md_sync! { \"- \" {item} \"\\n\" } }}
+{for item in items.iter() { md_sync! { \"- {item}\\n\" } }}
 {if show_footer { md! { \"Done\" } }}
 "))
     .await;
@@ -775,21 +707,10 @@ async fn async_md_bridges_to_async_web_rendering() {
 }
 
 #[tokio::test]
-async fn async_md_braced_mode_composes_children() {
-    let out = proa_core::render_md_to_string_async(md! { "Before " { DelayedMd("after") } }).await;
+async fn async_md_composes_pending_children_inline() {
+    let out = proa_core::render_md_to_string_async(md! { r#"Before {DelayedMd("after")}"# }).await;
 
     assert_eq!(out, "Before after");
-}
-
-#[tokio::test]
-async fn async_md_braced_source_lines_insert_block_boundaries() {
-    let out = proa_core::render_md_to_string_async(md! {
-        "Before"
-        { DelayedMd("after") }
-    })
-    .await;
-
-    assert_eq!(out, "Before\n\nafter");
 }
 
 #[test]
@@ -800,7 +721,7 @@ fn md_renders_via_web_render() {
     }
     impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Page {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! { "# " { self.title } "\n" }.render(cx)
+            md_sync! { "# {self.title}\n" }.render(cx)
         }
     }
     let out = render_to_string(Page { title: "Hello" });
@@ -828,9 +749,11 @@ fn dual_trait_component() {
     }
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Card {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! {
-                "## " { self.title }
-                { self.body } "\n"
+            md_sync! { r#"
+                ## {self.title}
+
+                {self.body}
+                "#
             }
             .render_md(cx)?;
             Ok(())
@@ -853,7 +776,7 @@ fn dual_trait_component() {
         .unwrap();
     }
     let md_out = String::from_utf8(buf).unwrap();
-    assert_eq!(md_out, "## Hello\n\nWorld\n");
+    assert_eq!(md_out, "## Hello\n\nWorld\n\n");
 }
 #[test]
 fn md_composes_md_render_children() {
@@ -877,9 +800,11 @@ fn md_composes_md_render_children() {
     }
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Card {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! {
-                "## " { self.title }
-                { self.body } "\n"
+            md_sync! { r#"
+                ## {self.title}
+
+                {self.body}
+                "#
             }
             .render_md(cx)?;
             Ok(())
@@ -891,13 +816,15 @@ fn md_composes_md_render_children() {
     }
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Page {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! {
-                "# Featured"
-                { self.featured }
-                "# Nearby"
-                { for card in self.nearby {
-                    card
-                }}
+            md_sync! { r#"
+                # Featured
+
+                {self.featured}
+
+                # Nearby
+
+                {for card in self.nearby { card }}
+                "#
             }
             .render_md(cx)?;
             Ok(())
@@ -976,9 +903,11 @@ fn md_render_with_chained_bump_writer() {
     }
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Article {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! {
-                "# " { self.title }
-                { self.body } "\n"
+            md_sync! { r#"
+                # {self.title}
+
+                {self.body}
+                "#
             }
             .render_md(cx)?;
             Ok(())
@@ -995,7 +924,7 @@ fn md_render_with_chained_bump_writer() {
         .unwrap();
     }
     let out = String::from_utf8(buf.to_vec()).unwrap();
-    assert_eq!(out, "# Hello\n\nWorld\n");
+    assert_eq!(out, "# Hello\n\nWorld\n\n");
     assert!(buf.page_count() >= 1);
 }
 #[test]
@@ -1008,11 +937,11 @@ fn md_render_chained_bump_large_output() {
     }
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Listing {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! {
-                "# Items"
-                { for item in self.items.iter() {
-                    md_sync! { "- " { item } "\n" }
-                }}
+            md_sync! { r#"
+                # Items
+
+                {for item in self.items.iter() { md_sync! { "- {item}\n" } }}
+                "#
             }
             .render_md(cx)?;
             Ok(())
@@ -1029,7 +958,7 @@ fn md_render_chained_bump_large_output() {
     let out = String::from_utf8(buf.to_vec()).unwrap();
     assert_eq!(
         out,
-        "# Items\n\n- alpha\n- beta\n- gamma\n- delta\n- epsilon\n"
+        "# Items\n\n- alpha\n- beta\n- gamma\n- delta\n- epsilon\n\n"
     );
     assert!(
         buf.page_count() >= 2,

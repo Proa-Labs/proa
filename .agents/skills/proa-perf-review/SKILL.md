@@ -33,8 +33,9 @@ intentionally outside the SSR hot path.
 
 Audit manual `md_set_inline` save/render/restore patterns, including saved
 `Result` cleanup. Use an ordinary-string template for inline children and a
-multiline raw template for block sections. Keep inherited token composition
-where authored separators must remain exact. Never put block sections inside
+multiline raw template for block sections. Where authored separators must
+remain exact, render the parts in sequence with a tuple or `.render_md(cx)?`
+calls instead of a wrapper template. Never put block sections inside
 an ordinary-string wrapper. Use `cx.md_heading_scope(...)` for temporary
 heading offsets; template mode cleanup does not restore other settings.
 Do not replace local cleanup with whole `MdState` restoration: it would also

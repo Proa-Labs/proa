@@ -670,21 +670,21 @@ impl<L: DataLoader, B: WriteBuf> Drop for MdHeadingScope<'_, L, B> {
 }
 
 /// Template modes: the behavior a compiled Markdown template wraps around its
-/// body at render time. This constant is the inherit mode; the table below
-/// covers all three.
+/// body at render time. This constant is the default for closure renderers
+/// built without the macros; the table below covers the modes the macros
+/// select.
 ///
-/// `md_sync!` and `md!` pick one of these constants at expansion time from the
-/// shape of the literal and stamp it on the template as the `MODE` const
-/// parameter of `OptimizedMd` and `AsyncMdFn`, through the hidden
-/// `__proa_template_mode` method. When the template renders,
-/// `MdTemplateScope<MODE>` turns the value into a prologue that runs before the
-/// render closure and an epilogue that runs after it succeeds:
+/// `md_sync!` and `md!` pick a mode at expansion time from the shape of the
+/// string literal and stamp it on the template as the `MODE` const parameter
+/// of `OptimizedMd` and `AsyncMdFn`, through the hidden `__proa_template_mode`
+/// method. When the template renders, `MdTemplateScope<MODE>` turns the value
+/// into a prologue that runs before the render closure and an epilogue that
+/// runs after it succeeds:
 ///
 /// | Mode | Literal form | Before the body | After the body |
 /// |---|---|---|---|
 /// | [`MD_TEMPLATE_BLOCK`] | multiline raw string | error inside an inline scope, otherwise complete a paragraph boundary | complete a paragraph boundary |
 /// | [`MD_TEMPLATE_INLINE`] | ordinary string or single-line raw string | mark the inline scope so block children are rejected | restore the caller's flags |
-/// | [`MD_TEMPLATE_INHERIT`] | token composition such as `md_sync! { {a} "x" }` | nothing | nothing |
 ///
 /// The modes are `u8` constants rather than an enum because stable const
 /// generics accept only integer, `bool`, and `char` parameters. Carrying the
@@ -693,8 +693,10 @@ impl<L: DataLoader, B: WriteBuf> Drop for MdHeadingScope<'_, L, B> {
 /// are hidden from the public documentation because only macro output names
 /// them; application code selects a mode by choosing the literal form.
 ///
-/// Inherit mode: no prologue or epilogue. The template renders in the caller's
-/// mode, as every template did before literal modes existed.
+/// Inherit mode: no prologue or epilogue. No literal selects it. It is the
+/// default `MODE` of an [`OptimizedMd`](crate::OptimizedMd) or `AsyncMdFn`
+/// built from a closure without the macro, which writes exactly the bytes the
+/// closure writes, in whatever mode the caller is already in.
 #[doc(hidden)]
 pub const MD_TEMPLATE_INHERIT: u8 = 0;
 /// Inline mode, selected by an ordinary string or a single-line raw literal:

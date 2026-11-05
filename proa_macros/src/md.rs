@@ -49,7 +49,7 @@
 //! boundaries before their body and after successful rendering. Ordinary strings
 //! and single-line raw literals select inline mode without adding boundaries.
 //! Scopes restore the enclosing mode on errors, unwinding, or async cancellation;
-//! blocks cannot render inside inline scopes. Token composition inherits its mode.
+//! blocks cannot render inside inline scopes.
 //!
 //! Physically multiline raw templates remove their common source indentation,
 //! preserving relative indentation without leaking the surrounding Rust block's
@@ -65,28 +65,74 @@
 //! }
 //! ```
 //!
-//! # Token composition mode
+//! # Composition without authored Markdown
+//!
+//! The macro body is always one string template. To render values one after
+//! another without writing Markdown around them, compose them in Rust:
 //!
 //! ```rust,ignore
-//! md_sync! { "# " { data.title } }.render_md(cx);
+//! (overview, impact, activity).render_md(cx)
 //! ```
 //!
-//! This expression-visible form remains available for generated templates and
-//! tooling that needs Rust tokens outside a string literal.
-//!
-//! Raw templates keep Markdown inline with the Rust component. The token
-//! composition form above is also supported for expression-visible tooling.
+//! Token composition such as `md_sync! { "# " {title} }` is rejected with a
+//! pointer to the string form. The parser for it stays because the editor
+//! projection presents templates to rust-analyzer in that shape; see
+//! [`expand`].
 
 use proa_dsl::md::{bare_ident, text_value, MdNodeKind, MdTemplateArg, TplNode};
 pub use proa_dsl::md::{MdRoot, MdTemplateInput};
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{quote, quote_spanned};
 use syn::{Expr, LitStr};
 
 #[derive(Clone, Copy)]
 pub enum EmitMode {
     Sync,
     Async,
+}
+
+impl EmitMode {
+    /// The macro an author wrote, for diagnostics.
+    pub fn macro_name(self) -> &'static str {
+        match self {
+            EmitMode::Sync => "md_sync",
+            EmitMode::Async => "md",
+        }
+    }
+}
+
+/// Expand a macro body.
+///
+/// The body is one string template; [`proa_dsl::md::template_shape_error`]
+/// explains anything else. Token composition such as `{a} "x" {b}` is still
+/// parsed, because the editor projection presents a template to rust-analyzer
+/// in exactly that shape: the Markdown is blanked and every `{slot}` keeps its
+/// authored position. Under `cfg(rust_analyzer)` that shape expands so the IDE
+/// keeps slot diagnostics and the template's result type; a real build sees
+/// the rejection as a `compile_error!` at the offending token instead.
+pub fn expand(input: TokenStream, mode: EmitMode) -> syn::Result<TokenStream> {
+    let rejection = match syn::parse2::<MdTemplateInput>(input.clone()) {
+        Ok(template) => return generate_template(&template, mode),
+        Err(parse_error) => {
+            proa_dsl::md::template_shape_error(mode.macro_name(), &input).unwrap_or(parse_error)
+        }
+    };
+    let Ok(root) = syn::parse2::<MdRoot>(input) else {
+        return Err(rejection);
+    };
+    let message = rejection.to_string();
+    let error = quote_spanned! {rejection.span()=> ::core::compile_error!(#message); };
+    let expansion = generate_tokens(&root, mode);
+    // Crates outside this workspace do not register `cfg(rust_analyzer)` with
+    // check-cfg, so the gate carries its own allow, as the IDE shadow does.
+    Ok(quote! {{
+        #[allow(unexpected_cfgs)]
+        {
+            #[cfg(not(rust_analyzer))]
+            #error
+        }
+        #expansion
+    }})
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -410,7 +456,8 @@ fn emit_tpl_nodes(
 // -- template parser --
 
 // ═══════════════════════════════════════════════════════════════
-//  Token composition mode: source lines are implicit Markdown block boundaries
+//  Token composition: the editor's view of a template, expanded only for
+//  rust-analyzer (see `expand`). Source lines are implicit block boundaries.
 // ═══════════════════════════════════════════════════════════════
 
 pub fn generate_tokens(root: &MdRoot, mode: EmitMode) -> TokenStream {
@@ -449,7 +496,7 @@ pub fn generate_tokens(root: &MdRoot, mode: EmitMode) -> TokenStream {
     wrap_render(&stmts, mode)
 }
 
-// Raw and token templates share the same Rust control-flow lowering as HTML.
+// Templates share the same Rust control-flow lowering as HTML.
 fn gen_block_expr(expr: &Expr, stmts: &mut Vec<TokenStream>, mode: EmitMode) {
     stmts.push(crate::render_control::lower(expr, &|expr| {
         emit_md_render(expr, mode)
@@ -465,6 +512,47 @@ mod template_tests {
         generate_template(&tpl, EmitMode::Sync)
             .expect("template generates")
             .to_string()
+    }
+
+    fn expand_body(input: proc_macro2::TokenStream, mode: EmitMode) -> Result<String, String> {
+        super::expand(input, mode)
+            .map(|tokens| tokens.to_string())
+            .map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn non_template_bodies_fail_the_build_but_still_expand_for_rust_analyzer() {
+        let out = expand_body(quote::quote! { {overview}{impact} }, EmitMode::Sync).unwrap();
+        assert!(out.contains("compile_error !"), "{out}");
+        assert!(out.contains("cfg (not (rust_analyzer))"), "{out}");
+        assert!(out.contains("`md_sync!` takes a string template"), "{out}");
+        assert!(out.contains("use a tuple"), "{out}");
+        assert!(out.contains("OptimizedMd"), "{out}");
+
+        let out = expand_body(quote::quote! { "**" {child} "**" }, EmitMode::Sync).unwrap();
+        assert!(
+            out.contains("unexpected tokens after the template string"),
+            "{out}"
+        );
+
+        let out = expand_body(quote::quote! {}, EmitMode::Sync).unwrap();
+        assert!(out.contains("to render nothing"), "{out}");
+
+        let out = expand_body(quote::quote! { {section} }, EmitMode::Async).unwrap();
+        assert!(out.contains("`md!` takes a string template"), "{out}");
+        assert!(out.contains("render each value in turn"), "{out}");
+
+        // Bodies that are not even token composition surface the rejection
+        // directly, and a template with a malformed named argument keeps the
+        // ordinary parse error.
+        let err = expand_body(quote::quote! { foo bar }, EmitMode::Sync).unwrap_err();
+        assert!(err.contains("takes a string template"), "{err}");
+        let err = expand_body(quote::quote! { "a", b }, EmitMode::Sync).unwrap_err();
+        assert!(err.contains("expected `=`"), "{err}");
+
+        // String templates never carry the rejection.
+        let out = expand_body(quote::quote! { "**{child}**" }, EmitMode::Sync).unwrap();
+        assert!(!out.contains("compile_error"), "{out}");
     }
 
     fn expand_err(input: proc_macro2::TokenStream) -> String {
@@ -524,7 +612,7 @@ mod template_tests {
     #[test]
     fn shadow_skipped_for_control_flow() {
         let out = expand(quote! { r###"
-            {for item in &items { md_sync! { "- " {item} "\n" } }}
+            {for item in &items { md_sync! { "- {item}\n" } }}
             "### });
         assert!(!out.contains("format_args"), "unexpected shadow: {out}");
     }

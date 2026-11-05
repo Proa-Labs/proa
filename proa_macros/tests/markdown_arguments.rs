@@ -69,10 +69,6 @@ fn argument_bindings_and_render_context_are_hygienic() {
         }),
         "named/argument"
     );
-    assert_eq!(
-        render_md_to_string(md_sync! { "prefix " {cx} }),
-        "prefix caller"
-    );
 }
 
 #[tokio::test]

@@ -15,7 +15,7 @@
 //! Raw expressions retain their authored literal ranges; token expressions
 //! retain their ordinary Rust spans.
 
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::{ToTokens, TokenStreamExt};
 use std::ops::{Deref, Range};
 use std::sync::Arc;
@@ -122,7 +122,8 @@ impl ToTokens for TemplateExpr {
 ///
 /// Control flow is not a separate node kind: an `{if ...}` or `{for ...}` slot
 /// is an [`Expr::If`] / [`Expr::ForLoop`] like any other slot expression, and
-/// code generation lowers it exactly as the token-composition form does.
+/// code generation lowers it through the control-flow lowering shared with the
+/// HTML and XML macros.
 #[derive(Clone, Debug)]
 pub enum TplNode {
     Text(String),
@@ -258,6 +259,62 @@ impl Parse for MdTemplateInput {
     }
 }
 
+/// Parse the body of `md!` or `md_sync!`, naming the macro in the diagnostic
+/// when the tokens are not a string template.
+///
+/// The body is one string literal, optionally followed by `, name = value`
+/// arguments. Anything else, including token composition such as
+/// `{a} "x" {b}`, is rejected with [`template_shape_error`], so the compiler,
+/// the linter, and the formatter report the same message.
+pub fn parse_template_input(macro_name: &str, tokens: TokenStream) -> syn::Result<MdTemplateInput> {
+    match syn::parse2::<MdTemplateInput>(tokens.clone()) {
+        Ok(template) => Ok(template),
+        Err(parse_error) => Err(template_shape_error(macro_name, &tokens).unwrap_or(parse_error)),
+    }
+}
+
+/// Explain a body that is not a string template.
+///
+/// Returns `None` when the body starts with a string literal followed by a
+/// comma or nothing: it is shaped like a template, so the ordinary parse error
+/// for its named arguments is the more specific message.
+pub fn template_shape_error(macro_name: &str, tokens: &TokenStream) -> Option<syn::Error> {
+    let mut tokens = tokens.clone().into_iter();
+    let Some(first) = tokens.next() else {
+        return Some(syn::Error::new(
+            Span::call_site(),
+            format!(
+                "`{macro_name}!` takes a string template; to render nothing, write `{macro_name}! {{ \"\" }}`"
+            ),
+        ));
+    };
+    let is_string = matches!(&first, TokenTree::Literal(_))
+        && syn::parse2::<LitStr>(TokenStream::from(first.clone())).is_ok();
+    if !is_string {
+        let in_sequence = if macro_name == "md" {
+            "render each value in turn: `a.render_md(cx).resolve().await?;`"
+        } else {
+            "use a tuple: `(a, b).render_md(cx)`"
+        };
+        return Some(syn::Error::new(
+            first.span(),
+            format!(
+                "`{macro_name}!` takes a string template; write the Markdown and its `{{slots}}` inside one string, such as `{macro_name}! {{ \"**{{child}}**\" }}`. To render values in sequence without authoring Markdown, {in_sequence}"
+            ),
+        ));
+    }
+    match tokens.next() {
+        None => None,
+        Some(TokenTree::Punct(punct)) if punct.as_char() == ',' => None,
+        Some(stray) => Some(syn::Error::new(
+            stray.span(),
+            format!(
+                "unexpected tokens after the template string; `{macro_name}!` takes one string with its slots inside it, such as `{macro_name}! {{ \"**{{child}}**\" }}`, optionally followed by `, name = value` arguments"
+            ),
+        )),
+    }
+}
+
 pub fn bare_ident(expr: &Expr) -> Option<&syn::Ident> {
     let Expr::Path(path) = expr else { return None };
     if path.attrs.is_empty() && path.qself.is_none() {
@@ -362,6 +419,14 @@ pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
     Ok(nodes)
 }
 
+/// Token composition: `{a} "x" {b}`.
+///
+/// Authored code cannot use this form; `md!` and `md_sync!` reject it with
+/// [`template_shape_error`]. It remains the shape in which the editor
+/// projection (`editors/lsp`) presents a template to rust-analyzer, with every
+/// `{slot}` at its authored position and the Markdown around it blanked, so
+/// the macros still expand it under `cfg(rust_analyzer)` to keep slot
+/// diagnostics and the template's result type available in the IDE.
 #[derive(Clone, Debug)]
 pub struct MdRoot {
     pub nodes: Vec<MdNode>,
@@ -529,7 +594,7 @@ mod tests {
     fn control_flow_is_one_rust_slot() {
         let nodes = kinds(
             r#"{if show {
-    md_sync! { "- " {label} "\n" }
+    md_sync! { "- {label}\n" }
 }}
 "#,
         );

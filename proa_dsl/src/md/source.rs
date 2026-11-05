@@ -266,7 +266,7 @@ mod tests {
     fn control_slots_keep_their_whole_authored_range() {
         let input = r####"r###"
     {if self.ready {
-        md_sync! { "- " {item.title} }
+        md_sync! { "- {item.title}" }
     }}
     "###"####;
         let template: MdTemplateInput = syn::parse_str(input).unwrap();

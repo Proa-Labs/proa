@@ -143,17 +143,19 @@ fn single_line_raw_and_multiline_cooked_literals_are_inline() {
 }
 
 #[test]
-fn legacy_token_composition_inherits_the_callers_mode() {
+fn closure_renderers_built_without_the_macro_inherit_the_callers_mode() {
+    let fragment = |expected_inline: bool| {
+        proa_core::OptimizedMd::new(move |cx: &mut WebContext<proa_core::NoLoader, Vec<u8>>| {
+            assert_eq!(cx.md_inline(), expected_inline);
+            cx.write_md_prepared_static(b"**")
+        })
+    };
     let mut cx = context();
-    md_sync! { "**" {Mode(false)} "**" }
-        .render_md(&mut cx)
-        .unwrap();
+    fragment(false).render_md(&mut cx).unwrap();
     cx.md_set_inline(true);
-    md_sync! { "**" {Mode(true)} "**" }
-        .render_md(&mut cx)
-        .unwrap();
+    fragment(true).render_md(&mut cx).unwrap();
     assert!(cx.md_inline());
-    assert_eq!(cx.into_output(), b"********");
+    assert_eq!(cx.into_output(), b"****");
 }
 
 #[test]

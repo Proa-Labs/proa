@@ -790,39 +790,55 @@ impl RobotsTxt {
     /// for Google's limit, as the builder and Axum response helper do.
     pub fn render_txt(&self) -> String {
         let mut cx = WebContext::new();
-        // Fields have already passed robots validation. TrustedMarkdown preserves
-        // protocol punctuation (including `*`, `$`, and URL query separators).
-        // An empty Disallow preserves empty group boundaries; blank lines do not:
-        // https://www.rfc-editor.org/rfc/rfc9309.html#section-2.1
-        // Legacy token composition intentionally inherits the caller's mode.
-        // Adjacent controls preserve protocol bytes without Markdown paragraph
-        // boundaries; each inline row owns its explicit line ending.
-        md_sync! {
-            {for (index, group) in self.groups.iter().enumerate() {
-                md_sync! { {if index > 0 {
-                    md_sync! { "\n" }
-                }}{for agent in &group.user_agents {
-                    md_sync! { "User-agent: {TrustedMarkdown(agent)}\n" }
-                }}{if group.rules.is_empty() {
-                    md_sync! { "Disallow:\n" }
-                }}{for (field, base, path) in self.rule_lines(group) {
-                    md_sync! { "{TrustedMarkdown(field)}{RobotsMount(base)}{TrustedMarkdown(path)}\n" }
-                }}{if let Some(delay) = group.crawl_delay {
-                    md_sync! { "Crawl-delay: {RobotsCrawlDelay(delay)}\n" }
-                }}{for (name, value) in &group.directives {
-                    md_sync! { "{TrustedMarkdown(name)}: {TrustedMarkdown(value)}\n" }
-                }} }
-            }}{if !self.groups.is_empty() && (self.host.is_some() || !self.sitemaps.is_empty()) {
-                md_sync! { "\n" }
-            }}{if let Some(host) = &self.host {
-                md_sync! { "Host: {TrustedMarkdown(host)}\n" }
-            }}{for loc in &self.sitemaps {
-                md_sync! { "Sitemap: {TrustedMarkdown(loc)}\n" }
-            }}
-        }
-        .render_md(&mut cx)
-        .expect("validated robots.txt renders into an owned buffer");
+        self.write_txt(&mut cx)
+            .expect("validated robots.txt renders into an owned buffer");
         cx.into_output().into_string()
+    }
+
+    /// Write the robots.txt rows in protocol order.
+    ///
+    /// Fields have already passed robots validation. TrustedMarkdown preserves
+    /// protocol punctuation (including `*`, `$`, and URL query separators).
+    /// An empty Disallow preserves empty group boundaries; blank lines do not:
+    /// https://www.rfc-editor.org/rfc/rfc9309.html#section-2.1
+    /// Every row is an inline template that owns its explicit line ending, and
+    /// the rows render one after another, so the protocol bytes never gain
+    /// Markdown paragraph boundaries.
+    fn write_txt<L: DataLoader, B: WriteBuf>(
+        &self,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), WriteError> {
+        for (index, group) in self.groups.iter().enumerate() {
+            if index > 0 {
+                md_sync! { "\n" }.render_md(cx)?;
+            }
+            for agent in &group.user_agents {
+                md_sync! { "User-agent: {TrustedMarkdown(agent)}\n" }.render_md(cx)?;
+            }
+            if group.rules.is_empty() {
+                md_sync! { "Disallow:\n" }.render_md(cx)?;
+            }
+            for (field, base, path) in self.rule_lines(group) {
+                md_sync! { "{TrustedMarkdown(field)}{RobotsMount(base)}{TrustedMarkdown(path)}\n" }
+                    .render_md(cx)?;
+            }
+            if let Some(delay) = group.crawl_delay {
+                md_sync! { "Crawl-delay: {RobotsCrawlDelay(delay)}\n" }.render_md(cx)?;
+            }
+            for (name, value) in &group.directives {
+                md_sync! { "{TrustedMarkdown(name)}: {TrustedMarkdown(value)}\n" }.render_md(cx)?;
+            }
+        }
+        if !self.groups.is_empty() && (self.host.is_some() || !self.sitemaps.is_empty()) {
+            md_sync! { "\n" }.render_md(cx)?;
+        }
+        if let Some(host) = &self.host {
+            md_sync! { "Host: {TrustedMarkdown(host)}\n" }.render_md(cx)?;
+        }
+        for loc in &self.sitemaps {
+            md_sync! { "Sitemap: {TrustedMarkdown(loc)}\n" }.render_md(cx)?;
+        }
+        Ok(())
     }
 
     /// Borrow the final rules, including the bare mount and its query variants.

@@ -108,11 +108,11 @@ impl<C: WebRenderSync> WebRenderSync for Badge<C> {
     fn render(self, cx: &mut Cx) -> Result { html_sync! {{self.children}}.render(cx) }
 }
 impl<C: MdCodeContent> MdRenderSync for Badge<C> {
-    fn render_md(self, cx: &mut Cx) -> Result { md_sync! {{self.children}}.render_md(cx) }
+    fn render_md(self, cx: &mut Cx) -> Result { md_sync! {"{self.children}"}.render_md(cx) }
 }
 "#;
     assert!(lint(source).is_empty());
-    let changed = source.replace("md_sync! {{self.children}}", "md_sync! {}");
+    let changed = source.replace("md_sync! {\"{self.children}\"}", "md_sync! {\"\"}");
     assert_eq!(missing(&changed).len(), 1);
 }
 #[test]
@@ -868,8 +868,10 @@ fn actual_product_fixture_and_real_incident_report_deletions_are_caught() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../examples/mcp-incident-desk/src/components/issue_report/issue_report.rs");
     let source = std::fs::read_to_string(&path).unwrap();
-    assert!(source.contains("{impact}"));
-    let mutated = source.replace("{impact}", "");
+    // The report composes its sections as a tuple; dropping one element is
+    // the Markdown view forgetting that section.
+    assert!(source.contains("Impact::new(self.data),"));
+    let mutated = source.replace("Impact::new(self.data),", "");
     let d = lint_sources(
         &[(path.clone(), mutated)],
         &BTreeSet::from([discover::absolute(&path)]),
@@ -979,7 +981,7 @@ fn one_opaque_boundary_retains_evidence_for_all_unchecked_children() {
 #[test]
 fn loop_exits_compound_assignment_and_obvious_mutation_are_unchecked() {
     let html = "html_sync! {{for item in self.items {html_sync! {{item}}}}}.render(cx)";
-    let md="md_sync! { {for item in self.items { if item.stop {break;} md_sync! {{item}} }} }.render_md(cx)";
+    let md = "md_sync! { r#\"{for item in self.items { if item.stop {break;} md_sync! { \"{item}\" } }}\"# }.render_md(cx)";
     assert_eq!(
         code(
             &lint(&fixture(html, md)),
@@ -1246,7 +1248,7 @@ fn literal_copy_matches_markdown_blocks_and_links_without_annotations() {
 fn literal_omissions_are_explicit_and_detect_stale_exceptions() {
     let source = fixture(
         r#"html_sync! { <span aria-label="Loading"></span> }.render(cx)"#,
-        r#"omit!("Loading"); md_sync! {}.render_md(cx)"#,
+        r#"omit!("Loading"); md_sync! {""}.render_md(cx)"#,
     );
     assert!(lint(&source).is_empty());
     let stale = source.replace("aria-label=\"Loading\"", "aria-label=\"Working\"");
@@ -1261,7 +1263,10 @@ fn proven_markdown_writers_preserve_child_coverage() {
     )
     .replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
-    let deleted = source.replace("self.title.render_md(out)", "md_sync! {}.render_md(out)");
+    let deleted = source.replace(
+        "self.title.render_md(out)",
+        "md_sync! {\"\"}.render_md(out)",
+    );
     assert_eq!(missing(&deleted).len(), 1);
     let opaque = source.replace("md_heading_with", "custom_heading_with");
     assert_eq!(code(&lint(&opaque), "render/content-coverage-unchecked"), 1);
@@ -1276,10 +1281,10 @@ fn proven_markdown_writers_preserve_child_coverage() {
 fn typed_loader_fields_match_by_query_and_payload_not_local_spelling() {
     let source = fixture(
         "let html_data = cx.load_typed::<Data>(query()).await?; html_sync! {{html_data.title}}.render(cx)",
-        "let markdown_data = cx.load_typed::<Data>(query()).await?; md_sync! {{markdown_data.title}}.render_md(cx)",
+        "let markdown_data = cx.load_typed::<Data>(query()).await?; md_sync! {\"{markdown_data.title}\"}.render_md(cx)",
     ).replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
-    let deleted = source.replace("{{markdown_data.title}}", "{}");
+    let deleted = source.replace("{\"{markdown_data.title}\"}", "{\"\"}");
     assert_eq!(missing(&deleted).len(), 1);
     let changed_key = source.replace(
         "::<Data>(query()).await?; md_sync",
@@ -1305,7 +1310,7 @@ impl WebRenderSync for Input {
 }
 impl MdRenderSync for Input {
     fn render_md(self, cx: &mut WebContext) -> Result {
-        if let Some(label) = self.placeholder { md_sync! {{label}}.render_md(cx)?; }
+        if let Some(label) = self.placeholder { md_sync! {"{label}"}.render_md(cx)?; }
         Ok(())
     }
 }
@@ -1318,7 +1323,7 @@ impl MdRenderSync for Input {
     assert!(lint(&qualified).is_empty(), "{:?}", lint(&qualified));
     let borrowed = source.replace("= self.placeholder {", "= self.placeholder.as_ref() {");
     assert!(lint(&borrowed).is_empty(), "{:?}", lint(&borrowed));
-    let deleted = source.replace("md_sync! {{label}}", "md_sync! {}");
+    let deleted = source.replace("md_sync! {\"{label}\"}", "md_sync! {\"\"}");
     assert_eq!(missing(&deleted).len(), 1);
     let guarded = source
         .replace("if let Some(label)", "if self.allowed { if let Some(label)")
@@ -1333,7 +1338,7 @@ impl MdRenderSync for Input {
 fn only_fully_static_markup_is_inferred_for_the_framework_raw_adapter() {
     let source = fixture(
         "html_sync! {{proa_core::StaticRaw(ICON)} {self.title}}.render(cx)",
-        "md_sync! {{self.title}}.render_md(cx)",
+        "md_sync! {\"{self.title}\"}.render_md(cx)",
     );
     let source = format!("const ICON: &str = r#\"<svg aria-hidden=\"true\"><path d=\"M0 0L1 1\"/></svg>\"#;\n{source}");
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
@@ -1350,7 +1355,7 @@ fn only_fully_static_markup_is_inferred_for_the_framework_raw_adapter() {
         code(&lint(&opaque_raw), "render/content-coverage-unchecked"),
         1
     );
-    let erased_title = source.replace("md_sync! {{self.title}}", "md_sync! {}");
+    let erased_title = source.replace("md_sync! {\"{self.title}\"}", "md_sync! {\"\"}");
     assert_eq!(missing(&erased_title).len(), 1);
 }
 
@@ -1358,7 +1363,7 @@ fn only_fully_static_markup_is_inferred_for_the_framework_raw_adapter() {
 fn shadowed_some_function_is_not_treated_as_the_option_constructor() {
     let source = fixture(
         "html_sync! {{Some(self.title)}}.render(cx)",
-        "md_sync! {}.render_md(cx)",
+        "md_sync! {\"\"}.render_md(cx)",
     );
     let source = format!("fn Some(value: String) -> String {{ value }}\n{source}");
     assert_eq!(code(&lint(&source), "render/content-coverage-unchecked"), 1);
@@ -1369,21 +1374,21 @@ fn shadowed_some_function_is_not_treated_as_the_option_constructor() {
 fn child_options_and_unit_variants_keep_input_identity() {
     let source = fixture(
         "html_sync! {{RestockNotice { size: Some(Size::Small), id: None }}}.render(cx)",
-        "md_sync! {{RestockNotice { size: Some(Size::Small), id: None }}}.render_md(cx)",
+        "md_sync! {\"{RestockNotice { size: Some(Size::Small), id: None }}\"}.render_md(cx)",
     );
     let source = format!("enum Size {{ Small, Large }}\n{source}");
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
     let changed = source.replace(
-        "size: Some(Size::Small), id: None }}}.render_md",
-        "size: Some(Size::Large), id: None }}}.render_md",
+        "size: Some(Size::Small), id: None }}\"}.render_md",
+        "size: Some(Size::Large), id: None }}\"}.render_md",
     );
     assert_eq!(
         code(&lint(&changed), "render/content-coverage-unchecked"),
         1
     );
     let deleted = source.replace(
-        "md_sync! {{RestockNotice { size: Some(Size::Small), id: None }}}",
-        "md_sync! {}",
+        "md_sync! {\"{RestockNotice { size: Some(Size::Small), id: None }}\"}",
+        "md_sync! {\"\"}",
     );
     assert_eq!(missing(&deleted).len(), 1);
     let unknown = source.replace("Size::Small", "external::Size::Small");
@@ -1402,7 +1407,7 @@ fn child_options_and_unit_variants_keep_input_identity() {
 fn raw_markup_constants_cannot_override_shadowing_or_configuration() {
     let source = fixture(
         "html_sync! {{proa_core::StaticRaw(ICON)} {self.title}}.render(cx)",
-        "md_sync! {{self.title}}.render_md(cx)",
+        "md_sync! {\"{self.title}\"}.render_md(cx)",
     );
     let constant = "const ICON: &str = r#\"<svg aria-hidden=\"true\"/>\"#;";
     for prefix in [

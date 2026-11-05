@@ -817,9 +817,9 @@ fn md_tokens_have_async_work(tokens: &proc_macro2::TokenStream) -> bool {
 
 /// True when any slot of a `md!` template renders an opaque unit-struct child.
 fn md_tokens_have_possibly_async_child(tokens: &proc_macro2::TokenStream) -> bool {
-    use proa_dsl::md::{MdNodeKind, MdRoot, MdTemplateInput, TplNode};
-    if let Ok(input) = syn::parse2::<MdTemplateInput>(tokens.clone()) {
-        return input.parse_nodes().is_ok_and(|nodes| {
+    use proa_dsl::md::{MdTemplateInput, TplNode};
+    syn::parse2::<MdTemplateInput>(tokens.clone()).is_ok_and(|input| {
+        input.parse_nodes().is_ok_and(|nodes| {
             input
                 .args
                 .iter()
@@ -828,11 +828,6 @@ fn md_tokens_have_possibly_async_child(tokens: &proc_macro2::TokenStream) -> boo
                     TplNode::Expr(value) => md_slot_has_possibly_async_child(&value.expr),
                     TplNode::Text(_) => false,
                 })
-        });
-    }
-    syn::parse2::<MdRoot>(tokens.clone()).is_ok_and(|root| {
-        root.nodes.iter().any(|node| {
-            matches!(&node.kind, MdNodeKind::Block(expr) if md_slot_has_possibly_async_child(expr))
         })
     })
 }
@@ -4052,11 +4047,9 @@ pub fn parse_invocation(source: &str, inv: &MacroInvocation) -> syn::Result<Html
 pub(crate) fn validate_markdown_invocation(source: &str, inv: &MacroInvocation) -> syn::Result<()> {
     let tokens = TokenStream::from_str(inv.body(source))
         .map_err(|err| syn::Error::new(proc_macro2::Span::call_site(), err.to_string()))?;
-    if let Ok(template) = syn::parse2::<proa_dsl::md::MdTemplateInput>(tokens.clone()) {
-        template.parse_nodes().map(|_| ())
-    } else {
-        syn::parse2::<proa_dsl::md::MdRoot>(tokens).map(|_| ())
-    }
+    proa_dsl::md::parse_template_input(&inv.name, tokens)?
+        .parse_nodes()
+        .map(|_| ())
 }
 
 /// Parse macro tokens into the markup tree shared by the HTML and XML dialects.

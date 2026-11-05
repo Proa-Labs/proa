@@ -90,16 +90,17 @@ struct RequestExamples<'a> {
 
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RequestExamples<'_> {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        // Token composition deliberately interpolates URLs inside a code fence.
-        // Raw Markdown templates keep expressions inside fences literal.
-        md_sync! {
-            "```bash\n"
-            "curl '" {Url(self.origin)} {Url(routes::API_SEARCH)} "?q=streaming&limit=5'\n"
-            "curl '" {Url(self.origin)} {Url(routes::API_PAGE)} "?path=/docs/core/streaming-ssr'\n"
-            "curl -H 'Accept: text/markdown' '" {Url(self.origin)} "/'\n"
-            "```"
-        }
-        .render_md(cx)
+        // A template keeps slots inside a code fence literal, so the fence
+        // delimiters and each command line are separate inline templates and
+        // the URLs interpolate.
+        (
+            md_sync! { "```bash\n" },
+            md_sync! { "curl '{Url(self.origin)}{Url(routes::API_SEARCH)}?q=streaming&limit=5'\n" },
+            md_sync! { "curl '{Url(self.origin)}{Url(routes::API_PAGE)}?path=/docs/core/streaming-ssr'\n" },
+            md_sync! { "curl -H 'Accept: text/markdown' '{Url(self.origin)}/'\n" },
+            md_sync! { "```" },
+        )
+            .render_md(cx)
     }
 }
 

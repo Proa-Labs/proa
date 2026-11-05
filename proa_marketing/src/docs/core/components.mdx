@@ -231,7 +231,7 @@ impl<L: DataLoader, C: MdRenderSync<L>> MdRenderSync<L> for Button<C> {
 
 The ordinary-string template selects inline mode while its children render and restores the enclosing mode on success, error, or panic unwinding. Block templates are rejected inside that scope, including through typed children. Give a block component an inline representation when it needs to appear in a label or table cell.
 
-A physically multiline raw template selects block mode and inserts only the missing paragraph-boundary bytes before its body and after successful rendering. The hash count only delimits the literal. Single-line raw literals are inline; legacy token composition inherits the caller's mode. Lower-level renderers can still call `cx.md_block_boundary()` explicitly.
+A physically multiline raw template selects block mode and inserts only the missing paragraph-boundary bytes before its body and after successful rendering. The hash count only delimits the literal. Single-line raw literals are inline. The macro body is always one string literal; to render components in sequence without authoring Markdown, use a tuple such as `(overview, impact).render_md(cx)`. Lower-level renderers can still call `cx.md_block_boundary()` explicitly.
 
 > **Good to know**: Target implementations are independent. A component can support one target or several. For HTML, use `WebRenderSync` by default and `WebRender` when rendering needs to `.await`; Markdown has the same split with `MdRenderSync` and `MdRender`. See [HTML rendering](/docs/core/html-rendering) and [Markdown rendering](/docs/core/markdown) for those built-in traits and macros.
 

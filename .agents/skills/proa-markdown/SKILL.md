@@ -52,7 +52,8 @@ template, so `{feature}` interpolates normally. Keep `\n` when the fragment
 must end a line; dropping it would join loop iterations. Do not turn a short
 fragment into a multiline raw template just to avoid that one escape.
 
-Every template renders in one of three modes, chosen by the literal's shape:
+The macro body is one string literal. Every template renders in one of two
+modes, chosen by the literal's shape:
 
 - Block: a raw literal spanning source lines. Adds only the missing line feeds
   so the body starts and ends on a paragraph boundary. Use for documents and
@@ -60,8 +61,12 @@ Every template renders in one of three modes, chosen by the literal's shape:
 - Inline: an ordinary string or a one-line raw literal. Writes bytes exactly as
   authored, including `\n`, and rejects block children. Use for labels, bold or
   link text, table cells, and list rows.
-- Inherit: token composition such as `md_sync! { "- " {item} "\n" }`. Adds
-  nothing and follows the caller. Use only for byte-exact output.
+
+Token composition such as `md_sync! { "- " {item} "\n" }` or
+`md_sync! { {overview}{impact} }` is a compile error. To render children in
+sequence without authoring Markdown, use a tuple or a loop of `.render_md(cx)?`
+calls: `(overview, impact).render_md(cx)`. Each child keeps its own mode, so
+byte-exact output such as robots.txt gains no boundaries.
 
 Hash count never selects the mode. Scopes restore the caller's mode on errors,
 unwinding, and async cancellation, preserving output and its suffix tracking.
@@ -110,12 +115,11 @@ markup.
 `{expression}` renders a typed child. Outside code fences and inline code,
 `{{` and `}}` produce literal braces. Inside code, braces are already literal;
 interpolating runtime values into a fenced example needs an explicit typed
-child or token composition. Keep token composition for those cases, generated
-or token-aware tooling, and tests of that API; it remains supported. Explicit
-whitespace-only fragments such as `md_sync! { "\n" }` remain appropriate when
-exact separators are the contract, as in robots.txt. Nested `md!` and `html!`
-can borrow loop items and local strings across awaits through their shared typed
-async continuation. Use sync nested fragments when they have no async work.
+child. Explicit whitespace-only fragments such as `md_sync! { "\n" }` remain
+appropriate when exact separators are the contract, as in robots.txt. Nested
+`md!` and `html!` can borrow loop items and local strings across awaits through
+their shared typed async continuation. Use sync nested fragments when they have
+no async work.
 Raw literals do not disable interpolation: use `{{`/`}}` for literal braces,
 even around quoted text. A Rust string inside a slot stays literal text.
 Do not use `\{name}` to escape a slot: it emits a backslash followed by the
@@ -150,10 +154,11 @@ owned document at the response boundary when its inputs are immutable.
   single-literal template, such as `md_sync! { "**{self.children}**" }.render_md(cx)?`.
   Saving a `Result` only to restore inline mode is unnecessary; restoring after
   `?` is incorrect, and manual cleanup does not cover panic unwinding.
-- A document wrapper must allow block children. Use a multiline raw template;
-  retain inherited token composition when exact existing separators must stay
-  byte-for-byte identical. `md_sync! { "{section}" }` is an inline wrapper and
-  rejects a block section, even when the section is a typed component.
+- A document wrapper must allow block children. Use a multiline raw template,
+  or render the sections in sequence with a tuple when exact existing
+  separators must stay byte-for-byte identical. `md_sync! { "{section}" }` is
+  an inline wrapper and rejects a block section, even when the section is a
+  typed component.
 - For temporary heading offsets, use `let mut scope = cx.md_heading_scope(1)`
   and render through `scope.context()`. The guard restores only heading offset
   on every exit, including async cancellation. Inline/block template scopes do

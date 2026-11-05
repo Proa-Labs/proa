@@ -590,8 +590,10 @@ struct MdTemplate {
 
 /// Recognize a multiline template literal with optional named arguments.
 ///
-/// Returns `None` for token-mode bodies (`md_sync! { "a " {b} }`), for
-/// single-line templates (whose leading whitespace is content, not layout),
+/// Returns `None` for bodies that are not one template literal (token
+/// composition such as `md_sync! { "a " {b} }` is a compile error and is
+/// left alone), for single-line templates (whose leading whitespace is
+/// content, not layout),
 /// and for literals whose escapes change the line structure, because
 /// re-indenting those would change the rendered Markdown rather than the
 /// layout.
