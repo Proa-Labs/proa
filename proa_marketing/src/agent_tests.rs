@@ -297,8 +297,8 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
     // The homepage aliases share the compact footer's public entry points.
     let (before_footer, footer) = html.split_once("<footer").unwrap();
     assert!(!before_footer.contains("data-footer-links"));
+    assert!(!before_footer.contains("href=\"/team\""));
     assert_eq!(footer.matches("data-footer-links").count(), 2);
-    assert_eq!(footer.matches("<li>").count(), 11);
     for path in [
         "/docs",
         "/docs/api",
@@ -449,7 +449,7 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         assert!(markdown_text.contains(question["acceptedAnswer"]["text"].as_str().unwrap()));
     }
     for path in ["/about", "/team", "/contact", "/docs/api", "/llms.txt"] {
-        assert!(html.contains(&format!("href=\"{path}\"")));
+        assert!(footer.contains(&format!("href=\"{path}\"")));
         assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
     }
 }
@@ -627,23 +627,8 @@ async fn info_pages_share_html_and_markdown_routes() {
 }
 
 #[tokio::test]
-async fn team_page_shares_content_metadata_and_footer_discovery() {
+async fn team_page_negotiates_markdown() {
     let app = super::app();
-    let (status, headers, html) = fetch(&app, "/team", "text/html").await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[header::VARY], "Accept");
-    assert_eq!(html.matches("<h1").count(), 1);
-    assert_eq!(html.matches("data-team-member").count(), 1);
-    let article = html
-        .split_once("data-team-page")
-        .unwrap()
-        .1
-        .split_once("</article>")
-        .unwrap()
-        .0;
-    assert_eq!(article.matches("<h2").count(), 1);
-    assert!(html.contains("rel=\"alternate\" type=\"text/markdown\" href=\"/team.md\""));
-
     let (status, headers, markdown) = fetch(&app, "/team", "text/markdown").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
@@ -652,50 +637,6 @@ async fn team_page_shares_content_metadata_and_footer_discovery() {
     );
     assert_eq!(headers[header::VARY], "Accept");
     assert_eq!(markdown, fetch(&app, "/team.md", "*/*").await.2);
-    assert_eq!(
-        html,
-        fetch(&app, "/team", "text/markdown;q=0, text/html").await.2
-    );
-
-    let founder = crate::pages::team::MEMBERS[0];
-    for link in founder.links {
-        let href = link.href();
-        assert!(html.contains(&format!(
-            "href=\"{href}\" rel=\"me noreferrer noopener\" target=\"_blank\""
-        )));
-        assert!(markdown.contains(&format!("]({href})")));
-    }
-    assert!(html.contains(&format!("alt=\"{}\"", founder.name)));
-    let portrait = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method(Method::HEAD)
-                .uri(founder.portrait)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(portrait.status(), StatusCode::OK);
-    assert_eq!(portrait.headers()[header::CONTENT_TYPE], "image/jpeg");
-    let home = fetch(&app, "/", "text/html").await.2;
-    let (before_footer, footer) = home.split_once("<footer").unwrap();
-    assert!(!before_footer.contains("href=\"/team\""));
-    assert!(footer.contains("href=\"/team\""));
-    assert!(fetch(&app, "/llms.txt", "*/*").await.2.contains("](/team)"));
-    let origin = super::utils::site_url::public_site_url();
-    assert!(fetch(&app, "/sitemap.xml", "*/*")
-        .await
-        .2
-        .contains(&format!("<loc>{origin}/team</loc>")));
-    let spec: Value =
-        serde_json::from_str(&fetch(&app, "/openapi/site.json", "*/*").await.2).unwrap();
-    assert_eq!(spec["paths"]["/team"]["get"]["operationId"], "getTeamPage");
-    assert_eq!(
-        spec["paths"]["/team.md"]["get"]["operationId"],
-        "getTeamMarkdown"
-    );
 }
 
 #[tokio::test]

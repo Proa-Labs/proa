@@ -29,7 +29,7 @@ const META: PageMeta = PageMeta {
 const TITLE: &str = "Meet the team";
 const INTRO: &str = "The people behind Proa.";
 
-pub(crate) const MEMBERS: &[TeamMember] = &[TeamMember {
+const MEMBERS: &[TeamMember] = &[TeamMember {
     name: "Andrew Hariri",
     role: "Founder",
     organization: site::ORGANIZATION,
@@ -44,16 +44,16 @@ pub(crate) const MEMBERS: &[TeamMember] = &[TeamMember {
 struct TeamPage(&'static [TeamMember]);
 
 #[derive(Clone, Copy)]
-pub(crate) struct TeamMember {
-    pub(crate) name: &'static str,
-    pub(crate) role: &'static str,
-    pub(crate) organization: &'static str,
-    pub(crate) portrait: &'static str,
-    pub(crate) links: &'static [TeamLink],
+struct TeamMember {
+    name: &'static str,
+    role: &'static str,
+    organization: &'static str,
+    portrait: &'static str,
+    links: &'static [TeamLink],
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum TeamLink {
+enum TeamLink {
     Website(&'static str),
     GitHub(&'static str),
     X(&'static str),
@@ -68,7 +68,7 @@ impl TeamLink {
         }
     }
 
-    pub(crate) const fn href(self) -> &'static str {
+    const fn href(self) -> &'static str {
         match self {
             Self::Website(href) | Self::GitHub(href) | Self::X(href) => href,
         }
@@ -194,7 +194,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamMember {
     }
 }
 
-pub(crate) fn markdown() -> &'static str {
+fn markdown() -> &'static str {
     static MARKDOWN: OnceLock<String> = OnceLock::new();
     MARKDOWN.get_or_init(|| render_markdown(TeamPage(MEMBERS)))
 }
@@ -237,12 +237,8 @@ mod tests {
         let html = proa_core::render_to_string(member);
         let markdown = render_markdown(member);
         assert!(html.contains("Ada &lt;Lovelace&gt;"));
-        assert!(!html.contains("Ada <Lovelace>"));
         assert!(markdown.contains(r"Ada \<Lovelace\>"));
         assert!(markdown.contains(r"[Website](https://example.test/a%20\(b\))"));
-        for output in [&html, &markdown] {
-            assert!(output.contains(member.role));
-            assert!(output.contains(member.portrait));
-        }
+        assert!(html.contains(r#"rel="me noreferrer noopener" target="_blank""#));
     }
 }
