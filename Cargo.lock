@@ -3614,6 +3614,7 @@ dependencies = [
  "proa_demo",
  "proa_docs",
  "proa_docs_build",
+ "proa_framework_core",
  "proa_macros",
  "proa_showcase_web",
  "proa_third_party",

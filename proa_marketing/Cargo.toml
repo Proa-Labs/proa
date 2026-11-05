@@ -23,6 +23,7 @@ futures = { workspace = true }
 proa_core = { workspace = true, features = ["html-to-markdown"] }
 proa_demo = { workspace = true, features = ["server"] }
 proa_docs = { workspace = true }
+proa_framework_core = { workspace = true }
 proa_macros = { workspace = true }
 proa_third_party = { workspace = true, features = ["google-analytics"] }
 proa_showcase_web = { workspace = true }

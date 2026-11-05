@@ -5,13 +5,15 @@ use crate::data::{routes, site};
 
 mod structured_data;
 
-use axum::response::Html;
+use axum::response::{Html, IntoResponse, Response};
 use proa_core::shared::attr_value::display_attr;
 use proa_core::text::text;
 use proa_core::{
-    raw_text_ok, render_in_context_async, DataLoader, NoLoader, RenderBuffer, RenderOutcome,
-    StaticRaw, WebContext, WebRender, WebRenderSync, WriteBuf, WriteError,
+    raw_text_ok, render_in_context_async, DataLoader, HeadConfig, HeadMedia, HeadUrlPolicy,
+    NoLoader, OpenGraph, RenderBuffer, RenderOutcome, StaticRaw, Twitter, TwitterCard, WebContext,
+    WebRender, WebRenderSync, WriteBuf, WriteError,
 };
+use proa_framework_core::{FrameworkBody, FrameworkRequestContext, IslandManifest, RouteResponse};
 use proa_macros::{html, html_sync};
 
 use crate::{analytics::google_analytics, utils::site_url::public_site_url};
@@ -35,7 +37,9 @@ where
 {
     render_chained_html(Document {
         shell: Shell::Marketing,
-        meta,
+        path: meta.path,
+        metadata: DocumentMetadata::new(meta),
+        managed: false,
         content,
     })
 }
@@ -48,9 +52,70 @@ where
 {
     render_chained_html(Document {
         shell: Shell::Docs,
-        meta,
+        path: meta.path,
+        metadata: DocumentMetadata::new(meta),
+        managed: false,
         content,
     })
+}
+
+/// Render a Page that owns its metadata through `render_head`.
+pub fn render_managed_page<C>(path: &'static str, content: C) -> Response
+where
+    C: WebRenderSync<NoLoader, RenderBuffer> + Send + 'static,
+{
+    static HEAD: std::sync::OnceLock<HeadConfig> = std::sync::OnceLock::new();
+    let head = HEAD.get_or_init(|| {
+        let origin = public_site_url();
+        HeadConfig::default()
+            .with_urls(HeadUrlPolicy::new(origin, "/").expect("valid public site origin"))
+            .with_defaults(|head| {
+                let mut image = HeadMedia::new(SOCIAL_IMAGE_SRC)
+                    .mime_type("image/jpeg")
+                    .alt(SOCIAL_IMAGE_ALT)
+                    .dimensions(1536, 1024);
+                if origin.starts_with("https://") {
+                    image = image.secure_url(SOCIAL_IMAGE_SRC);
+                }
+                head.open_graph(
+                    OpenGraph::new()
+                        .site_name(site::NAME)
+                        .locale("en_US")
+                        .kind("website")
+                        .images([image]),
+                )?;
+                head.twitter(
+                    Twitter::new()
+                        .card(TwitterCard::SummaryLargeImage)
+                        .site(site::SOCIAL_HANDLE),
+                )
+            })
+            .expect("valid shared marketing metadata")
+    });
+    // The framework finalizer supplies the linked RSJS runtime. This site has
+    // no legacy React islands requiring a separate framework manifest.
+    let manifest = IslandManifest {
+        islands: Default::default(),
+        assets: Default::default(),
+        import_map: Default::default(),
+        ssr_bundle: None,
+    };
+    let response = futures::executor::block_on(
+        RouteResponse::ssr_async(Document {
+            shell: Shell::Marketing,
+            path,
+            metadata: ManagedMetadata { path },
+            managed: true,
+            content,
+        })
+        .with_head(head.clone())
+        .into_framework_response(&manifest, &FrameworkRequestContext::default()),
+    )
+    .expect("render managed marketing page");
+    let FrameworkBody::Full(body) = response.body else {
+        unreachable!("buffered page produces a complete response")
+    };
+    (response.status, response.headers, body).into_response()
 }
 
 /// Drive any async root to a finished HTML response.
@@ -98,9 +163,11 @@ impl Shell {
     }
 }
 
-struct Document<C> {
+struct Document<C, M> {
     shell: Shell,
-    meta: PageMeta,
+    path: &'static str,
+    metadata: M,
+    managed: bool,
     content: C,
 }
 
@@ -193,31 +260,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
             html_sync! {
                 <title>{raw_text_ok(text(self.meta.title))}</title>
                 <meta name="description" content={self.meta.description} />
-                <meta name="proa-route" content={self.meta.path} />
-                <link rel="describedby" type="text/plain" href={routes::AGENT_INDEX} />
-                <link
-                    rel="service-desc"
-                    type="application/vnd.oai.openapi+json"
-                    href={routes::OPENAPI}
-                />
-                <link rel="ard" type="application/ai-catalog+json" href={routes::ARD_CATALOG} />
-                {if self.meta.path == routes::HOME {
-                    html_sync! {
-                        <link rel="alternate" type="text/markdown" href={routes::HOME_MARKDOWN} />
-                        <script type="application/ld+json">{StaticRaw(structured_data::document())}</script>
-                    }
-                }}
-                {if self.meta.path == routes::TEAM {
-                    html_sync! {
-                        <link rel="alternate" type="text/markdown" href={routes::TEAM_MARKDOWN} />
-                    }
-                }}
-                {if let Some(data) = structured_data::for_documentation(self.meta.path) {
-                    html_sync! {
-                        <script type="application/ld+json">{StaticRaw(data)}</script>
-                    }
-                }}
-                <script type="module" src={AGENT_TOOLS_SCRIPT_SRC}></script>
+                {SiteMetadata { path: self.meta.path }}
                 <link
                     rel="canonical"
                     href={display_attr(format_args!("{origin}{}", self.meta.path))}
@@ -259,6 +302,45 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
                     content={display_attr(format_args!("{origin}{SOCIAL_IMAGE_SRC}"))}
                 />
                 <meta name="twitter:image:alt" content={SOCIAL_IMAGE_ALT} />
+            },
+            cx,
+        )
+    }
+}
+
+struct SiteMetadata {
+    path: &'static str,
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SiteMetadata {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        WebRenderSync::render(
+            html_sync! {
+                <meta name="proa-route" content={self.path} />
+                <link rel="describedby" type="text/plain" href={routes::AGENT_INDEX} />
+                <link
+                    rel="service-desc"
+                    type="application/vnd.oai.openapi+json"
+                    href={routes::OPENAPI}
+                />
+                <link rel="ard" type="application/ai-catalog+json" href={routes::ARD_CATALOG} />
+                {if self.path == routes::HOME {
+                        html_sync! {
+                            <link rel="alternate" type="text/markdown" href={routes::HOME_MARKDOWN} />
+                            <script type="application/ld+json">{StaticRaw(structured_data::document())}</script>
+                        }
+                    }}
+                {if self.path == routes::TEAM {
+                        html_sync! {
+                            <link rel="alternate" type="text/markdown" href={routes::TEAM_MARKDOWN} />
+                        }
+                    }}
+                {if let Some(data) = structured_data::for_documentation(self.path) {
+                        html_sync! {
+                            <script type="application/ld+json">{StaticRaw(data)}</script>
+                        }
+                    }}
+                <script type="module" src={AGENT_TOOLS_SCRIPT_SRC}></script>
                 {google_analytics()}
             },
             cx,
@@ -266,23 +348,40 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
     }
 }
 
-/// The `<head>` both shells share. Only the docs enhancement script differs.
-struct PageHead {
-    shell: Shell,
-    meta: PageMeta,
+struct ManagedMetadata {
+    path: &'static str,
 }
 
-impl<L, B> WebRenderSync<L, B> for PageHead
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ManagedMetadata {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        WebRenderSync::render(
+            html_sync! {
+                {cx.head()}
+                {SiteMetadata { path: self.path }}
+            },
+            cx,
+        )
+    }
+}
+
+/// The `<head>` both shells share. Only the docs enhancement script differs.
+struct PageHead<M> {
+    shell: Shell,
+    metadata: M,
+}
+
+impl<L, B, M> WebRenderSync<L, B> for PageHead<M>
 where
     B: WriteBuf,
     L: DataLoader,
+    M: WebRenderSync<L, B>,
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />
-            {DocumentMetadata::new(self.meta)}
+            {self.metadata}
             <link rel="icon" href="/static/favicon.ico" />
             <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
             <link rel="apple-touch-icon" sizes="180x180" href={APPLE_TOUCH_ICON_HREF} />
@@ -311,7 +410,7 @@ where
 /// the content, which owns its own layout.
 struct PageBody<C> {
     shell: Shell,
-    meta: PageMeta,
+    path: &'static str,
     content: C,
 }
 
@@ -330,7 +429,7 @@ where
             html_sync! {
                 <div class="landing-shell min-h-screen">
                     {LandingHeader {
-                        active: MarketingNavActive::for_path(self.meta.path),
+                        active: MarketingNavActive::for_path(self.path),
                     }}
                     <main id="main-content">{self.content}</main>
                     {LandingFooter}
@@ -341,11 +440,12 @@ where
     }
 }
 
-impl<L, B, C> WebRender<L, B> for Document<C>
+impl<L, B, C, M> WebRender<L, B> for Document<C, M>
 where
     B: WriteBuf,
     L: DataLoader,
     C: WebRenderSync<L, B> + Send + 'static,
+    M: WebRenderSync<L, B>,
 {
     fn render(
         self,
@@ -358,19 +458,21 @@ where
                     <head>
                         {proa_core::to_async(PageHead {
                             shell: self.shell,
-                            meta: self.meta,
+                            metadata: self.metadata,
                         })}
                     </head>
                     <body class={self.shell.body_class()}>
                         {proa_core::to_async(PageBody {
                             shell: self.shell,
-                            meta: self.meta,
+                            path: self.path,
                             content: self.content,
                         })}
                         {SearchModal}
                         // Must stay last in `<body>`: it snapshots the islands
                         // rendered so far, so anything after it ships no JS.
-                        {proa_core::to_async(RsjsRuntimeTags)}
+                        {if !self.managed {
+                            proa_core::to_async(RsjsRuntimeTags)
+                        }}
                     </body>
                 </html>
             }

@@ -5,25 +5,18 @@ use std::sync::OnceLock;
 
 use axum::{
     http::{header, HeaderMap, HeaderValue},
-    response::{IntoResponse, Response},
+    response::Response,
 };
-use proa_core::{DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError};
+use proa_core::{
+    ComponentRole, DataLoader, HeadMetadata, MdRenderSync, WebContext, WebRenderSync, WriteBuf,
+    WriteError,
+};
 use proa_macros::{content_part, html_sync, md_sync, omit};
 
 use crate::{
     data::{routes, site},
-    layout::{render_page, PageMeta},
+    layout::render_managed_page,
     utils::document::{render_markdown, Url},
-};
-
-const META: PageMeta = PageMeta {
-    title: const_format::concatcp!("Team: ", site::ORGANIZATION_NAME),
-    description: const_format::concatcp!(
-        "Meet the people behind Proa and ",
-        site::ORGANIZATION_NAME,
-        "."
-    ),
-    path: routes::TEAM,
 };
 
 const TITLE: &str = "Meet the team";
@@ -76,6 +69,22 @@ impl TeamLink {
 }
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
+    fn render_head(&self, cx: &mut WebContext<L, B>) -> impl proa_core::SyncHeadOperation {
+        cx.head_mut().metadata(HeadMetadata {
+            title: const_format::concatcp!("Team: ", site::ORGANIZATION_NAME).into(),
+            description: const_format::concatcp!(
+                "Meet the people behind Proa and ",
+                site::ORGANIZATION_NAME,
+                "."
+            )
+            .into(),
+            canonical: routes::TEAM.into(),
+            ..Default::default()
+        })
+    }
+
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <article
@@ -206,7 +215,7 @@ pub async fn handler(headers: HeaderMap) -> Response {
     let mut response = if crate::utils::http::accepts_markdown(&headers) {
         markdown_handler().await
     } else {
-        render_page(META, TeamPage(MEMBERS)).into_response()
+        render_managed_page(routes::TEAM, TeamPage(MEMBERS))
     };
     response
         .headers_mut()
