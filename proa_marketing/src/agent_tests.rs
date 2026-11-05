@@ -294,24 +294,36 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         fetch(&app, "/.well-known/llms.txt", "*/*").await.2
     );
     assert_eq!(markdown, fetch(&app, "/?mode=agent", "text/html").await.2);
-    // Every homepage alias retains the tool entry points from the footer;
-    // they must not return to the main landing-page content.
+    // The homepage aliases share the compact footer's public entry points.
     let (before_footer, footer) = html.split_once("<footer").unwrap();
     assert!(!before_footer.contains("data-footer-links"));
-    assert_eq!(footer.matches("data-footer-links").count(), 3);
+    assert_eq!(footer.matches("data-footer-links").count(), 2);
+    assert_eq!(footer.matches("<li>").count(), 11);
+    for path in [
+        "/docs",
+        "/docs/api",
+        "/sitemap.xml",
+        "/llms.txt",
+        "/privacy",
+    ] {
+        assert!(markdown.contains(&format!("]({path})")), "{path}");
+        assert!(footer.contains(&format!("href=\"{path}\"")), "{path}");
+        assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
+    }
+    // Detailed tooling stays discoverable through the linked API guide.
+    let guide = fetch(&app, "/docs/api", "text/html").await.2;
     for path in [
         "/docs/llms.txt",
         "/docs/framework/llms.txt",
         "/docs/rsjs/llms.txt",
         "/ecosystem/llms.txt",
-        "/docs/api",
         "/openapi.json",
         "/mcp/server-card",
         "/auth.md",
         "/.well-known/agent-skills/index.json",
     ] {
-        assert!(markdown.contains(&format!("]({path})")), "{path}");
-        assert!(footer.contains(&format!("href=\"{path}\"")), "{path}");
+        assert!(!footer.contains(&format!("href=\"{path}\"")), "{path}");
+        assert!(guide.contains(&format!("href=\"{path}\"")), "{path}");
         assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
     }
     // Crawlers may inspect only the first few distinct documentation links.
@@ -329,16 +341,16 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         first_docs.contains(&crate::data::routes::API_GUIDE),
         "{first_docs:?}"
     );
+    assert!(footer.contains(&format!("href=\"{}\"", site::LINKEDIN_URL)));
     for url in [
-        site::LINKEDIN_URL,
-        site::PYTHON_SDK_URL,
-        site::TYPESCRIPT_SDK_URL,
-        site::GO_SDK_URL,
-        site::MCP_REGISTRY_URL,
-        site::MCP_GLAMA_URL,
+        "https://pypi.org/project/proa-docs/",
+        "https://www.npmjs.com/package/@proa-labs/docs",
+        "https://pkg.go.dev/github.com/Proa-Labs/proa/sdk/go",
+        "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs",
+        "https://glama.ai/mcp/connectors/so.proa/proa-documentation",
     ] {
-        assert!(footer.contains(&format!("href=\"{url}\"")));
-        assert!(markdown.contains(&format!("]({url})")));
+        assert!(!footer.contains(&format!("href=\"{url}\"")));
+        assert!(guide.contains(&format!("href=\"{url}\"")));
     }
     assert_eq!(
         html,

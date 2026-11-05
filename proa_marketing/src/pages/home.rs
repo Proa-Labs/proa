@@ -19,7 +19,7 @@ use rsjs::signal;
 use rsjs_macros::rsjs;
 
 use crate::{
-    components::landing_shell::{DOCUMENTATION_LINKS, EXPLORE_LINKS},
+    components::landing_shell::{EXPLORE_LINKS, RESOURCE_LINKS},
     layout::{render_page, PageMeta},
     utils::document::Url,
 };
@@ -70,7 +70,7 @@ pub(crate) fn markdown() -> &'static str {
 
             {EXPLORE_LINKS}
 
-            {DOCUMENTATION_LINKS}
+            {RESOURCE_LINKS}
             "###
         })
     })

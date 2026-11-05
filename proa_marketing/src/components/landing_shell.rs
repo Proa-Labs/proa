@@ -390,24 +390,14 @@ pub(crate) const EXPLORE_LINKS: FooterLinks = FooterLinks {
     ],
 };
 
-pub(crate) const DOCUMENTATION_LINKS: FooterLinks = FooterLinks {
-    title: "Documentation tools",
+pub(crate) const RESOURCE_LINKS: FooterLinks = FooterLinks {
+    title: "Resources",
     links: &[
-        ("API guide", routes::API_GUIDE),
-        ("Python SDK on PyPI", site::PYTHON_SDK_URL),
-        ("TypeScript SDK on npm", site::TYPESCRIPT_SDK_URL),
-        ("Go SDK on pkg.go.dev", site::GO_SDK_URL),
-        ("API sandbox", routes::SANDBOX),
-        ("Official MCP Registry", site::MCP_REGISTRY_URL),
-        ("MCP on Glama", site::MCP_GLAMA_URL),
-        ("Documentation index", routes::DOCS_INDEX),
-        ("Framework documentation index", routes::FRAMEWORK_INDEX),
-        ("RSJS documentation index", routes::RSJS_INDEX),
-        ("Ecosystem index", routes::ECOSYSTEM_INDEX),
-        ("OpenAPI definition", routes::OPENAPI),
-        ("MCP server card", routes::MCP_CARD),
-        ("Authentication", routes::AUTH),
-        ("Authoring skills", routes::SKILLS_INDEX),
+        ("Docs", routes::DOCS),
+        ("API & MCP", routes::API_GUIDE),
+        ("Sitemap", routes::SITEMAP),
+        ("For agents", routes::AGENT_INDEX),
+        ("Privacy", routes::PRIVACY),
     ],
 };
 
@@ -546,18 +536,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LandingFooter {
                             </a>
                         </div> */
                     </div>
-                    <nav aria-label="Footer navigation" class="grid grid-cols-2 gap-8 text-sm sm:grid-cols-3">
+                    <nav aria-label="Footer navigation" class="grid grid-cols-2 gap-8 text-sm">
                         {EXPLORE_LINKS}
-                        {FooterLinks {
-                            title: "Resources",
-                            links: &[
-                                ("Docs", routes::DOCS),
-                                ("Sitemap", routes::SITEMAP),
-                                ("For agents", routes::AGENT_INDEX),
-                                ("Privacy", routes::PRIVACY),
-                            ],
-                        }}
-                        {DOCUMENTATION_LINKS}
+                        {RESOURCE_LINKS}
                     </nav>
                 </div>
                 <div class="border-t border-black/10 dark:border-white/10">
