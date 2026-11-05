@@ -1,8 +1,6 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::OnceLock;
-
 use axum::{
     http::{header, HeaderMap, HeaderValue},
     response::Response,
@@ -203,11 +201,6 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamMember {
     }
 }
 
-fn markdown() -> &'static str {
-    static MARKDOWN: OnceLock<String> = OnceLock::new();
-    MARKDOWN.get_or_init(|| render_markdown(TeamPage(MEMBERS)))
-}
-
 /// Read the Proa team page as HTML or Markdown.
 #[utoipa::path(get, path = routes::TEAM, operation_id = "getTeamPage",
     responses((status = 200, description = "Team profiles in the requested representation. Responses vary by Accept.", content((String = "text/html"), (String = "text/markdown")))))]
@@ -227,5 +220,8 @@ pub async fn handler(headers: HeaderMap) -> Response {
 #[utoipa::path(get, path = routes::TEAM_MARKDOWN, operation_id = "getTeamMarkdown",
     responses((status = 200, description = "Team profiles as Markdown.", body = String, content_type = "text/markdown")))]
 pub async fn markdown_handler() -> Response {
-    crate::endpoints::agent_discovery::text_response(markdown(), "text/markdown; charset=utf-8")
+    crate::endpoints::agent_discovery::text_response(
+        render_markdown(TeamPage(MEMBERS)),
+        "text/markdown; charset=utf-8",
+    )
 }

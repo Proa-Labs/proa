@@ -22,7 +22,7 @@ impl serde::Serialize for SiteUrl<'_> {
     }
 }
 
-/// The owned response/cache boundary; child components stay typed.
+/// Render an owned document for this response; child components stay typed.
 pub fn render_markdown(root: impl MdRenderSync) -> String {
     let mut cx = WebContext::new();
     root.render_md(&mut cx)

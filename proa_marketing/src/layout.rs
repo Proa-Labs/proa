@@ -327,7 +327,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SiteMetadata {
                 {if self.path == routes::HOME {
                         html_sync! {
                             <link rel="alternate" type="text/markdown" href={routes::HOME_MARKDOWN} />
-                            <script type="application/ld+json">{StaticRaw(structured_data::document())}</script>
+                            <script type="application/ld+json">{raw_text_ok(structured_data::document())}</script>
                         }
                     }}
                 {if self.path == routes::TEAM {
@@ -337,7 +337,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SiteMetadata {
                     }}
                 {if let Some(data) = structured_data::for_documentation(self.path) {
                         html_sync! {
-                            <script type="application/ld+json">{StaticRaw(data)}</script>
+                            <script type="application/ld+json">{raw_text_ok(data)}</script>
                         }
                     }}
                 <script type="module" src={AGENT_TOOLS_SCRIPT_SRC}></script>
