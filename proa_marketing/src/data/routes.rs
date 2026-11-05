@@ -18,6 +18,8 @@ pub const RSJS_DOCS: &str = concatcp!(DOCS, "/rsjs");
 pub const RSJS_INDEX: &str = concatcp!(RSJS_DOCS, "/llms.txt");
 pub const ABOUT: &str = "/about";
 pub const ABOUT_MARKDOWN: &str = concatcp!(ABOUT, ".md");
+pub const TEAM: &str = "/team";
+pub const TEAM_MARKDOWN: &str = concatcp!(TEAM, ".md");
 pub const CONTACT: &str = "/contact";
 pub const CONTACT_MARKDOWN: &str = concatcp!(CONTACT, ".md");
 pub const PRIVACY: &str = "/privacy";
@@ -75,5 +77,6 @@ pub const STATIC_ROUTES: &[&str] = &[
     PRIVACY,
     TERMS,
     ABOUT,
+    TEAM,
     CONTACT,
 ];

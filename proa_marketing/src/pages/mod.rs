@@ -9,3 +9,4 @@ pub mod home;
 pub mod info;
 pub mod legal;
 pub mod showcase;
+pub mod team;

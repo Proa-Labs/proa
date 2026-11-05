@@ -106,6 +106,8 @@ fn app() -> Router {
         .route(routes::TERMS, get(pages::legal::terms_handler))
         .route(routes::ABOUT, get(pages::info::about))
         .route(routes::ABOUT_MARKDOWN, get(pages::info::about_markdown))
+        .route(routes::TEAM, get(pages::team::handler))
+        .route(routes::TEAM_MARKDOWN, get(pages::team::markdown_handler))
         .route(routes::CONTACT, get(pages::info::contact))
         .route(routes::CONTACT_MARKDOWN, get(pages::info::contact_markdown))
         .route(

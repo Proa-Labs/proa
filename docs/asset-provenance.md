@@ -26,6 +26,7 @@ new binary assets and captured-fixture-shaped files to match a row here.
 | `proa_marketing/public/favicon.ico` | Generated from the Proa-authored favicon | Browser icon |
 | `proa_marketing/public/apple-touch-icon.png` | Rendered from the Proa-authored favicon with an opaque background in commit `ab6e5cd` | iOS home-screen icon |
 | `proa_marketing/public/og.jpg` | Compressed from the supplied Proa site artwork | Social preview |
+| `proa_marketing/public/images/team/andrew-hariri.jpg` | Andrew Hariri's public GitHub profile portrait, downloaded from `https://avatars.githubusercontent.com/u/31301117?v=4&s=512` for his requested team profile | Proa founder portrait |
 | `proa_marketing/public/images/blog/*.svg` | Proa-authored | Explanatory diagrams |
 | `proa_marketing/public/images/synthetic/*.svg` | Proa-authored geometric illustrations | Demo, benchmark, and marketing fixture imagery |
 | `examples/origin-routing-atlas/public/fonts/*.woff2` | Vendored from Google Fonts by `proa_fonts_build`; Instrument Sans and Azeret Mono are SIL OFL-1.1, whose text sits beside the files | Example self-hosted webfonts |

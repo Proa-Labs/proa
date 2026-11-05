@@ -207,6 +207,12 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
                         <script type="application/ld+json">{StaticRaw(structured_data::document())}</script>
                     }
                 }}
+                {if self.meta.path == routes::TEAM {
+                    html_sync! {
+                        <link rel="alternate" type="text/markdown" href={routes::TEAM_MARKDOWN} />
+                        <script type="application/ld+json">{StaticRaw(structured_data::team())}</script>
+                    }
+                }}
                 {if let Some(data) = structured_data::for_documentation(self.meta.path) {
                     html_sync! {
                         <script type="application/ld+json">{StaticRaw(data)}</script>

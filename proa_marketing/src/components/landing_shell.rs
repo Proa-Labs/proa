@@ -384,6 +384,7 @@ pub(crate) const EXPLORE_LINKS: FooterLinks = FooterLinks {
         ("Apps", routes::APPS),
         ("Ecosystem", routes::ECOSYSTEM),
         ("About", routes::ABOUT),
+        ("Team", routes::TEAM),
         ("Contact", routes::CONTACT),
         ("LinkedIn", site::LINKEDIN_URL),
     ],

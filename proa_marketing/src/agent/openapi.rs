@@ -17,7 +17,7 @@ use utoipa::{
 };
 
 use crate::endpoints::{agent_discovery, api, health, llms, search};
-use crate::pages::home;
+use crate::pages::{home, team};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -60,7 +60,9 @@ struct DocumentationApi;
         agent_discovery::index,
         llms::site_handler,
         health::healthz,
-        home::handler
+        home::handler,
+        team::handler,
+        team::markdown_handler
     ),
     components(schemas(api::Problem))
 )]
