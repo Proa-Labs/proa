@@ -658,7 +658,8 @@ async fn team_page_shares_content_metadata_and_footer_discovery() {
     );
 
     let founder = crate::pages::team::founder();
-    for (_, href) in founder.links {
+    for link in founder.links {
+        let href = link.href();
         assert!(html.contains(&format!(
             "href=\"{href}\" rel=\"me noreferrer noopener\" target=\"_blank\""
         )));
@@ -696,7 +697,7 @@ async fn team_page_shares_content_metadata_and_footer_discovery() {
         json!(founder
             .links
             .iter()
-            .map(|(_, href)| *href)
+            .map(|link| link.href())
             .collect::<Vec<_>>())
     );
     assert!(person["image"]

@@ -85,7 +85,7 @@ fn team_document(origin: &str) -> String {
                     name: founder.name,
                     job_title: founder.role,
                     image: url(founder.portrait),
-                    same_as: founder.links.iter().map(|(_, href)| *href).collect(),
+                    same_as: founder.links.iter().map(|link| link.href()).collect(),
                 },
             },
         ),
