@@ -33,7 +33,6 @@ const TEAM: TeamPage = TeamPage {
         site::ORGANIZATION,
         " builds the Proa Rust web framework."
     ),
-    section: "Founders and leadership",
     founder: TeamMember {
         name: "Andrew Hariri",
         role: "Founder",
@@ -51,7 +50,6 @@ const TEAM: TeamPage = TeamPage {
 struct TeamPage {
     title: &'static str,
     intro: &'static str,
-    section: &'static str,
     founder: TeamMember,
 }
 
@@ -76,18 +74,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamPage {
                 <p class="mt-6 max-w-2xl text-lg leading-8 text-zinc-600 dark:text-zinc-300">
                     {self.intro}
                 </p>
-                <section
-                    aria-labelledby="team-leadership"
-                    class="mt-16 border-t border-black/10 pt-10 dark:border-white/10"
-                >
-                    <h2
-                        id="team-leadership"
-                        class="text-sm font-medium uppercase tracking-widest text-zinc-500 dark:text-zinc-400"
-                    >
-                        {self.section}
-                    </h2>
-                    {self.founder}
-                </section>
+                {self.founder}
             </article>
         }
         .render(cx)
@@ -106,9 +93,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
                     class="aspect-square w-48 rounded-2xl object-cover sm:w-full"
                 />
                 <div>
-                    <h3 class="text-2xl font-semibold tracking-tight">
+                    <h2 class="text-2xl font-semibold tracking-tight">
                         {content_part!("name", self.name)}
-                    </h3>
+                    </h2>
                     <p class="mt-2 text-base font-medium">{self.role}", "{self.organization}</p>
                     <ul class="mt-6 flex flex-wrap gap-6 text-sm font-medium">
                         {for (label, href) in self.links {
@@ -154,8 +141,6 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamPage {
 
             {self.intro}
 
-            ## {self.section}
-
             {self.founder}
             "###
         }
@@ -172,7 +157,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamMember {
         let name = content_part!("name", self.name);
         let portrait = content_part!("portrait", Url(self.portrait));
         md_sync! { r###"
-            ### {name}
+            ## {name}
 
             {self.role}, {self.organization}
 
@@ -225,7 +210,6 @@ mod tests {
         let page = TeamPage {
             title: "People <&>",
             intro: "A changed introduction",
-            section: "Leadership",
             founder: TeamMember {
                 name: "Ada <Lovelace>",
                 role: "Technical lead",
@@ -246,6 +230,6 @@ mod tests {
             assert!(output.contains(page.founder.role));
             assert!(output.contains(page.founder.portrait));
         }
-        assert!(markdown.find("## Leadership").unwrap() < markdown.find("### Ada").unwrap());
+        assert!(markdown.find(page.intro).unwrap() < markdown.find("## Ada").unwrap());
     }
 }

@@ -634,8 +634,14 @@ async fn team_page_shares_content_metadata_and_footer_discovery() {
     assert_eq!(headers[header::VARY], "Accept");
     assert_eq!(html.matches("<h1").count(), 1);
     assert_eq!(html.matches("data-team-member").count(), 1);
-    assert!(html.contains("aria-labelledby=\"team-leadership\""));
-    assert!(html.contains("id=\"team-leadership\""));
+    let article = html
+        .split_once("data-team-page")
+        .unwrap()
+        .1
+        .split_once("</article>")
+        .unwrap()
+        .0;
+    assert_eq!(article.matches("<h2").count(), 1);
     assert!(html.contains("rel=\"alternate\" type=\"text/markdown\" href=\"/team.md\""));
 
     let (status, headers, markdown) = fetch(&app, "/team", "text/markdown").await;
