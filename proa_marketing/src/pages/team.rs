@@ -69,7 +69,10 @@ pub(crate) fn founder() -> TeamMember {
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
-            <article data-team-page class="mx-auto max-w-5xl px-6 py-16 sm:py-24">
+            <article
+                data-team-page
+                class="mx-auto max-w-[1400px] px-4 py-16 sm:px-6 sm:py-24 lg:px-8"
+            >
                 <h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">{self.title}</h1>
                 <p class="mt-6 max-w-2xl text-lg leading-8 text-zinc-600 dark:text-zinc-300">
                     {self.intro}
