@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub(crate) const META: PageMeta = PageMeta {
-    title: const_format::concatcp!("Team — ", site::ORGANIZATION_NAME),
+    title: const_format::concatcp!("Team: ", site::ORGANIZATION_NAME),
     description: const_format::concatcp!(
         "Meet the founder behind ",
         site::ORGANIZATION_NAME,
