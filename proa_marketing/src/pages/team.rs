@@ -104,7 +104,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
                         {for (label, href) in self.links {
                             html_sync! {
                                 <li>
-                                    <a href={content_part!("profile-url", *href)} rel="me" class="inline-flex items-center gap-2 underline decoration-black/20 underline-offset-4 transition-colors hover:text-brand dark:decoration-white/30">
+                                    <a href={content_part!("profile-url", *href)} rel="me noreferrer noopener" target="_blank" class="inline-flex items-center gap-2 underline decoration-black/20 underline-offset-4 transition-colors hover:text-brand dark:decoration-white/30">
                                         {content_part!("profile-icon", html_sync! {
                                             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="size-4 shrink-0">
                                                 {match *label {

@@ -659,7 +659,9 @@ async fn team_page_shares_content_metadata_and_footer_discovery() {
 
     let founder = crate::pages::team::founder();
     for (_, href) in founder.links {
-        assert!(html.contains(&format!("href=\"{href}\"")));
+        assert!(html.contains(&format!(
+            "href=\"{href}\" rel=\"me noreferrer noopener\" target=\"_blank\""
+        )));
         assert!(markdown.contains(&format!("]({href})")));
     }
     assert!(html.contains(&format!("alt=\"{}\"", founder.name)));
