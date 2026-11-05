@@ -16,7 +16,7 @@ use crate::{
     utils::document::{render_markdown, Url},
 };
 
-pub(crate) const META: PageMeta = PageMeta {
+const META: PageMeta = PageMeta {
     title: const_format::concatcp!("Team: ", site::ORGANIZATION_NAME),
     description: const_format::concatcp!(
         "Meet the people behind Proa and ",
@@ -26,28 +26,22 @@ pub(crate) const META: PageMeta = PageMeta {
     path: routes::TEAM,
 };
 
-const TEAM: TeamPage = TeamPage {
-    title: "Meet the team",
-    intro: "The people behind Proa.",
-    founder: TeamMember {
-        name: "Andrew Hariri",
-        role: "Founder",
-        organization: site::ORGANIZATION,
-        portrait: "/static/images/team/andrew-hariri.jpg",
-        links: &[
-            TeamLink::Website("https://hariri.dev/"),
-            TeamLink::GitHub("https://github.com/hariria"),
-            TeamLink::X(site::SOCIAL_URL),
-        ],
-    },
-};
+const TITLE: &str = "Meet the team";
+const INTRO: &str = "The people behind Proa.";
 
-#[derive(Clone, Copy)]
-struct TeamPage {
-    title: &'static str,
-    intro: &'static str,
-    founder: TeamMember,
-}
+pub(crate) const MEMBERS: &[TeamMember] = &[TeamMember {
+    name: "Andrew Hariri",
+    role: "Founder",
+    organization: site::ORGANIZATION,
+    portrait: "/static/images/team/andrew-hariri.jpg",
+    links: &[
+        TeamLink::Website("https://hariri.dev/"),
+        TeamLink::GitHub("https://github.com/hariria"),
+        TeamLink::X(site::SOCIAL_URL),
+    ],
+}];
+
+struct TeamPage(&'static [TeamMember]);
 
 #[derive(Clone, Copy)]
 pub(crate) struct TeamMember {
@@ -81,10 +75,6 @@ impl TeamLink {
     }
 }
 
-pub(crate) fn founder() -> TeamMember {
-    TEAM.founder
-}
-
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
@@ -92,11 +82,15 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamPage {
                 data-team-page
                 class="mx-auto max-w-[1400px] px-4 py-16 sm:px-6 sm:py-24 lg:px-8"
             >
-                <h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">{self.title}</h1>
+                <h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">
+                    {content_part!("title", TITLE)}
+                </h1>
                 <p class="mt-6 max-w-2xl text-lg leading-8 text-zinc-600 dark:text-zinc-300">
-                    {self.intro}
+                    {content_part!("intro", INTRO)}
                 </p>
-                {self.founder}
+                {for member in self.0 {
+                    content_part!("member", *member)
+                }}
             </article>
         }
         .render(cx)
@@ -158,12 +152,16 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
 
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamPage {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let title = content_part!("title", TITLE);
+        let intro = content_part!("intro", INTRO);
         md_sync! { r###"
-            # {self.title}
+            # {title}
 
-            {self.intro}
+            {intro}
 
-            {self.founder}
+            {for member in self.0 {
+                content_part!("member", *member)
+            }}
             "###
         }
         .render_md(cx)
@@ -198,17 +196,17 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamMember {
 
 pub(crate) fn markdown() -> &'static str {
     static MARKDOWN: OnceLock<String> = OnceLock::new();
-    MARKDOWN.get_or_init(|| render_markdown(TEAM))
+    MARKDOWN.get_or_init(|| render_markdown(TeamPage(MEMBERS)))
 }
 
-/// Read Proa's founding team and leadership as HTML or Markdown.
+/// Read the Proa team page as HTML or Markdown.
 #[utoipa::path(get, path = routes::TEAM, operation_id = "getTeamPage",
-    responses((status = 200, description = "Founding team and leadership in the requested representation. Responses vary by Accept.", content((String = "text/html"), (String = "text/markdown")))))]
+    responses((status = 200, description = "Team profiles in the requested representation. Responses vary by Accept.", content((String = "text/html"), (String = "text/markdown")))))]
 pub async fn handler(headers: HeaderMap) -> Response {
     let mut response = if crate::utils::http::accepts_markdown(&headers) {
         markdown_handler().await
     } else {
-        render_page(META, TEAM).into_response()
+        render_page(META, TeamPage(MEMBERS)).into_response()
     };
     response
         .headers_mut()
@@ -218,7 +216,7 @@ pub async fn handler(headers: HeaderMap) -> Response {
 
 /// Read the same team content through its explicit Markdown URL.
 #[utoipa::path(get, path = routes::TEAM_MARKDOWN, operation_id = "getTeamMarkdown",
-    responses((status = 200, description = "Founding team and leadership as Markdown.", body = String, content_type = "text/markdown")))]
+    responses((status = 200, description = "Team profiles as Markdown.", body = String, content_type = "text/markdown")))]
 pub async fn markdown_handler() -> Response {
     crate::endpoints::agent_discovery::text_response(markdown(), "text/markdown; charset=utf-8")
 }
@@ -229,29 +227,22 @@ mod tests {
 
     #[test]
     fn changed_profile_content_is_shared_and_escaped_in_both_formats() {
-        let page = TeamPage {
-            title: "People <&>",
-            intro: "A changed introduction",
-            founder: TeamMember {
-                name: "Ada <Lovelace>",
-                role: "Technical lead",
-                organization: "Example & Co.",
-                portrait: "/static/portrait.jpg",
-                links: &[TeamLink::Website("https://example.test/a (b)")],
-            },
+        let member = TeamMember {
+            name: "Ada <Lovelace>",
+            role: "Technical lead",
+            organization: "Example & Co.",
+            portrait: "/static/portrait.jpg",
+            links: &[TeamLink::Website("https://example.test/a (b)")],
         };
-        let html = proa_core::render_to_string(page);
-        let markdown = render_markdown(page);
-        assert!(html.contains("People &lt;&amp;&gt;"));
+        let html = proa_core::render_to_string(member);
+        let markdown = render_markdown(member);
         assert!(html.contains("Ada &lt;Lovelace&gt;"));
         assert!(!html.contains("Ada <Lovelace>"));
         assert!(markdown.contains(r"Ada \<Lovelace\>"));
         assert!(markdown.contains(r"[Website](https://example.test/a%20\(b\))"));
         for output in [&html, &markdown] {
-            assert!(output.contains(page.intro));
-            assert!(output.contains(page.founder.role));
-            assert!(output.contains(page.founder.portrait));
+            assert!(output.contains(member.role));
+            assert!(output.contains(member.portrait));
         }
-        assert!(markdown.find(page.intro).unwrap() < markdown.find("## Ada").unwrap());
     }
 }

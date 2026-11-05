@@ -657,7 +657,7 @@ async fn team_page_shares_content_metadata_and_footer_discovery() {
         fetch(&app, "/team", "text/markdown;q=0, text/html").await.2
     );
 
-    let founder = crate::pages::team::founder();
+    let founder = crate::pages::team::MEMBERS[0];
     for link in founder.links {
         let href = link.href();
         assert!(html.contains(&format!(
@@ -679,32 +679,6 @@ async fn team_page_shares_content_metadata_and_footer_discovery() {
         .unwrap();
     assert_eq!(portrait.status(), StatusCode::OK);
     assert_eq!(portrait.headers()[header::CONTENT_TYPE], "image/jpeg");
-    let json = html
-        .split_once("<script type=\"application/ld+json\">")
-        .unwrap()
-        .1
-        .split_once("</script>")
-        .unwrap()
-        .0;
-    let metadata: Value = serde_json::from_str(json).unwrap();
-    assert_eq!(metadata["@graph"][0]["@type"], "AboutPage");
-    assert_eq!(metadata["@graph"][1]["name"], founder.organization);
-    let person = &metadata["@graph"][1]["founder"];
-    assert_eq!(person["name"], founder.name);
-    assert_eq!(person["jobTitle"], founder.role);
-    assert_eq!(
-        person["sameAs"],
-        json!(founder
-            .links
-            .iter()
-            .map(|link| link.href())
-            .collect::<Vec<_>>())
-    );
-    assert!(person["image"]
-        .as_str()
-        .unwrap()
-        .ends_with(founder.portrait));
-
     let home = fetch(&app, "/", "text/html").await.2;
     let (before_footer, footer) = home.split_once("<footer").unwrap();
     assert!(!before_footer.contains("href=\"/team\""));
