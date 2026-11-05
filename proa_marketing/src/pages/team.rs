@@ -28,11 +28,7 @@ pub(crate) const META: PageMeta = PageMeta {
 
 const TEAM: TeamPage = TeamPage {
     title: "Meet the team",
-    intro: const_format::concatcp!(
-        "The people behind Proa. ",
-        site::ORGANIZATION,
-        " builds the Proa Rust web framework."
-    ),
+    intro: "The people behind Proa.",
     founder: TeamMember {
         name: "Andrew Hariri",
         role: "Founder",
