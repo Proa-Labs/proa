@@ -49,13 +49,13 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InfoPage {
             <article data-info-page class="mx-auto max-w-3xl px-6 py-16">
                 <h1 class="text-4xl font-semibold tracking-tight">{self.title}</h1>
                 <div class="mt-8 flex flex-col gap-6 text-base leading-7 text-zinc-600 dark:text-zinc-300">
-                    {for paragraph in self.paragraphs {
-                        html_sync! { <p>{content_part!("paragraph", *paragraph)}</p> }
+                    {for &paragraph in self.paragraphs {
+                        html_sync! { <p>{paragraph}</p> }
                     }}
                 </div>
                 <ul class="mt-8 space-y-3">
-                    {for (href, label) in self.links {
-                        html_sync! { <li><a href={content_part!("link-url", *href)} class="underline underline-offset-4">{content_part!("link-label", *label)}</a></li> }
+                    {for &(href, label) in self.links {
+                        html_sync! { <li><a href={content_part!("link-url", href)} class="underline underline-offset-4">{label}</a></li> }
                     }}
                 </ul>
             </article>
@@ -70,11 +70,9 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for InfoPage {
         md_sync! { r###"
             # {self.title}
 
-            {for paragraph in self.paragraphs {
-                let paragraph = content_part!("paragraph", *paragraph);
+            {for &paragraph in self.paragraphs {
                 md_sync! { "{paragraph}\n\n" }
-            }}{for (href, label) in self.links {
-                let label = content_part!("link-label", *label);
+            }}{for &(href, label) in self.links {
                 let href = content_part!("link-url", Url(href));
                 md_sync! { "- [{label}]({href})\n" }
             }}"###

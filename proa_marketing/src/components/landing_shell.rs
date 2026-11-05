@@ -406,9 +406,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FooterLinks {
             <div data-footer-links>
                 <p class="font-medium text-zinc-950 dark:text-zinc-100">{self.title}</p>
                 <ul class="mt-4 space-y-3 text-zinc-600 dark:text-zinc-400">
-                    {for (label, href) in self.links {
+                    {for &(label, href) in self.links {
                         html_sync! {
-                            <li><a href={content_part!("link-url", *href)} class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50">{content_part!("link-label", *label)}</a></li>
+                            <li><a href={content_part!("link-url", href)} class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50">{label}</a></li>
                         }
                     }}
                 </ul>
@@ -422,8 +422,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for FooterLinks {
         md_sync! { r###"
             ## {self.title}
 
-            {for (label, href) in self.links {
-                let label = content_part!("link-label", *label);
+            {for &(label, href) in self.links {
                 let href = content_part!("link-url", Url(href));
                 md_sync! { "- [{label}]({href})\n" }
             }}"###

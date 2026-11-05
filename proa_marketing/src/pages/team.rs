@@ -113,8 +113,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamPage {
                 <p class="mt-6 max-w-2xl text-lg leading-8 text-zinc-600 dark:text-zinc-300">
                     {content_part!("intro", INTRO)}
                 </p>
-                {for member in self.members {
-                    content_part!("member", *member)
+                {for &member in self.members {
+                    member
                 }}
             </article>
         }
@@ -131,15 +131,13 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
             <div data-team-member data-component="team-member" class={classes}>
                 <img
                     src={content_part!("portrait", self.portrait)}
-                    alt={content_part!("name", self.name)}
+                    alt={self.name}
                     width="460"
                     height="460"
                     class="aspect-square w-48 rounded-2xl object-cover sm:w-full"
                 />
                 <div>
-                    <h2 class="text-2xl font-semibold tracking-tight">
-                        {content_part!("name", self.name)}
-                    </h2>
+                    <h2 class="text-2xl font-semibold tracking-tight">{self.name}</h2>
                     <p class="mt-2 text-base font-medium">{self.role}", "{self.organization}</p>
                     <ul class="mt-6 flex flex-wrap gap-6 text-sm font-medium">
                         {for link in self.links {
@@ -187,8 +185,8 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamPage {
 
             {intro}
 
-            {for member in self.members {
-                content_part!("member", *member)
+            {for &member in self.members {
+                member
             }}
             "###
         }
@@ -202,14 +200,13 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamMember {
             "profile-icon",
             "Decorative icons accompany the shared link labels."
         );
-        let name = content_part!("name", self.name);
         let portrait = content_part!("portrait", Url(self.portrait));
         md_sync! { r###"
-            ## {name}
+            ## {self.name}
 
             {self.role}, {self.organization}
 
-            ![{name}]({portrait})
+            ![{self.name}]({portrait})
 
             {for link in self.links {
                 let label = content_part!("profile-label", link.label());
