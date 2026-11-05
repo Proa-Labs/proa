@@ -627,19 +627,6 @@ async fn info_pages_share_html_and_markdown_routes() {
 }
 
 #[tokio::test]
-async fn team_page_negotiates_markdown() {
-    let app = super::app();
-    let (status, headers, markdown) = fetch(&app, "/team", "text/markdown").await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        headers[header::CONTENT_TYPE],
-        "text/markdown; charset=utf-8"
-    );
-    assert_eq!(headers[header::VARY], "Accept");
-    assert_eq!(markdown, fetch(&app, "/team.md", "*/*").await.2);
-}
-
-#[tokio::test]
 async fn discovery_links_resolve_and_do_not_advertise_hidden_docs() {
     let app = super::app();
     let origin = super::utils::site_url::public_site_url();

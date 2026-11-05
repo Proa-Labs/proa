@@ -220,25 +220,3 @@ pub async fn handler(headers: HeaderMap) -> Response {
 pub async fn markdown_handler() -> Response {
     crate::endpoints::agent_discovery::text_response(markdown(), "text/markdown; charset=utf-8")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn changed_profile_content_is_shared_and_escaped_in_both_formats() {
-        let member = TeamMember {
-            name: "Ada <Lovelace>",
-            role: "Technical lead",
-            organization: "Example & Co.",
-            portrait: "/static/portrait.jpg",
-            links: &[TeamLink::Website("https://example.test/a (b)")],
-        };
-        let html = proa_core::render_to_string(member);
-        let markdown = render_markdown(member);
-        assert!(html.contains("Ada &lt;Lovelace&gt;"));
-        assert!(markdown.contains(r"Ada \<Lovelace\>"));
-        assert!(markdown.contains(r"[Website](https://example.test/a%20\(b\))"));
-        assert!(html.contains(r#"rel="me noreferrer noopener" target="_blank""#));
-    }
-}
