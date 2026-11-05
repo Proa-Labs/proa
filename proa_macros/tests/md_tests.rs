@@ -122,9 +122,9 @@ fn control_flow_is_rust_and_markdown_re_enters_through_nested_templates() {
             "###
         });
         let expected = if enabled {
-            "visible\n(2)(5)\n\n\n"
+            "visible\n(2)(5)\n\n"
         } else {
-            "hidden\n(2)(5)\n\n\n"
+            "hidden\n(2)(5)\n\n"
         };
         assert_eq!(output, expected);
     }
@@ -200,7 +200,7 @@ fn prose_starting_with_control_words_is_text_at_every_depth() {
         }}
         "###
     });
-    assert_eq!(nested, "if you prefer a\\*b.\nfor example a\\*b.\n\n\n");
+    assert_eq!(nested, "if you prefer a\\*b.\nfor example a\\*b.\n\n");
 }
 
 #[test]
@@ -268,7 +268,7 @@ fn nested_template_literals_keep_code_spans_and_relative_layout() {
         }}
         "###
     });
-    assert_eq!(output, "`first\nsecond`\n\n\n");
+    assert_eq!(output, "`first\nsecond`\n\n");
 }
 
 #[test]
@@ -363,10 +363,7 @@ fn template_nested_for() {
         }}
         "###
     });
-    assert_eq!(
-        out,
-        "## Fruits\n- apple\n- banana\n\n## Vegs\n- carrot\n\n\n"
-    );
+    assert_eq!(out, "## Fruits\n- apple\n- banana\n\n## Vegs\n- carrot\n\n");
 }
 #[test]
 fn template_dedents_layout_indentation() {
@@ -521,7 +518,7 @@ fn nested_templates_preserve_nested_lists_indented_code_and_fenced_code() {
         }}
         "###
     });
-    assert_eq!(output, "- parent\n  - a\\*b\n\n    code_line();\n\n```rust\nfor item in items {\n    println!(\"{item}\");\n}\n```\n\n\n");
+    assert_eq!(output, "- parent\n  - a\\*b\n\n    code_line();\n\n```rust\nfor item in items {\n    println!(\"{item}\");\n}\n```\n\n");
 }
 
 #[test]
@@ -673,7 +670,7 @@ async fn async_nested_conditions_await_children_and_keep_following_prose() {
     .await;
     assert_eq!(
         out,
-        "zero\n\nelsewhere\n\none\n\nelsewhere\n\nother\n\nelsewhere\n\n\n"
+        "zero\n\nelsewhere\n\none\n\nelsewhere\n\nother\n\nelsewhere\n\n"
     );
 }
 
@@ -695,7 +692,7 @@ fn nested_template_fences_and_inline_code_keep_unbalanced_literal_braces() {
     });
     assert_eq!(
         output,
-        "Literal `{` and `}`.\n\n~~~rust\nif unclosed {\n    \"unclosed quote\n~~~\n\n\n"
+        "Literal `{` and `}`.\n\n~~~rust\nif unclosed {\n    \"unclosed quote\n~~~\n\n"
     );
 }
 

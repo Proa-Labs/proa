@@ -241,7 +241,14 @@ pub fn generate_template(tpl: &MdTemplateInput, mode: EmitMode) -> Result<TokenS
         }
     }
     let shadow = format_args_shadow(lit, &nodes, &tpl.args);
-    let body = codegen_tpl(&nodes, &inline_slots, shadow, tpl.argument_binding(), mode);
+    let body = codegen_tpl(
+        &nodes,
+        &inline_slots,
+        shadow,
+        tpl.argument_binding(),
+        mode,
+        block,
+    );
     let template_mode = if block {
         quote! { ::proa_core::md::MD_TEMPLATE_BLOCK }
     } else {
@@ -393,6 +400,7 @@ fn codegen_tpl(
     shadow: Option<TokenStream>,
     binding: Option<syn::Local>,
     mode: EmitMode,
+    block: bool,
 ) -> TokenStream {
     // all-static fast path
     if binding.is_none() && nodes.iter().all(|n| matches!(n, TplNode::Text(_))) {
@@ -411,7 +419,7 @@ fn codegen_tpl(
     stmts.extend(shadow);
     stmts.extend(binding.map(|binding| quote! { #binding }));
     let mut run = String::new();
-    emit_tpl_nodes(nodes, inline_slots, &mut stmts, &mut run, mode);
+    emit_tpl_nodes(nodes, inline_slots, &mut stmts, &mut run, mode, block);
     flush(&mut stmts, &mut run);
     wrap_render(&stmts, mode)
 }
@@ -422,17 +430,44 @@ fn emit_tpl_nodes(
     stmts: &mut Vec<TokenStream>,
     run: &mut String,
     mode: EmitMode,
+    block: bool,
 ) {
     let mut slots = inline_slots.iter().copied();
+    // In a block template, the line breaks that follow a block-position slot
+    // are layout rather than prose: a block child has already completed a
+    // blank line through its own epilogue, and a row template already ends
+    // in its line break. Emit them as boundaries, which write the authored
+    // break after inline text and nothing after a child that ended a line.
+    // Any further authored blank lines stay literal.
+    let mut after_block_slot = false;
     for node in nodes {
         match node {
-            TplNode::Text(t) => run.push_str(t),
+            TplNode::Text(t) => {
+                let mut text = t.as_str();
+                if after_block_slot {
+                    let breaks = text.bytes().take_while(|byte| *byte == b'\n').count();
+                    if breaks > 0 {
+                        let cx = render_context();
+                        flush(stmts, run);
+                        if breaks == 1 {
+                            stmts.push(quote! { #cx.md_line_boundary()?; });
+                        } else {
+                            stmts.push(quote! { #cx.md_block_boundary()?; });
+                        }
+                        text = &text[breaks.min(2)..];
+                    }
+                }
+                run.push_str(text);
+                after_block_slot = false;
+            }
             // Control flow and plain values share the token-mode lowering, so
             // both template forms render a branch's final expression the same
             // way.
             TplNode::Expr(expr) => {
                 flush(stmts, run);
-                if slots.next().expect("one context per expression") {
+                let restricted = slots.next().expect("one context per expression");
+                after_block_slot = block && !restricted;
+                if restricted {
                     let cx = render_context();
                     let scope =
                         syn::Ident::new("__proa_md_inline_scope", proc_macro2::Span::mixed_site());

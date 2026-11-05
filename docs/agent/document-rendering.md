@@ -264,9 +264,14 @@ interpolates `{expression}`; splitting it into quoted token pieces such as
 `md_sync! { "- " {review} "\n" }` is a compile error.
 Use raw literals with fewer hashes for substantial multiline fragments or when
 they substantially reduce escaping. Each multiline literal removes its own
-common indentation and retains its authored trailing newlines. Dynamic
-content inside code fences, which raw templates deliberately keep literal,
-goes through an explicit typed code child.
+common indentation and retains its authored trailing newlines. The line
+breaks directly after a slot at block position are boundaries rather than
+bytes: written after inline text, skipped after a child that already ended
+its line or paragraph. A block child on its own line therefore keeps exactly
+one blank line after it, and row templates on consecutive lines stay one
+list. Further authored blank lines stay literal, as does every break inside
+an inline template. Dynamic content inside code fences, which raw templates
+deliberately keep literal, goes through an explicit typed code child.
 Nested `md!` and `html!` may borrow loop items and local strings across awaits.
 Their shared typed async continuation keeps those borrows alive until rendering
 finishes; neither requires cloning the input. Use a sync nested fragment when

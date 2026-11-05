@@ -286,7 +286,7 @@ The mode is selected when the template renders, not when it is constructed. Nest
 
 Block templates inside an inline scope are errors, including typed children in link labels and table cells. A directly rendered qualified block macro is rejected at compile time when detectable; other block children fail at render time before writing their boundary or body. Earlier prefix bytes remain. Supply an inline representation instead of silently flattening a block.
 
-Raw-string hashes only control delimiting. All physically multiline raw literals select block mode, including `r"..."`; single-line raw literals select inline mode. Ordinary strings stay inline even when they contain newlines. Existing dedenting and authored whitespace are unchanged: only automatic boundaries are deduplicated, and an empty block can still establish a boundary after preceding prose.
+Raw-string hashes only control delimiting. All physically multiline raw literals select block mode, including `r"..."`; single-line raw literals select inline mode. Ordinary strings stay inline even when they contain newlines. Existing dedenting and authored whitespace are unchanged: only automatic boundaries are deduplicated, and an empty block can still establish a boundary after preceding prose. The line breaks directly after a slot at block position are boundaries too: written after inline text, skipped after a child that already ended its line or paragraph, so a block child on its own line keeps exactly one blank line after it.
 
 Inline/block scopes restore rendering mode only. Do not restore a full `MdState` snapshot to clean up formatting: it would replace suffix tracking without undoing emitted bytes.
 

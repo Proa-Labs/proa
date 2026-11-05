@@ -171,7 +171,9 @@ raw literals are block scopes, while ordinary strings and single-line raw
 literals are inline scopes. Hash count has no effect. Scopes restore the
 enclosing mode on errors, unwinding, and async cancellation; block boundaries
 are completed only before the body and after success. Authored whitespace and
-partial output remain. Block templates cannot appear inside inline scopes,
+partial output remain, except that the line breaks after a slot at block
+position are boundaries, so a block child on its own line gains no extra blank
+line. Block templates cannot appear inside inline scopes,
 link labels, headings, emphasis, or table cells. Use `.render_md(cx)?` directly,
 without manual inline-mode restoration. Do not restore whole `MdState`
 snapshots solely for formatting cleanup, since that also replaces suffix

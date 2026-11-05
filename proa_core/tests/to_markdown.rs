@@ -316,7 +316,7 @@ fn converting_a_parent_uses_child_html_while_explicit_composition_uses_child_mar
     .unwrap();
     assert_eq!(
         cx.into_output().into_string(),
-        "## Automatic parent\n\n> Custom semantics\n\n\n"
+        "## Automatic parent\n\n> Custom semantics\n\n"
     );
 }
 

@@ -109,8 +109,9 @@ reduce escaping. Nested raw literals need fewer hashes than their parent
 (`r###"..."###` outside, `r#"..."#` inside, then `r"..."` if needed); no inner
 closing delimiter may close its parent. Each multiline fragment removes its own
 common source margin. Its trailing newline is output, so do not add another
-separator unnecessarily. A bare Rust string tail is escaped text, not Markdown
-markup.
+separator unnecessarily. A block child on its own line keeps exactly one blank
+line after it: the parent's line break after the slot is a boundary, not extra
+bytes. A bare Rust string tail is escaped text, not Markdown markup.
 
 `{expression}` renders a typed child. Outside code fences and inline code,
 `{{` and `}}` produce literal braces. Inside code, braces are already literal;

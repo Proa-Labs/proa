@@ -450,9 +450,9 @@ fn document_rows_and_conditionals_preserve_all_authored_whitespace() {
         assert_eq!(
             cx.into_output(),
             if in_stock {
-                b"# Widget\n\n## Features\n\n- Fast\n- Lightweight\n\n\n**In stock**\n\n".as_slice()
+                b"# Widget\n\n## Features\n\n- Fast\n- Lightweight\n\n**In stock**\n\n".as_slice()
             } else {
-                b"# Widget\n\n## Features\n\n- Fast\n- Lightweight\n\n\nBackordered\n\n"
+                b"# Widget\n\n## Features\n\n- Fast\n- Lightweight\n\nBackordered\n\n"
             }
         );
     }
@@ -480,7 +480,7 @@ fn repeated_nested_blocks_deduplicate_only_automatic_boundaries() {
     .unwrap();
     assert_eq!(
         cx.into_output(),
-        b"### Shipping\n\nShips tomorrow\n\n### Returns\n\nReturns accepted\n\n\n"
+        b"### Shipping\n\nShips tomorrow\n\n### Returns\n\nReturns accepted\n\n"
     );
 }
 
@@ -630,7 +630,7 @@ fn empty_and_whitespace_only_templates_have_explicit_byte_contracts() {
     }
     .render_md(&mut cx)
     .unwrap();
-    assert_eq!(cx.into_output(), b"Intro\n\n\n");
+    assert_eq!(cx.into_output(), b"Intro\n\n");
 
     let mut cx = context();
     md_sync! { r#"{for _ in std::iter::empty::<()>() {
@@ -909,4 +909,209 @@ fn web_bridged_blocks_obey_inline_scopes_and_keep_boundaries_continuous() {
     .render_md(&mut cx)
     .unwrap();
     assert_eq!(cx.into_output(), b"Intro\n\n## Heading\n\nNext\n\n");
+}
+
+#[test]
+fn line_breaks_after_block_position_slots_are_boundaries() {
+    struct Quote;
+    impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Quote {
+        fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+            md_sync! { r#"
+                > quoted
+                "#
+            }
+            .render_md(cx)
+        }
+    }
+    fn render(template: impl MdRenderSync<proa_core::NoLoader, Vec<u8>>) -> Vec<u8> {
+        let mut cx = context();
+        template.render_md(&mut cx).unwrap();
+        cx.into_output()
+    }
+
+    // A block child on its own line keeps exactly one blank line after it,
+    // whatever follows: the end of the template, prose, or another child.
+    assert_eq!(
+        render(md_sync! { r###"
+            {Quote}
+            "###
+        }),
+        b"> quoted\n\n"
+    );
+    assert_eq!(
+        render(md_sync! { r###"
+            {Quote}
+
+            After
+            "###
+        }),
+        b"> quoted\n\nAfter\n\n"
+    );
+    assert_eq!(
+        render(md_sync! { r###"
+            {Quote}
+
+            {Quote}
+            "###
+        }),
+        b"> quoted\n\n> quoted\n\n"
+    );
+
+    // Row templates on consecutive lines stay one list.
+    let (a, b) = ("a", "b");
+    assert_eq!(
+        render(md_sync! { r###"
+            {md_sync! { "- {a}\n" }}
+            {md_sync! { "- {b}\n" }}
+            "###
+        }),
+        b"- a\n- b\n\n"
+    );
+
+    // Inline text still receives its authored break and blank line.
+    let name = "Ada";
+    assert_eq!(
+        render(md_sync! { r###"
+            {name}
+            next
+
+            {name}
+            "###
+        }),
+        b"Ada\nnext\n\nAda\n\n"
+    );
+
+    // An absent value leaves no stray blank lines between paragraphs.
+    let none: Option<&str> = None;
+    assert_eq!(
+        render(md_sync! { r###"
+            Intro
+
+            {none}
+
+            Next
+            "###
+        }),
+        b"Intro\n\nNext\n\n"
+    );
+
+    // Further authored blank lines stay literal, as does every break inside
+    // an inline template.
+    assert_eq!(
+        render(md_sync! { r###"
+            {name}
+
+
+            Next
+            "###
+        }),
+        b"Ada\n\n\nNext\n\n"
+    );
+    let row = md_sync! { "- a\n" };
+    assert_eq!(render(md_sync! { "{row}\n" }), b"- a\n\n");
+}
+
+#[test]
+fn deeply_nested_block_children_add_no_extra_blank_lines() {
+    struct Leaf;
+    impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Leaf {
+        fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+            md_sync! { r"
+                > deep
+                " }
+            .render_md(cx)
+        }
+    }
+    // A block template wrapping one child on its own line.
+    struct Wrap<C>(C);
+    impl<L: DataLoader, B: WriteBuf, C: MdRenderSync<L, B>> MdRenderSync<L, B> for Wrap<C> {
+        fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+            let child = self.0;
+            md_sync! { r#"
+                {child}
+                "# }
+            .render_md(cx)
+        }
+    }
+    // Heading, child, prose: the common section shape.
+    struct Section<C>(&'static str, C);
+    impl<L: DataLoader, B: WriteBuf, C: MdRenderSync<L, B>> MdRenderSync<L, B> for Section<C> {
+        fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+            let (title, child) = (self.0, self.1);
+            md_sync! { r#"
+                ## {title}
+
+                {child}
+
+                after {title}
+                "# }
+            .render_md(cx)
+        }
+    }
+    // An imperative wrapper: boundary, children, boundary.
+    struct Card<C>(C);
+    impl<L: DataLoader, B: WriteBuf, C: MdRenderSync<L, B>> MdRenderSync<L, B> for Card<C> {
+        fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+            cx.md_block_boundary()?;
+            self.0.render_md(cx)?;
+            cx.md_block_boundary()
+        }
+    }
+    // Rows, a nested block child, rows again.
+    struct Mixed<C>(C);
+    impl<L: DataLoader, B: WriteBuf, C: MdRenderSync<L, B>> MdRenderSync<L, B> for Mixed<C> {
+        fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+            let child = self.0;
+            let rows = ["a", "b"];
+            md_sync! { r#"
+                {for row in rows { md_sync! { "- {row}\n" } }}
+
+                {child}
+
+                {for row in rows { md_sync! { "- {row}\n" } }}
+                "# }
+            .render_md(cx)
+        }
+    }
+    fn render(template: impl MdRenderSync<proa_core::NoLoader, Vec<u8>>) -> String {
+        let mut cx = context();
+        template.render_md(&mut cx).unwrap();
+        let out = String::from_utf8(cx.into_output()).unwrap();
+        assert!(!out.contains("\n\n\n"), "extra blank line in {out:?}");
+        out
+    }
+
+    assert_eq!(render(Wrap(Wrap(Wrap(Wrap(Leaf))))), "> deep\n\n");
+    assert_eq!(render(Card(Card(Card(Leaf)))), "> deep\n\n");
+    assert_eq!(
+        render(Section("one", Section("two", Section("three", Leaf)))),
+        "## one\n\n## two\n\n## three\n\n> deep\n\nafter three\n\nafter two\n\nafter one\n\n"
+    );
+    assert_eq!(
+        render(Card(Section("s", Card(Wrap(Leaf))))),
+        "## s\n\n> deep\n\nafter s\n\n"
+    );
+    assert_eq!(
+        render(Mixed(Mixed(Leaf))),
+        "- a\n- b\n\n- a\n- b\n\n> deep\n\n- a\n- b\n\n- a\n- b\n\n"
+    );
+    assert_eq!(render(Wrap(Wrap(md_sync! { "**bold**" }))), "**bold**\n\n");
+    let items = [1, 2];
+    assert_eq!(
+        render(md_sync! { r###"
+            {for _ in items {
+                Section("outer", md_sync! { r#"
+                    {for _ in items {
+                        Wrap(Section("inner", Leaf))
+                    }}
+                    "# })
+            }}
+            {Wrap(Leaf)}
+            {Wrap(Leaf)}
+            "###
+        }),
+        "## outer\n\n## inner\n\n> deep\n\nafter inner\n\n## inner\n\n> deep\n\nafter inner\n\nafter outer\n\n\
+         ## outer\n\n## inner\n\n> deep\n\nafter inner\n\n## inner\n\n> deep\n\nafter inner\n\nafter outer\n\n\
+         > deep\n\n> deep\n\n"
+    );
 }

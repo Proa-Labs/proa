@@ -281,6 +281,9 @@ pub fn xml_sync(input: TokenStream) -> TokenStream {
 /// - The raw string is trusted, compile-time Markdown
 /// - `{expr}` composes an async-capable `MdRender` child
 /// - Source newlines are rendered directly, without escaped `"\n"` separators
+/// - Line breaks directly after a slot at block position are boundaries:
+///   written after inline text, skipped after a child that already ended its
+///   line or paragraph, so a block child on its own line keeps one blank line
 /// - Common Rust indentation is stripped while relative Markdown indentation is
 ///   preserved
 /// - Braces in fenced code blocks and inline code spans stay literal
