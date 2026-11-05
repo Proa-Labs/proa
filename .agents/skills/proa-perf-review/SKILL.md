@@ -29,6 +29,19 @@ Use Proa CLI lint/check as the first reviewer and the focused perf lint as the
 render-path backstop. Treat findings as bugs unless the allocation is
 intentionally outside the SSR hot path.
 
+## Markdown scope review
+
+Audit manual `md_set_inline` save/render/restore patterns, including saved
+`Result` cleanup. Use an ordinary-string template for inline children and a
+multiline raw template for block sections. Where authored separators must
+remain exact, render the parts in sequence with a tuple or `.render_md(cx)?`
+calls instead of a wrapper template. Never put block sections inside
+an ordinary-string wrapper. Template mode cleanup restores inline mode only.
+Do not replace local cleanup with whole `MdState` restoration: it would also
+replace suffix tracking while partial output remains. Verify error/panic
+recovery and allocation-free guards, including mirrored scaffold components.
+Retain low-level mutations in tests that intentionally probe state isolation.
+
 ## Browser code review
 
 Inspect changed executable JavaScript strings, inline scripts/handlers, and

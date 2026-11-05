@@ -166,6 +166,19 @@ ordinary blocks. `{expression}` composes a typed child. Braces inside fenced
 code blocks and inline code spans stay literal. Increase the raw-string hash
 count only if the Markdown itself contains the exact closing sequence `"###`.
 Outside code spans and fences, write `{{` or `}}` for a literal brace.
+Single-literal templates select their mode at render time: physically multiline
+raw literals are block scopes, while ordinary strings and single-line raw
+literals are inline scopes. Hash count has no effect. Scopes restore the
+enclosing mode on errors, unwinding, and async cancellation; block boundaries
+are completed only before the body and after success. Authored whitespace and
+partial output remain, except that the line breaks after a slot at block
+position are boundaries, so a block child on its own line gains no extra blank
+line. Block templates cannot appear inside inline scopes,
+link labels, headings, emphasis, or table cells. Use `.render_md(cx)?` directly,
+without manual inline-mode restoration. Do not restore whole `MdState`
+snapshots solely for formatting cleanup, since that also replaces suffix
+tracking while partial output remains. Audit scaffold
+copies and fixtures when migrating these patterns.
 Text outside slots is always Markdown; each `{ ... }` slot is Rust. Use
 ordinary Rust `if`, `for`, and `match` there, and re-enter Markdown through a
 nested macro. Prefer ordinary one-line strings for short fragments, such as
@@ -174,8 +187,9 @@ row-ending `\n`. Use raw templates for substantial multiline fragments, with
 fewer hashes inside an outer raw literal. Never remove the explicit slot boundary around control flow.
 See [the Markdown skill](.agents/skills/proa-markdown/SKILL.md) for a complete
 loop/branch example and the exceptions for code fences and exact separators.
-The token composition form (`md_sync! { "# " { title } }`) remains supported
-for generated code and cases that need the expressions visible as Rust tokens.
+The body is always one string literal; token composition such as
+`md_sync! { "# " { title } }` is a compile error. To render values in sequence
+without authoring Markdown, use a tuple: `(overview, impact).render_md(cx)`.
 Run `proa fmt` to normalize raw-template indentation and keep the closing macro
 brace aligned with the invocation; `proa lint` enforces the same layout.
 

@@ -78,12 +78,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for TableHead<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        md_sync! { " " }.render_md(cx)?;
-        let prev = cx.md_set_inline(true);
-        let result = self.children.render_md(cx);
-        cx.md_set_inline(prev);
-        result?;
-        md_sync! { " |" }.render_md(cx)
+        md_sync! { " {self.children} |" }.render_md(cx)
     }
 }
 
@@ -92,12 +87,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for TableCell<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        md_sync! { " " }.render_md(cx)?;
-        let prev = cx.md_set_inline(true);
-        let result = self.children.render_md(cx);
-        cx.md_set_inline(prev);
-        result?;
-        md_sync! { " |" }.render_md(cx)
+        md_sync! { " {self.children} |" }.render_md(cx)
     }
 }
 
@@ -106,12 +96,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for TableCaption<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        md_sync! { "*" }.render_md(cx)?;
-        let prev = cx.md_set_inline(true);
-        let result = self.children.render_md(cx);
-        cx.md_set_inline(prev);
-        result?;
-        md_sync! { "*" }.render_md(cx)?;
+        md_sync! { "*{self.children}*" }.render_md(cx)?;
         cx.md_blank_line()?;
         Ok(())
     }

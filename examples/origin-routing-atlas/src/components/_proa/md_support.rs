@@ -3,24 +3,16 @@
 
 //! Shared helpers for component markdown (`md.rs`) implementations.
 //!
-//! # The block-boundary convention
+//! # Automatic template scopes
 //!
-//! Markdown is composed: a `Card` can contain another block component, and a
-//! `Dialog` can contain a `Table`. Block-level markdown (headings, tables,
-//! lists, blockquotes, fenced code) is only valid when it starts at the
-//! beginning of a line, and most renderers additionally require a blank line
-//! before it. A component cannot know what its previous sibling wrote, so every
-//! block-emitting `render_md` impl must:
+//! Prefer a physically multiline raw `md_sync!` template for block content.
+//! It establishes boundaries before rendering and after success, and restores
+//! the enclosing mode on errors and panic unwinding. Ordinary strings select
+//! inline mode while preserving explicit newlines, including list-row endings.
 //!
-//! 1. call [`block_boundary`] BEFORE emitting its first block byte, and
-//! 2. call [`block_boundary`] AFTER its last block byte,
-//!
-//! instead of assuming the cursor sits on a fresh line.
-//!
-//! The boundary implementation lives in `WebContext`, whose compact suffix
-//! state survives static/shared zero-copy writes and streaming flushes. These
-//! helpers remain as crate-local shims so component call sites share one
-//! convention without depending on buffer contiguity.
+//! These shims support existing imperative renderers. Their boundary tracking
+//! is independent of buffer contiguity and survives zero-copy writes and flushes.
+//! Do not use a boundary shim to choose a template's mode or restore formatting.
 
 use proa_core::WebContext;
 use proa_core::{WriteBuf, WriteError};
@@ -28,9 +20,9 @@ use proa_core::{WriteBuf, WriteError};
 /// Ensure the output sits at a block boundary (start of output or after a
 /// blank line), writing the missing newlines if not.
 ///
-/// No-op in inline context — inline consumers (table cells, link labels)
-/// must never receive embedded newlines, so block components degrade
-/// gracefully there.
+/// This low-level helper is a no-op in inline mode; it does not validate or
+/// flatten its caller's content. Block templates reject active inline scopes,
+/// including link labels and table cells. Supply an inline representation there.
 pub(crate) fn block_boundary<L: proa_core::DataLoader, B: WriteBuf>(
     cx: &mut WebContext<L, B>,
 ) -> Result<(), WriteError> {

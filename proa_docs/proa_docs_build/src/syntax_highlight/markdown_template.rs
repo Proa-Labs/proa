@@ -84,8 +84,9 @@ fn macro_literal(source: &str, after_identifier: usize) -> Option<(Range<usize>,
     };
     let after_literal = skip_rust_trivia(source, literal_end);
     if source.as_bytes().get(after_literal) != Some(&closing_delimiter) {
-        // Multiple tokens select the legacy token grammar. Braces inside one
-        // of its string literals are ordinary string bytes.
+        // Only a lone string literal is a template. Token composition is a
+        // compile error and named arguments are not projected, so braces
+        // inside a string followed by other tokens are ordinary string bytes.
         return None;
     }
     Some((cursor..literal_end, literal_end))

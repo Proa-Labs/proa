@@ -343,7 +343,7 @@ fn lint_allows_md_sync_in_markdown_renderers() {
     let source = r#"
 impl<B: WriteBuf> MdRenderSync<::proa_core::NoLoader, B> for Callout {
     fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
-        md_sync! { "> **Note:** " { self.children } }.render_md(cx)
+        md_sync! { "> **Note:** {self.children}" }.render_md(cx)
     }
 }
 "#;
@@ -1776,11 +1776,11 @@ impl MdRender for Page {
 }
 
 #[test]
-fn async_markdown_token_templates_recognize_opaque_children_inside_control_flow() {
+fn async_markdown_inline_templates_recognize_opaque_children_inside_control_flow() {
     let source = r####"
 impl MdRender for Page {
     fn render_md(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
-        md! { "# Status\n" {if self.ready { DatabaseBadge }} }.render_md(cx)
+        md! { "# Status\n{if self.ready { DatabaseBadge }}" }.render_md(cx)
     }
 }
 "####;

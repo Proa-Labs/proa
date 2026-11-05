@@ -281,12 +281,33 @@ pub fn xml_sync(input: TokenStream) -> TokenStream {
 /// - The raw string is trusted, compile-time Markdown
 /// - `{expr}` composes an async-capable `MdRender` child
 /// - Source newlines are rendered directly, without escaped `"\n"` separators
+/// - Line breaks directly after a slot at block position are boundaries:
+///   written after inline text, skipped after a child that already ended its
+///   line or paragraph, so a block child on its own line keeps one blank line
 /// - Common Rust indentation is stripped while relative Markdown indentation is
 ///   preserved
 /// - Braces in fenced code blocks and inline code spans stay literal
 /// - Outside code, `{{` and `}}` render literal braces
 /// - `{for ...}` and `{if ...}` provide template control flow
 /// - Wrap synchronous custom children with `proa_core::to_md_async(...)`
+///
+/// The body is one string literal, optionally followed by named arguments.
+/// Token composition such as `md! { "# " {title} }` is a compile error that
+/// points back to the string form; to render children in sequence without
+/// authoring Markdown, render each one, or use a tuple with `md_sync!`
+/// children: `(overview, impact).render_md(cx)`.
+///
+/// Every template renders in one of two modes, chosen by the literal's shape
+/// when the template renders:
+///
+/// | Mode | Literal | Around the body |
+/// |---|---|---|
+/// | Block | raw literal spanning source lines, any hash count | completes a paragraph boundary before and after, adding only missing line feeds; errors inside an inline scope |
+/// | Inline | ordinary string or one-line raw literal | writes bytes as authored, including `\n`; rejects block children |
+///
+/// Scopes restore the enclosing mode on error, unwinding, and cancellation and
+/// never roll back partial output. See the "Template modes" section of
+/// `docs/agent/document-rendering.md` for byte examples.
 ///
 /// ## Editor support
 ///
@@ -323,12 +344,7 @@ pub fn xml_sync(input: TokenStream) -> TokenStream {
 /// alone.
 ///
 /// Use three hashes by default. Increase the delimiter only if the Markdown
-/// contains the exact closing sequence `"###`. The expression-visible token
-/// form remains supported for generated templates and token-aware tooling:
-///
-/// ```rust,ignore
-/// md! { "# Hello " { title } }
-/// ```
+/// contains the exact closing sequence `"###`.
 #[cfg(feature = "markdown")]
 #[proc_macro]
 pub fn md(input: TokenStream) -> TokenStream {
@@ -341,6 +357,9 @@ pub fn md(input: TokenStream) -> TokenStream {
 /// [`md!`]. Its syntax is identical — including `format!`-style named
 /// arguments and the rust-analyzer placeholder support described there — but
 /// every interpolated `{expr}` must implement `MdRenderSync`.
+/// The same two template modes apply (block and inline; see [`md!`]),
+/// restoring the enclosing mode on success, errors, and panic unwinding without
+/// buffering or rolling back output.
 /// See [`md!`]'s editor-support documentation for the Proa extension and
 /// native IDE support through named arguments.
 ///
@@ -376,21 +395,12 @@ pub fn md_sync(input: TokenStream) -> TokenStream {
 
 #[cfg(feature = "markdown")]
 fn expand_md(input: TokenStream, mode: md::EmitMode) -> TokenStream {
-    // Preferred template mode: one multiline raw literal, optionally followed
-    // by `format!`-style `name = expr` arguments. Token mode's first token is
-    // also a literal, but it is never followed by a comma, so the parse
-    // failing is what routes it to the fallback below.
-    let input2 = proc_macro2::TokenStream::from(input.clone());
-    if let Ok(tpl) = syn::parse2::<md::MdTemplateInput>(input2) {
-        return match md::generate_template(&tpl, mode) {
-            Ok(tokens) => TokenStream::from(tokens),
-            Err(err) => TokenStream::from(err.to_compile_error()),
-        };
+    // One string literal, optionally followed by `format!`-style `name = expr`
+    // arguments. `md::expand` rejects every other body shape.
+    match md::expand(proc_macro2::TokenStream::from(input), mode) {
+        Ok(tokens) => TokenStream::from(tokens),
+        Err(err) => TokenStream::from(err.to_compile_error()),
     }
-
-    // Expression-visible token mode fallback.
-    let root = parse_macro_input!(input as md::MdRoot);
-    TokenStream::from(md::generate_tokens(&root, mode))
 }
 
 /// Embed a CSS file into the binary at compile time.

@@ -368,9 +368,22 @@ preserved. Braces inside fenced code blocks and inline code spans stay literal;
 outside code, double a literal brace as `{{` or `}}`. Increase the hash count
 only when the Markdown contains the exact closing sequence `"###`.
 
-The expression-visible token form remains supported for generated templates:
-`md_sync! { "# " { title } }`. In that form, a new top-level source line
-establishes a context-aware Markdown block boundary.
+The body is always one string literal. Token composition such as
+`md_sync! { "# " { title } }` is a compile error that points back to the string
+form. To render values in sequence without authoring Markdown, use a tuple:
+`(overview, impact).render_md(cx)`.
+
+Single-literal `md_sync!` and `md!` templates also scope their mode: a raw
+literal containing a physical source-line break is a block; ordinary strings
+and single-line raw literals are inline. Hash count does not select the mode.
+Blocks complete paragraph boundaries before their body and after success.
+Inline templates preserve explicit whitespace without adding boundaries.
+Scopes restore the immediately enclosing mode on errors, unwinding, and async
+cancellation, keeping partial output and boundary tracking. Blocks in inline
+scopes, link labels, headings, emphasis, and table cells are rejected rather
+than flattened. The macro body is one string literal; sequence children
+without authored Markdown through a tuple, which adds no boundaries. See
+[template modes](../document-rendering.md#template-modes).
 
 ### Convert existing HTML components to Markdown
 

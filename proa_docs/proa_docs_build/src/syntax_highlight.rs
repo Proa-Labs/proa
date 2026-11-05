@@ -542,7 +542,7 @@ mod tests {
                 "    ## Features\n",
                 "\n",
                 "    {for feature in features.iter() {\n",
-                "        md_sync! { \"- \" {feature} \"\\n\" }\n",
+                "        md_sync! { \"- {feature}\\n\" }\n",
                 "    }}\n",
                 "    {if in_stock { \"In stock\" } else { \"Backordered\" }}\n",
                 "    \"###\n",
@@ -589,9 +589,9 @@ mod tests {
     }
 
     #[test]
-    fn supports_raw_templates_without_reclassifying_legacy_token_literals() {
+    fn supports_raw_templates_without_reclassifying_strings_followed_by_tokens() {
         let raw = highlight_lines(
-            r##"let page = md_sync! {r#"{for item in items { md_sync! { "- " {item} } }}"#};
+            r##"let page = md_sync! {r#"{for item in items { md_sync! { "- {item}" } }}"#};
 "##,
             "rust",
         )
@@ -601,14 +601,16 @@ mod tests {
             .html
             .contains("<span class=\"hl-keyword\">for</span>"));
 
-        let legacy = highlight_lines(
+        // Token composition no longer compiles, but a highlighter must not
+        // turn the string into a template either.
+        let followed = highlight_lines(
             r#"let page = md_sync! { "{for fake in values {text}}" {actual} };
 "#,
             "rust",
         )
         .unwrap()
         .unwrap();
-        assert!(!legacy[0]
+        assert!(!followed[0]
             .html
             .contains("<span class=\"hl-keyword\">for</span>"));
     }

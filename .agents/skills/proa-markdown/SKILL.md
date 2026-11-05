@@ -52,6 +52,31 @@ template, so `{feature}` interpolates normally. Keep `\n` when the fragment
 must end a line; dropping it would join loop iterations. Do not turn a short
 fragment into a multiline raw template just to avoid that one escape.
 
+The macro body is one string literal. Every template renders in one of two
+modes, chosen by the literal's shape:
+
+- Block: a raw literal spanning source lines. Adds only the missing line feeds
+  so the body starts and ends on a paragraph boundary. Use for documents and
+  sections.
+- Inline: an ordinary string or a one-line raw literal. Writes bytes exactly as
+  authored, including `\n`, and rejects block children. Use for labels, bold or
+  link text, table cells, and list rows.
+
+Token composition such as `md_sync! { "- " {item} "\n" }` or
+`md_sync! { {overview}{impact} }` is a compile error. To render children in
+sequence without authoring Markdown, use a tuple or a loop of `.render_md(cx)?`
+calls: `(overview, impact).render_md(cx)`. Each child keeps its own mode, so
+byte-exact output such as robots.txt gains no boundaries.
+
+Hash count never selects the mode. Scopes restore the caller's mode on errors,
+unwinding, and async cancellation, preserving output and its suffix tracking.
+Use `.render_md(cx)?` directly instead of manual `md_set_inline` save/restore.
+Do not put a block template in an inline template, link text, heading,
+emphasis, strikethrough, or table cell: a directly nested `md_sync!` or `md!`
+block literal is a compile error, and typed children fail at render time before
+the block writes anything. Give those children an inline representation. See
+the "Template modes" section of the document-rendering guide for byte examples.
+
 Text outside `{ ... }` is Markdown; each slot is Rust at every nesting depth.
 Use ordinary Rust `if`, `for`, and `match` inside slots, and explicitly re-enter
 Markdown with a nested `md_sync!` (or `md!` when it awaits). Never treat bare
@@ -84,18 +109,18 @@ reduce escaping. Nested raw literals need fewer hashes than their parent
 (`r###"..."###` outside, `r#"..."#` inside, then `r"..."` if needed); no inner
 closing delimiter may close its parent. Each multiline fragment removes its own
 common source margin. Its trailing newline is output, so do not add another
-separator unnecessarily. A bare Rust string tail is escaped text, not Markdown
-markup.
+separator unnecessarily. A block child on its own line keeps exactly one blank
+line after it: the parent's line break after the slot is a boundary, not extra
+bytes. A bare Rust string tail is escaped text, not Markdown markup.
 
 `{expression}` renders a typed child. Outside code fences and inline code,
 `{{` and `}}` produce literal braces. Inside code, braces are already literal;
 interpolating runtime values into a fenced example needs an explicit typed
-child or token composition. Keep token composition for those cases, generated
-or token-aware tooling, and tests of that API; it remains supported. Explicit
-whitespace-only fragments such as `md_sync! { "\n" }` remain appropriate when
-exact separators are the contract, as in robots.txt. Nested `md!` and `html!`
-can borrow loop items and local strings across awaits through their shared typed
-async continuation. Use sync nested fragments when they have no async work.
+child. Explicit whitespace-only fragments such as `md_sync! { "\n" }` remain
+appropriate when exact separators are the contract, as in robots.txt. Nested
+`md!` and `html!` can borrow loop items and local strings across awaits through
+their shared typed async continuation. Use sync nested fragments when they have
+no async work.
 Raw literals do not disable interpolation: use `{{`/`}}` for literal braces,
 even around quoted text. A Rust string inside a slot stays literal text.
 Do not use `\{name}` to escape a slot: it emits a backslash followed by the
@@ -123,6 +148,24 @@ to temporary strings.
 For negotiated HTTP exports, serve `text/markdown; charset=utf-8` and
 `Vary: Accept`; provide a discoverable `.md` or `llms.txt` link. Cache the final
 owned document at the response boundary when its inputs are immutable.
+
+## Migrate manual formatting cleanup
+
+- Replace inline `md_set_inline` save/render/restore sequences with an ordinary
+  single-literal template, such as `md_sync! { "**{self.children}**" }.render_md(cx)?`.
+  Saving a `Result` only to restore inline mode is unnecessary; restoring after
+  `?` is incorrect, and manual cleanup does not cover panic unwinding.
+- A document wrapper must allow block children. Use a multiline raw template,
+  or render the sections in sequence with a tuple when exact existing
+  separators must stay byte-for-byte identical. `md_sync! { "{section}" }` is
+  an inline wrapper and rejects a block section, even when the section is a
+  typed component.
+- Never restore a whole `md_state()` snapshot solely to clean up formatting:
+  it also replaces output-suffix tracking, even though partial bytes remain.
+  Keep deliberate snapshot/low-level-setter tests and buffer-reset benchmarks.
+- Audit scaffold copies, source fixtures, and helper rustdoc alongside production
+  components. Test a failing or panicking child followed by fallback rendering;
+  verify both formatting restoration and the exact retained output.
 
 ## Verify behavior
 

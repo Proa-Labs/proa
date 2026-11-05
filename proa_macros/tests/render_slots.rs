@@ -47,7 +47,10 @@ fn sync_formats_stream_loop_bodies_and_render_break_values_once() {
     }
     let html = proa_core::render_to_string(fragment!(html_sync));
     let xml = proa_core::render_to_string(fragment!(xml_sync));
-    let markdown = proa_core::render_to_string(fragment!(md_sync));
+    // Markdown bodies are string templates; `{ { ... } }` is a block slot.
+    let markdown = proa_core::render_to_string(md_sync! {
+        r#"{ { let mut count = 0; 'rows: loop { if count == 2 { break 'rows "end&"; } count += 1; "row&" } } }"#
+    });
     assert_eq!(html, "row&amp;row&amp;end&amp;");
     assert_eq!(xml, html);
     assert_eq!(markdown, r"row\&row\&end\&");
@@ -75,7 +78,10 @@ async fn async_formats_await_loop_break_values() {
     }
     let html = proa_core::render_to_string_async(fragment!(html)).await;
     let xml = proa_core::render_to_string_async(fragment!(xml)).await;
-    let markdown = proa_core::render_md_to_string_async(fragment!(md)).await;
+    let markdown = proa_core::render_md_to_string_async(md! {
+        r#"{ { let mut count = 0; 'rows: loop { if count == 2 { break 'rows Delayed("end&"); } count += 1; Delayed("row&") } } }"#
+    })
+    .await;
     assert_eq!(html, "row&amp;row&amp;end&amp;");
     assert_eq!(xml, html);
     assert_eq!(markdown, r"row\&row\&end\&");
@@ -142,7 +148,14 @@ fn sync_formats_render_labeled_block_results_once() {
 
         assert_eq!(html, if early { "&lt;&amp;*" } else { "other&amp;*" });
         assert_eq!(xml, html);
-        assert_eq!(markdown, if early { r"\<\&\*" } else { r"other\&\*" });
+        assert_eq!(
+            markdown,
+            if early {
+                "\\<\\&\\*\n\n"
+            } else {
+                "other\\&\\*\n\n"
+            }
+        );
     }
 }
 
@@ -173,7 +186,14 @@ async fn async_formats_render_labeled_block_results_once() {
 
         assert_eq!(html, if early { "&lt;&amp;*" } else { "other&amp;*" });
         assert_eq!(xml, html);
-        assert_eq!(markdown, if early { r"\<\&\*" } else { r"other\&\*" });
+        assert_eq!(
+            markdown,
+            if early {
+                "\\<\\&\\*\n\n"
+            } else {
+                "other\\&\\*\n\n"
+            }
+        );
     }
 }
 
@@ -218,7 +238,7 @@ async fn nested_async_formats_borrow_loop_locals() {
     }}"### })
     .await;
     assert_eq!(html_output, "<p>aa</p><p>bb</p>");
-    assert_eq!(md_output, "aa\nbb\n");
+    assert_eq!(md_output, "aa\nbb\n\n");
 }
 
 #[tokio::test]
@@ -260,7 +280,7 @@ fn sync_formats_share_block_attribute_and_jump_lowering() {
     }}"### },
     );
     assert_eq!(html_output, "123");
-    assert_eq!(md_output, html_output);
+    assert_eq!(md_output, "123\n\n");
 }
 
 #[tokio::test]
@@ -290,7 +310,7 @@ async fn async_formats_share_block_attribute_and_jump_lowering() {
     )
     .await;
     assert_eq!(html_output, "123");
-    assert_eq!(md_output, html_output);
+    assert_eq!(md_output, "123\n\n");
 }
 
 #[tokio::test]
@@ -343,34 +363,61 @@ async fn typed_async_formats_keep_borrowed_writer_support() {
 
 #[test]
 #[deny(dependency_on_unit_never_type_fallback)]
-#[allow(unreachable_code)]
+#[allow(unreachable_code, clippy::never_loop)]
 fn diverging_loops_do_not_require_a_renderable_never_type() {
     use proa_core::WebRenderSync;
     fn fail() -> Result<(), WriteError> {
         Err(WriteError::OutOfCapacity)
     }
+    // Each dialect receives its own body shape: a brace slot for markup, a
+    // string template for Markdown.
     macro_rules! check {
-        ($template:ident) => {{
+        ($template:ident, $diverging:tt, $returning:tt) => {{
             let mut cx = WebContext::<proa_core::NoLoader>::new();
-            let result = WebRenderSync::render(
-                $template! { {loop {
-                    loop { break; }
-                    fail()?;
-                }} },
-                &mut cx,
-            );
+            let result = WebRenderSync::render($template! { $diverging }, &mut cx);
             assert_eq!(result, Err(WriteError::OutOfCapacity));
             let mut cx = WebContext::<proa_core::NoLoader>::new();
-            let result = WebRenderSync::render(
-                $template! { {loop { return Err(WriteError::OutOfCapacity); }} },
-                &mut cx,
-            );
+            let result = WebRenderSync::render($template! { $returning }, &mut cx);
             assert_eq!(result, Err(WriteError::OutOfCapacity));
         }};
     }
-    check!(html_sync);
-    check!(xml_sync);
-    check!(md_sync);
+    check!(
+        html_sync,
+        {
+            loop {
+                loop {
+                    break;
+                }
+                fail()?;
+            }
+        },
+        {
+            loop {
+                return Err(WriteError::OutOfCapacity);
+            }
+        }
+    );
+    check!(
+        xml_sync,
+        {
+            loop {
+                loop {
+                    break;
+                }
+                fail()?;
+            }
+        },
+        {
+            loop {
+                return Err(WriteError::OutOfCapacity);
+            }
+        }
+    );
+    check!(
+        md_sync,
+        r#"{loop { loop { break; } fail()?; }}"#,
+        r#"{loop { return Err(WriteError::OutOfCapacity); }}"#
+    );
 }
 
 #[tokio::test]
@@ -386,6 +433,13 @@ async fn diverging_loops_stream_nested_templates_before_propagating_errors() {
         Ok(())
     }
     macro_rules! fragment {
+        // Markdown bodies are string templates; `{ { ... } }` is a block slot.
+        (md_sync, md_sync) => {
+            md_sync! { r#"{ { let mut count = 0; loop { next_row(&mut count)?; ::proa_macros::md_sync! { "row" } } } }"# }
+        };
+        (md, md) => {
+            md! { r#"{ { let mut count = 0; loop { next_row(&mut count)?; ::proa_macros::md! { "row" } } } }"# }
+        };
         ($template:ident, $child:ident) => {
             $template! { {{
                 let mut count = 0;
@@ -445,6 +499,18 @@ async fn loop_exit_values_respect_iterator_scope_and_macro_expansion() {
             }
         };
     }
+    // Markdown templates are string literals; the block form puts each loop
+    // on its own line.
+    macro_rules! md_fragment {
+        ($template:ident) => {
+            $template! { r#"
+                {loop {
+                    for _ in { break "iterator&"; [0] } {}
+                }}
+                {loop { leave!(); }}
+            "# }
+        };
+    }
     let expected = "iterator&amp;macro&amp;";
     assert_eq!(proa_core::render_to_string(fragment!(html_sync)), expected);
     assert_eq!(proa_core::render_to_string(fragment!(xml_sync)), expected);
@@ -456,10 +522,10 @@ async fn loop_exit_values_respect_iterator_scope_and_macro_expansion() {
         proa_core::render_to_string_async(fragment!(xml)).await,
         expected
     );
-    let expected = "iterator\\&\n\nmacro\\&";
-    assert_eq!(proa_core::render_to_string(fragment!(md_sync)), expected);
+    let expected = "iterator\\&\nmacro\\&\n\n";
+    assert_eq!(proa_core::render_to_string(md_fragment!(md_sync)), expected);
     assert_eq!(
-        proa_core::render_md_to_string_async(fragment!(md)).await,
+        proa_core::render_md_to_string_async(md_fragment!(md)).await,
         expected
     );
 }
@@ -467,7 +533,7 @@ async fn loop_exit_values_respect_iterator_scope_and_macro_expansion() {
 #[tokio::test]
 async fn user_macros_with_render_macro_names_keep_loop_break_values() {
     macro_rules! check {
-        ($name:ident) => {{
+        ($name:ident, $slot:literal) => {{
             macro_rules! $name {
                 () => {
                     break "done&"
@@ -494,20 +560,19 @@ async fn user_macros_with_render_macro_names_keep_loop_break_values() {
             );
             let expected = r"done\&";
             assert_eq!(
-                proa_core::render_to_string(::proa_macros::md_sync! { {loop { $name!(); }} }),
+                proa_core::render_to_string(::proa_macros::md_sync! { $slot }),
                 expected
             );
             assert_eq!(
-                proa_core::render_md_to_string_async(::proa_macros::md! { {loop { $name!(); }} })
-                    .await,
+                proa_core::render_md_to_string_async(::proa_macros::md! { $slot }).await,
                 expected
             );
         }};
     }
-    check!(md);
-    check!(md_sync);
-    check!(html);
-    check!(html_sync);
-    check!(xml);
-    check!(xml_sync);
+    check!(md, "{loop { md!(); }}");
+    check!(md_sync, "{loop { md_sync!(); }}");
+    check!(html, "{loop { html!(); }}");
+    check!(html_sync, "{loop { html_sync!(); }}");
+    check!(xml, "{loop { xml!(); }}");
+    check!(xml_sync, "{loop { xml_sync!(); }}");
 }

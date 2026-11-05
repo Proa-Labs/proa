@@ -4,7 +4,7 @@
 use super::discover::Resolver;
 use super::*;
 use proa_dsl::content::{ContentPart, OmitContent, OmitSelector};
-use proa_dsl::md::{ExprLocation, MdNodeKind, MdRoot, MdTemplateInput, TemplateExpr, TplNode};
+use proa_dsl::md::{parse_template_input, ExprLocation, TemplateExpr, TplNode};
 use proa_dsl::parse::{Attribute, HtmlRoot, Node};
 use quote::ToTokens;
 use syn::{spanned::Spanned, Expr, ImplItemFn, ItemImpl, Pat, Stmt};
@@ -689,10 +689,7 @@ impl Analyzer<'_> {
                 if self.metadata_receiver(expr, env)
                     || (self.proa_context
                         && self.output_arg(&m.receiver, env)
-                        && matches!(
-                            m.method.to_string().as_str(),
-                            "md_set_inline" | "md_push_heading_offset" | "md_pop_heading_offset"
-                        ))
+                        && m.method == "md_set_inline")
                 {
                     let mut value = self.boundary(
                         expr,
@@ -1104,46 +1101,28 @@ impl Analyzer<'_> {
                 ),
             },
             TemplateSyntax::Markdown => {
-                if let Ok(input) = syn::parse2::<MdTemplateInput>(expr.mac.tokens.clone()) {
-                    match input.parse_nodes() {
-                        Ok(nodes) => {
-                            let mut env = env.clone();
-                            if let Some(binding) = input.argument_binding() {
-                                self.local(&binding, &mut env, override_range);
-                            }
-                            self.md(&nodes, &env, &self.range(input.lit.span(), override_range))
+                let name = expr
+                    .mac
+                    .path
+                    .segments
+                    .last()
+                    .map(|segment| segment.ident.to_string())
+                    .unwrap_or_default();
+                let parsed = parse_template_input(&name, expr.mac.tokens.clone())
+                    .and_then(|input| input.parse_nodes().map(|nodes| (input, nodes)));
+                match parsed {
+                    Ok((input, nodes)) => {
+                        let mut env = env.clone();
+                        if let Some(binding) = input.argument_binding() {
+                            self.local(&binding, &mut env, override_range);
                         }
-                        Err(err) => self.boundary(
-                            &Expr::Macro(expr.clone()),
-                            format!("Markdown template could not be analyzed: {err}"),
-                            override_range,
-                        ),
+                        self.md(&nodes, &env, &self.range(input.lit.span(), override_range))
                     }
-                } else {
-                    match syn::parse2::<MdRoot>(expr.mac.tokens.clone()) {
-                        Ok(root) => {
-                            let mut v = Value::default();
-                            for node in &root.nodes {
-                                match &node.kind {
-                                    MdNodeKind::Block(e) => {
-                                        v.append(self.expr(e, env, override_range))
-                                    }
-                                    MdNodeKind::Text { value, .. } => {
-                                        v.append(self.markdown_text(
-                                            &value.value(),
-                                            self.range(value.span(), override_range),
-                                        ));
-                                    }
-                                }
-                            }
-                            v
-                        }
-                        Err(err) => self.boundary(
-                            &Expr::Macro(expr.clone()),
-                            format!("Markdown template could not be analyzed: {err}"),
-                            override_range,
-                        ),
-                    }
+                    Err(err) => self.boundary(
+                        &Expr::Macro(expr.clone()),
+                        format!("Markdown template could not be analyzed: {err}"),
+                        override_range,
+                    ),
                 }
             }
         };
@@ -1418,9 +1397,15 @@ impl Analyzer<'_> {
         }
     }
     fn output_arg(&self, expr: &Expr, env: &Env) -> bool {
-        bare(expr).is_some_and(|name| {
-            env.get(&name).and_then(|v| v.symbol.as_deref()) == Some("@context")
-        })
+        match expr {
+            Expr::Paren(p) => self.output_arg(&p.expr, env),
+            Expr::Group(g) => self.output_arg(&g.expr, env),
+            Expr::Reference(r) => self.output_arg(&r.expr, env),
+            Expr::Unary(u) if matches!(u.op, syn::UnOp::Deref(_)) => self.output_arg(&u.expr, env),
+            _ => bare(expr).is_some_and(|name| {
+                env.get(&name).and_then(|v| v.symbol.as_deref()) == Some("@context")
+            }),
+        }
     }
     fn callback_arg(&self, expr: &Expr, env: &Env) -> bool {
         match expr {
@@ -1526,8 +1511,6 @@ impl Analyzer<'_> {
                     | "load_typed"
                     | "load_typed_request"
                     | "md_set_inline"
-                    | "md_push_heading_offset"
-                    | "md_pop_heading_offset"
                     | "md_blank_line"
                     | "md_block_boundary"
                     | "md_line_boundary"

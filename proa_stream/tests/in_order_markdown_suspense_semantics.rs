@@ -88,7 +88,7 @@ fn snapshot<B: WriteBuf>(
 
 fn state_after_shell() -> MdState {
     let mut cx = WebContext::new();
-    cx.md_push_heading_offset(1);
+    cx.md_push_list_depth();
     cx.write_md_prepared_static(b"shell\n")
         .expect("state fixture should render");
     cx.md_state()
@@ -102,7 +102,7 @@ where
     let mut cx = WebContext::new()
         .with_render_mode(RenderMode::ChunkedInOrder)
         .with_stream_chunk_flusher(flusher);
-    cx.md_push_heading_offset(1);
+    cx.md_push_list_depth();
     let result = match render_md_in_context_async(&mut cx, root).await {
         Ok(()) => cx.flush_stream_chunk(),
         Err(error) => Err(error),
@@ -118,7 +118,6 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for Succe
         cx: &mut WebContext<Loader, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.md_push_heading_offset(1);
             cx.md_heading(1, "child")?;
             tokio::task::yield_now().await;
             cx.write_md_prepared_static(b"body\n")
@@ -152,7 +151,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for Inner
         RenderOutcome::pending(async move {
             cx.write_md_prepared_static(b"inner\n")?;
             tokio::task::yield_now().await;
-            cx.md_push_heading_offset(2);
+            cx.md_push_list_depth();
             Ok(())
         })
     }
@@ -169,7 +168,7 @@ impl<Loader: ::proa_core::DataLoader> MdRender<Loader, RenderBuffer> for NestedT
             cx.write_md_prepared_static(b"outer\n")?;
             proa_core::render_md_child(cx, Suspense::new(InnerChild, ())).await?;
             cx.write_md_prepared_static(b"discarded\n")?;
-            cx.md_push_heading_offset(3);
+            cx.md_push_list_depth();
             Err(WriteError::render("outer failed"))
         })
     }
@@ -197,7 +196,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for Faili
         cx: &mut WebContext<Loader, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.md_push_heading_offset(4);
+            cx.md_push_list_depth();
             cx.write_md_prepared_static(b"partial\n")?;
             tokio::task::yield_now().await;
             Err(WriteError::render("child failed"))
@@ -229,7 +228,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for Pendi
         cx: &mut WebContext<Loader, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.md_push_heading_offset(5);
+            cx.md_push_list_depth();
             cx.write_md_prepared_static(b"cancelled\n")?;
             self.started.set(true);
             pending::<()>().await;
@@ -271,7 +270,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for Panic
         cx: &mut WebContext<Loader, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.md_push_heading_offset(5);
+            cx.md_push_list_depth();
             cx.write_md_prepared_static(b"panicking\n")?;
             tokio::task::yield_now().await;
             panic!("injected markdown panic")
@@ -299,7 +298,7 @@ async fn cancel_suspense(sink: Rc<CollectingSink>) -> Snapshot {
     let mut cx = WebContext::new()
         .with_render_mode(RenderMode::ChunkedInOrder)
         .with_stream_chunk_flusher(flusher);
-    cx.md_push_heading_offset(1);
+    cx.md_push_list_depth();
     let mut future = Box::pin(render_md_in_context_async(
         &mut cx,
         PendingRoot {
@@ -317,7 +316,7 @@ async fn unwind_suspense(sink: Rc<CollectingSink>) -> Snapshot {
     let mut cx = WebContext::new()
         .with_render_mode(RenderMode::ChunkedInOrder)
         .with_stream_chunk_flusher(flusher);
-    cx.md_push_heading_offset(1);
+    cx.md_push_list_depth();
     let panic = AssertUnwindSafe(render_md_in_context_async(&mut cx, PanickingRoot))
         .catch_unwind()
         .await;
@@ -345,7 +344,7 @@ async fn success_flushes_each_boundary_segment() {
         snapshot.chunks,
         [
             b"before\n".to_vec(),
-            b"### child\n\nbody\n".to_vec(),
+            b"# child\n\nbody\n".to_vec(),
             b"\nafter\n".to_vec(),
         ]
     );
