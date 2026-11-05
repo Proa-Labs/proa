@@ -448,7 +448,7 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         assert!(html.contains(question["name"].as_str().unwrap()));
         assert!(markdown_text.contains(question["acceptedAnswer"]["text"].as_str().unwrap()));
     }
-    for path in ["/about", "/team", "/contact", "/docs/api", "/llms.txt"] {
+    for path in ["/team", "/contact", "/docs/api", "/llms.txt"] {
         assert!(footer.contains(&format!("href=\"{path}\"")));
         assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
     }
@@ -583,46 +583,41 @@ async fn section_indexes_only_link_their_public_documentation() {
 }
 
 #[tokio::test]
-async fn info_pages_share_html_and_markdown_routes() {
+async fn contact_page_shares_html_and_markdown_routes() {
     let app = super::app();
-    for (path, markdown_path) in [("/about", "/about.md"), ("/contact", "/contact.md")] {
-        let (status, headers, html) = fetch(&app, path, "text/html").await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(headers[header::CONTENT_TYPE]
-            .to_str()
-            .unwrap()
-            .starts_with("text/html"));
-        assert_eq!(headers[header::VARY], "Accept");
-        assert!(html.contains("data-info-page"));
+    let (path, markdown_path) = ("/contact", "/contact.md");
+    let (status, headers, html) = fetch(&app, path, "text/html").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers[header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .starts_with("text/html"));
+    assert_eq!(headers[header::VARY], "Accept");
+    assert!(html.contains("data-info-page"));
 
-        let (status, headers, markdown) = fetch(&app, path, "text/markdown").await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            headers[header::CONTENT_TYPE],
-            "text/markdown; charset=utf-8"
-        );
-        assert_eq!(headers[header::VARY], "Accept");
-        assert!(markdown.starts_with("# "));
-        assert!(!markdown.contains("<html"));
-        assert_eq!(markdown, fetch(&app, markdown_path, "*/*").await.2);
-        assert_eq!(
-            html,
-            fetch(&app, path, "text/markdown;q=0, text/html").await.2
-        );
-        let links: &[&str] = if path == "/about" {
-            &[site::GITHUB_URL]
-        } else {
-            &[
-                site::ISSUES_URL,
-                site::DISCORD_URL,
-                site::PRIVACY_MAILTO,
-                site::LEGAL_MAILTO,
-            ]
-        };
-        for href in links {
-            assert!(html.contains(&format!("href=\"{href}\"")));
-            assert!(markdown.contains(&format!("]({href})")));
-        }
+    let (status, headers, markdown) = fetch(&app, path, "text/markdown").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers[header::CONTENT_TYPE],
+        "text/markdown; charset=utf-8"
+    );
+    assert_eq!(headers[header::VARY], "Accept");
+    assert!(markdown.starts_with("# "));
+    assert!(!markdown.contains("<html"));
+    assert_eq!(markdown, fetch(&app, markdown_path, "*/*").await.2);
+    assert_eq!(
+        html,
+        fetch(&app, path, "text/markdown;q=0, text/html").await.2
+    );
+    let links = &[
+        site::ISSUES_URL,
+        site::DISCORD_URL,
+        site::PRIVACY_MAILTO,
+        site::LEGAL_MAILTO,
+    ];
+    for href in links {
+        assert!(html.contains(&format!("href=\"{href}\"")));
+        assert!(markdown.contains(&format!("]({href})")));
     }
 }
 

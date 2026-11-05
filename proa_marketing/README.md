@@ -10,7 +10,7 @@ between them. The homepage composes explicit Markdown sections for the hero,
 render examples, showcase comparison, benchmark charts, UI catalog, capabilities,
 and quickstart. Markdown exposes all benchmark cases together and omits visual
 demo fixtures and controls. Only the existing HTML-only highlighted code
-fragments use the native converter. About/Contact pages also share their data;
+fragments use the native converter. Team and Contact pages also share their data;
 authentication and the documentation index live in the docs module.
 OpenAPI and MCP input schemas
 use `const_json!` literals, while runtime discovery URLs use typed serializers.

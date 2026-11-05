@@ -12,28 +12,6 @@ use proa_macros::{content_part, html_sync, md_sync};
 
 use crate::layout::{render_page, PageMeta};
 
-fn about_content() -> (PageMeta, InfoPage) {
-    (PageMeta {
-        title: "About Proa: Rust web framework",
-        description: "What Proa builds, who it is for, and where to find its source, documentation, and community.",
-        path: routes::ABOUT,
-    }, InfoPage {
-        title: "About Proa",
-        paragraphs: &[
-            const_format::concatcp!("Proa is a Rust web framework. ", site::ORGANIZATION, " is a maintainer of the project. Proa is built for developers creating server-rendered websites, documentation, and interactive applications. It compiles Rust-authored templates into optimized output and supports composable HTML and Markdown rendering."),
-            "The framework combines typed components, request-scoped data loading, streaming server rendering, routing, and response metadata. RSJS islands let developers author browser state and event handlers in Rust, with the build producing the JavaScript used for interactivity. Applications can adopt Proa one route at a time alongside an existing stack.",
-            "This website publishes the framework documentation, installation instructions, examples, and a playground. Its public search API and MCP server help coding agents find and read the same documentation available to people. These tools are read-only and do not require an account.",
-            const_format::concatcp!(site::ORGANIZATION_NAME, " operates from the United States. Source code, release downloads, contribution information, and licensing terms are maintained in the official Proa repository. Check the repository's licensing documents for the terms that apply to a particular package or release."),
-        ],
-        links: &[
-            (routes::DOCS, "Read the Proa quickstart"),
-            (site::GITHUB_URL, "Official Proa source repository"),
-            (routes::API_GUIDE, "API and MCP documentation"),
-            (routes::CONTACT, "Contact and community"),
-        ],
-    })
-}
-
 fn contact_content() -> (PageMeta, InfoPage) {
     (PageMeta {
         title: "Contact Proa: Support, community, and licensing",
@@ -121,19 +99,9 @@ fn page_response(meta: PageMeta, page: InfoPage, markdown: bool) -> Response {
     response
 }
 
-pub async fn about(headers: HeaderMap) -> Response {
-    let (meta, page) = about_content();
-    page_response(meta, page, crate::utils::http::accepts_markdown(&headers))
-}
-
 pub async fn contact(headers: HeaderMap) -> Response {
     let (meta, page) = contact_content();
     page_response(meta, page, crate::utils::http::accepts_markdown(&headers))
-}
-
-pub async fn about_markdown() -> Response {
-    let (meta, page) = about_content();
-    page_response(meta, page, true)
 }
 
 pub async fn contact_markdown() -> Response {
