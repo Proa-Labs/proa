@@ -294,24 +294,36 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         fetch(&app, "/.well-known/llms.txt", "*/*").await.2
     );
     assert_eq!(markdown, fetch(&app, "/?mode=agent", "text/html").await.2);
-    // Every homepage alias retains the tool entry points from the footer;
-    // they must not return to the main landing-page content.
+    // The homepage aliases share the compact footer's public entry points.
     let (before_footer, footer) = html.split_once("<footer").unwrap();
     assert!(!before_footer.contains("data-footer-links"));
-    assert_eq!(footer.matches("data-footer-links").count(), 3);
+    assert!(!before_footer.contains("href=\"/team\""));
+    assert_eq!(footer.matches("data-footer-links").count(), 2);
+    for path in [
+        "/docs",
+        "/docs/api",
+        "/sitemap.xml",
+        "/llms.txt",
+        "/privacy",
+    ] {
+        assert!(markdown.contains(&format!("]({path})")), "{path}");
+        assert!(footer.contains(&format!("href=\"{path}\"")), "{path}");
+        assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
+    }
+    // Detailed tooling stays discoverable through the linked API guide.
+    let guide = fetch(&app, "/docs/api", "text/html").await.2;
     for path in [
         "/docs/llms.txt",
         "/docs/framework/llms.txt",
         "/docs/rsjs/llms.txt",
         "/ecosystem/llms.txt",
-        "/docs/api",
         "/openapi.json",
         "/mcp/server-card",
         "/auth.md",
         "/.well-known/agent-skills/index.json",
     ] {
-        assert!(markdown.contains(&format!("]({path})")), "{path}");
-        assert!(footer.contains(&format!("href=\"{path}\"")), "{path}");
+        assert!(!footer.contains(&format!("href=\"{path}\"")), "{path}");
+        assert!(guide.contains(&format!("href=\"{path}\"")), "{path}");
         assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
     }
     // Crawlers may inspect only the first few distinct documentation links.
@@ -329,16 +341,16 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         first_docs.contains(&crate::data::routes::API_GUIDE),
         "{first_docs:?}"
     );
+    assert!(footer.contains(&format!("href=\"{}\"", site::LINKEDIN_URL)));
     for url in [
-        site::LINKEDIN_URL,
-        site::PYTHON_SDK_URL,
-        site::TYPESCRIPT_SDK_URL,
-        site::GO_SDK_URL,
-        site::MCP_REGISTRY_URL,
-        site::MCP_GLAMA_URL,
+        "https://pypi.org/project/proa-docs/",
+        "https://www.npmjs.com/package/@proa-labs/docs",
+        "https://pkg.go.dev/github.com/Proa-Labs/proa/sdk/go",
+        "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs",
+        "https://glama.ai/mcp/connectors/so.proa/proa-documentation",
     ] {
-        assert!(footer.contains(&format!("href=\"{url}\"")));
-        assert!(markdown.contains(&format!("]({url})")));
+        assert!(!footer.contains(&format!("href=\"{url}\"")));
+        assert!(guide.contains(&format!("href=\"{url}\"")));
     }
     assert_eq!(
         html,
@@ -436,8 +448,8 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         assert!(html.contains(question["name"].as_str().unwrap()));
         assert!(markdown_text.contains(question["acceptedAnswer"]["text"].as_str().unwrap()));
     }
-    for path in ["/about", "/contact", "/docs/api", "/llms.txt"] {
-        assert!(html.contains(&format!("href=\"{path}\"")));
+    for path in ["/team", "/contact", "/docs/api", "/llms.txt"] {
+        assert!(footer.contains(&format!("href=\"{path}\"")));
         assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
     }
 }
@@ -571,46 +583,41 @@ async fn section_indexes_only_link_their_public_documentation() {
 }
 
 #[tokio::test]
-async fn info_pages_share_html_and_markdown_routes() {
+async fn contact_page_shares_html_and_markdown_routes() {
     let app = super::app();
-    for (path, markdown_path) in [("/about", "/about.md"), ("/contact", "/contact.md")] {
-        let (status, headers, html) = fetch(&app, path, "text/html").await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(headers[header::CONTENT_TYPE]
-            .to_str()
-            .unwrap()
-            .starts_with("text/html"));
-        assert_eq!(headers[header::VARY], "Accept");
-        assert!(html.contains("data-info-page"));
+    let (path, markdown_path) = ("/contact", "/contact.md");
+    let (status, headers, html) = fetch(&app, path, "text/html").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers[header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .starts_with("text/html"));
+    assert_eq!(headers[header::VARY], "Accept");
+    assert!(html.contains("data-info-page"));
 
-        let (status, headers, markdown) = fetch(&app, path, "text/markdown").await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            headers[header::CONTENT_TYPE],
-            "text/markdown; charset=utf-8"
-        );
-        assert_eq!(headers[header::VARY], "Accept");
-        assert!(markdown.starts_with("# "));
-        assert!(!markdown.contains("<html"));
-        assert_eq!(markdown, fetch(&app, markdown_path, "*/*").await.2);
-        assert_eq!(
-            html,
-            fetch(&app, path, "text/markdown;q=0, text/html").await.2
-        );
-        let links: &[&str] = if path == "/about" {
-            &[site::GITHUB_URL]
-        } else {
-            &[
-                site::ISSUES_URL,
-                site::DISCORD_URL,
-                site::PRIVACY_MAILTO,
-                site::LEGAL_MAILTO,
-            ]
-        };
-        for href in links {
-            assert!(html.contains(&format!("href=\"{href}\"")));
-            assert!(markdown.contains(&format!("]({href})")));
-        }
+    let (status, headers, markdown) = fetch(&app, path, "text/markdown").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers[header::CONTENT_TYPE],
+        "text/markdown; charset=utf-8"
+    );
+    assert_eq!(headers[header::VARY], "Accept");
+    assert!(markdown.starts_with("# "));
+    assert!(!markdown.contains("<html"));
+    assert_eq!(markdown, fetch(&app, markdown_path, "*/*").await.2);
+    assert_eq!(
+        html,
+        fetch(&app, path, "text/markdown;q=0, text/html").await.2
+    );
+    let links = &[
+        site::ISSUES_URL,
+        site::DISCORD_URL,
+        site::PRIVACY_MAILTO,
+        site::LEGAL_MAILTO,
+    ];
+    for href in links {
+        assert!(html.contains(&format!("href=\"{href}\"")));
+        assert!(markdown.contains(&format!("]({href})")));
     }
 }
 

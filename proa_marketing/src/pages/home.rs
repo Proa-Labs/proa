@@ -19,7 +19,7 @@ use rsjs::signal;
 use rsjs_macros::rsjs;
 
 use crate::{
-    components::landing_shell::{DOCUMENTATION_LINKS, EXPLORE_LINKS},
+    components::landing_shell::{EXPLORE_LINKS, RESOURCE_LINKS},
     layout::{render_page, PageMeta},
     utils::document::Url,
 };
@@ -60,19 +60,15 @@ pub async fn handler(headers: HeaderMap, Query(query): Query<HomeQuery>) -> Resp
 
 pub(crate) struct HomePage;
 
-/// Both Markdown aliases and content negotiation export the same page renderer.
-/// The immutable response is cached at this page's HTTP boundary.
-pub(crate) fn markdown() -> &'static str {
-    static MARKDOWN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    MARKDOWN.get_or_init(|| {
-        crate::utils::document::render_markdown(md_sync! { r###"
-            {HomePage}
+/// Both Markdown aliases and content negotiation render the same page fresh.
+pub(crate) fn markdown() -> String {
+    crate::utils::document::render_markdown(md_sync! { r###"
+        {HomePage}
 
-            {EXPLORE_LINKS}
+        {EXPLORE_LINKS}
 
-            {DOCUMENTATION_LINKS}
-            "###
-        })
+        {RESOURCE_LINKS}
+        "###
     })
 }
 

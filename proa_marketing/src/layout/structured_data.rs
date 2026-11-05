@@ -7,30 +7,21 @@ use crate::data::{routes, site};
 
 use crate::utils::{document::SiteUrl, site_url::public_site_url};
 use serde::Serialize;
-use std::{collections::HashMap, sync::OnceLock};
 
-pub(super) fn document() -> &'static str {
-    static DOCUMENT: OnceLock<String> = OnceLock::new();
-    DOCUMENT.get_or_init(|| serialize(public_site_url()))
+pub(super) fn document() -> String {
+    serialize(public_site_url())
 }
 
-/// Immutable documentation metadata is serialized once, outside rendering.
-pub(super) fn for_documentation(path: &str) -> Option<&'static str> {
+/// Serialize metadata for the requested public documentation page.
+pub(super) fn for_documentation(path: &str) -> Option<String> {
     if path != routes::DOCS && !path.starts_with("/docs/") {
         return None;
     }
-    static DOCUMENTS: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
-    DOCUMENTS
-        .get_or_init(|| {
-            crate::pages::docs::docs()
-                .pages
-                .iter()
-                .filter(|page| !page.frontmatter.hidden)
-                .map(|page| (page.route_path, documentation(public_site_url(), page)))
-                .collect()
-        })
-        .get(path)
-        .map(String::as_str)
+    crate::pages::docs::docs()
+        .pages
+        .iter()
+        .find(|page| !page.frontmatter.hidden && page.route_path == path)
+        .map(|page| documentation(public_site_url(), page))
 }
 
 #[derive(Serialize)]
@@ -312,7 +303,7 @@ fn serialize(origin: &str) -> String {
                 id: url(ORGANIZATION_ID),
                 name: site::ORGANIZATION,
                 url: url(routes::HOME),
-                description: "Publisher of Proa, a Rust web framework for composable, multi-target rendering.",
+                description: "A maintainer of Proa, a Rust web framework for composable, multi-target rendering.",
                 logo: url("/static/apple-touch-icon.png"),
                 same_as: [site::GITHUB_ORGANIZATION_URL, site::YOUTUBE_URL, site::LINKEDIN_URL],
                 address: Address { kind: "PostalAddress", address_country: "US" },

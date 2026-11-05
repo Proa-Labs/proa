@@ -301,10 +301,17 @@ fn main() {
         assert_eq!(fs::read_to_string(&browser_log).unwrap(), expected);
         assert!(TcpStream::connect(("127.0.0.1", port)).is_ok());
         drop(dev);
-        assert!(
-            TcpStream::connect(("127.0.0.1", port)).is_err(),
-            "server outlived CLI"
-        );
+        // The CLI forwards SIGTERM and exits; its server may receive that
+        // signal only after wait() has observed the CLI's exit.
+        let shutdown_deadline = Instant::now() + Duration::from_secs(5);
+        while TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            assert!(
+                Instant::now() < shutdown_deadline,
+                "server outlived CLI (once={once}):\n{}",
+                fs::read_to_string(&log_path).unwrap()
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fs::remove_file(&browser_log).unwrap();
