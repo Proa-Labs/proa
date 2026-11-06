@@ -129,7 +129,15 @@ pub(super) fn fetch_request_struct_expr(
                     "`rsjs::FetchRequest.url` must be a string literal",
                 )?);
             }
-            "apply_base_path" => descriptor.apply_base_path = parse_bool_literal(&field.expr)?,
+            "apply_base_path" => {
+                descriptor.apply_base_path = parse_bool_literal(&field.expr).map_err(|_| {
+                    syn::Error::new(
+                        field.expr.span(),
+                        "`rsjs::FetchRequest.apply_base_path` must be a boolean literal \
+                         (`true` or `false`)",
+                    )
+                })?;
+            }
             "method" => {
                 descriptor.method = parse_optional_enum_variant(
                     &field.expr,
@@ -763,6 +771,19 @@ mod request_base_path_tests {
             }
         });
         assert!(opted_out.get("apply_base_path").is_none());
+
+        let dynamic: Expr = syn::parse_quote! {
+            rsjs::FetchRequest {
+                url: "/api/items",
+                apply_base_path: flag,
+                ..Default::default()
+            }
+        };
+        let message =
+            request_config_expr(&dynamic, &syn::parse_quote!(cx), "GET", "invalid request")
+                .unwrap_err()
+                .to_string();
+        assert!(message.contains("apply_base_path"), "{message}");
     }
 
     #[test]

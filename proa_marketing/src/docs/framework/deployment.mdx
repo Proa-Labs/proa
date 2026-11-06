@@ -168,7 +168,8 @@ request against the URL of its JavaScript module.
 
 ### Coverage and limitations
 
-The same setting covers framework assets, fonts, query/mutation requests, docs
+The same setting covers framework assets, fonts, opted-in query/mutation
+requests (`cx.url(...)` or `FetchRequest.apply_base_path: true`), docs
 navigation and article URL attributes, docs search artifacts, and the ORIGIN
 starter. `proa dev` uses a prefixed same-origin event stream when
 `PROA_BASE_PATH` is set, so the proxy only needs to expose the app's mount.

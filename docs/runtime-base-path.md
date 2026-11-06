@@ -34,7 +34,8 @@ or changing routing. Managed CSS/JS is parsed at the asset boundary.
    stream through `BasePathHtml` without allocating a replacement document;
    search JSON URLs and its content hash are composed at the artifact boundary.
 6. Core/query runtimes share a configured browser base and export `app_url`.
-   Query/mutation descriptors use it for static and computed endpoints.
+   Query/mutation descriptors use it only when they explicitly opt into the
+   application mount, including runtime-computed request descriptors.
 7. Managed CSS/JS assets use CSS/Oxc parsers for recognized URL syntax, with
    semantic binding checks to preserve locally shadowed browser APIs. Results
    are content-cached within a fixed budget; transformed validators and HEAD
