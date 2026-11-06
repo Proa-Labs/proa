@@ -491,6 +491,62 @@ printf '%s\n' "$@" > "$FAKE_CARGO_ARGS"
 
 @unittest.skipUnless(hasattr(os, "killpg"), "process groups are unavailable")
 class WatchLockSignalTests(unittest.TestCase):
+    def test_lock_release_preserves_replacement_owners(self) -> None:
+        for owner, stopped_child in [("replacement", "12345"), ("", "")]:
+            with self.subTest(owner=owner), tempfile.TemporaryDirectory() as directory:
+                lock = Path(directory) / "test.lock"
+                lock.mkdir()
+                (lock / "pid").write_text(owner)
+                result = subprocess.run(
+                    [
+                        "bash", "-c",
+                        'source "$1"; _PROA_WATCH_LOCK_DIR="$2"; '
+                        '_PROA_WATCH_LOCK_OWNER_PID="$$"; proa_watch_lock_release "$3"',
+                        "release-test", str(WATCH_LOCK_SCRIPT), str(lock), stopped_child,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(lock.exists())
+                self.assertEqual((lock / "pid").read_text(), owner)
+
+    def test_sigint_during_lock_owner_publication_releases_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            supervisor = root / "watch-supervisor"
+            write_file(
+                supervisor,
+                r"""#!/usr/bin/env bash
+set -euo pipefail
+source "$1"
+export PROA_WATCH_LOCK_ROOT="$2/locks"
+proa_watch_lock_acquire test "$2"
+interrupt_publication() {
+  if [[ "$1" == '_PROA_WATCH_LOCK_OWNER_PID="$_PROA_WATCH_CHILD_PID"' ]]; then
+    trap - DEBUG
+    printf 'interrupted\n' > "$PROA_WATCH_LOCK_ROOT/interrupted"
+    kill -INT "$$"
+  fi
+}
+set -T
+trap 'interrupt_publication "$BASH_COMMAND"' DEBUG
+proa_watch_run sleep 30
+""",
+                mode=0o755,
+            )
+            result = subprocess.run(
+                ["bash", str(supervisor), str(WATCH_LOCK_SCRIPT), str(root)],
+                capture_output=True,
+                text=True,
+                start_new_session=True,
+                timeout=3,
+            )
+            self.assertEqual(result.returncode, 130, result.stderr)
+            self.assertTrue((root / "locks" / "interrupted").exists())
+            self.assertFalse((root / "locks" / "test.lock").exists())
+
     def test_sigint_stops_stubborn_watcher_group_and_releases_lock(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
