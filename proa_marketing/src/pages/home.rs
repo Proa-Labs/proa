@@ -14,7 +14,7 @@ use axum::{
 use proa_core::{
     DataLoader, MdRenderSync, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_macros::{content_part, html_sync, md_sync, omit};
+use proa_macros::{html_sync, md_sync, omit};
 use rsjs::signal;
 use rsjs_macros::rsjs;
 
@@ -712,7 +712,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
                     <p class={HERO_LEAD}>
                         {self.lead_prefix}
                         <a
-                            href={content_part!("benchmarks-url", self.benchmarks_url)}
+                            href={self.benchmarks_url}
                             rel="noreferrer noopener"
                             target="_blank"
                             class={LEAD_LINK}
@@ -723,14 +723,14 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
                     </p>
                     <div class="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
                         <a
-                            href={content_part!("start-url", self.start_url)}
+                            href={self.start_url}
                             class={CTA_PRIMARY}
                         >
                             {self.start_label}
                             {ArrowRightIcon}
                         </a>
                         <a
-                            href={content_part!("video-url", self.video_url)}
+                            href={self.video_url}
                             data-video-cta="intro"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -779,7 +779,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkChart {
         html_sync! {
             <div class="min-w-[800px]">
                 <img
-                    src={content_part!("url", self.url)}
+                    src={self.url}
                     alt={self.description}
                     width="980"
                     height={self.height}
@@ -797,7 +797,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkChart {
         md_sync! { r###"
             ### {self.title}
 
-            ![{self.description}]({content_part!("url", Url(self.url))})
+            ![{self.description}]({Url(self.url)})
             "###
         }
         .render_md(cx)
@@ -1002,7 +1002,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                         tabindex="0"
                         class={BENCHMARK_PANEL}
                     >
-                        {content_part!("render-chart", render_chart)}
+                        {render_chart}
                     </div>
                     <div
                         id="benchmark-panel-http"
@@ -1012,7 +1012,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                         tabindex="0"
                         class={BENCHMARK_PANEL}
                     >
-                        {content_part!("http-chart", http_chart)}
+                        {http_chart}
                     </div>
                     <div
                         id="benchmark-panel-load"
@@ -1022,7 +1022,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                         tabindex="0"
                         class={BENCHMARK_PANEL}
                     >
-                        {content_part!("load-chart", load_chart)}
+                        {load_chart}
                     </div>
                     <div class="mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
                         <p class="text-sm leading-6 text-zinc-500 dark:text-zinc-400">
@@ -1040,7 +1040,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                                 {full_size_icon}
                             </a>
                             <a
-                                href={content_part!("benchmarks-url", self.benchmarks_url)}
+                                href={self.benchmarks_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class={CTA_PRIMARY}
@@ -1855,13 +1855,13 @@ struct CodeExample(&'static str);
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CodeExample {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", StaticRaw(self.0)).render(cx)
+        StaticRaw(self.0).render(cx)
     }
 }
 
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CodeExample {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", proa_core::to_markdown(self)).render_md(cx)
+        proa_core::to_markdown(self).render_md(cx)
     }
 }
 
@@ -1975,7 +1975,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
             >
                 <link
                     rel="stylesheet"
-                    href={content_part!("rail-styles", concat!("/static/proa-ui-rail.css?v=", env!("MARKETING_ASSET_VERSION")))}
+                    href={concat!("/static/proa-ui-rail.css?v=", env!("MARKETING_ASSET_VERSION"))}
                 />
                 <div class={SECTION_CONTAINER}>
                     <div class={SECTION_HEADER}>
@@ -1983,7 +1983,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
                         <p class={SECTION_LEAD}>
                             {self.lead_prefix}
                             <a
-                                href={content_part!("shadcn-url", self.shadcn_url)}
+                                href={self.shadcn_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class={LEAD_LINK}
@@ -1994,7 +1994,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
                         </p>
                         <div class={SECTION_ACTIONS}>
                             <a
-                                href={content_part!("link-url", self.link_url)}
+                                href={self.link_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class={CTA_PRIMARY}
@@ -2005,9 +2005,10 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
                         </div>
                     </div>
                 </div>
-                {content_part!("component-previews", StaticRaw(PROA_UI_RAIL_HTML))}
+                {StaticRaw(PROA_UI_RAIL_HTML)}
             </section>
-        }.render(cx)
+        }
+        .render(cx)
     }
 }
 
@@ -2021,8 +2022,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomePage {
                 {BenchmarkHighlights::new()}
                 {ProaUiSection::new()}
                 {ConnectorScript}
-                {content_part!("capabilities", CapabilitiesSection { columns: CAPABILITY_COLUMNS })}
-                {content_part!("faq", faq::FaqSection { entries: faq::FAQS })}
+                {CapabilitiesSection { columns: CAPABILITY_COLUMNS }}
+                {faq::FaqSection { entries: faq::FAQS }}
                 {GetStartedSection::new()}
             </div>
         }
@@ -2050,19 +2051,19 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderTargetsSection {
                             data-flow-node="source"
                             class="relative z-10 min-w-0 lg:row-span-2 lg:self-center"
                         >
-                            {content_part!("source-code", CodeExample(COMPOSABLE_SOURCE_HTML))}
+                            {CodeExample(COMPOSABLE_SOURCE_HTML)}
                         </div>
                         <div data-flow-node="md-render" class="relative z-10 min-w-0">
-                            {content_part!("md-render-code", CodeExample(COMPOSABLE_MD_RENDER_HTML))}
+                            {CodeExample(COMPOSABLE_MD_RENDER_HTML)}
                         </div>
                         <div data-flow-node="md-child" class="relative z-10 min-w-0">
-                            {content_part!("md-child-code", CodeExample(COMPOSABLE_MD_CHILD_HTML))}
+                            {CodeExample(COMPOSABLE_MD_CHILD_HTML)}
                         </div>
                         <div data-flow-node="web-render" class="relative z-10 min-w-0">
-                            {content_part!("web-render-code", CodeExample(COMPOSABLE_WEB_RENDER_HTML))}
+                            {CodeExample(COMPOSABLE_WEB_RENDER_HTML)}
                         </div>
                         <div data-flow-node="web-child" class="relative z-10 min-w-0">
-                            {content_part!("web-child-code", CodeExample(COMPOSABLE_WEB_CHILD_HTML))}
+                            {CodeExample(COMPOSABLE_WEB_CHILD_HTML)}
                         </div>
                     </div>
                 </div>
@@ -2120,7 +2121,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GetStartedSection {
                             <h2 class={SECTION_TITLE}>{self.title}</h2>
                             <div class={SECTION_ACTIONS}>
                                 <a
-                                    href={content_part!("link-url", self.link_url)}
+                                    href={self.link_url}
                                     class={CTA_PRIMARY}
                                 >
                                     {self.link_label}
@@ -2175,7 +2176,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderTargetsHeading {
                 <p class={SECTION_LEAD}>{self.description}</p>
                 <div class={SECTION_ACTIONS}>
                     <a
-                        href={content_part!("video-url", self.video_url)}
+                        href={self.video_url}
                         data-video-cta="render-targets"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -2255,7 +2256,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShowcaseHeading {
                 <p class={SECTION_LEAD}>{self.description}</p>
                 <div class={SECTION_ACTIONS}>
                     <a
-                        href={content_part!("link-url", self.link_url)}
+                        href={self.link_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         class={CTA_PRIMARY}
@@ -2264,7 +2265,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShowcaseHeading {
                         {ArrowRightIcon}
                     </a>
                     <a
-                        href={content_part!("benchmarks-url", self.benchmarks_url)}
+                        href={self.benchmarks_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         class={CTA_SECONDARY}
@@ -2311,10 +2312,10 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for InterfaceLayerHero {
         md_sync! { r###"
             # {self.title}
 
-            {self.lead_prefix}[{self.performance_label}]({content_part!("benchmarks-url", Url(self.benchmarks_url))}){self.lead_suffix}
+            {self.lead_prefix}[{self.performance_label}]({Url(self.benchmarks_url)}){self.lead_suffix}
 
-            - [{self.start_label}]({content_part!("start-url", Url(self.start_url))})
-            - [{self.video_label}]({content_part!("video-url", Url(self.video_url))})
+            - [{self.start_label}]({Url(self.start_url)})
+            - [{self.video_label}]({Url(self.video_url)})
             "###
         }.render_md(cx)
     }
@@ -2329,7 +2330,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RenderTargetsHeading {
 
             {self.description}
 
-            [{self.video_label}]({content_part!("video-url", Url(self.video_url))})
+            [{self.video_label}]({Url(self.video_url)})
             "###
         }
         .render_md(cx)
@@ -2354,7 +2355,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for GetStartedSection {
         md_sync! { r###"
             ## {self.title}
 
-            [{self.link_label}]({content_part!("link-url", Url(self.link_url))})
+            [{self.link_label}]({Url(self.link_url)})
             "###
         }
         .render_md(cx)
@@ -2370,8 +2371,8 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ShowcaseHeading {
 
             {self.description}
 
-            - [{self.link_label}]({content_part!("link-url", Url(self.link_url))})
-            - [{self.benchmark_label}]({content_part!("benchmarks-url", Url(self.benchmarks_url))})
+            - [{self.link_label}]({Url(self.link_url)})
+            - [{self.benchmark_label}]({Url(self.benchmarks_url)})
             "###
         }
         .render_md(cx)
@@ -2388,19 +2389,15 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ProaUiSection {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         omit!(ArrowUpRightIcon, "Decorative external-link icon");
         omit!(
-            "component-previews",
+            &PROA_UI_RAIL_HTML,
             "Imported interactive UI previews; the catalog link is the Markdown entry point"
-        );
-        omit!(
-            "rail-styles",
-            "Stylesheet for the visual component previews"
         );
         md_sync! { r###"
             ## {self.title}
 
-            {self.lead_prefix}[{self.lead_link_label}]({content_part!("shadcn-url", Url(self.shadcn_url))}){self.lead_suffix}
+            {self.lead_prefix}[{self.lead_link_label}]({Url(self.shadcn_url)}){self.lead_suffix}
 
-            [{self.link_label}]({content_part!("link-url", Url(self.link_url))})
+            [{self.link_label}]({Url(self.link_url)})
             "###
         }
         .render_md(cx)
@@ -2423,24 +2420,12 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkHighlights {
         );
         omit!(ArrowUpRightIcon, "Decorative link icons");
         omit!(
-            self.render.title,
-            "The chart child renders this tab label as its Markdown heading"
-        );
-        omit!(
             self.render.url,
             "The chart child exposes this asset unconditionally in Markdown"
         );
         omit!(
-            self.http.title,
-            "The chart child renders this tab label as its Markdown heading"
-        );
-        omit!(
             self.http.url,
             "The chart child exposes this asset unconditionally in Markdown"
-        );
-        omit!(
-            self.load.title,
-            "The chart child renders this tab label as its Markdown heading"
         );
         omit!(
             self.load.url,
@@ -2449,15 +2434,15 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkHighlights {
         md_sync! { r###"
             ## {self.title}
 
-            {content_part!("render-chart", self.render)}
+            {self.render}
 
-            {content_part!("http-chart", self.http)}
+            {self.http}
 
-            {content_part!("load-chart", self.load)}
+            {self.load}
 
             {self.environment}
 
-            [{self.link_label}]({content_part!("benchmarks-url", Url(self.benchmarks_url))})
+            [{self.link_label}]({Url(self.benchmarks_url)})
             "###
         }
         .render_md(cx)
@@ -2550,9 +2535,9 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for HomePage {
 
             {ProaUiSection::new()}
 
-            {content_part!("capabilities", CapabilitiesSection { columns: CAPABILITY_COLUMNS })}
+            {CapabilitiesSection { columns: CAPABILITY_COLUMNS }}
 
-            {content_part!("faq", faq::FaqSection { entries: faq::FAQS })}
+            {faq::FaqSection { entries: faq::FAQS }}
 
             {GetStartedSection::new()}
             "###
@@ -2570,15 +2555,15 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RenderTargetsSection {
         md_sync! { r###"
             {RenderTargetsHeading::new()}
 
-            {content_part!("source-code", CodeExample(COMPOSABLE_SOURCE_HTML))}
+            {CodeExample(COMPOSABLE_SOURCE_HTML)}
 
-            {content_part!("md-render-code", CodeExample(COMPOSABLE_MD_RENDER_HTML))}
+            {CodeExample(COMPOSABLE_MD_RENDER_HTML)}
 
-            {content_part!("md-child-code", CodeExample(COMPOSABLE_MD_CHILD_HTML))}
+            {CodeExample(COMPOSABLE_MD_CHILD_HTML)}
 
-            {content_part!("web-render-code", CodeExample(COMPOSABLE_WEB_RENDER_HTML))}
+            {CodeExample(COMPOSABLE_WEB_RENDER_HTML)}
 
-            {content_part!("web-child-code", CodeExample(COMPOSABLE_WEB_CHILD_HTML))}
+            {CodeExample(COMPOSABLE_WEB_CHILD_HTML)}
             "###
         }
         .render_md(cx)

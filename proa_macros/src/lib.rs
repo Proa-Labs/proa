@@ -59,7 +59,7 @@ pub fn content(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// Use `omit!(self.image)`, `omit!(&notice, "reason")`,
 /// `omit!(crate::RestockNotice)`, or
-/// `omit!("restock")`. Optional `from = "html"` restricts the
+/// `omit!("Loading")` for literal copy. Optional `from = "html"` restricts the
 /// source comparison. Value paths are type-checked without being evaluated
 /// or moved. Bare paths select child types; borrow a local with `&notice` to
 /// select its value. Child types are checked without constructing them, and
@@ -67,18 +67,6 @@ pub fn content(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn omit(input: TokenStream) -> TokenStream {
     content::omit(input.into())
-        .unwrap_or_else(syn::Error::into_compile_error)
-        .into()
-}
-
-/// Give a rendered value a shared semantic identity across representations.
-///
-/// `content_part!("restock", RestockNotice::new(data))` returns the supplied
-/// expression unchanged. The name lets `proa lint` recognize corresponding
-/// content even when targets use different wrappers or helper functions.
-#[proc_macro]
-pub fn content_part(input: TokenStream) -> TokenStream {
-    content::part(input.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

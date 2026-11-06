@@ -9,7 +9,7 @@ use proa_core::{
     ClassList, ComponentRole, DataLoader, HeadMetadata, MdRenderSync, WebContext, WebRenderSync,
     WriteBuf, WriteError,
 };
-use proa_macros::{content_part, html_sync, md_sync, omit};
+use proa_macros::{html_sync, md_sync};
 
 use crate::{
     data::{routes, site},
@@ -107,11 +107,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamPage {
                 data-component="team-page"
                 class={classes}
             >
-                <h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">
-                    {content_part!("title", TITLE)}
-                </h1>
+                <h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">{TITLE}</h1>
                 <p class="mt-6 max-w-2xl text-lg leading-8 text-zinc-600 dark:text-zinc-300">
-                    {content_part!("intro", INTRO)}
+                    {INTRO}
                 </p>
                 {for &member in self.members {
                     member
@@ -130,7 +128,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
         html_sync! {
             <div data-team-member data-component="team-member" class={classes}>
                 <img
-                    src={content_part!("portrait", self.portrait)}
+                    src={self.portrait}
                     alt={self.name}
                     width="460"
                     height="460"
@@ -143,27 +141,25 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
                         {for link in self.links {
                             html_sync! {
                                 <li>
-                                    <a href={content_part!("profile-url", link.href())} rel="me noreferrer noopener" target="_blank" class="inline-flex items-center gap-2 underline decoration-black/20 underline-offset-4 transition-colors hover:text-brand dark:decoration-white/30">
-                                        {content_part!("profile-icon", html_sync! {
-                                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="size-4 shrink-0">
-                                                {match *link {
-                                                    TeamLink::GitHub(_) => html_sync! {
-                                                        <path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-                                                    },
-                                                    TeamLink::X(_) => html_sync! {
-                                                        <path fill="currentColor" d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z" />
-                                                    },
-                                                    TeamLink::Website(_) => html_sync! {
-                                                        <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                                                            <circle cx="12" cy="12" r="9" />
-                                                            <ellipse cx="12" cy="12" rx="4" ry="9" />
-                                                            <path d="M3 12h18" />
-                                                        </g>
-                                                    },
-                                                }}
-                                            </svg>
-                                        })}
-                                        {content_part!("profile-label", link.label())}
+                                    <a href={link.href()} rel="me noreferrer noopener" target="_blank" class="inline-flex items-center gap-2 underline decoration-black/20 underline-offset-4 transition-colors hover:text-brand dark:decoration-white/30">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="size-4 shrink-0">
+                                            {match *link {
+                                                TeamLink::GitHub(_) => html_sync! {
+                                                    <path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+                                                },
+                                                TeamLink::X(_) => html_sync! {
+                                                    <path fill="currentColor" d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z" />
+                                                },
+                                                TeamLink::Website(_) => html_sync! {
+                                                    <g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                                        <circle cx="12" cy="12" r="9" />
+                                                        <ellipse cx="12" cy="12" rx="4" ry="9" />
+                                                        <path d="M3 12h18" />
+                                                    </g>
+                                                },
+                                            }}
+                                        </svg>
+                                        {link.label()}
                                     </a>
                                 </li>
                             }
@@ -178,12 +174,10 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
 
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamPage {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        let title = content_part!("title", TITLE);
-        let intro = content_part!("intro", INTRO);
         md_sync! { r###"
-            # {title}
+            # {TITLE}
 
-            {intro}
+            {INTRO}
 
             {for &member in self.members {
                 member
@@ -196,22 +190,15 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamPage {
 
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamMember {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        omit!(
-            "profile-icon",
-            "Decorative icons accompany the shared link labels."
-        );
-        let portrait = content_part!("portrait", Url(self.portrait));
         md_sync! { r###"
             ## {self.name}
 
             {self.role}, {self.organization}
 
-            ![{self.name}]({portrait})
+            ![{self.name}]({Url(self.portrait)})
 
             {for link in self.links {
-                let label = content_part!("profile-label", link.label());
-                let href = content_part!("profile-url", Url(link.href()));
-                md_sync! { "- [{label}]({href})\n" }
+                md_sync! { "- [{link.label()}]({Url(link.href())})\n" }
             }}
             "###
         }

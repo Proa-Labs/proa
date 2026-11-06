@@ -124,7 +124,6 @@ pub enum ContentKey {
         ty: String,
         inputs: BTreeSet<String>,
     },
-    Role(String),
     Literal(String),
 }
 impl ContentKey {
@@ -132,7 +131,6 @@ impl ContentKey {
         match self {
             Self::Value(v) => v.clone(),
             Self::Child { ty, .. } => ty.rsplit("::").next().unwrap_or(ty).into(),
-            Self::Role(v) => format!("content part {v:?}"),
             Self::Literal(v) => format!("text {v:?}"),
         }
     }
@@ -140,7 +138,7 @@ impl ContentKey {
         match self {
             Self::Value(v) => BTreeSet::from([v.clone()]),
             Self::Child { inputs, .. } => inputs.clone(),
-            Self::Role(_) | Self::Literal(_) => BTreeSet::new(),
+            Self::Literal(_) => BTreeSet::new(),
         }
     }
 }
@@ -174,7 +172,7 @@ pub enum OmissionKey {
     Contributions(Vec<ContentKey>),
     Values(BTreeSet<String>),
     Child(String),
-    Role(String),
+    Literal(String),
     Unknown(String),
 }
 
@@ -195,6 +193,47 @@ pub struct ViewSummary {
     pub bindings: BTreeMap<String, Vec<ContentKey>>,
     /// Complete Rust child type spellings that need no guessed type arguments.
     pub child_selectors: BTreeMap<String, String>,
+}
+
+fn covers(candidate: &ContentKey, required: &ContentKey) -> bool {
+    if candidate == required {
+        return true;
+    }
+    if let ContentKey::Value(value) = required {
+        return candidate.inputs().iter().any(|input| {
+            input == value
+                || value
+                    .strip_prefix(input)
+                    .is_some_and(|tail| tail.starts_with('.'))
+        });
+    }
+    false
+}
+
+fn covered(required: &Contribution, candidates: &[Contribution]) -> bool {
+    if candidates.iter().any(|candidate| {
+        covers(&candidate.key, &required.key)
+            && same_presence(&candidate.presence, &required.presence)
+    }) {
+        return true;
+    }
+    // A different helper can re-express a child's inputs. Retain exact child
+    // identity when both representations render known child components.
+    let ContentKey::Child { inputs, .. } = &required.key else {
+        return false;
+    };
+    let inputs: Vec<_> = inputs
+        .iter()
+        .filter(|input| !input.starts_with("@arg:") && !input.starts_with("@field:"))
+        .collect();
+    !inputs.is_empty()
+        && inputs.iter().all(|input| {
+            candidates.iter().any(|candidate| {
+                matches!(&candidate.key, ContentKey::Value(_))
+                    && covers(&candidate.key, &ContentKey::Value((*input).clone()))
+                    && same_presence(&candidate.presence, &required.presence)
+            })
+        })
 }
 
 fn same_presence(a: &[Presence], b: &[Presence]) -> bool {
@@ -292,7 +331,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                     message.clone(),
                     "this omission has no resolved selector",
                 )
-                .with_help("select an in-scope value, a resolvable child type, or a named part"),
+                .with_help("select an in-scope value, a resolvable child type, or literal text"),
             );
             continue;
         }
@@ -309,8 +348,8 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                     OmissionKey::Child(ty) => {
                         matches!(&part.key, ContentKey::Child {ty: child, ..} if child == ty)
                     }
-                    OmissionKey::Role(role) => {
-                        matches!(&part.key, ContentKey::Role(r) | ContentKey::Literal(r) if r == role)
+                    OmissionKey::Literal(role) => {
+                        matches!(&part.key, ContentKey::Literal(r) if r == role)
                     }
                     OmissionKey::Unknown(_) => false,
                 };
@@ -347,7 +386,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                     distinct.len()
                 ),
                 format!(
-                    "select one child with `omit!(path::Child)` or one named part; candidates: {}",
+                    "select one child with `omit!(path::Child)` or a borrowed local; candidates: {}",
                     distinct
                         .iter()
                         .map(|(key, _)| key.label())
@@ -355,12 +394,10 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                         .join(", ")
                 ),
             )
-        } else if matches.iter().all(|(_, s)| {
-            target
-                .contributions
-                .iter()
-                .any(|t| t.key == s.key && same_presence(&t.presence, &s.presence))
-        }) {
+        } else if matches
+            .iter()
+            .all(|(_, s)| covered(s, &target.contributions))
+        {
             (
                 "render/content-omit-redundant",
                 "this content is already rendered under the required presence conditions".into(),
@@ -386,17 +423,14 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
         if waived.contains(&index) {
             continue;
         }
+        if covered(part, &target.contributions) {
+            continue;
+        }
         let matches: Vec<_> = target
             .contributions
             .iter()
-            .filter(|p| p.key == part.key)
+            .filter(|p| covers(&p.key, &part.key))
             .collect();
-        if matches
-            .iter()
-            .any(|p| same_presence(&p.presence, &part.presence))
-        {
-            continue;
-        }
         let guard_key = part
             .presence
             .iter()
@@ -483,6 +517,13 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
             d = d.with_note("the checker has not established that these conditions select the same input states")
                 .with_help("decide presence once in shared preparation, or acknowledge this contribution with a targeted omission");
         } else if uncertain {
+            if target
+                .boundaries
+                .iter()
+                .any(|boundary| boundary.may_hide_content)
+            {
+                d.severity = Severity::Info;
+            }
             if changed_child.is_some() {
                 d.notes.push("the same child is rendered with different inputs; the checker has not established their correspondence".into());
             }
@@ -498,7 +539,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                 d.notes.push(b.message.clone());
             }
             d = d.with_note("a helper or unsupported path may already include this content; no omission is confirmed")
-                .with_help("expose the child in a supported render path, or name its contribution with `proa_macros::content_part!(\"role\", expression)` in both views");
+                .with_help("the checker follows rendered inputs but does not inspect arbitrary helper implementations");
         } else {
             if let Some((name, _)) = target
                 .bindings
@@ -528,9 +569,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                     .child_selectors
                     .get(ty)
                     .map(|ty| format!("proa_macros::omit!({ty});")),
-                ContentKey::Role(role) | ContentKey::Literal(role) => {
-                    Some(format!("proa_macros::omit!({role:?});"))
-                }
+                ContentKey::Literal(role) => Some(format!("proa_macros::omit!({role:?});")),
                 ContentKey::Value(value)
                     if value.starts_with("self.")
                         && syn::parse_str::<proa_dsl::content::OmitContent>(value).is_ok()
@@ -575,7 +614,20 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
             } else {
                 target
             };
-            diagnostics.push(diag(view, boundary.range.clone(), "render/content-coverage-unchecked", format!("`{}`'s {} → {} content is only partially checked", target.component,source.target_label,target.target_label), "this output is outside the supported analysis").with_note(boundary.message.clone()).with_help("use matching `content_part!(\"role\", expression)` wrappers for semantic contributions hidden by this boundary"));
+            let mut diagnostic = diag(
+                view,
+                boundary.range.clone(),
+                "render/content-coverage-unchecked",
+                format!(
+                    "`{}`'s {} → {} content is only partially checked",
+                    target.component, source.target_label, target.target_label
+                ),
+                "this output is outside the supported analysis",
+            )
+            .with_note(boundary.message.clone())
+            .with_help("this is a best-effort source check; opaque output is informational");
+            diagnostic.severity = Severity::Info;
+            diagnostics.push(diagnostic);
         }
     }
     let mut grouped: Vec<Diagnostic> = Vec::new();

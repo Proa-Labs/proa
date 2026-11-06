@@ -89,11 +89,14 @@ Known `proa_core::WebContext` preparation APIs and supported metadata aliases do
 not create content obligations or unchecked-body diagnostics on their own.
 An unused fetch does not cover missing content.
 
-Loaded data that reaches output still needs correspondence. If the two views
-fetch or transform it differently, put the same `content_part!` name around the
-rendered contribution in each template. That name is an author assertion, not a
-proof that two queries or helpers are equivalent. Unmapped loaded output,
-direct writer calls, and opaque helpers receiving `cx` remain **unchecked**.
+Loaded data is compared by its query and payload type, not local variable names.
+Rendered helpers are compared by their inputs: `status_badge(self.stock)` and
+`status_text(self.stock)` both use `self.stock` and need no markers. Ordinary
+`text!()` literals and arguments, shared constants, and dereferences are also
+tracked. Passing an input does not prove that the helper displays it; this is a
+best-effort check, not a guarantee of equivalent output or repetition. Opaque
+output and direct writer calls can remain **unchecked**, reported as information
+rather than requiring annotations. Definite omissions still fail the check.
 Custom methods merely named `load` are not treated as known Proa preparation.
 Response headers, head assets, and telemetry are outside this body-content check.
 
@@ -174,26 +177,12 @@ This is an alternative example for that product, rather than another impl to add
 alongside the earlier one. The macro checks the type without constructing a child.
 Use `omit!(RestockNotice)` for a type without generic arguments. Lifetime-only child
 types can use `'_`. For type/const-generic children, or several occurrences with
-different inputs or conditions, use an existing child local or a named part to
-narrow the exception. A field used by several distinct children is ambiguous
+different inputs or conditions, use an existing child local to narrow the exception. A field used by several distinct children is ambiguous
 and waives none of their contributions.
 
-When HTML names a rendered contribution with
-`content_part!("stock-status", ...)`, use that name as a string selector. In the
-same file as the Markdown impl, with `omit` imported as above:
-
-```rust
-impl MdRenderSync for Product<'_> {
-    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        omit!("stock-status", "Shown in the overview instead");
-        proa_macros::md_sync! { r###"# {self.title}"### }.render_md(cx)
-    }
-}
-```
-
-Use matching `content_part!` names in rendered slots when the views present the
-same content through different helpers. A name is an author assertion about
-correspondence; the linter does not prove the helpers equivalent.
+String selectors select literal copy, for example
+`omit!("Loading", "Visual loading indicator")`. Use a field, child type, or
+borrowed local for dynamic content. The source renderer needs no labels.
 
 #### Exempt a whole view
 
@@ -228,7 +217,8 @@ HTML-only and Markdown-only components need no exceptions. Content is compared
 when both views exist; the linter does not require another render implementation.
 Separate representation types can pair explicitly with
 `#[proa_macros::content(source = HtmlProduct, from = "html")]` above the Markdown
-impl; use shared `content_part!` names to establish correspondence between them.
+impl. This explicitly pairs their rendered field names and shared inputs; the
+author is responsible for those fields having corresponding meanings.
 
 #### Diagnostics and CI enforcement
 
@@ -264,15 +254,16 @@ error[render/content-coverage]: `Product<'_>`'s Markdown view does not render `s
 | Diagnostic | Meaning and repair |
 |------------|--------------------|
 | `render/content-coverage` | A supported rendered contribution is missing. Render it in the checked view or acknowledge the intentional omission with `omit!`. |
-| `render/content-coverage-unchecked` | A helper, presence condition, or discovery boundary prevents a conclusion. Align the supported conditions or declare correspondence with named parts where appropriate. |
+| `render/content-coverage-unchecked` | Coverage is uncertain. Opaque output is informational; differing presence conditions or ambiguous view discovery remain warnings. |
 | `render/content-omit-stale`, `render/content-omit-redundant` | The source no longer contributes the selected content, or the checked view now renders it. Remove the marker. |
 | `render/content-omit-ambiguous`, `render/content-omit-unresolved`, `render/content-policy-invalid` | Narrow the selector, fix its resolution, or correct the policy. |
 
 Missing content (`render/content-coverage`) is an error and fails `proa lint`
-by default. Unchecked coverage (`render/content-coverage-unchecked`) is a warning:
-it is visible by default and fails with `--deny-warnings`. `proa check` and
-lifecycle source checks reject both errors and warnings. `proa check
---allow-warnings` permits unchecked coverage while still rejecting missing content.
+by default. Opaque output is informational: view it with `--min-severity info`,
+`--json`, or `--github`; it does not fail `--deny-warnings`. Different presence
+conditions and ambiguous discovery remain warnings. `proa check` and lifecycle
+source checks reject errors and warnings; `--allow-warnings` permits warnings
+while still rejecting missing content.
 Use `omit!` to acknowledge an intentional difference.
 
 ```bash
