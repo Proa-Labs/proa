@@ -39,7 +39,8 @@ readonly -a MAIN_SHARD_4=(
 # Applications with real RSJS islands need the linked `proa test` pipeline.
 # Pizza is a workspace member; ORIGIN is generated from the packaged scaffold.
 # Keep each app's integration tests in one binary so the descriptor/final
-# compilation runs once. Library unit tests remain in the plain-cargo lane.
+# compilation runs once. The generated ORIGIN app also runs its library tests
+# with plain Cargo.
 readonly -a EXAMPLES=(pizza atlas)
 
 all_main_targets() {

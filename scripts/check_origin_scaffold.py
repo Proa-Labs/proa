@@ -72,6 +72,7 @@ def main():
         # before running acceptance, including on runners with an empty cache.
         (project / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
         run(["cargo", "tree", "--offline", "--depth", "0"], project, environment)
+        run(["cargo", "test", "--locked", "--lib"], project, environment)
         run([cli, "test", "--root", project, "--locked", "--test", "atlas"], project, environment)
 
 

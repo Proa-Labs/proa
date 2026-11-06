@@ -23,8 +23,6 @@ curl 'https://proa.so/api/v1/search?q=streaming&limit=5'
 
 Pass the returned `next_cursor` as `cursor` with the same query to read the next page. A null cursor means there are no more results. `limit` defaults to 10 and accepts 1–50. Cursors belong to a result set on the current deployment; restart pagination if the documentation changes during retrieval.
 
-### JSON search and retry replay
-
 ## Read and list pages
 
 ```bash
