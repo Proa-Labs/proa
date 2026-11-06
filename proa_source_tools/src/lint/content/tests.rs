@@ -1515,3 +1515,33 @@ fn document_head_and_stylesheets_are_outside_body_content_coverage() {
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
     assert_eq!(missing(&source.replace("# {self.title}", "")).len(), 1);
 }
+
+#[test]
+fn helper_literals_cover_child_inputs_and_changed_literals_remain_missing() {
+    for literal in [r#""Notice""#, r#""  Notice   text  ""#, "42", "true"] {
+        let source = fixture(
+            &format!("html_sync! {{{{RestockNotice::new(self.data, {literal})}}}}.render(cx)"),
+            &format!("summary(self.data, {literal}).render_md(cx)"),
+        );
+        assert!(lint(&source).is_empty(), "{literal}: {:?}", lint(&source));
+        let changed = source.replace(
+            &format!("summary(self.data, {literal})"),
+            "summary(self.data, self.image)",
+        );
+        assert_eq!(missing(&changed).len(), 1, "{literal}");
+    }
+}
+
+#[test]
+fn helper_child_guard_differences_are_warnings_in_both_directions() {
+    for (html, markdown) in [
+        ("html_sync! {{if self.stock > 0 {html_sync! {{RestockNotice::new(self.data, \"Notice\")}}}}}.render(cx)", "summary(self.data, \"Notice\").render_md(cx)"),
+        ("html_sync! {{RestockNotice::new(self.data, \"Notice\")}}.render(cx)", "if self.stock > 0 { summary(self.data, \"Notice\").render_md(cx) } else { Ok(()) }"),
+    ] {
+        let diagnostics = lint(&fixture(html, markdown));
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].code, "render/content-coverage-unchecked");
+        assert_eq!(diagnostics[0].severity, Severity::Warning);
+        assert!(diagnostics[0].message.contains("different presence conditions"));
+    }
+}

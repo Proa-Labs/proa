@@ -210,30 +210,58 @@ fn covers(candidate: &ContentKey, required: &ContentKey) -> bool {
     false
 }
 
-fn covered(required: &Contribution, candidates: &[Contribution]) -> bool {
-    if candidates.iter().any(|candidate| {
-        covers(&candidate.key, &required.key)
-            && same_presence(&candidate.presence, &required.presence)
-    }) {
-        return true;
-    }
-    // A different helper can re-express a child's inputs. Retain exact child
-    // identity when both representations render known child components.
-    let ContentKey::Child { inputs, .. } = &required.key else {
-        return false;
+fn matching_contributions<'a>(
+    required: &Contribution,
+    candidates: &'a [Contribution],
+    require_same_presence: bool,
+) -> Vec<&'a Contribution> {
+    let eligible = |candidate: &&Contribution| {
+        !require_same_presence || same_presence(&candidate.presence, &required.presence)
     };
-    let inputs: Vec<_> = inputs
+    let direct: Vec<_> = candidates
+        .iter()
+        .filter(eligible)
+        .filter(|candidate| covers(&candidate.key, &required.key))
+        .collect();
+    if !direct.is_empty() {
+        return direct;
+    }
+    // Different helpers may re-express a child's inputs. Known child types
+    // remain distinct when both views render child components directly.
+    let ContentKey::Child { inputs, .. } = &required.key else {
+        return Vec::new();
+    };
+    let mut matched = Vec::new();
+    for input in inputs
         .iter()
         .filter(|input| !input.starts_with("@arg:") && !input.starts_with("@field:"))
-        .collect();
-    !inputs.is_empty()
-        && inputs.iter().all(|input| {
-            candidates.iter().any(|candidate| {
-                matches!(&candidate.key, ContentKey::Value(_))
-                    && covers(&candidate.key, &ContentKey::Value((*input).clone()))
-                    && same_presence(&candidate.presence, &required.presence)
+    {
+        let key = if let Some(literal) = input.strip_prefix("@literal:") {
+            let text = syn::parse_str::<syn::LitStr>(literal)
+                .map(|value| value.value())
+                .unwrap_or_else(|_| literal.to_owned());
+            ContentKey::Literal(text.split_whitespace().collect::<Vec<_>>().join(" "))
+        } else {
+            ContentKey::Value(input.clone())
+        };
+        let found: Vec<_> = candidates
+            .iter()
+            .filter(eligible)
+            .filter(|candidate| {
+                matches!(candidate.key, ContentKey::Value(_) | ContentKey::Literal(_))
+                    && covers(&candidate.key, &key)
             })
-        })
+            .collect();
+        if found.is_empty() {
+            return Vec::new();
+        }
+        matched.extend(found);
+    }
+    matched
+}
+
+fn covered(required: &Contribution, candidates: &[Contribution]) -> bool {
+    !matching_contributions(required, candidates, true).is_empty()
 }
 
 fn same_presence(a: &[Presence], b: &[Presence]) -> bool {
@@ -426,11 +454,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
         if covered(part, &target.contributions) {
             continue;
         }
-        let matches: Vec<_> = target
-            .contributions
-            .iter()
-            .filter(|p| covers(&p.key, &part.key))
-            .collect();
+        let matches = matching_contributions(part, &target.contributions, false);
         let guard_key = part
             .presence
             .iter()

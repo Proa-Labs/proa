@@ -225,3 +225,34 @@ fn intentional_omissions_pass_and_discovery_status_remains_informational() {
     assert!(!diagnostics.is_empty());
     assert!(diagnostics.iter().all(|d| d["severity"] == "info"));
 }
+
+#[test]
+fn helper_guard_differences_are_allowed_only_when_warnings_are_allowed() {
+    let root = fixture();
+    std::fs::write(
+        root.path().join("src/html.rs"),
+        HTML.replace("{self.title}", r#"{if self.restock_at.is_empty() {html_sync! {{RestockNotice::new(self.restock_at, "Notice")}}}}"#),
+    ).unwrap();
+    std::fs::write(
+        root.path().join("src/md.rs"),
+        MD.replace("{self.title}", r#"{summary(self.restock_at, "Notice")}"#),
+    )
+    .unwrap();
+    assert!(cli(root.path(), &["fmt", "src"]).status.success());
+    let output = cli(root.path(), &["lint", "src", "--json"]);
+    assert!(output.status.success());
+    let result = diagnostics(&output);
+    assert!(result
+        .iter()
+        .any(|d| d["code"] == "render/content-coverage-unchecked" && d["severity"] == "warning"));
+    assert!(!result.iter().any(|d| d["severity"] == "error"));
+    assert!(cli(
+        root.path(),
+        &["check", "src", "--source-only", "--allow-warnings"]
+    )
+    .status
+    .success());
+    assert!(!cli(root.path(), &["check", "src", "--source-only"])
+        .status
+        .success());
+}
