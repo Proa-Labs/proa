@@ -8,7 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use proa_core::{DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError};
-use proa_macros::{content_part, html_sync, md_sync};
+use proa_macros::{html_sync, md_sync};
 
 use crate::layout::{render_page, PageMeta};
 
@@ -55,7 +55,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InfoPage {
                 </div>
                 <ul class="mt-8 space-y-3">
                     {for &(href, label) in self.links {
-                        html_sync! { <li><a href={content_part!("link-url", href)} class="underline underline-offset-4">{label}</a></li> }
+                        html_sync! { <li><a href={href} class="underline underline-offset-4">{label}</a></li> }
                     }}
                 </ul>
             </article>
@@ -73,8 +73,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for InfoPage {
             {for &paragraph in self.paragraphs {
                 md_sync! { "{paragraph}\n\n" }
             }}{for &(href, label) in self.links {
-                let href = content_part!("link-url", Url(href));
-                md_sync! { "- [{label}]({href})\n" }
+                md_sync! { "- [{label}]({Url(href)})\n" }
             }}"###
         }
         .render_md(cx)

@@ -1378,9 +1378,8 @@ pub(super) fn lint_sources(
                 );
                 continue;
             }
-            let (source_index, source_view) = exact[0];
-            // A field spelling cannot establish correspondence between
-            // different data types. Explicit pairs must map semantic roles.
+            let (source_index, _) = exact[0];
+            // An explicit source policy pairs separate types by their rendered inputs.
             let mut source_summary = summaries[*source_index].clone();
             for (index, _) in &exact {
                 if *index != *source_index {
@@ -1389,23 +1388,8 @@ pub(super) fn lint_sources(
                         .extend(summaries[*index].boundaries.clone());
                 }
             }
-            let mut target_summary = summaries[target_index].clone();
-            if source_view.identity != target.identity {
-                source_summary
-                    .contributions
-                    .retain(|c| matches!(c.key, ContentKey::Role(_)));
-                target_summary
-                    .contributions
-                    .retain(|c| matches!(c.key, ContentKey::Role(_)));
-                if source_summary.contributions.len()
-                    != summaries[*source_index].contributions.len()
-                    || target_summary.contributions.len()
-                        != summaries[target_index].contributions.len()
-                {
-                    source_summary.boundaries.push(Boundary {may_hide_content: true, message:"separate component types require named semantic parts; field spellings do not establish correspondence".into(),range:source_summary.entry.clone()});
-                }
-            }
-            diagnostics.extend(compare_views(&source_summary, &target_summary));
+            let target_summary = &summaries[target_index];
+            diagnostics.extend(compare_views(&source_summary, target_summary));
         }
         if reporting.contains(&target.context.path) {
             for omission in &summaries[target_index].omissions {

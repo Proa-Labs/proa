@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_dsl::content::{ContentPart, ContentPolicy, OmitContent, OmitSelector};
+use proa_dsl::content::{ContentPolicy, OmitContent, OmitSelector};
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -23,12 +23,6 @@ pub fn omit(input: TokenStream) -> syn::Result<TokenStream> {
     Ok(match omission.selector {
         OmitSelector::Value(value) => quote! {{ if false { let _ = &(#value); } }},
         OmitSelector::Child(ty) => quote! {{ let _ = ::core::marker::PhantomData::<#ty>; }},
-        OmitSelector::Role(_) => quote! { () },
+        OmitSelector::Literal(_) => quote! { () },
     })
-}
-
-pub fn part(input: TokenStream) -> syn::Result<TokenStream> {
-    let part: ContentPart = syn::parse2(input)?;
-    let value = part.value;
-    Ok(quote! { (#value) })
 }

@@ -61,12 +61,12 @@ impl Parse for ContentPolicy {
     }
 }
 
-/// Select exactly one contribution by local/field provenance, child, or role.
+/// Select exactly one contribution by local/field provenance, child, or literal.
 #[derive(Clone, Debug)]
 pub enum OmitSelector {
     Value(Expr),
     Child(Type),
-    Role(LitStr),
+    Literal(LitStr),
 }
 
 #[derive(Clone, Debug)]
@@ -115,9 +115,9 @@ impl Parse for OmitContent {
 
 fn parse_selector(input: ParseStream) -> syn::Result<OmitSelector> {
     if input.peek(LitStr) {
-        return Ok(OmitSelector::Role(nonempty(
+        return Ok(OmitSelector::Literal(nonempty(
             input.parse()?,
-            "content role",
+            "literal content",
         )?));
     }
     // Bare paths are types. Fields and borrowed locals are values, so the
@@ -141,26 +141,7 @@ fn parse_selector(input: ParseStream) -> syn::Result<OmitSelector> {
     Ok(OmitSelector::Child(ty))
 }
 
-const SELECTOR_HELP: &str = "expected a child type (`Impact<'_>`), field (`self.image`), borrowed local (`&notice`), or named part (`\"stock-status\"`)";
-
-/// Give a rendered expression an explicit semantic identity across targets.
-#[derive(Clone, Debug)]
-pub struct ContentPart {
-    pub role: LitStr,
-    pub value: Expr,
-}
-
-impl Parse for ContentPart {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let role = nonempty(input.parse()?, "content role")?;
-        input.parse::<Token![,]>()?;
-        let value = input.parse()?;
-        if !input.is_empty() {
-            input.parse::<Token![,]>()?;
-        }
-        Ok(Self { role, value })
-    }
-}
+const SELECTOR_HELP: &str = "expected a child type (`Impact<'_>`), field (`self.image`), borrowed local (`&notice`), or literal text (`\"Loading\"`)";
 
 fn nonempty(value: LitStr, label: &str) -> syn::Result<LitStr> {
     if value.value().trim().is_empty() {

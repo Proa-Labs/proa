@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use proa_core::{DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError};
-use proa_macros::{content_part, html_sync, md_sync};
+use proa_macros::{html_sync, md_sync};
 
 pub(crate) struct Faq {
     pub question: &'static str,
@@ -39,9 +39,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FaqSection<'_> {
         html_sync! {
             <section id="faq" data-faq class={super::SECTION_SHELL} aria-labelledby="faq-title">
                 <div class={super::SECTION_CONTAINER}>
-                    <h2 id="faq-title" class="text-3xl font-semibold tracking-tight">
-                        {content_part!("title", TITLE)}
-                    </h2>
+                    <h2 id="faq-title" class="text-3xl font-semibold tracking-tight">{TITLE}</h2>
                     <dl class="mt-8 grid gap-8 md:grid-cols-2">
                         {for entry in self.entries {
                             html_sync! {
@@ -61,7 +59,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FaqSection<'_> {
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for FaqSection<'_> {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         md_sync! { r###"
-            ## {content_part!("title", TITLE)}
+            ## {TITLE}
 
             {for entry in self.entries {
                 md_sync! { r#"

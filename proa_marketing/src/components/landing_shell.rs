@@ -4,7 +4,7 @@
 use crate::data::{routes, site};
 
 use proa_core::{DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError};
-use proa_macros::{content_part, html_sync, md_sync};
+use proa_macros::{html_sync, md_sync};
 
 use crate::utils::document::Url;
 
@@ -408,7 +408,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FooterLinks {
                 <ul class="mt-4 space-y-3 text-zinc-600 dark:text-zinc-400">
                     {for &(label, href) in self.links {
                         html_sync! {
-                            <li><a href={content_part!("link-url", href)} class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50">{label}</a></li>
+                            <li><a href={href} class="transition-colors hover:text-zinc-950 dark:hover:text-zinc-50">{label}</a></li>
                         }
                     }}
                 </ul>
@@ -423,8 +423,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for FooterLinks {
             ## {self.title}
 
             {for &(label, href) in self.links {
-                let href = content_part!("link-url", Url(href));
-                md_sync! { "- [{label}]({href})\n" }
+                md_sync! { "- [{label}]({Url(href)})\n" }
             }}"###
         }
         .render_md(cx)

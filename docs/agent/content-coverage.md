@@ -5,8 +5,11 @@ initial policy compares HTML output contributions with Markdown for the same
 component. It follows values into output: adding a field read, constructing a
 child, or creating an unused template does not satisfy coverage.
 
-This is a bounded source check. It catches supported omissions; it does not
-certify equivalent meaning, order, cardinality, or accessibility across formats.
+This is a best-effort input coverage check. Passing a value to a rendered helper
+counts as using it; the checker does not prove that the helper actually displays
+it. It does not certify equivalent meaning, order, repetition, or accessibility.
+Opaque output is informational. Definite omissions remain errors, and different
+presence conditions remain warnings.
 Rust continues to check field and child render types.
 
 ## Context and loaders are preparation
@@ -30,9 +33,8 @@ helpers are not assumed equivalent.
 Render fields and children directly. The checker also compares literal HTML
 text and semantic attributes with Markdown text, links, and code. It normalizes
 whitespace and removes Markdown formatting for this comparison; it does not
-infer that differently worded copy means the same thing. Literal contributions
-are compared by text node or Markdown block, so differently split text may need
-an explicit correspondence.
+infer that differently worded copy means the same thing. Literal contributions are compared by text node or Markdown block. Keeping
+shared copy together avoids false differences from differently split text.
 
 Known Markdown layout operations such as `cx.md_block_boundary()?` do not
 create content obligations. `cx.write_md_inline_code(value)` and
@@ -40,9 +42,9 @@ create content obligations. `cx.write_md_inline_code(value)` and
 value or child's coverage. Standard `Some(value)`, optional field presence,
 and `if let Some(value)` bindings are understood without annotations.
 
-Direct writes and opaque helpers that receive the output context remain
-unchecked unless their contributions have explicit mappings. The exemptions
-apply to recognized Proa APIs, rather than arbitrary methods named `load` or
+Direct writes and opaque helpers that receive the output context can remain
+unchecked. These analysis limitations are informational and need no annotation.
+The exemptions apply to recognized Proa APIs, rather than arbitrary methods named `load` or
 `loader`; nested render operations in preparation arguments are still inspected,
 and callbacks that may write remain unchecked. This body-content check does not
 compare response headers, head assets, or telemetry across targets.
@@ -115,9 +117,8 @@ This is an alternative Markdown implementation for a component whose HTML view
 renders that notice. Ordinary Rust type arguments apply: specify required
 lifetimes, type arguments, or const arguments as usual. The macro checks the
 type without constructing a child. For a child with type/const parameters, the bounded checker
-cannot infer its concrete instantiation; use an existing child local or named
-part instead of a type selector. If several distinct occurrences have different inputs or
-presence conditions, use a local or named part to narrow the exception.
+cannot infer its concrete instantiation; use an existing child local instead of a type selector. If several distinct occurrences have different inputs or
+presence conditions, use a local to narrow the exception.
 Markers acknowledge missing coverage or deliberate presence differences. An
 unconditional marker covers that contribution's source presence policy; a
 conditional marker must match the source condition.
@@ -141,48 +142,29 @@ A targeted marker is checked for stale, redundant, ambiguous, and unresolved
 selectors. Whole-view exemptions suppress pair checks, including marker checks.
 An omitted child in a parent does not exempt that child's own paired views.
 
-## Name contributions that look different
+## Helpers and shared inputs
 
-Reserve named parts for transformed content or a helper whose internals are
-outside the supported analysis. Ordinary fields, literal copy, and supported
-Markdown writers do not need them:
+Render ordinary fields, constants, and child components directly. The checker
+follows aliases, dereferences, helper arguments, and method receivers into
+rendered output. `text!()` contributes its literal text and rendered arguments.
+Different helpers can consume the same shared value without annotations:
 
 ```rust
 // HTML slot
-{proa_macros::content_part!("stock-status", status_badge(self.stock))}
+{status_badge(self.stock)}
 
 // Markdown slot
-{proa_macros::content_part!("stock-status", status_text(self.stock))}
+{status_text(self.stock)}
 ```
 
-`content_part!` evaluates its expression once and returns the original value.
-The name is an explicit author assertion about correspondence. It does not
-check the helper's meaning. Place the wrapper around the contribution inside its presence condition.
-Supported structural conditions inside a wrapper also retain their guards. A
-statement wrapper can map a helper that receives the output context or calls a
-registered render sink; an unused named value does not satisfy coverage.
+Both use `self.stock`. This is sufficient for input coverage, even though the
+checker does not inspect the helpers or prove that they render equivalent text.
+An unused helper result or a value read only in a condition does not count.
 
-To omit a named part, use the same file-level `omit` import shown above and
-put a string selector inside the Markdown method:
-
-```rust
-impl MdRenderSync for Product<'_> {
-    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        omit!("stock-status", "Shown in the overview instead");
-        md_sync! { r###"# {self.title}"### }.render_md(cx)
-    }
-}
-```
-
-The string selects a matching `content_part!` name or inferred literal text in
-the source view. For example, `omit!("Loading", "Visual loading indicator")`
-acknowledges a literal `aria-label="Loading"` absent from Markdown. Changing that
-label makes the exception stale. A selector matching several distinct
-contributions is ambiguous and waives none of them.
-
-A marker can filter its source target: `omit!(self.image, from = "html")`
-or `omit!(RestockNotice<'_>, "Browser only", from = "html")`.
-The initial registry uses `html` and `markdown` as target identifiers.
+String selectors in `omit!()` select literal copy, such as
+`omit!("Loading", "Visual loading indicator")`. Changing the source text makes
+that exception stale. Use fields, child types, or borrowed locals for dynamic
+content. No matching labels are required on the source renderer.
 
 ## Pairing and single-target components
 
@@ -198,9 +180,9 @@ If HTML and Markdown use separate types, explicitly select the source:
 impl MdRenderSync for MdProduct { /* ... */ }
 ```
 
-Use matching `content_part!` names for such pairs. Equal field spellings on two
-different types do not establish correspondence. Unmapped contributions remain
-partially checked rather than receiving a parity certificate.
+An explicit source policy pairs the two types by their rendered field names,
+shared constants, literals, and child inputs. The author is responsible for
+ensuring that corresponding fields mean the same thing.
 
 Pair identity includes the crate entry point, lexical module, component type,
 reference form, generic shape, non-render generic bounds, and cfg boundaries.
@@ -218,7 +200,7 @@ not a substitute for declaring correspondence when you want ongoing checks.
 ## Diagnostics and enforcement
 
 Diagnostics identify the component, source target, checked target, and specific
-value/child/part. Terminal output includes source frames in both files, a direct
+value, child, or literal. Terminal output includes source frames in both files, a direct
 cause, and a repair. Suggested omissions are scoped to an actual value or
 resolvable child. They are suggestions requiring author judgment; the linter
 never inserts an exception automatically.
@@ -226,14 +208,15 @@ never inserts an exception automatically.
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `render/content-coverage` | Error | A supported rendered contribution is absent. |
-| `render/content-coverage-unchecked` | Warning | Conditions, helpers, discovery, or another boundary prevent a conclusion. |
+| `render/content-coverage-unchecked` | Info / Warning | Opaque output is informational. Different presence conditions or ambiguous discovery remain warnings. |
 | `render/content-omit-stale` / `-redundant` / `-ambiguous` / `-unresolved` | Info | The targeted exception needs repair. |
 | `render/content-policy-invalid` | Error | The policy or target identifier is invalid. |
 
-Missing contributions fail `proa lint` by default. Unchecked coverage is visible
-at the default warning threshold and fails with `--deny-warnings`. `proa check`
-and lifecycle source checks fail on both errors and warnings; `proa check
---allow-warnings` permits unchecked coverage but still rejects missing content.
+Missing contributions fail `proa lint` by default. Opaque-output information is
+shown with `--min-severity info`, `--json`, or `--github`; it does not fail
+`--deny-warnings`. Different presence conditions and ambiguous discovery remain
+warnings. `proa check` and lifecycle source checks reject errors and warnings;
+`--allow-warnings` permits warnings but still rejects missing content.
 A targeted `omit!` marker acknowledges an intentional content difference.
 
 ```bash
@@ -277,12 +260,11 @@ attributes do not create content obligations. Attribute values being included
 elsewhere does not prove equivalent accessibility or link semantics. A
 collection's length does not cover its rendered elements.
 
-Known text and sync/async/Send adapters are transparent. General helpers,
-transforms, mutation/control flow, direct context writes, or futures with
-unknown invocation remain opaque. Forwarding input to a child does not prove
-that the child renders it. Unnamed static output is partially checked because
-syntax alone cannot establish a shared semantic role; static text cannot hide a
-confirmed missing dynamic child. Braces in Markdown code stay literal, and
+Known text and sync/async/Send adapters are transparent. General helpers and
+transforms are compared by their content inputs. Mutation/control flow, direct
+context writes, or futures with unknown invocation can remain opaque and are
+reported as informational. Forwarding input counts as coverage without proving
+that it is displayed. Static text cannot hide a confirmed missing dynamic child. Braces in Markdown code stay literal, and
 literal/named-argument source locations retain their authored positions.
 
 For sibling redistribution (for example, severity moved from Impact to Overview),

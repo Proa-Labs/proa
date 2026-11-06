@@ -14,6 +14,7 @@ _PROA_WATCH_CHILD_PGID=""
 
 proa_watch_lock_release() {
   local owner_pid=""
+  local stopped_child_pid="${1:-}"
 
   if [[ -z "$_PROA_WATCH_LOCK_DIR" ]] || [[ ! -d "$_PROA_WATCH_LOCK_DIR" ]]; then
     return
@@ -24,7 +25,8 @@ proa_watch_lock_release() {
   fi
 
   # Never remove a lock that another process acquired after this one.
-  if [[ "$owner_pid" != "$_PROA_WATCH_LOCK_OWNER_PID" ]]; then
+  if [[ "$owner_pid" != "$_PROA_WATCH_LOCK_OWNER_PID" &&
+        ( -z "$stopped_child_pid" || "$owner_pid" != "$stopped_child_pid" ) ]]; then
     return
   fi
 
@@ -35,10 +37,14 @@ proa_watch_lock_release() {
 proa_watch_lock_handle_signal() {
   local signal_name="$1"
   local exit_status="$2"
+  local child_pid="$_PROA_WATCH_CHILD_PID"
 
   # Do not let a second terminal signal interrupt cleanup and strand a child.
   trap '' HUP INT TERM
   proa_watch_stop_child_group "$signal_name"
+  # A signal can arrive after the PID file changes but before the owner
+  # variable does. Both the original owner and this stopped child are ours.
+  proa_watch_lock_release "$child_pid"
   exit "$exit_status"
 }
 

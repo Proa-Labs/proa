@@ -3,7 +3,7 @@
 
 use super::discover::Resolver;
 use super::*;
-use proa_dsl::content::{ContentPart, OmitContent, OmitSelector};
+use proa_dsl::content::{OmitContent, OmitSelector};
 use proa_dsl::md::{parse_template_input, ExprLocation, TemplateExpr, TplNode};
 use proa_dsl::parse::{Attribute, HtmlRoot, Node};
 use quote::ToTokens;
@@ -485,6 +485,9 @@ impl Analyzer<'_> {
             Expr::Paren(p) => self.expr(&p.expr, env, override_range),
             Expr::Group(g) => self.expr(&g.expr, env, override_range),
             Expr::Reference(r) => self.expr(&r.expr, env, override_range),
+            Expr::Unary(u) if matches!(u.op, syn::UnOp::Deref(_)) => {
+                self.expr(&u.expr, env, override_range)
+            }
             Expr::Try(t) => self.expr(&t.expr, env, override_range),
             Expr::Path(p) => {
                 if self.option_variant(&p.path, env, "None") {
@@ -517,6 +520,12 @@ impl Analyzer<'_> {
                     }
                 }
                 let path = self.resolver.path(&p.path);
+                if self.resolver.constants.contains_key(&path) {
+                    let mut value =
+                        self.part(ContentKey::Value(path.clone()), expr, override_range);
+                    value.symbol = Some(path);
+                    return value;
+                }
                 if self.resolver.unit_variants.contains(&path) {
                     let symbol = format!("@variant:{path}");
                     let mut value =
@@ -623,18 +632,12 @@ impl Analyzer<'_> {
                         return v;
                     }
                 }
-                let mut v = self.boundary(
-                    expr,
-                    format!(
-                        "helper `{}` produces output that is not analyzed",
-                        syntax(&c.func)
-                    ),
-                    override_range,
-                );
-                for arg in &c.args {
-                    v.deps.extend(self.expr(arg, env, override_range).deps);
-                }
-                v
+                let inputs = c
+                    .args
+                    .iter()
+                    .map(|arg| self.expr(arg, env, override_range))
+                    .collect();
+                self.helper_inputs(expr, inputs, override_range)
             }
             Expr::Struct(s) => {
                 if let Some(ty) = self.resolver.known_type(&s.path) {
@@ -693,7 +696,7 @@ impl Analyzer<'_> {
                 {
                     let mut value = self.boundary(
                         expr,
-                        "context metadata needs an explicit content mapping when rendered",
+                        "rendered context metadata is outside content input analysis",
                         override_range,
                     );
                     value.metadata = true;
@@ -766,16 +769,9 @@ impl Analyzer<'_> {
                         );
                     }
                 }
-                let mut v = self.boundary(
-                    expr,
-                    format!(
-                        "method `{}` transforms output without a content mapping",
-                        m.method
-                    ),
-                    override_range,
-                );
-                v.deps = receiver.deps;
-                v
+                let mut inputs = vec![receiver];
+                inputs.extend(m.args.iter().map(|arg| self.expr(arg, env, override_range)));
+                self.helper_inputs(expr, inputs, override_range)
             }
             Expr::Lit(l) => {
                 let meaningful = match &l.lit {
@@ -854,7 +850,7 @@ impl Analyzer<'_> {
                 {
                     v.boundaries.push(Boundary {
                         may_hide_content: true,
-                        message: "awaited output needs an explicit named content mapping".into(),
+                        message: "awaited output has an unknown invocation model".into(),
                         range: self.range(expr.span(), override_range),
                     });
                 }
@@ -989,90 +985,72 @@ impl Analyzer<'_> {
                 range: self.range(iter.span(), override_range),
             }])
     }
-    fn named_value(
-        &mut self,
-        role: &str,
+    // Receiving a rendered input counts as coverage. This deliberately does
+    // not claim to prove what an arbitrary helper does with that input.
+    fn helper_inputs(
+        &self,
         expr: &Expr,
-        env: &Env,
+        inputs: Vec<Value>,
         location: Option<&SourceRange>,
     ) -> Value {
-        if let Expr::If(condition) = expr {
-            let guard = self.predicate(&condition.cond, env, false, location);
-            let mut value = self
-                .named_block(role, &condition.then_branch, env, location)
-                .guarded(&[guard]);
-            if let Some((_, otherwise)) = &condition.else_branch {
-                let guard = self.predicate(&condition.cond, env, true, location);
-                value.append(
-                    self.named_value(role, otherwise, env, location)
-                        .guarded(&[guard]),
-                );
-            }
-            return value;
-        }
-        if let Expr::Block(block) = expr {
-            return self.named_block(role, &block.block, env, location);
-        }
-        if matches!(expr,Expr::Tuple(tuple) if tuple.elems.is_empty()) {
-            return Value::default();
-        }
-        let mut value = self.expr(expr, env, location);
-        if value.parts.is_empty() {
-            return self.part(ContentKey::Role(role.into()), expr, location);
-        }
-        for part in &mut value.parts {
-            part.key = ContentKey::Role(role.into());
-        }
-        value.boundaries.clear();
-        value.deps.clear();
-        value.symbol = None;
-        value.template = false;
-        value
-    }
-    fn named_block(
-        &mut self,
-        role: &str,
-        block: &syn::Block,
-        env: &Env,
-        location: Option<&SourceRange>,
-    ) -> Value {
-        let mut env = env.clone();
         let mut output = Value::default();
-        for statement in &block.stmts {
-            match statement {
-                Stmt::Local(local) => self.local(local, &mut env, location),
-                Stmt::Expr(expr, None) => output = self.named_value(role, expr, &env, location),
-                Stmt::Macro(mac) if mac.semi_token.is_none() => {
-                    output = self.named_value(
-                        role,
-                        &Expr::Macro(syn::ExprMacro {
-                            attrs: mac.attrs.clone(),
-                            mac: mac.mac.clone(),
-                        }),
-                        &env,
-                        location,
-                    )
+        for mut input in inputs {
+            if input.parts.is_empty() {
+                if let Some(symbol) = &input.symbol {
+                    if !symbol.starts_with("@context") {
+                        input.parts = self
+                            .part(ContentKey::Value(symbol.clone()), expr, location)
+                            .parts;
+                    }
                 }
-                _ => {}
             }
+            output.append(input);
+        }
+        if output.parts.is_empty() && output.boundaries.is_empty() {
+            return self.boundary(
+                expr,
+                "helper output has no traceable content inputs",
+                location,
+            );
         }
         output
     }
+
     fn template(
         &mut self,
         expr: &syn::ExprMacro,
         env: &Env,
         override_range: Option<&SourceRange>,
     ) -> Value {
-        let path = self.resolver.path(&expr.mac.path);
-        if path == "proa_macros::content_part" {
-            return match syn::parse2::<ContentPart>(expr.mac.tokens.clone()) {
-                Ok(part) => self.named_value(&part.role.value(), &part.value, env, override_range),
-                Err(err) => {
-                    self.boundary(&Expr::Macro(expr.clone()), err.to_string(), override_range)
+        if let Some(parsed) = proa_dsl::text::parse_expr(&Expr::Macro(expr.clone())) {
+            return match parsed {
+                Ok(parsed) => {
+                    let mut output = Value::default();
+                    for segment in parsed.segments {
+                        match segment {
+                            proa_dsl::text::Segment::Static(text) => {
+                                let mut value =
+                                    self.literal(&text, self.range(expr.span(), override_range));
+                                value.deps.insert(format!("@literal:{text:?}"));
+                                output.append(value);
+                            }
+                            proa_dsl::text::Segment::Bare { index }
+                            | proa_dsl::text::Segment::Formatted { index, .. } => {
+                                output.append(self.expr(&parsed.args[index], env, override_range));
+                            }
+                        }
+                    }
+                    output.template = true;
+                    output
                 }
+                Err(error) => self.boundary(
+                    &Expr::Macro(expr.clone()),
+                    error.to_string(),
+                    override_range,
+                ),
             };
         }
+        let path = self.resolver.path(&expr.mac.path);
         if !self.target.templates.contains(&path) {
             return self.boundary(
                 &Expr::Macro(expr.clone()),
@@ -1136,6 +1114,17 @@ impl Analyzer<'_> {
                 Node::Block(e) => v.append(self.expr(e, env, override_range)),
                 Node::Fragment(nodes) => v.append(self.html(nodes, env, override_range)),
                 Node::Element(e) => {
+                    // Document metadata and stylesheet assets are not body copy.
+                    if e.tag_str() == "head"
+                        || (e.tag_str() == "link"
+                            && e.attrs.iter().any(|attr| {
+                                matches!(attr,
+                                Attribute::Static { name, value }
+                                if name.as_markup_str() == "rel" && value.value() == "stylesheet")
+                            }))
+                    {
+                        continue;
+                    }
                     for attr in &e.attrs {
                         if let Attribute::Static { name, value } = attr {
                             if matches!(
@@ -1283,7 +1272,7 @@ impl Analyzer<'_> {
                 } else if value
                     .parts
                     .iter()
-                    .any(|p| matches!(p.key, ContentKey::Child { .. } | ContentKey::Role(_)))
+                    .any(|p| matches!(p.key, ContentKey::Child { .. }))
                 {
                     OmissionKey::Contributions(value.parts.iter().map(|p| p.key.clone()).collect())
                 } else {
@@ -1303,13 +1292,13 @@ impl Analyzer<'_> {
                         syn::PathArguments::None => false,
                     });
                     if generic_arguments {
-                        OmissionKey::Unknown("the child's concrete generic instantiation cannot be resolved; omit an existing child local or give it a content_part! name".into())
+                        OmissionKey::Unknown("the child's concrete generic instantiation cannot be resolved; omit an existing child local".into())
                     } else {
                         self.resolver
                         .known_type(&path.path)
                         .map(|ty| {
                             if self.resolver.generic_children.contains(&ty) {
-                                OmissionKey::Unknown("the child's concrete generic instantiation cannot be resolved; omit an existing child local or give it a content_part! name".into())
+                                OmissionKey::Unknown("the child's concrete generic instantiation cannot be resolved; omit an existing child local".into())
                             } else { OmissionKey::Child(ty) }
                         })
                         .unwrap_or_else(|| {
@@ -1320,7 +1309,7 @@ impl Analyzer<'_> {
                     OmissionKey::Unknown(format!("unresolved child type `{}`", syntax(&ty)))
                 }
             }
-            OmitSelector::Role(r) => OmissionKey::Role(r.value()),
+            OmitSelector::Literal(r) => OmissionKey::Literal(r.value()),
         };
         self.omissions.push(Omission {
             selector,
@@ -1342,18 +1331,6 @@ impl Analyzer<'_> {
                 }
                 Stmt::Macro(m) if self.resolver.path(&m.mac.path) == "proa_macros::omit" => {
                     self.marker(&m.mac, &env, guards)
-                }
-                Stmt::Macro(mac)
-                    if self.resolver.path(&mac.mac.path) == "proa_macros::content_part" =>
-                {
-                    result.append(self.sinks(
-                        &Expr::Macro(syn::ExprMacro {
-                            attrs: mac.attrs.clone(),
-                            mac: mac.mac.clone(),
-                        }),
-                        &mut env,
-                        guards,
-                    ))
                 }
                 Stmt::Expr(e, _) => result.append(self.sinks(e, &mut env, guards)),
                 Stmt::Item(_) => {}
@@ -1703,30 +1680,6 @@ impl Analyzer<'_> {
                 }
                 Value::default()
             }
-            Expr::Macro(mac)
-                if self.resolver.path(&mac.mac.path) == "proa_macros::content_part" =>
-            {
-                match syn::parse2::<ContentPart>(mac.mac.tokens.clone()) {
-                    Ok(part) => {
-                        let mut value = self.sinks(&part.value, env, guards);
-                        if value.parts.is_empty() && value.boundaries.is_empty() {
-                            return value;
-                        }
-                        if value.parts.is_empty() {
-                            value = self
-                                .part(ContentKey::Role(part.role.value()), expr, None)
-                                .guarded(guards);
-                        } else {
-                            for contribution in &mut value.parts {
-                                contribution.key = ContentKey::Role(part.role.value());
-                            }
-                        }
-                        value.boundaries.clear();
-                        value
-                    }
-                    Err(error) => self.boundary(expr, error.to_string(), None),
-                }
-            }
             Expr::Macro(m) if self.resolver.path(&m.mac.path) == "proa_macros::omit" => {
                 self.marker(&m.mac, env, guards);
                 Value::default()
@@ -1815,7 +1768,7 @@ impl Analyzer<'_> {
                 if self.output_arg(&m.receiver, env)
                     || m.args.iter().any(|a| self.output_arg(a, env))
                 {
-                    self.boundary(expr,"direct context writes or unregistered output methods need a named content mapping",None)
+                    self.boundary(expr,"direct context writes or unregistered output methods are outside input analysis",None)
                 } else {
                     let mut value = self.sinks(&m.receiver, env, guards);
                     for arg in &m.args {
