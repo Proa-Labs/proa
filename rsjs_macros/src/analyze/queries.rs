@@ -19,6 +19,33 @@ pub(super) fn request_config_expr(
     if let Expr::Struct(s) = expr {
         return fetch_request_struct_expr(s, default_method);
     }
+    if let Expr::MethodCall(call) = expr {
+        if call.method == "url"
+            && matches!(call.receiver.as_ref(), Expr::Path(path) if path.path.is_ident("cx"))
+        {
+            if call.args.len() != 1 {
+                return Err(syn::Error::new(
+                    call.span(),
+                    "`cx.url(...)` request URL requires one string literal path",
+                ));
+            }
+            let url = parse_static_string_field(
+                &call.args[0],
+                "`cx.url(...)` request URL must be a string literal",
+            )?;
+            let descriptor = json!({ "url": url, "apply_base_path": true });
+            let encoded = rsjs_transport::canonical_json_bytes(&descriptor).map_err(|err| {
+                syn::Error::new(
+                    call.span(),
+                    format!("failed to encode `cx.url(...)`: {err}"),
+                )
+            })?;
+            return Ok(FrontendExpr::Literal(Value::String(
+                String::from_utf8(encoded)
+                    .expect("canonical JSON serialization always produces valid UTF-8"),
+            )));
+        }
+    }
     Err(syn::Error::new(expr.span(), message))
 }
 
@@ -735,5 +762,26 @@ mod request_base_path_tests {
             }
         });
         assert!(opted_out.get("apply_base_path").is_none());
+    }
+
+    #[test]
+    fn cx_url_encodes_a_mounted_request_for_queries_and_mutations() {
+        let expr = syn::parse_quote! { cx.url("/api/items") };
+        let query = request_config_expr(&expr, "GET", "invalid request").unwrap();
+        let mutation = request_config_expr(&expr, "POST", "invalid request").unwrap();
+        for request in [query, mutation] {
+            let FrontendExpr::Literal(Value::String(json)) = request else {
+                panic!("cx.url should lower to a JSON descriptor");
+            };
+            let descriptor: JsonValue = serde_json::from_str(&json).unwrap();
+            assert_eq!(descriptor["url"], "/api/items");
+            assert_eq!(descriptor["apply_base_path"], true);
+        }
+
+        let dynamic: Expr = syn::parse_quote! { cx.url(path) };
+        assert!(request_config_expr(&dynamic, "GET", "invalid request")
+            .unwrap_err()
+            .to_string()
+            .contains("must be a string literal"));
     }
 }

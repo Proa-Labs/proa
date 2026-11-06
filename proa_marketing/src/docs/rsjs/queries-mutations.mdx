@@ -11,6 +11,10 @@ targets the origin root even if the app is mounted under `/apps/demo`. For an
 endpoint served by the mounted app, set `FetchRequest.apply_base_path: true`;
 the runtime then requests `/apps/demo/api/items`. Keep that endpoint's server
 route unprefixed. Absolute URLs and already-mounted URLs remain unchanged.
+For a simple JSON GET or POST, pass `cx.url("/api/items")` directly as the
+query or mutation request argument. Use a literal path in that direct call. It
+uses the same mount behavior without a `FetchRequest` descriptor. Use
+`FetchRequest` when request options are needed.
 This works when the runtime is served with `FrameworkBuilder::with_rsjs_assets()`
 and `with_base_path(...)`. Custom runtime handlers configure the source with
 `rsjs::runtime_assets::with_base_path`.

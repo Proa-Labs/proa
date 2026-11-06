@@ -211,7 +211,8 @@ The prefix affects outgoing URLs, not incoming routing. `Font::head(cx)`,
 compiled docs article URL attributes, shell navigation, and search artifacts
 share it; pass the same context to fonts and use `response_with_base_path` in
 custom docs handlers. Linked query/mutation runtimes compose endpoint URLs
-when `FetchRequest.apply_base_path` is true. Managed CSS/JS services compose
+when passed `cx.url("/api/items")` directly or when
+`FetchRequest.apply_base_path` is true. Managed CSS/JS services compose
 recognized URL syntax, leaving
 ordinary strings unchanged; custom browser clients can import `app_url` from
 `/rsjs-runtime.js`. Use `BasePathHtml` for trusted compiled HTML whose URL

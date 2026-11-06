@@ -683,7 +683,8 @@ impl Analyzer {
             &call.args[2],
             "GET",
             "`query_with_initial(...)` client_fetcher must be a literal URL string, \
-                 signal-backed URL expression, or `rsjs::FetchRequest { ... }`",
+                 `cx.url(\"/...\")`, signal-backed URL expression, or \
+                 `rsjs::FetchRequest { ... }`",
         ) {
             Ok(expr) => expr,
             Err(static_err) => self
@@ -785,8 +786,9 @@ impl Analyzer {
         let client_runner = match request_config_expr(
             &call.args[1],
             "POST",
-            "`mutation(...)` client_runner must be a literal URL string, signal-backed URL \
-                 expression, JSON runner config, or `rsjs::FetchRequest { ... }`",
+            "`mutation(...)` client_runner must be a literal URL string, \
+                 `cx.url(\"/...\")`, signal-backed URL expression, JSON runner config, \
+                 or `rsjs::FetchRequest { ... }`",
         ) {
             Ok(expr) => expr,
             Err(static_err) => self
