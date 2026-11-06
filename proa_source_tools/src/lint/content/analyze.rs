@@ -1029,9 +1029,10 @@ impl Analyzer<'_> {
                     for segment in parsed.segments {
                         match segment {
                             proa_dsl::text::Segment::Static(text) => {
-                                output.append(
-                                    self.literal(&text, self.range(expr.span(), override_range)),
-                                );
+                                let mut value =
+                                    self.literal(&text, self.range(expr.span(), override_range));
+                                value.deps.insert(format!("@literal:{text:?}"));
+                                output.append(value);
                             }
                             proa_dsl::text::Segment::Bare { index }
                             | proa_dsl::text::Segment::Formatted { index, .. } => {

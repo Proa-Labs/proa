@@ -1495,6 +1495,34 @@ fn repeated_inputs_do_not_impose_output_cardinality() {
 }
 
 #[test]
+fn text_macro_child_inputs_preserve_literal_copy() {
+    for text in [
+        r#"proa_macros::text!("Before")"#,
+        r#"proa_macros::text!("Before: {}", self.stock)"#,
+    ] {
+        let html = format!("html_sync! {{{{RestockNotice::new({text})}}}}.render(cx)");
+        for (markdown, expected_code) in [
+            (
+                format!(
+                    r####"md_sync! {{r###"{{RestockNotice::new({text})}}"###}}.render_md(cx)"####
+                ),
+                "render/content-coverage-unchecked",
+            ),
+            (
+                format!("summary({text}).render_md(cx)"),
+                "render/content-coverage",
+            ),
+        ] {
+            let matching = lint(&fixture(&html, &markdown));
+            assert!(matching.is_empty(), "{text}: {matching:?}");
+
+            let changed = lint(&fixture(&html, &markdown.replace("Before", "After")));
+            assert_eq!(code(&changed, expected_code), 1, "{text}: {changed:?}");
+        }
+    }
+}
+
+#[test]
 fn constants_dereferences_and_url_children_need_no_content_markers() {
     let source = fixture(
         "html_sync! {{TITLE}<img src={self.image} />{for item in self.items {html_sync! {{*item}}}}}.render(cx)",
