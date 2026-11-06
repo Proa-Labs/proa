@@ -50,9 +50,11 @@ for the installed routes and custom-router alternative, and
 for the proxy configuration example.
 
 The linked core and query runtimes export `app_url(path)` for handwritten
-browser code. With a mount configured, query/mutation request descriptors
-compose root-relative endpoints automatically, including runtime-computed
-fetchers. Already-mounted browser URLs and external URLs stay unchanged.
+browser code. Query/mutation request URLs use normal browser resolution
+unless the request descriptor sets `apply_base_path: true`. In Rust, pass
+`cx.url("/api/items")` or set `FetchRequest.apply_base_path: true` to opt in.
+Opted-in requests follow the configured mount. Already-mounted browser URLs
+and external URLs stay unchanged.
 Custom runtime servers can call `rsjs::runtime_assets::with_base_path(source,
 &base_path)` before serving either runtime; use the same setting for both.
 

@@ -80,7 +80,8 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa_f
 These methods configure separate parts of the application:
 
 - `with_base_path(BasePath)` sets the public mount used by `cx.url(...)`
-  and framework-generated URLs, including island query/mutation requests.
+  and framework-generated URLs. Island query/mutation requests follow it only
+  when declared with `cx.url(...)` or `FetchRequest.apply_base_path: true`.
   Managed static CSS/JS URLs follow it too. Its default is the origin root.
 - `with_rsjs_assets()` installs routes for the RSJS runtimes and linked modules.
   Enable it when this app serves its own island assets, including at the origin
