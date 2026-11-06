@@ -28,6 +28,8 @@ def run(arguments: list[str], directory: Path, environment: dict[str, str]) -> s
 def check(work: Path, message: str, expected: str, environment: dict[str, str]) -> None:
     project = work / "project"
     project.mkdir(parents=True)
+    # Fixtures live outside the checkout, so preserve its compiler selection.
+    shutil.copy2(ROOT / "rust-toolchain.toml", project / "rust-toolchain.toml")
     workspace = tomllib.loads((ROOT / "Cargo.toml").read_text())
     toml_version = workspace["workspace"]["dependencies"]["toml"]["version"]
     (project / "Cargo.toml").write_text('''[workspace]
