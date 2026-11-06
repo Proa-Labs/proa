@@ -2363,6 +2363,9 @@ pub enum RequestBody {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FetchRequest {
     pub url: &'static str,
+    /// Prefix root-relative URLs with the application's configured base path.
+    /// By default, URLs use normal browser resolution (`/api` stays at the origin root).
+    pub apply_base_path: bool,
     pub method: Option<HttpMethod>,
     pub credentials: Option<FetchCredentials>,
     pub response: Option<ResponseKind>,
@@ -2394,6 +2397,8 @@ impl QueryKey {
 /// that implements `serde::Serialize`. The component attribute records it in
 /// the page-level query seed table, while adjacent per-island query metadata only
 /// carries the effective key needed to find that seed.
+/// Pass `cx.url("/api/items")` as `client_fetcher` for an endpoint mounted under
+/// the application's base path. A plain `"/api/items"` targets the origin root.
 pub fn query_with_initial<T>(
     _key: impl Sized,
     _initial: T,
@@ -2559,6 +2564,8 @@ impl Default for MutationOptions {
 
 /// Declare a fetch-backed mutation with the v0.1 authoring contract:
 /// `(key, client_runner, invalidates)`.
+/// Pass `cx.url("/api/items")` as `client_runner` for an endpoint mounted under
+/// the application's base path.
 pub fn mutation<Args, Result>(
     _key: impl Sized,
     _client_runner: impl Sized,

@@ -149,6 +149,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for Query
                     headers: &[("Accept", "text/plain"), ("X-RSJS", "1")],
                     body: Some(rsjs::RequestBody::Json(r#"{"symbol":"AAPL"}"#)),
                     timeout_ms: Some(1_500),
+                    ..Default::default()
                 },
                 rsjs::QueryOptions {
                     interval_ms: Some(5_000),
@@ -169,6 +170,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for Query
                     headers: &[("X-Mutate", "1")],
                     body: None,
                     timeout_ms: Some(2_500),
+                    ..Default::default()
                 },
                 &[rsjs::QueryKey::new(("stock", selected.get()))],
                 rsjs::MutationOptions {
@@ -837,6 +839,52 @@ impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
 }
 
 pub struct DynamicQueryUrlIsland;
+
+pub struct ContextUrlRequestsIsland;
+
+#[rsjs(component, client)]
+impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
+    for ContextUrlRequestsIsland
+{
+    fn render(
+        self,
+        render_ctx: &mut WebContext<L, B>,
+    ) -> proa_core::RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        proa_core::RenderOutcome::pending(async move {
+            let price: rsjs::Query<i64> = rsjs::query_with_initial(
+                rsjs::QueryKey::new(("stock", "AAPL")),
+                172_i64,
+                render_ctx.url("/api/stocks/AAPL"),
+                rsjs::QueryOptions::default(),
+            );
+            let save = rsjs::mutation::<(), ()>(
+                rsjs::QueryKey::new(("stock", "save")),
+                render_ctx.url("/api/stocks/AAPL"),
+                &[rsjs::QueryKey::new(("stock", "AAPL"))],
+            );
+            proa_macros::html! {
+                <div>
+                    <span>{price.data()}</span>
+                    <button type="button" on_click={|_| save.run(())}>"Save"</button>
+                </div>
+            }
+            .render(render_ctx)
+            .resolve()
+            .await
+        })
+    }
+}
+
+#[test]
+fn rsjs_lowers_cx_url_for_query_and_mutation_requests() {
+    let island = rsjs::manifest()
+        .islands
+        .into_iter()
+        .find(|island| island.struct_name == "ContextUrlRequestsIsland")
+        .expect("cx.url request island registered");
+    assert_eq!(island.js_source.matches("apply_base_path").count(), 2);
+    assert!(island.js_source.contains("/api/stocks/AAPL"));
+}
 
 #[rsjs(component, client)]
 impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for DynamicQueryUrlIsland {

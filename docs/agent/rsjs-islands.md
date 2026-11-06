@@ -746,6 +746,8 @@ Use a literal URL for the common client refetch case, or `rsjs::FetchRequest`
 when the browser request needs method, headers, body, credentials, timeout, or
 non-JSON response decoding. `query_with_initial(...)` is the only Rust query
 declaration surface; there is no separate static-JSON query form.
+Pass `cx.url("/api/items")` directly as the request argument when the endpoint
+belongs to the mounted app; a plain `"/api/items"` targets the origin root.
 Event handlers can call `query.refetch()` to fetch immediately or
 `query.invalidate()` to mark the cache stale and refetch when the query is
 observed.
@@ -776,6 +778,7 @@ impl<L: DataLoader> WebRender<L> for StockTicker {
                 initial_price,
                 rsjs::FetchRequest {
                     url: "/api/stocks/AAPL",
+                    apply_base_path: true,
                     headers: &[("Accept", "application/json")],
                     timeout_ms: Some(5_000),
                     ..Default::default()
@@ -793,6 +796,7 @@ impl<L: DataLoader> WebRender<L> for StockTicker {
                 rsjs::QueryKey::new(("update_cart", "AAPL")),
                 rsjs::FetchRequest {
                     url: "/api/cart",
+                    apply_base_path: true,
                     method: Some(rsjs::HttpMethod::Patch),
                     credentials: Some(rsjs::FetchCredentials::SameOrigin),
                     response: Some(rsjs::ResponseKind::Empty),

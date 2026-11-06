@@ -247,6 +247,7 @@ impl<L: DataLoader> WebRender<L> for CartUpdater {
                 rsjs::QueryKey::new(("cart", "update")),
                 rsjs::FetchRequest {
                     url: "/api/cart",
+                    apply_base_path: true,
                     method: Some(rsjs::HttpMethod::Patch),
                     credentials: Some(rsjs::FetchCredentials::SameOrigin),
                     response: Some(rsjs::ResponseKind::Empty),

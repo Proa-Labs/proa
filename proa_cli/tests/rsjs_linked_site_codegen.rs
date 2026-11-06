@@ -549,6 +549,7 @@ mod mutation_ui {
                         headers: &[("X-Mutation", "linked-owner")],
                         body: None,
                         timeout_ms: Some(2_500),
+                        ..Default::default()
                     },
                     &[rsjs::QueryKey::new(("results", "rust"))],
                     rsjs::MutationOptions {

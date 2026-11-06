@@ -7,6 +7,7 @@ use rsjs_ir::client::{client_block_json, ClientObjectField, ClientType};
 fn test_analyzer() -> Analyzer {
     Analyzer {
         builder: IslandBuilder::new(),
+        context_ident: syn::parse_quote!(cx),
         shared_stores: HashMap::new(),
         shared_fields: HashMap::new(),
         signals: HashMap::new(),

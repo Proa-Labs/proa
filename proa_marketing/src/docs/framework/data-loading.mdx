@@ -198,6 +198,7 @@ impl<L: DataLoader> WebRender<L> for ProductPrice {
                 initial,
                 rsjs::FetchRequest {
                     url: "/api/products/sku_1",
+                    apply_base_path: true,
                     response: Some(rsjs::ResponseKind::Json),
                     ..Default::default()
                 },
@@ -254,6 +255,7 @@ impl<L: DataLoader> WebRender<L> for ProductEditor {
                 rsjs::QueryKey::new(("product", "sku_1", "restock")),
                 rsjs::FetchRequest {
                     url: "/api/products/sku_1/stock",
+                    apply_base_path: true,
                     method: Some(rsjs::HttpMethod::Patch),
                     credentials: Some(rsjs::FetchCredentials::SameOrigin),
                     response: Some(rsjs::ResponseKind::Empty),
