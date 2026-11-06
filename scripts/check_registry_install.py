@@ -10,9 +10,11 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -22,6 +24,28 @@ import urllib.request
 def run(arguments: list[str], cwd: Path, environment: dict[str, str]) -> None:
     print("$ " + " ".join(arguments), flush=True)
     subprocess.run(arguments, cwd=cwd, env=environment, check=True)
+
+
+def registry_metadata(project: Path, environment: dict[str, str]) -> dict:
+    command = ["cargo", "metadata", "--format-version", "1"]
+    for attempt in range(3):
+        print(f"$ cargo metadata --format-version 1 (attempt {attempt + 1}/3)", flush=True)
+        result = subprocess.run(command, cwd=project, env=environment,
+                                capture_output=True, text=True)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="", flush=True)
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+        pending_version = re.search(
+            r"(?:failed to select a version for the requirement|no matching package named) "
+            r"`(?:proa[_-]|rsjs)[^`]*`",
+            result.stderr,
+        )
+        if attempt == 2 or not pending_version:
+            result.check_returncode()
+        delay = 5 * (attempt + 1)
+        print(f"Registry version may still be indexing; retrying resolution in {delay}s", flush=True)
+        time.sleep(delay)
 
 
 def smoke_http(binary: Path, project: Path, environment: dict[str, str], template: str) -> None:
@@ -115,9 +139,7 @@ def main() -> None:
         project = work / f"registry-smoke-{template}"
         run([str(proa), "new", "site", str(project), "--template", template,
              "--yes", "--no-git", "--offline"], work, environment)
-        metadata = json.loads(subprocess.check_output(
-            ["cargo", "metadata", "--format-version", "1"], cwd=project,
-            env=environment, text=True))
+        metadata = registry_metadata(project, environment)
         proa_packages = [package for package in metadata["packages"]
                          if package["name"].startswith(("proa_", "rsjs"))
                          or package["name"] == "itoa_lut"]

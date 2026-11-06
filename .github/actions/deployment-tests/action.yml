@@ -11,6 +11,8 @@ runs:
       shell: bash
       run: |
         python3 scripts/test_build_workspace.py
+        python3 scripts/test_origin_scaffold.py
+        python3 scripts/test_registry_install.py
         TMPDIR="$RUNNER_TEMP" PYTHONPATH=deploy \
           python3 scripts/run_unittest_shards.py \
           --start-directory deploy \

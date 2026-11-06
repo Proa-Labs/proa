@@ -76,7 +76,7 @@ elif tool == "release-plz":
             sys.exit(1)
         state["libraries_published"] = True
         state_path.write_text(json.dumps(state))
-elif tool != "install.sh":
+else:
     sys.exit("unexpected tool: " + tool)
 '''
 
@@ -94,7 +94,7 @@ class ReleaseFlowTests(unittest.TestCase):
         for name in ("release-plz", "cargo-semver-checks", "git", "gh", "cargo", "rustup"):
             self.write_stub(self.bin / name)
         shutil.copy2(ROOT / "release-plz.toml", self.root / "release-plz.toml")
-        for name in ("check_publish_policy.py", "check_crate_archives.py", "check_registry_install.py", "install.sh"):
+        for name in ("check_publish_policy.py", "check_crate_archives.py", "check_registry_install.py"):
             self.write_stub(scripts / name)
         (scripts / "install.sh").write_text("#!/bin/sh\nexit 0\n")
         self.log = self.root / "invocations.jsonl"

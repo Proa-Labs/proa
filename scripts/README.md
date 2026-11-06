@@ -205,10 +205,20 @@ before publishing their archives. Experimental main snapshots instead run
 ORIGIN acceptance against workspace libraries, allowing snapshots of APIs
 that have not been released to crates.io yet.
 
+Registry resolution retries unavailable Proa/RSJS versions up to three times,
+waiting 5 then 10 seconds for index propagation. Build, test, and HTTP failures
+still stop the release. The workflow budgets include all five cold scaffold
+builds: 120 minutes for CLI binaries and 180 minutes for the full crate release.
+
 The CLI derives generated dependency versions from its Cargo dev-dependency
 declarations at build time. Workspace builds resolve inherited declarations;
 packaged builds read Cargo’s normalized manifest. Normal version updates therefore
 update both the library requirements and scaffold versions.
+
+`release` publishes the versions prepared in package manifests; `release-pr`
+is a separate version/changelog preparation step. Packages with source or
+dependency changes need new versions, while unchanged published packages keep
+their existing versions. Unpublished packages can retain their initial version.
 
 `release --dry-run` is also accepted locally. A multi-crate publication dry run
 can fail when a consumer needs an internal dependency version or feature that
@@ -311,6 +321,8 @@ The registry checker installs the latest stable CLI by default. Its optional
 `--cli /path/to/proa` to check a candidate build (with `cargo-proa` alongside it),
 or repeat `--template origin` to select individual templates. Both modes use
 an isolated Cargo home and leave generated dependency declarations unchanged.
+The work directory retains projects, logs, and target artifacts for inspection;
+each invocation creates a fresh Cargo home, including its registry download cache.
 
 `--only crate1,crate2` selects packages. `--skip-published` checks exact versions
 through the public crates.io API without sending a token. `--no-verify` skips

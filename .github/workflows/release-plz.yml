@@ -66,7 +66,7 @@ jobs:
     # current main commit immediately before a live PR or publication.
     if: github.event_name == 'workflow_dispatch'
     runs-on: gcp-pr-ci
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Require main for manual dispatches
         env:

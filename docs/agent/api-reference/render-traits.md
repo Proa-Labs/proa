@@ -390,7 +390,7 @@ without authored Markdown through a tuple, which adds no boundaries. See
 Enable the optional converter on the core dependency:
 
 ```toml
-proa_core = { version = "0.3.0", features = ["html-to-markdown"] }
+proa_core = { version = "0.4.0", features = ["html-to-markdown"] }
 ```
 
 A synchronous HTML component can delegate its Markdown implementation without
