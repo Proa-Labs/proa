@@ -149,6 +149,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for Query
                     headers: &[("Accept", "text/plain"), ("X-RSJS", "1")],
                     body: Some(rsjs::RequestBody::Json(r#"{"symbol":"AAPL"}"#)),
                     timeout_ms: Some(1_500),
+                    ..Default::default()
                 },
                 rsjs::QueryOptions {
                     interval_ms: Some(5_000),
@@ -169,6 +170,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B> for Query
                     headers: &[("X-Mutate", "1")],
                     body: None,
                     timeout_ms: Some(2_500),
+                    ..Default::default()
                 },
                 &[rsjs::QueryKey::new(("stock", selected.get()))],
                 rsjs::MutationOptions {

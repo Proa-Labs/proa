@@ -305,6 +305,7 @@ impl<L: DataLoader> WebRender<L> for StockTile {
                 initial,
                 rsjs::FetchRequest {
                     url: "/api/stock/AAPL",
+                    apply_base_path: true,
                     method: Some(rsjs::HttpMethod::Get),
                     ..Default::default()
                 },

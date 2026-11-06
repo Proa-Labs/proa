@@ -6,12 +6,14 @@ keywords: [query, mutation, fetch]
 
 An RSJS query starts from the value the server already rendered, so the first paint and the browser cache agree. This page covers [seeding a query](#seeding-a-query-from-server-data), [awaiting the initial value](#awaiting-the-initial-value), [query keys](#choosing-query-keys), [reads](#reading-query-state), and [mutations](#running-mutations).
 
-When served with `FrameworkBuilder::with_rsjs_assets()` and
-`with_base_path(...)`, root-relative query and mutation endpoints follow that
-public mount automatically. For example, `/api/items` becomes
-`/apps/demo/api/items`. Keep the endpoint's server route unprefixed; absolute
-external URLs and already-mounted browser URLs remain unchanged. Custom runtime
-handlers configure the source with `rsjs::runtime_assets::with_base_path`.
+Query and mutation URLs use normal browser resolution by default: `/api/items`
+targets the origin root even if the app is mounted under `/apps/demo`. For an
+endpoint served by the mounted app, set `FetchRequest.apply_base_path: true`;
+the runtime then requests `/apps/demo/api/items`. Keep that endpoint's server
+route unprefixed. Absolute URLs and already-mounted URLs remain unchanged.
+This works when the runtime is served with `FrameworkBuilder::with_rsjs_assets()`
+and `with_base_path(...)`. Custom runtime handlers configure the source with
+`rsjs::runtime_assets::with_base_path`.
 See [runtime wiring](/docs/rsjs/runtime#serving-linked-assets-with-axum).
 
 ## Seeding a query from server data
@@ -47,6 +49,7 @@ impl<L: DataLoader> WebRenderSync<L> for StockTile {
             self.initial,
             rsjs::FetchRequest {
                 url: "/api/stocks/AAPL",
+                apply_base_path: true,
                 response: Some(rsjs::ResponseKind::Json),
                 headers: &[("Accept", "application/json")],
                 timeout_ms: Some(1_500),
@@ -113,6 +116,7 @@ impl<L: DataLoader> WebRender<L> for AsyncStockTile {
                 initial,
                 rsjs::FetchRequest {
                     url: "/api/stocks/AAPL",
+                    apply_base_path: true,
                     response: Some(rsjs::ResponseKind::Json),
                     ..Default::default()
                 },
@@ -173,6 +177,7 @@ or mutation payload; keep the endpoint shape in the descriptor.
 ```rust filename="src/components/stock_tile.rs"
 rsjs::FetchRequest {
     url: "/api/stocks/AAPL",
+    apply_base_path: true,
     method: Some(rsjs::HttpMethod::Post),
     credentials: Some(rsjs::FetchCredentials::SameOrigin),
     response: Some(rsjs::ResponseKind::Json),
@@ -265,6 +270,7 @@ impl<L: DataLoader> WebRender<L> for CartEditor {
                 QueryKey::new(("cart", "update")),
                 rsjs::FetchRequest {
                     url: "/api/cart",
+                    apply_base_path: true,
                     method: Some(rsjs::HttpMethod::Patch),
                     credentials: Some(rsjs::FetchCredentials::SameOrigin),
                     response: Some(rsjs::ResponseKind::Empty),
@@ -317,6 +323,7 @@ let save = rsjs::mutation_with_options::<String, ()>(
     QueryKey::new(("cart", "update")),
     rsjs::FetchRequest {
         url: "/api/cart",
+        apply_base_path: true,
         method: Some(rsjs::HttpMethod::Patch),
         response: Some(rsjs::ResponseKind::Empty),
         ..Default::default()

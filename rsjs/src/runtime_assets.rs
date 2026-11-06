@@ -14,7 +14,8 @@ pub const CORE_JS: &str = include_str!("../runtime/rsjs-runtime.js");
 pub const QUERY_JS: &str = include_str!("../runtime/rsjs-runtime-query.js");
 
 /// Configure a linked core or query runtime for this deployment at startup.
-/// Query/mutation request URLs and the browser `app_url` helper share the mount.
+/// Query/mutation requests that opt into the base path and the browser
+/// `app_url` helper share the mount.
 /// The source stays borrowed for origin-root deployments.
 pub fn with_base_path<'a>(
     source: &'a str,

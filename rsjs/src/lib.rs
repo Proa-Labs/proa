@@ -2363,6 +2363,9 @@ pub enum RequestBody {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FetchRequest {
     pub url: &'static str,
+    /// Prefix root-relative URLs with the application's configured base path.
+    /// By default, URLs use normal browser resolution (`/api` stays at the origin root).
+    pub apply_base_path: bool,
     pub method: Option<HttpMethod>,
     pub credentials: Option<FetchCredentials>,
     pub response: Option<ResponseKind>,

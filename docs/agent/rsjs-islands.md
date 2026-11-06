@@ -776,6 +776,7 @@ impl<L: DataLoader> WebRender<L> for StockTicker {
                 initial_price,
                 rsjs::FetchRequest {
                     url: "/api/stocks/AAPL",
+                    apply_base_path: true,
                     headers: &[("Accept", "application/json")],
                     timeout_ms: Some(5_000),
                     ..Default::default()
@@ -793,6 +794,7 @@ impl<L: DataLoader> WebRender<L> for StockTicker {
                 rsjs::QueryKey::new(("update_cart", "AAPL")),
                 rsjs::FetchRequest {
                     url: "/api/cart",
+                    apply_base_path: true,
                     method: Some(rsjs::HttpMethod::Patch),
                     credentials: Some(rsjs::FetchCredentials::SameOrigin),
                     response: Some(rsjs::ResponseKind::Empty),

@@ -645,7 +645,7 @@ function parse_request_config(raw, default_method, label) {
         cfg = { url: '', method: default_method };
     }
     return {
-        url: app_url(cfg.url || ''),
+        url: cfg.apply_base_path === true ? app_url(cfg.url || '') : (cfg.url || ''),
         method: String(cfg.method || default_method).toUpperCase(),
         credentials: cfg.credentials || 'same-origin',
         headers: cfg.headers || {},

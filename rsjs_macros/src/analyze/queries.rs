@@ -44,6 +44,7 @@ pub(super) fn request_config_response_is_text(expr: &FrontendExpr) -> bool {
 #[derive(Default)]
 pub(super) struct FetchRequestDescriptor {
     pub(super) url: Option<String>,
+    pub(super) apply_base_path: bool,
     pub(super) method: Option<String>,
     pub(super) credentials: Option<String>,
     pub(super) response: Option<String>,
@@ -100,6 +101,7 @@ pub(super) fn fetch_request_struct_expr(
                     "`rsjs::FetchRequest.url` must be a string literal",
                 )?);
             }
+            "apply_base_path" => descriptor.apply_base_path = parse_bool_literal(&field.expr)?,
             "method" => {
                 descriptor.method = parse_optional_enum_variant(
                     &field.expr,
@@ -168,6 +170,9 @@ pub(super) fn fetch_request_struct_expr(
 
     let mut object = JsonMap::new();
     object.insert("url".to_string(), JsonValue::String(url));
+    if descriptor.apply_base_path {
+        object.insert("apply_base_path".to_string(), JsonValue::Bool(true));
+    }
     if let Some(method) = descriptor.method {
         object.insert("method".to_string(), JsonValue::String(method));
     }
@@ -689,5 +694,46 @@ pub(super) fn parse_invalidation_strategy(expr: &Expr) -> syn::Result<Invalidati
             "`on_success_invalidate_strategy` must be `rsjs::InvalidationStrategy::Refetch` \
              or `rsjs::InvalidationStrategy::Reset`",
         )),
+    }
+}
+
+#[cfg(test)]
+mod request_base_path_tests {
+    use super::*;
+
+    fn descriptor(expr: Expr) -> JsonValue {
+        let FrontendExpr::Literal(Value::String(json)) =
+            request_config_expr(&expr, "GET", "invalid request").unwrap()
+        else {
+            panic!("FetchRequest should lower to a JSON descriptor");
+        };
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn fetch_request_only_encodes_explicit_base_path_opt_in() {
+        let default = descriptor(syn::parse_quote! {
+            rsjs::FetchRequest { url: "/api/items", ..Default::default() }
+        });
+        assert_eq!(default["url"], "/api/items");
+        assert!(default.get("apply_base_path").is_none());
+
+        let opted_in = descriptor(syn::parse_quote! {
+            rsjs::FetchRequest {
+                url: "/api/items",
+                apply_base_path: true,
+                ..Default::default()
+            }
+        });
+        assert_eq!(opted_in["apply_base_path"], true);
+
+        let opted_out = descriptor(syn::parse_quote! {
+            rsjs::FetchRequest {
+                url: "/api/items",
+                apply_base_path: false,
+                ..Default::default()
+            }
+        });
+        assert!(opted_out.get("apply_base_path").is_none());
     }
 }
