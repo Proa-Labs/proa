@@ -193,6 +193,11 @@ fn rust_string_literal(value: &str) -> String {
 }
 
 fn cargo_toml(package: &str, has_database: bool) -> String {
+    let proa_core = super::scaffold_version("proa_core");
+    let proa_framework_axum = super::scaffold_version("proa_framework_axum");
+    let proa_macros = super::scaffold_version("proa_macros");
+    let proa_stream = super::scaffold_version("proa_stream");
+
     let database = if has_database {
         "sqlx = { version = \"0.8\", features = [\"runtime-tokio\", \"sqlite\", \"migrate\"] }\n"
     } else {
@@ -209,10 +214,10 @@ rust-version = "1.93"
 anyhow = "1"
 axum = "0.7.9"
 dotenvy = "0.15"
-proa_core = {{ version = "0.3.0" }}
-proa_framework_axum = {{ version = "0.3.0" }}
-proa_macros = {{ version = "0.3.0" }}
-proa_stream = {{ version = "0.3.0" }}
+proa_core = {{ version = "{proa_core}" }}
+proa_framework_axum = {{ version = "{proa_framework_axum}" }}
+proa_macros = {{ version = "{proa_macros}" }}
+proa_stream = {{ version = "{proa_stream}" }}
 serde = {{ version = "1", features = ["derive"] }}
 {database}thiserror = "2"
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "signal"] }}
@@ -862,10 +867,11 @@ mod tests {
                 if let Some(dependencies) = manifest.get(section).and_then(toml::Value::as_table) {
                     for (name, dependency) in dependencies {
                         if name.starts_with("proa_") || name == "rsjs" {
-                            assert!(dependency
-                                .get("version")
-                                .and_then(toml::Value::as_str)
-                                .is_some());
+                            assert_eq!(
+                                dependency.get("version").and_then(toml::Value::as_str),
+                                Some(super::super::scaffold_version(name).as_str()),
+                                "{name} must use the Cargo dependency version"
+                            );
                             assert!(
                                 dependency.get("git").is_none(),
                                 "{name} must resolve from crates.io"

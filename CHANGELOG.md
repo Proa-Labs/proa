@@ -4,6 +4,12 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- Generated applications now select the 0.4 framework APIs used by their
+  templates, with scaffold dependency versions derived from Cargo declarations.
+  Library publication and standalone scaffold verification now precede CLI
+  publication, preventing a CLI from shipping templates that require unavailable
+  registry APIs.
+
 - Breaking: removed the deprecated `FormSchema` derive, `proa_ir` form builders,
   handles, validation rules, and form JavaScript runtimes. Use native forms and
   validate input in the application handler or service layer. Shared expressions,

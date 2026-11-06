@@ -161,6 +161,41 @@ run_release_plz() {
   if [[ "$command" == "set-version" ]]; then
     exec release-plz "$command" --config "$CONFIG" "$@"
   fi
+  if [[ "$command" == "release" && "$dry_run" == false ]]; then
+    (
+      verification_dir="$(mktemp -d)"
+      trap 'rm -rf "$verification_dir"' EXIT
+      # Generated apps need libraries outside the CLI's production Cargo graph.
+      # Publish those first, then validate the generated registry projects.
+      python3 - "$CONFIG" "$verification_dir/libraries.toml" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+source = Path(sys.argv[1]).read_text()
+source, count = re.subn(
+    r'(\[\[package\]\]\s*\nname = "proa-cli"\s*\nrelease = )true',
+    r'\1false', source,
+)
+if count != 1:
+    raise SystemExit("could not isolate the CLI from the library release")
+Path(sys.argv[2]).write_text(source)
+PY
+      release-plz release --config "$verification_dir/libraries.toml" --registry "$REGISTRY" "$@"
+      env -u GIT_TOKEN -u CARGO_REGISTRY_TOKEN \
+        cargo build --locked -p proa-cli --bins --target-dir "$verification_dir/target"
+      env -u GIT_TOKEN -u CARGO_REGISTRY_TOKEN \
+        sh scripts/install.sh --tailwind-only --to "$verification_dir/tools" --no-modify-path --yes
+      env -u GIT_TOKEN -u CARGO_REGISTRY_TOKEN \
+        PATH="$verification_dir/tools:$PATH" \
+        python3 scripts/check_registry_install.py \
+          --cli "$verification_dir/target/debug/proa" \
+          --work-dir "$verification_dir/scaffolds"
+      verify_release_source "$release_git_token"
+      release-plz release --config "$CONFIG" --registry "$REGISTRY" "$@"
+    )
+    return
+  fi
   exec release-plz "$command" --config "$CONFIG" --registry "$REGISTRY" "$@"
 }
 
