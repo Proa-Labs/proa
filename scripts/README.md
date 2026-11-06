@@ -200,8 +200,10 @@ Live `release` publishes the libraries first with CLI publication disabled.
 It then builds the candidate CLI and verifies all generated templates against
 crates.io using a fresh Cargo home, without workspace dependency overrides.
 Only after those checks pass and the source still matches current `main` does
-it publish the CLI. CLI binary releases run the same standalone check before
-publishing their archives.
+it publish the CLI. Stable CLI binary releases run the same standalone check
+before publishing their archives. Experimental main snapshots instead run
+ORIGIN acceptance against workspace libraries, allowing snapshots of APIs
+that have not been released to crates.io yet.
 
 The CLI derives generated dependency versions from its Cargo dev-dependency
 declarations at build time. Workspace builds resolve inherited declarations;

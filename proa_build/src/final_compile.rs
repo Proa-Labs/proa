@@ -289,6 +289,8 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
     scrub_wrapper_control_environment(&mut command);
     command
         .envs(&environment)
+        // Cargo owns each unit's OUT_DIR; never inherit the orchestrator's.
+        .env_remove("OUT_DIR")
         .env("RUSTC_WRAPPER", &request.wrapper)
         .env_remove("RUSTC_WORKSPACE_WRAPPER")
         .env(WRAPPER_MODE_ENV, WRAPPER_MODE_FINAL_V2)

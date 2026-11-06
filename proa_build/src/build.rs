@@ -5659,7 +5659,10 @@ fn run_descriptor_cargo_with_empty_policy(
         .arg("--target-dir")
         .arg(&request.target_directory)
         .arg("--message-format=json-render-diagnostics")
-        .envs(&request.environment);
+        .envs(&request.environment)
+        // `cargo run` can pass the orchestrator's build-script output directory.
+        // Let this Cargo invocation assign OUT_DIR for each of its own units.
+        .env_remove("OUT_DIR");
     scrub_wrapper_control_environment(&mut command);
     command
         .env("RUSTC_WRAPPER", &request.wrapper)
