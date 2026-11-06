@@ -1,16 +1,11 @@
 # proa_ir server evaluation semantics
 
-The same `Expr` IR runs in two worlds: compiled to JavaScript for the
-client (`codegen/js.rs` legacy emitter, `codegen/form.rs` split emitter)
-and interpreted on the server by `eval` (`src/eval/`). An expression must
-not evaluate differently in the two worlds, so the server evaluator is
-pinned to the JS emitters' semantics. This document records every
-semantics decision and every deliberate divergence.
-
-Where the two JS emitters disagree with each other, the richer
-`codegen/form.rs` emitter is the reference (it implements far more of the
-expression grammar; `codegen/js.rs` falls back to `/* TODO */` comments
-for the rest).
+`Expr` is interpreted on the server by `eval` (`src/eval/`). Its semantics
+were established against the former form JavaScript generators and remain
+stable after their removal. `codegen::expr_to_js` retains expression emission
+for tooling and Node parity tests; it supports only part of the grammar and
+is not an application form runtime. The rules below define the server
+evaluator, including behavior beyond the emitter's supported subset.
 
 ## Number model
 
@@ -54,8 +49,8 @@ Divergences (documented, not observable for realistic page data):
 - `Concat { parts }` is exactly the emitted `+` chain, left-folded. It is
   NOT a string join: `Concat[1, 2, "x"]` is `"3x"` because the emitter
   produces `(1 + 2 + "x")`. Zero parts yield `""`; a single part passes
-  through unchanged (matching `FormCodegen`). Wrap parts in `ToString` if
-  string behavior is needed regardless of arity.
+  through unchanged. Wrap parts in `ToString` if string behavior is needed
+  regardless of arity.
 
 ## Truthiness: strict boolean
 
@@ -108,9 +103,8 @@ operands that value equals the boolean the server produces.
 - `Trim` trims the JS whitespace set. Divergence: JS also strips U+FEFF
   and does not strip U+0085; the evaluator handles both correctly, but
   Rust's `char::is_whitespace` alone would not.
-- `Substring` is JS `String.prototype.substring` (as emitted by
-  `FormCodegen`): NaN and negative arguments clamp to 0, arguments clamp
-  to length, and start/end swap when reversed. `Slice` is
+- `Substring` is JS `String.prototype.substring`: NaN and negative arguments
+  clamp to 0, arguments clamp to length, and start/end swap when reversed. `Slice` is
   `Array/String.prototype.slice`: negative indexes count from the end.
 - `Replace` is the emitted `.replace(from, to)` with a string pattern:
   first occurrence only. Divergence: JS interprets `$$`, `$&`, `` $` ``,
@@ -177,14 +171,14 @@ Details pinned to JS:
   `Infinity`/`-Infinity`, `NaN` propagates (unlike `f64::min/max`), and
   `-0`/`+0` order correctly.
 - `Clamp` is the emitted `Math.min(Math.max(v, min), max)` composition
-  (the `FormCodegen` form; the legacy `js.rs` emitter composes as
+  (the retained expression emitter composes as
   `Math.max(min, Math.min(max, v))`, which differs only in the
   pathological `min > max` case).
 
 ## FormatNumber (toFixed)
 
 `FormatNumber { value, decimals }` is JS `Number.prototype.toFixed`,
-emitted as `(value).toFixed(d)` in both emitters and implemented
+emitted as `(value).toFixed(d)` and implemented
 digit-exactly on the server:
 
 - The operand coerces via `ToNumber` first (the node evaluates its
@@ -214,11 +208,9 @@ The canonical money shape is
 - `FormatDate` treats its operand as epoch milliseconds and formats in
   UTC with tokens `YYYY YY MM M DD D HH H mm m ss s SSS`. Non-finite or
   out-of-range (beyond +/-8.64e15 ms) input yields `"Invalid Date"`.
-- Divergence: both JS emitters currently emit a placeholder for
-  `FormatDate` (`FormCodegen` calls `toLocaleDateString('en-US')` and
-  ignores the format string; the legacy emitter emits a TODO comment).
-  The server implementation defined here is the reference; the client
-  emitters must be brought in line when client-side date formatting is
+- Divergence: the expression emitter does not implement `FormatDate`.
+  The server implementation defined here is the reference; client
+  emission must be brought in line when client-side date formatting is
   needed. Formatting is UTC by design so server renders are
   deterministic; locale/timezone-aware formatting belongs in registry
   components.

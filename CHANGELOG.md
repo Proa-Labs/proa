@@ -4,6 +4,15 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- Breaking: removed the deprecated `FormSchema` derive, `proa_ir` form builders,
+  handles, validation rules, and form JavaScript runtimes. Use native forms and
+  validate input in the application handler or service layer. Shared expressions,
+  server evaluation, and reactive attributes remain available.
+- Breaking: removed the unimplemented `EmailContext` and `EmailRender` placeholders.
+- The documentation service now exposes GET search/list/read and MCP without
+  POST-search replay, background export jobs, or synthetic sandbox endpoints.
+  Documentation SDK reads continue to use the existing `/api/v1` routes.
+
 - Outgoing application URLs are composed with `cx.url(path)` on `WebContext`,
   `WebContextParts`, and `SendWebContext`. The helper explicitly applies the
   configured base path without allocating an intermediate string; plain URL

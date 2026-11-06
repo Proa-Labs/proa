@@ -31,11 +31,11 @@ Capabilities are orthogonal. Override a preset with `--database sqlite|none`,
 `--ui proa|none`, `--styling tailwind|css`, `--starter guided|blank`, and
 `--deploy none|docker|railway|coolify`. The `origin` preset owns its
 application content, so only `--deploy` can be overridden there;
-`examples/origin-routing-atlas` in this repository is the same template
-rendered with workspace path dependencies, and a drift test keeps the two
-byte-identical. The generated site pins its server-rendered `/` document with
-`proa test --test golden` (refresh after intentional markup changes with
-`PROA_UPDATE_GOLDEN=1 proa test --test golden`). `--dry-run --json` resolves the complete
+`proa_cli/src/site_scaffold/templates/origin/` is the canonical template
+which CI uses to generate and test an app against workspace dependencies.
+The generated site pins its server-rendered `/` document with
+`proa test --test atlas` (refresh after intentional markup changes with
+`PROA_UPDATE_GOLDEN=1 proa test --test atlas`). `--dry-run --json` resolves the complete
 plan without touching the filesystem. `--offline` forbids network-dependent
 steps. Git initialization, verification, starting, and opening the browser are
 explicit operations; `--yes` never opts into them.

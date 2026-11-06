@@ -3650,36 +3650,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proa_origin_routing_atlas"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "const_format",
- "heapless",
- "http-body-util",
- "proa_actions",
- "proa_core",
- "proa_fonts",
- "proa_fonts_build",
- "proa_fonts_macros",
- "proa_framework_axum",
- "proa_ir",
- "proa_macros",
- "proa_stream",
- "reqwest 0.12.24",
- "rsjs",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tower 0.5.2",
- "tower-http 0.6.11",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "proa_react"
 version = "0.3.0"
 dependencies = [

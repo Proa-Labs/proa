@@ -19,7 +19,7 @@ func testClient(t *testing.T, handler http.HandlerFunc) *Client {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	client, err := NewClient(Options{BaseURL: server.URL + "/sandbox", HTTPClient: server.Client()})
+	client, err := NewClient(Options{BaseURL: server.URL + "/docs-service", HTTPClient: server.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,12 +32,12 @@ func TestEncodedRequestsAndTypedResponses(t *testing.T) {
 			t.Errorf("unexpected request: %s %v", r.Method, r.Header)
 		}
 		switch r.URL.Path {
-		case "/sandbox/api/v1/search":
+		case "/docs-service/api/v1/search":
 			if r.URL.Query().Get("q") != "Rust & café?" || r.URL.Query().Get("limit") != "2" || r.URL.Query().Get("cursor") != "a+b/=" {
 				t.Errorf("incorrect encoded query: %v", r.URL.Query())
 			}
 			fmt.Fprint(w, `{"results":[{"title":"Result","path":"/docs/a","markdown_url":"/docs/a.md","description":"Example"}],"total":3,"next_cursor":"2"}`)
-		case "/sandbox/api/v1/docs/page":
+		case "/docs-service/api/v1/docs/page":
 			if r.URL.Query().Get("path") != "/docs/a?b&c" {
 				t.Errorf("incorrect document path: %v", r.URL.Query())
 			}

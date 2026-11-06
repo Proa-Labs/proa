@@ -12,7 +12,6 @@ extern crate self as proa_core;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Target-specific modules
-pub mod email;
 pub mod md;
 pub mod web;
 

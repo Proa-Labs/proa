@@ -42,7 +42,6 @@ members = [
     "rsjs_web",
     "proa_demo/bench/lean-page/proa-server",
     "examples/webmcp-pizza",
-    "examples/origin-routing-atlas",
     "examples/mcp-incident-desk",
 ]
 default-members = [

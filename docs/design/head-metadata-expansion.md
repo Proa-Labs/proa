@@ -54,7 +54,7 @@ baseline and candidate release libraries. All four storage outputs match
 exactly: ordinary local/Send components, async ErrorBoundary, and local/Send
 Suspense retain their allocation counts, allocated bytes, future/context sizes,
 poll counts, and output bytes. See
-[raw storage evidence](evidence/head-metadata-expansion-storage.json).
+[raw storage evidence](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-metadata-expansion-storage.json).
 
 Complete-request probes use the retained `managed_requests/request.rs`, frozen
 lockfile, identical release/LTO configuration, and the counting allocator in
@@ -106,7 +106,7 @@ payload during preparation. No separate latency claim is made for adding those
 families, cold startup, full ORIGIN requests, browser hydration, or maximum HTTP
 throughput. The earlier canonical benchmark review remains separate.
 
-See [all request samples and provenance](evidence/head-metadata-expansion-requests.json)
+See [all request samples and provenance](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-metadata-expansion-requests.json)
 for binary/source/lockfile hashes, allocation results, output hashes, paired
 intervals, and the direct object control. The harness is
 [`managed_requests`](../../proa_bench/probes/managed_requests/README.md); the direct

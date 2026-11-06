@@ -3,10 +3,10 @@
 
 //! Input component implementation
 use super::recipe::{InputRecipeProps, InputSize, InputType, INPUT_RECIPE};
-use crate::components::_proa::free_web::{binding_to_js_attr, JsonAttr};
+use crate::components::_proa::free_web::binding_to_js_attr;
 
 use proa_core::{WebContext, WebRenderSync, WriteBuf};
-use proa_ir::{FieldRegistration, ReactiveAttr};
+use proa_ir::ReactiveAttr;
 use proa_macros::html_sync;
 /// Type-safe Input component.
 ///
@@ -26,20 +26,6 @@ use proa_macros::html_sync;
 ///             input_type: InputType::Email,
 ///             placeholder: Some("you@example.com"),
 ///             size: Some(InputSize::Default),
-///             ..Input::new()
-///         }}
-///     </div>
-/// }.render(cx);
-///
-/// // With form registration (React Hook Form style)
-/// let form = SignUpForm::form();
-/// html_sync! {
-///     <div>
-///         {Input {
-///             registration: Some(form.register_email()),
-///             input_type: InputType::Email,
-///             placeholder: Some("you@example.com"),
-///             aria_invalid: form.field_email().has_error(),
 ///             ..Input::new()
 ///         }}
 ///     </div>
@@ -65,8 +51,6 @@ pub struct Input {
     pub aria_label: Option<&'static str>,
     pub aria_describedby: Option<&'static str>,
     pub aria_invalid: ReactiveAttr<bool>,
-    /// Field registration data (from form.register_*)
-    pub registration: Option<FieldRegistration>,
     pub class: Option<&'static str>,
     pub id: Option<&'static str>,
 }
@@ -93,7 +77,6 @@ impl Input {
             aria_label: None,
             aria_describedby: None,
             aria_invalid: ReactiveAttr::static_value(false),
-            registration: None,
             class: None,
             id: None,
         }
@@ -117,22 +100,12 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Input {
         let aria_invalid_binding_string = binding_to_js_attr(&self.aria_invalid.binding);
         let disabled_binding = disabled_binding_string.as_deref();
         let aria_invalid_binding = aria_invalid_binding_string.as_deref();
-        let registration = self.registration.as_ref();
-        let rules_attr = JsonAttr(registration.map(|reg| reg.rules.as_slice()));
-        let data_field = registration.map(|reg| reg.data_field);
-        let name_attr = registration.map(|reg| reg.name).or(self.name);
-        let validate_on = registration.map(|reg| match reg.validate_on {
-            proa_ir::ValidationTrigger::Blur => "blur",
-            proa_ir::ValidationTrigger::Input => "input",
-            proa_ir::ValidationTrigger::Change => "change",
-            proa_ir::ValidationTrigger::Submit => "submit",
-        });
         html_sync! {
             <input
                 type={self.input_type.as_str()}
                 class={proa_macros::text!("{} {}", style, self.class)}
                 id={self.id}
-                name={name_attr}
+                name={self.name}
                 value={self.value}
                 placeholder={self.placeholder}
                 disabled={is_disabled}
@@ -152,9 +125,6 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Input {
                 data-input
                 data-slot="input"
                 data-size={style.size().as_str()}
-                data-field={data_field}
-                data-rules={rules_attr}
-                data-validate-on={validate_on}
                 data-bind-disabled={disabled_binding}
                 data-bind-aria-invalid={aria_invalid_binding}
             />

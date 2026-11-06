@@ -39,12 +39,6 @@ read-only tools and paginated Markdown resources. `/mcp/server-card` describes
 the connection. No credentials or writes are exposed. API and MCP responses
 advertise an enforced shared per-instance budget of 600 requests per minute.
 
-Search also accepts a JSON POST body. Its optional `Idempotency-Key` replays
-successful responses for fifteen minutes on the serving instance, rejects a
-key reused for different parameters, and bounds retained responses to 256 keys
-and 8 MiB. Replicas and restarts do not share this cache. All searches remain
-safe to repeat without a key; see the API guide for the exact replay contract.
-
 The optional `/static/agent-tools.mjs` registers the search and retrieval
 operations with WebMCP. Its tests run with
 `node --test proa_marketing/tests-js/agent-tools.test.mjs`. HTTP and MCP tests
@@ -56,8 +50,8 @@ cargo proa test --root . --locked -p proa_marketing --bin proa_marketing
 
 See [the public API guide](src/docs/api.mdx) for the external contract. The
 deployment smoke check also verifies the discovery index, Markdown homepage,
-catalog, search response, and MCP server card. An Ora score only updates after
-deployment and a new external scan; search indexing and directory listings
+catalog, search response, and MCP server card. Search indexing and directory
+listings
 are outside the application's control.
 
 ## Proa UI homepage rail
@@ -288,6 +282,5 @@ renderer. The former `/playground/ebay-rsjs/ebay-srp-rsjs` URL redirects there.
 
 The public Coolify deployment guide under `src/docs/framework/` documents the
 optional deployment preset for users who operate their own Coolify instance.
-This repository's former Coolify operations are archived in
-[`deploy/COOLIFY.md`](../deploy/COOLIFY.md); legacy resource cleanup is tracked
-in [the decommissioning runbook](../deploy/COOLIFY_DECOMMISSION.md).
+This repository uses Railway; its former Coolify and VPS preview tooling has
+been removed. See the [retirement record](../deploy/COOLIFY_DECOMMISSION.md).

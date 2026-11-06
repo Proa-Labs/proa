@@ -855,7 +855,7 @@ mod tests {
         for source in [
             cargo_toml("minimal", false),
             cargo_toml("app", true),
-            origin::manifest("atlas", origin::ManifestFlavor::Standalone),
+            origin::manifest("atlas"),
         ] {
             let manifest: toml::Value = source.parse().unwrap();
             for section in ["dependencies", "build-dependencies"] {

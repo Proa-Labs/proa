@@ -76,8 +76,6 @@ RETAINED_REMOTE_ORIGIN_PATHS: dict[str, frozenset[str]] = {
         {
             "proa_demo/marko-server/page_srp_real.marko",
             "proa_demo/react-ssr/page.tsx",
-            "proa_showcase/src/ebay/data/shell_post.html",
-            "proa_showcase/src/ebay/data/shell_pre.html",
             "proa_showcase/src/ebay/srp.rs",
         }
     ),
@@ -85,9 +83,6 @@ RETAINED_REMOTE_ORIGIN_PATHS: dict[str, frozenset[str]] = {
         {
             "proa_demo/marko-server/page_srp_real.marko",
             "proa_demo/react-ssr/chrome.generated.tsx",
-            "proa_showcase/src/ebay/data/shell_post.html",
-            "proa_showcase/src/ebay/data/shell_pre.html",
-            "proa_showcase/src/ebay/data/srp_chrome_reference.html",
             "proa_showcase/src/ebay/srp_chrome_real.rs",
         }
     ),

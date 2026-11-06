@@ -278,7 +278,7 @@ Each section owns its trailing block spacing. Use multiline raw templates, typed
 
 Keep an async composition example/test with `md!` and `to_md_async(...)`. Live MCP handlers use the sync path: `WebContext` contains `Rc`, while SDK handlers require `Send`. Do not retain it across an await, block on async rendering, or add unsafe `Send`. Core Markdown supports async loading on a local render future. The Axum adapter offers deferred loader-aware Markdown responses; an MCP integration still needs an appropriate local execution boundary before it can await rendering from a `Send` handler.
 
-Source map: [Render traits](../../docs/agent/api-reference/render-traits.md), [Markdown traits](../../proa_core/src/render/md_render.rs), [Markdown context](../../proa_core/src/md/context.rs), [web context](../../proa_core/src/web/context.rs). Loading: [Typed values](../../proa_core/src/render/load_value.rs), [resolver](../../proa_stream/src/resolver.rs). Integration: [HTTP helpers](../../proa_framework/proa_framework_axum/src/route/representation.rs), [existing example](../origin-routing-atlas/src/lib.rs).
+Source map: [Render traits](../../docs/agent/api-reference/render-traits.md), [Markdown traits](../../proa_core/src/render/md_render.rs), [Markdown context](../../proa_core/src/md/context.rs), [web context](../../proa_core/src/web/context.rs). Loading: [Typed values](../../proa_core/src/render/load_value.rs), [resolver](../../proa_stream/src/resolver.rs). Integration: [HTTP helpers](../../proa_framework/proa_framework_axum/src/route/representation.rs), [existing example](../../proa_cli/src/site_scaffold/templates/origin/src/lib.rs).
 
 ## Representation contracts
 

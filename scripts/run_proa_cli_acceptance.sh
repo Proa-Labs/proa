@@ -36,15 +36,10 @@ readonly -a MAIN_SHARD_4=(
   rsjs_unit_projection
 )
 
-# Workspace examples with real RSJS islands. Plain `cargo test` correctly
-# rejects their integration targets at link time, so they run through the
-# linked `proa test` pipeline here. Each example is one linked build
-# (descriptor plus final target) of a few hundred crates from a cold runner,
-# which is why each example keeps every integration test in a single test
-# binary: `proa test` accepts one --test per invocation and shares nothing
-# between invocations. Lib unit tests are a separate matter: they link no
-# island rlib from a dependency, so the plain-cargo `test (libraries)` lane
-# runs them and this script must not duplicate them.
+# Applications with real RSJS islands need the linked `proa test` pipeline.
+# Pizza is a workspace member; ORIGIN is generated from the packaged scaffold.
+# Keep each app's integration tests in one binary so the descriptor/final
+# compilation runs once. Library unit tests remain in the plain-cargo lane.
 readonly -a EXAMPLES=(pizza atlas)
 
 all_main_targets() {
@@ -95,9 +90,8 @@ run_example() {
         -p proa_webmcp_pizza --test e2e
       ;;
     atlas)
-      cargo run --locked -p proa-cli --bin proa -- \
-        test --root . --locked \
-        -p proa_origin_routing_atlas --test atlas
+      cargo build --locked -p proa-cli --bin proa
+      python3 scripts/check_origin_scaffold.py --cli "${CARGO_TARGET_DIR:-target}/debug/proa"
       ;;
     *)
       echo "unknown example: $1" >&2
