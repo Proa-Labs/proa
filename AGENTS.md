@@ -11,6 +11,7 @@ component-library and catalog changes belong in its owning repository.
 
 | Task | Doc |
 |---|---|
+| Prepare or publish a crate/CLI release | [Release skill](.agents/skills/proa-release/SKILL.md) |
 | Add a local render component | [`docs/agent/components.md`](docs/agent/components.md) |
 | Render HTML, Markdown, XML, text, or JSON | [`docs/agent/document-rendering.md`](docs/agent/document-rendering.md) |
 | Add an analyzed `#[rsjs(component...)]` component | [`docs/agent/rsjs-islands.md`](docs/agent/rsjs-islands.md) |
@@ -342,6 +343,13 @@ For async components, use `WebRender` plus `html!`. Wrap sync children with `pro
 
 The downstream component library has its own registration and catalog workflow.
 Follow the instructions in its owning repository when changing it.
+
+## Releases
+
+Use the [Proa release skill](.agents/skills/proa-release/SKILL.md) and shared
+release-plz wrapper for version preparation and publication. Do not hand-bump
+package versions or scaffold dependency pins; `proa new site` derives its versions
+from the CLI Cargo declarations updated by release-plz.
 
 ## Building
 

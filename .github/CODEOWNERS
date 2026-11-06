@@ -22,4 +22,5 @@
 /scripts/release-plz.sh @hariria
 /scripts/verify_cli_release_assets.py @hariria
 /scripts/check_publish_policy.py @hariria
+/scripts/check_release_scaffold.py @hariria
 /scripts/check_repository_boundary.py @hariria

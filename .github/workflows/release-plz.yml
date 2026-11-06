@@ -12,6 +12,10 @@ on:
       - rust-toolchain.toml
       - scripts/release-plz.sh
       - scripts/check_publish_policy.py
+      - scripts/check_release_scaffold.py
+      - proa_cli/build.rs
+      - proa_cli/Cargo.toml
+      - Cargo.toml
       - scripts/check_crate_archives.py
       - scripts/check_registry_install.py
       - scripts/test_release_plz.py

@@ -1,0 +1,7 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+interface:
+  display_name: "Proa Release"
+  short_description: "Release Proa crates and CLI with release-plz"
+  default_prompt: "Use $proa-release to prepare a Proa release and verify generated projects use the released crate versions."
