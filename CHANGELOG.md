@@ -7,6 +7,7 @@ All notable public changes are tracked here.
 - CLI source installs now always use crates.io, including explicit unversioned
   builds. Removed the custom Git repository option. Main snapshots require a
   prebuilt archive; unavailable snapshots no longer fall back to Git builds.
+  Generated projects use crates.io dependencies and omit Git-fetch Cargo config.
 
 - Align active documentation examples with the coordinated crate release.
   Prepare const-JSON 0.1.3 for literal JSON macros, codegen 0.2.1 and OG 0.1.3

@@ -397,6 +397,7 @@ mod tests {
             let mut value = options(root.clone());
             value.template = template.to_string();
             new_site(value).unwrap();
+            assert!(!root.join(".cargo/config.toml").exists(), "{template}");
             let formatting =
                 crate::fmt::format_paths_with_options(&[root.clone()], true, true).unwrap();
             assert!(

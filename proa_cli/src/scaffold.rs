@@ -281,7 +281,6 @@ pub(crate) fn new_site_with_tailwind_ready(
         options.root.join(crate::config::LOCK_FILE),
         crate::config::generated_component_lock()?,
     );
-    plan.write_file(options.root.join(".cargo/config.toml"), cargo_config_toml());
     plan.write_file(options.root.join("scripts/dev.sh"), dev_script());
     plan.write_file(options.root.join("scripts/build.sh"), build_script());
     plan.write_file(
@@ -1391,10 +1390,6 @@ fn cargo_toml(project_name: &str, options: &NewSiteOptions) -> String {
         "[package]\nname = \"{project_name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n{}\n{build_deps}\n[profile.release]\nlto = \"thin\"\ncodegen-units = 1\nstrip = true\n",
         deps.join("\n")
     )
-}
-
-fn cargo_config_toml() -> String {
-    "# Fetch Git dependencies using your Git credential helpers and proxy settings.\n[net]\ngit-fetch-with-cli = true\n".to_string()
 }
 
 fn dev_script() -> String {
@@ -2764,13 +2759,7 @@ mod tests {
         )));
         assert!(!cargo.contains("registry = \"proa\""));
         assert!(!cargo.contains("proa_core = { path ="));
-        let cargo_config = fs::read_to_string(root.join(".cargo/config.toml")).unwrap();
-        assert!(cargo_config.contains("git-fetch-with-cli = true"));
-        assert!(cargo_config
-            .parse::<toml::Value>()
-            .unwrap()
-            .get("registries")
-            .is_none());
+        assert!(!root.join(".cargo/config.toml").exists());
         assert!(!cargo.contains("proa_macros = { path ="));
         assert!(!cargo.contains("proa_framework_axum = { path ="));
         assert!(!cargo.contains("\"signal\""));
