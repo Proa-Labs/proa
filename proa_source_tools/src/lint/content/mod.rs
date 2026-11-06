@@ -237,9 +237,17 @@ fn matching_contributions<'a>(
         .filter(|input| !input.starts_with("@arg:") && !input.starts_with("@field:"))
     {
         let key = if let Some(literal) = input.strip_prefix("@literal:") {
-            let text = syn::parse_str::<syn::LitStr>(literal)
-                .map(|value| value.value())
-                .unwrap_or_else(|_| literal.to_owned());
+            let text = match syn::parse_str::<syn::LitStr>(literal) {
+                Ok(value) => {
+                    let text = value.value();
+                    // String punctuation alone is not emitted as a content contribution.
+                    if !text.chars().any(char::is_alphanumeric) {
+                        continue;
+                    }
+                    text
+                }
+                Err(_) => literal.to_owned(),
+            };
             ContentKey::Literal(text.split_whitespace().collect::<Vec<_>>().join(" "))
         } else {
             ContentKey::Value(input.clone())

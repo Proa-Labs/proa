@@ -740,6 +740,10 @@ fn constructor_argument_roles_and_literals_are_not_field_set_equality() {
             "RestockNotice {at:self.title,description:self.image}",
             "RestockNotice {at:self.image,description:self.title}",
         ),
+        (
+            r#"RestockNotice::new(proa_macros::text!("({})", self.title))"#,
+            r#"RestockNotice::new(proa_macros::text!("[{}]", self.title))"#,
+        ),
     ] {
         let src = fixture(
             &format!("html_sync! {{{{{html}}}}}.render(cx)"),
@@ -1523,6 +1527,23 @@ fn text_macro_child_inputs_preserve_literal_copy() {
 }
 
 #[test]
+fn punctuation_only_child_inputs_do_not_require_literal_contributions() {
+    for input in [
+        r#"proa_macros::text!("{} - {}", self.title, self.stock)"#,
+        r#"proa_macros::text!("({})", self.title)"#,
+        r#"self.title, " - ", self.stock"#,
+    ] {
+        let html = format!("html_sync! {{{{RestockNotice::new({input})}}}}.render(cx)");
+        let markdown = format!("summary({input}).render_md(cx)");
+        let matching = lint(&fixture(&html, &markdown));
+        assert!(matching.is_empty(), "{input}: {matching:?}");
+
+        let changed = fixture(&html, &markdown.replace("self.title", "self.image"));
+        assert_eq!(missing(&changed).len(), 1, "{input}");
+    }
+}
+
+#[test]
 fn constants_dereferences_and_url_children_need_no_content_markers() {
     let source = fixture(
         "html_sync! {{TITLE}<img src={self.image} />{for item in self.items {html_sync! {{*item}}}}}.render(cx)",
@@ -1546,7 +1567,7 @@ fn document_head_and_stylesheets_are_outside_body_content_coverage() {
 
 #[test]
 fn helper_literals_cover_child_inputs_and_changed_literals_remain_missing() {
-    for literal in [r#""Notice""#, r#""  Notice   text  ""#, "42", "true"] {
+    for literal in [r#""Notice""#, r#""  Notice   text  ""#, "42", "true", "'!'"] {
         let source = fixture(
             &format!("html_sync! {{{{RestockNotice::new(self.data, {literal})}}}}.render(cx)"),
             &format!("summary(self.data, {literal}).render_md(cx)"),
