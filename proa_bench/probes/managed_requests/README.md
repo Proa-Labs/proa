@@ -4,7 +4,10 @@ This harness links the **actual canonical fixture binaries** from a local
 `proa-benchmarks` checkout to two local Proa checkouts using Cargo patches.
 It does not edit that checkout or refresh its published scoreboard. The isolated
 benchmark copy uses the retained `suite.lock` and `request.lock` resolutions
-for both builds, with `--locked`. Optional main uses its recorded
+for both builds, with `--locked`. The request manifest uses crates.io versions;
+the harness patches those packages to each local checkout for comparison. Its
+0.3 versions preserve the recorded baseline rather than track the current release.
+Optional main uses its recorded
 `main-suite.patch` graph adjustment because its Proa manifests predate managed-head
 dependencies. Registry versions remain fixed. The suite resolution pins bumpalo to OXC's
 exact `3.19.0` requirement.

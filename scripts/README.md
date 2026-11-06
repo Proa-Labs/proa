@@ -133,12 +133,12 @@ GitHub Release can publish. Exercise that contract locally with:
 python3 scripts/test_cli_binary_distribution.py
 ```
 
-Source fallbacks preserve the selected release: official versions build from
-crates.io, main snapshots build their full commit SHA, and custom repositories
-build the matching `proa-cli-v<version>` tag. An explicit unversioned
-`--build-from-source` / `-BuildFromSource` request builds Git HEAD. If binary
-metadata is unavailable, the official installer uses the latest crates.io
-release. A failed pinned build stops rather than retrying another revision.
+Source builds always download `proa-cli` from crates.io. They preserve the
+selected published version, including when its binary archive is unavailable.
+An unversioned `--build-from-source` / `-BuildFromSource` request installs the
+latest published crate, as does a fallback when binary metadata is unavailable.
+A failed pinned build stops rather than retrying another version. Main snapshots
+require a prebuilt archive; choose a published version to build from source.
 
 ## Quickstart acceptance
 

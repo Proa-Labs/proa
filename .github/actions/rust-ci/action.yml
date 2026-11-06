@@ -160,11 +160,10 @@ runs:
       shell: bash
       run: node rsjs_conformance/report.mjs --check
 
-    - name: Verify Git installation without private Cargo configuration
+    - name: Check package publication policy
       shell: bash
       run: |
         python3 scripts/check_publish_policy.py
-        python3 scripts/check_git_install.py
 
     - name: sccache stats
       if: always()

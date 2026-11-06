@@ -58,8 +58,11 @@ def main():
     bench = work / "benchmarks"
     execute(["git", "-C", str(args.benchmarks.resolve()), "worktree", "add", "--detach", str(bench), "HEAD"])
     for label, root in roots.items():
+        # The external historical suite uses a Git source; the request probe
+        # uses crates.io. Both are redirected to the same local checkout.
         patch = '[patch."https://github.com/Proa-Labs/proa"]\n'
-        patch += "".join(name + " = { path = " + json.dumps(str(root / rel)) + " }\n" for name, rel in CRATES.items())
+        packages = "".join(name + " = { path = " + json.dumps(str(root / rel)) + " }\n" for name, rel in CRATES.items())
+        patch += packages + "\n[patch.crates-io]\n" + packages
         (work / (label + "-patch.toml")).write_text(patch)
     # Frozen linked resolutions from the captured comparison, shared by all builds.
     shutil.copy2(HERE / "suite.lock", bench / "Cargo.lock")
