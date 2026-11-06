@@ -1325,18 +1325,33 @@ fn cargo_toml(project_name: &str, options: &NewSiteOptions) -> String {
     // root, since the include! boilerplate lives in src/main.rs.
     let has_fonts = !options.empty && options.server == ServerIntegration::Axum;
     let mut deps = vec![
-        "proa_core = \"0.3.0\"".to_string(),
-        "proa_macros = \"0.3.0\"".to_string(),
+        format!(
+            "proa_core = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_core")
+        ),
+        format!(
+            "proa_macros = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_macros")
+        ),
     ];
     if has_fonts {
         deps.extend([
-            "proa_fonts = \"0.1.0\"".to_string(),
-            "proa_fonts_macros = \"0.1.0\"".to_string(),
+            format!(
+                "proa_fonts = \"{}\"",
+                crate::site_scaffold::scaffold_version("proa_fonts")
+            ),
+            format!(
+                "proa_fonts_macros = \"{}\"",
+                crate::site_scaffold::scaffold_version("proa_fonts_macros")
+            ),
         ]);
     }
     if options.server == ServerIntegration::Axum {
         deps.extend([
-            "proa_framework_axum = \"0.3.0\"".to_string(),
+            format!(
+                "proa_framework_axum = \"{}\"",
+                crate::site_scaffold::scaffold_version("proa_framework_axum")
+            ),
             "anyhow = \"1\"".to_string(),
             "axum = \"0.7\"".to_string(),
             "tokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\"] }".to_string(),
@@ -1348,7 +1363,10 @@ fn cargo_toml(project_name: &str, options: &NewSiteOptions) -> String {
         ]);
     }
     if options.docs == DocsIntegration::ProaDocs || options.blog {
-        deps.push("proa_docs = { version = \"0.2.0\", features = [\"axum\"] }".to_string());
+        deps.push(format!(
+            "proa_docs = {{ version = \"{}\", features = [\"axum\"] }}",
+            crate::site_scaffold::scaffold_version("proa_docs")
+        ));
     }
 
     let has_docs_build = options.docs == DocsIntegration::ProaDocs || options.blog;
@@ -1356,10 +1374,16 @@ fn cargo_toml(project_name: &str, options: &NewSiteOptions) -> String {
     if has_fonts || has_docs_build {
         build_deps.push_str("\n[build-dependencies]\n");
         if has_fonts {
-            build_deps.push_str("proa_fonts_build = \"0.1.0\"\n");
+            build_deps.push_str(&format!(
+                "proa_fonts_build = \"{}\"\n",
+                crate::site_scaffold::scaffold_version("proa_fonts_build")
+            ));
         }
         if has_docs_build {
-            build_deps.push_str("proa_docs_build = \"0.2.0\"\n");
+            build_deps.push_str(&format!(
+                "proa_docs_build = \"{}\"\n",
+                crate::site_scaffold::scaffold_version("proa_docs_build")
+            ));
         }
     }
 
@@ -2726,9 +2750,18 @@ mod tests {
         assert!(agent_instructions.contains("`signal(self.value)` initializer samples"));
 
         let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
-        assert!(cargo.contains("proa_core = \"0.3.0\""));
-        assert!(cargo.contains("proa_macros = \"0.3.0\""));
-        assert!(cargo.contains("proa_framework_axum = \"0.3.0\""));
+        assert!(cargo.contains(&format!(
+            "proa_core = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_core")
+        )));
+        assert!(cargo.contains(&format!(
+            "proa_macros = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_macros")
+        )));
+        assert!(cargo.contains(&format!(
+            "proa_framework_axum = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_framework_axum")
+        )));
         assert!(!cargo.contains("registry = \"proa\""));
         assert!(!cargo.contains("proa_core = { path ="));
         let cargo_config = fs::read_to_string(root.join(".cargo/config.toml")).unwrap();
@@ -2790,8 +2823,14 @@ mod tests {
 
         let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
         assert_eq!(cargo.matches("[build-dependencies]").count(), 1);
-        assert!(cargo.contains("proa_fonts_build = \"0.1.0\""));
-        assert!(cargo.contains("proa_docs_build = \"0.2.0\""));
+        assert!(cargo.contains(&format!(
+            "proa_fonts_build = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_fonts_build")
+        )));
+        assert!(cargo.contains(&format!(
+            "proa_docs_build = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_docs_build")
+        )));
     }
 
     #[test]
@@ -2818,9 +2857,18 @@ mod tests {
         .unwrap();
 
         let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
-        assert!(cargo.contains("proa_fonts = \"0.1.0\""));
-        assert!(cargo.contains("proa_fonts_macros = \"0.1.0\""));
-        assert!(cargo.contains("[build-dependencies]\nproa_fonts_build = \"0.1.0\""));
+        assert!(cargo.contains(&format!(
+            "proa_fonts = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_fonts")
+        )));
+        assert!(cargo.contains(&format!(
+            "proa_fonts_macros = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_fonts_macros")
+        )));
+        assert!(cargo.contains(&format!(
+            "[build-dependencies]\nproa_fonts_build = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_fonts_build")
+        )));
         assert!(!cargo.contains("proa_docs_build"));
 
         let build = fs::read_to_string(root.join("build.rs")).unwrap();
@@ -2922,7 +2970,10 @@ mod tests {
         let cargo = fs::read_to_string(root.join("Cargo.toml")).unwrap();
         assert!(!cargo.contains("proa_fonts"));
         assert_eq!(cargo.matches("[build-dependencies]").count(), 1);
-        assert!(cargo.contains("proa_docs_build = \"0.2.0\""));
+        assert!(cargo.contains(&format!(
+            "proa_docs_build = \"{}\"",
+            crate::site_scaffold::scaffold_version("proa_docs_build")
+        )));
 
         let build = fs::read_to_string(root.join("build.rs")).unwrap();
         assert!(!build.contains("proa_fonts_build"));

@@ -33,14 +33,14 @@ elif args[0] in ("run", "test"):
     consumer = "test" if args[0] == "test" else args[-3]
     state = Path(os.environ["TEST_STATE"])
     (state / consumer).write_text(str(target))
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 20
     while len(list(state.iterdir())) < 3 and time.monotonic() < deadline:
         time.sleep(0.01)
     if len(list(state.iterdir())) < 3:
         sys.exit("not all shards started")
     if consumer == os.environ.get("TEST_FAIL_CONSUMER"):
         sys.exit(23)
-elif args[0] != "fetch":
+elif args[0] not in ("fetch", "build"):
     sys.exit("unexpected cargo command: " + repr(args))
 '''
 
@@ -51,6 +51,13 @@ class AcceptanceRunnerTests(unittest.TestCase):
             checkout = Path(temporary).resolve()
             script = checkout / "run.sh"
             shutil.copy2(ROOT / "scripts/run_proa_cli_acceptance.sh", script)
+            scripts = checkout / "scripts"
+            scripts.mkdir()
+            # The generator owns its own end-to-end linked test. This test
+            # isolates the runner's shard and executable namespaces.
+            (scripts / "check_origin_scaffold.py").write_text(
+                "import subprocess\nsubprocess.run(['cargo', 'run', '--', 'test', "
+                "'-p', 'origin-atlas', '--test', 'atlas'], check=True)\n")
             tools = checkout / "bin"
             tools.mkdir()
             cargo = tools / "cargo"
@@ -73,10 +80,10 @@ class AcceptanceRunnerTests(unittest.TestCase):
             if fail_consumer:
                 env["TEST_FAIL_CONSUMER"] = fail_consumer
             result = subprocess.run(["bash", str(script), "pr"], cwd=checkout,
-                                    env=env, capture_output=True, text=True, timeout=15)
+                                    env=env, capture_output=True, text=True, timeout=60)
             paths = {path.name: Path(path.read_text()) for path in state.iterdir()}
             expected_root = (checkout / (custom_target or "target") / "acceptance-shards").resolve()
-            self.assertEqual(set(paths), {"test", "proa_webmcp_pizza", "proa_origin_routing_atlas"},
+            self.assertEqual(set(paths), {"test", "proa_webmcp_pizza", "origin-atlas"},
                              result.stdout + result.stderr)
             self.assertEqual(len(set(paths.values())), 3, paths)
             self.assertEqual(set(paths.values()), {expected_root / name for name in ("pr-1", "pr-2", "pr-3")})

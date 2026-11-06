@@ -11,7 +11,6 @@
 extern crate self as proa_demo;
 
 pub mod ebay_srp;
-pub mod ebay_srp_chrome;
 pub mod ebay_srp_chrome_real;
 pub mod ebay_srp_filter_runtime;
 pub mod ebay_srp_islands;

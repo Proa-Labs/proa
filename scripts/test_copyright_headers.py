@@ -128,7 +128,7 @@ class GitScope(unittest.TestCase):
                     b"#!/usr/bin/env bash\necho ok\n",
                 ),
                 (
-                    "examples/origin-routing-atlas/src/main.rs",
+                    "examples/demo/src/main.rs",
                     "proa_cli/src/site_scaffold/templates/origin/src/main.rs",
                     b"fn main() {}\n",
                 ),

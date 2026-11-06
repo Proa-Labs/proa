@@ -22,8 +22,8 @@
 //! - **Statements**: Side effects (state updates, DOM operations, fetches)
 //! - **Triggers**: Events that cause effects to run
 //!
-//! Historical form validation APIs in this crate are deprecated. New Proa
-//! forms should use the `wellformed` crate directly.
+//! Forms use native browser controls and application validation (for example,
+//! `wellformed`); this crate does not provide a form framework.
 //!
 //! # Server evaluation
 //!
@@ -42,14 +42,11 @@ pub mod dev_hot;
 pub mod dialect;
 pub mod eval;
 pub mod expr;
-pub mod form;
-pub mod form_handle;
 pub mod reactive;
 pub mod ser;
 pub mod stmt;
 pub mod trigger;
 pub mod types;
-pub mod validate;
 pub mod value;
 
 pub mod builder;
@@ -62,16 +59,9 @@ pub use dialect::{
 };
 pub use eval::{eval, eval_with_budget, EvalBudget, EvalError, ScopeStack};
 pub use expr::Expr;
-pub use form::{DerivedDef, FieldDef, FormIR, FormOptions, SignalDef};
-#[allow(deprecated)]
-pub use form_handle::{
-    FieldRegistration, FieldState, FormAttrs, FormFields, FormHandle, FormSchema, FormState,
-    ValidationMode,
-};
 pub use reactive::{Binding, ReactiveAttr, ReactiveClass};
 pub use ser::{to_value, ToValueError};
 pub use stmt::{Block, FetchOptions, Stmt};
 pub use trigger::{Effect, KeyFilter, Trigger};
 pub use types::{FieldId, IrStr, Method, Selector, SignalId, ToastLevel, VarId};
-pub use validate::{FieldValidation, InputFormat, Transform, ValidationRule, ValidationTrigger};
 pub use value::Value;

@@ -196,6 +196,20 @@ scripts/release-plz.sh check
 | `release-dry-run` | `scripts/release-plz.sh release-dry-run` | Run release-plz publication checks without uploads or tags |
 | `release` | `scripts/release-plz.sh release` | Publish pending versions to crates.io and create their tags/releases |
 
+Live `release` publishes the libraries first with CLI publication disabled.
+It then builds the candidate CLI and verifies all generated templates against
+crates.io using a fresh Cargo home, without workspace dependency overrides.
+Only after those checks pass and the source still matches current `main` does
+it publish the CLI. Stable CLI binary releases run the same standalone check
+before publishing their archives. Experimental main snapshots instead run
+ORIGIN acceptance against workspace libraries, allowing snapshots of APIs
+that have not been released to crates.io yet.
+
+The CLI derives generated dependency versions from its Cargo dev-dependency
+declarations at build time. Workspace builds resolve inherited declarations;
+packaged builds read Cargo’s normalized manifest. Normal version updates therefore
+update both the library requirements and scaffold versions.
+
 `release --dry-run` is also accepted locally. A multi-crate publication dry run
 can fail when a consumer needs an internal dependency version or feature that
 is not published yet: the dry run never uploads the dependency for that consumer
@@ -293,7 +307,10 @@ python3 scripts/check_registry_install.py --work-dir /tmp/proa-registry-acceptan
 ```
 
 The registry checker installs the latest stable CLI by default. Its optional
-`--version` flag selects an exact release when reproducing a failure.
+`--version` flag selects an exact release when reproducing a failure. Use
+`--cli /path/to/proa` to check a candidate build (with `cargo-proa` alongside it),
+or repeat `--template origin` to select individual templates. Both modes use
+an isolated Cargo home and leave generated dependency declarations unchanged.
 
 `--only crate1,crate2` selects packages. `--skip-published` checks exact versions
 through the public crates.io API without sending a token. `--no-verify` skips

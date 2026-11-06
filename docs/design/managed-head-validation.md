@@ -17,7 +17,7 @@ contexts, plus passing ordinary components and layout-to-Page composition.
 Actual capture and out-of-order Suspense fallback tests reject hookless layouts
 before body code runs. Compile fixtures include hookless layouts on every surface.
 
-[Storage evidence](evidence/head-role-parity-storage.json) compares identical
+[Storage evidence](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-role-parity-storage.json) compares identical
 native probes against `0243ee9b`: ordinary local/Send components, ErrorBoundary
 and Suspense retain the same allocation counts/bytes, future sizes, poll counts
 and output bytes. This check does not time managed hookless provider preparation.
@@ -109,15 +109,15 @@ quickstart scaffold.
 
 ## Native-path performance
 
-[Raw results](evidence/head-layout-page-performance.json) include every sample, compiler
+[Raw results](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-layout-page-performance.json) include every sample, compiler
 identity and probe/library hashes. [Reproduction instructions](../../proa_bench/probes/README.md).
 These are identical-source optimized probes against both checkouts, not theoretical
 claims about what LLVM should eliminate.
 
 The native async-hook change has fresh
-[storage-only evidence](evidence/head-native-async-role-storage.json), compared
+[storage-only evidence](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-native-async-role-storage.json), compared
 with main using identical optimized probes. Relative to the
-[previous PR implementation](evidence/head-role-assertion-storage.json), ordinary
+[previous PR implementation](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-role-assertion-storage.json), ordinary
 component and ErrorBoundary outputs, polls, allocations, allocated bytes and
 outcome sizes match. Local static Suspense uses 152 allocated bytes rather than
 144: an 8-byte increase in its existing boxed future to preserve eager provider
@@ -137,10 +137,10 @@ Suspense (320 versus 312). Send Suspense storage remains unchanged; local static
 Suspense uses 152 versus 144 allocated bytes in the latest probe. No native path gains an
 allocation. A boxed metadata-boundary continuation keeps ordinary pending
 futures inline without recursively enlarging them. The
-[earlier explicit-role review](evidence/head-native-lifecycle-review-performance.json)
+[earlier explicit-role review](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-native-lifecycle-review-performance.json)
 is retained for comparison.
 The Page-only inference experiment is retained as
-[historical evidence](evidence/head-page-inference-performance.json); that model
+[historical evidence](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-page-inference-performance.json); that model
 is superseded because layouts also contribute metadata before the Page.
 
 Macro composition uses fewer allocated bytes:
@@ -162,12 +162,12 @@ Local no-head latency: median of **19 alternating samples**, each containing
 | 32-child loop | 341.302 ns | 173.808 ns | -49.1% |
 
 An earlier implementation had a repeatable small regression. Its
-[results are retained](evidence/head-native-before-dispatch-optimization.json).
+[results are retained](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-native-before-dispatch-optimization.json).
 The fix emits a direct Done/Pending match at each macro child boundary: no-op
 components avoid a redundant async adapter and completed children never enter a
 `resolve()` future. Actual head hooks still run before their bodies.
 
-The [initial implementation measurements](evidence/head-native-performance.json)
+The [initial implementation measurements](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-native-performance.json)
 are retained separately; the tables above include inherited-head publication and
 cancellation fixes. This does not establish universal zero overhead. Send macro timing, end-to-end
 router/middleware throughput, network latency, request-context construction and

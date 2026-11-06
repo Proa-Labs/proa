@@ -11,7 +11,7 @@ RUN /home/runner/externals/node24/bin/node --version
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        acl haproxy openssl \
+        openssl \
         build-essential pkg-config libssl-dev python3 curl git gh jq \
         openssh-client rsync zstd \
     && rm -rf /var/lib/apt/lists/*

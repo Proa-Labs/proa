@@ -22,7 +22,6 @@ mod action_derive;
 mod component_derive;
 mod const_recipe;
 mod content;
-mod form_schema_derive;
 mod island_attr;
 #[cfg(feature = "markdown")]
 mod md;
@@ -733,32 +732,6 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(ProaVariant, attributes(variant))]
 pub fn derive_proa_variant(input: TokenStream) -> TokenStream {
     variant_derive::derive_proa_variant(input)
-}
-
-/// Deprecated derive macro for the historical `proa_ir::FormSchema` trait.
-///
-/// Existing callers can keep compiling during migration. New applications
-/// should use native forms and validate input in their handler or service
-/// layer. Proa does not require or bundle a schema library; typed schema
-/// integrations can remain downstream.
-///
-/// ## Replacement
-///
-/// ```rust,ignore
-/// async fn submit(axum::Form(input): axum::Form<Signup>) -> Response {
-///     let input = validate_signup(input)?;
-///     save_signup(input).await?;
-///     Redirect::to("/welcome").into_response()
-/// }
-/// ```
-#[deprecated(
-    since = "0.1.2",
-    note = "validate native form input in the application handler or service layer"
-)]
-#[proc_macro_derive(FormSchema, attributes(form, validate))]
-pub fn derive_form_schema(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as syn::DeriveInput);
-    form_schema_derive::derive_form_schema(input)
 }
 
 /// Attribute macro for declaring typed React islands.

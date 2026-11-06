@@ -22,7 +22,7 @@ WRAPPER = ROOT / "scripts/release-plz.sh"
 REVISION = "a" * 40
 TOKEN_NAMES = ("GIT_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "CARGO_REGISTRY_TOKEN", "CARGO_REGISTRIES_CRATES_IO_TOKEN")
 TOOL_STUB = r'''#!/usr/bin/env python3
-import json, os, sys
+import json, os, sys, tomllib
 from pathlib import Path
 tool = Path(sys.argv[0]).name
 args = sys.argv[1:]
@@ -49,19 +49,34 @@ if tool == "git":
         sys.exit("unexpected git arguments: " + repr(args))
 elif tool == "gh":
     assert "repos/example/proa/git/ref/heads/main" in args, args
-    print(os.environ.get("TEST_MAIN", os.environ["TEST_HEAD"]))
+    if state.get("libraries_published") and os.environ.get("TEST_MAIN_AFTER_LIBRARIES"):
+        print(os.environ["TEST_MAIN_AFTER_LIBRARIES"])
+    else:
+        print(os.environ.get("TEST_MAIN", os.environ["TEST_HEAD"]))
 elif tool == "cargo":
     if args[0].startswith("+"):
         args = args[1:]
-    assert args[0] == "install", args
-    state[args[1]] = args[args.index("--version") + 1]
-    state_path.write_text(json.dumps(state))
+    if args[0] == "install":
+        state[args[1]] = args[args.index("--version") + 1]
+        state_path.write_text(json.dumps(state))
+    else:
+        assert args[:2] == ["build", "--locked"], args
 elif tool == "rustup":
     assert args[:2] == ["toolchain", "install"], args
 elif tool.startswith("check_"):
     if os.environ.get("TEST_FAIL_PREFLIGHT") == tool:
         sys.exit(1)
-elif tool != "release-plz":
+elif tool == "release-plz":
+    config = tomllib.loads(Path(args[args.index("--config") + 1]).read_text())
+    cli = next(package for package in config["package"] if package["name"] == "proa-cli")
+    with Path(os.environ["TEST_RELEASE_PHASES"]).open("a") as phases:
+        phases.write(json.dumps({"cli": cli["release"]}) + "\n")
+    if not cli["release"]:
+        if os.environ.get("TEST_FAIL_LIBRARIES"):
+            sys.exit(1)
+        state["libraries_published"] = True
+        state_path.write_text(json.dumps(state))
+elif tool != "install.sh":
     sys.exit("unexpected tool: " + tool)
 '''
 
@@ -78,8 +93,10 @@ class ReleaseFlowTests(unittest.TestCase):
         self.bin.mkdir()
         for name in ("release-plz", "cargo-semver-checks", "git", "gh", "cargo", "rustup"):
             self.write_stub(self.bin / name)
-        for name in ("check_publish_policy.py", "check_crate_archives.py"):
+        shutil.copy2(ROOT / "release-plz.toml", self.root / "release-plz.toml")
+        for name in ("check_publish_policy.py", "check_crate_archives.py", "check_registry_install.py", "install.sh"):
             self.write_stub(scripts / name)
+        (scripts / "install.sh").write_text("#!/bin/sh\nexit 0\n")
         self.log = self.root / "invocations.jsonl"
         self.state = self.root / "tool-versions.json"
         text = WRAPPER.read_text()
@@ -102,6 +119,7 @@ class ReleaseFlowTests(unittest.TestCase):
             "TEST_HEAD": REVISION,
             "TEST_INVOCATIONS": str(self.log),
             "TEST_TOOL_STATE": str(self.state),
+            "TEST_RELEASE_PHASES": str(self.root / "release-phases.jsonl"),
             "GIT_TOKEN": "fixture-git-token",
             "CARGO_REGISTRY_TOKEN": "fixture-registry-token",
         })
@@ -202,6 +220,31 @@ class ReleaseFlowTests(unittest.TestCase):
                 self.assertTrue(call["credentials"]["GIT_TOKEN"])
                 self.assertEqual(call["credentials"]["CARGO_REGISTRY_TOKEN"], command == "release")
                 self.assertEqual(call["cwd"], str(self.root))
+                if command == "release":
+                    phases = [json.loads(line) for line in (self.root / "release-phases.jsonl").read_text().splitlines()]
+                    self.assertEqual(phases, [{"cli": False}, {"cli": True}])
+
+    def test_libraries_release_before_cli_and_scaffold_failures_block_cli(self):
+        result = self.run_wrapper("release", TEST_FAIL_PREFLIGHT="check_registry_install.py")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.calls("release-plz")), 1)
+        phases = [json.loads(line) for line in (self.root / "release-phases.jsonl").read_text().splitlines()]
+        self.assertEqual(phases, [{"cli": False}])
+        check = self.calls("check_registry_install.py")[0]
+        self.assertFalse(any(check["credentials"].values()))
+
+    def test_library_publication_failure_never_reaches_scaffold_checks_or_cli(self):
+        result = self.run_wrapper("release", TEST_FAIL_LIBRARIES="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.calls("release-plz")), 1)
+        self.assertEqual(self.calls("check_registry_install.py"), [])
+
+    def test_main_is_rechecked_after_libraries_and_scaffold_validation(self):
+        result = self.run_wrapper("release", TEST_MAIN_AFTER_LIBRARIES="b" * 40)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("release candidate is stale", result.stderr)
+        self.assertEqual(len(self.calls("release-plz")), 1)
+        self.assertEqual(len(self.calls("check_registry_install.py")), 1)
 
     def test_both_dry_run_spellings_withhold_registry_credentials_and_allow_branches(self):
         for arguments in (("release-dry-run",), ("release", "--dry-run")):

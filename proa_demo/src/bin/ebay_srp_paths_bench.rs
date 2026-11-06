@@ -10,10 +10,10 @@
 
 use std::time::Instant;
 
-use proa_core::{RenderBuffer, WebContext, WebRenderSync, ZeroCopyBuf};
+use proa_core::RenderBuffer;
 use proa_demo::ebay_srp::{
     default_listings, render_listings_into, render_listings_into_chained,
-    render_listings_into_zerocopy, ListingsList,
+    render_listings_into_zerocopy,
 };
 
 const ITERS: usize = 5_000;
@@ -151,91 +151,5 @@ fn main() {
             std::hint::black_box(flat.len());
         }
         report("ZeroCopyBuf → flatten", &mut samples, flat.len(), "");
-    }
-
-    println!("\n=== full-page splice (shell + listings + shell)");
-
-    // Path E — full-page render: shell_pre + listings + shell_post via Vec
-    {
-        const SHELL_PRE: &str = include_str!("../../../proa_showcase/src/ebay/data/shell_pre.html");
-        const SHELL_POST: &str =
-            include_str!("../../../proa_showcase/src/ebay/data/shell_post.html");
-        let mut listings_buf = Vec::with_capacity(1024 * 1024);
-        let mut full = String::with_capacity(SHELL_PRE.len() + 256 * 1024 + SHELL_POST.len());
-        for _ in 0..WARMUP {
-            render_listings_into(listings, &mut listings_buf);
-            full.clear();
-            full.push_str(SHELL_PRE);
-            full.push_str(std::str::from_utf8(strip_outer_ul(&listings_buf)).unwrap());
-            full.push_str(SHELL_POST);
-        }
-        let mut samples = Vec::with_capacity(ITERS);
-        for _ in 0..ITERS {
-            let t = Instant::now();
-            render_listings_into(listings, &mut listings_buf);
-            full.clear();
-            full.push_str(SHELL_PRE);
-            full.push_str(std::str::from_utf8(strip_outer_ul(&listings_buf)).unwrap());
-            full.push_str(SHELL_POST);
-            samples.push(t.elapsed().as_nanos() as u64);
-            std::hint::black_box(full.len());
-        }
-        let bytes = full.len();
-        report("Vec splice (current path)", &mut samples, bytes, "");
-    }
-
-    // Path F — full-page render via ZeroCopyBuf: shell parts are pure pointers
-    {
-        const SHELL_PRE: &[u8] =
-            include_bytes!("../../../proa_showcase/src/ebay/data/shell_pre.html");
-        const SHELL_POST: &[u8] =
-            include_bytes!("../../../proa_showcase/src/ebay/data/shell_post.html");
-
-        let mut flat = Vec::with_capacity(SHELL_PRE.len() + 256 * 1024 + SHELL_POST.len());
-
-        for _ in 0..WARMUP {
-            let mut zc = ZeroCopyBuf::with_capacity(64, 64 * 1024);
-            zc.parts.push(proa_core::Part::Static(SHELL_PRE));
-            {
-                let mut cx = WebContext::with_buffer(&mut zc);
-                ListingsList { listings }.render(&mut cx).unwrap();
-            }
-            zc.parts.push(proa_core::Part::Static(SHELL_POST));
-            zc.flatten_into(&mut flat);
-        }
-
-        let mut samples = Vec::with_capacity(ITERS);
-        for _ in 0..ITERS {
-            let t = Instant::now();
-            let mut zc = ZeroCopyBuf::with_capacity(64, 64 * 1024);
-            zc.parts.push(proa_core::Part::Static(SHELL_PRE));
-            {
-                let mut cx = WebContext::with_buffer(&mut zc);
-                ListingsList { listings }.render(&mut cx).unwrap();
-            }
-            zc.parts.push(proa_core::Part::Static(SHELL_POST));
-            zc.flatten_into(&mut flat);
-            samples.push(t.elapsed().as_nanos() as u64);
-            std::hint::black_box(flat.len());
-        }
-        report("ZeroCopyBuf splice + flatten", &mut samples, flat.len(), "");
-    }
-}
-
-fn strip_outer_ul(html: &[u8]) -> &[u8] {
-    let s = html;
-    // Trim leading whitespace
-    let mut start = 0;
-    while start < s.len() && s[start].is_ascii_whitespace() {
-        start += 1;
-    }
-    let after_open = match s[start..].iter().position(|&b| b == b'>') {
-        Some(i) => &s[start + i + 1..],
-        None => s,
-    };
-    if after_open.ends_with(b"</ul>") {
-        &after_open[..after_open.len() - 5]
-    } else {
-        after_open
     }
 }

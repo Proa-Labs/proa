@@ -1370,10 +1370,13 @@ mod dev_preparation_tests {
         fs::create_dir(root.join("styles")).unwrap();
         fs::write(root.join("src/main.rs"), SOURCE).unwrap();
         fs::write(root.join("src/generated.rs"), "const GENERATED: u8 = 1;").unwrap();
-        fs::File::open(root.join("src/generated.rs"))
-            .unwrap()
-            .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1)))
-            .unwrap();
+        // Same-length edits must change the stamp even on coarse-timestamp filesystems.
+        for source in ["src/main.rs", "src/generated.rs"] {
+            fs::File::open(root.join(source))
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(1)))
+                .unwrap();
+        }
         fs::write(root.join("generator-input"), "const GENERATED: u8 = 1;").unwrap();
         fs::write(root.join("styles/input.css"), ".old { color: red; }").unwrap();
         let mut config = ProjectConfig::default();

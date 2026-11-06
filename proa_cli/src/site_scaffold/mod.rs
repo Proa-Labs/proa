@@ -73,6 +73,17 @@ struct OperationResult<'a> {
     next: String,
 }
 
+pub(crate) fn scaffold_version(package: &str) -> String {
+    let versions: std::collections::BTreeMap<String, String> = toml::from_str(include_str!(
+        concat!(env!("OUT_DIR"), "/scaffold-versions.toml")
+    ))
+    .expect("bundled scaffold versions are valid TOML");
+    versions
+        .get(package)
+        .expect("scaffold dependency is listed")
+        .clone()
+}
+
 pub fn new_site(options: NewSiteOptions) -> Result<()> {
     let template = SiteTemplate::parse_compat(&options.template)?;
     let selection = CapabilitySelection::resolve(template, options.overrides)?;

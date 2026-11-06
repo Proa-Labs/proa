@@ -131,7 +131,7 @@ impl<L: DataLoader> WebRenderSync<L> for ReceiptShell<'_> {
                     </span>
                     <span class="text-ink6">"·"</span>
                     <a
-                        href="https://github.com/Proa-Labs/proa/tree/main/examples/origin-routing-atlas"
+                        href="https://github.com/Proa-Labs/proa/tree/main/proa_cli/src/site_scaffold/templates/origin"
                         class="text-ink3 tracking-[0.1em]"
                     >
                         "source"

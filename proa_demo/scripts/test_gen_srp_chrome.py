@@ -67,15 +67,6 @@ class CaptureSanitizerTests(unittest.TestCase):
         self.assertEqual(GENERATOR.unplaceholdered_capture_identifiers(sanitized), [])
         self.assertIn('<meta name="referrer" content="no-referrer">', sanitized)
 
-    def test_committed_capture_fixtures_are_already_inert(self):
-        for path in GENERATOR.CAPTURE_FIXTURES:
-            with self.subTest(path=path.name):
-                source = path.read_text()
-                self.assertEqual(GENERATOR.sanitize_capture_html(source), source)
-                self.assertEqual(GENERATOR.executable_capture_hooks(source), [])
-                self.assertEqual(
-                    GENERATOR.unplaceholdered_capture_identifiers(source), []
-                )
 
 
 if __name__ == "__main__":

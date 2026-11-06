@@ -63,7 +63,7 @@ So `proa_framework_axum`'s sources are at `proa_framework/proa_framework_axum/sr
 `rsjs_*` crates are not yet grouped.
 
 Runnable reference applications live under `examples/` and are workspace
-members: `examples/origin-routing-atlas`, `examples/webmcp-pizza`, and
+members: `examples/webmcp-pizza` and
 `examples/mcp-incident-desk`. They are `publish = false` and exercise the
 public API the way an application would, so they are the best place to read a
 complete page, loader, and layout in context.

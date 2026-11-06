@@ -248,6 +248,26 @@ jobs:
       - name: Build
         run: cargo build --release --locked -p proa-cli --target "$TARGET"
 
+      - name: Verify generated projects against published crates
+        if: needs.setup.outputs.channel == 'stable'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh scripts/install.sh --tailwind-only --to "$RUNNER_TEMP/scaffold-tools" --no-modify-path --yes
+          export PATH="$RUNNER_TEMP/scaffold-tools:$PATH"
+          python3 scripts/check_registry_install.py \
+            --cli "target/$TARGET/release/proa" \
+            --work-dir "$RUNNER_TEMP/cli-scaffolds"
+
+      - name: Verify main snapshot against workspace libraries
+        if: needs.setup.outputs.channel == 'main'
+        env:
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: |
+          cargo fetch --locked
+          python3 scripts/check_origin_scaffold.py --cli "target/$TARGET/release/proa"
+
       - name: Package
         shell: bash
         env:

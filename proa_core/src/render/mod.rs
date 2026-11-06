@@ -1,25 +1,14 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Multi-target rendering infrastructure for Proa
+//! Rendering infrastructure for HTML and Markdown components.
 //!
-//! This module provides the foundation for rendering components to multiple targets:
-//! - **Web**: HTML for browsers (see [`crate::web`])
-//! - **Email**: HTML with inline styles and table layouts (see [`crate::email`])
-//! - **PDF**: Planned for future implementation
-//!
-//! ## Architecture
-//!
-//! Each target has its own directory at the crate root:
-//! - Context type (e.g., `WebContext`, `EmailContext`)
-//! - Target-specific rendering utilities
-//! - Trait implementations for components
-//!
-//! Common code shared between targets (especially web/email) lives in [`crate::shared`].
+//! HTML and Markdown share [`crate::web::WebContext`]; Markdown formatting
+//! state lives in [`crate::md::MdState`]. Escaping and serialization utilities
+//! live in [`crate::shared`].
 
 pub mod containers;
 pub mod dyn_web_render;
-pub mod email_render;
 pub mod error_boundary;
 pub mod load_error;
 pub mod load_key;
@@ -39,7 +28,6 @@ pub mod stream;
 pub mod web_render;
 
 // Re-export primary types for convenience
-pub use crate::email::EmailContext;
 pub use crate::web::{
     CacheDependency, CacheTrace, HeadContext, HeadEntry, Locals, RenderArtifacts, RenderTelemetry,
     RequestContext, ResponseContext, RsjsArtifactBranch, RsjsArtifactCheckpoint,
@@ -52,7 +40,6 @@ pub use dyn_web_render::{
     boxed_render, boxed_sync_render, drive_dyn_render, BoxedWebRender, BoxedWebRenderSync,
     DynRenderOutcome, DynWebRender, DynWebRenderSync,
 };
-pub use email_render::EmailRender;
 pub use error_boundary::{BoundaryErrorFallback, BoundaryErrorFallbackHandle, ErrorBoundary};
 pub use load_error::LoadError;
 pub use load_key::{LoadKey, LoadKeyKind};
