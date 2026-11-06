@@ -6,6 +6,7 @@ use super::*;
 
 pub(super) fn request_config_expr(
     expr: &Expr,
+    context_ident: &syn::Ident,
     default_method: &str,
     message: &str,
 ) -> syn::Result<FrontendExpr> {
@@ -21,7 +22,7 @@ pub(super) fn request_config_expr(
     }
     if let Expr::MethodCall(call) = expr {
         if call.method == "url"
-            && matches!(call.receiver.as_ref(), Expr::Path(path) if path.path.is_ident("cx"))
+            && matches!(call.receiver.as_ref(), Expr::Path(path) if path.path.is_ident(context_ident))
         {
             if call.args.len() != 1 {
                 return Err(syn::Error::new(
@@ -730,7 +731,7 @@ mod request_base_path_tests {
 
     fn descriptor(expr: Expr) -> JsonValue {
         let FrontendExpr::Literal(Value::String(json)) =
-            request_config_expr(&expr, "GET", "invalid request").unwrap()
+            request_config_expr(&expr, &syn::parse_quote!(cx), "GET", "invalid request").unwrap()
         else {
             panic!("FetchRequest should lower to a JSON descriptor");
         };
@@ -767,8 +768,10 @@ mod request_base_path_tests {
     #[test]
     fn cx_url_encodes_a_mounted_request_for_queries_and_mutations() {
         let expr = syn::parse_quote! { cx.url("/api/items") };
-        let query = request_config_expr(&expr, "GET", "invalid request").unwrap();
-        let mutation = request_config_expr(&expr, "POST", "invalid request").unwrap();
+        let context_ident = syn::parse_quote!(cx);
+        let query = request_config_expr(&expr, &context_ident, "GET", "invalid request").unwrap();
+        let mutation =
+            request_config_expr(&expr, &context_ident, "POST", "invalid request").unwrap();
         for request in [query, mutation] {
             let FrontendExpr::Literal(Value::String(json)) = request else {
                 panic!("cx.url should lower to a JSON descriptor");
@@ -779,9 +782,24 @@ mod request_base_path_tests {
         }
 
         let dynamic: Expr = syn::parse_quote! { cx.url(path) };
-        assert!(request_config_expr(&dynamic, "GET", "invalid request")
-            .unwrap_err()
-            .to_string()
-            .contains("must be a string literal"));
+        assert!(
+            request_config_expr(&dynamic, &context_ident, "GET", "invalid request")
+                .unwrap_err()
+                .to_string()
+                .contains("must be a string literal")
+        );
+
+        let renamed = syn::parse_quote! { render_ctx.url("/api/items") };
+        let descriptor = request_config_expr(
+            &renamed,
+            &syn::parse_quote!(render_ctx),
+            "GET",
+            "invalid request",
+        )
+        .unwrap();
+        assert!(matches!(
+            descriptor,
+            FrontendExpr::Literal(Value::String(_))
+        ));
     }
 }

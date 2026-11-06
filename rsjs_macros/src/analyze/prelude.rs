@@ -681,6 +681,7 @@ impl Analyzer {
         let server_initial = FrontendExpr::Literal(Value::Null);
         let client_fetcher = match request_config_expr(
             &call.args[2],
+            &self.context_ident,
             "GET",
             "`query_with_initial(...)` client_fetcher must be a literal URL string, \
                  `cx.url(\"/...\")`, signal-backed URL expression, or \
@@ -785,6 +786,7 @@ impl Analyzer {
         let server_runner = FrontendExpr::Literal(Value::Null);
         let client_runner = match request_config_expr(
             &call.args[1],
+            &self.context_ident,
             "POST",
             "`mutation(...)` client_runner must be a literal URL string, \
                  `cx.url(\"/...\")`, signal-backed URL expression, JSON runner config, \

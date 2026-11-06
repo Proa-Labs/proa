@@ -848,18 +848,18 @@ impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
 {
     fn render(
         self,
-        cx: &mut WebContext<L, B>,
+        render_ctx: &mut WebContext<L, B>,
     ) -> proa_core::RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         proa_core::RenderOutcome::pending(async move {
             let price: rsjs::Query<i64> = rsjs::query_with_initial(
                 rsjs::QueryKey::new(("stock", "AAPL")),
                 172_i64,
-                cx.url("/api/stocks/AAPL"),
+                render_ctx.url("/api/stocks/AAPL"),
                 rsjs::QueryOptions::default(),
             );
             let save = rsjs::mutation::<(), ()>(
                 rsjs::QueryKey::new(("stock", "save")),
-                cx.url("/api/stocks/AAPL"),
+                render_ctx.url("/api/stocks/AAPL"),
                 &[rsjs::QueryKey::new(("stock", "AAPL"))],
             );
             proa_macros::html! {
@@ -868,7 +868,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> proa_core::WebRender<L, B>
                     <button type="button" on_click={|_| save.run(())}>"Save"</button>
                 </div>
             }
-            .render(cx)
+            .render(render_ctx)
             .resolve()
             .await
         })

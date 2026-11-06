@@ -118,6 +118,7 @@ pub(crate) fn analyze(parsed: &ParsedIsland) -> syn::Result<AnalysisOutput> {
     let generic_static_slot = generic_static_slot_field(parsed);
     let mut a = Analyzer {
         builder: IslandBuilder::new(),
+        context_ident: parsed.context_ident.clone(),
         shared_stores: HashMap::new(),
         shared_fields: HashMap::new(),
         signals: HashMap::new(),
@@ -576,6 +577,8 @@ pub(crate) fn expand_server_prelude_expr_for_descriptor(expr: &Expr, lets: &[Loc
 #[derive(Clone)]
 struct Analyzer {
     builder: IslandBuilder,
+    /// User-authored render context binding, which need not be named `cx`.
+    context_ident: syn::Ident,
     /// Source local -> shared-store acquisition id.
     shared_stores: HashMap<String, SharedStoreId>,
     /// One signal id per `(provider acquisition, top-level field)` even when
