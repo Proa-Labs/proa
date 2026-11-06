@@ -94,7 +94,6 @@ runs:
           proa_framework/proa_framework_axum/src \
           proa_marketing/src \
           proa_cli/src/site_scaffold/templates \
-          examples/origin-routing-atlas \
           examples/webmcp-pizza
 
     - name: Check generated RSJS web bindings
@@ -129,7 +128,7 @@ runs:
     - name: test (integration)
       shell: bash
       run: |
-        cargo test --workspace --locked --features proa_core/html-to-markdown --test '*' --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa_showcase --exclude proa-lean-server --exclude proa-cli --exclude proa_webmcp_pizza --exclude proa_origin_routing_atlas
+        cargo test --workspace --locked --features proa_core/html-to-markdown --test '*' --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa_showcase --exclude proa-lean-server --exclude proa-cli --exclude proa_webmcp_pizza
         # --test excludes doctests, so keep the converter's doc examples covered.
         cargo test -p proa_core --features html-to-markdown --locked --doc
 

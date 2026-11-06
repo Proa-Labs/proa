@@ -55,8 +55,8 @@ Presets resolve to orthogonal capabilities, each individually overridable:
 | `--deploy` | `none`, `docker`, `railway`, `coolify` | Provider-native deployment files. |
 
 The `origin` preset owns its application content, so only `--deploy` can be
-overridden there; `examples/origin-routing-atlas` in the Proa repository is
-the same template, and a drift test keeps the two byte-identical.
+overridden there; `proa_cli/src/site_scaffold/templates/origin/` in the Proa repository is
+the canonical source. CI generates an app from it and runs its linked tests.
 
 ## Options
 

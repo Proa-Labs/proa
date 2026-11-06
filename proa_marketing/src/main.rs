@@ -75,7 +75,7 @@ fn app() -> Router {
             get(endpoints::agent_discovery::site_metadata)
                 .fallback(endpoints::api::method_not_allowed),
         )
-        .merge(endpoints::api::router(endpoints::api::Source::Production))
+        .merge(endpoints::api::router())
         .route(
             routes::LEGACY_SEARCH,
             get(endpoints::search::handler).post(endpoints::search::post_handler),
@@ -86,7 +86,6 @@ fn app() -> Router {
             endpoints::api::rate_limit,
         ));
     Router::new()
-        .nest(routes::SANDBOX, endpoints::api::sandbox::router())
         .route(
             routes::HOME,
             get(pages::home::handler).layer(SetResponseHeaderLayer::if_not_present(

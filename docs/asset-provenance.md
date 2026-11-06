@@ -21,7 +21,6 @@ new binary assets and captured-fixture-shaped files to match a row here.
 |---|---|---|
 | `assets/logo.svg` | Proa-authored | Repository logo |
 | `assets/discord/proa-icon-white.png` | Generated from the Proa favicon with an opaque white background | Discord community icon |
-| `deploy/proa-preview-app-icon.png` | Generated from Proa-authored brand artwork | Preview deployment icon |
 | `proa_marketing/public/favicon.svg` | Proa-authored | Proa site identity |
 | `proa_marketing/public/favicon.ico` | Generated from the Proa-authored favicon | Browser icon |
 | `proa_marketing/public/apple-touch-icon.png` | Rendered from the Proa-authored favicon with an opaque background in commit `ab6e5cd` | iOS home-screen icon |
@@ -29,7 +28,6 @@ new binary assets and captured-fixture-shaped files to match a row here.
 | `proa_marketing/public/images/team/andrew-hariri.jpg` | Andrew Hariri's public GitHub profile portrait, downloaded from `https://avatars.githubusercontent.com/u/31301117?v=4&s=512` for his requested team profile | Proa founder portrait |
 | `proa_marketing/public/images/blog/*.svg` | Proa-authored | Explanatory diagrams |
 | `proa_marketing/public/images/synthetic/*.svg` | Proa-authored geometric illustrations | Demo, benchmark, and marketing fixture imagery |
-| `examples/origin-routing-atlas/public/fonts/*.woff2` | Vendored from Google Fonts by `proa_fonts_build`; Instrument Sans and Azeret Mono are SIL OFL-1.1, whose text sits beside the files | Example self-hosted webfonts |
 | `proa_cli/src/site_scaffold/templates/origin/public/fonts/*.woff2` | Vendored from Google Fonts by `proa_fonts_build`; Instrument Sans and Azeret Mono are SIL OFL-1.1, whose text sits beside the files | Scaffold reference-project self-hosted webfonts |
 | `proa_marketing/public/images/airbnb/**` | Captured from public Airbnb pages used by the retained home, search, and listing fixtures | Airbnb reference showcase imagery |
 | `proa_marketing/public/images/airbnb-preview-*` | Derived from the retained Airbnb captures | Airbnb marketing previews |
@@ -38,7 +36,6 @@ new binary assets and captured-fixture-shaped files to match a row here.
 | `proa_showcase/src/espn/data/game.json` | Derived from the retained ESPN event API snapshot for event `401695777` | ESPN Gamecast serialization benchmark |
 | `proa_showcase/src/espn/data/summary-401695777.json` | Captured from ESPN event API `401695777` | Source snapshot for the Gamecast fixture |
 | `proa_showcase/src/espn/data/images/**` | Captured from ESPN CDN event, team, venue, and news endpoints | ESPN Gamecast reference imagery |
-| `proa_showcase/src/ebay/data/*.html` | Captured from a public eBay search-results page | Cross-engine page-shape benchmark |
 | `proa_showcase/src/ebay/data/*.css` | Extracted from the retained eBay search-results capture | Cross-engine page-shape benchmark |
 | `proa_showcase/src/ebay/srp_chrome_real.rs` | Generated from the retained eBay capture | Proa eBay document chrome |
 | `proa_demo/marko-server/page_srp_real.marko` | Authored from the retained eBay capture | Marko comparison page |
@@ -56,3 +53,9 @@ applicable.
 
 Run `python3 scripts/check_asset_provenance.py` before committing asset or
 fixture changes.
+
+## Historical performance diagrams
+
+| Path | Source / license | Purpose |
+|---|---|---|
+| `docs/compile-time/diagrams/*.png` | Generated from local compiler measurements by Proa Labs, Inc. | Historical build performance reports |

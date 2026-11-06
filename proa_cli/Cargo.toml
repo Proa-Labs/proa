@@ -3,7 +3,7 @@
 
 [package]
 name = "proa-cli"
-version = "0.1.3"
+version = "0.2.0"
 edition.workspace = true
 publish.workspace = true
 rust-version.workspace = true
@@ -58,5 +58,22 @@ libc = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_System_IO"] }
 
+[build-dependencies]
+toml = { workspace = true }
+
 [dev-dependencies]
 object = { workspace = true }
+# These declarations version the generated manifests without adding framework
+# libraries to the CLI executable. release-plz updates them with the workspace.
+proa_actions = { workspace = true }
+proa_core = { workspace = true }
+proa_docs = { workspace = true }
+proa_docs_build = { workspace = true }
+proa_fonts = { workspace = true }
+proa_fonts_build = { workspace = true }
+proa_fonts_macros = { workspace = true }
+proa_framework_axum = { workspace = true }
+proa_ir = { workspace = true }
+proa_macros = { workspace = true }
+proa_stream = { workspace = true }
+rsjs = { workspace = true }

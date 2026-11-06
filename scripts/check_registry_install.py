@@ -2,7 +2,7 @@
 # Copyright Proa Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Install the released CLI and exercise generated sites using only crates.io."""
+"""Exercise generated sites against crates.io with a released or candidate CLI."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
                     if time.monotonic() >= deadline:
                         raise
                     time.sleep(0.1)
-            paths = ["/", "/healthz", "/readyz"]
+            paths = ["/", "/healthz", "/readyz", "/static/styles.css"]
             if template != "minimal":
                 paths += ["/index.md"]
             if template == "origin":
@@ -75,15 +75,18 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", help="specific released proa-cli version (default: latest stable)")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--version", help="specific released proa-cli version (default: latest stable)")
+    source.add_argument("--cli", type=Path, help="verify a candidate CLI instead of installing one")
+    parser.add_argument("--template", action="append", choices=("minimal", "app", "marketing", "docs", "origin"),
+                        help="template to verify (repeatable; default: all)")
     parser.add_argument("--work-dir", type=Path, help="keep generated projects and logs here")
     arguments = parser.parse_args()
     work = arguments.work_dir or Path(tempfile.mkdtemp(prefix="proa-registry-install-"))
     work = work.resolve()
     work.mkdir(parents=True, exist_ok=True)
     print(f"Registry acceptance artifacts: {work}", flush=True)
-    cargo_home = work / "cargo-home"
-    cargo_home.mkdir(exist_ok=True)
+    cargo_home = Path(tempfile.mkdtemp(prefix="cargo-home-", dir=work))
     # A fresh Cargo home has no checkout config, source overrides, or credentials.
     environment = {
         key: value for key, value in os.environ.items()
@@ -92,19 +95,23 @@ def main() -> None:
     }
     environment.update(CARGO_HOME=str(cargo_home), CARGO_PROFILE_DEV_DEBUG="0",
                        CARGO_PROFILE_TEST_DEBUG="0", RUST_TEST_THREADS="2")
-    destination = work / "installed"
-    install = ["cargo", "install", "proa-cli", "--locked",
-               "--root", str(destination), "--target-dir", str(work / "target")]
-    if arguments.version:
-        install += ["--version", "=" + arguments.version]
-    run(install, work, environment)
-    suffix = ".exe" if os.name == "nt" else ""
-    environment["PATH"] = str(destination / "bin") + os.pathsep + environment.get("PATH", "")
+    environment["CARGO_TARGET_DIR"] = str(work / "target")
+    if arguments.cli:
+        proa = arguments.cli.resolve()
+    else:
+        destination = work / "installed"
+        install = ["cargo", "install", "proa-cli", "--locked",
+                   "--root", str(destination), "--target-dir", str(work / "target")]
+        if arguments.version:
+            install += ["--version", "=" + arguments.version]
+        run(install, work, environment)
+        proa = destination / "bin" / ("proa.exe" if os.name == "nt" else "proa")
+    environment["PATH"] = str(proa.parent) + os.pathsep + environment.get("PATH", "")
     for name in ("proa", "cargo-proa"):
-        run([str(destination / "bin" / (name + suffix)), "--help"], work, environment)
+        run([str(proa.with_name(name + (".exe" if os.name == "nt" else ""))), "--help"], work, environment)
     run(["cargo", "proa", "--help"], work, environment)
-    proa = destination / "bin" / ("proa" + suffix)
-    for template in ("minimal", "app", "marketing", "docs", "origin"):
+    templates = arguments.template or ("minimal", "app", "marketing", "docs", "origin")
+    for template in templates:
         project = work / f"registry-smoke-{template}"
         run([str(proa), "new", "site", str(project), "--template", template,
              "--yes", "--no-git", "--offline"], work, environment)
@@ -122,10 +129,12 @@ def main() -> None:
                            if Path(package["manifest_path"]).resolve() == (project / "Cargo.toml").resolve())
         tests = [target["name"] for target in application["targets"] if "test" in target["kind"]]
         assert tests, "generated site must contain integration tests"
+        if any("lib" in target["kind"] for target in application["targets"]):
+            run(["cargo", "test", "--locked", "--lib"], project, environment)
         for target in tests:
             run([str(proa), "test", "--root", str(project), "--locked", "--test", target],
                 project, environment)
-        artifact = project / ("app" + suffix)
+        artifact = work / (template + (".exe" if os.name == "nt" else ""))
         run([str(proa), "build", "--root", str(project), "--locked", "--profile", "dev",
              "--artifact-out", str(artifact)], project, environment)
         smoke_http(artifact, project, environment, template)

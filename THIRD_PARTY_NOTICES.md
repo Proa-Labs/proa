@@ -87,8 +87,6 @@ by `proa_fonts_build`. Both families are distributed under the SIL Open Font
 License, Version 1.1. Each family's license text, including its copyright
 notice, sits beside the font files it covers:
 
-- [`examples/origin-routing-atlas/public/fonts/OFL-InstrumentSans.txt`](examples/origin-routing-atlas/public/fonts/OFL-InstrumentSans.txt)
-- [`examples/origin-routing-atlas/public/fonts/OFL-AzeretMono.txt`](examples/origin-routing-atlas/public/fonts/OFL-AzeretMono.txt)
 - [`proa_cli/src/site_scaffold/templates/origin/public/fonts/OFL-InstrumentSans.txt`](proa_cli/src/site_scaffold/templates/origin/public/fonts/OFL-InstrumentSans.txt)
 - [`proa_cli/src/site_scaffold/templates/origin/public/fonts/OFL-AzeretMono.txt`](proa_cli/src/site_scaffold/templates/origin/public/fonts/OFL-AzeretMono.txt)
 

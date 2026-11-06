@@ -119,7 +119,7 @@ then passed a **695-test** library/cache/pipeline recheck. Workspace all-target
 checking, CI's workspace Clippy flags, strict `-D warnings` Clippy for every
 changed crate, Rust formatting, render allocation lint, source checks (allowing
 existing low-level warnings), shell syntax and CI partition validation passed.
-[Exact commands and outcomes](evidence/pre-pr-review-validation.json) preserve
+[Exact commands and outcomes](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/compile-time/evidence/pre-pr-review-validation.json) preserve
 this distinction. Stricter *whole-workspace* Clippy encounters an unchanged
 `manual_async_fn` warning in the Axum adapter's tests; no unrelated code was
 changed to silence it. Performance was not remeasured after these test/CI/style

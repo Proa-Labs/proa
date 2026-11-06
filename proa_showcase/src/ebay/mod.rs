@@ -7,5 +7,4 @@
 //! reusable SSR page shape, captured chrome, and shared fixture assets.
 
 pub mod srp;
-pub mod srp_chrome;
 pub mod srp_chrome_real;

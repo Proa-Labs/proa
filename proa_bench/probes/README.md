@@ -13,7 +13,7 @@ From the candidate checkout:
 
 ```sh
 python3 proa_bench/probes/compare_head.py /path/to/main . \
-  --output docs/design/evidence/head-native-performance.json \
+  --output target/head-native-performance.json \
   --timing-samples 19
 ```
 
