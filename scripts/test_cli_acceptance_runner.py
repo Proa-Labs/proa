@@ -75,10 +75,12 @@ class AcceptanceRunnerTests(unittest.TestCase):
             scripts = checkout / "scripts"
             scripts.mkdir()
             # The generator owns its own end-to-end linked test. This test
-            # isolates the runner's shard and executable namespaces.
+            # isolates the runner's shard and executable namespaces, so the
+            # stub only runs the CLI it was handed the way the real one does.
             (scripts / "check_origin_scaffold.py").write_text(
-                "import subprocess\nsubprocess.run(['cargo', 'run', '--', 'test', "
-                "'-p', 'origin-atlas', '--test', 'atlas'], check=True)\n")
+                "import subprocess, sys\n"
+                "cli = sys.argv[sys.argv.index('--cli') + 1]\n"
+                "subprocess.run([cli, 'test', '-p', 'origin-atlas', '--test', 'atlas'], check=True)\n")
             tools = checkout / "bin"
             tools.mkdir()
             cargo = tools / "cargo"
@@ -115,9 +117,10 @@ class AcceptanceRunnerTests(unittest.TestCase):
             self.assertEqual({paths[name] for name in halves}, {expected_root / "pr-1"})
             self.assertEqual(paths["proa_webmcp_pizza"], expected_root / "pr-2")
             self.assertEqual(paths["origin-atlas"], expected_root / "pr-3")
-            # The pizza shard runs the prelude's snapshot, not a build of its own;
-            # the snapshot sits outside every shard's Cargo target directory.
+            # Both example shards run the prelude's snapshot, not builds of their
+            # own; the snapshot sits outside every shard's Cargo target directory.
             self.assertEqual(executables["proa_webmcp_pizza"], expected_root / "cli" / "proa")
+            self.assertEqual(executables["origin-atlas"], expected_root / "cli" / "proa")
             self.assertTrue(all(executables[name].name == "cargo" for name in halves))
             return result
 
