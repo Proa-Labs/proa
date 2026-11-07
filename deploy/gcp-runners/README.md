@@ -11,6 +11,7 @@ workflow's literal `gcp-pr-ci` label selects the unprivileged pull-request pool.
 | Trusted scale set | helm release `gcp` / label `gcp-ci`, values: `runner-scale-set-values.yaml` |
 | PR scale set | helm release `gcp-pr` / label `gcp-pr-ci`, values: `pr-runner-scale-set-values.yaml` |
 | Controller | helm release `arc` in ns `arc-systems` (gha-runner-scale-set-controller 0.14.2) |
+| Node pool | `runners-c4`: c4-standard-16-lssd **spot** across `us-west1-a,b,c`, one runner per node (see [2026-11-07](#2026-11-07-granite-rapids-runner-pool)); legacy `runners` (n2d-standard-8) kept for rollback |
 | GitHub auth | k8s secret `proa-github-token` in `arc-runners` (rotate: recreate secret, restart listener) |
 | sccache | bucket `gs://proa-ci-sccache` (30-day lifecycle), Workload Identity: KSA `arc-runners/runner` -> GSA `proa-ci-sccache@...` (objectAdmin); KSA `arc-runners/pr-runner` -> GSA `proa-ci-sccache-ro@...` (objectViewer only) |
 
@@ -101,6 +102,70 @@ JIT pods, but approved PRs still execute code inside this GCP project.
   marks it Failed after 5 pod starts and stops retrying. Recycle with:
     kubectl delete ephemeralrunner --all -n arc-runners
   (the scale set immediately mints a fresh runner with a valid JIT token)
+
+## 2026-11-07: Granite Rapids runner pool
+
+The pull-request critical path, `Linked acceptance (pr)`, is three cargo-proa
+shards that keep every CPU busy for the whole job, so it only gets faster with
+more or faster cores. The same suite (`scripts/run_proa_cli_acceptance.sh pr`
+at `03889a9`, same runner image and job environment, one pod per node) was
+timed on each candidate before choosing:
+
+| Node | CPU (all-core GHz) | pr-1 | pr-2 | pr-3 | Suite |
+|---|---|---:|---:|---:|---:|
+| n2d-standard-8 (previous pool) | AMD Milan 7B13 (2.8) | 781s | 366s | 562s | **811s** |
+| c3d-standard-8 | AMD Genoa 9B14 (3.3) | 642s | 296s | 461s | 660s |
+| c4-standard-8-lssd | Intel Granite Rapids 6985P-C (3.9) | 513s | 234s | 369s | 540s |
+| c4-standard-16-lssd | Intel Granite Rapids 6985P-C (3.9) | 296s | 121s | 176s | **300s** |
+
+Clock speed and core count both pay: the 16-vCPU Granite Rapids node runs
+the suite in 5 minutes instead of 13.5. C4D (AMD Turin, 4.1 GHz boost) could
+not be measured: `us-west1-a` is the only zone in the region that offers it
+and it had no capacity for spot or on-demand VMs. Spot C4 was also exhausted
+in `us-west1-a` at the time; the pool therefore spans all three zones with
+the `ANY` location policy, and the cluster stays zonal (control plane in
+`us-west1-a`; cross-zone traffic within the region is free).
+
+Pool `runners-c4` was created with:
+
+```text
+gcloud container node-pools create runners-c4 \
+  --cluster proa-ci --zone us-west1-a --project airy-cycle-504821-k9 \
+  --machine-type c4-standard-16-lssd --spot \
+  --node-locations us-west1-a,us-west1-b,us-west1-c --location-policy=ANY \
+  --image-type COS_CONTAINERD --num-nodes 0 \
+  --enable-autoscaling --total-min-nodes 0 --total-max-nodes 6 \
+  --workload-metadata=GKE_METADATA --metadata disable-legacy-endpoints=true \
+  --disk-type hyperdisk-balanced --disk-size 75 \
+  --ephemeral-storage-local-ssd count=2 \
+  --node-labels ci-runner-pool=true,ci-runner-family=c4 \
+  --node-taints ci-runner-pool=true:NoSchedule
+```
+
+Notes that matter when changing it:
+
+- C4 only boots from Hyperdisk; `pd-standard` is rejected. The `-lssd`
+  shapes have a fixed local SSD count (1 for 8 vCPU, 2 for 16 vCPU) and
+  `--ephemeral-storage-local-ssd count=` must match it.
+- One runner per node: both values files request 15 CPU and 48Gi. An 8-vCPU
+  C4 node (30 GB) leaves only about 25.7 GiB allocatable, so the previous
+  26Gi request would never schedule there.
+- `--total-max-nodes` is the pool-wide cap for a multi-zone pool
+  (`--max-nodes` is per zone). Six nodes is the 96 preemptible-CPU quota in
+  `us-west1`; a main push can want eight runners, so the extra jobs queue for
+  a few minutes until a node frees up unless the quota is raised to 192.
+- Both scale sets select the pool with `ci-runner-family: c4`. Rollback is
+  removing that selector line and running the `helm upgrade` for the affected
+  release; the legacy `runners` pool still carries the `ci-runner-pool` label
+  and taint. The other repositories' scale sets on this cluster
+  (`gcp-latency-*`, `gcp-proa-benchmarks-*`, `gcp-proa-ui-*`) still select
+  only `ci-runner-pool: "true"` with 7 CPU / 26Gi requests, so the
+  autoscaler may place them on either pool. Move them to `ci-runner-family`
+  before deleting the legacy pool.
+- Spot prices (us-west1, 2026-11): n2d-standard-8 about $0.17/h,
+  c4-standard-16-lssd about $0.57/h including the two local SSDs. A job that
+  takes 2.7x less time on a 3.3x pricier node costs roughly a quarter more,
+  about five cents for the linked acceptance job.
 
 ## 2026-08-08: rebuilt as GKE Standard (Autopilot retired)
 

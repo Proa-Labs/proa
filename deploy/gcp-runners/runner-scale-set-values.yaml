@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # gha-runner-scale-set values for the Proa CI fleet on GKE (Standard mode,
-# spot node pool with local NVMe ephemeral storage). The scale-set name IS
-# the runs-on label: CI_RUNNER=gcp-ci routes ci.yml here. Register at organization
-# scope so GitHub enforces the workflow restriction on proa-trusted-main.
+# Granite Rapids spot node pool with local SSD ephemeral storage). The
+# scale-set name IS the runs-on label: CI_RUNNER=gcp-ci routes ci.yml here.
+# Register at organization scope so GitHub enforces the workflow restriction
+# on proa-trusted-main.
 githubConfigUrl: https://github.com/Proa-Labs
 githubConfigSecret: proa-github-token
 runnerGroup: proa-trusted-main
@@ -19,6 +20,10 @@ template:
     serviceAccountName: runner
     nodeSelector:
       ci-runner-pool: "true"
+      # Pins runners to the `runners-c4` pool (c4-standard-16-lssd spot,
+      # Granite Rapids). Drop this line to fall back to the legacy
+      # n2d-standard-8 `runners` pool, which carries the same taint.
+      ci-runner-family: "c4"
     tolerations:
       - key: ci-runner-pool
         operator: Equal
@@ -30,8 +35,10 @@ template:
         command: ["/home/runner/run.sh"]
         resources:
           requests:
-            cpu: "7"
-            memory: "26Gi"
+            # One runner per c4-standard-16-lssd node: 16 vCPU / 60 GB,
+            # of which GKE leaves about 15.9 CPU and 53 GiB allocatable.
+            cpu: "15"
+            memory: "48Gi"
             # emptyDir below lands on the node's local NVMe SSD
             # (--ephemeral-storage-local-ssd), so the work dir gets
             # NVMe latency with zero persistent-disk quota cost.

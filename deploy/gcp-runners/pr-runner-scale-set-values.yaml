@@ -23,6 +23,10 @@ template:
     serviceAccountName: pr-runner
     nodeSelector:
       ci-runner-pool: "true"
+      # Pins runners to the `runners-c4` pool (c4-standard-16-lssd spot,
+      # Granite Rapids). Drop this line to fall back to the legacy
+      # n2d-standard-8 `runners` pool, which carries the same taint.
+      ci-runner-family: "c4"
     tolerations:
       - key: ci-runner-pool
         operator: Equal
@@ -34,8 +38,10 @@ template:
         command: ["/home/runner/run.sh"]
         resources:
           requests:
-            cpu: "7"
-            memory: "26Gi"
+            # One runner per c4-standard-16-lssd node: 16 vCPU / 60 GB,
+            # of which GKE leaves about 15.9 CPU and 53 GiB allocatable.
+            cpu: "15"
+            memory: "48Gi"
             ephemeral-storage: "80Gi"
         volumeMounts:
           - name: work
