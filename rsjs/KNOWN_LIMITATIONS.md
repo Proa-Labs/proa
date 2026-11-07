@@ -95,6 +95,55 @@ Filed for M11+.
 
 ---
 
+## 2. Client `f32` arithmetic runs in `f64`
+
+**Blocks**: byte-exact client text for `f32` values that the client
+computes, when the computation uses a float literal that is not exactly
+representable as `f32` (`price.get() * 1.1`), or chains more than one
+operation (`a.get() + b.get() + c.get()`).
+
+### Observed behavior
+
+Client arithmetic on `f32` operands is emitted as plain JS `number`
+arithmetic: float literals keep their `f64` value, and intermediate
+results are never rounded to `f32`. Formatted float placeholders
+(`text!("{:.1}", x.get())`) narrow only the final value to `f32`. That is
+exact for seeds and for a single operation on `f32`-exact operands
+(double rounding is safe because 53 >= 2·24 + 2), but it can differ from
+Rust's per-operation `f32` rounding in the two cases above. For example,
+`3.0_f32 * 1.1` is `3.3000002` in Rust and `3.3` on the client; with
+`b = 2^-24`, `1.0 + b + b` is `1.0000000` in Rust at `{:.7}` and
+`1.0000001` on the client.
+
+Client typing has no `f32` literal type: every float literal types as `f64`,
+whatever its suffix, binding annotation or closure parameter type says. Formatted
+float placeholders are therefore accepted only when a typed signal or prop, or
+a memo over one, fixes the width. Literal-only values (`text!("{:.9}", 0.1_f32)`,
+or a prelude alias or memo built from literals), block and handler locals,
+query data, and DOM/event/browser reads are rejected with
+`rsjs/text-format-unsupported` instead of rendering the wrong digits. One case still reaches the client as `f64`: an unannotated
+`signal(0.1)` that Rust infers as `f32` from a later use. Give `f32` signals a
+suffix or a `Signal<f32>` annotation.
+
+### Use case
+
+A product page that computed a display value in an `f32` signal handler
+and formatted it with `text!("{:>8}", ...)` would hydrate with different
+text than the server rendered.
+
+### Current workaround
+
+Use `f64` for client-computed floats (rsjs `f64` arithmetic matches Rust
+exactly), or compute the value on the server.
+
+### Suggested fix
+
+Lower `f32`-typed float literals to `Math.fround(literal)` and wrap every
+`F32`-typed arithmetic result in a `fround` runtime intrinsic in client IR
+emission (handlers, memos, helpers, text and attribute slots).
+
+---
+
 ## Adding to this file
 
 When you hit a limitation that blocks a real use case, add a section

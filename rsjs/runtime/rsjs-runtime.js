@@ -326,10 +326,172 @@ export function batch(run) {
     }
 }
 
+// Bare `{}` floats render like proa's server-side float writer (shortest
+// digits, JS spelling), so this path intentionally stays `String(value)`;
+// formatted float placeholders use rust_float_abs_text below instead.
 function rust_float_text(value) {
     if (value === Infinity) return 'inf';
     if (value === -Infinity) return '-inf';
     return value == null ? '' : String(value);
+}
+
+// Formatted float placeholders (`{:.1}`, `{:>8}`, `{:+}`) render on the
+// server through core::fmt Display (or proa's `fixed_decimal` fast path for a
+// bare `{:.N}`, which uses the same exact rounding), so the client mirrors
+// core::fmt without the sign:
+// - with a precision: the exact binary value rounded half-to-even
+//   ("2.5" at .0 is "2", 0.125 at .2 is "0.12"), where Number#toFixed rounds
+//   ties up;
+// - without one: the shortest digits that round-trip (as f32 when `f32` is
+//   set), nearest to the exact value with ties rounded up, printed in plain
+//   positional notation (1e21 is "1000000000000000000000", 1e-7 is
+//   "0.0000001", 5.0 is "5").
+function rust_float_abs_text(abs, precision, f32) {
+    if (abs === Infinity) return 'inf';
+    if (precision === null) return float_shortest_plain(abs, f32);
+    return float_fixed_exact(abs, precision);
+}
+
+const FLOAT_VIEW = new DataView(new ArrayBuffer(8));
+
+// abs = mantissa * 2^exponent exactly, from the IEEE-754 bit pattern.
+function float_exact_parts(abs) {
+    FLOAT_VIEW.setFloat64(0, abs);
+    const bits = FLOAT_VIEW.getBigUint64(0);
+    const biased = Number((bits >> 52n) & 0x7ffn);
+    const fraction = bits & 0xfffffffffffffn;
+    const mantissa = biased === 0 ? fraction : fraction | 0x10000000000000n;
+    const exponent = biased === 0 ? -1074 : biased - 1075;
+    return [mantissa, exponent];
+}
+
+// Shortest digits of a finite positive value as `digits * 10^scale`. Among
+// the candidates that round-trip at the minimal digit count, pick the one
+// nearest the exact value; on an exact tie pick the larger, as core::fmt
+// does (Number#toExponential breaks ties to even). For f32 the minimal
+// count is searched explicitly, trying the nearest candidate and both
+// neighbours, because the round-trip interval is asymmetric at powers of two.
+function float_shortest_parts(abs, f32) {
+    const [mantissa, exponent] = float_exact_parts(abs);
+    // f64: Number() parses decimals correctly rounded. f32: Math.fround of
+    // that f64 can double-round, so test the exact f32 rounding interval.
+    const round_trips = f32
+        ? (digits, scale) => f32_round_trips(digits, scale, abs)
+        : (digits, scale) => Number(`${digits}e${scale}`) === abs;
+    // Integer comparison of |candidate - abs| for candidates at one scale.
+    const distance = (digits, scale) => {
+        const a = BigInt(Math.max(0, -exponent));
+        const b = Math.max(0, -scale);
+        const value = (mantissa << (BigInt(exponent) + a)) * 10n ** BigInt(b);
+        const candidate = digits * 10n ** BigInt(scale + b) * (1n << a);
+        return candidate > value ? candidate - value : value - candidate;
+    };
+    const pick = (nearest_text) => {
+        const [mant, exp] = nearest_text.split('e');
+        const text = mant.replace('.', '');
+        const scale = Number(exp) - (text.length - 1);
+        const nearest = BigInt(text);
+        let best = null;
+        for (const digits of [nearest - 1n, nearest, nearest + 1n]) {
+            if (digits <= 0n || !round_trips(digits, scale)) continue;
+            if (best === null) {
+                best = digits;
+                continue;
+            }
+            const [d_new, d_best] = [distance(digits, scale), distance(best, scale)];
+            if (d_new < d_best || (d_new === d_best && digits > best)) best = digits;
+        }
+        return best === null ? null : [best, scale];
+    };
+    if (f32) {
+        for (let count = 1; count <= 9; count += 1) {
+            const found = pick(abs.toExponential(count - 1));
+            if (found !== null) return found;
+        }
+    }
+    return pick(abs.toExponential());
+}
+
+// Sign of digits*10^scale - value*2^power, exactly.
+function compare_decimal_binary(digits, scale, value, power) {
+    const a = Math.max(0, -power);
+    const b = Math.max(0, -scale);
+    const left = digits * 10n ** BigInt(scale + b) * (1n << BigInt(a));
+    const right = (value << BigInt(power + a)) * 10n ** BigInt(b);
+    return left < right ? -1 : left > right ? 1 : 0;
+}
+
+// f32 value as mantissa * 2^exponent (24-bit mantissa).
+function f32_exact_parts(abs) {
+    FLOAT_VIEW.setFloat32(0, abs);
+    const bits = FLOAT_VIEW.getUint32(0);
+    const biased = (bits >>> 23) & 0xff;
+    const fraction = bits & 0x7fffff;
+    const mantissa = BigInt(biased === 0 ? fraction : fraction | 0x800000);
+    return [mantissa, biased === 0 ? -149 : biased - 150];
+}
+
+// Does digits*10^scale round (ties to even) to the f32 `abs`? The interval
+// is half an ulp each side, except below a power of two, where the gap to
+// the next smaller f32 is half as wide.
+function f32_round_trips(digits, scale, abs) {
+    const [m, e] = f32_exact_parts(abs);
+    const even = (m & 1n) === 0n;
+    const above = compare_decimal_binary(digits, scale, 2n * m + 1n, e - 1);
+    const below = m === 0x800000n && e > -149
+        ? compare_decimal_binary(digits, scale, 4n * m - 1n, e - 2)
+        : compare_decimal_binary(digits, scale, 2n * m - 1n, e - 1);
+    return (above < 0 || (above === 0 && even)) && (below > 0 || (below === 0 && even));
+}
+
+// Narrow a client number to the f32 Rust holds. f32 seeds arrive as Rust's
+// shortest f32 text parsed to f64; Math.fround of that f64 can double-round
+// to the neighbouring f32, so when the value is not already an f32, prefer
+// the candidate whose shortest f32 text parses back to this exact number.
+function narrow_f32(value) {
+    const nearest = Math.fround(value);
+    if (nearest === value || !Number.isFinite(nearest) || nearest === 0) return nearest;
+    FLOAT_VIEW.setFloat32(0, nearest);
+    const bits = FLOAT_VIEW.getUint32(0);
+    const away = Math.abs(value) > Math.abs(nearest) ? 1 : -1;
+    FLOAT_VIEW.setUint32(0, bits + away);
+    const neighbour = FLOAT_VIEW.getFloat32(0);
+    for (const candidate of [nearest, neighbour]) {
+        if (!Number.isFinite(candidate) || candidate === 0) continue;
+        const [digits, scale] = float_shortest_parts(Math.abs(candidate), true);
+        if (Number(`${digits}e${scale}`) === Math.abs(value)) return candidate;
+    }
+    return nearest;
+}
+
+function float_shortest_plain(abs, f32) {
+    if (abs === 0) return '0';
+    const [digits, scale] = float_shortest_parts(abs, f32);
+    const raw = digits.toString();
+    const point = raw.length + scale;
+    const text = raw.replace(/0+$/, '');
+    if (point <= 0) return '0.' + '0'.repeat(-point) + text;
+    if (point >= text.length) return text + '0'.repeat(point - text.length);
+    return text.slice(0, point) + '.' + text.slice(point);
+}
+
+function float_fixed_exact(abs, precision) {
+    const [mantissa, exponent] = float_exact_parts(abs);
+    const scale = 10n ** BigInt(precision);
+    let scaled;
+    if (exponent >= 0) {
+        scaled = (mantissa << BigInt(exponent)) * scale;
+    } else {
+        const shift = BigInt(-exponent);
+        const numerator = mantissa * scale;
+        scaled = numerator >> shift;
+        const remainder = numerator - (scaled << shift);
+        const half = 1n << (shift - 1n);
+        if (remainder > half || (remainder === half && (scaled & 1n) === 1n)) scaled += 1n;
+    }
+    if (precision === 0) return scaled.toString();
+    const text = scaled.toString().padStart(precision + 1, '0');
+    return text.slice(0, -precision) + '.' + text.slice(-precision);
 }
 
 /** Compiler-owned text! layout; values remain raw text for DOM bindings. */
@@ -353,6 +515,31 @@ function render_text_plan(plan, values, attribute) {
         let text;
         let sign = '';
         let prefix = '';
+        if (part.float === true) {
+            // f32 seeds arrive as their shortest decimal text and f32
+            // arithmetic runs in f64, so narrow to the f32 value Rust
+            // formats. Non-finite seeds reach the client as JSON null; the
+            // value is unknown, so render no digits rather than a wrong
+            // number. Rust prints NaN without a sign (even with `+`); every
+            // other value, including -0.0 and values that round to zero,
+            // keeps it.
+            const number = value == null ? null : part.f32 === true ? narrow_f32(value) : value;
+            if (number === null) {
+                text = '';
+            } else if (Number.isNaN(number)) {
+                text = 'NaN';
+            } else {
+                if (number < 0 || Object.is(number, -0)) sign = '-';
+                else if (part.plus) sign = '+';
+                text = rust_float_abs_text(Math.abs(number), part.precision, part.f32 === true);
+            }
+            const padding = Math.max(0, part.width - (sign + text).length);
+            if (part.zero) return sign + '0'.repeat(padding) + text;
+            text = sign + text;
+            const align = part.align || 2;
+            const left = align === 1 ? 0 : align === 2 ? padding : Math.floor(padding / 2);
+            return part.fill.repeat(left) + text + part.fill.repeat(padding - left);
+        }
         if (part.domain !== null) {
             let integer = BigInt(value);
             if (part.kind !== 0 && integer < 0n) {

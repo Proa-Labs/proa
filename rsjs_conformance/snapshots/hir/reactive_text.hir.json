@@ -156,7 +156,7 @@
   },
   {
     "kind": "signal_set",
-    "signal": 8,
+    "signal": 9,
     "span": {
       "end": {
         "column": 32,
