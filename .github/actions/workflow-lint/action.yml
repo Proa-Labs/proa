@@ -49,7 +49,9 @@ runs:
 
     - name: Test the linked-acceptance path classifier
       shell: bash
-      run: python3 scripts/test_linked_acceptance_paths.py
+      run: |
+        python3 scripts/test_linked_acceptance_paths.py
+        python3 scripts/test_rust_ci.py
 
     - name: Test linked-acceptance shard isolation
       shell: bash

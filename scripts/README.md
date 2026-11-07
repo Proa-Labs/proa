@@ -343,3 +343,38 @@ Both tools run policy and archive/license checks before publishing. They do
 not discover credentials in other repositories or infrastructure services.
 Demos and tools remain `publish = false`; release libraries inherit the
 workspace's explicit crates.io destination policy.
+
+## Rust validation in CI
+
+Pull requests select changed Cargo packages and their transitive consumers,
+including normal, build, dev, optional, and target-specific dependencies. All
+files in a package count, including compile-fail fixtures and snapshots. The
+source-linter’s cross-package fixture reads, docs icon drift check, relocation
+fixture’s generated Cargo graph, and the quickstart document are included
+explicitly. Unknown/shared inputs, manifest/lockfile changes, API
+failures, and non-PR runs use full-workspace validation.
+
+`scripts/rust_ci.py` prints the selection and runs the existing Clippy, library,
+integration, feature-isolation, and converter-doctest checks for that scope.
+Formatting and publication policy still run on every change. Regression tests:
+
+```sh
+python3 scripts/test_rust_ci.py
+```
+
+The Rust job retains Cargo registry and target artifacts across runs with keys
+for runner platform, compiler identity, manifests, toolchain/configuration, and
+commit, restoring the latest compatible build as a starting point. GitHub’s
+branch cache isolation prevents trusted main jobs from consuming PR archives.
+Source timestamps are restored only when tracked file contents and permissions
+match the saved SHA-256 record, so unchanged workspace crates survive a fresh
+checkout. Changed files keep their new timestamps; added/deleted inputs or
+changed symlink targets disable timestamp reuse for that checkout. Cargo still validates
+freshness and affected tests still execute; passing test
+results are not cached. Nested trybuild/head-role targets and the relocation
+fixture’s dependency target directory are retained too.
+
+Cargo timing reports are uploaded as `rust-validation-timings`. Phase durations
+include compilation performed inside tests; the first Cargo `Finished` line is
+not a measurement of all compilation in that phase. A first cache fill is cold;
+measure subsequent restores before reporting a CI speedup.

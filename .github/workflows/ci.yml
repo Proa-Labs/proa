@@ -193,6 +193,9 @@ jobs:
 
   rust:
     name: Rust lint and tests
+    permissions:
+      contents: read
+      pull-requests: read
     # Pull-request code can execute arbitrary build.rs logic. Keep it off the
     # GCP runner identity that can write the cache consumed by trusted main
     # deployment jobs; only main/workflow_dispatch uses the private runner.
@@ -202,8 +205,8 @@ jobs:
     runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
     timeout-minutes: 45
     env:
-      # Incremental artifacts are not reusable through sccache. CI starts from
-      # an empty target directory and benefits more from cacheable codegen.
+      # Cargo artifacts persist across runs; disable rustc incremental output
+      # so missing artifacts can still use the shared compiler cache.
       CARGO_INCREMENTAL: "0"
       # Debug info made the proa-cli test/wrapper executables disproportionately
       # large and expensive to link, snapshot, and fingerprint in CI.

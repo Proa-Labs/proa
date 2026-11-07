@@ -23,4 +23,6 @@
 /scripts/verify_cli_release_assets.py @hariria
 /scripts/check_publish_policy.py @hariria
 /scripts/check_release_scaffold.py @hariria
+/scripts/rust_ci.py @hariria
+/scripts/test_rust_ci.py @hariria
 /scripts/check_repository_boundary.py @hariria
