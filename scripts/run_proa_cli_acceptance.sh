@@ -183,21 +183,29 @@ case "$shard" in
   pr-1)
     # PRs changing the linked pipeline must exercise cache recovery, complete
     # carriers, mapping/projection freshness and generated runtime behavior.
+    # That coverage is split between pr-1 and pr-2 so the three concurrent
+    # shards finish at about the same time: measured on one 7-CPU runner,
+    # pr-1 took 797 s against 372 s for pr-2 and 582 s for pr-3, and the
+    # three targets now in pr-2 account for about 175 s of pr-1's test time.
     tests=(
       rsjs_linked_helper_acceptance
       rsjs_build_wrapper
       rsjs_descriptor_cache
       rsjs_final
       rsjs_linked_site_codegen
-      rsjs_unit_projection
-      rsjs_pipeline
-      lifecycle_dev
       lifecycle_start
       live_lint
       markdown_syntax
     )
     ;;
   pr-2)
+    # Runs the proa-cli targets first, then the pizza example. Both use this
+    # shard's target directory in sequence, which Cargo's build lock covers.
+    tests=(
+      rsjs_pipeline
+      rsjs_unit_projection
+      lifecycle_dev
+    )
     examples=(pizza)
     ;;
   pr-3)

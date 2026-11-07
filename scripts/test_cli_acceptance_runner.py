@@ -24,22 +24,27 @@ elif args[0] in ("run", "test"):
     target = Path(os.environ.get("CARGO_TARGET_DIR", "target")).resolve()
     target.mkdir(parents=True, exist_ok=True)
     # Fail if concurrent Cargo consumers share a binary namespace. Keep the
-    # marker until every shard has started so overlap is deterministic.
+    # marker until every shard has started so overlap is deterministic, and
+    # release it on exit: a shard may run several consumers one after another
+    # (pr-2 runs proa-cli targets and then the pizza example), which is legal.
     marker = target / "active-consumer"
     try:
         marker.touch(exist_ok=False)
     except FileExistsError:
         sys.exit("parallel shards share an executable namespace: " + str(target))
-    consumer = "test" if args[0] == "test" else args[-3]
-    state = Path(os.environ["TEST_STATE"])
-    (state / consumer).write_text(str(target))
-    deadline = time.monotonic() + 20
-    while len(list(state.iterdir())) < 3 and time.monotonic() < deadline:
-        time.sleep(0.01)
-    if len(list(state.iterdir())) < 3:
-        sys.exit("not all shards started")
-    if consumer == os.environ.get("TEST_FAIL_CONSUMER"):
-        sys.exit(23)
+    try:
+        consumer = "test" if args[0] == "test" else args[-3]
+        state = Path(os.environ["TEST_STATE"])
+        (state / target.name).write_text(str(target))
+        deadline = time.monotonic() + 20
+        while len(list(state.iterdir())) < 3 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if len(list(state.iterdir())) < 3:
+            sys.exit("not all shards started")
+        if consumer == os.environ.get("TEST_FAIL_CONSUMER"):
+            sys.exit(23)
+    finally:
+        marker.unlink()
 elif args[0] not in ("fetch", "build"):
     sys.exit("unexpected cargo command: " + repr(args))
 '''
@@ -83,8 +88,7 @@ class AcceptanceRunnerTests(unittest.TestCase):
                                     env=env, capture_output=True, text=True, timeout=60)
             paths = {path.name: Path(path.read_text()) for path in state.iterdir()}
             expected_root = (checkout / (custom_target or "target") / "acceptance-shards").resolve()
-            self.assertEqual(set(paths), {"test", "proa_webmcp_pizza", "origin-atlas"},
-                             result.stdout + result.stderr)
+            self.assertEqual(set(paths), {"pr-1", "pr-2", "pr-3"}, result.stdout + result.stderr)
             self.assertEqual(len(set(paths.values())), 3, paths)
             self.assertEqual(set(paths.values()), {expected_root / name for name in ("pr-1", "pr-2", "pr-3")})
             return result
