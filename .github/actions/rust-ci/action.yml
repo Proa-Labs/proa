@@ -12,6 +12,40 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Select affected Rust packages
+      id: plan
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: python3 scripts/rust_ci.py plan --plan "$RUNNER_TEMP/rust-ci-plan.json"
+
+    - name: Identify compiler cache compatibility
+      id: compiler
+      shell: bash
+      run: echo "identity=$(rustc -vV | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+    # GitHub isolates PR cache writes from main. The default branch seeds a
+    # readable baseline; trusted jobs cannot restore PR-scoped archives.
+    # Keep complete Cargo artifacts, including nested UI/fixture targets.
+    - name: Restore Rust build artifacts
+      continue-on-error: true
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: |
+          target
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: rust-validation-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.identity }}-${{ hashFiles('**/Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/config.toml') }}-${{ github.sha }}
+        restore-keys: |
+          rust-validation-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.identity }}-${{ hashFiles('**/Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/config.toml') }}-
+
+    - name: Restore unchanged source timestamps
+      shell: bash
+      run: |
+        python3 scripts/rust_ci.py restore-mtimes --state target/.rust-ci-source-state.json
+        rm -rf target/cargo-timings
+
     - name: Validate cache backend
       shell: bash
       env:
@@ -70,26 +104,19 @@ runs:
 
     - name: clippy
       shell: bash
-      run: |
-        cargo clippy --workspace --all-targets --locked -- \
-          -A clippy::all \
-          -D clippy::correctness
+      run: python3 scripts/rust_ci.py clippy --plan "$RUNNER_TEMP/rust-ci-plan.json"
 
     # Workspace/all-targets checks unify dev features. These normal library
     # graphs catch runtime features accidentally supplied only by tests.
     - name: Check independent library feature sets
       shell: bash
-      run: |
-        cargo check --locked -p proa_stream --lib
-        cargo check --locked -p proa_framework_axum --lib
-        cargo check --locked -p proa_framework_core --no-default-features --lib
-        cargo check --locked -p proa_fonts -p rsjs_transport --no-default-features --lib
-        cargo check --locked -p proa_macros -p proa_dsl --no-default-features --lib
+      run: python3 scripts/rust_ci.py features --plan "$RUNNER_TEMP/rust-ci-plan.json"
 
     - name: Check quickstart examples against the workspace CLI
+      if: steps.plan.outputs.cli == 'true'
       shell: bash
       run: |
-        cargo build --locked -p proa-cli --bin proa
+        cargo build --locked --timings -p proa-cli --bin proa
         python3 scripts/check_quickstart.py \
           --cli "${CARGO_TARGET_DIR:-target}/debug/proa" \
           --source-only --work-dir "$RUNNER_TEMP/quickstart-workspace"
@@ -100,6 +127,7 @@ runs:
     # step; warnings do not. examples/mcp-incident-desk stays out until its
     # pre-existing render/content-coverage errors are fixed.
     - name: Lint workspace sources with the proa source linter
+      if: steps.plan.outputs.cli == 'true'
       shell: bash
       run: |
         "${CARGO_TARGET_DIR:-target}/debug/proa" lint \
@@ -112,6 +140,7 @@ runs:
           examples/webmcp-pizza
 
     - name: Check generated RSJS web bindings
+      if: steps.plan.outputs.bindings == 'true'
       shell: bash
       run: cargo run --locked -p rsjs_web --bin rsjs-web-codegen -- --check
 
@@ -122,10 +151,12 @@ runs:
         check-latest: true
 
     - name: Test mounted RSJS query and mutation requests
+      if: steps.plan.outputs.rsjs == 'true'
       shell: bash
       run: node rsjs/runtime/rsjs-runtime.base-path.test.mjs
 
     - name: Test Proa editor adapters and LSP transport
+      if: steps.plan.outputs.cli-tests == 'true'
       shell: bash
       run: |
         corepack enable
@@ -138,16 +169,14 @@ runs:
     # below then perform real codegen, so another cargo check adds no coverage.
     - name: test (libraries)
       shell: bash
-      run: cargo test --workspace --locked --lib --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa-lean-server --exclude proa_webmcp_pizza
+      run: python3 scripts/rust_ci.py libraries --plan "$RUNNER_TEMP/rust-ci-plan.json"
 
     - name: test (integration)
       shell: bash
-      run: |
-        cargo test --workspace --locked --features proa_core/html-to-markdown --test '*' --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa_showcase --exclude proa-lean-server --exclude proa-cli --exclude proa_webmcp_pizza
-        # --test excludes doctests, so keep the converter's doc examples covered.
-        cargo test -p proa_core --features html-to-markdown --locked --doc
+      run: python3 scripts/rust_ci.py integration --plan "$RUNNER_TEMP/rust-ci-plan.json"
 
     - name: Check the reviewed HTML and Markdown content pair
+      if: steps.plan.outputs.cli-tests == 'true'
       shell: bash
       run: |
         cargo test --locked -p proa-cli --test content_coverage
@@ -157,16 +186,30 @@ runs:
           --deny render/content-omit-ambiguous --deny render/content-omit-unresolved --deny render/content-policy-invalid
 
     - name: Check RSJS conformance manifest and snapshots
+      if: steps.plan.outputs.rsjs == 'true'
       shell: bash
       run: node rsjs_conformance/report.mjs --check
 
-    - name: Verify Git installation without private Cargo configuration
+    - name: Check package publication policy
       shell: bash
       run: |
         python3 scripts/check_publish_policy.py
-        python3 scripts/check_git_install.py
 
     - name: sccache stats
       if: always()
       shell: bash
       run: sccache --show-stats
+
+    - name: Record source timestamps for the next build
+      shell: bash
+      run: python3 scripts/rust_ci.py save-mtimes --state target/.rust-ci-source-state.json
+
+    - name: Upload Rust build timings
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: rust-validation-timings
+        path: target/cargo-timings/*.html
+        if-no-files-found: ignore
+        retention-days: 7

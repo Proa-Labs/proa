@@ -14,13 +14,7 @@ Install the latest stable CLI from crates.io.
 cargo install proa-cli --locked
 ```
 
-No GitHub credential or Cargo publishing token is required. To install an
-unreleased source revision instead:
-
-```bash
-CARGO_NET_GIT_FETCH_WITH_CLI=true \
-  cargo install --git https://github.com/proa-labs/proa --locked proa-cli
-```
+No GitHub credential or Cargo publishing token is required.
 
 Then confirm the binary is on your path:
 
@@ -28,12 +22,11 @@ Then confirm the binary is on your path:
 proa --help
 ```
 
-Cargo installs both `proa` and `cargo-proa`. Pin audited source with a full
-commit SHA:
+Cargo installs both `proa` and `cargo-proa`. Select an exact published version
+for reproducible installation:
 
 ```bash
-CARGO_NET_GIT_FETCH_WITH_CLI=true \
-  cargo install --git https://github.com/proa-labs/proa --rev <full-commit-sha> --locked --force proa-cli
+cargo install proa-cli --version '=0.2.0' --locked --force
 ```
 
 Generated project builds resolve Proa crates from crates.io and use `Cargo.lock` for reproducibility. Follow [Installation](/docs) if Cargo cannot download dependencies. When working from this repository, use:

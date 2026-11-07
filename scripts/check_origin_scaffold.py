@@ -22,6 +22,36 @@ def run(arguments, cwd, environment):
     subprocess.run(arguments, cwd=cwd, env=environment, check=True)
 
 
+def workspace_manifest(source, packages, workspace_dependencies):
+    dependencies = tomllib.loads(source)
+    # Use checkout paths for Proa and workspace settings for registry
+    # dependencies (including rustls rather than native TLS).
+    for section in ("dependencies", "build-dependencies", "dev-dependencies"):
+        for name, spec in dependencies.get(section, {}).items():
+            options = dict(spec) if isinstance(spec, dict) else {"version": spec}
+            if name in packages:
+                options.pop("version", None)
+                options["path"] = str(packages[name])
+            elif name in workspace_dependencies:
+                shared = workspace_dependencies[name]
+                shared = dict(shared) if isinstance(shared, dict) else {"version": shared}
+                features = sorted(set(shared.get("features", [])) | set(options.get("features", [])))
+                options = shared
+                if features:
+                    options["features"] = features
+            else:
+                continue
+            fields = ", ".join(f"{key} = {json.dumps(value)}" for key, value in options.items())
+            dependency = r"(?m)^" + re.escape(name) + r"\s*=.*$"
+            source = re.sub(
+                rf"(?ms)(^\[{section}\]\n)(.*?)(?=^\[|\Z)",
+                lambda table: table[1] + re.sub(
+                    dependency, lambda _: f"{name} = {{ {fields} }}", table[2]),
+                source,
+            )
+    return source + "\n[workspace]\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", type=Path, required=True)
@@ -45,29 +75,7 @@ def main():
         shutil.copy2(template / "proa-fonts.lock", project / "proa-fonts.lock")
         shutil.copytree(template / "public/fonts", project / "public/fonts", dirs_exist_ok=True)
         manifest = project / "Cargo.toml"
-        source = manifest.read_text()
-        dependencies = tomllib.loads(source)
-        # Use checkout paths for Proa and workspace settings for registry
-        # dependencies (including rustls rather than native TLS).
-        for section in ("dependencies", "build-dependencies", "dev-dependencies"):
-            for name, spec in dependencies.get(section, {}).items():
-                options = dict(spec) if isinstance(spec, dict) else {"version": spec}
-                if name in packages:
-                    options.pop("version", None)
-                    options["path"] = str(packages[name])
-                elif name in workspace_dependencies:
-                    shared = workspace_dependencies[name]
-                    shared = dict(shared) if isinstance(shared, dict) else {"version": shared}
-                    features = sorted(set(shared.get("features", [])) | set(options.get("features", [])))
-                    options = shared
-                    if features:
-                        options["features"] = features
-                else:
-                    continue
-                fields = ", ".join(f"{key} = {json.dumps(value)}" for key, value in options.items())
-                source = re.sub(r"(?m)^" + re.escape(name) + r"\s*=.*$",
-                                lambda _: f"{name} = {{ {fields} }}", source)
-        manifest.write_text(source + "\n[workspace]\n")
+        manifest.write_text(workspace_manifest(manifest.read_text(), packages, workspace_dependencies))
         # Keep the workspace's dependency versions: CI fetches this exact lock
         # before running acceptance, including on runners with an empty cache.
         (project / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())

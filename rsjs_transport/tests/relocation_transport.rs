@@ -35,11 +35,19 @@ fn imported_alias_edges_resolve_to_the_defining_witness_across_an_rlib() {
         .expect("rsjs_transport lives under the workspace root");
     write_fixture(fixture.path(), repository);
 
+    // Keep compiler dependencies across runs; only the authored fixture sources
+    // need a fresh directory. Cargo still checks all source and dependency inputs.
+    let target = std::env::current_exe()
+        .expect("test executable")
+        .ancestors()
+        .nth(3)
+        .expect("Cargo target directory")
+        .join("relocation-transport");
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let output = Command::new(cargo)
         .args(["build", "--workspace", "--offline", "--message-format=json"])
         .current_dir(fixture.path())
-        .env("CARGO_TARGET_DIR", fixture.path().join("target"))
+        .env("CARGO_TARGET_DIR", target)
         .output()
         .expect("run fixture Cargo build");
     assert!(

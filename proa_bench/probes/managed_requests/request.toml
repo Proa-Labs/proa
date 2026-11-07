@@ -9,9 +9,9 @@ edition = "2021"
 [features]
 bulk = []
 [dependencies]
-proa_core = {git="https://github.com/Proa-Labs/proa",branch="main"}
-proa_macros = {git="https://github.com/Proa-Labs/proa",branch="main"}
-proa_framework_axum = {git="https://github.com/Proa-Labs/proa",branch="main"}
+proa_core = "0.3.0"
+proa_macros = "0.3.0"
+proa_framework_axum = "0.3.0"
 axum = "=0.7.9"
 tokio = {version="1",features=["rt","macros"]}
 tower = {version="0.4",features=["util"]}

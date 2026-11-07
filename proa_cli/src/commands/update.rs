@@ -211,7 +211,6 @@ fn run_installer(
         .env("PROA_INSTALL_HELPER", executable)
         .env("PROA_INSTALL_DIR", bin_dir)
         .env("PROA_DOWNLOAD_BASE", DOWNLOAD_BASE)
-        .env("PROA_REPO", "Proa-Labs/proa")
         .env("PROA_VERSION", version.to_string())
         .env("PROA_NO_MODIFY_PATH", "1")
         .env("PROA_YES", "1")

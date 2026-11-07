@@ -76,7 +76,7 @@ elif tool == "release-plz":
             sys.exit(1)
         state["libraries_published"] = True
         state_path.write_text(json.dumps(state))
-elif tool != "install.sh":
+else:
     sys.exit("unexpected tool: " + tool)
 '''
 
@@ -94,7 +94,7 @@ class ReleaseFlowTests(unittest.TestCase):
         for name in ("release-plz", "cargo-semver-checks", "git", "gh", "cargo", "rustup"):
             self.write_stub(self.bin / name)
         shutil.copy2(ROOT / "release-plz.toml", self.root / "release-plz.toml")
-        for name in ("check_publish_policy.py", "check_crate_archives.py", "check_registry_install.py", "install.sh"):
+        for name in ("check_publish_policy.py", "check_release_scaffold.py", "check_crate_archives.py", "check_registry_install.py"):
             self.write_stub(scripts / name)
         (scripts / "install.sh").write_text("#!/bin/sh\nexit 0\n")
         self.log = self.root / "invocations.jsonl"
@@ -139,11 +139,11 @@ class ReleaseFlowTests(unittest.TestCase):
     def assert_passed(self, result):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_check_runs_both_preflights_without_credentials_or_remote_operations(self):
+    def test_check_runs_preflights_without_credentials_or_remote_operations(self):
         self.assert_passed(self.run_wrapper("check", GH_TOKEN="fixture-gh-token",
                                            CARGO_REGISTRIES_CRATES_IO_TOKEN="fixture-alternate-token"))
         self.assertEqual([c["tool"] for c in self.calls()],
-                         ["check_publish_policy.py", "check_crate_archives.py"])
+                         ["check_publish_policy.py", "check_release_scaffold.py", "check_crate_archives.py"])
         self.assertTrue(all(not any(c["credentials"].values()) for c in self.calls()))
 
     def test_install_pins_both_tools_and_withholds_credentials_from_cargo(self):
@@ -168,11 +168,13 @@ class ReleaseFlowTests(unittest.TestCase):
                 self.assertEqual(self.calls(), [])
 
     def test_preflight_failure_prevents_publication_and_source_api_access(self):
-        result = self.run_wrapper("release", TEST_FAIL_PREFLIGHT="check_crate_archives.py")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(self.calls("gh"), [])
-        self.assertEqual(self.calls("release-plz"), [])
-        self.assertTrue(all(not any(c["credentials"].values()) for c in self.calls()))
+        for preflight in ("check_release_scaffold.py", "check_crate_archives.py"):
+            with self.subTest(preflight=preflight):
+                result = self.run_wrapper("release", TEST_FAIL_PREFLIGHT=preflight)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.calls("gh"), [])
+                self.assertEqual(self.calls("release-plz"), [])
+                self.assertTrue(all(not any(c["credentials"].values()) for c in self.calls()))
 
     def test_live_release_has_the_same_source_guard_locally_and_on_ci(self):
         for actions in ("false", "true"):

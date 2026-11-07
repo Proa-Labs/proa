@@ -10,12 +10,6 @@ cargo install proa-cli --locked
 
 Cargo installs both `proa` and `cargo-proa`. Generated projects use compatible
 crates.io versions and commit their `Cargo.lock` for reproducible builds.
-Git source installation remains available for unreleased revisions:
-
-```bash
-CARGO_NET_GIT_FETCH_WITH_CLI=true \
-  cargo install --git https://github.com/proa-labs/proa --locked proa-cli
-```
 
 ## crates.io publication
 

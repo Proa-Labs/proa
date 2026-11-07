@@ -141,6 +141,7 @@ run_release_plz() {
   fi
 
   scripts/check_publish_policy.py
+  python3 scripts/check_release_scaffold.py
   python3 scripts/check_crate_archives.py
 
   if [[ "$command" == "check" ]]; then

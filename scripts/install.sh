@@ -60,20 +60,8 @@ set_defaults() {
     TAILWIND_VERSION="4.3.3"
     TAILWIND_RELEASE_BASE="https://github.com/tailwindlabs/tailwindcss/releases/download/v$TAILWIND_VERSION"
 
-    # Two settings that are easy to confuse, so they are spelled out here as
-    # well as in --help:
-    #
-    #   DOWNLOAD_BASE  where prebuilt archives and the version lookup come from.
-    #   REPO           the git remote for snapshots and explicit Git builds.
-    #                  Official released versions build from crates.io.
-    #
-    # They used to be the same thing, back when this script fetched archives
-    # straight off GitHub Releases. It no longer does. proa.so sits in front of
-    # those releases, so a download never needs repository access, and REPO now
-    # only reaches 'cargo install --git'. Overriding one does not move the
-    # other.
+    # Prebuilt archives and version lookup use this host; source builds use crates.io.
     DOWNLOAD_BASE="${PROA_DOWNLOAD_BASE:-https://proa.so/downloads/cli}"
-    REPO="${PROA_REPO:-Proa-Labs/proa}"
     VERSION="${PROA_VERSION:-}"
 
     PROA_ROOT="${PROA_HOME:-$HOME/.proa}"
@@ -92,7 +80,6 @@ set_defaults() {
     SRC_HOME="default"
     SRC_INSTALL_DIR="default"
     SRC_DOWNLOAD_BASE="default"
-    SRC_REPO="default"
     SRC_NO_MODIFY_PATH="default"
     SRC_BUILD_FROM_SOURCE="default"
     SRC_PREBUILT_ONLY="default"
@@ -106,7 +93,6 @@ set_defaults() {
     if [ -n "${PROA_HOME:-}" ]; then SRC_HOME="environment"; fi
     if [ -n "${PROA_INSTALL_DIR:-}" ]; then SRC_INSTALL_DIR="environment"; fi
     if [ -n "${PROA_DOWNLOAD_BASE:-}" ]; then SRC_DOWNLOAD_BASE="environment"; fi
-    if [ -n "${PROA_REPO:-}" ]; then SRC_REPO="environment"; fi
     if [ -n "${PROA_NO_MODIFY_PATH:-}" ]; then SRC_NO_MODIFY_PATH="environment"; fi
     if [ -n "${PROA_BUILD_FROM_SOURCE:-}" ]; then SRC_BUILD_FROM_SOURCE="environment"; fi
     if [ -n "${PROA_PREBUILT_ONLY:-}" ]; then SRC_PREBUILT_ONLY="environment"; fi
@@ -888,7 +874,7 @@ log_header() {
     log_info "log file: $LOG_FILE (from $LOG_SOURCE)"
     log_console_mode
     log_info "This file is meant to be attached to a bug report:"
-    log_info "  https://github.com/$REPO/issues"
+    log_info "  https://github.com/Proa-Labs/proa/issues"
     log_info "The environment is never dumped. The PROA_* and NO_COLOR settings"
     log_info "below are recorded by name; CARGO_HOME and the cargo registry index"
     log_info "appear only on a source build, and the index is recorded with any"
@@ -922,13 +908,7 @@ log_inputs() {
     log_input "PROA_VERSION" "$VERSION" "$SRC_VERSION"
     log_input "PROA_HOME" "$PROA_ROOT" "$SRC_HOME"
     log_input "PROA_INSTALL_DIR" "$INSTALL_DIR" "$SRC_INSTALL_DIR"
-    # Logged next to each other, with the split spelled out, because a report
-    # that says "I pointed --repo at my fork and it still downloaded the
-    # official build" is otherwise impossible to diagnose from this file.
     log_input "PROA_DOWNLOAD_BASE" "$DOWNLOAD_BASE" "$SRC_DOWNLOAD_BASE"
-    log_info "    every Proa CLI download and the latest-version lookup goes here"
-    log_input "PROA_REPO" "$REPO" "$SRC_REPO"
-    log_info "    source fallback only (cargo install --git), never a download"
     log_input "PROA_NO_MODIFY_PATH" "$NO_MODIFY_PATH" "$SRC_NO_MODIFY_PATH"
     log_input "PROA_BUILD_FROM_SOURCE" "$BUILD_FROM_SOURCE" "$SRC_BUILD_FROM_SOURCE"
     log_input "PROA_PREBUILT_ONLY" "$PREBUILT_ONLY" "$SRC_PREBUILT_ONLY"
@@ -999,7 +979,7 @@ print_log_hint_failure() {
     # Printed rather than said: log_footer has already written the end marker,
     # and records after it would look like a second run had started.
     printf '  Please attach the log if you report this:\n' >&2
-    printf '    https://github.com/%s/issues\n' "$REPO" >&2
+    printf '    https://github.com/Proa-Labs/proa/issues\n' >&2
 }
 
 # One quiet line on success, so the path is discoverable without being loud.
@@ -1057,15 +1037,11 @@ usage() {
 "                          bridge, or a local test server. Must be https, and" \
 "                          must serve latest.json and <version>/<file>." \
 "                          A trailing slash is ignored." \
-"    --repo <OWNER/NAME>   Build from a different GitHub repository when the" \
-"                          install falls back to source. This does NOT affect" \
-"                          downloads; use --download-base for those." \
-"                          Default: Proa-Labs/proa" \
 "    --no-modify-path      Never write to a shell profile. The installer still" \
 "                          prints the line to add." \
 "    --build-from-source   Skip the prebuilt download and run" \
-"                          'cargo install'. With no version, build Git HEAD;" \
-"                          a version pins the release or snapshot source." \
+"                          'cargo install' from crates.io. With no version," \
+"                          build the latest published release." \
 "                          Requires cargo and takes several minutes." \
 "    --prebuilt-only       Fail if the matching release archive cannot be" \
 "                          downloaded. Never fall back to a source build." \
@@ -1085,7 +1061,6 @@ usage() {
 "                            into \$PROA_HOME/bin." \
 "    PROA_INSTALL_DIR        Explicit bin directory. Overrides PROA_HOME." \
 "    PROA_DOWNLOAD_BASE      Same as --download-base." \
-"    PROA_REPO               Same as --repo." \
 "    PROA_NO_MODIFY_PATH     Any non-empty value behaves like --no-modify-path." \
 "    PROA_BUILD_FROM_SOURCE  Any non-empty value behaves like --build-from-source." \
 "    PROA_PREBUILT_ONLY      Any non-empty value behaves like --prebuilt-only." \
@@ -1099,8 +1074,6 @@ usage() {
 "    Flags win over environment variables." \
 "" \
 "WHERE THINGS COME FROM" \
-"    PROA_DOWNLOAD_BASE and PROA_REPO are not the same knob, and setting one" \
-"    does not move the other." \
 "" \
 "    PROA_DOWNLOAD_BASE is the only setting Proa CLI downloads use. This" \
 "    script asks it" \
@@ -1110,9 +1083,8 @@ usage() {
 "    https://proa.so/downloads/cli, is a bridge in front of GitHub Releases," \
 "    which is where those archives actually live and stay." \
 "" \
-"    PROA_REPO is only used when the install falls back to a source build," \
-"    where it becomes 'cargo install --git https://github.com/<repo>'. Pointing" \
-"    it at a fork changes what gets compiled, not what gets downloaded." \
+"    Source builds always download proa-cli from crates.io. Main snapshots" \
+"    require a prebuilt archive; select a published version to build from source." \
 "" \
 "LOGGING" \
 "    Every run writes a log to:" \
@@ -1161,7 +1133,6 @@ usage() {
 "    ./install.sh --to /usr/local/bin --no-modify-path" \
 "    ./install.sh --verbose" \
 "    ./install.sh --download-base https://staging.proa.so/downloads/cli" \
-"    ./install.sh --build-from-source --repo my-org/proa" \
 "    PROA_LOG=./install.log ./install.sh"
 }
 
@@ -1205,16 +1176,6 @@ parse_args() {
             --download-base=*)
                 DOWNLOAD_BASE="${1#*=}"
                 SRC_DOWNLOAD_BASE="flag"
-                ;;
-            --repo)
-                shift
-                [ $# -gt 0 ] || err "--repo needs an owner/name slug, for example --repo Proa-Labs/proa"
-                REPO="$1"
-                SRC_REPO="flag"
-                ;;
-            --repo=*)
-                REPO="${1#*=}"
-                SRC_REPO="flag"
                 ;;
             --no-modify-path)
                 NO_MODIFY_PATH="yes"
@@ -1318,20 +1279,6 @@ parse_args() {
     case "$DOWNLOAD_BASE" in
         https://?*) ;;
         *) err "--download-base needs a host after https://, got only '$DOWNLOAD_BASE'" ;;
-    esac
-
-    # REPO is interpolated into the git URL the source fallback clones, and
-    # VERSION into download URLs and into file names under the temporary
-    # directory, so both are held to what GitHub actually allows. Without this a
-    # value containing '/' or '..' produces a nonsense URL and a destination
-    # path pointing outside the directory that gets cleaned up, and the
-    # resulting error message explains none of it.
-    case "$REPO" in
-        *[!A-Za-z0-9._-]*/*[!A-Za-z0-9._-]* | */*/* | *..* | /* | */ | *[!A-Za-z0-9._/-]*)
-            err "--repo expects an owner/name slug such as Proa-Labs/proa, got '$REPO'"
-            ;;
-        */*) ;;
-        *) err "--repo expects an owner/name slug such as Proa-Labs/proa, got '$REPO'" ;;
     esac
 
     # Accept the tag, the tag without the prefix, or a bare version.
@@ -2617,15 +2564,8 @@ print_header() {
     fact "platform" "$platform"
     fact "toolchain" "$FACT_TOOLCHAIN"
 
-    # Where the bytes come from, which is not the same question on the two
-    # paths: a download names the host it downloads from, a source build names
-    # the repository it compiles.
     if [ "$INSTALL_MODE" = "source" ]; then
-        if source_uses_registry; then
-            fact "source" "crates.io/proa-cli (built on this machine)"
-        else
-            fact "source" "github.com/$REPO (built on this machine)"
-        fi
+        fact "source" "crates.io/proa-cli (built on this machine)"
         if [ -n "$VERSION" ]; then fact "version" "$VERSION"; fi
     else
         fact "source" "$(display_url "$DOWNLOAD_BASE")"
@@ -2704,22 +2644,11 @@ print_tailwind_only_summary() {
 # Install paths
 # ---------------------------------------------------------------------------
 
-# Released versions come from crates.io. An explicit unversioned source build
-# or a custom repository uses Git; main snapshots always pin their full SHA.
-source_uses_registry() {
-    case "$VERSION" in
-        *-main.*) return 1 ;;
-    esac
-    local normalized_repo
-    normalized_repo=$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')
-    case "$normalized_repo" in
-        proa-labs/proa) ;;
-        *) return 1 ;;
-    esac
-    [ -n "$VERSION" ] || [ -z "$BUILD_FROM_SOURCE" ]
-}
-
 install_from_source() {
+    case "$VERSION" in
+        *-main.*) err "main snapshots require a prebuilt archive; choose a published --version to build from crates.io" ;;
+    esac
+
     local cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
     local standalone="${PROA_STANDALONE_SOURCE:-}"
 
@@ -2745,62 +2674,21 @@ install_from_source() {
     step_run "building" "proa-cli from source, this takes several minutes"
     blank
 
-    # The clone itself goes through the git CLI when one is available
-    # (CARGO_NET_GIT_FETCH_WITH_CLI). Cargo's built-in fetcher speaks its own
-    # git and its own TLS: it ignores credential helpers, url.*.insteadOf
-    # rewrites, http.sslCAInfo, and most proxy setups from ~/.gitconfig, all
-    # of which the git binary honors. While this repository was private that
-    # made anonymous-looking HTTPS clones fail outright, and users had to
-    # export the variable by hand; behind corporate proxies and custom CAs it
-    # still does. Setting it here makes the robust path the default. A caller
-    # who exported a value keeps it, and without a git binary the built-in
-    # fetcher is the only option anyway.
-    set -- install --locked proa-cli
-    if source_uses_registry; then
-        set -- "$@" --registry crates-io
-        if [ -n "$VERSION" ]; then set -- "$@" --version "=$VERSION"; fi
-    else
-        set -- "$@" --git "https://github.com/$REPO"
-        case "$VERSION" in
-            *-main.*)
-                local revision="${VERSION#*-main.}"
-                revision="${revision%%.*}"
-                case "$revision" in
-                    *[!0-9a-fA-F]*) err "main snapshot version must contain a full 40-character commit SHA" ;;
-                esac
-                [ "${#revision}" -eq 40 ] || err "main snapshot version must contain a full 40-character commit SHA"
-                set -- "$@" --rev "$revision"
-                ;;
-            "") ;;
-            *) set -- "$@" --tag "proa-cli-v$VERSION" ;;
-        esac
-    fi
-    if source_uses_registry; then
-        detail "Building proa-cli ${VERSION:-latest} from crates.io."
-    else
-        detail "Building proa-cli ${VERSION:-Git HEAD} from github.com/$REPO."
-    fi
+    set -- install --locked proa-cli --registry crates-io
+    if [ -n "$VERSION" ]; then set -- "$@" --version "=$VERSION"; fi
+    detail "Building proa-cli ${VERSION:-latest} from crates.io."
     log_info "running: cargo $*"
-    local fetch_with_cli
-    if check_cmd git; then
-        fetch_with_cli="${CARGO_NET_GIT_FETCH_WITH_CLI:-true}"
-    else
-        fetch_with_cli="${CARGO_NET_GIT_FETCH_WITH_CLI:-false}"
-        log_info "git is not installed; cargo falls back to its built-in git fetcher"
-    fi
-    log_debug "CARGO_NET_GIT_FETCH_WITH_CLI=$fetch_with_cli"
     if [ -n "$standalone" ]; then
         set -- "$@" --root "$TMP_DIR/cargo" --force
         cargo_bin="$TMP_DIR/cargo/bin"
         # The updater supplies an executable temporary directory beside its
         # installation. Keep Cargo build scripts on that filesystem as well.
-        CARGO_TARGET_DIR="$TMP_DIR/b" CARGO_NET_GIT_FETCH_WITH_CLI="$fetch_with_cli" cargo "$@" ||
+        CARGO_TARGET_DIR="$TMP_DIR/b" cargo "$@" ||
             err "cargo install failed. The output above has the compiler error."
         install_bundle "$cargo_bin" || err "the standalone helper is unavailable"
     else
-    CARGO_NET_GIT_FETCH_WITH_CLI="$fetch_with_cli" \
         cargo "$@" ||
-        err "cargo install failed. The output above has the compiler error."
+            err "cargo install failed. The output above has the compiler error."
     fi
     log_info "cargo install finished, binaries are in $cargo_bin"
 

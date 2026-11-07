@@ -41,7 +41,6 @@ pub fn populate(
 
     plan.write("Cargo.toml", cargo_toml(package, has_database))?;
     plan.write("rust-toolchain.toml", rust_toolchain())?;
-    plan.write(".cargo/config.toml", cargo_config())?;
     plan.write(".env.example", env_example(package, has_database))?;
     plan.write(".gitignore", gitignore())?;
     plan.write(".gitattributes", "*.sql text eol=lf\n")?;
@@ -238,10 +237,6 @@ codegen-units = 1
 
 fn rust_toolchain() -> &'static str {
     "[toolchain]\nchannel = \"1.93.0\"\nprofile = \"minimal\"\ncomponents = [\"rustfmt\", \"clippy\"]\n"
-}
-
-fn cargo_config() -> &'static str {
-    "[net]\ngit-fetch-with-cli = true\n"
 }
 
 fn env_example(package: &str, has_database: bool) -> String {
@@ -877,14 +872,12 @@ mod tests {
                                 "{name} must resolve from crates.io"
                             );
                             assert!(dependency.get("registry").is_none());
+                            assert!(dependency.get("path").is_none());
                         }
                     }
                 }
             }
         }
-        let config: toml::Value = cargo_config().parse().unwrap();
-        assert!(config.get("registries").is_none());
-        assert_eq!(config["net"]["git-fetch-with-cli"].as_bool(), Some(true));
     }
 
     #[test]

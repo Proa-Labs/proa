@@ -237,9 +237,8 @@ class InstallerContractTests(unittest.TestCase):
             cargo = binaries / "cargo"
             cargo.write_text("""#!/bin/sh
 if [ "$1" = --version ]; then echo 'cargo 1.93.0'; exit 0; fi
-[ "$*" = 'install --locked proa-cli --git https://github.com/Proa-Labs/proa' ] || exit 91
+[ "$*" = 'install --locked proa-cli --registry crates-io' ] || exit 91
 [ -z "${CARGO_REGISTRIES_PROA_INDEX+x}" ] || exit 92
-[ "$CARGO_NET_GIT_FETCH_WITH_CLI" = true ] || exit 93
 mkdir -p "$CARGO_HOME/bin"
 printf '#!/bin/sh\\necho proa 0.1.1\\n' > "$CARGO_HOME/bin/proa"
 cp "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
@@ -251,7 +250,7 @@ chmod +x "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
             environment.update(CARGO_HOME=str(root / "cargo-home"),
                                PATH=str(binaries) + os.pathsep + os.environ["PATH"],
                                PROA_HOME=str(root / "proa-home"), PROA_LOG="off",
-                               CARGO_NET_GIT_FETCH_WITH_CLI="true", NO_COLOR="1")
+                               NO_COLOR="1")
             result = subprocess.run(
                 ["sh", str(ROOT / "scripts/install.sh"), "--build-from-source",
                  "--no-modify-path", "--no-tailwind", "--yes"],
@@ -309,8 +308,7 @@ print('404 0'); sys.exit(22)
 
     def test_missing_archive_preserves_selected_release(self) -> None:
         for arguments, latest in [(["--version", VERSION], ""), ([], VERSION),
-                                  (["--build-from-source", "--version", VERSION], ""),
-                                  (["--repo", "PROA-LABS/PROA", "--version", VERSION], "")]:
+                                  (["--build-from-source", "--version", VERSION], "")]:
             with self.subTest(arguments=arguments):
                 result, actual = self.run_unix_fallback(arguments, latest=latest)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -328,31 +326,27 @@ print('404 0'); sys.exit(22)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(actual, ["install", "--locked", "proa-cli", "--registry", "crates-io"])
 
-    def test_main_snapshot_fallback_pins_full_revision(self) -> None:
-        version = main_snapshot_version("0.1.1-beta.1")
-        result, actual = self.run_unix_fallback(["--version", version])
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(actual, ["install", "--locked", "proa-cli", "--git",
-                                  "https://github.com/Proa-Labs/proa", "--rev", FULL_COMMIT])
+    def test_main_snapshots_require_a_prebuilt_archive(self) -> None:
+        for version in [main_snapshot_version("0.1.1-beta.1"), "0.1.1-main.short"]:
+            for flags in [[], ["--build-from-source"]]:
+                with self.subTest(version=version, flags=flags):
+                    result, actual = self.run_unix_fallback(["--version", version, *flags])
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(actual, [])
+                    self.assertIn("main snapshots require a prebuilt archive", result.stdout + result.stderr)
 
-    def test_custom_repository_fallback_pins_release_tag(self) -> None:
+    def test_git_repository_override_is_rejected(self) -> None:
         result, actual = self.run_unix_fallback(["--version", VERSION, "--repo", "example/proa"])
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(actual, ["install", "--locked", "proa-cli", "--git",
-                                  "https://github.com/example/proa", "--tag", "proa-cli-v" + VERSION])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(actual, [])
+        self.assertIn("unknown", (result.stdout + result.stderr).lower())
 
-    def test_failed_selected_release_never_retries_git_head(self) -> None:
+    def test_failed_selected_release_never_changes_version(self) -> None:
         result, actual = self.run_unix_fallback(["--version", VERSION], cargo_status=91)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(actual.count("install"), 1)
         self.assertNotIn("--git", actual)
         self.assertIn("cargo install failed", result.stdout + result.stderr)
-
-    def test_malformed_main_revision_is_rejected_before_cargo(self) -> None:
-        result, actual = self.run_unix_fallback(["--version", "0.1.1-main.short"])
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(actual, [])
-        self.assertIn("full 40-character commit SHA", result.stdout + result.stderr)
 
     def test_prebuilt_only_never_invokes_cargo_on_missing_archive(self) -> None:
         result, actual = self.run_unix_fallback(["--version", VERSION, "--prebuilt-only"])
@@ -360,7 +354,7 @@ print('404 0'); sys.exit(22)
         self.assertEqual(actual, [])
 
     @unittest.skipUnless(shutil.which("pwsh"), "requires PowerShell")
-    def test_windows_source_install_preserves_version_and_revision(self) -> None:
+    def test_windows_source_install_uses_published_crates(self) -> None:
         # Load the real functions through the parser without running Invoke-Main;
         # Windows PATH/registry operations need not run to exercise Cargo calls.
         harness = r"""
@@ -381,7 +375,6 @@ function Set-PreviousVersion {}
 function Write-LogSection {}
 function Write-StepStart {}
 function Write-Blank {}
-function Get-EnvValue { return 'true' }
 function Write-LogLine {}
 function Write-StepOk {}
 function Write-KeyValue {}
@@ -390,23 +383,19 @@ function Stop-Install { param($Message); throw $Message }
 function Invoke-NativeCommand { param($Program, $Arguments)
     $script:Captured = @($Program) + $Arguments; return 0
 }
-$cases = @(
-    @('Proa-Labs/proa', '9.8.7', $false),
-    @('Proa-Labs/proa', '9.8.7', $true),
-    @('Proa-Labs/proa', '', $false),
-    @('Proa-Labs/proa', '', $true),
-    @('Proa-Labs/proa', ('0.1.1-main.' + ('0' * 40) + '.beta.1'), $false),
-    @('example/proa', '9.8.7', $false)
-)
-foreach ($case in $cases) {
-    $null = Install-FromSource $case[0] '/tmp/cargo/bin' $false $case[1] $case[2]
+foreach ($version in @('9.8.7', '')) {
+    $null = Install-FromSource '/tmp/cargo/bin' $false $version
     ConvertTo-Json -Compress -InputObject $script:Captured
 }
-try {
-    $null = Install-FromSource 'Proa-Labs/proa' '/tmp/cargo/bin' $false '0.1.1-main.short'
-    throw 'malformed snapshot accepted'
-} catch {
-    if ($_.Exception.Message -ne 'main snapshot version must contain a full 40-character commit SHA') { throw }
+foreach ($version in @(('0.1.1-main.' + ('0' * 40) + '.beta.1'), '0.1.1-main.short')) {
+    $script:Captured = $null
+    try {
+        $null = Install-FromSource '/tmp/cargo/bin' $false $version
+        throw 'snapshot source build accepted'
+    } catch {
+        if ($_.Exception.Message -ne 'main snapshots require a prebuilt archive; choose a published -Version to build from crates.io') { throw }
+    }
+    if ($null -ne $script:Captured) { throw 'snapshot invoked cargo' }
 }
 """
         with tempfile.TemporaryDirectory() as directory:
@@ -420,11 +409,7 @@ try {
         base = ["cargo", "install", "--locked", "proa-cli"]
         self.assertEqual(actual, [
             base + ["--registry", "crates-io", "--version", "=9.8.7"],
-            base + ["--registry", "crates-io", "--version", "=9.8.7"],
             base + ["--registry", "crates-io"],
-            base + ["--git", "https://github.com/Proa-Labs/proa"],
-            base + ["--git", "https://github.com/Proa-Labs/proa", "--rev", FULL_COMMIT],
-            base + ["--git", "https://github.com/example/proa", "--tag", "proa-cli-v9.8.7"],
         ])
 
     def test_unix_installer_rejects_opposing_source_modes(self) -> None:

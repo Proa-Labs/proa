@@ -186,9 +186,6 @@ Or point the installer at another host that serves the same file names:
 curl -fsSL https://proa.so/install.sh | PROA_DOWNLOAD_BASE=https://mirror.example/downloads/cli sh
 ```
 
-`PROA_REPO` does not help here. It selects the repository the source build
-compiles from, not the host archives come from.
-
 The installer log records the request and what came back. Its path is printed
 as the installer exits.
 
@@ -197,9 +194,9 @@ as the installer exits.
 `https://proa.so/downloads/cli/latest.json` answers `404` when no `proa-cli`
 release exists. The installer reads that as "there is no version to install"
 rather than an archive-download failure, and attempts a Cargo build from
-crates.io instead. That requires a published `proa-cli` crate. For unreleased
-development work, explicitly select an unversioned source build to compile
-Git HEAD. The installer log identifies which source it selected.
+crates.io instead. That requires a published `proa-cli` crate. An unversioned
+source build installs the latest published crate; `PROA_VERSION` selects an
+exact published version.
 
 The source build puts `proa` and `cargo-proa` in `~/.cargo/bin`, not
 `~/.proa/bin`, so look there when the shell cannot find the binary afterwards.
@@ -255,10 +252,9 @@ version, this fallback builds from crates.io without GitHub credentials:
 cargo install proa-cli --locked
 ```
 
-Use `--version "=<published-version>"` to pin a release. Main snapshots pin a
-full Git commit; a custom repository or an explicit unversioned
-`--build-from-source` installation uses Git instead. Git builds honor your
-credential helper and proxy settings through `CARGO_NET_GIT_FETCH_WITH_CLI`.
+Use `--version "=<published-version>"` to pin a release. Main snapshots require
+a prebuilt archive. If the snapshot archive is unavailable for your platform,
+select a published version instead.
 
 That build takes several minutes and needs Rust 1.93.0 or newer plus a C
 toolchain. On Alpine, install the toolchain first:
