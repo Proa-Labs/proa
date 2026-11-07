@@ -12,14 +12,32 @@ workflow's literal `gcp-pr-ci` label selects the unprivileged pull-request pool.
 | PR scale set | helm release `gcp-pr` / label `gcp-pr-ci`, values: `pr-runner-scale-set-values.yaml` |
 | Controller | helm release `arc` in ns `arc-systems` (gha-runner-scale-set-controller 0.14.2) |
 | GitHub auth | k8s secret `proa-github-token` in `arc-runners` (rotate: recreate secret, restart listener) |
-| sccache | bucket `gs://proa-ci-sccache` (30-day lifecycle), Workload Identity: KSA `arc-runners/runner` -> GSA `proa-ci-sccache@...` |
+| sccache | bucket `gs://proa-ci-sccache` (30-day lifecycle), Workload Identity: KSA `arc-runners/runner` -> GSA `proa-ci-sccache@...` (objectAdmin); KSA `arc-runners/pr-runner` -> GSA `proa-ci-sccache-ro@...` (objectViewer only) |
 
 The `gcp-ci` runner and its writable cache identity are trusted-main
 infrastructure. Pull requests run on the separate `gcp-pr-ci` scale set,
 because Rust build scripts execute repository code and must not be able to
 poison cache objects later consumed by the `main` deployment job. The PR pool
-uses the namespace's unannotated default Kubernetes service account; never bind
-that account to the sccache GCP service account.
+uses the `pr-runner` Kubernetes service account, whose only GCP permission is
+`roles/storage.objectViewer` on the sccache bucket, and `ci.yml` runs its
+sccache in `READ_ONLY` mode: pull requests start from the cache that trusted
+main runs populate but cannot write to it. Never bind `pr-runner` (or the
+namespace default account) to the writable `proa-ci-sccache` GCP service
+account. To recreate the read-only identity:
+
+```text
+gcloud iam service-accounts create proa-ci-sccache-ro --project airy-cycle-504821-k9
+gcloud storage buckets add-iam-policy-binding gs://proa-ci-sccache \
+  --member=serviceAccount:proa-ci-sccache-ro@airy-cycle-504821-k9.iam.gserviceaccount.com \
+  --role=roles/storage.objectViewer
+kubectl create serviceaccount pr-runner -n arc-runners
+kubectl annotate serviceaccount pr-runner -n arc-runners \
+  iam.gke.io/gcp-service-account=proa-ci-sccache-ro@airy-cycle-504821-k9.iam.gserviceaccount.com
+gcloud iam service-accounts add-iam-policy-binding \
+  proa-ci-sccache-ro@airy-cycle-504821-k9.iam.gserviceaccount.com \
+  --role=roles/iam.workloadIdentityUser \
+  --member="serviceAccount:airy-cycle-504821-k9.svc.id.goog[arc-runners/pr-runner]"
+```
 
 The trusted scale set registers at **organization scope** in the
 `proa-trusted-main` runner group. GitHub restricts that group to repository
