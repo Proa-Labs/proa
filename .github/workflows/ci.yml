@@ -196,6 +196,7 @@ jobs:
     # Pull-request code can execute arbitrary build.rs logic. Keep it off the
     # GCP runner identity that can write the cache consumed by trusted main
     # deployment jobs; only main/workflow_dispatch uses the private runner.
+    # The PR pool's own identity can only read that cache (gcs-ro below).
     # Fail closed: untrusted PR code must never fall through to CI_RUNNER when
     # a repository variable is absent or misspelled.
     runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
@@ -219,7 +220,7 @@ jobs:
       - name: Run Rust validation
         uses: ./.github/actions/rust-ci
         with:
-          cache-backend: ${{ github.event_name == 'pull_request' && 'gha' || startsWith(vars.CI_RUNNER, 'gcp') && 'gcs' || 'gha' }}
+          cache-backend: ${{ github.event_name == 'pull_request' && 'gcs-ro' || startsWith(vars.CI_RUNNER, 'gcp') && 'gcs' || 'gha' }}
 
   windows-cross-check:
     name: Windows build-engine cross-check

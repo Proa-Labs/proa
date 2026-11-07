@@ -6,7 +6,7 @@ description: Run Rust formatting, correctness lints, tests, and RSJS conformance
 
 inputs:
   cache-backend:
-    description: Compiler cache backend, either gha or gcs
+    description: Compiler cache backend, one of gha, gcs, or gcs-ro (GCS read-only, for untrusted pull-request runners)
     required: true
 
 runs:
@@ -18,7 +18,7 @@ runs:
         CACHE_BACKEND: ${{ inputs.cache-backend }}
       run: |
         case "$CACHE_BACKEND" in
-          gha|gcs) ;;
+          gha|gcs|gcs-ro) ;;
           *)
             echo "unsupported sccache backend: $CACHE_BACKEND" >&2
             exit 1
@@ -47,6 +47,21 @@ runs:
           echo "RUSTC_WRAPPER=sccache"
           echo "SCCACHE_GCS_BUCKET=proa-ci-sccache"
           echo "SCCACHE_GCS_RW_MODE=READ_WRITE"
+        } >> "$GITHUB_ENV"
+
+    # Pull requests read the cache that trusted main runs populate but never
+    # write to it: the PR pool's Workload Identity holds only objectViewer on
+    # the bucket, and READ_ONLY keeps sccache from even attempting uploads.
+    # Without this, each new PR's first run started from a cold cache because
+    # the GitHub Actions cache is scoped per PR ref and main never writes it.
+    - name: Enable read-only GCS sccache
+      if: inputs.cache-backend == 'gcs-ro'
+      shell: bash
+      run: |
+        {
+          echo "RUSTC_WRAPPER=sccache"
+          echo "SCCACHE_GCS_BUCKET=proa-ci-sccache"
+          echo "SCCACHE_GCS_RW_MODE=READ_ONLY"
         } >> "$GITHUB_ENV"
 
     - name: lint (rustfmt)
