@@ -154,10 +154,14 @@ Notes that matter when changing it:
   (`--max-nodes` is per zone). Six nodes is the 96 preemptible-CPU quota in
   `us-west1`; a main push can want eight runners, so the extra jobs queue for
   a few minutes until a node frees up unless the quota is raised to 192.
-- Both scale sets select the pool with `ci-runner-family: c4`. Rollback is
-  removing that selector line and running the `helm upgrade` for the affected
-  release; the legacy `runners` pool still carries the `ci-runner-pool` label
-  and taint. The other repositories' scale sets on this cluster
+- Both scale sets select the pool with `ci-runner-family: c4`. The legacy
+  `runners` pool (n2d-standard-8) is labeled `ci-runner-family=n2d` and keeps
+  the `ci-runner-pool` label and taint. To roll back a scale set, change
+  `ci-runner-family` to `"n2d"` **and** restore the requests that fit an
+  8-vCPU node, `cpu: "7"` and `memory: "26Gi"` (a 15 CPU / 48Gi runner never
+  schedules there), then run the `helm upgrade` for that release. Merely
+  deleting the selector line leaves both pools eligible with requests only
+  the C4 pool can satisfy. The other repositories' scale sets on this cluster
   (`gcp-latency-*`, `gcp-proa-benchmarks-*`, `gcp-proa-ui-*`) still select
   only `ci-runner-pool: "true"` with 7 CPU / 26Gi requests, so the
   autoscaler may place them on either pool. Move them to `ci-runner-family`

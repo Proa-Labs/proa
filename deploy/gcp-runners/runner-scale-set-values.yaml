@@ -21,8 +21,9 @@ template:
     nodeSelector:
       ci-runner-pool: "true"
       # Pins runners to the `runners-c4` pool (c4-standard-16-lssd spot,
-      # Granite Rapids). Drop this line to fall back to the legacy
-      # n2d-standard-8 `runners` pool, which carries the same taint.
+      # Granite Rapids). To fall back to the legacy n2d-standard-8
+      # `runners` pool, set this to "n2d" and restore cpu "7" / memory
+      # "26Gi" below; the 16-vCPU requests never fit an 8-vCPU node.
       ci-runner-family: "c4"
     tolerations:
       - key: ci-runner-pool
