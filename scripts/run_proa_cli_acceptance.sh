@@ -43,22 +43,30 @@ readonly -a MAIN_SHARD_4=(
 # with plain Cargo.
 readonly -a EXAMPLES=(pizza atlas)
 
-# The pull-request proa-cli shard. PRs changing the linked pipeline must
+# The pull-request proa-cli targets. PRs changing the linked pipeline must
 # exercise cache recovery, complete carriers, mapping/projection freshness and
-# generated runtime behavior.
-readonly -a PR_SHARD_1=(
+# generated runtime behavior. `cargo test` runs test binaries one after
+# another, so the `pr` fan-out runs these as two concurrent halves (pr-1a and
+# pr-1b) that share one prebuilt target directory. The halves are balanced on
+# measured binary run times (helper acceptance ~106 s, build wrapper ~42 s,
+# pipeline ~41 s, unit projection ~38 s, site codegen ~32 s, the rest under
+# 5 s). Both lifecycle tests stay together because they bind network ports.
+readonly -a PR_SHARD_1A=(
   rsjs_linked_helper_acceptance
-  rsjs_build_wrapper
-  rsjs_descriptor_cache
-  rsjs_final
   rsjs_linked_site_codegen
-  rsjs_unit_projection
-  rsjs_pipeline
+  rsjs_descriptor_cache
   lifecycle_dev
   lifecycle_start
+)
+readonly -a PR_SHARD_1B=(
+  rsjs_build_wrapper
+  rsjs_pipeline
+  rsjs_unit_projection
+  rsjs_final
   live_lint
   markdown_syntax
 )
+readonly -a PR_SHARD_1=("${PR_SHARD_1A[@]}" "${PR_SHARD_1B[@]}")
 
 all_main_targets() {
   printf '%s\n' \
@@ -132,12 +140,14 @@ run_example() {
 
 # Compile proa-cli once before the pull-request shards fan out. Every shard
 # used to build the CLI from scratch in its own target directory, three cold
-# builds competing for one runner. Now `cargo test --no-run` with the pr-1
-# target list does exactly pr-1's compile phase in pr-1's target directory
-# (so pr-1 then starts fully fresh), and the example shards execute a snapshot
-# of that CLI instead of `cargo run`/`cargo build`. The snapshot lives outside
-# every Cargo target directory, so no later Cargo invocation can replace it
-# while a shard is executing it.
+# builds competing for one runner. Now `cargo test --no-run` with the full
+# pr-1 target list does exactly the proa-cli halves' compile phase in their
+# shared target directory (so both halves then start fully fresh and only run
+# tests; Cargo holds its build-directory lock during compilation, not while
+# tests execute), and the example shards execute a snapshot of that CLI
+# instead of `cargo run`/`cargo build`. The snapshot lives outside every Cargo
+# target directory, so no later Cargo invocation can replace it while a shard
+# is executing it.
 build_cli_prelude() {
   local target_dir="$1" snapshot="$2"
   local started
@@ -162,6 +172,15 @@ build_cli_prelude() {
 # test` and `cargo run` can build different feature graphs and replace
 # target/debug/proa while another shard is still executing it. Cargo's build
 # lock does not cover the running CLI's lifetime or its later wrapper snapshot.
+# The one exception is the pair of proa-cli halves: same package, same
+# feature graph, everything prebuilt by the prelude, nothing left to replace.
+shard_target_name() {
+  case "$1" in
+    pr-1a | pr-1b) echo pr-1 ;;
+    *) echo "$1" ;;
+  esac
+}
+
 run_shards_in_parallel() {
   local logs target_root
   logs="$(mktemp -d)"
@@ -172,7 +191,7 @@ run_shards_in_parallel() {
     (
       started="$(date +%s)"
       status=0
-      CARGO_TARGET_DIR="$target_root/$mode" \
+      CARGO_TARGET_DIR="$target_root/$(shard_target_name "$mode")" \
         "$0" "$mode" > "$logs/$mode.log" 2>&1 || status=$?
       printf '%s %s\n' "$(( $(date +%s) - started ))" "$status" > "$logs/$mode.status"
       exit "$status"
@@ -212,7 +231,7 @@ run_shards_in_parallel() {
 }
 
 usage() {
-  echo "usage: $0 {--validate|pr|pr-1|pr-2|pr-3|main-all|main-1|main-2|main-3|main-4|main-5}" >&2
+  echo "usage: $0 {--validate|pr|pr-1|pr-1a|pr-1b|pr-2|pr-3|main-all|main-1|main-2|main-3|main-4|main-5}" >&2
 }
 
 readonly shard="${1:-}"
@@ -226,9 +245,9 @@ unset RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
 unset SCCACHE_GHA_ENABLED SCCACHE_GHA_RW_MODE
 unset SCCACHE_GCS_BUCKET SCCACHE_GCS_RW_MODE
 
-# Pull requests run `pr`: the proa-cli pipeline acceptance suite and one shard
-# per example, concurrently in one job so the pull request shows one check.
-# Serially these took about 15 minutes on one runner. Main fans the proa-cli
+# Pull requests run `pr`: the proa-cli pipeline acceptance suite as two
+# halves and one shard per example, concurrently in one job so the pull
+# request shows one check. Serially these took about 15 minutes on one runner. Main fans the proa-cli
 # targets out four ways and gives the examples a fifth shard; the
 # single-runner VPS rollback path runs everything in one job.
 tests=()
@@ -241,11 +260,17 @@ case "$shard" in
     target_root="${CARGO_TARGET_DIR:-target}/acceptance-shards"
     build_cli_prelude "$target_root/pr-1" "$target_root/cli"
     PROA_ACCEPTANCE_CLI="$(cd "$target_root/cli" && pwd)/proa" \
-      run_shards_in_parallel pr-1 pr-2 pr-3
+      run_shards_in_parallel pr-1a pr-1b pr-2 pr-3
     exit $?
     ;;
   pr-1)
     tests=("${PR_SHARD_1[@]}")
+    ;;
+  pr-1a)
+    tests=("${PR_SHARD_1A[@]}")
+    ;;
+  pr-1b)
+    tests=("${PR_SHARD_1B[@]}")
     ;;
   pr-2)
     examples=(pizza)
