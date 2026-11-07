@@ -43,6 +43,23 @@ readonly -a MAIN_SHARD_4=(
 # with plain Cargo.
 readonly -a EXAMPLES=(pizza atlas)
 
+# The pull-request proa-cli shard. PRs changing the linked pipeline must
+# exercise cache recovery, complete carriers, mapping/projection freshness and
+# generated runtime behavior.
+readonly -a PR_SHARD_1=(
+  rsjs_linked_helper_acceptance
+  rsjs_build_wrapper
+  rsjs_descriptor_cache
+  rsjs_final
+  rsjs_linked_site_codegen
+  rsjs_unit_projection
+  rsjs_pipeline
+  lifecycle_dev
+  lifecycle_start
+  live_lint
+  markdown_syntax
+)
+
 all_main_targets() {
   printf '%s\n' \
     "${MAIN_SHARD_1[@]}" \
@@ -83,16 +100,28 @@ validate_main_partition() {
   return 1
 }
 
+# PROA_ACCEPTANCE_CLI names a proa executable built once by the `pr` fan-out.
+# Without it (main shards, single-shard invocations) each example builds the
+# CLI itself, as before.
 run_example() {
   case "$1" in
     pizza)
-      cargo run --locked -p proa-cli --bin proa -- \
-        test --root . --locked \
-        -p proa_webmcp_pizza --test e2e
+      if [[ -n "${PROA_ACCEPTANCE_CLI:-}" ]]; then
+        "$PROA_ACCEPTANCE_CLI" test --root . --locked \
+          -p proa_webmcp_pizza --test e2e
+      else
+        cargo run --locked -p proa-cli --bin proa -- \
+          test --root . --locked \
+          -p proa_webmcp_pizza --test e2e
+      fi
       ;;
     atlas)
-      cargo build --locked -p proa-cli --bin proa
-      python3 scripts/check_origin_scaffold.py --cli "${CARGO_TARGET_DIR:-target}/debug/proa"
+      local cli="${PROA_ACCEPTANCE_CLI:-}"
+      if [[ -z "$cli" ]]; then
+        cargo build --locked -p proa-cli --bin proa
+        cli="${CARGO_TARGET_DIR:-target}/debug/proa"
+      fi
+      python3 scripts/check_origin_scaffold.py --cli "$cli"
       ;;
     *)
       echo "unknown example: $1" >&2
@@ -101,14 +130,38 @@ run_example() {
   esac
 }
 
+# Compile proa-cli once before the pull-request shards fan out. Every shard
+# used to build the CLI from scratch in its own target directory, three cold
+# builds competing for one runner. Now `cargo test --no-run` with the pr-1
+# target list does exactly pr-1's compile phase in pr-1's target directory
+# (so pr-1 then starts fully fresh), and the example shards execute a snapshot
+# of that CLI instead of `cargo run`/`cargo build`. The snapshot lives outside
+# every Cargo target directory, so no later Cargo invocation can replace it
+# while a shard is executing it.
+build_cli_prelude() {
+  local target_dir="$1" snapshot="$2"
+  local started
+  started="$(date +%s)"
+  local -a cargo_arguments=(test -p proa-cli --locked --no-run)
+  local test_target
+  for test_target in "${PR_SHARD_1[@]}"; do
+    cargo_arguments+=(--test "$test_target")
+  done
+  CARGO_TARGET_DIR="$target_dir" cargo "${cargo_arguments[@]}"
+  mkdir -p "$snapshot"
+  cp "$target_dir/debug/proa" "$target_dir/debug/cargo-proa" "$snapshot/"
+  echo "proa-cli built and snapshotted for the shards in $(( $(date +%s) - started ))s"
+}
+
 # Run several shards concurrently in this one process and report them as one
 # result, so a pull request shows a single check instead of one per shard.
 # Each shard is a full re-invocation of this script writing to its own log;
 # the logs are replayed in collapsible groups once everything has finished.
-# Give each shard its own outer Cargo target directory too. `cargo test` and
-# `cargo run` can build different feature graphs and replace target/debug/proa
-# while another shard is still executing it. Cargo's build lock does not cover
-# the running CLI's lifetime or its later wrapper snapshot.
+# Give each shard its own outer Cargo target directory too: the linked
+# pipeline's nested descriptor/final builds are keyed under it, and `cargo
+# test` and `cargo run` can build different feature graphs and replace
+# target/debug/proa while another shard is still executing it. Cargo's build
+# lock does not cover the running CLI's lifetime or its later wrapper snapshot.
 run_shards_in_parallel() {
   local logs target_root
   logs="$(mktemp -d)"
@@ -165,6 +218,14 @@ usage() {
 readonly shard="${1:-}"
 validate_main_partition
 
+# The linked pipeline's descriptor/final compilation must execute its wrapper
+# and side effects. A compiler-cache hit could bypass both, so acceptance runs
+# never inherit a wrapper or a cache backend from the invoking environment.
+# Cargo fingerprints include RUSTC_WRAPPER, so this precedes the prelude too.
+unset RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
+unset SCCACHE_GHA_ENABLED SCCACHE_GHA_RW_MODE
+unset SCCACHE_GCS_BUCKET SCCACHE_GCS_RW_MODE
+
 # Pull requests run `pr`: the proa-cli pipeline acceptance suite and one shard
 # per example, concurrently in one job so the pull request shows one check.
 # Serially these took about 15 minutes on one runner. Main fans the proa-cli
@@ -177,25 +238,14 @@ case "$shard" in
     exit 0
     ;;
   pr)
-    run_shards_in_parallel pr-1 pr-2 pr-3
+    target_root="${CARGO_TARGET_DIR:-target}/acceptance-shards"
+    build_cli_prelude "$target_root/pr-1" "$target_root/cli"
+    PROA_ACCEPTANCE_CLI="$(cd "$target_root/cli" && pwd)/proa" \
+      run_shards_in_parallel pr-1 pr-2 pr-3
     exit $?
     ;;
   pr-1)
-    # PRs changing the linked pipeline must exercise cache recovery, complete
-    # carriers, mapping/projection freshness and generated runtime behavior.
-    tests=(
-      rsjs_linked_helper_acceptance
-      rsjs_build_wrapper
-      rsjs_descriptor_cache
-      rsjs_final
-      rsjs_linked_site_codegen
-      rsjs_unit_projection
-      rsjs_pipeline
-      lifecycle_dev
-      lifecycle_start
-      live_lint
-      markdown_syntax
-    )
+    tests=("${PR_SHARD_1[@]}")
     ;;
   pr-2)
     examples=(pizza)
@@ -232,13 +282,6 @@ case "$shard" in
     exit 2
     ;;
 esac
-
-# The linked pipeline's descriptor/final compilation must execute its wrapper
-# and side effects. A compiler-cache hit could bypass both, so acceptance runs
-# never inherit a wrapper or a cache backend from the invoking environment.
-unset RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
-unset SCCACHE_GHA_ENABLED SCCACHE_GHA_RW_MODE
-unset SCCACHE_GCS_BUCKET SCCACHE_GCS_RW_MODE
 
 # Several fixture applications deliberately invoke Cargo with --offline. The
 # former monolithic CI job populated their crates as an incidental side effect

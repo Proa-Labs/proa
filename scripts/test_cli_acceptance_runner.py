@@ -15,11 +15,21 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 CARGO_STUB = '''#!/usr/bin/env python3
-import json, os, sys, time
+import json, os, shutil, sys, time
 from pathlib import Path
+# Serves as the `cargo` stub and, copied into a target directory by the
+# prelude, as the `proa` CLI snapshot the example shards execute directly.
+program = Path(sys.argv[0]).name
 args = sys.argv[1:]
-if args[0] == "metadata":
+if program == "cargo" and args[0] == "metadata":
     print(os.environ["TEST_METADATA"])
+elif program == "cargo" and args[0] == "test" and "--no-run" in args:
+    # The prelude: compile without running, leaving the CLI in debug/.
+    debug = Path(os.environ.get("CARGO_TARGET_DIR", "target")).resolve() / "debug"
+    debug.mkdir(parents=True, exist_ok=True)
+    for name in ("proa", "cargo-proa"):
+        shutil.copy2(sys.argv[0], debug / name)
+        (debug / name).chmod(0o755)
 elif args[0] in ("run", "test"):
     target = Path(os.environ.get("CARGO_TARGET_DIR", "target")).resolve()
     target.mkdir(parents=True, exist_ok=True)
@@ -30,9 +40,9 @@ elif args[0] in ("run", "test"):
         marker.touch(exist_ok=False)
     except FileExistsError:
         sys.exit("parallel shards share an executable namespace: " + str(target))
-    consumer = "test" if args[0] == "test" else args[-3]
+    consumer = "test" if program == "cargo" and args[0] == "test" else args[-3]
     state = Path(os.environ["TEST_STATE"])
-    (state / consumer).write_text(str(target))
+    (state / consumer).write_text(str(target) + "\\n" + sys.argv[0])
     deadline = time.monotonic() + 20
     while len(list(state.iterdir())) < 3 and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -40,8 +50,8 @@ elif args[0] in ("run", "test"):
         sys.exit("not all shards started")
     if consumer == os.environ.get("TEST_FAIL_CONSUMER"):
         sys.exit(23)
-elif args[0] not in ("fetch", "build"):
-    sys.exit("unexpected cargo command: " + repr(args))
+elif program != "cargo" or args[0] not in ("fetch", "build"):
+    sys.exit("unexpected command: " + program + " " + repr(args))
 '''
 
 
@@ -81,12 +91,18 @@ class AcceptanceRunnerTests(unittest.TestCase):
                 env["TEST_FAIL_CONSUMER"] = fail_consumer
             result = subprocess.run(["bash", str(script), "pr"], cwd=checkout,
                                     env=env, capture_output=True, text=True, timeout=60)
-            paths = {path.name: Path(path.read_text()) for path in state.iterdir()}
+            records = {path.name: path.read_text().split("\n") for path in state.iterdir()}
+            paths = {name: Path(record[0]) for name, record in records.items()}
+            executables = {name: Path(record[1]) for name, record in records.items()}
             expected_root = (checkout / (custom_target or "target") / "acceptance-shards").resolve()
             self.assertEqual(set(paths), {"test", "proa_webmcp_pizza", "origin-atlas"},
                              result.stdout + result.stderr)
             self.assertEqual(len(set(paths.values())), 3, paths)
             self.assertEqual(set(paths.values()), {expected_root / name for name in ("pr-1", "pr-2", "pr-3")})
+            # The pizza shard runs the prelude's snapshot, not a build of its own;
+            # the snapshot sits outside every shard's Cargo target directory.
+            self.assertEqual(executables["proa_webmcp_pizza"], expected_root / "cli" / "proa")
+            self.assertEqual(executables["test"].name, "cargo")
             return result
 
     def test_parallel_consumers_have_separate_default_target_directories(self):
