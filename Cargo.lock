@@ -3341,7 +3341,7 @@ dependencies = [
 
 [[package]]
 name = "proa_codegen"
-version = "0.2.1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3349,7 +3349,7 @@ dependencies = [
 
 [[package]]
 name = "proa_const_json"
-version = "0.1.3"
+version = "0.1.2"
 dependencies = [
  "proa_const_json_macros",
  "serde_json",
@@ -3357,7 +3357,7 @@ dependencies = [
 
 [[package]]
 name = "proa_const_json_macros"
-version = "0.1.3"
+version = "0.1.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3650,7 +3650,7 @@ dependencies = [
 
 [[package]]
 name = "proa_og"
-version = "0.1.3"
+version = "0.1.2"
 dependencies = [
  "bindgen",
  "libc",

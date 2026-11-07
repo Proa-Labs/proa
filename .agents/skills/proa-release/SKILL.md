@@ -20,10 +20,12 @@ from the repository root; use authenticated `gh` for GitHub operations.
    gh workflow run release-plz.yml --ref main -f command=release-pr
    ```
 
-3. Review the generated package versions, dependency requirements, lockfile, and
-   changelogs. Release-plz owns these changes: do not hand-bump manifests or
-   invent scaffold versions. If an explicit version override is needed, use the
-   wrapper's `set-version` operation, then regenerate and validate the release PR.
+3. Keep version/changelog changes in that generated release PR, separate from
+   implementation PRs. Review its package versions, dependency requirements,
+   lockfile, and changelogs. Release-plz owns these changes: do not hand-bump
+   manifests or invent scaffold versions. If an explicit version override is
+   needed, use the wrapper's `set-version` operation, then regenerate and validate
+   the release PR.
 4. Get the release PR through CI and the repository's merge process before
    publishing. Preparing a release does not authorize a merge or an upload.
 
