@@ -200,9 +200,15 @@ impl FrameworkBuilder {
     /// the linked `rsjs` manifest and are served by
     /// [`with_rsjs_assets`](Self::with_rsjs_assets). Pass the manifest
     /// unprefixed; [`with_base_path`](Self::with_base_path) resolves its URLs
-    /// at startup.
+    /// at startup. A manifest without a CSS asset keeps one registered with
+    /// [`with_css_asset`](Self::with_css_asset), so the two calls compose in
+    /// either order.
     pub fn with_island_manifest(mut self, manifest: IslandManifest) -> Self {
+        let css = self.manifest.assets.css.take();
         self.manifest = manifest;
+        if self.manifest.assets.css.is_none() {
+            self.manifest.assets.css = css;
+        }
         self
     }
 

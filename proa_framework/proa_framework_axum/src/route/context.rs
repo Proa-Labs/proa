@@ -352,7 +352,12 @@ impl RouteContextLayer {
 
     /// Install a legacy React island manifest. Pass it unprefixed; the layer
     /// resolves its URLs against the configured base path in either call order.
-    pub fn with_island_manifest(mut self, manifest: IslandManifest) -> Self {
+    /// A manifest without a CSS asset keeps one registered with
+    /// [`with_css_asset`](Self::with_css_asset).
+    pub fn with_island_manifest(mut self, mut manifest: IslandManifest) -> Self {
+        if manifest.assets.css.is_none() {
+            manifest.assets.css = self.unprefixed_manifest.assets.css.clone();
+        }
         self.unprefixed_manifest = Arc::new(manifest);
         self.resolve_manifest();
         self
