@@ -23,6 +23,25 @@ If you are building an app on axum, depend on `proa_framework_axum` and you get
 all of this re-exported. Depend on this crate directly when you are writing
 an adapter for a different framework or runtime.
 
+## Standalone HTML files
+
+For synchronous static exports, use `render_sync_html_document(document, head)`:
+
+```rust,ignore
+use proa_core::HeadConfig;
+use proa_framework_core::render_sync_html_document;
+
+let html = render_sync_html_document(document, HeadConfig::default())?;
+std::fs::write("output.html", html)?;
+```
+
+Pass your composed layout and Page as `document`. This runs the normal managed
+metadata lifecycle, validates one Page and one head outlet, and finalizes any
+generated RSJS bootstrap. It needs no server or async runtime. External scripts
+and RSJS assets remain references; this function does not export asset files.
+Use the route pipeline for documents requiring a React island manifest or
+request-specific configuration.
+
 ## `Send` policy and runtime portability
 
 This is an intentional contract decision:

@@ -13,6 +13,7 @@
 
 pub mod bootstrap;
 pub mod discovery;
+pub mod document;
 pub mod managed_response;
 pub mod manifest;
 pub mod markdown;
@@ -27,6 +28,7 @@ pub use discovery::{
     SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
     MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
 };
+pub use document::render_sync_html_document;
 pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
 };

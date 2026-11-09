@@ -22,6 +22,7 @@ use proa_core::{
 use proa_framework_core::{
     FrameworkBody, FrameworkRequestContext, IslandManifest, ManifestAssets, RouteResponse,
 };
+use proa_macros::html_sync;
 use proa_stream::Suspense;
 
 const BASIC_ISLAND_ID: &str = "framework_auto_basic";
@@ -482,6 +483,39 @@ fn sync_response_automatically_emits_one_deduplicated_runtime_plan() {
         r#"<script type="module" src="/rsjs/island/framework_auto_basic.js"></script>"#,
     );
     assert!(!html.contains("/rsjs-runtime-query.js"));
+}
+
+#[test]
+fn standalone_document_dispatches_root_page_and_finalizes_rsjs_assets() {
+    struct StandalonePage;
+
+    impl WebRenderSync for StandalonePage {
+        const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;
+
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            let island = BasicIsland;
+            let document = html_sync! {
+                <!DOCTYPE html>
+                <html lang="en">
+                    <head>{cx.head()}</head>
+                    <body>{island}</body>
+                </html>
+            };
+            WebRenderSync::render(document, cx)
+        }
+    }
+
+    let bytes = proa_framework_core::render_sync_html_document(
+        StandalonePage,
+        proa_core::HeadConfig::default(),
+    )
+    .unwrap();
+    let html = std::str::from_utf8(&bytes).unwrap();
+    assert_exactly_once(html, "src=\"/rsjs-runtime.js\"");
+    let module = "src=\"/rsjs/island/framework_auto_basic.js\"";
+    assert_exactly_once(html, module);
+    assert!(html.find(module).unwrap() < html.find("</body>").unwrap());
+    assert!(html.ends_with("</body></html>"));
 }
 
 #[test]

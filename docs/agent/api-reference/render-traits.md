@@ -544,5 +544,14 @@ mode before rendering with `RouteResponse::with_head(HeadConfig)` or app-wide
 Suspense, captures and fallbacks are body-only. Raw `.render(cx)` calls skip hooks;
 macro composition and framework helpers dispatch them.
 
+For a synchronous standalone HTML file, use
+`proa_framework_core::render_sync_html_document(document, HeadConfig::default())`.
+It runs the same managed-head lifecycle and returns UTF-8 bytes accepted by
+`std::fs::write`, without application-owned manifests or response finalization.
+The document still needs one Page and one `{cx.head()}` outlet. External scripts
+and RSJS assets remain references; the helper does not export asset files.
+Use the normal route pipeline when an external React island manifest or
+request-specific configuration is required.
+
 See [the implementation contract](../../design/metadata-api-proposal.md) and
 [the code-first metadata guide](../../../proa_marketing/src/docs/framework/metadata.mdx).
