@@ -58,7 +58,7 @@
     },
     {
       "kind": "signal_set",
-      "signal": 8,
+      "signal": 9,
       "value": {
         "kind": "signal_read",
         "signal": 2

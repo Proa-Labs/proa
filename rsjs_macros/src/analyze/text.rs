@@ -104,13 +104,41 @@ impl Analyzer {
                     ..
                 } => {
                     let ty = self.frontend_expr_type(&args[index], scope.handler_locals);
+                    // Float Display (`{:.1}`, `{:>8.2}`, `{:+}`, `{:08.3}`) renders
+                    // through the runtime's exact decimal formatter, which mirrors
+                    // core::fmt: shortest round-trip digits without precision,
+                    // exact round-half-to-even with precision, sign-aware zero
+                    // padding, and right alignment by default. Exponent (`e`/`E`)
+                    // and radix traits stay server-only for floats.
+                    // Only trust F64 when a typed producer fixes it; see
+                    // `TypeEnv::float_width_proven`. Literals, locals and
+                    // query data could be f32 in Rust (or reach SSR as JSON
+                    // text), so formatting them would print the wrong digits.
+                    if ty == ClientType::F64
+                        && !self.frontend_float_width_proven(&args[index], scope.handler_locals)
+                    {
+                        return Err(syn::Error::new(parsed.span,
+                            "rsjs/text-format-unsupported: reactive text! float formatting needs the value to come from a typed signal or prop, or a memo over one (arithmetic over one is fine); float literals, block locals, query data and browser reads are not proven f32 or f64 on the client, so format such values on the server or read them through a `Signal<f32>` / `Signal<f64>`"));
+                    }
+                    if matches!(ty, ClientType::F32 | ClientType::F64) {
+                        let Some(plan) = integer_plan.filter(|plan| plan.kind == 0) else {
+                            return Err(syn::Error::new(parsed.span,
+                                "rsjs/text-format-unsupported: reactive text! float formatting supports Display with literal width, fill, alignment, sign, zero padding and precision; exponent and radix traits remain server-only"));
+                        };
+                        parts.push(json!({"arg": index, "string": false, "domain": null, "float": true,
+                            "f32": ty == ClientType::F32,
+                            "fill": plan.fill.to_string(), "align": plan.align, "plus": plan.sign_plus,
+                            "alternate": plan.alternate, "zero": plan.zero_pad, "width": plan.width,
+                            "precision": plan.precision, "kind": 0}));
+                        continue;
+                    }
                     let domain = self.frontend_integer_domain(&args[index], scope.handler_locals);
                     let Some(plan) = integer_plan.filter(|plan| {
                         plan.kind <= 4
                             && (domain.is_some() || (ty == ClientType::String && plan.kind == 0))
                     }) else {
                         return Err(syn::Error::new(parsed.span,
-                            "rsjs/text-format-unsupported: reactive text! formatting supports integer display/binary/octal/hex and string display, with literal width, alignment and precision; other Rust format traits remain server-only"));
+                            "rsjs/text-format-unsupported: reactive text! formatting supports integer display/binary/octal/hex, float display, and string display, with literal width, alignment and precision; other Rust format traits remain server-only"));
                     };
                     parts.push(json!({"arg": index, "string": ty == ClientType::String, "domain": domain.map(IntegerDomain::as_str),
                         "fill": plan.fill.to_string(), "align": plan.align, "plus": plan.sign_plus,
