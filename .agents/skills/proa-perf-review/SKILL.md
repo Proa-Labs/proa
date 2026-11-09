@@ -54,7 +54,8 @@ data, generated output, vendored code, tooling, and displayed examples.
 ## Managed head publication
 
 Check the application's render entry point: standalone synchronous documents use
-`HtmlDocumentContext` with one `render` and `finish`; server pages use the
+the existing `WebContext` plus `WebContextDocumentExt` for `render` and `finish`;
+server pages use the
 framework route pipeline.
 Application-owned empty manifests and manual response finalization should not
 be needed for synchronous static exports. Verify exports through the document

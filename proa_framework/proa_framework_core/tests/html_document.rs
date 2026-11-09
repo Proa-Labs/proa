@@ -7,7 +7,7 @@ use proa_core::{
     ComponentRole, HeadConfig, HeadMetadata, SyncHeadOperation, WebContext, WebRenderSync,
     WriteError,
 };
-use proa_framework_core::{render_sync_html_document, FrameworkError, HtmlDocumentContext};
+use proa_framework_core::{render_sync_html_document, FrameworkError, WebContextDocumentExt};
 use proa_macros::html_sync;
 
 struct Page {
@@ -122,7 +122,7 @@ fn standalone_document_rejects_missing_page_or_invalid_outlet_count() {
 
 #[test]
 fn standalone_document_does_not_return_partial_html_after_body_failure() {
-    let mut cx = HtmlDocumentContext::new();
+    let mut cx = WebContext::new();
     let error = cx
         .render(Layout {
             page: Page {
@@ -165,7 +165,8 @@ fn document_context_renders_borrowed_non_send_components_immediately() {
     let head = HeadConfig::default()
         .with_defaults(|head| head.title("Configured default"))
         .unwrap();
-    let mut cx = HtmlDocumentContext::with_head(head);
+    let mut cx = WebContext::new();
+    cx.set_document_head(head).unwrap();
     cx.render(LocalPage {
         body: &body,
         renders: renders.clone(),
@@ -179,8 +180,8 @@ fn document_context_renders_borrowed_non_send_components_immediately() {
 }
 
 #[test]
-fn document_context_rejects_finish_without_render_and_duplicate_roots() {
-    assert!(HtmlDocumentContext::new().finish().is_err());
+fn web_context_rejects_invalid_document_lifecycles() {
+    assert!(WebContext::new().finish().is_err());
 
     let document = || Layout {
         page: Page {
@@ -190,8 +191,27 @@ fn document_context_rejects_finish_without_render_and_duplicate_roots() {
         },
         outlets: 1,
     };
-    let mut cx = HtmlDocumentContext::new();
+    let mut cx = WebContext::new();
     cx.render(document()).unwrap();
+    assert!(cx.render(document()).is_err());
+    assert!(cx.finish().is_err());
+
+    let mut cx = WebContext::new();
+    cx.render(document()).unwrap();
+    let fork = WebContext::with_loader_buffer_and_context_parts(
+        proa_core::RenderBuffer::new(),
+        std::sync::Arc::new(proa_core::NoLoader),
+        cx.context_parts(),
+    );
+    assert!(fork.finish().is_err());
+    assert!(cx.finish().is_err());
+
+    let mut cx = WebContext::new();
+    html_sync! {
+        <p>"Fragment"</p>
+    }
+    .render(&mut cx)
+    .unwrap();
     assert!(cx.render(document()).is_err());
     assert!(cx.finish().is_err());
 }

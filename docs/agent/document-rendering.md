@@ -22,19 +22,21 @@ Choose the document's delivery path before writing its rendering wrapper:
 | Use case | Entry point |
 | --- | --- |
 | Server page | Return `RouteResponse::ssr(document)` (or the matching async/streaming constructor); configure managed head on the response or `FrameworkBuilder` |
-| Synchronous standalone HTML file | `HtmlDocumentContext::new()`, `cx.render(document)?`, then `cx.finish()?` for the bytes |
+| Synchronous standalone HTML file | `WebContext::new()`, `cx.render(document)?`, then `cx.finish()?` for the bytes |
 | Ordinary component fragment without managed metadata | Render into a `WebContext`, or use the existing fragment rendering helpers |
 
 For a standalone document, compose the layout and Page normally, with one
-explicit `ComponentRole::PAGE` and one `{cx.head()}` outlet. The document context
-runs the managed metadata lifecycle; application code does not need to create
+explicit `ComponentRole::PAGE` and one `{cx.head()}` outlet. Import
+`proa_framework_core::WebContextDocumentExt` to render and finish the existing
+`WebContext` as a complete document. This runs the managed metadata lifecycle; application code does not need to create
 an empty island manifest, a request context, or a response finalizer. Direct
 root `.render(&mut cx)` calls skip head hooks and are not a substitute for this
 entry point. Keep lower-level setup in framework adapters and their tests.
 The context's `render` runs immediately and accepts borrowed or non-`Send`
 `WebRenderSync<NoLoader>` roots. Render exactly one document; a failure or second
 render invalidates the context, and `finish` returns no partial HTML. Use
-`HtmlDocumentContext::with_head(head)` for custom metadata defaults or URL policy.
+`cx.set_document_head(head)?` before rendering for custom metadata defaults or
+URL policy.
 The one-call `render_sync_html_document(document, head)` convenience wrapper uses
 the same context lifecycle.
 

@@ -28,7 +28,7 @@ pub use discovery::{
     SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
     MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
 };
-pub use document::{render_sync_html_document, HtmlDocumentContext};
+pub use document::{render_sync_html_document, WebContextDocumentExt};
 pub use manifest::{
     CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
 };

@@ -21,6 +21,7 @@ use proa_core::{
 };
 use proa_framework_core::{
     FrameworkBody, FrameworkRequestContext, IslandManifest, ManifestAssets, RouteResponse,
+    WebContextDocumentExt,
 };
 use proa_macros::html_sync;
 use proa_stream::Suspense;
@@ -505,7 +506,7 @@ fn standalone_document_dispatches_root_page_and_finalizes_rsjs_assets() {
         }
     }
 
-    let mut cx = proa_framework_core::HtmlDocumentContext::new();
+    let mut cx = WebContext::new();
     cx.render(StandalonePage).unwrap();
     let bytes = cx.finish().unwrap();
     let html = std::str::from_utf8(&bytes).unwrap();

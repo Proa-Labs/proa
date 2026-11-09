@@ -36,8 +36,8 @@ the same for sync, async, Send and adapted rendering. Plain
 when they need to render inside a Page or in manual mode.
 
 Test through the document's actual entry point: its managed route, or
-`HtmlDocumentContext::render` followed by `finish` for a synchronous standalone
-export. Include an
+`WebContext` with `WebContextDocumentExt::render` followed by `finish` for a
+synchronous standalone export. Include an
 outlet and an explicit Page. For async/streaming routes, verify head publication
 while body work remains pending.
 Calling `render` directly exercises only the body and bypasses lifecycle dispatch.

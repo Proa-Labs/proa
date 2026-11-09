@@ -25,13 +25,14 @@ an adapter for a different framework or runtime.
 
 ## Standalone HTML files
 
-For synchronous static exports, create a document context, render your composed
+For synchronous static exports, create a `WebContext`, render your composed
 layout and Page into it, then finish the output:
 
 ```rust,ignore
-use proa_framework_core::HtmlDocumentContext;
+use proa_core::WebContext;
+use proa_framework_core::WebContextDocumentExt;
 
-let mut cx = HtmlDocumentContext::new();
+let mut cx = WebContext::new();
 cx.render(document)?;
 std::fs::write("output.html", cx.finish()?)?;
 ```
@@ -40,7 +41,9 @@ The context runs layout/Page metadata hooks and validates one Page and one
 head outlet. `render` runs immediately and accepts borrowed or non-`Send`
 components. `finish` finalizes generated RSJS bootstrap and returns UTF-8 bytes;
 it rejects an empty, failed, or multiply rendered context. Use
-`HtmlDocumentContext::with_head(head)` for custom metadata defaults or URL policy.
+`cx.set_document_head(head)?` before rendering for custom metadata defaults or URL
+policy. These are extension methods on the existing `WebContext`, not a separate
+context type.
 `render_sync_html_document(document, head)` is a one-call convenience wrapper.
 
 External scripts and RSJS assets remain references; this API does not export
