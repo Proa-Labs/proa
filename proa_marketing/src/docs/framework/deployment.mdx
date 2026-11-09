@@ -112,9 +112,6 @@ asset pipelines can retain their handlers and call
 Non-Axum adapters can use
 `proa_framework_core::response::append_rsjs_runtime_plan_with_base_path` and
 `append_rsjs_runtime_plan_delta_with_base_path` to emit prefixed asset tags.
-Applications with a legacy React `IslandManifest` pass it unprefixed to
-`with_island_manifest` on the builder or layer; they resolve its URLs at
-startup.
 
 Application-authored links, forms, images, and redirects opt into URL composition:
 

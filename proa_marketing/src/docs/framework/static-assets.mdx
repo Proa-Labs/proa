@@ -123,18 +123,14 @@ and hydration.
 
 ## Linking the application stylesheet
 
-Register the stylesheet path on the builder:
+Write the link in the document layout. `cx.url` applies the configured base path:
 
-```rust filename="src/app.rs"
-use proa_framework_axum::FrameworkBuilder;
-
-let app = FrameworkBuilder::new()
-    .with_css_asset("/static/assets/app.css")
-    .with_dynamic_routes(routes)
-    .build();
+```rust filename="src/layouts/root.rs"
+let stylesheet = cx.url("/static/assets/app.css");
+html_sync! {
+    <link rel="stylesheet" href={stylesheet} />
+}
 ```
-
-Document layouts can call `render_css_link(cx)` to emit a stylesheet link for that path, and `css_asset_path()` returns it for custom markup. The configured base path is applied at startup. Custom routers use `RouteContextLayer::with_css_asset` the same way.
 
 Whole applications mount the same way a stylesheet does, through the builder.
 

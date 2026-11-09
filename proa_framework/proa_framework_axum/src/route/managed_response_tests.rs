@@ -539,7 +539,7 @@ async fn actual_route_drivers_publish_before_pending_body_in_every_delivery_mode
             .with_render_mode(mode)
             .with_head(proa_core::HeadConfig::default());
             let response = route
-                .into_stream_framework_response(&empty_manifest(), &Default::default())
+                .into_stream_framework_response(&Default::default())
                 .unwrap();
             let response = tokio::time::timeout(
                 Duration::from_secs(2),
@@ -674,7 +674,7 @@ async fn inherited_head_is_published_before_same_poll_body_work() {
                     .unwrap(),
             );
             let response = route
-                .into_stream_framework_response(&empty_manifest(), &Default::default())
+                .into_stream_framework_response(&Default::default())
                 .unwrap();
             let FrameworkBody::Managed(factory) = response.body else {
                 panic!("expected managed stream")
@@ -723,7 +723,7 @@ async fn actual_route_publishes_before_same_poll_body_work() {
             .with_render_mode(mode)
             .with_head(proa_core::HeadConfig::default());
             let response = route
-                .into_stream_framework_response(&empty_manifest(), &Default::default())
+                .into_stream_framework_response(&Default::default())
                 .unwrap();
             let FrameworkBody::Managed(factory) = response.body else {
                 panic!("expected managed stream")
@@ -828,7 +828,7 @@ async fn outlet_inside_page_publishes_before_following_body_child() {
         }
         .with_head(proa_core::HeadConfig::default());
         let response = route
-            .into_stream_framework_response(&empty_manifest(), &Default::default())
+            .into_stream_framework_response(&Default::default())
             .unwrap();
         let FrameworkBody::Managed(factory) = response.body else {
             panic!("expected managed stream")
@@ -887,7 +887,7 @@ async fn empty_head_is_ready_without_a_synthetic_byte_or_ready_body() {
         }
         .with_head(proa_core::HeadConfig::default());
         let response = route
-            .into_stream_framework_response(&empty_manifest(), &Default::default())
+            .into_stream_framework_response(&Default::default())
             .unwrap();
         let response = tokio::time::timeout(
             Duration::from_secs(2),
@@ -909,10 +909,6 @@ async fn empty_head_is_ready_without_a_synthetic_byte_or_ready_body() {
         }
         assert_eq!(bytes, b"body");
     }
-}
-
-fn empty_manifest() -> proa_framework_core::IslandManifest {
-    serde_json::from_str(r#"{"islands":{}}"#).unwrap()
 }
 
 struct BadDeferred;
@@ -945,7 +941,7 @@ async fn ignored_deferred_metadata_error_terminates_the_actual_ooo_body() {
         .with_render_mode(proa_core::RenderMode::ChunkedOutOfOrder)
         .with_head(proa_core::HeadConfig::default());
     let response = route
-        .into_stream_framework_response(&empty_manifest(), &Default::default())
+        .into_stream_framework_response(&Default::default())
         .unwrap();
     let response =
         prepare_deferred_framework_stream(framework_response_to_axum(response), executor()).await;
@@ -986,7 +982,7 @@ async fn buffered_local_and_send_use_the_same_head_values_and_status() {
         }
         .with_head(proa_core::HeadConfig::default());
         let response = route
-            .into_framework_response(&empty_manifest(), &Default::default())
+            .into_framework_response(&Default::default())
             .await
             .unwrap();
         assert_eq!(response.status, StatusCode::CREATED);
@@ -1017,7 +1013,6 @@ async fn client_payload_preserves_dynamic_title_status_cookies_and_cache_policy(
         let response = route
             .into_client_payload_framework_response(
                 Some("stale static title".into()),
-                &empty_manifest(),
                 &Default::default(),
             )
             .await;
@@ -1078,11 +1073,7 @@ async fn sync_app_defaults_explicit_clear_and_manual_override() {
             status: StatusCode::ACCEPTED,
         });
         let response = route
-            .into_client_payload_framework_response(
-                Some("legacy title".into()),
-                &empty_manifest(),
-                &request,
-            )
+            .into_client_payload_framework_response(Some("legacy title".into()), &request)
             .await;
         assert_eq!(response.status, StatusCode::ACCEPTED);
         let FrameworkBody::Full(bytes) = response.body else {
@@ -1098,7 +1089,7 @@ async fn sync_app_defaults_explicit_clear_and_manual_override() {
     }
     let response = CoreRouteResponse::ssr("manual")
         .without_head()
-        .into_framework_response(&empty_manifest(), &request)
+        .into_framework_response(&request)
         .await
         .unwrap();
     let FrameworkBody::Full(bytes) = response.body else {
@@ -1121,15 +1112,11 @@ async fn managed_buffered_and_client_paths_enforce_bodyless_status() {
             .with_head(proa_core::HeadConfig::default());
             let response = if client {
                 route
-                    .into_client_payload_framework_response(
-                        None,
-                        &empty_manifest(),
-                        &Default::default(),
-                    )
+                    .into_client_payload_framework_response(None, &Default::default())
                     .await
             } else {
                 route
-                    .into_framework_response(&empty_manifest(), &Default::default())
+                    .into_framework_response(&Default::default())
                     .await
                     .unwrap()
             };
@@ -1152,7 +1139,7 @@ async fn deferred_head_cannot_weaken_middleware_cache_bypass() {
     }))
     .with_head(proa_core::HeadConfig::default());
     let response = route
-        .into_stream_framework_response(&empty_manifest(), &Default::default())
+        .into_stream_framework_response(&Default::default())
         .unwrap();
     let mut response = framework_response_to_axum(response);
     response.headers_mut().insert(
@@ -1206,7 +1193,7 @@ async fn managed_ooo_keeps_rsjs_seed_before_boundary_swap_after_shell() {
         .with_render_mode(proa_core::RenderMode::ChunkedOutOfOrder)
         .with_head(proa_core::HeadConfig::default());
     let response = route
-        .into_stream_framework_response(&empty_manifest(), &Default::default())
+        .into_stream_framework_response(&Default::default())
         .unwrap();
     let response =
         prepare_deferred_framework_stream(framework_response_to_axum(response), executor()).await;

@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use axum::{
     body::{to_bytes, Body},
@@ -82,8 +82,6 @@ static CLASS_REG: &'static rsjs::ClientClassManifestEntry = &CLASS;
 #[linkme(crate = rsjs::linkme)]
 static MODULE_REG: &'static rsjs::ClientModuleManifestEntry = &MODULE;
 
-const STYLESHEET: &str = "/static/styles.css";
-
 struct Page;
 impl<L: DataLoader> WebRenderSync<L> for Page {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -112,10 +110,6 @@ fn app(prefix: &str) -> Router {
             get(|| async { Redirect::to(&app_url("/").to_string()) }),
         ),
         Route::endpoint(
-            "/css",
-            get(|| async { proa_framework_axum::css_asset_path().unwrap() }),
-        ),
-        Route::endpoint(
             "/alternate",
             get(|| async {
                 proa_framework_axum::negotiate(
@@ -133,7 +127,6 @@ fn app(prefix: &str) -> Router {
         ),
     ]);
     FrameworkBuilder::new()
-        .with_css_asset(STYLESHEET)
         .with_dynamic_routes_and_metadata(router, metadata)
         .with_static_service(
             Router::new()
@@ -196,10 +189,6 @@ async fn nested_page_urls_redirects_and_framework_links_follow_startup_prefix() 
         assert!(html.contains(r#"src="https://cdn.example/image.png""#));
         let (_, headers, _) = fetch(&app, "/redirect").await;
         assert_eq!(headers[header::LOCATION], format!("{prefix}/"));
-        assert_eq!(
-            fetch(&app, "/css").await.2,
-            format!("{prefix}/static/styles.css")
-        );
         assert_eq!(fetch(&app, "/static/styles.css").await.0, StatusCode::OK);
         assert_eq!(fetch(&app, "/extension").await.2, format!("{prefix}/api"));
         let (_, headers, _) = fetch(&app, "/alternate").await;
@@ -298,7 +287,6 @@ async fn streamed_shell_arrives_before_late_island_with_prefixed_deferred_loader
         }),
     );
     let app = FrameworkBuilder::new()
-        .with_css_asset(STYLESHEET)
         .with_base_path(BasePath::new("/apps/demo").unwrap())
         .with_dynamic_routes(router)
         .build();
@@ -352,26 +340,6 @@ async fn streamed_shell_arrives_before_late_island_with_prefixed_deferred_loader
     assert!(std::str::from_utf8(&child)
         .unwrap()
         .contains(r#"href="/apps/demo/late""#));
-}
-
-#[tokio::test]
-async fn custom_layer_reconfiguration_resolves_manifest_from_original_paths() {
-    for prefix in ["/preview/42", ""] {
-        let layer = proa_framework_axum::RouteContextLayer::new(Arc::new(HashMap::new()))
-            .with_css_asset(STYLESHEET)
-            .with_base_path(BasePath::new("/old").unwrap())
-            .with_base_path(BasePath::new(prefix).unwrap());
-        let app = Router::new()
-            .route(
-                "/css",
-                get(|| async { proa_framework_axum::css_asset_path().unwrap() }),
-            )
-            .layer(layer);
-        assert_eq!(
-            fetch(&app, "/css").await.2,
-            format!("{prefix}/static/styles.css")
-        );
-    }
 }
 
 #[tokio::test]

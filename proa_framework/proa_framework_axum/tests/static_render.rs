@@ -3,8 +3,8 @@
 
 //! The Axum `RouteResponse` wrapper forwards the runtime-free static renderers.
 //! For a page that reads no request context (no route params, base path, or
-//! `css_asset_path` / `render_metadata_head` helpers) the bytes they produce
-//! are the bytes the router serves.
+//! `render_metadata_head`) the bytes they produce are the bytes the router
+//! serves.
 
 use axum::{body::Body, http::Request, routing::get, Router};
 use proa_core::{

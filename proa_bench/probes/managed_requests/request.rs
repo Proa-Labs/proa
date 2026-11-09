@@ -12,7 +12,7 @@ use proa_core::{
     ComponentRole, HeadConfig, HeadUrlPolicy, SyncHeadOperation, WebContext, WebRenderSync,
     WriteError,
 };
-use proa_framework_axum::{IslandManifest, Route, RouteContextLayer, RouteResponse};
+use proa_framework_axum::{Route, RouteContextLayer, RouteResponse};
 use proa_macros::html_sync;
 use sha2::{Digest, Sha256};
 use std::{

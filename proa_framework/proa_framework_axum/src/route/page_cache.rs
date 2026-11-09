@@ -311,7 +311,7 @@ where
                         .try_lock_owned()
                     {
                         // Tokio task locals do not propagate through spawn.
-                        // Retain the manifest, route params and metadata for
+                        // Retain the route params and metadata for
                         // RouteResponse finalization in the refresh task.
                         let context = ROUTE_CONTEXT.try_with(|cx| cx.borrow().clone()).ok();
                         tokio::spawn(async move {

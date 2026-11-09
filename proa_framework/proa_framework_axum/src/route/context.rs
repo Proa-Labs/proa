@@ -21,8 +21,6 @@ use proa_framework_core::{
 use tower::layer::Layer;
 use tower::Service;
 
-use crate::manifest::{CssAsset, IslandManifest};
-
 use super::local_executor::{LocalStreamExecutor, LocalStreamExecutorConfig};
 use super::response::prepare_deferred_framework_stream;
 
@@ -30,7 +28,7 @@ tokio::task_local! {
     pub(super) static ROUTE_CONTEXT: RefCell<RouteContext>;
 }
 
-/// Internal route context holding the manifest and request metadata.
+/// Internal route context holding the request metadata.
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct RouteContext {
@@ -44,11 +42,10 @@ pub struct RouteContext {
 
 impl RouteContext {
     pub(super) fn new(
-        manifest: Arc<IslandManifest>,
         computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     ) -> Self {
         Self {
-            snapshot: FrameworkRouteSnapshot::new(manifest, computed_metadata),
+            snapshot: FrameworkRouteSnapshot::new(computed_metadata),
             request_method: None,
             request_headers: http::HeaderMap::new(),
             csp_nonce: None,
@@ -126,10 +123,6 @@ impl RouteContext {
 
     pub(super) fn restore_route_params(&mut self, route_params: RouteParams) {
         self.snapshot.restore_route_params(route_params);
-    }
-
-    pub(super) fn manifest_arc(&self) -> Arc<IslandManifest> {
-        self.snapshot.manifest_arc()
     }
 
     pub(super) fn swap_metadata(
@@ -320,8 +313,6 @@ fn restore_context(
 /// Tower layer for establishing the route context for each request
 #[derive(Clone)]
 pub struct RouteContextLayer {
-    manifest: Arc<IslandManifest>,
-    unprefixed_manifest: Arc<IslandManifest>,
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
@@ -329,14 +320,11 @@ pub struct RouteContextLayer {
 }
 
 impl RouteContextLayer {
-    /// Create a layer with no React island manifest and no managed head.
+    /// Create a layer with no managed head.
     pub fn new(
         computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     ) -> Self {
-        let manifest = Arc::new(IslandManifest::default());
         Self {
-            unprefixed_manifest: manifest.clone(),
-            manifest,
             computed_metadata,
             local_stream_executor: LocalStreamExecutor::new(LocalStreamExecutorConfig::default()),
             base_path: proa_core::BasePath::default(),
@@ -350,49 +338,10 @@ impl RouteContextLayer {
         self
     }
 
-    /// Install a legacy React island manifest. Pass it unprefixed; the layer
-    /// resolves its URLs against the configured base path in either call order.
-    /// A manifest without a CSS asset keeps one registered with
-    /// [`with_css_asset`](Self::with_css_asset).
-    pub fn with_island_manifest(mut self, mut manifest: IslandManifest) -> Self {
-        if manifest.assets.css.is_none() {
-            manifest.assets.css = self.unprefixed_manifest.assets.css.clone();
-        }
-        self.unprefixed_manifest = Arc::new(manifest);
-        self.resolve_manifest();
-        self
-    }
-
-    /// Register the application stylesheet exposed through `css_asset_path`
-    /// and `render_css_link`. Calling this after `with_island_manifest`
-    /// replaces the stylesheet that manifest carried.
-    pub fn with_css_asset(self, path: impl Into<String>) -> Self {
-        let mut manifest = self.unprefixed_manifest.as_ref().clone();
-        manifest.assets.css = Some(CssAsset {
-            path: path.into(),
-            size: None,
-        });
-        self.with_island_manifest(manifest)
-    }
-
     /// Set the public mount prefix without changing incoming routes.
     pub fn with_base_path(mut self, base_path: proa_core::BasePath) -> Self {
         self.base_path = base_path;
-        self.resolve_manifest();
         self
-    }
-
-    fn resolve_manifest(&mut self) {
-        self.manifest = if self.base_path.as_str().is_empty() {
-            self.unprefixed_manifest.clone()
-        } else {
-            Arc::new(
-                self.unprefixed_manifest
-                    .as_ref()
-                    .clone()
-                    .with_base_path(&self.base_path),
-            )
-        };
     }
 
     /// Configure the bounded executor used only for genuinely local streams.
@@ -408,7 +357,6 @@ impl<S> Layer<S> for RouteContextLayer {
     fn layer(&self, inner: S) -> Self::Service {
         RouteContextService {
             inner,
-            manifest: self.manifest.clone(),
             computed_metadata: self.computed_metadata.clone(),
             local_stream_executor: self.local_stream_executor.clone(),
             base_path: self.base_path.clone(),
@@ -420,7 +368,6 @@ impl<S> Layer<S> for RouteContextLayer {
 #[derive(Clone)]
 pub struct RouteContextService<S> {
     inner: S,
-    manifest: Arc<IslandManifest>,
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
@@ -454,7 +401,7 @@ where
         let current_uri = req.uri().clone();
         let csp_nonce = req.extensions().get::<CspNonce>().cloned();
 
-        let mut context = RouteContext::new(self.manifest.clone(), self.computed_metadata.clone());
+        let mut context = RouteContext::new(self.computed_metadata.clone());
         context.head = self.head.clone();
         context.set_is_client_request(is_client_request);
         context.set_current_request_parts(current_method, current_headers, current_uri);

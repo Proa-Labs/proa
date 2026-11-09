@@ -13,7 +13,7 @@ use proa_core::{
     NoLoader, OpenGraph, RenderBuffer, RenderOutcome, StaticRaw, Twitter, TwitterCard, WebContext,
     WebRender, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_framework_core::{FrameworkBody, FrameworkRequestContext, IslandManifest, RouteResponse};
+use proa_framework_core::{FrameworkBody, FrameworkRequestContext, RouteResponse};
 use proa_macros::{html, html_sync};
 
 use crate::{analytics::google_analytics, utils::site_url::public_site_url};
@@ -92,9 +92,6 @@ where
             })
             .expect("valid shared marketing metadata")
     });
-    // The framework finalizer supplies the linked RSJS runtime. This site has
-    // no legacy React islands requiring a separate framework manifest.
-    let manifest = IslandManifest::default();
     let response = futures::executor::block_on(
         RouteResponse::ssr_async(Document {
             shell: Shell::Marketing,
@@ -104,7 +101,7 @@ where
             content,
         })
         .with_head(head.clone())
-        .into_framework_response(&manifest, &FrameworkRequestContext::default()),
+        .into_framework_response(&FrameworkRequestContext::default()),
     )
     .expect("render managed marketing page");
     let FrameworkBody::Full(body) = response.body else {

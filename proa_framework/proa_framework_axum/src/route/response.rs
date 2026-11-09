@@ -17,7 +17,6 @@ use proa_framework_core::{
     FrameworkBody, FrameworkError, FrameworkRequestContext, FrameworkResponse, FrameworkSendStream,
     FrameworkStreamFactory, RouteFinalizeMode, RouteResponse as CoreRouteResponse,
 };
-use proa_react::ReactBootstrapConfig;
 use tracing::error;
 
 use super::context::{RouteContext, ROUTE_CONTEXT};
@@ -139,18 +138,6 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         Self(self.0.without_head())
     }
 
-    pub fn with_islands<I, S>(self, islands: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        Self(self.0.with_islands(islands))
-    }
-
-    pub fn with_bootstrap(self, config: ReactBootstrapConfig<'static>) -> Self {
-        Self(self.0.with_bootstrap(config))
-    }
-
     /// Install a typed loader on the response.
     ///
     /// `L` is the loader's concrete type. `cx.load(...)` calls inside the
@@ -173,10 +160,9 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// Forwards to [`proa_framework_core::RouteResponse::render_to_bytes`],
     /// which documents how async plans, status codes, and runtimes are
     /// handled. No route context is installed here: the base path is the
-    /// origin root, route parameters are absent, and `css_asset_path`,
-    /// `render_css_link`, and `render_metadata_head` resolve to nothing. For a
-    /// page that reads any of those, send a request through the built router
-    /// with `tower::ServiceExt::oneshot` instead.
+    /// origin root, route parameters are absent, and `render_metadata_head`
+    /// resolves to nothing. For a page that reads any of those, send a request
+    /// through the built router with `tower::ServiceExt::oneshot` instead.
     pub fn render_to_bytes(self) -> Result<bytes::Bytes, FrameworkError> {
         self.0.render_to_bytes()
     }
@@ -567,9 +553,8 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
     fn into_response(self) -> Response {
         ROUTE_CONTEXT
             .try_with(|ctx| {
-                let (manifest, is_client_request, page_title, request) = {
+                let (is_client_request, page_title, request) = {
                     let mut ctx_ref = ctx.borrow_mut();
-                    let manifest = ctx_ref.manifest_arc();
                     let is_client = ctx_ref.is_client_request();
                     let request = framework_request_context(&ctx_ref);
                     let page_title = if is_client {
@@ -577,7 +562,7 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
                     } else {
                         None
                     };
-                    (manifest, is_client, page_title, request)
+                    (is_client, page_title, request)
                 };
 
                 let mode = if is_client_request {
@@ -589,16 +574,11 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
                 let streamed_document =
                     matches!(&mode, RouteFinalizeMode::Document) && response.is_streaming();
                 let finalized = if response.is_synchronous() {
-                    finalize_route_response_sync(response, manifest.as_ref(), &request, mode)
+                    finalize_route_response_sync(response, &request, mode)
                 } else if streamed_document {
-                    finalize_route_response_stream(response, manifest.as_ref(), &request)
+                    finalize_route_response_stream(response, &request)
                 } else {
-                    block_on_current_runtime(finalize_route_response::<L>(
-                        response,
-                        manifest.as_ref(),
-                        &request,
-                        mode,
-                    ))
+                    block_on_current_runtime(finalize_route_response::<L>(response, &request, mode))
                 };
 
                 match finalized {

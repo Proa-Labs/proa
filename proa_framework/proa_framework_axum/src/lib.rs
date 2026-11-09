@@ -4,14 +4,12 @@
 #![forbid(unsafe_code)]
 
 mod asset_urls;
-pub mod bootstrap;
 pub mod config;
 pub mod csp;
 pub mod csrf;
 pub mod dev_reload;
 pub mod discovery;
 pub mod external;
-pub mod manifest;
 pub mod process_manager;
 pub mod proxy;
 pub mod readiness;
@@ -25,16 +23,12 @@ pub mod shard;
 pub mod static_service;
 pub use asset_urls::base_path_assets;
 
-pub use bootstrap::render_bootstrap_for_islands;
 pub use config::{CodegenConfig, PathsConfig, ProaConfig, ServerConfig};
 pub use csp::{CspNonceLayer, CspPolicy};
 pub use csrf::CrossOriginProtectionLayer;
 pub use dev_reload::{DevReloadLayer, RELOAD_PORT_ENV, RELOAD_TOKEN_ENV};
 pub use discovery::{robots_txt, sitemap_index_xml, sitemap_xml};
 pub use external::{ExternalApp, ExternalAppStrategy};
-pub use manifest::{
-    CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
-};
 pub use proa_core::{
     AppUrl, ArticleMetadata, BasePath, ComponentRole, CspNonce, HeadAlternate, HeadAuthor,
     HeadConfig, HeadDefaults, HeadIcon, HeadMedia, HeadMetadata, HeadTitle, HeadUrlPolicy,
@@ -48,8 +42,8 @@ pub use proa_framework_core::{
 };
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
-    app_url, css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
-    explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader, render_css_link,
+    app_url, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
+    explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader,
     render_metadata_head, resolved_metadata, router_from_spec, CascadeOpenGraph, CascadeValue,
     ComputedRouteMeta, DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend,
     Layout, LayoutRef, LocalStreamExecutorConfig, ManagedPreparationTimeout, MarkdownAlternate,
@@ -119,7 +113,6 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Content Security Policy), [`with_concurrency_limit`](Self::with_concurrency_limit),
 /// and [`with_catch_panic`](Self::with_catch_panic).
 pub struct FrameworkBuilder {
-    manifest: IslandManifest,
     base_path: BasePath,
     public_origin: Option<String>,
     head: Option<proa_core::HeadConfig>,
@@ -165,10 +158,9 @@ impl Default for FrameworkBuilder {
 }
 
 impl FrameworkBuilder {
-    /// Create a builder with secure defaults and no React island manifest.
+    /// Create a builder with secure defaults.
     pub fn new() -> Self {
         Self {
-            manifest: IslandManifest::default(),
             base_path: BasePath::default(),
             public_origin: None,
             head: None,
@@ -191,40 +183,6 @@ impl FrameworkBuilder {
             catch_panic: false,
             local_stream_executor: LocalStreamExecutorConfig::default(),
         }
-    }
-
-    /// Install a legacy React island manifest.
-    ///
-    /// Only pages that render `proa_react` islands or call
-    /// [`RouteResponse::with_islands`] need one. RSJS islands register through
-    /// the linked `rsjs` manifest and are served by
-    /// [`with_rsjs_assets`](Self::with_rsjs_assets). Pass the manifest
-    /// unprefixed; [`with_base_path`](Self::with_base_path) resolves its URLs
-    /// at startup. A manifest without a CSS asset keeps one registered with
-    /// [`with_css_asset`](Self::with_css_asset), so the two calls compose in
-    /// either order.
-    pub fn with_island_manifest(mut self, manifest: IslandManifest) -> Self {
-        let css = self.manifest.assets.css.take();
-        self.manifest = manifest;
-        if self.manifest.assets.css.is_none() {
-            self.manifest.assets.css = css;
-        }
-        self
-    }
-
-    /// Register the application stylesheet exposed to document layouts through
-    /// [`css_asset_path`] and [`render_css_link`].
-    ///
-    /// Pass an application-local path such as `/static/app.css`. The builder's
-    /// base path is applied at startup. Calling this after
-    /// [`with_island_manifest`](Self::with_island_manifest) replaces the
-    /// stylesheet that manifest carried.
-    pub fn with_css_asset(mut self, path: impl Into<String>) -> Self {
-        self.manifest.assets.css = Some(CssAsset {
-            path: path.into(),
-            size: None,
-        });
-        self
     }
 
     /// Configure reusable document head defaults once for all rendered routes.
@@ -583,7 +541,6 @@ impl FrameworkBuilder {
     /// restrictions still apply.
     pub fn try_build(self) -> Result<Router, DiscoveryError> {
         let FrameworkBuilder {
-            manifest,
             base_path,
             public_origin,
             head,
@@ -639,7 +596,6 @@ impl FrameworkBuilder {
 
         let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
         let layer = RouteContextLayer::new(computed_metadata)
-            .with_island_manifest(manifest)
             .with_base_path(base_path)
             .with_local_stream_executor_config(local_stream_executor);
         let layer = if let Some(head) = head {

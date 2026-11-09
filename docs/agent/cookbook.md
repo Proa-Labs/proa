@@ -506,7 +506,7 @@ forwards both methods. `with_head` is required for any tree that declares
 `ROLE = PAGE` or `LAYOUT`; a manual document with its own `<title>` renders
 without it. Async plans render buffered, so `Suspense` resolves inline. There is
 no request: base path is the root, route params are absent, and the Axum route
-context helpers (`css_asset_path`, `render_metadata_head`) resolve to nothing;
+context helper `render_metadata_head` resolves to nothing;
 use `oneshot` through the built router for those pages. A non-2xx status is
 returned as `FrameworkError::StaticStatus`. Call it from sync code; inside a
 current-thread tokio runtime an async plan is refused with

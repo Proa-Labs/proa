@@ -20,7 +20,6 @@ default = ["rt-tokio"]
 rt-tokio = ["proa_stream/rt-tokio", "dep:tokio"]
 
 [dependencies]
-anyhow = { workspace = true }
 async-stream = { version = "0.3" }
 bytes = { workspace = true }
 futures = { workspace = true }
@@ -28,7 +27,6 @@ http = { workspace = true }
 jiff = { workspace = true }
 proa_core = { workspace = true }
 proa_macros = { workspace = true }
-proa_react = { workspace = true }
 proa_stream = { workspace = true, default-features = false }
 rsjs = { workspace = true }
 serde = { workspace = true }

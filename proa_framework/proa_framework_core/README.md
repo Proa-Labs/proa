@@ -74,8 +74,6 @@ actually uphold it.
 | `metadata` | The `Metadata` trait and `CascadeValue` cascade (titles, meta tags) resolved per route |
 | `discovery` | `Sitemap`, `SitemapIndex`, named `SitemapFile` entries, and `RobotsTxt` using a public origin and runtime base path |
 | `response` | The opaque `RouteResponse` render plan, `FrameworkStreamFactory`, and portable finalizers for buffered and streamed responses |
-| `manifest` | `IslandManifest`, asset entries, and hydration strategy config produced at build time |
-| `bootstrap` | Renders the island bootstrap script for the islands a page actually used |
 
 ## Writing an adapter
 

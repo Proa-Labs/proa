@@ -44,8 +44,6 @@ dependency trees.
 | Module | Purpose |
 |--------|---------|
 | `route` | `Route`, `RouteResponse`, layouts, metadata cascade, route context layer |
-| `manifest` | `IslandManifest`, the optional legacy React island manifest installed with `with_island_manifest` |
-| `bootstrap` | Renders the React import map + island bootstrap script from that manifest |
 | `static_service` | Serves embedded static assets (`EmbeddedStaticService`) |
 | `external` | Mounts external apps (`ExternalApp` — static, SSR upstream, CSR SPA) |
 | `proxy` | Reverse proxy to a fixed upstream (used by `ExternalAppStrategy::Ssr`) |
@@ -164,7 +162,7 @@ available on this crate's `RouteResponse` and on `proa_framework_core`'s, so a
 static renderer can skip Axum and tokio entirely. Static exports and snapshot
 tests get the same managed head and RSJS runtime tags a served route would.
 Async plans render buffered, a non-2xx status is an error, and no route context
-is installed, so pages that read `css_asset_path`, route params, or the base
+is installed, so pages that read route metadata, route params, or the base
 path should go through the built router with `oneshot` instead:
 
 ```rust,ignore

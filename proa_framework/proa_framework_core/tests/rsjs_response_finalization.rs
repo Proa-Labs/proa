@@ -18,7 +18,7 @@ use proa_core::{
     CspNonce, DataLoader, ErrorBoundary, NoLoader, RenderBuffer, RenderMode, RenderOutcome,
     WebContext, WebRender, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_framework_core::{FrameworkBody, FrameworkRequestContext, IslandManifest, RouteResponse};
+use proa_framework_core::{FrameworkBody, FrameworkRequestContext, RouteResponse};
 use proa_stream::Suspense;
 
 const BASIC_ISLAND_ID: &str = "framework_auto_basic";
@@ -108,14 +108,9 @@ static LEAK_ISLAND_REGISTRATION: &'static rsjs::IslandManifestEntry = &LEAK_ISLA
 #[linkme(crate = rsjs::linkme)]
 static RECOVERY_ISLAND_REGISTRATION: &'static rsjs::IslandManifestEntry = &RECOVERY_ISLAND;
 
-fn empty_react_manifest() -> IslandManifest {
-    IslandManifest::default()
-}
-
 fn finalize(route: RouteResponse<NoLoader>, request: &FrameworkRequestContext) -> String {
-    let manifest = empty_react_manifest();
-    let response = block_on(route.into_framework_response(&manifest, request))
-        .expect("route response should finalize");
+    let response =
+        block_on(route.into_framework_response(request)).expect("route response should finalize");
     let FrameworkBody::Full(bytes) = response.body else {
         panic!("buffered route should produce a full response body");
     };
@@ -133,9 +128,8 @@ async fn finalize_stream_async(
     route: RouteResponse<NoLoader>,
     request: &FrameworkRequestContext,
 ) -> Vec<String> {
-    let manifest = empty_react_manifest();
     let response = route
-        .into_framework_response(&manifest, request)
+        .into_framework_response(request)
         .await
         .expect("streaming route response should finalize");
     let mut stream: proa_framework_core::FrameworkLocalStream = match response.body {

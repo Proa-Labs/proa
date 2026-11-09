@@ -3540,7 +3540,6 @@ dependencies = [
  "proa_core",
  "proa_framework_core",
  "proa_macros",
- "proa_react",
  "proa_stream",
  "rand 0.9.5",
  "reqwest 0.12.24",
@@ -3561,7 +3560,6 @@ dependencies = [
 name = "proa_framework_core"
 version = "0.4.0"
 dependencies = [
- "anyhow",
  "async-stream",
  "bytes",
  "futures",
@@ -3569,7 +3567,6 @@ dependencies = [
  "jiff",
  "proa_core",
  "proa_macros",
- "proa_react",
  "proa_stream",
  "rsjs",
  "serde",

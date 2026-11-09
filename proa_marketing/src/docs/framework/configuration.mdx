@@ -3,7 +3,7 @@ title: FrameworkBuilder configuration
 description: Configure FrameworkBuilder, security defaults, static mounts, external apps, and response behavior.
 ---
 
-`FrameworkBuilder` turns routes, manifests, static services, external apps, and hardening layers into the Axum router you run in production.
+`FrameworkBuilder` turns routes, static services, external apps, and hardening layers into the Axum router you run in production.
 
 Use this page when you need the complete setup surface in one place. Use [Routing](/docs/framework/routing), [Responses](/docs/framework/responses), [Static assets](/docs/framework/static-assets), and [Deployment](/docs/framework/deployment) for deeper workflow examples.
 
@@ -41,8 +41,6 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa_f
 |--------|------------|
 | `FrameworkBuilder::new()` | Create the builder with secure defaults. No manifest or configuration is required. |
 | `.with_config(config)` | Override project paths, codegen flags, and server defaults. |
-| `.with_css_asset(path)` | Register the stylesheet that `render_css_link(cx)` emits. See [Static assets](/docs/framework/static-assets#linking-the-application-stylesheet). |
-| `.with_island_manifest(manifest)` | Install a legacy React island manifest. RSJS islands do not need one. |
 | `.with_head(head)` | Install app-wide [managed head configuration and defaults](/docs/framework/metadata#configure-app-wide-defaults) for rendered routes. |
 | [`.with_base_path(base_path)`](#frameworkbuilder-base-paths-and-rsjs-assets) | Set the public URL prefix for a mounted application. |
 | [`.with_public_origin(origin)?`](/docs/framework/sitemaps) | Set the public HTTP(S) origin used by discovery endpoints. |
@@ -254,8 +252,6 @@ Response modifiers:
 | Modifier | Applies to |
 |----------|------------|
 | `.with_head(config)` / `.without_head()` | Enable managed metadata for one response, or keep its document in manual mode. |
-| `.with_islands([...])` | Sync, async, and streaming SSR responses. |
-| `.with_bootstrap(config)` | SSR responses that need custom React bootstrap behavior. |
 | `.with_loader(loader)` | Async and streaming responses with typed loaders. |
 | `.with_render_mode(mode)` | Async render plans; chunked modes stream, while static and agent modes buffer. |
 

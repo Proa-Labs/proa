@@ -1,9 +1,9 @@
 ---
 title: Route responses
-description: Return synchronous, buffered async, or streaming SSR with islands.
+description: Return synchronous, buffered async, or streaming SSR.
 ---
 
-Handlers return `RouteResponse` when they want Proa's framework finalizer to render a component and inject island/bootstrap data.
+Handlers return `RouteResponse` when they want Proa's framework finalizer to render a component and finalize the document.
 
 Use ordinary Axum responses for JSON APIs, form handlers, early status codes, redirects, and handler-level errors. See [Route handlers](/docs/framework/route-handlers) for endpoint patterns and [Status, redirects, and errors](/docs/framework/errors) for 404 pages, response headers, streaming constraints, and public error bodies.
 
@@ -84,19 +84,6 @@ RouteResponse::ssr(proa_core::static_html(b"<main>Static fragment</main>"))
 
 Mount a browser-rendered application with `ExternalApp::csr_app`, which owns SPA fallback and asset routing. Keeping these cases out of `RouteResponse` makes the type describe one job: deferred server rendering.
 
-## Islands
-
-Attach islands to SSR responses with `with_islands`.
-
-```rust
-pub async fn handler() -> RouteResponse {
-    RouteResponse::ssr(ProductPage)
-        .with_islands(["CartIsland"])
-}
-```
-
-The island names must exist in the `IslandManifest` installed with `FrameworkBuilder::with_island_manifest`. RSJS islands register themselves and need neither call.
-
 ## Rendering without a server
 
 `RouteResponse::render_to_bytes` finalizes a response into one HTML document with no HTTP server, no island manifest, and no async runtime. It applies the same managed head and RSJS runtime tags the Axum adapter would, so static exports, snapshot tests, and plain `fn main` programs render the exact bytes a route serves.
@@ -117,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 `render_to_string` returns the same document as a `String`, and the `proa_framework_axum::RouteResponse` wrapper exposes both methods. What differs from a served request:
 
 - Async plans render buffered. `Suspense` content appears inline rather than as a fallback plus a later swap, and the streaming driver is never involved.
-- There is no request. The base path is the origin root, route parameters are absent, and `css_asset_path`, `render_css_link`, and `render_metadata_head` resolve to nothing. Pages that read those should go through the built router with `tower::ServiceExt::oneshot`.
+- There is no request. The base path is the origin root, route parameters are absent, and `render_metadata_head` resolves to nothing. Pages that read those should go through the built router with `tower::ServiceExt::oneshot`.
 - Headers are discarded, and a status outside 2xx is returned as `FrameworkError::StaticStatus` instead of being written out as a page.
 - Call it from synchronous code. Inside async code, await `into_framework_response`; an async plan called from a current-thread tokio runtime returns `FrameworkError::StaticRenderInsideRuntime` rather than deadlocking.
 

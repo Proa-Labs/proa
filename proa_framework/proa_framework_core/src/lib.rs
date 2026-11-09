@@ -11,31 +11,25 @@
 
 #![forbid(unsafe_code)]
 
-pub mod bootstrap;
 pub mod discovery;
 pub mod managed_response;
-pub mod manifest;
 pub mod markdown;
 pub mod metadata;
 pub mod response;
 pub mod route_snapshot;
 pub mod route_spec;
 
-pub use bootstrap::render_bootstrap_for_islands;
 pub use discovery::{
     absolute_http_url, ChangeFreq, DiscoveryError, RobotsGroup, RobotsRule, RobotsTxt, Sitemap,
     SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
     MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
 };
-pub use manifest::{
-    CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
-};
 pub use markdown::{render_sync_markdown_response, MarkdownResponse};
 pub use metadata::{
-    css_asset_path, render_css_link, render_metadata_head, resolve_metadata_stack,
-    resolved_metadata_from_computed, CascadeOpenGraph, CascadeValue, ComputedOpenGraph,
-    ComputedRouteMeta, Metadata, MetadataRef, OpenGraph, OpenGraphImage, OpenGraphMedia,
-    ResolvedMetadata, ResolvedOpenGraph, ResolvedOpenGraphImage, ResolvedOpenGraphMedia, TitleOnly,
+    render_metadata_head, resolve_metadata_stack, resolved_metadata_from_computed,
+    CascadeOpenGraph, CascadeValue, ComputedOpenGraph, ComputedRouteMeta, Metadata, MetadataRef,
+    OpenGraph, OpenGraphImage, OpenGraphMedia, ResolvedMetadata, ResolvedOpenGraph,
+    ResolvedOpenGraphImage, ResolvedOpenGraphMedia, TitleOnly,
 };
 pub use response::{
     add_default_security_headers, build_dyn_in_order_loader_handle,
