@@ -37,13 +37,14 @@ resort for a verified, documented RSJS gap; follow the [RSJS-first policy](../..
 
 ## Choose the document entry point
 
-For synchronous standalone HTML exports, use
-`proa_framework_core::render_sync_html_document(document, head)` and pass its
-bytes to `std::fs::write`. For server pages, return a `RouteResponse` and let the
-framework adapter finalize it. Plain `WebContext` rendering is appropriate for
+For synchronous standalone HTML exports, create a
+`proa_framework_core::HtmlDocumentContext::new()`, call `cx.render(document)?`,
+then pass `cx.finish()?` to `std::fs::write`. Use
+`HtmlDocumentContext::with_head(config)` for custom head defaults. For server pages,
+return a `RouteResponse` and let the framework adapter finalize it. Plain `WebContext` rendering is appropriate for
 ordinary component fragments, but direct root `.render(...)` calls skip managed
 Page/layout hooks. Do not recreate manifests, request contexts, or finalizers
-in application code for an export supported by the helper. Check the resolved
+in application code for an export supported by the document context. Check the resolved
 Proa version in downstream projects before selecting its APIs. See
 [HTML entry points](../../../docs/agent/document-rendering.md#choose-the-html-render-entry-point).
 
@@ -104,8 +105,9 @@ and `rustfmt.toml`; passing Proa formatting does not establish Rustfmt complianc
 - Verify managed Pages through their real document/route composition: one Page
   and one head outlet, layout defaults overridden by the Page, and, for async
   documents, publication before pending body work. Static export tests should
-  call `render_sync_html_document`. Missing roles must surface as errors; do not
-  accept a raw body-only render test as proof of correct managed-head integration.
+  use `HtmlDocumentContext` (or its `render_sync_html_document` convenience wrapper).
+  Missing roles must surface as errors; do not accept a raw body-only render test
+  as proof of correct managed-head integration.
 - Do not use `format!`, `String`, `.to_string()`, `.to_owned()`, `.collect()`,
   `.join()`, `Vec::new`, or `push_str` in a render hot path.
 - Render numbers and booleans directly.

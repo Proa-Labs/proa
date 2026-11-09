@@ -54,10 +54,12 @@ data, generated output, vendored code, tooling, and displayed examples.
 ## Managed head publication
 
 Check the application's render entry point: standalone synchronous documents use
-`render_sync_html_document`; server pages use the framework route pipeline.
+`HtmlDocumentContext` with one `render` and `finish`; server pages use the
+framework route pipeline.
 Application-owned empty manifests and manual response finalization should not
 be needed for synchronous static exports. Verify exports through the document
-helper rather than raw Page `.render(...)` calls. See
+context (or `render_sync_html_document`) rather than raw Page `.render(...)` calls.
+See
 [HTML entry points](../../../docs/agent/document-rendering.md#choose-the-html-render-entry-point).
 
 For each managed HTML document, verify that the selected Page's render impl

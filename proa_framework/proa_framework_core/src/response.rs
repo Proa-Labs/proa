@@ -1062,33 +1062,35 @@ pub fn add_default_security_headers(headers: &mut HeaderMap) {
 
 pub fn render_sync_html_response(
     component: Box<dyn DynWebRenderSync<NoLoader, RenderBuffer> + Send>,
+    islands: Vec<String>,
+    bootstrap: ReactBootstrapConfig<'static>,
+    manifest: &IslandManifest,
+    request: &FrameworkRequestContext,
+) -> Result<FrameworkResponse, FrameworkError> {
+    let mut ctx = Ctx::new();
+    install_request_context(&mut ctx, request);
+    let head_buffer = crate::managed_response::setup_local(&mut ctx, request)?;
+    component.render_sync_dyn(&mut ctx)?;
+    finish_sync_html_response(ctx, head_buffer, islands, bootstrap, manifest, request)
+}
+
+pub(crate) fn finish_sync_html_response(
+    ctx: Ctx,
+    head_buffer: Option<crate::managed_response::BufferedHead>,
     mut islands: Vec<String>,
     bootstrap: ReactBootstrapConfig<'static>,
     manifest: &IslandManifest,
     request: &FrameworkRequestContext,
 ) -> Result<FrameworkResponse, FrameworkError> {
-    let (render_artifacts, shared_seed_table_json, response_context, buffer) = {
-        let mut ctx = Ctx::new();
-        install_request_context(&mut ctx, request);
-        let head_buffer = crate::managed_response::setup_local(&mut ctx, request)?;
-        component.render_sync_dyn(&mut ctx)?;
-        if let Some(head) = ctx.head_state().document() {
-            head.final_check()?;
-        }
-        let state = (
-            ctx.render_artifacts_snapshot(),
-            ctx.rsjs_shared_state_seed_table_json(),
-            ctx.response().clone(),
-        );
-        (
-            state.0,
-            state.1,
-            state.2,
-            match head_buffer {
-                Some(head) => head.finish(ctx.into_output())?,
-                None => ctx.into_output().into_vec(),
-            },
-        )
+    if let Some(head) = ctx.head_state().document() {
+        head.final_check()?;
+    }
+    let render_artifacts = ctx.render_artifacts_snapshot();
+    let shared_seed_table_json = ctx.rsjs_shared_state_seed_table_json();
+    let response_context = ctx.response().clone();
+    let buffer = match head_buffer {
+        Some(head) => head.finish(ctx.into_output())?,
+        None => ctx.into_output().into_vec(),
     };
 
     islands.extend(render_artifacts.react_islands);

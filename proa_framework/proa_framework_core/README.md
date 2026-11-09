@@ -25,22 +25,27 @@ an adapter for a different framework or runtime.
 
 ## Standalone HTML files
 
-For synchronous static exports, use `render_sync_html_document(document, head)`:
+For synchronous static exports, create a document context, render your composed
+layout and Page into it, then finish the output:
 
 ```rust,ignore
-use proa_core::HeadConfig;
-use proa_framework_core::render_sync_html_document;
+use proa_framework_core::HtmlDocumentContext;
 
-let html = render_sync_html_document(document, HeadConfig::default())?;
-std::fs::write("output.html", html)?;
+let mut cx = HtmlDocumentContext::new();
+cx.render(document)?;
+std::fs::write("output.html", cx.finish()?)?;
 ```
 
-Pass your composed layout and Page as `document`. This runs the normal managed
-metadata lifecycle, validates one Page and one head outlet, and finalizes any
-generated RSJS bootstrap. It needs no server or async runtime. External scripts
-and RSJS assets remain references; this function does not export asset files.
-Use the route pipeline for documents requiring a React island manifest or
-request-specific configuration.
+The context runs layout/Page metadata hooks and validates one Page and one
+head outlet. `render` runs immediately and accepts borrowed or non-`Send`
+components. `finish` finalizes generated RSJS bootstrap and returns UTF-8 bytes;
+it rejects an empty, failed, or multiply rendered context. Use
+`HtmlDocumentContext::with_head(head)` for custom metadata defaults or URL policy.
+`render_sync_html_document(document, head)` is a one-call convenience wrapper.
+
+External scripts and RSJS assets remain references; this API does not export
+asset files. Use the route pipeline for documents requiring a React island
+manifest or request-specific configuration.
 
 ## `Send` policy and runtime portability
 

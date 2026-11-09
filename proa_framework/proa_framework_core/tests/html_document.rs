@@ -1,11 +1,13 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{cell::Cell, rc::Rc};
+
 use proa_core::{
     ComponentRole, HeadConfig, HeadMetadata, SyncHeadOperation, WebContext, WebRenderSync,
     WriteError,
 };
-use proa_framework_core::{render_sync_html_document, FrameworkError};
+use proa_framework_core::{render_sync_html_document, FrameworkError, HtmlDocumentContext};
 use proa_macros::html_sync;
 
 struct Page {
@@ -120,17 +122,76 @@ fn standalone_document_rejects_missing_page_or_invalid_outlet_count() {
 
 #[test]
 fn standalone_document_does_not_return_partial_html_after_body_failure() {
-    let result = render_sync_html_document(
-        Layout {
+    let mut cx = HtmlDocumentContext::new();
+    let error = cx
+        .render(Layout {
             page: Page {
                 metadata: HeadMetadata::default(),
                 body: "",
                 fails: true,
             },
             outlets: 1,
-        },
-        HeadConfig::default(),
-    );
-    let error = result.unwrap_err();
+        })
+        .unwrap_err();
     assert!(error.to_string().contains("document body failed"));
+    assert!(cx.finish().is_err());
+}
+
+#[test]
+fn document_context_renders_borrowed_non_send_components_immediately() {
+    struct LocalPage<'a> {
+        body: &'a str,
+        renders: Rc<Cell<usize>>,
+    }
+
+    impl WebRenderSync for LocalPage<'_> {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            self.renders.set(self.renders.get() + 1);
+            html_sync! {
+                <!DOCTYPE html>
+                <html lang="en">
+                    <head>{cx.head()}</head>
+                    <body>{self.body}</body>
+                </html>
+            }
+            .render(cx)
+        }
+    }
+
+    let body = String::from("Borrowed <body>");
+    let renders = Rc::new(Cell::new(0));
+    let head = HeadConfig::default()
+        .with_defaults(|head| head.title("Configured default"))
+        .unwrap();
+    let mut cx = HtmlDocumentContext::with_head(head);
+    cx.render(LocalPage {
+        body: &body,
+        renders: renders.clone(),
+    })
+    .unwrap();
+    assert_eq!(renders.get(), 1, "render must run before finish");
+    let bytes = cx.finish().unwrap();
+    let html = std::str::from_utf8(&bytes).unwrap();
+    assert!(html.contains("<title>Configured default</title>"));
+    assert!(html.contains("Borrowed &lt;body&gt;"));
+}
+
+#[test]
+fn document_context_rejects_finish_without_render_and_duplicate_roots() {
+    assert!(HtmlDocumentContext::new().finish().is_err());
+
+    let document = || Layout {
+        page: Page {
+            metadata: HeadMetadata::default(),
+            body: "",
+            fails: false,
+        },
+        outlets: 1,
+    };
+    let mut cx = HtmlDocumentContext::new();
+    cx.render(document()).unwrap();
+    assert!(cx.render(document()).is_err());
+    assert!(cx.finish().is_err());
 }

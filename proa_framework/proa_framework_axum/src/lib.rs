@@ -42,9 +42,9 @@ pub use proa_core::{
     SyncHeadOperation, Twitter, TwitterCard,
 };
 pub use proa_framework_core::{
-    absolute_http_url, render_sync_html_document, ChangeFreq, DiscoveryError, RobotsGroup,
-    RobotsRule, RobotsTxt, Sitemap, SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority,
-    SitemapUrl, MAX_ROBOTS_BYTES, MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
+    absolute_http_url, render_sync_html_document, ChangeFreq, DiscoveryError, HtmlDocumentContext,
+    RobotsGroup, RobotsRule, RobotsTxt, Sitemap, SitemapFile, SitemapIndex, SitemapIndexEntry,
+    SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES, MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
 };
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{

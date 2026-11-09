@@ -505,11 +505,9 @@ fn standalone_document_dispatches_root_page_and_finalizes_rsjs_assets() {
         }
     }
 
-    let bytes = proa_framework_core::render_sync_html_document(
-        StandalonePage,
-        proa_core::HeadConfig::default(),
-    )
-    .unwrap();
+    let mut cx = proa_framework_core::HtmlDocumentContext::new();
+    cx.render(StandalonePage).unwrap();
+    let bytes = cx.finish().unwrap();
     let html = std::str::from_utf8(&bytes).unwrap();
     assert_exactly_once(html, "src=\"/rsjs-runtime.js\"");
     let module = "src=\"/rsjs/island/framework_auto_basic.js\"";
