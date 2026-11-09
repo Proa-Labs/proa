@@ -53,6 +53,13 @@ data, generated output, vendored code, tooling, and displayed examples.
 
 ## Managed head publication
 
+Check the application's render entry point: standalone synchronous documents use
+`render_sync_html_document`; server pages use the framework route pipeline.
+Application-owned empty manifests and manual response finalization should not
+be needed for synchronous static exports. Verify exports through the document
+helper rather than raw Page `.render(...)` calls. See
+[HTML entry points](../../../docs/agent/document-rendering.md#choose-the-html-render-entry-point).
+
 For each managed HTML document, verify that the selected Page's render impl
 declares `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;`,
 including Pages that only inherit metadata. Check local/Send/sync implementations
@@ -72,9 +79,9 @@ nor an explicit Page role is still indistinguishable from an ordinary component;
 this omitted boundary leaves preparation unsealed: completion fails with
 `MissingPage` or `OrphanProvider`, while a pending body can delay failure until
 the preparation deadline. Treat missing declarations and delayed publication as
-correctness/performance findings. Require a managed route test that observes
-head publication before pending body work; source skills and allocation probes
-alone do not enforce the boundary. See the
+correctness/performance findings. For async/streaming documents, require a managed
+route test that observes head publication before pending body work; source skills
+and allocation probes alone do not enforce the boundary. See the
 [managed Page boundary](../../../docs/agent/components.md#managed-html-page-boundary).
 
 ## Quick Start

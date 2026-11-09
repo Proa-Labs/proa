@@ -35,6 +35,18 @@ typed handlers, bindings, and client helpers over executable JavaScript strings,
 inline scripts, or hand-written JavaScript assets. Raw JavaScript is a last
 resort for a verified, documented RSJS gap; follow the [RSJS-first policy](../../../docs/agent/rsjs-islands.md#prefer-rsjs-for-browser-behavior).
 
+## Choose the document entry point
+
+For synchronous standalone HTML exports, use
+`proa_framework_core::render_sync_html_document(document, head)` and pass its
+bytes to `std::fs::write`. For server pages, return a `RouteResponse` and let the
+framework adapter finalize it. Plain `WebContext` rendering is appropriate for
+ordinary component fragments, but direct root `.render(...)` calls skip managed
+Page/layout hooks. Do not recreate manifests, request contexts, or finalizers
+in application code for an export supported by the helper. Check the resolved
+Proa version in downstream projects before selecting its APIs. See
+[HTML entry points](../../../docs/agent/document-rendering.md#choose-the-html-render-entry-point).
+
 ## Workflow
 
 1. Read `docs/agent/components.md` and the nearest component in the owning
@@ -70,6 +82,9 @@ cargo test -p <owning-package> --lib
 python3 scripts/proa_perf_lint.py
 ```
 
+Also run the owning repository's Rustfmt command with its configured toolchain
+and `rustfmt.toml`; passing Proa formatting does not establish Rustfmt compliance.
+
 ## Hard rules
 
 - For a managed-head HTML document, declare the selected Page explicitly in
@@ -87,9 +102,10 @@ python3 scripts/proa_perf_lint.py
   `cargo check` alone does not instantiate it. See the
   [managed Page boundary](../../../docs/agent/components.md#managed-html-page-boundary).
 - Verify managed Pages through their real document/route composition: one Page
-  and one head outlet, layout defaults overridden by the Page, and publication
-  before pending body work. Missing roles must surface as errors; do not accept
-  a raw body-only render test as proof of correct managed-head integration.
+  and one head outlet, layout defaults overridden by the Page, and, for async
+  documents, publication before pending body work. Static export tests should
+  call `render_sync_html_document`. Missing roles must surface as errors; do not
+  accept a raw body-only render test as proof of correct managed-head integration.
 - Do not use `format!`, `String`, `.to_string()`, `.to_owned()`, `.collect()`,
   `.join()`, `Vec::new`, or `push_str` in a render hot path.
 - Render numbers and booleans directly.

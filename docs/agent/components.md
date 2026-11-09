@@ -35,8 +35,10 @@ the same for sync, async, Send and adapted rendering. Plain
 `HeadError::ManualMode`. Keep visual wrappers on the default `COMPONENT` role
 when they need to render inside a Page or in manual mode.
 
-Test through the document's actual managed route, including an outlet and an
-explicit Page, and verify head publication while body work remains pending.
+Test through the document's actual entry point: its managed route, or
+`render_sync_html_document` for a synchronous standalone export. Include an
+outlet and an explicit Page. For async/streaming routes, verify head publication
+while body work remains pending.
 Calling `render` directly exercises only the body and bypasses lifecycle dispatch.
 Run `cargo proa lint <changed-paths> --deny warnings` for changed hooks.
 `render/head-role-required` rejects an override with a missing role declaration

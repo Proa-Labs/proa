@@ -15,6 +15,32 @@ hand-built document string.
 | Const-evaluable typed JSON | `#[derive(const_json::ConstJson)]` and `.to_json()` |
 | Runtime JSON | `#[derive(serde::Serialize)]` models and the serializer/HTTP `Json` boundary |
 
+## Choose the HTML render entry point
+
+Choose the document's delivery path before writing its rendering wrapper:
+
+| Use case | Entry point |
+| --- | --- |
+| Server page | Return `RouteResponse::ssr(document)` (or the matching async/streaming constructor); configure managed head on the response or `FrameworkBuilder` |
+| Synchronous standalone HTML file | `proa_framework_core::render_sync_html_document(document, head)`; pass the returned bytes to `std::fs::write` |
+| Ordinary component fragment without managed metadata | Render into a `WebContext`, or use the existing fragment rendering helpers |
+
+For a standalone document, compose the layout and Page normally, with one
+explicit `ComponentRole::PAGE` and one `{cx.head()}` outlet. The export helper
+runs the managed metadata lifecycle; application code does not need to create
+an empty island manifest, a request context, or a response finalizer. Direct
+root `.render(&mut cx)` calls skip head hooks and are not a substitute for this
+entry point. Keep lower-level setup in framework adapters and their tests.
+The helper consumes an owned `WebRenderSync<NoLoader> + Send + 'static` root,
+matching the buffered route's component bounds.
+
+The helper exports HTML, not asset files. External scripts and generated RSJS
+assets still need resolvable URLs; do not assume an interactive island works
+from `file://` merely because the HTML was written successfully. Use the route
+pipeline for documents needing an external React island manifest or request
+configuration. In downstream projects, verify the resolved Proa version exposes
+the required API and align dependencies before building the example.
+
 ## Share page ownership across representations
 
 Organize by the page or interface that owns the content, not by its audience.
