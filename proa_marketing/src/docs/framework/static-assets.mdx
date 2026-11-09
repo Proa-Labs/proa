@@ -30,7 +30,7 @@ let static_router = Router::new().nest_service(
         .service(ServeDir::new("frontend/dist/assets")),
 );
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_static_service(static_router)
     .build();
 ```
@@ -92,7 +92,7 @@ Enable their HTTP routes with `with_rsjs_assets()`:
 ```rust filename="src/app.rs"
 use proa_framework_axum::FrameworkBuilder;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_rsjs_assets()
     .with_dynamic_routes_and_metadata(routes, metadata)
     .build();
@@ -121,29 +121,16 @@ routes remain unprefixed and HTML responses keep streaming. See
 for proxy setup and [RSJS runtime wiring](/docs/rsjs/runtime) for asset selection
 and hydration.
 
-## Linking the CSS manifest
+## Linking the application stylesheet
 
-`IslandManifest` can carry a CSS asset path:
+Write the link in the document layout. `cx.url` applies the configured base path:
 
-```rust filename="src/app.rs"
-use std::collections::HashMap;
-
-use proa_framework_axum::{CssAsset, IslandManifest, ManifestAssets};
-
-let manifest = IslandManifest {
-    islands: HashMap::new(),
-    assets: ManifestAssets {
-        css: Some(CssAsset {
-            path: "/static/assets/app.css".to_string(),
-            size: None,
-        }),
-    },
-    import_map: HashMap::new(),
-    ssr_bundle: None,
-};
+```rust filename="src/layouts/root.rs"
+let stylesheet = cx.url("/static/assets/app.css");
+html_sync! {
+    <link rel="stylesheet" href={stylesheet} />
+}
 ```
-
-Document layouts can call `render_css_link(cx)` to emit a stylesheet link for the current manifest.
 
 Whole applications mount the same way a stylesheet does, through the builder.
 
@@ -154,7 +141,7 @@ Use `with_external_app` to mount another app under a path. This supports static 
 ```rust filename="src/app.rs"
 use proa_framework_axum::{ExternalApp, FrameworkBuilder};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_external_app(ExternalApp::static_app("/docs", "./apps/docs/out"))
     .with_external_app(ExternalApp::ssr_app(
         "/admin",

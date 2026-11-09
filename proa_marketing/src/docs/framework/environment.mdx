@@ -110,16 +110,15 @@ Use runtime config where you build the router:
 
 ```rust filename="src/app.rs"
 use axum::Router;
-use proa_framework_axum::{FrameworkBuilder, IslandManifest};
+use proa_framework_axum::FrameworkBuilder;
 use tower_http::services::ServeDir;
 
 pub fn build_app(config: RuntimeConfig) -> anyhow::Result<Router> {
-    let manifest = load_island_manifest()?;
     let (routes, metadata) = build_routes();
 
     let static_router = Router::new().nest_service("/", ServeDir::new(&config.static_dir));
 
-    let mut builder = FrameworkBuilder::new(manifest)
+    let mut builder = FrameworkBuilder::new()
         .with_static_service(static_router)
         .with_dynamic_routes_and_metadata(routes, metadata);
 
@@ -143,7 +142,7 @@ let base_path = BasePath::new(
     &std::env::var("PROA_BASE_PATH").unwrap_or_default(),
 )?;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_base_path(base_path)
     .with_public_origin(origin)?
     .with_sitemap([SitemapUrl::new("/")?])

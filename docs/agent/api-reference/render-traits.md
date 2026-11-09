@@ -540,7 +540,9 @@ continues to configure the separate `/robots.txt` file.
 
 Place the owned `{cx.head()}` outlet inside the document's `<head>`. Select managed
 mode before rendering with `RouteResponse::with_head(HeadConfig)` or app-wide
-`FrameworkBuilder::with_head`. Head preparation ends before the Page body.
+`FrameworkBuilder::with_head`. Outside HTTP, `RouteResponse::render_to_bytes`
+finalizes the same managed document with no server or runtime. Head preparation
+ends before the Page body.
 Suspense, captures and fallbacks are body-only. Raw `.render(cx)` calls skip hooks;
 macro composition and framework helpers dispatch them.
 

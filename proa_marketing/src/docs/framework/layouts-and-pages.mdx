@@ -120,7 +120,7 @@ Re-export the components from your `pages` and `layouts` modules. Each handler c
 ```rust filename="src/app.rs"
 use axum::{routing::get, Router};
 use proa_core::{HeadConfig, HeadUrlPolicy, WriteError};
-use proa_framework_axum::{FrameworkBuilder, IslandManifest, RouteResponse};
+use proa_framework_axum::{FrameworkBuilder, RouteResponse};
 use crate::{layouts::RootDocument, pages::ContentPage};
 
 async fn home() -> RouteResponse {
@@ -141,14 +141,14 @@ async fn about() -> RouteResponse {
     })
 }
 
-pub fn app(manifest: IslandManifest) -> Result<Router, WriteError> {
+pub fn app() -> Result<Router, WriteError> {
     let routes = Router::new()
         .route("/", get(home))
         .route("/about", get(about));
     let head = HeadConfig::default()
         .with_urls(HeadUrlPolicy::new("https://acme.example", "/")?);
 
-    Ok(FrameworkBuilder::new(manifest)
+    Ok(FrameworkBuilder::new()
         .with_head(head)
         .with_dynamic_routes(routes)
         .build())

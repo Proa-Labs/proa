@@ -339,7 +339,7 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
     use tower::ServiceExt;
 
-    use crate::{manifest::IslandManifest, route::context::RouteContextLayer};
+    use crate::route::context::RouteContextLayer;
 
     #[derive(Clone, Copy)]
     struct MarkdownPage;
@@ -405,15 +405,7 @@ mod tests {
                     .unwrap()
                 }),
             )
-            .layer(RouteContextLayer::new(
-                Arc::new(IslandManifest {
-                    islands: Default::default(),
-                    assets: Default::default(),
-                    import_map: Default::default(),
-                    ssr_bundle: Default::default(),
-                }),
-                Arc::new(HashMap::new()),
-            ));
+            .layer(RouteContextLayer::new(Arc::new(HashMap::new())));
         let response = app.oneshot(Request::new(Body::empty())).await.unwrap();
 
         assert_eq!(response.headers()[VARY], "Accept");
@@ -458,10 +450,7 @@ mod tests {
 #[cfg(test)]
 mod shared_context_tests {
     use super::*;
-    use crate::{
-        manifest::IslandManifest,
-        route::context::{RouteContextLayer, ROUTE_CONTEXT},
-    };
+    use crate::route::context::{RouteContextLayer, ROUTE_CONTEXT};
     use axum::{
         body::Body,
         http::{header, Method, Request},
@@ -587,15 +576,7 @@ mod shared_context_tests {
                     }
                 }),
             )
-            .layer(RouteContextLayer::new(
-                Arc::new(IslandManifest {
-                    islands: Default::default(),
-                    assets: Default::default(),
-                    import_map: Default::default(),
-                    ssr_bundle: Default::default(),
-                }),
-                Arc::new(HashMap::new()),
-            ));
+            .layer(RouteContextLayer::new(Arc::new(HashMap::new())));
         let request = |accept| {
             let mut request = Request::builder()
                 .uri("/article")

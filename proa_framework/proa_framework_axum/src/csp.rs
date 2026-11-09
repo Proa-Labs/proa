@@ -16,7 +16,7 @@
 //! writes the assembled policy onto the response.
 //!
 //! ```rust,ignore
-//! FrameworkBuilder::new(manifest)
+//! FrameworkBuilder::new()
 //!     .with_strict_csp()
 //!     .build();
 //! ```

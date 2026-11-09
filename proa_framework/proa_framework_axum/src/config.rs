@@ -12,25 +12,16 @@ use std::path::PathBuf;
 ///
 /// ## Using defaults:
 /// ```rust
-/// use std::collections::HashMap;
-/// use proa_framework_axum::{FrameworkBuilder, ManifestAssets, IslandManifest, ProaConfig};
+/// use proa_framework_axum::{FrameworkBuilder, ProaConfig};
 ///
-/// # let manifest = IslandManifest {
-/// #     islands: HashMap::new(),
-/// #     assets: ManifestAssets::default(),
-/// #     import_map: HashMap::new(),
-/// #     ssr_bundle: None,
-/// # };
-///
-/// let app = FrameworkBuilder::new(manifest)
+/// let app = FrameworkBuilder::new()
 ///     // Config is automatically set to defaults
 ///     .build();
 /// ```
 ///
 /// ## Customizing specific paths:
 /// ```rust
-/// use std::collections::HashMap;
-/// use proa_framework_axum::{FrameworkBuilder, IslandManifest, ManifestAssets, PathsConfig, ProaConfig};
+/// use proa_framework_axum::{FrameworkBuilder, PathsConfig, ProaConfig};
 ///
 /// let config = ProaConfig {
 ///     paths: PathsConfig {
@@ -41,14 +32,7 @@ use std::path::PathBuf;
 ///     ..Default::default()
 /// };
 ///
-/// # let manifest = IslandManifest {
-/// #     islands: HashMap::new(),
-/// #     assets: ManifestAssets::default(),
-/// #     import_map: HashMap::new(),
-/// #     ssr_bundle: None,
-/// # };
-///
-/// let app = FrameworkBuilder::new(manifest)
+/// let app = FrameworkBuilder::new()
 ///     .with_config(config)
 ///     .build();
 /// ```

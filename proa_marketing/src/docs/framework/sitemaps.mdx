@@ -14,7 +14,7 @@ Add the page entries to your application builder:
 ```rust filename="src/main.rs" {5-8}
 use proa_framework_axum::{FrameworkBuilder, SitemapUrl};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_public_origin("https://example.com")?
     .with_sitemap([
         SitemapUrl::new("/")?,
@@ -56,7 +56,7 @@ let pricing = SitemapUrl::new("/pricing")?
     .changefreq(ChangeFreq::Weekly)
     .priority(SitemapPriority::tenths(8).expect("priority within 0..=10"));
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_public_origin("https://example.com")?
     .with_sitemap([pricing])
     .try_build()?;
@@ -116,7 +116,7 @@ Use `with_sitemaps` to split pages, products, or other collections into separate
 ```rust filename="src/main.rs" {5-13}
 use proa_framework_axum::{FrameworkBuilder, RobotsTxt, SitemapFile, SitemapUrl};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_public_origin("https://example.com")?
     .with_sitemaps([
         SitemapFile::new("pages", [
@@ -211,7 +211,7 @@ mod sitemap;
 use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
 
 // Inside async main, before binding the listener:
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_dynamic_routes_and_metadata(routes, metadata)
     .with_base_path(base_path)
     .with_public_origin(&origin)?
@@ -247,7 +247,7 @@ Set an explicit public origin and optional runtime [base path](/docs/framework/d
 ```rust filename="src/main.rs" {4-5}
 use proa_framework_axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_public_origin("https://example.com")?
     .with_base_path(BasePath::new("/apps/demo")?)
     .with_sitemap([SitemapUrl::new("/pricing")?])
@@ -272,25 +272,24 @@ Incoming routes stay unprefixed behind a [prefix-stripping proxy](/docs/framewor
 
 ## Run an application
 
-Configure discovery endpoints and start the HTTP server in `src/main.rs`. Route definitions are abbreviated below; replace the comment in `vec![]` with your application routes. The example loads the app's generated manifest from `dist/island-manifest.json`.
+Configure discovery endpoints and start the HTTP server in `src/main.rs`. Route definitions are abbreviated below; replace the comment in `vec![]` with your application routes.
 
-```rust filename="src/main.rs" {20-23}
+```rust filename="src/main.rs" {19-22}
 use std::time::Duration;
 
 use proa_framework_axum::{
-    BasePath, FrameworkBuilder, IslandManifest, RobotsTxt, SitemapUrl,
+    BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl,
     router_from_spec, serve,
 };
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let manifest = IslandManifest::load_from_path("dist/island-manifest.json")?;
     let base_path = BasePath::new(&std::env::var("PROA_BASE_PATH").unwrap_or_default())?;
     let origin = std::env::var("PUBLIC_BASE_URL")?;
 
     let (routes, metadata) = router_from_spec(vec![/* your application routes */]);
 
-    let app = FrameworkBuilder::new(manifest)
+    let app = FrameworkBuilder::new()
         .with_dynamic_routes_and_metadata(routes, metadata)
         .with_base_path(base_path)
         .with_public_origin(&origin)?

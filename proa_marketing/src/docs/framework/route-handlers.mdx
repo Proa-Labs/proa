@@ -179,7 +179,7 @@ pub async fn product(
     }
 }
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_dynamic_routes_and_metadata(router, metadata)
     .build()
     .layer(ServiceBuilder::new().layer(Extension(Arc::new(AppState { db }))));
@@ -258,7 +258,7 @@ async fn health_check_returns_ok() {
         Route::endpoint("/healthz", get(healthz)),
     ]);
 
-    let app = FrameworkBuilder::new(empty_manifest())
+    let app = FrameworkBuilder::new()
         .with_dynamic_routes_and_metadata(router, metadata)
         .build();
 

@@ -1,7 +1,6 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::BTreeSet;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -21,7 +20,6 @@ use proa_core::{
     RenderMode, RequestContext, RequestLocation, ResponseContext, RouteParams,
     SendStreamChunkFlusher, SendWebContext, StreamChunkFlusher, WriteError,
 };
-use proa_react::ReactBootstrapConfig;
 #[cfg(not(feature = "rt-tokio"))]
 use proa_stream::driver::out_of_order::{
     OutOfOrderBoundaryDriver as RuntimeOutOfOrderBoundaryDriver,
@@ -37,11 +35,6 @@ use proa_stream::{
     write_inline_runtime_tag, DataResolver, PreparedLoader, SendStreamContext, StreamContext,
 };
 use thiserror::Error;
-
-use crate::bootstrap::{
-    render_bootstrap_for_islands, render_bootstrap_for_islands_with_import_map,
-};
-use crate::manifest::IslandManifest;
 
 /// A response stream that may retain request-local, non-`Send` render state.
 ///
@@ -152,8 +145,6 @@ enum RoutePlan<L: DataLoader> {
 pub struct RouteResponse<L: DataLoader = NoLoader> {
     head: Option<Option<proa_core::HeadConfig>>,
     plan: RoutePlan<L>,
-    islands: Vec<String>,
-    bootstrap: ReactBootstrapConfig<'static>,
 }
 
 impl RouteResponse<DynLoaderHandle> {
@@ -280,8 +271,6 @@ impl RouteResponse<NoLoader> {
     {
         Self {
             plan: RoutePlan::Sync(Box::new(component)),
-            islands: Vec::new(),
-            bootstrap: ReactBootstrapConfig::default(),
             head: None,
         }
     }
@@ -304,8 +293,6 @@ impl RouteResponse<NoLoader> {
                 delivery: AsyncDelivery::BufferedStatic,
                 preload_keys: Vec::new(),
             },
-            islands: Vec::new(),
-            bootstrap: ReactBootstrapConfig::default(),
             head: None,
         }
     }
@@ -322,8 +309,6 @@ impl RouteResponse<NoLoader> {
                 delivery: AsyncDelivery::StreamOutOfOrder,
                 preload_keys: Vec::new(),
             },
-            islands: Vec::new(),
-            bootstrap: ReactBootstrapConfig::default(),
             head: None,
         }
     }
@@ -340,8 +325,6 @@ impl RouteResponse<NoLoader> {
                 delivery: AsyncDelivery::BufferedStatic,
                 preload_keys: Vec::new(),
             },
-            islands: Vec::new(),
-            bootstrap: ReactBootstrapConfig::default(),
             head: None,
         }
     }
@@ -358,8 +341,6 @@ impl RouteResponse<NoLoader> {
                 delivery: AsyncDelivery::StreamOutOfOrder,
                 preload_keys: Vec::new(),
             },
-            islands: Vec::new(),
-            bootstrap: ReactBootstrapConfig::default(),
             head: None,
         }
     }
@@ -382,8 +363,6 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 delivery: AsyncDelivery::BufferedStatic,
                 preload_keys: Vec::new(),
             },
-            islands: Vec::new(),
-            bootstrap: ReactBootstrapConfig::default(),
             head: None,
         }
     }
@@ -400,8 +379,6 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 delivery: AsyncDelivery::StreamOutOfOrder,
                 preload_keys: Vec::new(),
             },
-            islands: Vec::new(),
-            bootstrap: ReactBootstrapConfig::default(),
             head: None,
         }
     }
@@ -418,8 +395,6 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 delivery: AsyncDelivery::BufferedStatic,
                 preload_keys: Vec::new(),
             },
-            islands: Vec::new(),
-            bootstrap: ReactBootstrapConfig::default(),
             head: None,
         }
     }
@@ -436,8 +411,6 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 delivery: AsyncDelivery::StreamOutOfOrder,
                 preload_keys: Vec::new(),
             },
-            islands: Vec::new(),
-            bootstrap: ReactBootstrapConfig::default(),
             head: None,
         }
     }
@@ -451,20 +424,6 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// Use manual HTML for this response even when the app enables managed head.
     pub fn without_head(mut self) -> Self {
         self.head = Some(None);
-        self
-    }
-
-    pub fn with_islands<I, S>(mut self, islands: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        self.islands.extend(islands.into_iter().map(Into::into));
-        self
-    }
-
-    pub fn with_bootstrap(mut self, config: ReactBootstrapConfig<'static>) -> Self {
-        self.bootstrap = config;
         self
     }
 
@@ -524,15 +483,9 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// their first-item gate at an async service boundary.
     pub fn into_stream_framework_response(
         self,
-        manifest: &IslandManifest,
         request: &FrameworkRequestContext,
     ) -> Result<FrameworkResponse, FrameworkError> {
-        let Self {
-            plan,
-            islands,
-            bootstrap,
-            head,
-        } = self;
+        let Self { plan, head } = self;
         let owned_request = head.map(|head| {
             let mut owned = request.clone();
             owned.head = head.map(Into::into);
@@ -558,9 +511,6 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 request.render_mode = delivery.render_mode();
                 Ok(render_stream_html_response(
                     component,
-                    islands,
-                    bootstrap,
-                    manifest,
                     &request,
                     loader,
                     preload_keys,
@@ -581,9 +531,6 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 request.render_mode = delivery.render_mode();
                 Ok(render_send_stream_html_response(
                     component,
-                    islands,
-                    bootstrap,
-                    manifest,
                     &request,
                     loader,
                     preload_keys,
@@ -594,15 +541,9 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
 
     pub async fn into_framework_response(
         self,
-        manifest: &IslandManifest,
         request: &FrameworkRequestContext,
     ) -> Result<FrameworkResponse, FrameworkError> {
-        let Self {
-            plan,
-            islands,
-            bootstrap,
-            head,
-        } = self;
+        let Self { plan, head } = self;
         let owned_request = head.map(|head| {
             let mut owned = request.clone();
             owned.head = head.map(Into::into);
@@ -610,9 +551,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         });
         let request = owned_request.as_ref().unwrap_or(request);
         match plan {
-            RoutePlan::Sync(component) => {
-                render_sync_html_response(component, islands, bootstrap, manifest, request)
-            }
+            RoutePlan::Sync(component) => render_sync_html_response(component, request),
             RoutePlan::Async {
                 component,
                 loader,
@@ -624,18 +563,12 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 if delivery.is_streamed() {
                     Ok(render_stream_html_response(
                         component,
-                        islands,
-                        bootstrap,
-                        manifest,
                         &request,
                         loader,
                         preload_keys,
                     ))
                 } else {
-                    render_async_html_response(
-                        component, islands, bootstrap, manifest, &request, loader,
-                    )
-                    .await
+                    render_async_html_response(component, &request, loader).await
                 }
             }
             RoutePlan::SendAsync {
@@ -649,18 +582,12 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 if delivery.is_streamed() {
                     Ok(render_send_stream_html_response(
                         component,
-                        islands,
-                        bootstrap,
-                        manifest,
                         &request,
                         loader,
                         preload_keys,
                     ))
                 } else {
-                    render_send_html_response(
-                        component, islands, bootstrap, manifest, &request, loader,
-                    )
-                    .await
+                    render_send_html_response(component, &request, loader).await
                 }
             }
         }
@@ -669,7 +596,6 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     pub async fn into_client_payload_framework_response(
         self,
         page_title: Option<String>,
-        _manifest: &IslandManifest,
         request: &FrameworkRequestContext,
     ) -> FrameworkResponse {
         let Self { plan, head, .. } = self;
@@ -719,18 +645,72 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         encode_client_payload(html, resolved_title.unwrap_or(page_title), decisions)
     }
 
+    /// Render this response to a complete HTML document without an HTTP
+    /// server or an async runtime.
+    ///
+    /// Use it to write static files, snapshot a page in a test, or render
+    /// from a plain `fn main`. The managed head selected with
+    /// [`with_head`](Self::with_head) is prepared and inserted, and the RSJS
+    /// runtime tags for any islands the page rendered are appended, exactly
+    /// as the HTTP adapters do.
+    ///
+    /// What differs from a served request:
+    ///
+    /// - Async plans render buffered. The whole document resolves before any
+    ///   bytes are returned, so `Suspense` content appears inline instead of a
+    ///   fallback plus a later swap, and the streaming driver is never used.
+    /// - There is no request. The base path is the origin root, route
+    ///   parameters are absent, and adapter helpers that read the route
+    ///   context (`render_metadata_head`) resolve to nothing. Pages that
+    ///   depend on those should render through the built router instead.
+    /// - Headers are discarded, and a status outside 2xx is returned as
+    ///   [`FrameworkError::StaticStatus`] rather than written out as a page.
+    ///
+    /// Call this from synchronous code: it blocks the calling thread. Inside
+    /// async code, await
+    /// [`into_framework_response`](Self::into_framework_response) instead. With
+    /// the `rt-tokio` feature, an async plan called from a current-thread tokio
+    /// runtime returns [`FrameworkError::StaticRenderInsideRuntime`] rather
+    /// than deadlocking. Eager `proa_stream` preloads (`rt-tokio`) spawn on an
+    /// ambient tokio runtime and panic without one.
+    pub fn render_to_bytes(self) -> Result<Bytes, FrameworkError> {
+        #[cfg(feature = "rt-tokio")]
+        if !self.is_synchronous() {
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                if matches!(
+                    handle.runtime_flavor(),
+                    tokio::runtime::RuntimeFlavor::CurrentThread
+                ) {
+                    return Err(FrameworkError::StaticRenderInsideRuntime);
+                }
+            }
+        }
+        let request = FrameworkRequestContext::default();
+        let response = if self.is_synchronous() {
+            self.into_sync_framework_response(&request, RouteFinalizeMode::Document)?
+        } else {
+            let buffered = self.with_render_mode(RenderMode::Static);
+            futures::executor::block_on(buffered.into_framework_response(&request))?
+        };
+        if !response.status.is_success() {
+            return Err(FrameworkError::StaticStatus(response.status));
+        }
+        collect_framework_body(response.body)
+    }
+
+    /// [`render_to_bytes`](Self::render_to_bytes) as an owned UTF-8 `String`.
+    pub fn render_to_string(self) -> Result<String, FrameworkError> {
+        let bytes = self.render_to_bytes()?;
+        String::from_utf8(Vec::from(bytes))
+            .map_err(|err| FrameworkError::Encoding(err.utf8_error()))
+    }
+
     fn into_sync_framework_response(
         self,
-        manifest: &IslandManifest,
         request: &FrameworkRequestContext,
         mode: RouteFinalizeMode,
     ) -> Result<FrameworkResponse, FrameworkError> {
-        let Self {
-            plan,
-            islands,
-            bootstrap,
-            head,
-        } = self;
+        let Self { plan, head } = self;
         let owned_request = head.map(|head| {
             let mut owned = request.clone();
             owned.head = head.map(Into::into);
@@ -743,9 +723,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
             ));
         };
         match mode {
-            RouteFinalizeMode::Document => {
-                render_sync_html_response(component, islands, bootstrap, manifest, request)
-            }
+            RouteFinalizeMode::Document => render_sync_html_response(component, request),
             RouteFinalizeMode::ClientPayload { page_title } => {
                 match render_sync_component_to_html(component, request) {
                     Ok((html, title, decisions)) => Ok(encode_client_payload(
@@ -801,17 +779,16 @@ pub enum RouteFinalizeMode {
 
 pub async fn finalize_route_response<L: DataLoader + 'static>(
     response: RouteResponse<L>,
-    manifest: &IslandManifest,
     request: &FrameworkRequestContext,
     mode: RouteFinalizeMode,
 ) -> Result<FrameworkResponse, FrameworkError> {
     if response.is_synchronous() {
-        return finalize_route_response_sync(response, manifest, request, mode);
+        return finalize_route_response_sync(response, request, mode);
     }
     match mode {
-        RouteFinalizeMode::Document => response.into_framework_response(manifest, request).await,
+        RouteFinalizeMode::Document => response.into_framework_response(request).await,
         RouteFinalizeMode::ClientPayload { page_title } => Ok(response
-            .into_client_payload_framework_response(page_title, manifest, request)
+            .into_client_payload_framework_response(page_title, request)
             .await),
     }
 }
@@ -822,20 +799,61 @@ pub async fn finalize_route_response<L: DataLoader + 'static>(
 /// the sync fast path independent of an async executor.
 pub fn finalize_route_response_sync<L: DataLoader + 'static>(
     response: RouteResponse<L>,
-    manifest: &IslandManifest,
     request: &FrameworkRequestContext,
     mode: RouteFinalizeMode,
 ) -> Result<FrameworkResponse, FrameworkError> {
-    response.into_sync_framework_response(manifest, request, mode)
+    response.into_sync_framework_response(request, mode)
+}
+
+/// Drain any response body shape into one contiguous buffer on the calling
+/// thread. Backs [`RouteResponse::render_to_bytes`].
+// proa-perf-ok(scope): static export collects a whole document into one owned buffer by design.
+fn collect_framework_body(body: FrameworkBody) -> Result<Bytes, FrameworkError> {
+    match body {
+        FrameworkBody::Full(bytes) => Ok(bytes),
+        FrameworkBody::BufferedPages(buffer) => Ok(Bytes::from(buffer.into_vec())),
+        FrameworkBody::Stream(factory) => collect_stream_factory(factory),
+        FrameworkBody::Managed(factory) => {
+            let (factory, prepared_head) = crate::managed_response::adapt(factory);
+            let bytes = collect_stream_factory(factory)?;
+            // Head preparation can decide the status after the response head
+            // was built; honor it the way the HTTP adapter does.
+            if let Some(status) = prepared_head.get().and_then(|decisions| decisions.status()) {
+                if !status.is_success() {
+                    return Err(FrameworkError::StaticStatus(status));
+                }
+            }
+            Ok(bytes)
+        }
+    }
+}
+
+fn collect_stream_factory(factory: FrameworkStreamFactory) -> Result<Bytes, FrameworkError> {
+    match factory {
+        FrameworkStreamFactory::Local(make) => futures::executor::block_on(drain(make())),
+        FrameworkStreamFactory::Send(make) => futures::executor::block_on(drain(make())),
+    }
+}
+
+// proa-perf-ok(scope): static export collects a whole document into one owned buffer by design.
+async fn drain<S>(mut stream: S) -> Result<Bytes, FrameworkError>
+where
+    S: Stream<Item = Result<Bytes, FrameworkError>> + Unpin,
+{
+    use futures::StreamExt;
+    let mut out = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        out.extend_from_slice(&chunk?);
+    }
+    Ok(Bytes::from(out))
 }
 
 /// Finalize a streamed document without polling its local render future.
 pub fn finalize_route_response_stream<L: DataLoader + 'static>(
     response: RouteResponse<L>,
-    manifest: &IslandManifest,
     request: &FrameworkRequestContext,
 ) -> Result<FrameworkResponse, FrameworkError> {
-    response.into_stream_framework_response(manifest, request)
+    response.into_stream_framework_response(request)
 }
 
 /// Per-request metadata (location, route params, render mode).
@@ -1017,12 +1035,17 @@ pub enum FrameworkError {
     Render(#[from] WriteError),
     #[error("rsjs runtime planning failed: {0}")]
     RsjsPlan(#[from] rsjs::PageRuntimePlanError),
-    #[error("bootstrap failed: {0}")]
-    Bootstrap(#[from] anyhow::Error),
     #[error("rendered HTML was not valid UTF-8: {0}")]
     Encoding(#[from] std::str::Utf8Error),
     #[error("framework invariant violated: {0}")]
     Invariant(&'static str),
+    #[error("static render produced status {0}; only success documents are exported")]
+    StaticStatus(StatusCode),
+    #[error(
+        "static render cannot block inside a current-thread tokio runtime; \
+         await into_framework_response instead"
+    )]
+    StaticRenderInsideRuntime,
 }
 
 /// Inject the baseline security headers Proa ships by default on every SSR
@@ -1062,9 +1085,6 @@ pub fn add_default_security_headers(headers: &mut HeaderMap) {
 
 pub fn render_sync_html_response(
     component: Box<dyn DynWebRenderSync<NoLoader, RenderBuffer> + Send>,
-    mut islands: Vec<String>,
-    bootstrap: ReactBootstrapConfig<'static>,
-    manifest: &IslandManifest,
     request: &FrameworkRequestContext,
 ) -> Result<FrameworkResponse, FrameworkError> {
     let (render_artifacts, shared_seed_table_json, response_context, buffer) = {
@@ -1090,8 +1110,6 @@ pub fn render_sync_html_response(
             },
         )
     };
-
-    islands.extend(render_artifacts.react_islands);
     let rsjs_artifacts = render_artifacts.rsjs;
     let mut buffer = buffer;
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
@@ -1112,13 +1130,6 @@ pub fn render_sync_html_response(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    render_bootstrap_if_needed(
-        &mut buffer,
-        manifest,
-        islands,
-        &bootstrap,
-        request.csp_nonce.as_ref(),
-    )?;
     move_appended_response_tail_before_body(&mut buffer, response_tail_start);
     validate_html_utf8(&buffer)?;
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
@@ -1131,9 +1142,6 @@ pub fn render_sync_html_response(
 
 pub async fn render_async_html_response<L: DataLoader + 'static>(
     component: Box<dyn DynWebRender<L, RenderBuffer> + Send>,
-    mut islands: Vec<String>,
-    bootstrap: ReactBootstrapConfig<'static>,
-    manifest: &IslandManifest,
     request: &FrameworkRequestContext,
     loader: Arc<L>,
 ) -> Result<FrameworkResponse, FrameworkError> {
@@ -1162,8 +1170,6 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
             },
         )
     };
-
-    islands.extend(render_artifacts.react_islands);
     let rsjs_artifacts = render_artifacts.rsjs;
     let mut buffer = buffer;
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
@@ -1184,13 +1190,6 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    render_bootstrap_if_needed(
-        &mut buffer,
-        manifest,
-        islands,
-        &bootstrap,
-        request.csp_nonce.as_ref(),
-    )?;
     move_appended_response_tail_before_body(&mut buffer, response_tail_start);
     validate_html_utf8(&buffer)?;
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
@@ -1203,9 +1202,6 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
 
 pub async fn render_send_html_response<L: DataLoader + 'static>(
     component: Box<dyn DynWebRenderSend<L, RenderBuffer> + Send>,
-    mut islands: Vec<String>,
-    bootstrap: ReactBootstrapConfig<'static>,
-    manifest: &IslandManifest,
     request: &FrameworkRequestContext,
     loader: Arc<L>,
 ) -> Result<FrameworkResponse, FrameworkError> {
@@ -1229,8 +1225,6 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
             },
         )
     };
-
-    islands.extend(render_artifacts.react_islands);
     let rsjs_artifacts = render_artifacts.rsjs;
     let mut buffer = buffer;
     let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
@@ -1252,13 +1246,6 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
         request.csp_nonce.as_ref(),
         request.request.base_path(),
     )?;
-    render_bootstrap_if_needed(
-        &mut buffer,
-        manifest,
-        islands,
-        &bootstrap,
-        request.csp_nonce.as_ref(),
-    )?;
     move_appended_response_tail_before_body(&mut buffer, response_tail_start);
     validate_html_utf8(&buffer)?;
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
@@ -1272,9 +1259,6 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
 #[allow(clippy::too_many_arguments)]
 pub fn render_stream_html_response<L>(
     component: Box<dyn DynWebRender<L, RenderBuffer> + Send>,
-    islands: Vec<String>,
-    bootstrap: ReactBootstrapConfig<'static>,
-    manifest: &IslandManifest,
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     preload_keys: Vec<LoadKey>,
@@ -1282,7 +1266,6 @@ pub fn render_stream_html_response<L>(
 where
     L: DataLoader + 'static,
 {
-    let manifest = manifest.clone();
     let request = request.clone();
 
     let managed = request.head.is_some();
@@ -1292,9 +1275,6 @@ where
                 let stream: FrameworkLocalStream = Box::pin(
                     InOrderStreamDriver {
                         component,
-                        islands,
-                        bootstrap,
-                        manifest,
                         request,
                         loader,
                         preload_keys,
@@ -1307,9 +1287,6 @@ where
                 let stream: FrameworkLocalStream = Box::pin(
                     OutOfOrderStreamDriver {
                         component,
-                        islands,
-                        bootstrap,
-                        manifest,
                         request,
                         loader,
                     }
@@ -1331,9 +1308,6 @@ where
 #[allow(clippy::too_many_arguments)]
 pub fn render_send_stream_html_response<L>(
     component: Box<dyn DynWebRenderSend<L, RenderBuffer> + Send>,
-    islands: Vec<String>,
-    bootstrap: ReactBootstrapConfig<'static>,
-    manifest: &IslandManifest,
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     preload_keys: Vec<LoadKey>,
@@ -1341,7 +1315,6 @@ pub fn render_send_stream_html_response<L>(
 where
     L: DataLoader + 'static,
 {
-    let manifest = manifest.clone();
     let request = request.clone();
 
     let managed = request.head.is_some();
@@ -1351,9 +1324,6 @@ where
                 let stream: FrameworkSendStream = Box::pin(
                     SendInOrderStreamDriver {
                         component,
-                        islands,
-                        bootstrap,
-                        manifest,
                         request,
                         loader,
                         preload_keys,
@@ -1366,9 +1336,6 @@ where
                 let stream: FrameworkSendStream = Box::pin(
                     SendOutOfOrderStreamDriver {
                         component,
-                        islands,
-                        bootstrap,
-                        manifest,
                         request,
                         loader,
                     }
@@ -1561,8 +1528,9 @@ fn framework_error_response(err: FrameworkError) -> FrameworkResponse {
     match err {
         FrameworkError::Render(_)
         | FrameworkError::RsjsPlan(_)
-        | FrameworkError::Bootstrap(_)
-        | FrameworkError::Invariant(_) => {
+        | FrameworkError::Invariant(_)
+        | FrameworkError::StaticStatus(_)
+        | FrameworkError::StaticRenderInsideRuntime => {
             FrameworkResponse::plain_text(StatusCode::INTERNAL_SERVER_ERROR, "render error")
         }
         FrameworkError::Encoding(_) => {
@@ -1576,9 +1544,6 @@ where
     L: DataLoader + 'static,
 {
     component: Box<dyn DynWebRender<L, RenderBuffer> + Send>,
-    islands: Vec<String>,
-    bootstrap: ReactBootstrapConfig<'static>,
-    manifest: IslandManifest,
     request: FrameworkRequestContext,
     loader: Arc<L>,
 }
@@ -1591,9 +1556,6 @@ where
         try_stream! {
             let Self {
                 component,
-                mut islands,
-                bootstrap,
-                manifest,
                 request,
                 loader,
             } = self;
@@ -1601,7 +1563,6 @@ where
             let stream = StreamContext::new(request.render_mode);
             let recorder: Rc<dyn proa_core::StreamBoundaryRecorder> = Rc::new(stream.clone());
             let mut rsjs_emission = rsjs::PageRuntimeEmissionState::new();
-            let mut react_emission = ReactBootstrapEmissionState::default();
 
             let (render_artifacts, shared_seed_table_json, shell) = {
                 let mut ctx =
@@ -1619,8 +1580,6 @@ where
                 );
                 (state.0, state.1, ctx.into_output())
             };
-
-            islands.extend(render_artifacts.react_islands);
             let rsjs_artifacts = render_artifacts.rsjs;
             let mut shell = shell.into_vec();
             let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
@@ -1641,14 +1600,6 @@ where
                 &mut rsjs_emission,
                 request.csp_nonce.as_ref(),
                 request.request.base_path(),
-            )?;
-            render_bootstrap_delta_if_needed(
-                &mut shell,
-                &manifest,
-                islands,
-                &bootstrap,
-                &mut react_emission,
-                request.csp_nonce.as_ref(),
             )?;
             if stream.has_pending_boundaries() {
                 write_inline_runtime_tag(&mut shell, request.csp_nonce.as_ref())?;
@@ -1700,14 +1651,6 @@ where
                                 request.csp_nonce.as_ref(),
                                 request.request.base_path(),
                             )?;
-                            render_bootstrap_delta_if_needed(
-                                &mut chunk,
-                                &manifest,
-                                artifacts.react_islands,
-                                &bootstrap,
-                                &mut react_emission,
-                                request.csp_nonce.as_ref(),
-                            )?;
                             // Metadata and every template precede the one
                             // application script for this readiness epoch.
                             append_boundary_buffer_template(&mut chunk, id, &html);
@@ -1752,9 +1695,6 @@ where
     L: DataLoader + 'static,
 {
     component: Box<dyn DynWebRenderSend<L, RenderBuffer> + Send>,
-    islands: Vec<String>,
-    bootstrap: ReactBootstrapConfig<'static>,
-    manifest: IslandManifest,
     request: FrameworkRequestContext,
     loader: Arc<L>,
 }
@@ -1767,9 +1707,6 @@ where
         try_stream! {
             let Self {
                 component,
-                mut islands,
-                bootstrap,
-                manifest,
                 request,
                 loader,
             } = self;
@@ -1777,7 +1714,6 @@ where
             let stream = SendStreamContext::new(request.render_mode);
             let recorder: Arc<dyn proa_core::SendStreamBoundaryRecorder> = Arc::new(stream.clone());
             let mut rsjs_emission = rsjs::PageRuntimeEmissionState::new();
-            let mut react_emission = ReactBootstrapEmissionState::default();
 
             let (render_artifacts, shell) = {
                 let mut ctx = SendWebContext::<L, RenderBuffer>::with_loader_buffer(
@@ -1794,8 +1730,6 @@ where
                 let (output, artifacts) = ctx.into_output_and_render_artifacts();
                 (artifacts, output)
             };
-
-            islands.extend(render_artifacts.react_islands);
             let rsjs_artifacts = render_artifacts.rsjs;
             let mut shell = shell.into_vec();
             let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
@@ -1817,14 +1751,6 @@ where
                 &mut rsjs_emission,
                 request.csp_nonce.as_ref(),
                 request.request.base_path(),
-            )?;
-            render_bootstrap_delta_if_needed(
-                &mut shell,
-                &manifest,
-                islands,
-                &bootstrap,
-                &mut react_emission,
-                request.csp_nonce.as_ref(),
             )?;
             if stream.has_pending_boundaries() {
                 write_inline_runtime_tag(&mut shell, request.csp_nonce.as_ref())?;
@@ -1876,14 +1802,6 @@ where
                                 request.csp_nonce.as_ref(),
                                 request.request.base_path(),
                             )?;
-                            render_bootstrap_delta_if_needed(
-                                &mut chunk,
-                                &manifest,
-                                artifacts.react_islands,
-                                &bootstrap,
-                                &mut react_emission,
-                                request.csp_nonce.as_ref(),
-                            )?;
                             append_boundary_buffer_template(&mut chunk, id, &html);
                             swap_ids.push(id);
                             pending_boundaries.extend(nested);
@@ -1926,9 +1844,6 @@ where
     L: DataLoader + 'static,
 {
     component: Box<dyn DynWebRender<L, RenderBuffer> + Send>,
-    islands: Vec<String>,
-    bootstrap: ReactBootstrapConfig<'static>,
-    manifest: IslandManifest,
     request: FrameworkRequestContext,
     loader: Arc<L>,
     preload_keys: Vec<LoadKey>,
@@ -1942,9 +1857,6 @@ where
         try_stream! {
             let Self {
                 component,
-                mut islands,
-                bootstrap,
-                manifest,
                 request,
                 loader,
                 preload_keys,
@@ -1991,8 +1903,6 @@ where
                     );
                     (state.0, state.1, ctx.into_output())
                 };
-
-                islands.extend(render_artifacts.react_islands);
                 let rsjs_artifacts = render_artifacts.rsjs;
                 let mut shell = shell.into_vec();
                 let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
@@ -2012,13 +1922,6 @@ where
                     rsjs_artifacts.rendered_islands(),
                     request.csp_nonce.as_ref(),
                     request.request.base_path(),
-                )?;
-                render_bootstrap_if_needed(
-                    &mut shell,
-                    &manifest,
-                    islands,
-                    &bootstrap,
-                    request.csp_nonce.as_ref(),
                 )?;
                 move_appended_response_tail_before_body(&mut shell, response_tail_start);
                 if !shell.is_empty() {
@@ -2063,9 +1966,6 @@ where
     L: DataLoader + 'static,
 {
     component: Box<dyn DynWebRenderSend<L, RenderBuffer> + Send>,
-    islands: Vec<String>,
-    bootstrap: ReactBootstrapConfig<'static>,
-    manifest: IslandManifest,
     request: FrameworkRequestContext,
     loader: Arc<L>,
     preload_keys: Vec<LoadKey>,
@@ -2079,9 +1979,6 @@ where
         try_stream! {
             let Self {
                 component,
-                mut islands,
-                bootstrap,
-                manifest,
                 request,
                 loader,
                 preload_keys,
@@ -2109,8 +2006,6 @@ where
                     let (output, artifacts) = ctx.into_output_and_render_artifacts();
                     (artifacts, output)
                 };
-
-                islands.extend(render_artifacts.react_islands);
                 let rsjs_artifacts = render_artifacts.rsjs;
                 let mut shell = shell.into_vec();
                 let query_seed_table_json = rsjs_artifacts.query_seed_table_json();
@@ -2131,13 +2026,6 @@ where
                     rsjs_artifacts.rendered_islands(),
                     request.csp_nonce.as_ref(),
                     request.request.base_path(),
-                )?;
-                render_bootstrap_if_needed(
-                    &mut shell,
-                    &manifest,
-                    islands,
-                    &bootstrap,
-                    request.csp_nonce.as_ref(),
                 )?;
                 move_appended_response_tail_before_body(&mut shell, response_tail_start);
                 if !shell.is_empty() {
@@ -2444,103 +2332,6 @@ where
     Ok(())
 }
 
-/// Append the React-island bootstrap script to `buffer` when at least one
-/// island was rendered during the request.
-///
-/// Called by every framework render path (sync, async, in-order streaming,
-/// out-of-order streaming) after the main component tree has been written.
-/// The bootstrap is what wires browser-side React/JS to the rendered
-/// island markers; pages with zero islands skip it to avoid emitting an
-/// empty `<script>` tag.
-///
-/// The function appends bytes to whatever `buffer` already contains, so it
-/// must run *after* the main render and *before* the buffer is shipped to
-/// the response body.
-///
-/// # Buffer type
-///
-/// Currently takes `&mut Vec<u8>` because every caller renders the shell
-/// into a `Vec<u8>` (root buffer) or a transient `Vec<u8>` used for one
-/// boundary's payload. If a caller ever renders the shell into a different
-/// `WriteBuf` (e.g., a sink-backed `SinkWriter`), this signature would
-/// need to be generalized to `<B: WriteBuf>`. The body is already
-/// generic-friendly: it constructs a `Ctx::with_buffer(buffer)`
-/// which works for any `WriteBuf` implementor.
-///
-/// # Returns
-///
-/// `Ok(())` if no islands needed bootstrap or if the bootstrap was
-/// successfully written. `Err(FrameworkError)` if the bootstrap render
-/// itself failed (e.g., serialization of the manifest entries).
-fn render_bootstrap_if_needed(
-    buffer: &mut Vec<u8>,
-    manifest: &IslandManifest,
-    islands: Vec<String>,
-    bootstrap: &ReactBootstrapConfig<'_>,
-    nonce: Option<&CspNonce>,
-) -> Result<(), FrameworkError> {
-    if islands.is_empty() {
-        return Ok(());
-    }
-
-    let mut ctx = Ctx::new();
-    if let Some(nonce) = nonce {
-        ctx.set_csp_nonce(nonce.clone());
-    }
-    render_bootstrap_for_islands(
-        &mut ctx,
-        manifest,
-        islands.iter().map(|name| name.as_str()),
-        bootstrap,
-    )?;
-    let bootstrap = ctx.into_output().into_vec();
-    proa_core::WriteBuf::extend(buffer, &bootstrap)?;
-    Ok(())
-}
-
-#[derive(Default)]
-struct ReactBootstrapEmissionState {
-    islands: BTreeSet<String>,
-    runtime_emitted: bool,
-}
-
-/// Emit bootstrap metadata only for React island names not already published
-/// by this streaming response.
-fn render_bootstrap_delta_if_needed(
-    buffer: &mut Vec<u8>,
-    manifest: &IslandManifest,
-    islands: Vec<String>,
-    bootstrap: &ReactBootstrapConfig<'_>,
-    emission: &mut ReactBootstrapEmissionState,
-    nonce: Option<&CspNonce>,
-) -> Result<(), FrameworkError> {
-    let mut delta = Vec::new();
-    for island in islands {
-        if emission.islands.insert(island.clone()) {
-            delta.push(island);
-        }
-    }
-    if delta.is_empty() {
-        return Ok(());
-    }
-
-    let mut ctx = Ctx::new();
-    if let Some(nonce) = nonce {
-        ctx.set_csp_nonce(nonce.clone());
-    }
-    render_bootstrap_for_islands_with_import_map(
-        &mut ctx,
-        manifest,
-        delta.iter().map(String::as_str),
-        bootstrap,
-        !emission.runtime_emitted,
-    )?;
-    emission.runtime_emitted = true;
-    let rendered = ctx.into_output().into_vec();
-    proa_core::WriteBuf::extend(buffer, &rendered)?;
-    Ok(())
-}
-
 /// Move a tail appended after the component render to immediately before a
 /// complete document's final `</body>`.
 ///
@@ -2650,10 +2441,8 @@ pub fn build_dyn_in_order_loader_handle_requests(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{HydrationStrategyConfig, IslandEntry, ManifestAssets};
     use proa_core::{RenderBuffer, RenderOutcome, StreamChunkView, WriteBuf};
     use proa_macros::html_sync;
-    use std::collections::HashMap;
     use std::future::Future;
 
     struct MigratingSendPage;
@@ -2709,17 +2498,8 @@ mod tests {
             render_mode: RenderMode::ChunkedOutOfOrder,
             ..FrameworkRequestContext::default()
         };
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
         let response = render_send_stream_html_response(
             Box::new(MigratingSendPage),
-            Vec::new(),
-            ReactBootstrapConfig::default(),
-            &manifest,
             &request,
             Arc::new(NoLoader),
             Vec::new(),
@@ -2864,21 +2644,13 @@ mod tests {
                 .render(cx)
             }
         }
-
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
         let request = FrameworkRequestContext::default();
         for plan in [
             RouteResponse::ssr(HeaderPage),
             RouteResponse::ssr_async(proa_core::to_async(HeaderPage)),
         ] {
             let response =
-                futures::executor::block_on(plan.into_framework_response(&manifest, &request))
-                    .unwrap();
+                futures::executor::block_on(plan.into_framework_response(&request)).unwrap();
             assert_eq!(response.status, StatusCode::CREATED);
             assert_eq!(
                 response.headers[header::CONTENT_TYPE],
@@ -2923,18 +2695,12 @@ mod tests {
 
     #[test]
     fn render_mode_selects_async_delivery_instead_of_creating_mixed_states() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
         let request = FrameworkRequestContext::default();
 
         let streamed = futures::executor::block_on(
             RouteResponse::ssr_async(proa_core::to_async(QuerySeedComponent))
                 .with_render_mode(RenderMode::ChunkedInOrder)
-                .into_framework_response(&manifest, &request),
+                .into_framework_response(&request),
         )
         .unwrap();
         assert!(matches!(streamed.body, FrameworkBody::Stream(_)));
@@ -2942,7 +2708,7 @@ mod tests {
         let buffered = futures::executor::block_on(
             RouteResponse::ssr_stream(proa_core::to_async(QuerySeedComponent))
                 .with_render_mode(RenderMode::Static)
-                .into_framework_response(&manifest, &request),
+                .into_framework_response(&request),
         )
         .unwrap();
         assert!(matches!(buffered.body, FrameworkBody::Full(_)));
@@ -2950,17 +2716,8 @@ mod tests {
 
     #[test]
     fn sync_response_appends_rsjs_query_seed_table_before_bootstrap() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
         let response = render_sync_html_response(
             Box::new(QuerySeedComponent),
-            Vec::new(),
-            ReactBootstrapConfig::default(),
-            &manifest,
             &FrameworkRequestContext::default(),
         )
         .unwrap();
@@ -3007,17 +2764,8 @@ mod tests {
 
     #[test]
     fn sync_response_appends_shared_state_seed_table_before_bootstrap() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
         let response = render_sync_html_response(
             Box::new(SharedSeedComponent { acquire: true }),
-            Vec::new(),
-            ReactBootstrapConfig::default(),
-            &manifest,
             &FrameworkRequestContext::default(),
         )
         .unwrap();
@@ -3042,32 +2790,17 @@ mod tests {
             };
             String::from_utf8(bytes.to_vec()).unwrap()
         }
-
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
         let request = FrameworkRequestContext::default();
 
-        let sync_unused = render_sync_html_response(
-            Box::new(SharedSeedComponent { acquire: false }),
-            Vec::new(),
-            ReactBootstrapConfig::default(),
-            &manifest,
-            &request,
-        )
-        .unwrap();
+        let sync_unused =
+            render_sync_html_response(Box::new(SharedSeedComponent { acquire: false }), &request)
+                .unwrap();
         assert!(!body(sync_unused).contains("rsjs-shared-state-seed-table"));
 
         let async_used = futures::executor::block_on(render_async_html_response(
             Box::new(proa_core::SyncToAsync(SharedSeedComponent {
                 acquire: true,
             })),
-            Vec::new(),
-            ReactBootstrapConfig::default(),
-            &manifest,
             &request,
             Arc::new(NoLoader),
         ))
@@ -3078,9 +2811,6 @@ mod tests {
             Box::new(proa_core::SyncToAsync(SharedSeedComponent {
                 acquire: false,
             })),
-            Vec::new(),
-            ReactBootstrapConfig::default(),
-            &manifest,
             &request,
             Arc::new(NoLoader),
         ))
@@ -3114,217 +2844,6 @@ mod tests {
             r#"<script type="application/json" id="rsjs-shared-state-seed-table" nonce="ZnJhbWV3b3JrLW5vbmNl">"#
         ));
         assert_eq!(html.matches(r#"nonce="ZnJhbWV3b3JrLW5vbmNl""#).count(), 2);
-    }
-
-    #[test]
-    fn bootstrap_finalizer_skips_empty_island_set() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
-        let mut buffer = b"<main>server only</main>".to_vec();
-
-        render_bootstrap_if_needed(
-            &mut buffer,
-            &manifest,
-            Vec::new(),
-            &ReactBootstrapConfig::default(),
-            None,
-        )
-        .expect("empty island set should not render bootstrap");
-
-        assert_eq!(buffer, b"<main>server only</main>");
-    }
-
-    #[test]
-    fn bootstrap_finalizer_errors_for_unknown_rendered_island() {
-        let mut islands = HashMap::new();
-        islands.insert(
-            "known".to_string(),
-            IslandEntry {
-                module_path: "/rsjs/island/known.js".to_string(),
-                export: None,
-                strategy: HydrationStrategyConfig::Immediate,
-                module_preloads: Vec::new(),
-                providers: Vec::new(),
-                hydrate_fn: None,
-            },
-        );
-        let manifest = IslandManifest {
-            islands,
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
-        let mut buffer = b"<main>server only</main>".to_vec();
-
-        let err = render_bootstrap_if_needed(
-            &mut buffer,
-            &manifest,
-            vec!["missing".to_string()],
-            &ReactBootstrapConfig::default(),
-            None,
-        )
-        .expect_err("unknown rendered island should fail bootstrap");
-
-        assert!(
-            err.to_string().contains("No island named 'missing'"),
-            "unexpected bootstrap error: {err}"
-        );
-    }
-
-    struct YieldOnce(bool);
-
-    impl std::future::Future for YieldOnce {
-        type Output = ();
-
-        fn poll(
-            mut self: std::pin::Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Self::Output> {
-            if self.0 {
-                std::task::Poll::Ready(())
-            } else {
-                self.0 = true;
-                cx.waker().wake_by_ref();
-                std::task::Poll::Pending
-            }
-        }
-    }
-
-    struct DeferredArtifactChild {
-        react: &'static str,
-        rsjs: &'static str,
-    }
-
-    impl proa_core::WebRender<NoLoader, RenderBuffer> for DeferredArtifactChild {
-        fn render(
-            self,
-            cx: &mut WebContext<NoLoader, RenderBuffer>,
-        ) -> proa_core::RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>>
-        {
-            proa_core::RenderOutcome::pending(async move {
-                YieldOnce(false).await;
-                cx.rsjs_query_seed_json(self.rsjs, r#"{"data":"owned"}"#);
-                proa_react::Island::new(self.react).render(cx)
-            })
-        }
-    }
-
-    struct DeferredArtifactPage {
-        shell_react: &'static str,
-        react: &'static str,
-        rsjs: &'static str,
-    }
-
-    impl proa_core::WebRender<NoLoader, RenderBuffer> for DeferredArtifactPage {
-        fn render(
-            self,
-            cx: &mut WebContext<NoLoader, RenderBuffer>,
-        ) -> proa_core::RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>>
-        {
-            proa_core::RenderOutcome::pending(async move {
-                YieldOnce(false).await;
-                proa_react::Island::new(self.shell_react).render(cx)?;
-                proa_core::WebRender::render(
-                    proa_stream::Suspense::new(
-                        DeferredArtifactChild {
-                            react: self.react,
-                            rsjs: self.rsjs,
-                        },
-                        StreamFallback,
-                    ),
-                    cx,
-                )
-                .resolve()
-                .await
-            })
-        }
-    }
-
-    fn react_test_manifest() -> IslandManifest {
-        let mut islands = HashMap::new();
-        for name in ["RequestARoot", "RequestA", "RequestBRoot", "RequestB"] {
-            islands.insert(
-                name.to_owned(),
-                IslandEntry {
-                    module_path: format!("/react/{name}.js"),
-                    export: None,
-                    strategy: HydrationStrategyConfig::Immediate,
-                    module_preloads: Vec::new(),
-                    providers: Vec::new(),
-                    hydrate_fn: None,
-                },
-            );
-        }
-        IslandManifest {
-            islands,
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        }
-    }
-
-    #[test]
-    fn interleaved_streams_keep_react_ids_and_artifacts_request_owned() {
-        let manifest = react_test_manifest();
-        let request = FrameworkRequestContext {
-            render_mode: RenderMode::ChunkedOutOfOrder,
-            ..FrameworkRequestContext::default()
-        };
-        let make_response = |shell_react, react, rsjs| {
-            render_stream_html_response(
-                Box::new(DeferredArtifactPage {
-                    shell_react,
-                    react,
-                    rsjs,
-                }),
-                Vec::new(),
-                ReactBootstrapConfig::default(),
-                &manifest,
-                &request,
-                Arc::new(NoLoader),
-                Vec::new(),
-            )
-        };
-
-        let FrameworkBody::Stream(FrameworkStreamFactory::Local(first_factory)) =
-            make_response("RequestARoot", "RequestA", r#"["rsjs_request_a"]"#).body
-        else {
-            panic!("expected first streaming body");
-        };
-        let FrameworkBody::Stream(FrameworkStreamFactory::Local(second_factory)) =
-            make_response("RequestBRoot", "RequestB", r#"["rsjs_request_b"]"#).body
-        else {
-            panic!("expected second streaming body");
-        };
-
-        let (first, second) = futures::executor::block_on(async move {
-            let collect = |mut stream: FrameworkLocalStream| async move {
-                let mut bytes = Vec::new();
-                while let Some(chunk) = stream.next().await {
-                    bytes.extend_from_slice(&chunk.expect("stream should render"));
-                }
-                String::from_utf8(bytes).unwrap()
-            };
-            futures::join!(collect(first_factory()), collect(second_factory()))
-        });
-
-        assert!(first.contains(r#"id="RequestARoot-0""#));
-        assert!(first.contains("/react/RequestARoot.js"));
-        assert!(first.contains("/react/RequestA.js"));
-        assert!(first.contains("rsjs_request_a"));
-        assert!(!first.contains("RequestB"));
-        assert!(!first.contains("rsjs_request_b"));
-
-        assert!(second.contains(r#"id="RequestBRoot-0""#));
-        assert!(second.contains("/react/RequestBRoot.js"));
-        assert!(second.contains("/react/RequestB.js"));
-        assert!(second.contains("rsjs_request_b"));
-        assert!(!second.contains("RequestA"));
-        assert!(!second.contains("rsjs_request_a"));
     }
 
     /// Sync fallback rendered while an out-of-order boundary is pending.
@@ -3424,12 +2943,6 @@ mod tests {
 
     #[test]
     fn stream_response_surfaces_late_boundary_provider_safely() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
         let witness = std::sync::Arc::new(std::sync::Mutex::new(None));
         let request = FrameworkRequestContext {
             render_mode: RenderMode::ChunkedOutOfOrder,
@@ -3440,9 +2953,6 @@ mod tests {
             Box::new(LateProviderStreamPage {
                 witness: std::sync::Arc::clone(&witness),
             }),
-            Vec::new(),
-            ReactBootstrapConfig::default(),
-            &manifest,
             &request,
             Arc::new(NoLoader),
             Vec::new(),
@@ -3604,21 +3114,12 @@ mod tests {
 
     #[test]
     fn out_of_order_boundary_publishes_newly_live_provider_seed_before_swap() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
         let request = FrameworkRequestContext {
             render_mode: RenderMode::ChunkedOutOfOrder,
             ..FrameworkRequestContext::default()
         };
         let response = render_stream_html_response(
             Box::new(DeferredSharedPage),
-            Vec::new(),
-            ReactBootstrapConfig::default(),
-            &manifest,
             &request,
             Arc::new(NoLoader),
             Vec::new(),
@@ -3662,21 +3163,12 @@ mod tests {
 
     #[test]
     fn failed_out_of_order_consumer_does_not_publish_provider_seed() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
         let request = FrameworkRequestContext {
             render_mode: RenderMode::ChunkedOutOfOrder,
             ..FrameworkRequestContext::default()
         };
         let response = render_stream_html_response(
             Box::new(DeferredFailingSharedPage),
-            Vec::new(),
-            ReactBootstrapConfig::default(),
-            &manifest,
             &request,
             Arc::new(NoLoader),
             Vec::new(),

@@ -22,6 +22,7 @@ If you don't see your pattern here, check
 | [Compose an opaque server component inside an analyzed component](#9-compose-an-opaque-server-component-inside-an-island) | Use an ordinary render component inside an RSJS-analyzed body |
 | [Ship the rsjs runtime + per-island JS in the page](#10-ship-the-rsjs-runtime--per-island-js-in-the-page) | Wiring up a new framework adapter |
 | [Generic island with lifetime / type / const params](#11-generic-island-with-lifetime--type--const-params) | Island borrows lifetime-bound data or takes type/const params |
+| [Write a page to a static HTML file](#12-write-a-page-to-a-static-html-file) | Static export, snapshot test, or a plain `fn main` with no server |
 
 ---
 
@@ -478,3 +479,39 @@ the method itself carries only the trait's render/output lifetimes. See
 
 Reference: [`rsjs_macros/tests/parser_generics.rs`](../../rsjs_macros/tests/parser_generics.rs)
 (both sync and async generic island fixtures).
+
+---
+
+## 12. Write a page to a static HTML file
+
+`RouteResponse::render_to_bytes` finalizes a response the way the Axum adapter
+would (managed head, RSJS runtime tags) and hands back the bytes. No tokio, no
+`FrameworkBuilder`, no island manifest.
+
+```rust
+use proa_core::HeadConfig;
+use proa_framework_core::RouteResponse;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let html = RouteResponse::ssr(RootDocument { children: HomePage })
+        .with_head(HeadConfig::default())
+        .render_to_bytes()?;
+    std::fs::write("./output/index.html", html)?;
+    Ok(())
+}
+```
+
+`render_to_string` returns a `String` instead, and `proa_framework_axum::RouteResponse`
+forwards both methods. `with_head` is required for any tree that declares
+`ROLE = PAGE` or `LAYOUT`; a manual document with its own `<title>` renders
+without it. Async plans render buffered, so `Suspense` resolves inline. There is
+no request: base path is the root, route params are absent, and the Axum route
+context helper `render_metadata_head` resolves to nothing;
+use `oneshot` through the built router for those pages. A non-2xx status is
+returned as `FrameworkError::StaticStatus`. Call it from sync code; inside a
+current-thread tokio runtime an async plan is refused with
+`StaticRenderInsideRuntime`. Depend on `proa_framework_core` with
+`default-features = false` to keep tokio out of a static renderer; eager
+`proa_stream` preloads are the one feature that then needs a runtime.
+
+Reference: [`proa_framework/proa_framework_core/tests/static_render.rs`](../../proa_framework/proa_framework_core/tests/static_render.rs).

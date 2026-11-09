@@ -12,7 +12,7 @@ use proa_core::{
     ComponentRole, HeadConfig, HeadUrlPolicy, SyncHeadOperation, WebContext, WebRenderSync,
     WriteError,
 };
-use proa_framework_axum::{IslandManifest, Route, RouteContextLayer, RouteResponse};
+use proa_framework_axum::{Route, RouteContextLayer, RouteResponse};
 use proa_macros::html_sync;
 use sha2::{Digest, Sha256};
 use std::{
@@ -130,13 +130,7 @@ fn app(case: &str) -> Router {
         "managed" => Router::new().route("/route", get(|| async { RouteResponse::ssr(Doc) })),
         _ => panic!("unknown case"),
     };
-    let manifest = Arc::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: Default::default(),
-    });
-    let layer = RouteContextLayer::new(manifest, Arc::new(Default::default()));
+    let layer = RouteContextLayer::new(Arc::new(Default::default()));
     let layer = if case == "managed" {
         layer.with_head(
             HeadConfig::default()

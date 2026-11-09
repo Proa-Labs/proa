@@ -8,7 +8,6 @@
 //! response-ready, first-byte, and completion latency so executor and bridge
 //! changes can be compared against a durable pre-change baseline.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::process::Command;
@@ -24,7 +23,6 @@ use proa_core::{
     render_child, render_send_child, NoLoader, RenderBuffer, RenderOutcome, SendWebContext,
     SyncToAsync, WebContext, WebRender, WebRenderSend, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_framework_axum::manifest::IslandManifest;
 use proa_framework_axum::{
     router_from_spec, LocalStreamExecutorConfig, Route, RouteContextLayer, RouteResponse,
 };
@@ -395,15 +393,9 @@ fn build_app(local_stream_workers: usize) -> axum::Router {
         send_stream_route("/send-stream/32", 32),
         send_stream_route("/send-stream/128", 128),
     ];
-    let manifest = Arc::new(IslandManifest {
-        islands: HashMap::new(),
-        assets: Default::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    });
     let (router, metadata) = router_from_spec(routes);
     router.layer(
-        RouteContextLayer::new(manifest, metadata).with_local_stream_executor_config(
+        RouteContextLayer::new(metadata).with_local_stream_executor_config(
             LocalStreamExecutorConfig {
                 worker_threads: local_stream_workers,
                 ..LocalStreamExecutorConfig::default()

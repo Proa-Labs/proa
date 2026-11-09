@@ -7,7 +7,6 @@
 //! request timeout (default on, streaming-safe), and the opt-in
 //! concurrency limit and catch-panic layers.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::time::Duration;
 
@@ -21,7 +20,6 @@ use proa_core::{
     await_component, to_async, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteBuf,
     WriteError,
 };
-use proa_framework_axum::manifest::IslandManifest;
 use proa_framework_axum::{
     router_from_spec, FrameworkBuilder, Route, RouteResponse, SecurityHeadersConfig,
 };
@@ -29,19 +27,9 @@ use proa_macros::{html, html_sync};
 use proa_stream::Suspense;
 use tower::ServiceExt;
 
-fn empty_manifest() -> IslandManifest {
-    IslandManifest {
-        islands: HashMap::new(),
-        assets: Default::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    }
-}
-
 fn builder_with_routes(routes: Vec<Route<()>>) -> FrameworkBuilder {
     let (router, computed_metadata) = router_from_spec(routes);
-    FrameworkBuilder::new(empty_manifest())
-        .with_dynamic_routes_and_metadata(router, computed_metadata)
+    FrameworkBuilder::new().with_dynamic_routes_and_metadata(router, computed_metadata)
 }
 
 fn assert_default_security_headers(headers: &HeaderMap) {

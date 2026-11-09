@@ -8,7 +8,6 @@ use std::sync::Arc;
 use http::Uri;
 use proa_core::{RouteParam, RouteParams};
 
-use crate::manifest::IslandManifest;
 use crate::metadata::{resolve_metadata_stack, ComputedRouteMeta, MetadataRef, ResolvedMetadata};
 
 /// Portable per-request route snapshot used during route finalization.
@@ -18,7 +17,6 @@ use crate::metadata::{resolve_metadata_stack, ComputedRouteMeta, MetadataRef, Re
 /// their server stack uses.
 #[derive(Clone)]
 pub struct FrameworkRouteSnapshot {
-    manifest: Arc<IslandManifest>,
     metadata: Arc<[MetadataRef]>,
     resolved_metadata: Option<ResolvedMetadata>,
     computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>,
@@ -28,12 +26,8 @@ pub struct FrameworkRouteSnapshot {
 }
 
 impl FrameworkRouteSnapshot {
-    pub fn new(
-        manifest: Arc<IslandManifest>,
-        computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>,
-    ) -> Self {
+    pub fn new(computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>) -> Self {
         Self {
-            manifest,
             metadata: Arc::from([]),
             resolved_metadata: None,
             computed_metadata,
@@ -77,10 +71,6 @@ impl FrameworkRouteSnapshot {
 
     pub fn restore_route_params(&mut self, route_params: RouteParams) {
         self.current_route_params = route_params;
-    }
-
-    pub fn manifest_arc(&self) -> Arc<IslandManifest> {
-        self.manifest.clone()
     }
 
     pub fn swap_metadata(

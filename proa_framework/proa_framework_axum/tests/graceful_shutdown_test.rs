@@ -8,8 +8,7 @@ use std::time::{Duration, Instant};
 use axum::{routing::get, Router};
 use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WriteBuf, WriteError};
 use proa_framework_axum::{
-    router_from_spec, serve_with_shutdown, IslandManifest, Route, RouteContextLayer, RouteResponse,
-    ShutdownOutcome,
+    router_from_spec, serve_with_shutdown, Route, RouteContextLayer, RouteResponse, ShutdownOutcome,
 };
 use proa_macros::{html, html_sync};
 use proa_stream::Suspense;
@@ -49,15 +48,6 @@ where
             std::future::pending::<Result<(), WriteError>>().await
         })
     }
-}
-
-fn empty_manifest() -> Arc<IslandManifest> {
-    Arc::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: Default::default(),
-    })
 }
 
 #[tokio::test]
@@ -164,7 +154,7 @@ async fn shutdown_deadline_cancels_a_stalled_streaming_boundary() {
         }),
     )];
     let (app, computed_metadata) = router_from_spec(routes);
-    let app = app.layer(RouteContextLayer::new(empty_manifest(), computed_metadata));
+    let app = app.layer(RouteContextLayer::new(computed_metadata));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

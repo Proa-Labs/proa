@@ -27,8 +27,11 @@ runs:
         checksum=023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
         directory="$(mktemp -d)"
         archive="$directory/actionlint.tar.gz"
+        # Release-asset downloads occasionally answer 504 from the runners;
+        # retry the fetch, the checksum below still gates what runs.
         curl --fail --silent --show-error --location \
           --proto '=https' --tlsv1.2 \
+          --retry 5 --retry-delay 5 --retry-all-errors \
           --output "$archive" \
           "https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz"
         printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --status

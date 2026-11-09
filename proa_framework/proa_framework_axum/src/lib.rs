@@ -4,14 +4,12 @@
 #![forbid(unsafe_code)]
 
 mod asset_urls;
-pub mod bootstrap;
 pub mod config;
 pub mod csp;
 pub mod csrf;
 pub mod dev_reload;
 pub mod discovery;
 pub mod external;
-pub mod manifest;
 pub mod process_manager;
 pub mod proxy;
 pub mod readiness;
@@ -25,16 +23,12 @@ pub mod shard;
 pub mod static_service;
 pub use asset_urls::base_path_assets;
 
-pub use bootstrap::render_bootstrap_for_islands;
 pub use config::{CodegenConfig, PathsConfig, ProaConfig, ServerConfig};
 pub use csp::{CspNonceLayer, CspPolicy};
 pub use csrf::CrossOriginProtectionLayer;
 pub use dev_reload::{DevReloadLayer, RELOAD_PORT_ENV, RELOAD_TOKEN_ENV};
 pub use discovery::{robots_txt, sitemap_index_xml, sitemap_xml};
 pub use external::{ExternalApp, ExternalAppStrategy};
-pub use manifest::{
-    CssAsset, HydrationStrategyConfig, IslandEntry, IslandManifest, ManifestAssets, ProviderSpec,
-};
 pub use proa_core::{
     AppUrl, ArticleMetadata, BasePath, ComponentRole, CspNonce, HeadAlternate, HeadAuthor,
     HeadConfig, HeadDefaults, HeadIcon, HeadMedia, HeadMetadata, HeadTitle, HeadUrlPolicy,
@@ -48,8 +42,8 @@ pub use proa_framework_core::{
 };
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
-    app_url, css_asset_path, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
-    explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader, render_css_link,
+    app_url, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
+    explicit_markdown_async_with_loader, negotiate, negotiate_async_with_loader,
     render_metadata_head, resolved_metadata, router_from_spec, CascadeOpenGraph, CascadeValue,
     ComputedRouteMeta, DynRenderOutcome, DynSendRenderOutcome, DynWebRender, DynWebRenderSend,
     Layout, LayoutRef, LocalStreamExecutorConfig, ManagedPreparationTimeout, MarkdownAlternate,
@@ -69,7 +63,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::{header, HeaderValue};
-use axum::{extract::DefaultBodyLimit, extract::Extension, Router};
+use axum::{extract::DefaultBodyLimit, Router};
 use tower::limit::GlobalConcurrencyLimitLayer;
 use tower::Layer as _;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -119,7 +113,6 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Content Security Policy), [`with_concurrency_limit`](Self::with_concurrency_limit),
 /// and [`with_catch_panic`](Self::with_catch_panic).
 pub struct FrameworkBuilder {
-    manifest: Arc<IslandManifest>,
     base_path: BasePath,
     public_origin: Option<String>,
     head: Option<proa_core::HeadConfig>,
@@ -158,10 +151,16 @@ pub struct FrameworkBuilder {
     local_stream_executor: LocalStreamExecutorConfig,
 }
 
+impl Default for FrameworkBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FrameworkBuilder {
-    pub fn new(manifest: IslandManifest) -> Self {
+    /// Create a builder with secure defaults.
+    pub fn new() -> Self {
         Self {
-            manifest: Arc::new(manifest),
             base_path: BasePath::default(),
             public_origin: None,
             head: None,
@@ -225,14 +224,10 @@ impl FrameworkBuilder {
     ///
     /// ```
     /// use proa_framework_axum::{
-    ///     BasePath, DiscoveryError, FrameworkBuilder, IslandManifest,
-    ///     ManifestAssets, RobotsTxt, SitemapUrl,
+    ///     BasePath, DiscoveryError, FrameworkBuilder,
+    ///     RobotsTxt, SitemapUrl,
     /// };
-    /// # let manifest = IslandManifest {
-    /// #     islands: Default::default(), assets: ManifestAssets::default(),
-    /// #     import_map: Default::default(), ssr_bundle: None,
-    /// # };
-    /// let app = FrameworkBuilder::new(manifest)
+    /// let app = FrameworkBuilder::new()
     ///     .with_base_path(BasePath::new("/apps/demo").unwrap())
     ///     .with_public_origin("https://example.com")?
     ///     .with_sitemap([SitemapUrl::new("/")?, SitemapUrl::new("/pricing")?])
@@ -259,13 +254,9 @@ impl FrameworkBuilder {
     ///
     /// ```
     /// use proa_framework_axum::{
-    ///     DiscoveryError, FrameworkBuilder, IslandManifest, ManifestAssets,
+    ///     DiscoveryError, FrameworkBuilder,
     ///     RobotsTxt, SitemapFile, SitemapUrl,
     /// };
-    /// # let manifest = IslandManifest {
-    /// #     islands: Default::default(), assets: ManifestAssets::default(),
-    /// #     import_map: Default::default(), ssr_bundle: None,
-    /// # };
     /// async fn generate_sitemaps() -> Result<Vec<SitemapFile>, DiscoveryError> {
     ///     // Application code can await database or CMS queries here.
     ///     Ok(vec![
@@ -274,7 +265,7 @@ impl FrameworkBuilder {
     ///     ])
     /// }
     /// # let run = async move {
-    /// let app = FrameworkBuilder::new(manifest)
+    /// let app = FrameworkBuilder::new()
     ///     .with_public_origin("https://example.com")?
     ///     .with_sitemaps(generate_sitemaps().await?)
     ///     .with_robots(RobotsTxt::new())
@@ -310,7 +301,7 @@ impl FrameworkBuilder {
     ///
     /// ```
     /// use proa_framework_axum::{
-    ///     DiscoveryError, FrameworkBuilder, IslandManifest, ManifestAssets, RobotsTxt,
+    ///     DiscoveryError, FrameworkBuilder, RobotsTxt,
     /// };
     /// use std::time::Duration;
     ///
@@ -322,11 +313,7 @@ impl FrameworkBuilder {
     ///         .crawl_delay(Duration::from_millis(1500)))
     /// }
     /// # let run = async {
-    /// # let manifest = IslandManifest {
-    /// #     islands: Default::default(), assets: ManifestAssets::default(),
-    /// #     import_map: Default::default(), ssr_bundle: None,
-    /// # };
-    /// let app = FrameworkBuilder::new(manifest)
+    /// let app = FrameworkBuilder::new()
     ///     .with_robots(generate_robots().await?)
     ///     .try_build()?;
     /// # Ok::<(), DiscoveryError>(())
@@ -355,7 +342,7 @@ impl FrameworkBuilder {
     /// builder for chaining.
     ///
     /// ```rust,ignore
-    /// FrameworkBuilder::new(manifest)
+    /// FrameworkBuilder::new()
     ///     .with_body_limit(4 * 1024 * 1024) // 4 MiB
     ///     .build();
     /// ```
@@ -423,7 +410,7 @@ impl FrameworkBuilder {
     /// Enable a nonce-based CSP with a customized policy.
     ///
     /// ```rust,ignore
-    /// FrameworkBuilder::new(manifest)
+    /// FrameworkBuilder::new()
     ///     .with_csp_policy(
     ///         CspPolicy::strict()
     ///             .with_directive("img-src", "'self' data: https://cdn.example")
@@ -524,19 +511,11 @@ impl FrameworkBuilder {
     /// # Example
     /// ```rust
     /// use proa_framework_axum::{
-    ///     ExternalApp, ExternalAppStrategy, FrameworkBuilder, IslandManifest, ManifestAssets,
+    ///     ExternalApp, ExternalAppStrategy, FrameworkBuilder,
     /// };
     ///
-    /// use std::collections::HashMap;
     ///
-    /// let manifest = IslandManifest {
-    ///     islands: HashMap::new(),
-    ///     assets: ManifestAssets::default(),
-    ///     import_map: HashMap::new(),
-    ///     ssr_bundle: None,
-    /// };
-    ///
-    /// let app = FrameworkBuilder::new(manifest)
+    /// let app = FrameworkBuilder::new()
     ///     .with_external_app(ExternalApp::static_app("/docs", "./apps/docs/out"))
     ///     .with_external_app(ExternalApp::ssr_app("/admin", "http://localhost:4000".to_string()))
     ///     .build();
@@ -562,7 +541,6 @@ impl FrameworkBuilder {
     /// restrictions still apply.
     pub fn try_build(self) -> Result<Router, DiscoveryError> {
         let FrameworkBuilder {
-            manifest,
             base_path,
             public_origin,
             head,
@@ -617,7 +595,7 @@ impl FrameworkBuilder {
         }
 
         let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
-        let layer = RouteContextLayer::new(manifest.clone(), computed_metadata)
+        let layer = RouteContextLayer::new(computed_metadata)
             .with_base_path(base_path)
             .with_local_stream_executor_config(local_stream_executor);
         let layer = if let Some(head) = head {
@@ -686,7 +664,7 @@ impl FrameworkBuilder {
         if let Some(policy) = csp {
             app = app.layer(CspNonceLayer::new(policy));
         }
-        Ok(app.layer(Extension(manifest)))
+        Ok(app)
     }
 }
 

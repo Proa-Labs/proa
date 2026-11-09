@@ -10,8 +10,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use proa_framework_axum::{router_from_spec, IslandManifest, Route, RouteContextLayer};
-use std::{collections::HashMap, sync::Arc};
+use proa_framework_axum::{router_from_spec, Route, RouteContextLayer};
 pub fn router(state: AppState) -> Router {
     let (router, metadata) = router_from_spec(vec![
         // proa:route-specs:start
@@ -26,12 +25,6 @@ pub fn router(state: AppState) -> Router {
         Route::endpoint("/lab", get(pages::lab)),
         // proa:route-specs:end
     ]);
-    let manifest = Arc::new(IslandManifest {
-        islands: HashMap::new(),
-        assets: Default::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    });
     let mcp = Router::new()
         .nest_service("/mcp", crate::mcp::service(state.clone()))
         .layer(middleware::from_fn_with_state(
@@ -57,7 +50,7 @@ pub fn router(state: AppState) -> Router {
         .merge(mcp)
         .nest_service("/static", static_assets::service())
         .with_state(state.clone())
-        .layer(RouteContextLayer::new(manifest, metadata))
+        .layer(RouteContextLayer::new(metadata))
         .layer(DefaultBodyLimit::max(16384))
         .layer(middleware::from_fn_with_state(
             state.config.app_origin.clone(),

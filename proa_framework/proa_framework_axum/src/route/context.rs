@@ -21,8 +21,6 @@ use proa_framework_core::{
 use tower::layer::Layer;
 use tower::Service;
 
-use crate::manifest::IslandManifest;
-
 use super::local_executor::{LocalStreamExecutor, LocalStreamExecutorConfig};
 use super::response::prepare_deferred_framework_stream;
 
@@ -30,7 +28,7 @@ tokio::task_local! {
     pub(super) static ROUTE_CONTEXT: RefCell<RouteContext>;
 }
 
-/// Internal route context holding the manifest and request metadata.
+/// Internal route context holding the request metadata.
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct RouteContext {
@@ -44,11 +42,10 @@ pub struct RouteContext {
 
 impl RouteContext {
     pub(super) fn new(
-        manifest: Arc<IslandManifest>,
         computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     ) -> Self {
         Self {
-            snapshot: FrameworkRouteSnapshot::new(manifest, computed_metadata),
+            snapshot: FrameworkRouteSnapshot::new(computed_metadata),
             request_method: None,
             request_headers: http::HeaderMap::new(),
             csp_nonce: None,
@@ -126,10 +123,6 @@ impl RouteContext {
 
     pub(super) fn restore_route_params(&mut self, route_params: RouteParams) {
         self.snapshot.restore_route_params(route_params);
-    }
-
-    pub(super) fn manifest_arc(&self) -> Arc<IslandManifest> {
-        self.snapshot.manifest_arc()
     }
 
     pub(super) fn swap_metadata(
@@ -320,8 +313,6 @@ fn restore_context(
 /// Tower layer for establishing the route context for each request
 #[derive(Clone)]
 pub struct RouteContextLayer {
-    manifest: Arc<IslandManifest>,
-    unprefixed_manifest: Arc<IslandManifest>,
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
@@ -329,13 +320,11 @@ pub struct RouteContextLayer {
 }
 
 impl RouteContextLayer {
+    /// Create a layer with no managed head.
     pub fn new(
-        manifest: Arc<IslandManifest>,
         computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     ) -> Self {
         Self {
-            unprefixed_manifest: manifest.clone(),
-            manifest,
             computed_metadata,
             local_stream_executor: LocalStreamExecutor::new(LocalStreamExecutorConfig::default()),
             base_path: proa_core::BasePath::default(),
@@ -351,16 +340,6 @@ impl RouteContextLayer {
 
     /// Set the public mount prefix without changing incoming routes.
     pub fn with_base_path(mut self, base_path: proa_core::BasePath) -> Self {
-        self.manifest = if base_path.as_str().is_empty() {
-            self.unprefixed_manifest.clone()
-        } else {
-            Arc::new(
-                self.unprefixed_manifest
-                    .as_ref()
-                    .clone()
-                    .with_base_path(&base_path),
-            )
-        };
         self.base_path = base_path;
         self
     }
@@ -378,7 +357,6 @@ impl<S> Layer<S> for RouteContextLayer {
     fn layer(&self, inner: S) -> Self::Service {
         RouteContextService {
             inner,
-            manifest: self.manifest.clone(),
             computed_metadata: self.computed_metadata.clone(),
             local_stream_executor: self.local_stream_executor.clone(),
             base_path: self.base_path.clone(),
@@ -390,7 +368,6 @@ impl<S> Layer<S> for RouteContextLayer {
 #[derive(Clone)]
 pub struct RouteContextService<S> {
     inner: S,
-    manifest: Arc<IslandManifest>,
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
@@ -424,7 +401,7 @@ where
         let current_uri = req.uri().clone();
         let csp_nonce = req.extensions().get::<CspNonce>().cloned();
 
-        let mut context = RouteContext::new(self.manifest.clone(), self.computed_metadata.clone());
+        let mut context = RouteContext::new(self.computed_metadata.clone());
         context.head = self.head.clone();
         context.set_is_client_request(is_client_request);
         context.set_current_request_parts(current_method, current_headers, current_uri);
@@ -562,13 +539,7 @@ mod perf_tests {
     #[tokio::test]
     async fn static_context_calls_the_ready_service_without_cloning_it() {
         let clones = Arc::new(AtomicUsize::new(0));
-        let manifest = IslandManifest {
-            islands: Default::default(),
-            assets: Default::default(),
-            import_map: Default::default(),
-            ssr_bundle: Default::default(),
-        };
-        let layer = RouteContextLayer::new(Arc::new(manifest), Arc::new(Default::default()));
+        let layer = RouteContextLayer::new(Arc::new(Default::default()));
         let mut service = layer.layer(ReadyService(clones.clone()));
         for _ in 0..3 {
             service
