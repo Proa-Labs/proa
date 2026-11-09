@@ -1,8 +1,10 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! The Axum `RouteResponse` wrapper forwards the runtime-free static renderers,
-//! and the bytes they produce are the bytes the router serves.
+//! The Axum `RouteResponse` wrapper forwards the runtime-free static renderers.
+//! For a page that reads no request context (no route params, base path, or
+//! `css_asset_path` / `render_metadata_head` helpers) the bytes they produce
+//! are the bytes the router serves.
 
 use axum::{body::Body, http::Request, routing::get, Router};
 use proa_core::{
@@ -81,6 +83,8 @@ fn axum_route_response_renders_without_a_server_or_runtime() {
     assert_eq!(bytes.as_ref(), html.as_bytes());
 }
 
+/// Holds for pages that read nothing from the route context; the wrapper's
+/// docs point such pages at `oneshot` through the built router instead.
 #[tokio::test]
 async fn static_render_matches_the_document_the_router_serves() {
     let app = FrameworkBuilder::new()

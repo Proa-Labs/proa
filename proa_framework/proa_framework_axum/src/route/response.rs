@@ -168,9 +168,15 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     }
 
     /// Render this response to a complete HTML document without an HTTP
-    /// server or an async runtime. Forwards to
-    /// [`proa_framework_core::RouteResponse::render_to_bytes`], which documents
-    /// the plan handling and the `rt-tokio` preload caveat.
+    /// server or an async runtime.
+    ///
+    /// Forwards to [`proa_framework_core::RouteResponse::render_to_bytes`],
+    /// which documents how async plans, status codes, and runtimes are
+    /// handled. No route context is installed here: the base path is the
+    /// origin root, route parameters are absent, and `css_asset_path`,
+    /// `render_css_link`, and `render_metadata_head` resolve to nothing. For a
+    /// page that reads any of those, send a request through the built router
+    /// with `tower::ServiceExt::oneshot` instead.
     pub fn render_to_bytes(self) -> Result<bytes::Bytes, FrameworkError> {
         self.0.render_to_bytes()
     }

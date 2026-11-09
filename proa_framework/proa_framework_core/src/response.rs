@@ -723,30 +723,56 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// server or an async runtime.
     ///
     /// Use it to write static files, snapshot a page in a test, or render
-    /// from a plain `fn main`. The response finalizes exactly as the Axum
-    /// adapter would at the origin root: the managed head selected with
+    /// from a plain `fn main`. The managed head selected with
     /// [`with_head`](Self::with_head) is prepared and inserted, and the RSJS
-    /// runtime tags for any islands the page rendered are appended. No React
-    /// island manifest is installed, so pages that rely on
-    /// [`with_islands`](Self::with_islands) need the HTTP adapter instead.
+    /// runtime tags for any islands the page rendered are appended, exactly
+    /// as the HTTP adapters do.
     ///
-    /// Buffered async plans are driven to completion on the calling thread.
-    /// Streamed plans are collected into one buffer and lose only their
-    /// incremental delivery. Response status and headers are discarded; only
-    /// the document bytes are returned.
+    /// What differs from a served request:
     ///
-    /// Eager `proa_stream` preloads (the default `rt-tokio` feature) spawn on
-    /// an ambient tokio runtime and panic without one. A static renderer that
-    /// uses preload keys should call this inside a tokio runtime or disable
-    /// that feature.
+    /// - Async plans render buffered. The whole document resolves before any
+    ///   bytes are returned, so `Suspense` content appears inline instead of a
+    ///   fallback plus a later swap, and the streaming driver is never used.
+    /// - There is no request. The base path is the origin root, route
+    ///   parameters are absent, and adapter helpers that read the route
+    ///   context (`css_asset_path`, `render_css_link`, `render_metadata_head`)
+    ///   resolve to nothing. Pages that depend on those should render through
+    ///   the built router instead.
+    /// - No React island manifest is installed, so
+    ///   [`with_islands`](Self::with_islands) needs the HTTP adapter.
+    /// - Headers are discarded, and a status outside 2xx is returned as
+    ///   [`FrameworkError::StaticStatus`] rather than written out as a page.
+    ///
+    /// Call this from synchronous code: it blocks the calling thread. Inside
+    /// async code, await
+    /// [`into_framework_response`](Self::into_framework_response) instead. With
+    /// the `rt-tokio` feature, an async plan called from a current-thread tokio
+    /// runtime returns [`FrameworkError::StaticRenderInsideRuntime`] rather
+    /// than deadlocking. Eager `proa_stream` preloads (`rt-tokio`) spawn on an
+    /// ambient tokio runtime and panic without one.
     pub fn render_to_bytes(self) -> Result<Bytes, FrameworkError> {
+        #[cfg(feature = "rt-tokio")]
+        if !self.is_synchronous() {
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                if matches!(
+                    handle.runtime_flavor(),
+                    tokio::runtime::RuntimeFlavor::CurrentThread
+                ) {
+                    return Err(FrameworkError::StaticRenderInsideRuntime);
+                }
+            }
+        }
         let manifest = IslandManifest::default();
         let request = FrameworkRequestContext::default();
         let response = if self.is_synchronous() {
             self.into_sync_framework_response(&manifest, &request, RouteFinalizeMode::Document)?
         } else {
-            futures::executor::block_on(self.into_framework_response(&manifest, &request))?
+            let buffered = self.with_render_mode(RenderMode::Static);
+            futures::executor::block_on(buffered.into_framework_response(&manifest, &request))?
         };
+        if !response.status.is_success() {
+            return Err(FrameworkError::StaticStatus(response.status));
+        }
         collect_framework_body(response.body)
     }
 
@@ -876,33 +902,38 @@ fn collect_framework_body(body: FrameworkBody) -> Result<Bytes, FrameworkError> 
         FrameworkBody::BufferedPages(buffer) => Ok(Bytes::from(buffer.into_vec())),
         FrameworkBody::Stream(factory) => collect_stream_factory(factory),
         FrameworkBody::Managed(factory) => {
-            let (factory, _prepared_head) = crate::managed_response::adapt(factory);
-            collect_stream_factory(factory)
+            let (factory, prepared_head) = crate::managed_response::adapt(factory);
+            let bytes = collect_stream_factory(factory)?;
+            // Head preparation can decide the status after the response head
+            // was built; honor it the way the HTTP adapter does.
+            if let Some(status) = prepared_head.get().and_then(|decisions| decisions.status()) {
+                if !status.is_success() {
+                    return Err(FrameworkError::StaticStatus(status));
+                }
+            }
+            Ok(bytes)
         }
     }
 }
 
-// proa-perf-ok(scope): static export collects a whole document into one owned buffer by design.
 fn collect_stream_factory(factory: FrameworkStreamFactory) -> Result<Bytes, FrameworkError> {
+    match factory {
+        FrameworkStreamFactory::Local(make) => futures::executor::block_on(drain(make())),
+        FrameworkStreamFactory::Send(make) => futures::executor::block_on(drain(make())),
+    }
+}
+
+// proa-perf-ok(scope): static export collects a whole document into one owned buffer by design.
+async fn drain<S>(mut stream: S) -> Result<Bytes, FrameworkError>
+where
+    S: Stream<Item = Result<Bytes, FrameworkError>> + Unpin,
+{
     use futures::StreamExt;
-    futures::executor::block_on(async move {
-        let mut out = Vec::new();
-        match factory {
-            FrameworkStreamFactory::Local(make) => {
-                let mut stream = make();
-                while let Some(chunk) = stream.next().await {
-                    out.extend_from_slice(&chunk?);
-                }
-            }
-            FrameworkStreamFactory::Send(make) => {
-                let mut stream = make();
-                while let Some(chunk) = stream.next().await {
-                    out.extend_from_slice(&chunk?);
-                }
-            }
-        }
-        Ok(Bytes::from(out))
-    })
+    let mut out = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        out.extend_from_slice(&chunk?);
+    }
+    Ok(Bytes::from(out))
 }
 
 /// Finalize a streamed document without polling its local render future.
@@ -1099,6 +1130,13 @@ pub enum FrameworkError {
     Encoding(#[from] std::str::Utf8Error),
     #[error("framework invariant violated: {0}")]
     Invariant(&'static str),
+    #[error("static render produced status {0}; only success documents are exported")]
+    StaticStatus(StatusCode),
+    #[error(
+        "static render cannot block inside a current-thread tokio runtime; \
+         await into_framework_response instead"
+    )]
+    StaticRenderInsideRuntime,
 }
 
 /// Inject the baseline security headers Proa ships by default on every SSR
@@ -1638,7 +1676,9 @@ fn framework_error_response(err: FrameworkError) -> FrameworkResponse {
         FrameworkError::Render(_)
         | FrameworkError::RsjsPlan(_)
         | FrameworkError::Bootstrap(_)
-        | FrameworkError::Invariant(_) => {
+        | FrameworkError::Invariant(_)
+        | FrameworkError::StaticStatus(_)
+        | FrameworkError::StaticRenderInsideRuntime => {
             FrameworkResponse::plain_text(StatusCode::INTERNAL_SERVER_ERROR, "render error")
         }
         FrameworkError::Encoding(_) => {

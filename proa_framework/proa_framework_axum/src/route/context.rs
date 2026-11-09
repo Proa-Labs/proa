@@ -364,7 +364,8 @@ impl RouteContextLayer {
     }
 
     /// Register the application stylesheet exposed through `css_asset_path`
-    /// and `render_css_link`.
+    /// and `render_css_link`. Calling this after `with_island_manifest`
+    /// replaces the stylesheet that manifest carried.
     pub fn with_css_asset(self, path: impl Into<String>) -> Self {
         let mut manifest = self.unprefixed_manifest.as_ref().clone();
         manifest.assets.css = Some(CssAsset {

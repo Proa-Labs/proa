@@ -17,7 +17,6 @@ use anyhow::{Context, Result};
 /// `with_island_manifest` replaces it.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct IslandManifest {
-    #[serde(default)]
     pub islands: HashMap<String, IslandEntry>,
     #[serde(default)]
     pub assets: ManifestAssets,
@@ -193,12 +192,16 @@ mod tests {
     }
 
     #[test]
-    fn default_manifest_is_empty_and_parses_from_an_empty_object() {
+    fn default_manifest_is_empty_and_json_still_requires_islands() {
         let manifest = IslandManifest::default();
         assert!(manifest.islands.is_empty());
         assert!(manifest.import_map.is_empty());
         assert!(manifest.assets.css.is_none());
-        let parsed: IslandManifest = serde_json::from_str("{}").expect("empty manifest parses");
+        // A manifest file must spell out its islands. A missing key stays a
+        // load-time error instead of becoming a silently empty manifest.
+        assert!(serde_json::from_str::<IslandManifest>("{}").is_err());
+        let parsed: IslandManifest =
+            serde_json::from_str(r#"{"islands":{}}"#).expect("explicit empty islands parse");
         assert!(parsed.islands.is_empty());
     }
 

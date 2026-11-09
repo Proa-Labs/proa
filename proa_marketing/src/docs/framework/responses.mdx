@@ -114,4 +114,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`render_to_string` returns the same document as a `String`, and the `proa_framework_axum::RouteResponse` wrapper exposes both methods for tests inside an Axum application. Buffered async plans run to completion on the calling thread; streamed plans are collected into one buffer. Response status and headers are discarded. Programs that only render this way depend on `proa_framework_core` with `default-features = false`, which leaves tokio out of the build; eager `proa_stream` preloads need a tokio runtime and are the one feature that does not work there.
+`render_to_string` returns the same document as a `String`, and the `proa_framework_axum::RouteResponse` wrapper exposes both methods. What differs from a served request:
+
+- Async plans render buffered. `Suspense` content appears inline rather than as a fallback plus a later swap, and the streaming driver is never involved.
+- There is no request. The base path is the origin root, route parameters are absent, and `css_asset_path`, `render_css_link`, and `render_metadata_head` resolve to nothing. Pages that read those should go through the built router with `tower::ServiceExt::oneshot`.
+- Headers are discarded, and a status outside 2xx is returned as `FrameworkError::StaticStatus` instead of being written out as a page.
+- Call it from synchronous code. Inside async code, await `into_framework_response`; an async plan called from a current-thread tokio runtime returns `FrameworkError::StaticRenderInsideRuntime` rather than deadlocking.
+
+Programs that only render this way can depend on `proa_framework_core` with `default-features = false`, which leaves tokio out of the build. Eager `proa_stream` preloads need a tokio runtime and are the one feature that does not work there.

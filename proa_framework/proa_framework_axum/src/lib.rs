@@ -216,7 +216,9 @@ impl FrameworkBuilder {
     /// [`css_asset_path`] and [`render_css_link`].
     ///
     /// Pass an application-local path such as `/static/app.css`. The builder's
-    /// base path is applied at startup.
+    /// base path is applied at startup. Calling this after
+    /// [`with_island_manifest`](Self::with_island_manifest) replaces the
+    /// stylesheet that manifest carried.
     pub fn with_css_asset(mut self, path: impl Into<String>) -> Self {
         self.manifest.assets.css = Some(CssAsset {
             path: path.into(),
