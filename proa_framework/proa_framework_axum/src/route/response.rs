@@ -14,9 +14,8 @@ use proa_core::{
 };
 use proa_framework_core::{
     finalize_route_response, finalize_route_response_stream, finalize_route_response_sync,
-    FrameworkBody, FrameworkError, FrameworkRequestContext, FrameworkResponse,
-    FrameworkSendStream, FrameworkStreamFactory, RouteFinalizeMode,
-    RouteResponse as CoreRouteResponse,
+    FrameworkBody, FrameworkError, FrameworkRequestContext, FrameworkResponse, FrameworkSendStream,
+    FrameworkStreamFactory, RouteFinalizeMode, RouteResponse as CoreRouteResponse,
 };
 use proa_react::ReactBootstrapConfig;
 use tracing::error;
