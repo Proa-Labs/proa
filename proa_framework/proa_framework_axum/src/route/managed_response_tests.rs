@@ -1249,10 +1249,7 @@ async fn axum_context_layer_supplies_defaults_for_document_and_client_requests()
                 })
             }),
         )
-        .layer(
-            crate::RouteContextLayer::new(Arc::new(empty_manifest()), Arc::new(Default::default()))
-                .with_head(head),
-        );
+        .layer(crate::RouteContextLayer::new(Arc::new(Default::default())).with_head(head));
     for client in [false, true] {
         let mut request = http::Request::builder().uri("/");
         if client {

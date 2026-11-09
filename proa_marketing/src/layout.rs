@@ -94,12 +94,7 @@ where
     });
     // The framework finalizer supplies the linked RSJS runtime. This site has
     // no legacy React islands requiring a separate framework manifest.
-    let manifest = IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: None,
-    };
+    let manifest = IslandManifest::default();
     let response = futures::executor::block_on(
         RouteResponse::ssr_async(Document {
             shell: Shell::Marketing,

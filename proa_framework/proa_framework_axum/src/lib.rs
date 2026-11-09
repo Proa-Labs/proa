@@ -69,7 +69,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::{header, HeaderValue};
-use axum::{extract::DefaultBodyLimit, extract::Extension, Router};
+use axum::{extract::DefaultBodyLimit, Router};
 use tower::limit::GlobalConcurrencyLimitLayer;
 use tower::Layer as _;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -119,7 +119,7 @@ pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Content Security Policy), [`with_concurrency_limit`](Self::with_concurrency_limit),
 /// and [`with_catch_panic`](Self::with_catch_panic).
 pub struct FrameworkBuilder {
-    manifest: Arc<IslandManifest>,
+    manifest: IslandManifest,
     base_path: BasePath,
     public_origin: Option<String>,
     head: Option<proa_core::HeadConfig>,
@@ -158,10 +158,17 @@ pub struct FrameworkBuilder {
     local_stream_executor: LocalStreamExecutorConfig,
 }
 
+impl Default for FrameworkBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FrameworkBuilder {
-    pub fn new(manifest: IslandManifest) -> Self {
+    /// Create a builder with secure defaults and no React island manifest.
+    pub fn new() -> Self {
         Self {
-            manifest: Arc::new(manifest),
+            manifest: IslandManifest::default(),
             base_path: BasePath::default(),
             public_origin: None,
             head: None,
@@ -184,6 +191,32 @@ impl FrameworkBuilder {
             catch_panic: false,
             local_stream_executor: LocalStreamExecutorConfig::default(),
         }
+    }
+
+    /// Install a legacy React island manifest.
+    ///
+    /// Only pages that render `proa_react` islands or call
+    /// [`RouteResponse::with_islands`] need one. RSJS islands register through
+    /// the linked `rsjs` manifest and are served by
+    /// [`with_rsjs_assets`](Self::with_rsjs_assets). Pass the manifest
+    /// unprefixed; [`with_base_path`](Self::with_base_path) resolves its URLs
+    /// at startup.
+    pub fn with_island_manifest(mut self, manifest: IslandManifest) -> Self {
+        self.manifest = manifest;
+        self
+    }
+
+    /// Register the application stylesheet exposed to document layouts through
+    /// [`css_asset_path`] and [`render_css_link`].
+    ///
+    /// Pass an application-local path such as `/static/app.css`. The builder's
+    /// base path is applied at startup.
+    pub fn with_css_asset(mut self, path: impl Into<String>) -> Self {
+        self.manifest.assets.css = Some(CssAsset {
+            path: path.into(),
+            size: None,
+        });
+        self
     }
 
     /// Configure reusable document head defaults once for all rendered routes.
@@ -225,14 +258,10 @@ impl FrameworkBuilder {
     ///
     /// ```
     /// use proa_framework_axum::{
-    ///     BasePath, DiscoveryError, FrameworkBuilder, IslandManifest,
-    ///     ManifestAssets, RobotsTxt, SitemapUrl,
+    ///     BasePath, DiscoveryError, FrameworkBuilder,
+    ///     RobotsTxt, SitemapUrl,
     /// };
-    /// # let manifest = IslandManifest {
-    /// #     islands: Default::default(), assets: ManifestAssets::default(),
-    /// #     import_map: Default::default(), ssr_bundle: None,
-    /// # };
-    /// let app = FrameworkBuilder::new(manifest)
+    /// let app = FrameworkBuilder::new()
     ///     .with_base_path(BasePath::new("/apps/demo").unwrap())
     ///     .with_public_origin("https://example.com")?
     ///     .with_sitemap([SitemapUrl::new("/")?, SitemapUrl::new("/pricing")?])
@@ -259,13 +288,9 @@ impl FrameworkBuilder {
     ///
     /// ```
     /// use proa_framework_axum::{
-    ///     DiscoveryError, FrameworkBuilder, IslandManifest, ManifestAssets,
+    ///     DiscoveryError, FrameworkBuilder,
     ///     RobotsTxt, SitemapFile, SitemapUrl,
     /// };
-    /// # let manifest = IslandManifest {
-    /// #     islands: Default::default(), assets: ManifestAssets::default(),
-    /// #     import_map: Default::default(), ssr_bundle: None,
-    /// # };
     /// async fn generate_sitemaps() -> Result<Vec<SitemapFile>, DiscoveryError> {
     ///     // Application code can await database or CMS queries here.
     ///     Ok(vec![
@@ -274,7 +299,7 @@ impl FrameworkBuilder {
     ///     ])
     /// }
     /// # let run = async move {
-    /// let app = FrameworkBuilder::new(manifest)
+    /// let app = FrameworkBuilder::new()
     ///     .with_public_origin("https://example.com")?
     ///     .with_sitemaps(generate_sitemaps().await?)
     ///     .with_robots(RobotsTxt::new())
@@ -310,7 +335,7 @@ impl FrameworkBuilder {
     ///
     /// ```
     /// use proa_framework_axum::{
-    ///     DiscoveryError, FrameworkBuilder, IslandManifest, ManifestAssets, RobotsTxt,
+    ///     DiscoveryError, FrameworkBuilder, RobotsTxt,
     /// };
     /// use std::time::Duration;
     ///
@@ -322,11 +347,7 @@ impl FrameworkBuilder {
     ///         .crawl_delay(Duration::from_millis(1500)))
     /// }
     /// # let run = async {
-    /// # let manifest = IslandManifest {
-    /// #     islands: Default::default(), assets: ManifestAssets::default(),
-    /// #     import_map: Default::default(), ssr_bundle: None,
-    /// # };
-    /// let app = FrameworkBuilder::new(manifest)
+    /// let app = FrameworkBuilder::new()
     ///     .with_robots(generate_robots().await?)
     ///     .try_build()?;
     /// # Ok::<(), DiscoveryError>(())
@@ -355,7 +376,7 @@ impl FrameworkBuilder {
     /// builder for chaining.
     ///
     /// ```rust,ignore
-    /// FrameworkBuilder::new(manifest)
+    /// FrameworkBuilder::new()
     ///     .with_body_limit(4 * 1024 * 1024) // 4 MiB
     ///     .build();
     /// ```
@@ -423,7 +444,7 @@ impl FrameworkBuilder {
     /// Enable a nonce-based CSP with a customized policy.
     ///
     /// ```rust,ignore
-    /// FrameworkBuilder::new(manifest)
+    /// FrameworkBuilder::new()
     ///     .with_csp_policy(
     ///         CspPolicy::strict()
     ///             .with_directive("img-src", "'self' data: https://cdn.example")
@@ -524,19 +545,11 @@ impl FrameworkBuilder {
     /// # Example
     /// ```rust
     /// use proa_framework_axum::{
-    ///     ExternalApp, ExternalAppStrategy, FrameworkBuilder, IslandManifest, ManifestAssets,
+    ///     ExternalApp, ExternalAppStrategy, FrameworkBuilder,
     /// };
     ///
-    /// use std::collections::HashMap;
     ///
-    /// let manifest = IslandManifest {
-    ///     islands: HashMap::new(),
-    ///     assets: ManifestAssets::default(),
-    ///     import_map: HashMap::new(),
-    ///     ssr_bundle: None,
-    /// };
-    ///
-    /// let app = FrameworkBuilder::new(manifest)
+    /// let app = FrameworkBuilder::new()
     ///     .with_external_app(ExternalApp::static_app("/docs", "./apps/docs/out"))
     ///     .with_external_app(ExternalApp::ssr_app("/admin", "http://localhost:4000".to_string()))
     ///     .build();
@@ -617,7 +630,8 @@ impl FrameworkBuilder {
         }
 
         let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
-        let layer = RouteContextLayer::new(manifest.clone(), computed_metadata)
+        let layer = RouteContextLayer::new(computed_metadata)
+            .with_island_manifest(manifest)
             .with_base_path(base_path)
             .with_local_stream_executor_config(local_stream_executor);
         let layer = if let Some(head) = head {
@@ -686,7 +700,7 @@ impl FrameworkBuilder {
         if let Some(policy) = csp {
             app = app.layer(CspNonceLayer::new(policy));
         }
-        Ok(app.layer(Extension(manifest)))
+        Ok(app)
     }
 }
 

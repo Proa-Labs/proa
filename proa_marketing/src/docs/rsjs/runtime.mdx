@@ -33,7 +33,7 @@ Install the asset routes when building your application:
 ```rust filename="src/app.rs"
 use proa_framework_axum::FrameworkBuilder;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_rsjs_assets()
     .with_dynamic_routes_and_metadata(routes, metadata)
     .build();

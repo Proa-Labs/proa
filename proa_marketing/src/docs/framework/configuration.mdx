@@ -10,31 +10,20 @@ Use this page when you need the complete setup surface in one place. Use [Routin
 ## Minimal FrameworkBuilder Setup
 
 ```rust
-use std::collections::HashMap;
-
 use axum::{routing::get, Router};
 use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::{
-    FrameworkBuilder, IslandManifest, ManifestAssets, RouteResponse,
-};
+use proa_framework_axum::{FrameworkBuilder, RouteResponse};
 use crate::{layouts::RootDocument, pages::HomePage};
 
 async fn home() -> RouteResponse {
     RouteResponse::ssr(RootDocument { children: HomePage })
 }
 
-let manifest = IslandManifest {
-    islands: HashMap::new(),
-    assets: ManifestAssets::default(),
-    import_map: HashMap::new(),
-    ssr_bundle: None,
-};
-
 let routes = Router::new().route("/", get(home));
 let head = HeadConfig::default()
     .with_urls(HeadUrlPolicy::new("https://example.com", "/")?);
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(routes)
     .build();
@@ -50,8 +39,10 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa_f
 
 | Method | Use it for |
 |--------|------------|
-| `FrameworkBuilder::new(manifest)` | Create the builder with an island manifest and secure defaults. |
+| `FrameworkBuilder::new()` | Create the builder with secure defaults. No manifest or configuration is required. |
 | `.with_config(config)` | Override project paths, codegen flags, and server defaults. |
+| `.with_css_asset(path)` | Register the stylesheet that `render_css_link(cx)` emits. See [Static assets](/docs/framework/static-assets#linking-the-application-stylesheet). |
+| `.with_island_manifest(manifest)` | Install a legacy React island manifest. RSJS islands do not need one. |
 | `.with_head(head)` | Install app-wide [managed head configuration and defaults](/docs/framework/metadata#configure-app-wide-defaults) for rendered routes. |
 | [`.with_base_path(base_path)`](#frameworkbuilder-base-paths-and-rsjs-assets) | Set the public URL prefix for a mounted application. |
 | [`.with_public_origin(origin)?`](/docs/framework/sitemaps) | Set the public HTTP(S) origin used by discovery endpoints. |
@@ -92,7 +83,7 @@ For an app exposed at `/apps/demo/` by a prefix-stripping proxy:
 ```rust filename="src/app.rs"
 use proa_framework_axum::{BasePath, FrameworkBuilder};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_base_path(BasePath::new("/apps/demo")?)
     .with_rsjs_assets()
     .with_dynamic_routes_and_metadata(routes, metadata)
@@ -199,7 +190,7 @@ use tower_http::services::ServeDir;
 
 let static_router = axum::Router::new().nest_service("/", ServeDir::new("public"));
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_static_service(static_router)
     .build();
 ```
@@ -213,7 +204,7 @@ Use external app mounts when one path is owned by a different frontend or servic
 ```rust
 use proa_framework_axum::ExternalApp;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_external_app(ExternalApp::static_app("/docs", "./apps/docs/out"))
     .with_external_app(ExternalApp::ssr_app(
         "/admin",

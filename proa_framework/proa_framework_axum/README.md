@@ -44,8 +44,8 @@ dependency trees.
 | Module | Purpose |
 |--------|---------|
 | `route` | `Route`, `RouteResponse`, layouts, metadata cascade, route context layer |
-| `manifest` | `IslandManifest` — loads the island/asset manifest emitted by the build toolchain |
-| `bootstrap` | Renders the React import map + island bootstrap script from the manifest |
+| `manifest` | `IslandManifest`, the optional legacy React island manifest installed with `with_island_manifest` |
+| `bootstrap` | Renders the React import map + island bootstrap script from that manifest |
 | `static_service` | Serves embedded static assets (`EmbeddedStaticService`) |
 | `external` | Mounts external apps (`ExternalApp` — static, SSR upstream, CSR SPA) |
 | `proxy` | Reverse proxy to a fixed upstream (used by `ExternalAppStrategy::Ssr`) |
@@ -142,11 +142,9 @@ let (router, computed_metadata) = router_from_spec(vec![Route::layout(
 
 ```rust
 use std::time::Duration;
-use proa_framework_axum::{FrameworkBuilder, IslandManifest, ProaConfig};
+use proa_framework_axum::{FrameworkBuilder, ProaConfig};
 
-let manifest = IslandManifest::load_from_path("dist/island-manifest.json")?;
-
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_config(ProaConfig::default())
     .with_dynamic_routes(my_router())
     .with_static_service(proa_framework_axum::standalone_static_router("dist"))
@@ -157,6 +155,21 @@ proa_framework_axum::serve(listener, app, Duration::from_secs(30)).await?;
 ```
 
 `FrameworkBuilder::build()` returns an `axum::Router`, so anything downstream of it (middleware, nesting under another router, tracing, CORS) works via the standard Axum / tower ecosystem.
+
+### Rendering without a server
+
+`RouteResponse::render_to_bytes` finalizes one response into a complete HTML
+document with no listener, no island manifest, and no async runtime. It is
+available on this crate's `RouteResponse` and on `proa_framework_core`'s, so a
+static renderer can skip Axum and tokio entirely. Static exports and snapshot
+tests get the same managed head and RSJS runtime tags a served route would:
+
+```rust,ignore
+let html = RouteResponse::ssr(RootDocument { children: HomePage })
+    .with_head(HeadConfig::default())
+    .render_to_bytes()?;
+std::fs::write("output/index.html", html)?;
+```
 
 `proa_framework_axum::serve` waits for Ctrl-C or SIGTERM, immediately stops
 accepting new connections, and starts the supplied drain deadline at that
@@ -179,7 +192,7 @@ and mount prefix:
 ```rust
 use proa_framework_axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_base_path(BasePath::new("/apps/demo")?)
     .with_public_origin("https://example.com")?
     .with_sitemap([SitemapUrl::new("/")?, SitemapUrl::new("/pricing")?])
@@ -303,7 +316,7 @@ should therefore use cancellation-safe async operations.
 Turn it on with one builder call:
 
 ```rust,ignore
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_strict_csp()
     .build();
 ```
@@ -329,7 +342,7 @@ rollout:
 ```rust,ignore
 use proa_framework_axum::CspPolicy;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_csp_policy(
         CspPolicy::strict()
             .with_directive("img-src", "'self' data: https://cdn.example")
@@ -364,7 +377,7 @@ execution does not require `'unsafe-inline'`.
 ```rust,ignore
 use proa_framework_axum::{ExternalApp, FrameworkBuilder};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_external_app(ExternalApp::static_app("/docs", "apps/docs/out"))
     .with_external_app(ExternalApp::csr_app("/app", "apps/app/dist", None))
     .with_external_app(ExternalApp::ssr_app("/api", "http://localhost:4000".to_string()))

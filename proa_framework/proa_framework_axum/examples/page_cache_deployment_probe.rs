@@ -16,7 +16,7 @@ use std::sync::{
 use std::time::Duration;
 
 use axum::{routing::get, Router};
-use proa_framework_axum::{FrameworkBuilder, IslandManifest, PageCacheLayer, Route, RouteResponse};
+use proa_framework_axum::{FrameworkBuilder, PageCacheLayer, Route, RouteResponse};
 use reqwest::{header, StatusCode};
 use serde_json::json;
 
@@ -56,14 +56,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
     )
     .with_page_cache(PageCacheLayer::for_current_build()?);
-    let app = FrameworkBuilder::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: None,
-    })
-    .with_dynamic_routes(Router::new().merge(route.into_router()))
-    .build();
+    let app = FrameworkBuilder::new()
+        .with_dynamic_routes(Router::new().merge(route.into_router()))
+        .build();
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let url = format!("http://{}/promo/summer", listener.local_addr()?);

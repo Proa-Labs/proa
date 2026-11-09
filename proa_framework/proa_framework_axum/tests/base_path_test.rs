@@ -16,8 +16,7 @@ use proa_core::{
     BasePath, DataLoader, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError,
 };
 use proa_framework_axum::{
-    app_url, router_from_spec, CssAsset, FrameworkBuilder, IslandManifest, ManifestAssets,
-    MarkdownAlternate, Route, RouteResponse,
+    app_url, router_from_spec, FrameworkBuilder, MarkdownAlternate, Route, RouteResponse,
 };
 use proa_macros::{html, html_sync};
 use proa_stream::Suspense;
@@ -83,19 +82,7 @@ static CLASS_REG: &'static rsjs::ClientClassManifestEntry = &CLASS;
 #[linkme(crate = rsjs::linkme)]
 static MODULE_REG: &'static rsjs::ClientModuleManifestEntry = &MODULE;
 
-fn manifest() -> IslandManifest {
-    IslandManifest {
-        islands: HashMap::new(),
-        assets: ManifestAssets {
-            css: Some(CssAsset {
-                path: "/static/styles.css".into(),
-                size: None,
-            }),
-        },
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    }
-}
+const STYLESHEET: &str = "/static/styles.css";
 
 struct Page;
 impl<L: DataLoader> WebRenderSync<L> for Page {
@@ -145,7 +132,8 @@ fn app(prefix: &str) -> Router {
             get(|Extension(base): Extension<BasePath>| async move { base.url("/api").to_string() }),
         ),
     ]);
-    FrameworkBuilder::new(manifest())
+    FrameworkBuilder::new()
+        .with_css_asset(STYLESHEET)
         .with_dynamic_routes_and_metadata(router, metadata)
         .with_static_service(
             Router::new()
@@ -309,7 +297,8 @@ async fn streamed_shell_arrives_before_late_island_with_prefixed_deferred_loader
             }
         }),
     );
-    let app = FrameworkBuilder::new(manifest())
+    let app = FrameworkBuilder::new()
+        .with_css_asset(STYLESHEET)
         .with_base_path(BasePath::new("/apps/demo").unwrap())
         .with_dynamic_routes(router)
         .build();
@@ -368,12 +357,10 @@ async fn streamed_shell_arrives_before_late_island_with_prefixed_deferred_loader
 #[tokio::test]
 async fn custom_layer_reconfiguration_resolves_manifest_from_original_paths() {
     for prefix in ["/preview/42", ""] {
-        let layer = proa_framework_axum::RouteContextLayer::new(
-            Arc::new(manifest()),
-            Arc::new(HashMap::new()),
-        )
-        .with_base_path(BasePath::new("/old").unwrap())
-        .with_base_path(BasePath::new(prefix).unwrap());
+        let layer = proa_framework_axum::RouteContextLayer::new(Arc::new(HashMap::new()))
+            .with_css_asset(STYLESHEET)
+            .with_base_path(BasePath::new("/old").unwrap())
+            .with_base_path(BasePath::new(prefix).unwrap());
         let app = Router::new()
             .route(
                 "/css",

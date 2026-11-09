@@ -45,7 +45,7 @@ use proa_framework_axum::FrameworkBuilder;
 let head = HeadConfig::default()
     .with_urls(HeadUrlPolicy::new("https://acme.example", "/")?);
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(routes)
     .build();

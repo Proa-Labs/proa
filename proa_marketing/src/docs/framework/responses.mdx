@@ -95,4 +95,23 @@ pub async fn handler() -> RouteResponse {
 }
 ```
 
-The island names must exist in the `IslandManifest` passed to `FrameworkBuilder::new`.
+The island names must exist in the `IslandManifest` installed with `FrameworkBuilder::with_island_manifest`. RSJS islands register themselves and need neither call.
+
+## Rendering without a server
+
+`RouteResponse::render_to_bytes` finalizes a response into one HTML document with no HTTP server, no island manifest, and no async runtime. It applies the same managed head and RSJS runtime tags the Axum adapter would, so static exports, snapshot tests, and plain `fn main` programs render the exact bytes a route serves.
+
+```rust filename="src/main.rs"
+use proa_core::HeadConfig;
+use proa_framework_core::RouteResponse;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let html = RouteResponse::ssr(RootDocument { children: HomePage })
+        .with_head(HeadConfig::default())
+        .render_to_bytes()?;
+    std::fs::write("./output/index.html", html)?;
+    Ok(())
+}
+```
+
+`render_to_string` returns the same document as a `String`, and the `proa_framework_axum::RouteResponse` wrapper exposes both methods for tests inside an Axum application. Buffered async plans run to completion on the calling thread; streamed plans are collected into one buffer. Response status and headers are discarded. Programs that only render this way depend on `proa_framework_core` with `default-features = false`, which leaves tokio out of the build; eager `proa_stream` preloads need a tokio runtime and are the one feature that does not work there.

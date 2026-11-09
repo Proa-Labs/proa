@@ -14,8 +14,9 @@ use proa_core::{
 };
 use proa_framework_core::{
     finalize_route_response, finalize_route_response_stream, finalize_route_response_sync,
-    FrameworkBody, FrameworkRequestContext, FrameworkResponse, FrameworkSendStream,
-    FrameworkStreamFactory, RouteFinalizeMode, RouteResponse as CoreRouteResponse,
+    FrameworkBody, FrameworkError, FrameworkRequestContext, FrameworkResponse,
+    FrameworkSendStream, FrameworkStreamFactory, RouteFinalizeMode,
+    RouteResponse as CoreRouteResponse,
 };
 use proa_react::ReactBootstrapConfig;
 use tracing::error;
@@ -165,6 +166,19 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// Chunked modes stream; static and agent modes buffer.
     pub fn with_render_mode(self, render_mode: RenderMode) -> Self {
         Self(self.0.with_render_mode(render_mode))
+    }
+
+    /// Render this response to a complete HTML document without an HTTP
+    /// server or an async runtime. Forwards to
+    /// [`proa_framework_core::RouteResponse::render_to_bytes`], which documents
+    /// the plan handling and the `rt-tokio` preload caveat.
+    pub fn render_to_bytes(self) -> Result<bytes::Bytes, FrameworkError> {
+        self.0.render_to_bytes()
+    }
+
+    /// [`render_to_bytes`](Self::render_to_bytes) as an owned UTF-8 `String`.
+    pub fn render_to_string(self) -> Result<String, FrameworkError> {
+        self.0.render_to_string()
     }
 }
 

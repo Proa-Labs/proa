@@ -144,7 +144,6 @@ mod tests {
             islands,
             assets: ManifestAssets::default(),
             import_map: HashMap::new(),
-            ssr_bundle: None,
         };
 
         let mut cx = Ctx::new();
@@ -179,7 +178,6 @@ mod tests {
             islands,
             assets: ManifestAssets::default(),
             import_map: HashMap::new(),
-            ssr_bundle: None,
         };
 
         let mut cx = Ctx::new();

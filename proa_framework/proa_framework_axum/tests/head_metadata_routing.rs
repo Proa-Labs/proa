@@ -12,7 +12,7 @@ use proa_core::{
     ComponentRole, HeadConfig, HeadMetadata, HeadUrlPolicy, SyncHeadOperation, WebContext,
     WebRenderSync, WriteError,
 };
-use proa_framework_axum::{FrameworkBuilder, IslandManifest, Route, RouteResponse};
+use proa_framework_axum::{FrameworkBuilder, Route, RouteResponse};
 use proa_macros::html_sync;
 use tower::ServiceExt;
 
@@ -89,13 +89,7 @@ fn app(spec: bool, streaming: bool) -> Router {
     let routes = Router::new()
         .nest("/shop", routes)
         .route("/plain", get(|| async { "ok" }));
-    let manifest = IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: Default::default(),
-    };
-    FrameworkBuilder::new(manifest)
+    FrameworkBuilder::new()
         .with_head(
             HeadConfig::default()
                 .with_urls(HeadUrlPolicy::new("https://shop.example", "/").unwrap()),
@@ -174,14 +168,8 @@ async fn params_survive_an_inner_context_layer_and_an_original_uri_override() {
         } else {
             Router::new().route("/blog/:slug", get(page))
         };
-        let manifest = IslandManifest {
-            islands: Default::default(),
-            assets: Default::default(),
-            import_map: Default::default(),
-            ssr_bundle: Default::default(),
-        };
-        let layer = RouteContextLayer::new(Arc::new(manifest), Arc::new(Default::default()))
-            .with_head(HeadConfig::default());
+        let layer =
+            RouteContextLayer::new(Arc::new(Default::default())).with_head(HeadConfig::default());
         let app = Router::new().nest("/shop", routes.layer(layer));
         // OriginalUri may be absent, unrelated, or a rewritten path that still
         // matches the pattern. Axum's capture for the current URI always wins.
@@ -258,13 +246,7 @@ async fn robots_file_and_page_directives_are_independent_in_buffered_and_streame
             head.twitter(Twitter::new().site("@shop"))
         })
         .unwrap();
-    let manifest = IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: None,
-    };
-    let app = FrameworkBuilder::new(manifest)
+    let app = FrameworkBuilder::new()
         .with_head(head)
         .with_robots(RobotsTxt::new().disallow("/admin/").unwrap())
         .with_dynamic_routes(

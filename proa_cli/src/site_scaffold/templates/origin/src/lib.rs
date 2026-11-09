@@ -12,7 +12,6 @@ mod __proa_fonts_generated {
     include!(concat!(env!("OUT_DIR"), "/proa_fonts.rs"));
 }
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use axum::{
@@ -23,7 +22,7 @@ use axum::{
     Router,
 };
 use proa_framework_axum::{
-    explicit_markdown, negotiate, router_from_spec, rsjs_assets_router, BasePath, IslandManifest,
+    explicit_markdown, negotiate, router_from_spec, rsjs_assets_router, BasePath,
     MarkdownAlternate, Route, RouteContextLayer, RouteResponse,
 };
 use proa_stream::DataResolver;
@@ -131,12 +130,6 @@ pub fn app_with_base_path(base_path: BasePath) -> Router {
         loader: Arc::new(AtlasLoader::new(client)),
     };
     let (router, metadata) = router_from_spec(vec![Route::endpoint("/", get(index))]);
-    let manifest = Arc::new(IslandManifest {
-        islands: HashMap::new(),
-        assets: Default::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    });
     router
         .route("/index.md", get(markdown))
         .route("/site/:file", get(site_markdown))
@@ -160,7 +153,7 @@ pub fn app_with_base_path(base_path: BasePath) -> Router {
         .with_state(state)
         .merge(rsjs_assets_router(&base_path))
         .layer(
-            RouteContextLayer::new(manifest, metadata)
+            RouteContextLayer::new(metadata)
                 .with_base_path(base_path)
                 .with_head(proa_core::HeadConfig::default()),
         )

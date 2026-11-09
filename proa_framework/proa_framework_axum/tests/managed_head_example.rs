@@ -15,7 +15,7 @@ use proa_core::{
     ComponentRole, DataLoader, HeadConfig, HeadMedia, HeadUrlPolicy, LoadKey, OpenGraph,
     RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError,
 };
-use proa_framework_axum::{FrameworkBuilder, IslandManifest, RouteResponse};
+use proa_framework_axum::{FrameworkBuilder, RouteResponse};
 use proa_macros::{html, html_sync};
 use proa_stream::DataResolver;
 use std::{future::Future, sync::Arc};
@@ -124,7 +124,6 @@ impl<L: DataLoader> WebRender<L> for ShopLayout {
 }
 
 fn shop_router<L: DataLoader + 'static>(
-    manifest: IslandManifest,
     catalog: Arc<L>,
     public_origin: &str,
 ) -> Result<Router, WriteError> {
@@ -144,7 +143,7 @@ fn shop_router<L: DataLoader + 'static>(
             }
         }),
     );
-    Ok(FrameworkBuilder::new(manifest)
+    Ok(FrameworkBuilder::new()
         .with_head(head)
         .with_dynamic_routes(routes)
         .build())
@@ -204,14 +203,8 @@ async fn fetch(app: &Router, uri: &str) -> String {
 
 #[tokio::test]
 async fn pr_example_resolves_layout_defaults_page_overrides_and_one_lookup_per_request() {
-    let manifest: IslandManifest = serde_json::from_str(r#"{"islands":{}}"#).unwrap();
     let catalog = Arc::new(Catalog::default());
-    let app = shop_router(
-        manifest,
-        Arc::clone(&catalog),
-        "https://staging.example.com",
-    )
-    .unwrap();
+    let app = shop_router(Arc::clone(&catalog), "https://staging.example.com").unwrap();
 
     let html = fetch(&app, "/products/42").await;
     let head_end = html.find("</head>").expect("document head");

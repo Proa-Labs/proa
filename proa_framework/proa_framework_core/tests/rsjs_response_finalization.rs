@@ -8,7 +8,6 @@
 //! finalization; it never calls the page planner or appends runtime tags
 //! itself, except for the explicit custom-adapter API coverage.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::task::Poll;
 use std::time::Duration;
@@ -19,9 +18,7 @@ use proa_core::{
     CspNonce, DataLoader, ErrorBoundary, NoLoader, RenderBuffer, RenderMode, RenderOutcome,
     WebContext, WebRender, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_framework_core::{
-    FrameworkBody, FrameworkRequestContext, IslandManifest, ManifestAssets, RouteResponse,
-};
+use proa_framework_core::{FrameworkBody, FrameworkRequestContext, IslandManifest, RouteResponse};
 use proa_stream::Suspense;
 
 const BASIC_ISLAND_ID: &str = "framework_auto_basic";
@@ -112,12 +109,7 @@ static LEAK_ISLAND_REGISTRATION: &'static rsjs::IslandManifestEntry = &LEAK_ISLA
 static RECOVERY_ISLAND_REGISTRATION: &'static rsjs::IslandManifestEntry = &RECOVERY_ISLAND;
 
 fn empty_react_manifest() -> IslandManifest {
-    IslandManifest {
-        islands: HashMap::new(),
-        assets: ManifestAssets::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    }
+    IslandManifest::default()
 }
 
 fn finalize(route: RouteResponse<NoLoader>, request: &FrameworkRequestContext) -> String {

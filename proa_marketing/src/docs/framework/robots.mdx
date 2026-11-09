@@ -14,7 +14,7 @@ Add crawler rules to your application builder:
 ```rust filename="src/main.rs" {4}
 use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_robots(RobotsTxt::new().allow("/")?.disallow("/private/")?)
     .try_build()?;
 ```
@@ -45,7 +45,7 @@ let robots = RobotsTxt::new()
     .group_agents(["Applebot", "Bingbot"])?
     .disallow("/")?;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_robots(robots)
     .try_build()?;
 ```
@@ -84,7 +84,7 @@ let robots = RobotsTxt::new()
     .host("https://example.com")?
     .sitemap("https://example.com/news-sitemap.xml")?;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_robots(robots)
     .try_build()?;
 ```
@@ -132,7 +132,7 @@ mod sitemap;
 use proa_framework_axum::FrameworkBuilder;
 
 // Inside async main, before binding the listener:
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_dynamic_routes_and_metadata(routes, metadata)
     .with_base_path(base_path)
     .with_public_origin(&origin)?
@@ -169,7 +169,7 @@ Show the mount behavior with a concrete configuration:
 ```rust filename="src/main.rs" {5,7}
 use proa_framework_axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_public_origin("https://example.com")?
     .with_base_path(BasePath::new("/apps/demo")?)
     .with_sitemap([SitemapUrl::new("/pricing")?])

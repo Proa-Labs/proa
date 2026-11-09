@@ -8,7 +8,7 @@ description: Reject forged cross-origin writes, and add the CSRF defense Proa do
 Safe methods pass. Non-browser clients pass. You do not turn this on.
 
 ```rust filename="src/main.rs"
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_trusted_origin("https://admin.example.com")
     .build();
 ```

@@ -651,7 +651,7 @@ Dynamic segment composition is intended to preserve the direct-buffer approach, 
 
 Configure metadata URL resolution once at application startup, then pass the resulting `HeadConfig` to [FrameworkBuilder](/docs/framework/configuration) with `with_head(...)`. The builder makes this policy available to the rendered routes' `cx.head_mut()` setters. Creating the configuration alone does not install it.
 
-In this example, `manifest` is your application's `IslandManifest` and `routes` is its Axum `Router`. Both the framework and metadata policy use the same `/shop` mount:
+In this example, `routes` is your application's Axum `Router`. Both the framework and metadata policy use the same `/shop` mount:
 
 ```rust filename="App configuration"
 use proa_core::{HeadConfig, HeadUrlPolicy};
@@ -661,7 +661,7 @@ let mount = "/shop";
 let head = HeadConfig::default()
     .with_urls(HeadUrlPolicy::new("https://shop.example", mount)?);
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_base_path(BasePath::new(mount)?)
     .with_head(head)
     .with_dynamic_routes(routes)
@@ -684,7 +684,7 @@ Currently, this mount is configured separately from `FrameworkBuilder::with_base
 
 ### External resource origins
 
-This is also application startup configuration for [FrameworkBuilder](/docs/framework/configuration). Stylesheets and modules registered through `cx.head_mut()` must come from the public origin or an allowed resource origin. Allow a CDN origin in the policy, then install it with `with_head(...)` before serving your routes. `manifest` and `routes` are your application's existing manifest and Axum router:
+This is also application startup configuration for [FrameworkBuilder](/docs/framework/configuration). Stylesheets and modules registered through `cx.head_mut()` must come from the public origin or an allowed resource origin. Allow a CDN origin in the policy, then install it with `with_head(...)` before serving your routes. `routes` is your application's existing Axum router:
 
 ```rust filename="App configuration"
 use proa_core::{HeadConfig, HeadUrlPolicy};
@@ -694,7 +694,7 @@ let urls = HeadUrlPolicy::new("https://shop.example", "/")?
     .allow_resource_origin("https://cdn.example")?;
 let head = HeadConfig::default().with_urls(urls);
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(routes)
     .build();

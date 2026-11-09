@@ -74,7 +74,7 @@ let loader = Arc::new(AppLoader { db });
 
 let router = Router::new().route("/products/:id", get(product));
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_dynamic_routes(router)
     .build()
     .layer(Extension(loader));

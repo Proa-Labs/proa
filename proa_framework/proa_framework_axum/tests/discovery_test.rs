@@ -1,8 +1,6 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
-
 use axum::{
     body::{to_bytes, Body},
     http::{header, Method, Request, StatusCode},
@@ -10,18 +8,13 @@ use axum::{
     Router,
 };
 use proa_framework_axum::{
-    robots_txt, BasePath, ChangeFreq, DiscoveryError, FrameworkBuilder, IslandManifest,
-    ManifestAssets, RobotsTxt, SitemapFile, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
+    robots_txt, BasePath, ChangeFreq, DiscoveryError, FrameworkBuilder, RobotsTxt, SitemapFile,
+    SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
 };
 use tower::ServiceExt;
 
 fn builder() -> FrameworkBuilder {
-    FrameworkBuilder::new(IslandManifest {
-        islands: HashMap::new(),
-        assets: ManifestAssets::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    })
+    FrameworkBuilder::new()
 }
 
 fn entries(base: &str) -> Vec<SitemapUrl> {

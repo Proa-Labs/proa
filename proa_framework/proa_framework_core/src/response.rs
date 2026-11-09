@@ -719,6 +719,44 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         encode_client_payload(html, resolved_title.unwrap_or(page_title), decisions)
     }
 
+    /// Render this response to a complete HTML document without an HTTP
+    /// server or an async runtime.
+    ///
+    /// Use it to write static files, snapshot a page in a test, or render
+    /// from a plain `fn main`. The response finalizes exactly as the Axum
+    /// adapter would at the origin root: the managed head selected with
+    /// [`with_head`](Self::with_head) is prepared and inserted, and the RSJS
+    /// runtime tags for any islands the page rendered are appended. No React
+    /// island manifest is installed, so pages that rely on
+    /// [`with_islands`](Self::with_islands) need the HTTP adapter instead.
+    ///
+    /// Buffered async plans are driven to completion on the calling thread.
+    /// Streamed plans are collected into one buffer and lose only their
+    /// incremental delivery. Response status and headers are discarded; only
+    /// the document bytes are returned.
+    ///
+    /// Eager `proa_stream` preloads (the default `rt-tokio` feature) spawn on
+    /// an ambient tokio runtime and panic without one. A static renderer that
+    /// uses preload keys should call this inside a tokio runtime or disable
+    /// that feature.
+    pub fn render_to_bytes(self) -> Result<Bytes, FrameworkError> {
+        let manifest = IslandManifest::default();
+        let request = FrameworkRequestContext::default();
+        let response = if self.is_synchronous() {
+            self.into_sync_framework_response(&manifest, &request, RouteFinalizeMode::Document)?
+        } else {
+            futures::executor::block_on(self.into_framework_response(&manifest, &request))?
+        };
+        collect_framework_body(response.body)
+    }
+
+    /// [`render_to_bytes`](Self::render_to_bytes) as an owned UTF-8 `String`.
+    pub fn render_to_string(self) -> Result<String, FrameworkError> {
+        let bytes = self.render_to_bytes()?;
+        String::from_utf8(Vec::from(bytes))
+            .map_err(|err| FrameworkError::Encoding(err.utf8_error()))
+    }
+
     fn into_sync_framework_response(
         self,
         manifest: &IslandManifest,
@@ -827,6 +865,44 @@ pub fn finalize_route_response_sync<L: DataLoader + 'static>(
     mode: RouteFinalizeMode,
 ) -> Result<FrameworkResponse, FrameworkError> {
     response.into_sync_framework_response(manifest, request, mode)
+}
+
+/// Drain any response body shape into one contiguous buffer on the calling
+/// thread. Backs [`RouteResponse::render_to_bytes`].
+// proa-perf-ok(scope): static export collects a whole document into one owned buffer by design.
+fn collect_framework_body(body: FrameworkBody) -> Result<Bytes, FrameworkError> {
+    match body {
+        FrameworkBody::Full(bytes) => Ok(bytes),
+        FrameworkBody::BufferedPages(buffer) => Ok(Bytes::from(buffer.into_vec())),
+        FrameworkBody::Stream(factory) => collect_stream_factory(factory),
+        FrameworkBody::Managed(factory) => {
+            let (factory, _prepared_head) = crate::managed_response::adapt(factory);
+            collect_stream_factory(factory)
+        }
+    }
+}
+
+// proa-perf-ok(scope): static export collects a whole document into one owned buffer by design.
+fn collect_stream_factory(factory: FrameworkStreamFactory) -> Result<Bytes, FrameworkError> {
+    use futures::StreamExt;
+    futures::executor::block_on(async move {
+        let mut out = Vec::new();
+        match factory {
+            FrameworkStreamFactory::Local(make) => {
+                let mut stream = make();
+                while let Some(chunk) = stream.next().await {
+                    out.extend_from_slice(&chunk?);
+                }
+            }
+            FrameworkStreamFactory::Send(make) => {
+                let mut stream = make();
+                while let Some(chunk) = stream.next().await {
+                    out.extend_from_slice(&chunk?);
+                }
+            }
+        }
+        Ok(Bytes::from(out))
+    })
 }
 
 /// Finalize a streamed document without polling its local render future.
@@ -2709,12 +2785,7 @@ mod tests {
             render_mode: RenderMode::ChunkedOutOfOrder,
             ..FrameworkRequestContext::default()
         };
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
+        let manifest = IslandManifest::default();
         let response = render_send_stream_html_response(
             Box::new(MigratingSendPage),
             Vec::new(),
@@ -2865,12 +2936,7 @@ mod tests {
             }
         }
 
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
+        let manifest = IslandManifest::default();
         let request = FrameworkRequestContext::default();
         for plan in [
             RouteResponse::ssr(HeaderPage),
@@ -2923,12 +2989,7 @@ mod tests {
 
     #[test]
     fn render_mode_selects_async_delivery_instead_of_creating_mixed_states() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
+        let manifest = IslandManifest::default();
         let request = FrameworkRequestContext::default();
 
         let streamed = futures::executor::block_on(
@@ -2950,12 +3011,7 @@ mod tests {
 
     #[test]
     fn sync_response_appends_rsjs_query_seed_table_before_bootstrap() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
+        let manifest = IslandManifest::default();
         let response = render_sync_html_response(
             Box::new(QuerySeedComponent),
             Vec::new(),
@@ -3007,12 +3063,7 @@ mod tests {
 
     #[test]
     fn sync_response_appends_shared_state_seed_table_before_bootstrap() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
+        let manifest = IslandManifest::default();
         let response = render_sync_html_response(
             Box::new(SharedSeedComponent { acquire: true }),
             Vec::new(),
@@ -3043,12 +3094,7 @@ mod tests {
             String::from_utf8(bytes.to_vec()).unwrap()
         }
 
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
+        let manifest = IslandManifest::default();
         let request = FrameworkRequestContext::default();
 
         let sync_unused = render_sync_html_response(
@@ -3118,12 +3164,7 @@ mod tests {
 
     #[test]
     fn bootstrap_finalizer_skips_empty_island_set() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
+        let manifest = IslandManifest::default();
         let mut buffer = b"<main>server only</main>".to_vec();
 
         render_bootstrap_if_needed(
@@ -3156,7 +3197,6 @@ mod tests {
             islands,
             assets: ManifestAssets::default(),
             import_map: HashMap::new(),
-            ssr_bundle: None,
         };
         let mut buffer = b"<main>server only</main>".to_vec();
 
@@ -3263,7 +3303,6 @@ mod tests {
             islands,
             assets: ManifestAssets::default(),
             import_map: HashMap::new(),
-            ssr_bundle: None,
         }
     }
 
@@ -3424,12 +3463,7 @@ mod tests {
 
     #[test]
     fn stream_response_surfaces_late_boundary_provider_safely() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
+        let manifest = IslandManifest::default();
         let witness = std::sync::Arc::new(std::sync::Mutex::new(None));
         let request = FrameworkRequestContext {
             render_mode: RenderMode::ChunkedOutOfOrder,
@@ -3604,12 +3638,7 @@ mod tests {
 
     #[test]
     fn out_of_order_boundary_publishes_newly_live_provider_seed_before_swap() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
+        let manifest = IslandManifest::default();
         let request = FrameworkRequestContext {
             render_mode: RenderMode::ChunkedOutOfOrder,
             ..FrameworkRequestContext::default()
@@ -3662,12 +3691,7 @@ mod tests {
 
     #[test]
     fn failed_out_of_order_consumer_does_not_publish_provider_seed() {
-        let manifest = IslandManifest {
-            islands: HashMap::new(),
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
-        };
+        let manifest = IslandManifest::default();
         let request = FrameworkRequestContext {
             render_mode: RenderMode::ChunkedOutOfOrder,
             ..FrameworkRequestContext::default()

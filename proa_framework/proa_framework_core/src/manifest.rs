@@ -8,16 +8,21 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-#[derive(Debug, Clone, Deserialize)]
+/// Legacy React island manifest.
+///
+/// Only applications that render `proa_react` islands need one. RSJS islands
+/// register themselves through the linked `rsjs` manifest and never read this
+/// type. The default value is an empty manifest, which is what
+/// `FrameworkBuilder::new()` and `RouteContextLayer::new(..)` install until
+/// `with_island_manifest` replaces it.
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct IslandManifest {
+    #[serde(default)]
     pub islands: HashMap<String, IslandEntry>,
     #[serde(default)]
     pub assets: ManifestAssets,
     #[serde(default)]
     pub import_map: HashMap<String, String>,
-    /// Filename of the SSR IIFE bundle (e.g. "ssr-entry.js") relative to dist dir.
-    #[serde(default)]
-    pub ssr_bundle: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -183,10 +188,18 @@ mod tests {
         islands.insert(island_name.to_string(), entry(module_path));
         IslandManifest {
             islands,
-            assets: ManifestAssets::default(),
-            import_map: HashMap::new(),
-            ssr_bundle: None,
+            ..IslandManifest::default()
         }
+    }
+
+    #[test]
+    fn default_manifest_is_empty_and_parses_from_an_empty_object() {
+        let manifest = IslandManifest::default();
+        assert!(manifest.islands.is_empty());
+        assert!(manifest.import_map.is_empty());
+        assert!(manifest.assets.css.is_none());
+        let parsed: IslandManifest = serde_json::from_str("{}").expect("empty manifest parses");
+        assert!(parsed.islands.is_empty());
     }
 
     #[test]
@@ -301,7 +314,6 @@ mod base_path_tests {
                 ("react".into(), "https://cdn.test/react.js".into()),
                 ("widget".into(), "/static/widget.js".into()),
             ]),
-            ssr_bundle: Some("ssr-entry.js".into()),
         }
         .with_base_path(&proa_core::BasePath::new("/apps/demo").unwrap());
         let entry = &manifest.islands["widget"];
@@ -317,6 +329,5 @@ mod base_path_tests {
         );
         assert_eq!(manifest.import_map["react"], "https://cdn.test/react.js");
         assert_eq!(manifest.import_map["widget"], "/apps/demo/static/widget.js");
-        assert_eq!(manifest.ssr_bundle.as_deref(), Some("ssr-entry.js"));
     }
 }

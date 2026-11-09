@@ -30,7 +30,7 @@ let static_router = Router::new().nest_service(
         .service(ServeDir::new("frontend/dist/assets")),
 );
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_static_service(static_router)
     .build();
 ```
@@ -92,7 +92,7 @@ Enable their HTTP routes with `with_rsjs_assets()`:
 ```rust filename="src/app.rs"
 use proa_framework_axum::FrameworkBuilder;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_rsjs_assets()
     .with_dynamic_routes_and_metadata(routes, metadata)
     .build();
@@ -121,29 +121,20 @@ routes remain unprefixed and HTML responses keep streaming. See
 for proxy setup and [RSJS runtime wiring](/docs/rsjs/runtime) for asset selection
 and hydration.
 
-## Linking the CSS manifest
+## Linking the application stylesheet
 
-`IslandManifest` can carry a CSS asset path:
+Register the stylesheet path on the builder:
 
 ```rust filename="src/app.rs"
-use std::collections::HashMap;
+use proa_framework_axum::FrameworkBuilder;
 
-use proa_framework_axum::{CssAsset, IslandManifest, ManifestAssets};
-
-let manifest = IslandManifest {
-    islands: HashMap::new(),
-    assets: ManifestAssets {
-        css: Some(CssAsset {
-            path: "/static/assets/app.css".to_string(),
-            size: None,
-        }),
-    },
-    import_map: HashMap::new(),
-    ssr_bundle: None,
-};
+let app = FrameworkBuilder::new()
+    .with_css_asset("/static/assets/app.css")
+    .with_dynamic_routes(routes)
+    .build();
 ```
 
-Document layouts can call `render_css_link(cx)` to emit a stylesheet link for the current manifest.
+Document layouts can call `render_css_link(cx)` to emit a stylesheet link for that path, and `css_asset_path()` returns it for custom markup. The configured base path is applied at startup. Custom routers use `RouteContextLayer::with_css_asset` the same way.
 
 Whole applications mount the same way a stylesheet does, through the builder.
 
@@ -154,7 +145,7 @@ Use `with_external_app` to mount another app under a path. This supports static 
 ```rust filename="src/app.rs"
 use proa_framework_axum::{ExternalApp, FrameworkBuilder};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_external_app(ExternalApp::static_app("/docs", "./apps/docs/out"))
     .with_external_app(ExternalApp::ssr_app(
         "/admin",
