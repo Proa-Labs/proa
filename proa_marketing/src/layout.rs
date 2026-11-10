@@ -474,3 +474,39 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn page_shells_load_the_search_islands_runtime_and_modules() {
+        let mut cx = WebContext::new();
+        futures::executor::block_on(SearchModal.render(&mut cx).resolve()).unwrap();
+        let search_assets: Vec<_> = cx.rsjs_artifacts_snapshot().rendered_islands().collect();
+        assert!(
+            !search_assets.is_empty(),
+            "search must register client work"
+        );
+
+        let meta = PageMeta {
+            title: "Test",
+            description: "Test",
+            path: "/",
+        };
+        for html in [
+            render_page(meta, text("body")).0,
+            render_docs_page(meta, text("body")).0,
+        ] {
+            assert!(html.contains(r#"<script type="module" src="/rsjs-runtime.js""#));
+            assert!(html.contains(&format!(
+                r#"<script type="module" src="{SEARCH_SCRIPT_SRC}""#
+            )));
+            for asset in &search_assets {
+                assert!(html.contains(&format!(
+                    r#"<script type="module" src="/rsjs/island/{asset}.js""#
+                )));
+            }
+        }
+    }
+}
