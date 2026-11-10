@@ -1605,7 +1605,12 @@ fn facade_imports_preserve_coverage_and_detect_omitted_inputs() {
     .replace("proa_macros::", "proa::");
     assert!(lint(&original).is_empty());
     let changed = original.replace(r#"md_sync! {"{self.title}"}"#, r#"md_sync! {""}"#);
-    assert_eq!(missing(&changed).len(), 1);
+    let diagnostics = missing(&changed);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].suggestions[0].replacement,
+        "proa::omit!(self.title);"
+    );
     let qualified = changed
         .replace("html_sync!", "proa::html_sync!")
         .replace("md_sync!", "proa::md_sync!");
