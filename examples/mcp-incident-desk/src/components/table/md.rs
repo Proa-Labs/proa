@@ -5,16 +5,16 @@ use super::{
     Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow,
 };
 use crate::components::_proa::md_support::block_boundary;
-use proa_core::WebContext;
-use proa_core::{MdRenderSync, WriteBuf, WriteError};
-use proa_macros::md_sync;
+use proa::md_sync;
+use proa::WebContext;
+use proa::{MdRenderSync, WriteBuf, WriteError};
 
 /// Table is a passthrough — children (header, body) produce the table markdown.
 ///
 /// Rows themselves never need a boundary: the first row follows Table's
 /// leading boundary and every later row follows the previous row's `\n`.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for Table<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for Table<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         block_boundary(cx)?;
@@ -26,8 +26,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 
 /// TableHeader renders its row, then writes the separator line.
 /// Children should be a single TableRow containing TableHead cells.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for TableHeader<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for TableHeader<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         // Render the header row
@@ -45,8 +45,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// TableBody is a passthrough.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for TableBody<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for TableBody<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         self.children.render_md(cx)?;
@@ -55,8 +55,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// TableFooter is a passthrough (footer rows render like body rows).
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for TableFooter<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for TableFooter<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         self.children.render_md(cx)?;
@@ -65,8 +65,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// TableRow renders as `| cell | cell |\n`.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for TableRow<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for TableRow<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { "|{self.children}\n" }.render_md(cx)
@@ -74,8 +74,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// TableHead renders as ` text |` and tracks that a separator is needed.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for TableHead<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for TableHead<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { " {self.children} |" }.render_md(cx)
@@ -83,8 +83,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// TableCell renders as ` text |`.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for TableCell<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for TableCell<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { " {self.children} |" }.render_md(cx)
@@ -92,8 +92,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// TableCaption renders as italic text below the table.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for TableCaption<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for TableCaption<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { "*{self.children}*" }.render_md(cx)?;
@@ -110,7 +110,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 /// render_table_with_separator(&mut cx, &["Name", "Status", "Role"]);
 /// ```
 pub fn write_separator<B: WriteBuf>(
-    cx: &mut WebContext<::proa_core::NoLoader, B>,
+    cx: &mut WebContext<::proa::NoLoader, B>,
     col_count: usize,
 ) -> Result<(), WriteError> {
     md_sync! { "|" }.render_md(cx)?;

@@ -7,9 +7,9 @@
 use super::recipe::{TextareaRecipeProps, TextareaSize, TEXTAREA_RECIPE};
 use crate::components::_proa::free_web::binding_to_js_attr;
 
-use proa_core::{WebContext, WebRenderSync, WriteBuf};
-use proa_ir::ReactiveAttr;
-use proa_macros::html_sync;
+use proa::html_sync;
+use proa::ir::ReactiveAttr;
+use proa::{WebContext, WebRenderSync, WriteBuf};
 /// Type-safe Textarea component.
 ///
 /// A form textarea field with support for various sizes and states.
@@ -19,7 +19,7 @@ use proa_macros::html_sync;
 ///
 /// ```ignore
 /// use crate::components::{Textarea, TextareaSize};
-/// use proa_macros::html_sync;
+/// use proa::html_sync;
 ///
 /// // Basic usage
 /// html_sync! {
@@ -100,12 +100,9 @@ impl Default for Textarea {
         Self::new()
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Textarea {
+impl<L: ::proa::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Textarea {
     #[inline(always)]
-    fn render(
-        self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = TEXTAREA_RECIPE.resolve(TextareaRecipeProps { size: self.size });
         let is_disabled = self.disabled.default;
         let is_aria_invalid = self.aria_invalid.default;
@@ -116,7 +113,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Textarea {
         let wrap_attr = self.wrap.map(|w| w.as_str());
         html_sync! {
             <textarea
-                class={proa_macros::text!("{} {}", style, self.class)}
+                class={proa::text!("{} {}", style, self.class)}
                 id={self.id}
                 name={self.name}
                 placeholder={self.placeholder}
@@ -138,7 +135,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Textarea {
                 data-bind-disabled={disabled_binding}
                 data-bind-aria-invalid={aria_invalid_binding}
             >
-                {proa_core::raw_text_ok(self.value.unwrap_or(""))}
+                {proa::raw_text_ok(self.value.unwrap_or(""))}
             </textarea>
         }
         .render(cx)

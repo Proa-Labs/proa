@@ -1594,3 +1594,39 @@ fn helper_child_guard_differences_are_warnings_in_both_directions() {
         assert!(diagnostics[0].message.contains("different presence conditions"));
     }
 }
+
+#[test]
+fn facade_imports_preserve_coverage_and_detect_omitted_inputs() {
+    let original = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        r#"md_sync! {"{self.title}"}.render_md(cx)"#,
+    )
+    .replace("proa_core::", "proa::")
+    .replace("proa_macros::", "proa::");
+    assert!(lint(&original).is_empty());
+    let changed = original.replace(r#"md_sync! {"{self.title}"}"#, r#"md_sync! {""}"#);
+    let diagnostics = missing(&changed);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].suggestions[0].replacement,
+        "proa::omit!(self.title);"
+    );
+    let facade_imports = IMPORTS
+        .replace("proa_core::", "proa::")
+        .replace("proa_macros::", "proa::");
+    let grouped_imports = format!(
+        "use {{ {} }};",
+        facade_imports.replace("use ", "").replace(';', ",")
+    );
+    let grouped = changed.replace(&facade_imports, &grouped_imports);
+    let grouped_diagnostics = missing(&grouped);
+    assert_eq!(grouped_diagnostics.len(), 1);
+    assert_eq!(
+        grouped_diagnostics[0].suggestions[0].replacement,
+        "proa::omit!(self.title);"
+    );
+    let qualified = changed
+        .replace("html_sync!", "proa::html_sync!")
+        .replace("md_sync!", "proa::md_sync!");
+    assert_eq!(missing(&qualified).len(), 1);
+}

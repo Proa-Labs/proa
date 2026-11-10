@@ -3,8 +3,8 @@
 
 use std::future::Future;
 
-use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::html_sync;
+use proa::{DataLoader, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError};
 
 use crate::loader::{database_status_key, DatabaseStatus};
 

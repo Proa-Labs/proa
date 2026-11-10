@@ -75,6 +75,9 @@ fn parse_args(args: TokenStream) -> syn::Result<IslandArgs> {
 /// Input must be a unit struct: `pub struct Counter;`
 /// The macro replaces it with a props struct + `IslandDef` static.
 pub fn island_attr(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let serde = proa_dsl::paths::runtime("serde");
+    let serde_path = serde.to_string().replace(' ', "");
+    let proa_react = proa_dsl::paths::runtime("proa_react");
     let args = parse_args(args)?;
 
     // Parse as a DeriveInput — the input must be a unit struct like `pub struct Counter;`
@@ -138,7 +141,8 @@ pub fn island_attr(args: TokenStream, input: TokenStream) -> syn::Result<TokenSt
     } else {
         // No props interface found — generate empty struct
         let def = quote! {
-            #[derive(serde::Serialize)]
+            #[derive(#serde::Serialize)]
+            #[serde(crate = #serde_path)]
             #vis struct #props_struct_name;
         };
         (def, false)
@@ -149,8 +153,8 @@ pub fn island_attr(args: TokenStream, input: TokenStream) -> syn::Result<TokenSt
 
     let static_def = quote! {
         #[allow(non_upper_case_globals)]
-        #vis static #static_name: proa_react::IslandDef<#props_struct_name> =
-            proa_react::IslandDef::new(#name_lit);
+        #vis static #static_name: #proa_react::IslandDef<#props_struct_name> =
+            #proa_react::IslandDef::new(#name_lit);
     };
 
     // Emit include_bytes! so Cargo watches the TSX file for changes
@@ -175,6 +179,8 @@ fn generate_props_struct(
     struct_name: &Ident,
     props: &tsx_parser::PropsInterface,
 ) -> syn::Result<(TokenStream, bool)> {
+    let serde = proa_dsl::paths::runtime("serde");
+    let serde_path = serde.to_string().replace(' ', "");
     let mut field_defs = Vec::new();
     let mut has_children = false;
 
@@ -211,7 +217,8 @@ fn generate_props_struct(
     }
 
     let def = quote! {
-        #[derive(serde::Serialize)]
+        #[derive(#serde::Serialize)]
+        #[serde(crate = #serde_path)]
         #vis struct #struct_name {
             #(#field_defs,)*
         }

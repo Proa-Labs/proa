@@ -162,6 +162,7 @@ fn render_trait_identity_assertion(
     parsed: &ParsedIsland,
     final_component_selection: Option<&FinalComponentSelection>,
 ) -> syn::Result<Stmt> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let trait_path = &parsed.trait_path;
     // Trust chain:
     // 1. descriptor compilation emits and type-checks the authored impl, so
@@ -180,11 +181,11 @@ fn render_trait_identity_assertion(
     };
     match parsed.render_kind {
         RenderKind::Sync => syn::parse2(quote! {
-            let _: &::proa_core::render::web_render::__private::SyncRenderTraitWitness =
+            let _: &#proa_core::render::web_render::__private::SyncRenderTraitWitness =
                 &<#render_trait_witness_receiver as #trait_path>::__PROA_RENDER_TRAIT_WITNESS;
         }),
         RenderKind::Async => syn::parse2(quote! {
-            let _: &::proa_core::render::web_render::__private::AsyncRenderTraitWitness =
+            let _: &#proa_core::render::web_render::__private::AsyncRenderTraitWitness =
                 &<#render_trait_witness_receiver as #trait_path>::__PROA_RENDER_TRAIT_WITNESS;
         }),
     }

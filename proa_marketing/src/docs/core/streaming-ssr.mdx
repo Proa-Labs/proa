@@ -40,7 +40,7 @@ With managed metadata enabled, Proa runs layout and Page head hooks before publi
 Use the framework response helpers rather than driving the stream yourself:
 
 ```rust filename="src/pages/product.rs"
-use proa_framework_axum::RouteResponse;
+use proa::axum::RouteResponse;
 
 RouteResponse::ssr_stream(ProductPage { id })
 ```
@@ -112,7 +112,7 @@ No markers, no templates, no script. That is the whole response.
 Out-of-order is the default for `ssr_stream`. Ask for the other one explicitly:
 
 ```rust filename="src/pages/product.rs"
-use proa_core::RenderMode;
+use proa::RenderMode;
 
 RouteResponse::ssr_stream(ProductPage { id })
     .with_render_mode(RenderMode::ChunkedInOrder)
@@ -120,7 +120,7 @@ RouteResponse::ssr_stream(ProductPage { id })
 
 Choose in-order when the reader must not depend on JavaScript, or when the response is consumed by something that reads bytes in order rather than executing a document. Choose out-of-order, the default, for a browser page where one section is much slower than the rest.
 
-For generated `text/markdown`, the choice does not arise: Markdown is always in-order, because a swap script cannot run in a text document. `proa_stream::render_md_in_order_to_flusher` drives it. See [Markdown rendering](/docs/core/markdown).
+For generated `text/markdown`, the choice does not arise: Markdown is always in-order, because a swap script cannot run in a text document. `proa::stream::render_md_in_order_to_flusher` drives it. See [Markdown rendering](/docs/core/markdown).
 
 ## Priority and timeouts
 
@@ -128,8 +128,8 @@ For generated `text/markdown`, the choice does not arise: Markdown is always in-
 
 ```rust filename="src/pages/product.rs"
 use std::time::Duration;
-use proa_core::Priority;
-use proa_stream::Suspense;
+use proa::Priority;
+use proa::stream::Suspense;
 
 Suspense {
     child: Recommendations { id },

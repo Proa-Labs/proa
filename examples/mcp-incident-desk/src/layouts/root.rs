@@ -4,8 +4,8 @@
 // proa:document-root
 use std::future::Future;
 
-use proa_core::{raw_text_ok, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
-use proa_macros::html;
+use proa::{raw_text_ok, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa::html;
 
 pub struct RootDocument<C> {
     pub title: &'static str,

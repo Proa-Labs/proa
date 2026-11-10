@@ -12,7 +12,7 @@ Examples are independent: they use a fresh managed document, `https://shop.examp
 Use `metadata` to set several fields in one call:
 
 ```rust filename="render_head"
-use proa_core::HeadMetadata;
+use proa::HeadMetadata;
 
 cx.head_mut().metadata(HeadMetadata {
     title: "Trail & Travel".into(),
@@ -31,7 +31,7 @@ cx.head_mut().metadata(HeadMetadata {
 Every field defaults to `HeadValue::Inherit`. Use `.into()` to set a value and `HeadValue::Clear` to remove an inherited field. The whole patch is validated before any field changes, including URLs and list limits. A normal title uses the nearest ancestor template, just like `title(...)`.
 
 ```rust filename="render_head"
-use proa_core::{HeadMetadata, HeadTitle, HeadValue};
+use proa::{HeadMetadata, HeadTitle, HeadValue};
 
 cx.head_mut().metadata(HeadMetadata {
     title: HeadTitle::absolute("Checkout").into(),
@@ -181,7 +181,7 @@ cx.head_mut().meta("author", "Acme")?;
 
 ### Twitter cards
 
-Use the typed card builder to resolve image URLs and reuse final metadata. These types come from `proa_core`.
+Use the typed card builder to resolve image URLs and reuse final metadata. These types come from `proa`.
 
 ```rust filename="render_head"
 cx.head_mut().title("Trail Jacket")?;
@@ -326,7 +326,7 @@ cx.head_mut().remove_meta("robots")?;
 
 ## Open Graph
 
-Use `OpenGraph` and `HeadMedia` from `proa_core` for these builders.
+Use `OpenGraph` and `HeadMedia` from `proa` for these builders.
 
 ### open_graph
 
@@ -393,7 +393,7 @@ cx.head_mut().open_graph(
 <meta property="og:image:height" content="630">
 ```
 
-Import `HeadMedia` and `OpenGraph` from `proa_core`. Proa resolves the image URL and emits its metadata; it does not generate or resize the image. `secure_url(...)` adds an optional `og:image:secure_url`.
+Import `HeadMedia` and `OpenGraph` from `proa`. Proa resolves the image URL and emits its metadata; it does not generate or resize the image. `secure_url(...)` adds an optional `og:image:secure_url`.
 
 ### Replace inherited images
 
@@ -654,8 +654,8 @@ Configure metadata URL resolution once at application startup, then pass the res
 In this example, `routes` is your application's Axum `Router`. Both the framework and metadata policy use the same `/shop` mount:
 
 ```rust filename="App configuration"
-use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::{BasePath, FrameworkBuilder};
+use proa::{HeadConfig, HeadUrlPolicy};
+use proa::axum::{BasePath, FrameworkBuilder};
 
 let mount = "/shop";
 let head = HeadConfig::default()
@@ -687,8 +687,8 @@ Currently, this mount is configured separately from `FrameworkBuilder::with_base
 This is also application startup configuration for [FrameworkBuilder](/docs/framework/configuration). Stylesheets and modules registered through `cx.head_mut()` must come from the public origin or an allowed resource origin. Allow a CDN origin in the policy, then install it with `with_head(...)` before serving your routes. `routes` is your application's existing Axum router:
 
 ```rust filename="App configuration"
-use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::FrameworkBuilder;
+use proa::{HeadConfig, HeadUrlPolicy};
+use proa::axum::FrameworkBuilder;
 
 let urls = HeadUrlPolicy::new("https://shop.example", "/")?
     .allow_resource_origin("https://cdn.example")?;

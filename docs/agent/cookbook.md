@@ -31,8 +31,8 @@ If you don't see your pattern here, check
 Boolean signal, two conditional branches, one click handler.
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::signal;
 use rsjs_macros::rsjs;
 
@@ -201,7 +201,7 @@ explicit raw renderable in the prelude:
 
 ```rust
 let icon =
-    proa_core::UnsafeRaw(r##"<use href="#icon-heart-16"></use>"##);
+    proa::UnsafeRaw(r##"<use href="#icon-heart-16"></use>"##);
 
 html_sync! {
     <svg class="icon">
@@ -377,7 +377,7 @@ The finalizer snapshots the response's `RsjsRenderArtifacts`, derives one
 eager modules, and deferred instructions the rendered islands require.
 
 ```rust
-let response = proa_framework_core::RouteResponse::ssr(MyPage);
+let response = proa::framework::RouteResponse::ssr(MyPage);
 ```
 
 If you are implementing a framework adapter rather than using
@@ -413,7 +413,7 @@ For streamed responses, retain one `PageRuntimeEmissionState` and call
 `write_html_delta(...)` for the shell and each committed boundary. Custom
 out-of-order boundary producers return `RenderedBoundary`, which keeps the
 committed HTML and its artifact delta together. When using
-`proa_stream::drain_pending_boundaries_with_nonce_and_artifacts`, write the
+`proa::stream::drain_pending_boundaries_with_nonce_and_artifacts`, write the
 boundary query-seed fragment and runtime-plan delta immediately before
 `chunk.bytes`. The swap script inside those bytes dispatches
 `proa:boundary-ready`, so metadata appended after the frame is too late.
@@ -456,7 +456,7 @@ impl<'a, T, const N: usize, Buf, Loader> WebRenderSync<Loader, Buf> for GenericI
 where
     for<'b> &'b T: LabelRef,
     Buf: WriteBuf,
-    Loader: proa_core::DataLoader,
+    Loader: proa::DataLoader,
 {
     fn render(self, cx: &mut WebContext<Loader, Buf>) -> Result<(), WriteError> {
         let label = self.label.label_ref();
@@ -489,8 +489,8 @@ would (managed head, RSJS runtime tags) and hands back the bytes. No tokio, no
 `FrameworkBuilder`, no island manifest.
 
 ```rust
-use proa_core::HeadConfig;
-use proa_framework_core::RouteResponse;
+use proa::HeadConfig;
+use proa::framework::RouteResponse;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let html = RouteResponse::ssr(RootDocument { children: HomePage })
@@ -501,7 +501,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`render_to_string` returns a `String` instead, and `proa_framework_axum::RouteResponse`
+`render_to_string` returns a `String` instead, and `proa::axum::RouteResponse`
 forwards both methods. `with_head` is required for any tree that declares
 `ROLE = PAGE` or `LAYOUT`; a manual document with its own `<title>` renders
 without it. Async plans render buffered, so `Suspense` resolves inline. There is

@@ -7,23 +7,23 @@
 //! `web` builders so a Free source-install payload does not need to copy
 //! unrelated or proprietary modules.
 
-/// Convert a [`proa_ir::Binding`] to a JavaScript expression string.
+/// Convert a [`proa::ir::Binding`] to a JavaScript expression string.
 ///
 /// Used by form-related components to emit `data-bind-*` attributes that
 /// the client-side runtime evaluates at hydration time.
-pub(crate) fn binding_to_js(binding: &proa_ir::Binding) -> String {
+pub(crate) fn binding_to_js(binding: &proa::ir::Binding) -> String {
     match binding {
-        proa_ir::Binding::Static => String::new(),
-        proa_ir::Binding::FormState { key } => format!("formState.{}", key),
-        proa_ir::Binding::FieldState { field, key } => format!("fields.{}.{}", field, key),
-        proa_ir::Binding::Not { inner } => format!("!({})", binding_to_js(inner)),
-        proa_ir::Binding::And { left, right } => {
+        proa::ir::Binding::Static => String::new(),
+        proa::ir::Binding::FormState { key } => format!("formState.{}", key),
+        proa::ir::Binding::FieldState { field, key } => format!("fields.{}.{}", field, key),
+        proa::ir::Binding::Not { inner } => format!("!({})", binding_to_js(inner)),
+        proa::ir::Binding::And { left, right } => {
             format!("({}) && ({})", binding_to_js(left), binding_to_js(right))
         }
-        proa_ir::Binding::Or { left, right } => {
+        proa::ir::Binding::Or { left, right } => {
             format!("({}) || ({})", binding_to_js(left), binding_to_js(right))
         }
-        proa_ir::Binding::Map { inner, expr } => {
+        proa::ir::Binding::Map { inner, expr } => {
             let inner_js = binding_to_js(inner);
             expr.replace('$', &inner_js)
         }
@@ -31,7 +31,7 @@ pub(crate) fn binding_to_js(binding: &proa_ir::Binding) -> String {
 }
 
 /// Convert a non-static binding into an attribute value.
-pub(crate) fn binding_to_js_attr(binding: &proa_ir::Binding) -> Option<String> {
+pub(crate) fn binding_to_js_attr(binding: &proa::ir::Binding) -> Option<String> {
     if binding.is_static() {
         None
     } else {

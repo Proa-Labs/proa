@@ -3,8 +3,8 @@
 
 use std::future::Future;
 
-use proa_core::{DataLoader, RenderOutcome, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, RenderOutcome, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 use crate::loader::dossier_key;
 use crate::model::Dossier;
@@ -44,7 +44,7 @@ pub struct Receipt {
 }
 
 // proa-perf-ok(scope): two short measured strings once per request.
-impl<L: DataLoader> proa_core::WebRender<L> for Receipt {
+impl<L: DataLoader> proa::WebRender<L> for Receipt {
     fn render(
         self,
         cx: &mut WebContext<L>,

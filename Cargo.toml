@@ -3,6 +3,7 @@
 
 [workspace]
 members = [
+    "proa",
     "proa_core",
     "proa_html_policy",
     "proa_cli",
@@ -39,10 +40,12 @@ members = [
     "rsjs_macros",
     "rsjs_transport",
     "rsjs_web",
+    "examples/facade",
     "examples/webmcp-pizza",
     "examples/mcp-incident-desk",
 ]
 default-members = [
+    "proa",
     "proa_core",
     "proa_html_policy",
     "proa_cli",
@@ -98,6 +101,7 @@ libc = { version = "0.2" }
 linkme = { version = "0.3" }
 object = { version = "0.37.3", default-features = false, features = ["read", "std"] }
 pretty_assertions = { version = "1.4.1" }
+proa = { path = "proa", version = "0.4.0" }
 proa_actions = { path = "proa_actions", version = "0.4.0" }
 proa_bench = { path = "proa_bench", version = "0.1.0" }
 proa_build = { path = "proa_build", version = "0.1.0" }
@@ -121,6 +125,7 @@ proa_showcase = { path = "proa_showcase", version = "0.2.1", default-features = 
 proa_showcase_web = { path = "proa_showcase_web", version = "0.1.0" }
 proa_stream = { path = "proa_stream", version = "0.4.0", default-features = false }
 proa_third_party = { path = "proa_third_party", version = "0.2.0", default-features = false }
+proc-macro-crate = { version = "3" }
 proc-macro2 = { version = "1" }
 pulldown-cmark = { version = "0.13", default-features = false }
 comrak = { version = "0.59", default-features = false }

@@ -6,8 +6,8 @@
 //! Inspired by Panda CSS and Ark UI patterns, this module provides a fully
 //! typed recipe system for generating Tailwind classes with compile-time safety.
 
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::AttrValue;
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Base styles module - core spinner styling
 mod base {
@@ -25,7 +25,7 @@ mod base {
 /// Size styles module - spinner size variations
 mod sizes {
     /// Spinner size variants
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
     #[variant(name = "size", path = "crate::components::_proa::variant_spec")]
     pub enum SpinnerSize {
         Sm, // size-3

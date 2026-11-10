@@ -6,7 +6,7 @@
 //! The generic tree model is owned by `proa_ir`, so macro expansions and
 //! downstream generators share one nominal Rust type.
 
-pub use proa_ir::component_tree::*;
+pub use proa::ir::component_tree::*;
 
 /// Returns whether `name` is one of the standard HTML elements recognized by
 /// Proa's component-tree lowering.

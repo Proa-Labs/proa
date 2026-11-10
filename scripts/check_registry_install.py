@@ -38,7 +38,7 @@ def registry_metadata(project: Path, environment: dict[str, str]) -> dict:
             return json.loads(result.stdout)
         pending_version = re.search(
             r"(?:failed to select a version for the requirement|no matching package named) "
-            r"`(?:proa[_-]|rsjs)[^`]*`",
+            r"`(?:proa(?:[_-]|\b)|rsjs)[^`]*`",
             result.stderr,
         )
         if attempt == 2 or not pending_version:
@@ -142,7 +142,7 @@ def main() -> None:
         metadata = registry_metadata(project, environment)
         proa_packages = [package for package in metadata["packages"]
                          if package["name"].startswith(("proa_", "rsjs"))
-                         or package["name"] == "itoa_lut"]
+                         or package["name"] in ("proa", "itoa_lut")]
         assert proa_packages, "scaffold must resolve Proa libraries"
         for package in proa_packages:
             assert package["source"] == "registry+https://github.com/rust-lang/crates.io-index", package

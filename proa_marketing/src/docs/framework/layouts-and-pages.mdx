@@ -22,11 +22,11 @@ Declare `PAGE` even when a Page inherits all of its metadata. This example accep
 ![A Rust Page component is selected by a registered route and renders the page's main content.](/static/images/docs/page-and-route.svg?v=2)
 
 ```rust filename="src/pages/content.rs"
-use proa_core::{
+use proa::{
     ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync,
     WriteError,
 };
-use proa_macros::html_sync;
+use proa::html_sync;
 
 pub struct ContentPage {
     pub title: &'static str,
@@ -63,11 +63,11 @@ A root layout owns the document's `<html>`, `<head>`, and `<body>`. Put `{cx.hea
 ![RootDocument declares LAYOUT, owns the document and head outlet, and wraps a ContentPage declaring PAGE.](/static/images/docs/layout-and-page.svg)
 
 ```rust filename="src/layouts/root.rs"
-use proa_core::{
+use proa::{
     ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync,
     WriteError,
 };
-use proa_macros::html_sync;
+use proa::html_sync;
 
 pub struct RootDocument<C> {
     pub children: C,
@@ -119,8 +119,8 @@ Re-export the components from your `pages` and `layouts` modules. Each handler c
 
 ```rust filename="src/app.rs"
 use axum::{routing::get, Router};
-use proa_core::{HeadConfig, HeadUrlPolicy, WriteError};
-use proa_framework_axum::{FrameworkBuilder, RouteResponse};
+use proa::{HeadConfig, HeadUrlPolicy, WriteError};
+use proa::axum::{FrameworkBuilder, RouteResponse};
 use crate::{layouts::RootDocument, pages::ContentPage};
 
 async fn home() -> RouteResponse {
@@ -173,11 +173,11 @@ There is one document, one head outlet, and one selected Page. Components declar
 A layout can render another layout as its child. This shop layout adds shared navigation and supplies a nearer title template:
 
 ```rust filename="src/layouts/shop.rs"
-use proa_core::{
+use proa::{
     ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync,
     WriteError,
 };
-use proa_macros::html_sync;
+use proa::html_sync;
 
 pub struct ShopLayout<C> {
     pub children: C,

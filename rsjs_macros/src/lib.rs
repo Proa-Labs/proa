@@ -239,7 +239,7 @@ fn is_text_intrinsic_path(path: &syn::Path) -> bool {
                 && matches!(text.arguments, syn::PathArguments::None)
         }
         (Some(crate_name), Some(text), None) => {
-            crate_name.ident == "proa_macros"
+            proa_dsl::paths::is_macro_namespace(&crate_name.ident)
                 && matches!(crate_name.arguments, syn::PathArguments::None)
                 && text.ident == "text"
                 && matches!(text.arguments, syn::PathArguments::None)
@@ -3104,9 +3104,10 @@ fn macro_ident_is_invoked(tokens: &[proc_macro2::TokenTree], ident_index: usize)
 }
 
 fn html_macro_ide_hint_for_path(path: &syn::Path) -> TokenStream2 {
+    let proa_macros = proa_dsl::paths::runtime("proa_macros");
     if path.segments.len() == 1 {
         let ident = &path.segments[0].ident;
-        quote! { let _ = ::proa_macros::#ident! { "" }; }
+        quote! { let _ = #proa_macros::#ident! { "" }; }
     } else {
         quote! { let _ = #path! { "" }; }
     }
@@ -4878,7 +4879,13 @@ mod tests {
 
     #[test]
     fn text_intrinsic_path_recognition_is_narrow() {
-        for accepted in ["text", "proa_macros::text", "::proa_macros::text"] {
+        for accepted in [
+            "text",
+            "proa_macros::text",
+            "::proa_macros::text",
+            "proa::text",
+            "::proa::text",
+        ] {
             let path: syn::Path = syn::parse_str(accepted).expect("accepted path should parse");
             assert!(
                 is_text_intrinsic_path(&path),

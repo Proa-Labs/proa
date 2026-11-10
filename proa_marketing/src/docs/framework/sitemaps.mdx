@@ -12,7 +12,7 @@ The Rust filenames below show one way to organize your app. Register generators 
 Add the page entries to your application builder:
 
 ```rust filename="src/main.rs" {5-8}
-use proa_framework_axum::{FrameworkBuilder, SitemapUrl};
+use proa::axum::{FrameworkBuilder, SitemapUrl};
 
 let app = FrameworkBuilder::new()
     .with_public_origin("https://example.com")?
@@ -47,7 +47,7 @@ Each `SitemapUrl` is one page entry in this single document. The example include
 An entry can include a modification date, expected change frequency, and priority:
 
 ```rust filename="src/main.rs" {6-8}
-use proa_framework_axum::{
+use proa::axum::{
     ChangeFreq, FrameworkBuilder, SitemapPriority, SitemapUrl,
 };
 
@@ -87,7 +87,7 @@ Output:
 Dates are validated and stored using Jiff. String inputs must be exactly `YYYY-MM-DD`; timestamps are rejected rather than silently truncated. If your app already uses Jiff, pass its date directly (add `jiff = "0.2"` to your app's dependencies):
 
 ```rust filename="src/sitemap.rs" {4}
-use proa_framework_axum::SitemapUrl;
+use proa::axum::SitemapUrl;
 
 let pricing = SitemapUrl::new("/pricing")?
     .lastmod_date(jiff::civil::date(2026, 10, 25))?;
@@ -114,7 +114,7 @@ Supply URL-encoded components when needed; XML entity escaping is a separate ste
 Use `with_sitemaps` to split pages, products, or other collections into separate documents. Each `SitemapFile` contains page entries; its ID determines the document's route:
 
 ```rust filename="src/main.rs" {5-13}
-use proa_framework_axum::{FrameworkBuilder, RobotsTxt, SitemapFile, SitemapUrl};
+use proa::axum::{FrameworkBuilder, RobotsTxt, SitemapFile, SitemapUrl};
 
 let app = FrameworkBuilder::new()
     .with_public_origin("https://example.com")?
@@ -181,7 +181,7 @@ An application-owned `generate_sitemaps` function can query a database or CMS an
 
 ```rust filename="src/sitemap.rs" {7,13,18}
 use crate::db::Database;
-use proa_framework_axum::{
+use proa::axum::{
     DiscoveryError, SitemapFile, SitemapUrl, MAX_SITEMAP_ENTRIES,
 };
 
@@ -208,7 +208,7 @@ Await the generator when configuring the builder:
 ```rust filename="src/main.rs" {10}
 mod sitemap;
 
-use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
+use proa::axum::{FrameworkBuilder, RobotsTxt};
 
 // Inside async main, before binding the listener:
 let app = FrameworkBuilder::new()
@@ -245,7 +245,7 @@ Sitemaps and indexes enforce the [protocol limits](https://www.sitemaps.org/prot
 Set an explicit public origin and optional runtime [base path](/docs/framework/deployment). The origin contains only a scheme, host, and optional port; the mount prefix belongs in `with_base_path`:
 
 ```rust filename="src/main.rs" {4-5}
-use proa_framework_axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
+use proa::axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
 
 let app = FrameworkBuilder::new()
     .with_public_origin("https://example.com")?
@@ -277,7 +277,7 @@ Configure discovery endpoints and start the HTTP server in `src/main.rs`. Route 
 ```rust filename="src/main.rs" {19-22}
 use std::time::Duration;
 
-use proa_framework_axum::{
+use proa::axum::{
     BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl,
     router_from_spec, serve,
 };

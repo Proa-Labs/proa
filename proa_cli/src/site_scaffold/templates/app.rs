@@ -39,14 +39,14 @@ pub fn config_rs(package: &str, has_database: bool) -> String {
 
 pub struct Config {
     pub address: SocketAddr,
-    pub base_path: proa_core::BasePath,
+    pub base_path: proa::BasePath,
 __DATABASE_FIELD__
 }
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         dotenvy::dotenv().ok();
-        let base_path = proa_core::BasePath::new(
+        let base_path = proa::BasePath::new(
             &std::env::var("PROA_BASE_PATH").unwrap_or_default(),
         )?;
         let host: IpAddr = std::env::var("PROA_HOST")
@@ -95,7 +95,7 @@ pub async fn connect(database_url: &str) -> anyhow::Result<SqlitePool> {
 pub fn loader_rs() -> &'static str {
     r#"use std::{future::Future, sync::atomic::{AtomicUsize, Ordering}};
 
-use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
+use proa::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
 use sqlx::SqlitePool;
 
 #[derive(Debug)]
@@ -150,7 +150,7 @@ pub fn error_rs() -> &'static str {
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("render failed: {0}")]
-    Render(#[from] proa_core::WriteError),
+    Render(#[from] proa::WriteError),
 }
 
 impl IntoResponse for AppError {
@@ -166,8 +166,8 @@ pub fn root_layout() -> &'static str {
     r#"// proa:document-root
 use std::future::Future;
 
-use proa_core::{raw_text_ok, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
-use proa_macros::html;
+use proa::{raw_text_ok, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa::html;
 
 pub struct RootDocument<C> {
     pub title: &'static str,
@@ -213,8 +213,8 @@ where
 pub fn database_badge_rs() -> &'static str {
     r#"use std::future::Future;
 
-use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError};
+use proa::html_sync;
 
 use crate::loader::{database_status_key, DatabaseStatus};
 
@@ -239,11 +239,11 @@ impl<L: DataLoader> WebRender<L> for DatabaseBadge {
     }
 }
 
-impl<L: DataLoader> proa_core::MdRender<L> for DatabaseBadge {
+impl<L: DataLoader> proa::MdRender<L> for DatabaseBadge {
     fn render_md(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let status = cx.load_typed::<DatabaseStatus>(database_status_key()).await?;
-            proa_core::MdRenderSync::render_md(proa_macros::md_sync! { "{status.driver} {status.version.as_str()}" }, cx)
+            proa::MdRenderSync::render_md(proa::md_sync! { "{status.driver} {status.version.as_str()}" }, cx)
         })
     }
 }
@@ -253,8 +253,8 @@ impl<L: DataLoader> proa_core::MdRender<L> for DatabaseBadge {
 pub fn database_card_rs() -> &'static str {
     r####"use std::future::Future;
 
-use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, RenderOutcome, WebContext, WebRender, WebRenderSync, WriteError};
+use proa::html_sync;
 
 use crate::loader::{database_status_key, DatabaseStatus};
 
@@ -279,11 +279,11 @@ impl<L: DataLoader> WebRender<L> for DatabaseCard {
     }
 }
 
-impl<L: DataLoader> proa_core::MdRender<L> for DatabaseCard {
+impl<L: DataLoader> proa::MdRender<L> for DatabaseCard {
     fn render_md(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let status = cx.load_typed::<DatabaseStatus>(database_status_key()).await?;
-            proa_core::MdRenderSync::render_md(proa_macros::md_sync! { r###"
+            proa::MdRenderSync::render_md(proa::md_sync! { r###"
                 ## DATA ORIGIN
 
                 {status.driver}
@@ -312,7 +312,7 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
     } else {
         let badge = if has_ui {
             if has_database {
-                "{proa_core::to_async(Badge::new(\"SERVER RENDERED IN RUST\"))}"
+                "{proa::to_async(Badge::new(\"SERVER RENDERED IN RUST\"))}"
             } else {
                 "{Badge::new(\"SERVER RENDERED IN RUST\")}"
             }
@@ -326,7 +326,7 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
         };
         let card = if has_ui {
             if has_database {
-                r#"{proa_core::to_async(Card { eyebrow: "REPRESENTATIONS", title: "Multi-target rendering", body: "Share component data and typed children across HTML, Markdown, and other render targets.", class: None })}"#
+                r#"{proa::to_async(Card { eyebrow: "REPRESENTATIONS", title: "Multi-target rendering", body: "Share component data and typed children across HTML, Markdown, and other render targets.", class: None })}"#
             } else {
                 r#"{Card { eyebrow: "REPRESENTATIONS", title: "Multi-target rendering", body: "Share component data and typed children across HTML, Markdown, and other render targets.", class: None }}"#
             }
@@ -340,7 +340,7 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
         };
         let button = if has_ui {
             if has_database {
-                r#"{proa_core::to_async(Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None })}"#
+                r#"{proa::to_async(Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None })}"#
             } else {
                 r#"{Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }}"#
             }
@@ -385,8 +385,8 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
     };
     let (core_imports, macro_import, render_impl) = if has_database {
         (
-            "use std::future::Future;\n\nuse proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};",
-            "use proa_macros::html;",
+            "use std::future::Future;\n\nuse proa::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};",
+            "use proa::html;",
             r#"impl<L: DataLoader> WebRender<L> for HomePage {
     fn render(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         __BODY__
@@ -395,8 +395,8 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
         )
     } else {
         (
-            "use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};",
-            "use proa_macros::html_sync;",
+            "use proa::{DataLoader, WebContext, WebRenderSync, WriteError};",
+            "use proa::html_sync;",
             r#"impl<L: DataLoader> WebRenderSync<L> for HomePage {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         __BODY__
@@ -421,9 +421,9 @@ __MARKDOWN_IMPL__
         "__MD_IMPORTS__",
         if markdown {
             if has_database {
-                "use proa_core::MdRender;\nuse proa_macros::md;"
+                "use proa::MdRender;\nuse proa::md;"
             } else {
-                "use proa_core::{MdRenderSync, WriteBuf};\nuse proa_macros::md_sync;"
+                "use proa::{MdRenderSync, WriteBuf};\nuse proa::md_sync;"
             }
         } else {
             ""
@@ -506,7 +506,7 @@ fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool, copy: &str)
     let mut children = copy.to_string();
     let lift = |child: &str| {
         if has_database {
-            format!("{{proa_core::to_md_async({child})}}")
+            format!("{{proa::to_md_async({child})}}")
         } else {
             format!("{{{child}}}")
         }
@@ -569,7 +569,7 @@ pub fn home_handler(has_database: bool, markdown: bool, title: &str) -> String {
     );"#
     } else {
         r#"let html = RouteResponse::ssr_async(
-        RootDocument { title: __TITLE__, content: proa_core::to_async(HomePage) },
+        RootDocument { title: __TITLE__, content: proa::to_async(HomePage) },
     );"#
     };
     let response = if markdown {
@@ -627,18 +627,18 @@ __MD_HANDLER__
         "__FRAMEWORK_IMPORT__",
         if markdown {
             if has_database {
-                "use proa_framework_axum::{explicit_markdown_async_with_loader, negotiate_async_with_loader, MarkdownAlternate, RouteResponse};"
+                "use proa::axum::{explicit_markdown_async_with_loader, negotiate_async_with_loader, MarkdownAlternate, RouteResponse};"
             } else {
-                "use proa_framework_axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};"
+                "use proa::axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};"
             }
         } else {
-            "use proa_framework_axum::RouteResponse;"
+            "use proa::axum::RouteResponse;"
         },
     )
     .replace(
         "__RESOLVER_IMPORT__",
         if has_database {
-            "use proa_stream::DataResolver;"
+            "use proa::stream::DataResolver;"
         } else {
             ""
         },
@@ -660,12 +660,12 @@ pub fn routes_rs(markdown: bool) -> String {
         ""
     };
     r#"use axum::{routing::get, Router};
-use proa_framework_axum::{router_from_spec, Route, RouteContextLayer};
+use proa::axum::{router_from_spec, Route, RouteContextLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::{app::AppState, endpoints, pages, static_assets};
 
-pub fn router(state: AppState, base_path: proa_core::BasePath) -> Router {
+pub fn router(state: AppState, base_path: proa::BasePath) -> Router {
     let (router, metadata) = router_from_spec(vec![
         // proa:route-specs:start
         Route::endpoint("/", get(pages::home::handler)),
@@ -679,7 +679,7 @@ pub fn router(state: AppState, base_path: proa_core::BasePath) -> Router {
         // proa:explicit-routes:end
         .nest_service("/static", static_assets::service(base_path.clone()))
         .with_state(state)
-        .merge(proa_framework_axum::rsjs_assets_router(&base_path))
+        .merge(proa::axum::rsjs_assets_router(&base_path))
         .layer(RouteContextLayer::new(metadata).with_base_path(base_path))
         .layer(TraceLayer::new_for_http())
 }
@@ -764,7 +764,7 @@ async fn main() -> anyhow::Result<()> {
 __STATE__    let app = routes::router(state, config.base_path);
     let listener = TcpListener::bind(config.address).await?;
     tracing::info!(address = %listener.local_addr()?, "Proa site listening");
-    let _ = proa_framework_axum::serve(listener, app, Duration::from_secs(30)).await?;
+    let _ = proa::axum::serve(listener, app, Duration::from_secs(30)).await?;
     Ok(())
 }
 "#
@@ -783,8 +783,8 @@ __STATE__    let app = routes::router(state, config.base_path);
 pub fn static_assets_rs() -> &'static str {
     r#"use tower_http::services::ServeDir;
 
-pub fn service(base_path: proa_core::BasePath) -> axum::Router {
-    proa_framework_axum::base_path_assets(
+pub fn service(base_path: proa::BasePath) -> axum::Router {
+    proa::axum::base_path_assets(
         axum::Router::new().fallback_service(
             ServeDir::new("public").append_index_html_on_directories(false),
         ),

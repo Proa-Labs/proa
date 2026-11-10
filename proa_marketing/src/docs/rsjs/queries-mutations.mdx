@@ -31,8 +31,8 @@ the initial `serde::Serialize` value is already available, keep the component on
 the synchronous fast path:
 
 ```rust filename="src/components/stock_tile.rs"
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{event_handler, rsjs, QueryKey};
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -98,10 +98,10 @@ not support `async fn render` shorthand.
 ```rust filename="src/components/async_stock_tile.rs"
 use std::future::Future;
 
-use proa_core::{
+use proa::{
     DataLoader, LoadKey, RenderOutcome, WebContext, WebRender, WriteError,
 };
-use proa_macros::html;
+use proa::html;
 use rsjs::{rsjs, QueryKey};
 use crate::components::stock_tile::StockPrice;
 
@@ -256,8 +256,8 @@ successful run.
 
 ```rust filename="src/components/cart_editor.rs"
 use std::future::Future;
-use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
-use proa_macros::html;
+use proa::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa::html;
 use rsjs::{rsjs, QueryKey};
 
 pub struct CartEditor;

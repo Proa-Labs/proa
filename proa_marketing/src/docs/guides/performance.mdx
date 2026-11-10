@@ -92,8 +92,8 @@ If a dynamic URL needs an owned string, construct it in the handler or view mode
 `SafeText<'a>` wraps a `&str` and skips HTML escape scanning. Use it when you know the string contains no HTML-unsafe characters (`<`, `>`, `&`, `"`, `'`).
 
 ```rust
-use proa_core::SafeText;
-use proa_macros::safe_text;
+use proa::SafeText;
+use proa::safe_text;
 
 // Compile-time verified literal
 safe_text!("Hello world")
@@ -111,7 +111,7 @@ SafeText::from_trusted(validated_label)
 `ClassList<N>` composes CSS classes without string concatenation or allocation. All construction methods except `add_opt` are `const fn`.
 
 ```rust
-use proa_core::ClassList;
+use proa::ClassList;
 
 // Compile-time class composition
 const fn button_classes(primary: bool) -> ClassList<3> {
@@ -271,7 +271,7 @@ cx.out.extend_static(b"\"")?;
 For attribute values you control, use `SafeAttr` to skip escape scanning:
 
 ```rust
-use proa_core::SafeAttr;
+use proa::SafeAttr;
 
 html! {
     <div data-page={SafeAttr("product-detail")} />
@@ -348,7 +348,7 @@ warning: unused `_perf_format__inside_html_allocates_a_String_on_every_render_0`
 When you intentionally allocate in the render path, wrap the expression in `perf_ok()` to suppress the warning:
 
 ```rust
-use proa_core::perf_ok;
+use proa::perf_ok;
 
 // Flagged:
 html! {
@@ -378,7 +378,7 @@ To disable performance hints project-wide (e.g., during early prototyping):
 
 ```toml
 [dependencies]
-proa_macros = { version = "0.4.0", features = ["no-perf-hints"] }
+proa = { version = "0.4", features = ["no-perf-hints"] }
 ```
 
 Remove the feature flag when you're ready to optimize.

@@ -8,7 +8,7 @@ use mcp_incident_desk::{
     components::{markdown, IssueReport},
     loader::RequestScope,
 };
-use proa_core::{WebContext, WebRenderSync};
+use proa::{WebContext, WebRenderSync};
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
 #[tokio::test]

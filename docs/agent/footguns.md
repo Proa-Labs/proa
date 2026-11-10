@@ -56,7 +56,7 @@ suppression for a specific diagnostic only when it is intentional.
 by the component. If a module needs both traits, use a qualified call such as
 `WebRenderSync::render(child, cx)` or `WebRender::render(child, cx)`. An import
 alias still brings the trait methods into scope and does not resolve the
-ambiguity. Lift a sync child into an async tree with `proa_core::to_async(...)`.
+ambiguity. Lift a sync child into an async tree with `proa::to_async(...)`.
 
 ---
 
@@ -354,14 +354,14 @@ generics do not need render bounds. `WebContext<L>` uses the default owned
 **Fix:**
 ```rust
 html! {
-    <div>{ proa_core::to_async(my_sync_component) }</div>
+    <div>{ proa::to_async(my_sync_component) }</div>
 }
 ```
 
 If `my_sync_component` uses `#[derive(ProaComponent)]`, the
 `#[component(..., async_render)]` opt-in generates its zero-cost async bridge
 and removes the call-site adapter. Explicit custom components use
-`proa_core::to_async(...)`.
+`proa::to_async(...)`.
 
 ---
 
@@ -394,7 +394,7 @@ the async-capable macro.
 
 ```rust
 md! { r###"
-Result: {proa_core::to_md_async(my_sync_child)}
+Result: {proa::to_md_async(my_sync_child)}
 "###
 }
 ```

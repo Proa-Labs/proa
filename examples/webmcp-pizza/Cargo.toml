@@ -11,10 +11,9 @@ license-file.workspace = true
 description = "End-to-end Proa, Wellformed, RSJS, and WebMCP pizza-order demo"
 
 [dependencies]
+proa = { workspace = true, features = ["axum"] }
 anyhow = { workspace = true }
 axum = { workspace = true }
-proa_core = { workspace = true }
-proa_macros = { workspace = true }
 rsjs = { workspace = true }
 rsjs_macros = { workspace = true }
 serde = { workspace = true }

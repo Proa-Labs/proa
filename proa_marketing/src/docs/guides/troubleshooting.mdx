@@ -333,7 +333,7 @@ implementation generic over the data loader; the output defaults to the owned
 `RenderBuffer`:
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
 
 impl<L: DataLoader> WebRenderSync<L> for MyComponent {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -343,7 +343,7 @@ impl<L: DataLoader> WebRenderSync<L> for MyComponent {
 }
 ```
 
-If you place a sync component inside an async `html!` tree, wrap it with `proa_core::to_async(...)`. If the component awaits data or uses async loaders, implement `WebRender` and render with `html!`. See [Render traits](/docs/core/html-rendering).
+If you place a sync component inside an async `html!` tree, wrap it with `proa::to_async(...)`. If the component awaits data or uses async loaders, implement `WebRender` and render with `html!`. See [Render traits](/docs/core/html-rendering).
 
 ## Classes Disappear Or `ClassList` Fails
 

@@ -21,8 +21,8 @@ Author the normal render trait, then mark it for RSJS analysis and permission to
 originate browser behavior:
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::signal;
 use rsjs::rsjs;
 
@@ -169,7 +169,7 @@ depends on them. Construct arbitrary non-component renderers in the prelude and
 render the resulting local:
 
 ```rust
-use proa_core::UnsafeRaw;
+use proa::UnsafeRaw;
 
 let icon = UnsafeRaw(r#"<svg aria-hidden="true"></svg>"#);
 
@@ -277,8 +277,8 @@ See [Hydration](/docs/rsjs/hydration) for the full behavior.
 Use sync islands for local browser state. Switch to async `WebRender` when the island declares `mutation(...)` or awaits server data before rendering. A `query_with_initial(...)` whose initial value is already available can stay on `WebRenderSync`:
 
 ```rust
-use proa_core::{DataLoader, LoadKey, WebContext, WebRender, WriteError};
-use proa_macros::html;
+use proa::{DataLoader, LoadKey, WebContext, WebRender, WriteError};
+use proa::html;
 use rsjs::rsjs;
 use std::future::Future;
 
@@ -295,8 +295,8 @@ impl<L: DataLoader> WebRender<L> for StockTile {
     fn render(
         self,
         cx: &mut WebContext<L>,
-    ) -> proa_core::RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
-        proa_core::RenderOutcome::pending(async move {
+    ) -> proa::RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        proa::RenderOutcome::pending(async move {
             let initial: StockPrice = cx
                 .load_json(LoadKey::named("stock", "AAPL"))
                 .await?;

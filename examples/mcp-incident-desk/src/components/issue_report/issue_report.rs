@@ -4,10 +4,8 @@
 use super::recipe::SECTION;
 use crate::components::{Badge, BadgeVariant};
 use crate::domain::IssueProjection;
-use proa_core::{
-    ClassList, DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError,
-};
-use proa_macros::{html_sync, md_sync};
+use proa::{html_sync, md_sync};
+use proa::{ClassList, DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError};
 
 macro_rules! component {
     ($name:ident) => {
@@ -44,19 +42,19 @@ pub fn status_badge(status: &str) -> Badge<&str> {
 
 /// Adaptive delimiters preserve literal evidence, including embedded backticks.
 struct Telemetry<'a>(&'a str);
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Telemetry<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Telemetry<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_fenced_code("text", self.0)
     }
 }
 struct InlineCode<'a>(&'a str);
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlineCode<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlineCode<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.write_md_inline_code(self.0)
     }
 }
 struct ReportLink<'a>(&'a str);
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ReportLink<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ReportLink<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_link("Open in Incident Desk", self.0)
     }
@@ -91,7 +89,7 @@ impl<L: DataLoader> WebRenderSync<L> for IssueOverview<'_> {
         .render(cx)
     }
 }
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for IssueOverview<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for IssueOverview<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         let d = self.data;
         let id = InlineCode(&d.issue.id);
@@ -158,7 +156,7 @@ impl<L: DataLoader> WebRenderSync<L> for Impact<'_> {
         .render(cx)
     }
 }
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Impact<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Impact<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         let d = self.data;
         md_sync! { r###"
@@ -206,7 +204,7 @@ impl<L: DataLoader> WebRenderSync<L> for ReleaseEvidence<'_> {
         .render(cx)
     }
 }
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ReleaseEvidence<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ReleaseEvidence<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         let d = self.data;
         let release = InlineCode(&d.issue.release_id);
@@ -239,7 +237,7 @@ impl<L: DataLoader> WebRenderSync<L> for Runbook<'_> {
         .render(cx)
     }
 }
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Runbook<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Runbook<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             ## Response playbook
@@ -275,7 +273,7 @@ impl<L: DataLoader> WebRenderSync<L> for ActionSummary<'_> {
         }.render(cx)
     }
 }
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ActionSummary<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ActionSummary<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { "## Next step\n\n" }.render_md(cx)?;
         if self.data.issue.status == "resolved" {
@@ -323,7 +321,7 @@ impl<L: DataLoader> WebRenderSync<L> for ActivityLog<'_> {
         }.render(cx)
     }
 }
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ActivityLog<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ActivityLog<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         if self.data.activity.is_empty() {
             return Ok(());
@@ -358,7 +356,7 @@ impl<L: DataLoader> WebRenderSync<L> for IssueReport<'_> {
         .render(cx)
     }
 }
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for IssueReport<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for IssueReport<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         // Every section is a block template that supplies its own paragraph
         // boundaries, so the report renders them in order without authoring

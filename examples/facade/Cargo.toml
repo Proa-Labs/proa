@@ -1,0 +1,14 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_facade_example"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+proa = { workspace = true, features = ["axum", "actions"] }
+
+[dev-dependencies]
+futures = { workspace = true }

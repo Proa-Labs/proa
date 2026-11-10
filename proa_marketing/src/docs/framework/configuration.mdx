@@ -11,8 +11,8 @@ Use this page when you need the complete setup surface in one place. Use [Routin
 
 ```rust
 use axum::{routing::get, Router};
-use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::{FrameworkBuilder, RouteResponse};
+use proa::{HeadConfig, HeadUrlPolicy};
+use proa::axum::{FrameworkBuilder, RouteResponse};
 use crate::{layouts::RootDocument, pages::HomePage};
 
 async fn home() -> RouteResponse {
@@ -33,7 +33,7 @@ let app = FrameworkBuilder::new()
 
 Use `with_dynamic_routes` for an ordinary Axum router. Route specifications are optional: use `with_dynamic_routes_and_metadata` when you also need their route-mode or other specification metadata. Legacy route titles do not populate the managed head; use `render_head` or app-wide defaults.
 
-The builder returns an Axum router; bind a TCP listener and pass both to `proa_framework_axum::serve()` to run it. See [the complete application example](/docs/framework/sitemaps#run-an-application) for route setup, discovery endpoints, and server startup.
+The builder returns an Axum router; bind a TCP listener and pass both to `proa::axum::serve()` to run it. See [the complete application example](/docs/framework/sitemaps#run-an-application) for route setup, discovery endpoints, and server startup.
 
 ## FrameworkBuilder Methods
 
@@ -76,7 +76,7 @@ These methods configure separate parts of the application:
 For an app exposed at `/apps/demo/` by a prefix-stripping proxy:
 
 ```rust filename="src/app.rs"
-use proa_framework_axum::{BasePath, FrameworkBuilder};
+use proa::axum::{BasePath, FrameworkBuilder};
 
 let app = FrameworkBuilder::new()
     .with_base_path(BasePath::new("/apps/demo")?)

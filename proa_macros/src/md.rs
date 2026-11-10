@@ -176,20 +176,21 @@ fn emit_md_render(expr: &Expr, mode: EmitMode) -> TokenStream {
 
 /// Wrap generated body statements in the appropriate runtime fragment.
 fn wrap_render(stmts: &[TokenStream], mode: EmitMode) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let cx = render_context();
     match mode {
         EmitMode::Sync => quote! {
-            ::proa_core::OptimizedMd::new(
-                |#cx: &mut ::proa_core::WebContext<_, _>| {
-                    use ::proa_core::MdRenderSyncExt as _;
+            #proa_core::OptimizedMd::new(
+                |#cx: &mut #proa_core::WebContext<_, _>| {
+                    use #proa_core::MdRenderSyncExt as _;
                     #(#stmts)*
                     ::core::result::Result::Ok(())
                 }
             )
         },
         EmitMode::Async => quote! {
-            ::proa_core::md::async_md_from_closure(async move |#cx| {
-                use ::proa_core::MdRenderAsyncExt as _;
+            #proa_core::md::async_md_from_closure(async move |#cx| {
+                use #proa_core::MdRenderAsyncExt as _;
                 #(#stmts)*
                 ::core::result::Result::Ok(())
             })
@@ -198,10 +199,11 @@ fn wrap_render(stmts: &[TokenStream], mode: EmitMode) -> TokenStream {
 }
 
 fn static_fragment(bytes: proc_macro2::Literal) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let cx = render_context();
     quote! {
-        ::proa_core::OptimizedMd::new(
-            |#cx: &mut ::proa_core::WebContext<_, _>| {
+        #proa_core::OptimizedMd::new(
+            |#cx: &mut #proa_core::WebContext<_, _>| {
                 static BYTES: &[u8] = #bytes;
                 #cx.write_md_prepared_static(BYTES)?;
                 ::core::result::Result::Ok(())
@@ -215,6 +217,7 @@ fn static_fragment(bytes: proc_macro2::Literal) -> TokenStream {
 // ═══════════════════════════════════════════════════════════════
 
 pub fn generate_template(tpl: &MdTemplateInput, mode: EmitMode) -> Result<TokenStream, syn::Error> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let lit = &tpl.lit;
     let nodes = tpl.parse_nodes()?;
     let block = proa_dsl::md::is_multiline_raw_literal(lit);
@@ -250,9 +253,9 @@ pub fn generate_template(tpl: &MdTemplateInput, mode: EmitMode) -> Result<TokenS
         block,
     );
     let template_mode = if block {
-        quote! { ::proa_core::md::MD_TEMPLATE_BLOCK }
+        quote! { #proa_core::md::MD_TEMPLATE_BLOCK }
     } else {
-        quote! { ::proa_core::md::MD_TEMPLATE_INLINE }
+        quote! { #proa_core::md::MD_TEMPLATE_INLINE }
     };
     Ok(quote! {
         (#body).__proa_template_mode::<{ #template_mode }>()
@@ -432,6 +435,7 @@ fn emit_tpl_nodes(
     mode: EmitMode,
     block: bool,
 ) {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let mut slots = inline_slots.iter().copied();
     // In a block template, the line breaks that follow a block-position slot
     // are layout rather than prose: a block child has already completed a
@@ -475,7 +479,7 @@ fn emit_tpl_nodes(
                     gen_block_expr(&expr.expr, &mut child, mode);
                     stmts.push(quote! {
                         {
-                            let mut #scope = ::proa_core::md::__MdTemplateScope::<_, _, { ::proa_core::md::MD_TEMPLATE_INLINE }>::enter(#cx)?;
+                            let mut #scope = #proa_core::md::__MdTemplateScope::<_, _, { #proa_core::md::MD_TEMPLATE_INLINE }>::enter(#cx)?;
                             let #cx = #scope.context();
                             #(#child)*
                         }

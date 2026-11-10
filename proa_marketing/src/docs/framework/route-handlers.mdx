@@ -21,7 +21,7 @@ Use ordinary Axum `.route(...)` calls for handlers. Use `Route::endpoint` when y
 
 ```rust filename="src/routes/mod.rs"
 use axum::{routing::{get, post}, Router};
-use proa_framework_axum::{router_from_spec, Route};
+use proa::axum::{router_from_spec, Route};
 
 let (router, metadata) = router_from_spec(vec![
     Route::endpoint("/api/search", get(search).post(search_post)),
@@ -133,7 +133,7 @@ For validation failures, return `Response` and render a Proa page with the inval
 
 ```rust filename="src/routes/contact.rs"
 use axum::response::{IntoResponse, Response};
-use proa_framework_axum::RouteResponse;
+use proa::axum::RouteResponse;
 
 pub async fn submit_contact(Form(form): Form<ContactForm>) -> Response {
     if let Err(errors) = validate_contact(&form) {
@@ -161,7 +161,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use proa_framework_axum::RouteResponse;
+use proa::axum::RouteResponse;
 use tower::ServiceBuilder;
 
 #[derive(Clone)]
@@ -249,7 +249,7 @@ use axum::{
     http::{Request, StatusCode},
     routing::get,
 };
-use proa_framework_axum::{router_from_spec, FrameworkBuilder, Route};
+use proa::axum::{router_from_spec, FrameworkBuilder, Route};
 use tower::ServiceExt;
 
 #[tokio::test]

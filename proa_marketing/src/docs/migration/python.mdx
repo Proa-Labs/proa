@@ -95,8 +95,8 @@ Django with Jinja2:
 The same markup in `html_sync!`:
 
 ```rust filename="src/components/listing_detail.rs"
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 pub struct ListingDetail<'a> {
     pub title: &'a str,

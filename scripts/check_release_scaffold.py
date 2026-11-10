@@ -33,22 +33,25 @@ def check(work: Path, message: str, expected: str, environment: dict[str, str]) 
     workspace = tomllib.loads((ROOT / "Cargo.toml").read_text())
     toml_version = workspace["workspace"]["dependencies"]["toml"]["version"]
     (project / "Cargo.toml").write_text('''[workspace]
-members = ["proa_core", "proa_cli"]
+members = ["proa_core", "proa", "proa_cli"]
 resolver = "2"
 [workspace.dependencies]
 proa_core = { path = "proa_core", version = "1.0.0" }
+proa = { path = "proa", version = "1.0.0" }
 ''')
-    for folder, name in [("proa_core", "proa_core"), ("proa_cli", "proa-cli")]:
+    for folder, name in [("proa_core", "proa_core"), ("proa", "proa"), ("proa_cli", "proa-cli")]:
         package = project / folder
         (package / "src").mkdir(parents=True)
         manifest = f'[package]\nname = "{name}"\nversion = "1.0.0"\nedition = "2021"\n'
         if folder == "proa_cli":
             manifest += (f'\n[build-dependencies]\ntoml = "{toml_version}"\n'
-                         '\n[dev-dependencies]\nproa_core = { workspace = true }\n')
+                         '\n[dev-dependencies]\nproa = { workspace = true }\n')
             shutil.copy2(ROOT / "proa_cli/build.rs", package / "build.rs")
             (package / "src/main.rs").write_text(
                 'fn main() { print!("{}", include_str!(concat!(env!("OUT_DIR"), "/scaffold-versions.toml"))); }\n')
         else:
+            if folder == "proa":
+                manifest += '\n[dependencies]\nproa_core = { workspace = true }\n'
             (package / "src/lib.rs").write_text('pub fn library() {}\n')
         (package / "Cargo.toml").write_text(manifest)
 
@@ -56,7 +59,7 @@ proa_core = { path = "proa_core", version = "1.0.0" }
     # propagation from commits; API compatibility is checked on the real crates.
     sections = re.split(r"(?m)(?=^\[\[package\]\])", (ROOT / "release-plz.toml").read_text())
     selected = [section for section in sections[1:]
-                if tomllib.loads(section)["package"][0]["name"] in {"proa_core", "proa-cli"}]
+                if tomllib.loads(section)["package"][0]["name"] in {"proa_core", "proa", "proa-cli"}]
     config = sections[0] + "".join(selected)
     config = config.replace('name = "proa_core"', 'name = "proa_core"\nsemver_check = false')
     (project / "release-plz.toml").write_text(config)
@@ -70,7 +73,7 @@ proa_core = { path = "proa_core", version = "1.0.0" }
     run(["git", "remote", "add", "origin", "https://github.com/Proa-Labs/proa"], project, environment)
     run(["git", "add", "."], project, environment)
     run(["git", "commit", "--quiet", "-m", "initial release"], project, environment)
-    for package in ["proa_core", "proa-cli"]:
+    for package in ["proa_core", "proa", "proa-cli"]:
         run(["git", "tag", f"{package}-v1.0.0"], project, environment)
     (project / "proa_core/src/lib.rs").write_text('pub fn library() {}\npub fn added() {}\n')
     run(["git", "add", "."], project, environment)
@@ -82,12 +85,13 @@ proa_core = { path = "proa_core", version = "1.0.0" }
         return tomllib.loads((project / path / "Cargo.toml").read_text())
 
     assert manifest("proa_core")["package"]["version"] == expected
+    assert manifest("proa")["package"]["version"] == expected, "facade must follow the coordinated library release"
     assert manifest("proa_cli")["package"]["version"] == "1.0.1", "CLI must bump for a scaffold-only dependency change"
     root = manifest("")
     assert root["workspace"]["dependencies"]["proa_core"]["version"] == expected
     catalog = tomllib.loads(run(["cargo", "run", "--quiet", "--locked", "-p", "proa-cli"], project, environment))
-    assert catalog["proa_core"] == expected, "scaffold catalog must follow release-plz's dependency update"
-    print(f"{message}: library {expected}, CLI 1.0.1, generated dependency {catalog['proa_core']}", flush=True)
+    assert catalog["proa"] == expected, "scaffold catalog must follow release-plz's dependency update"
+    print(f"{message}: library {expected}, CLI 1.0.1, generated dependency {catalog['proa']}", flush=True)
 
 
 def main() -> None:

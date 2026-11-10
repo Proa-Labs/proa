@@ -31,7 +31,7 @@ from your page code.
 Install the asset routes when building your application:
 
 ```rust filename="src/app.rs"
-use proa_framework_axum::FrameworkBuilder;
+use proa::axum::FrameworkBuilder;
 
 let app = FrameworkBuilder::new()
     .with_rsjs_assets()
@@ -61,7 +61,7 @@ Custom runtime servers can call `rsjs::runtime_assets::with_base_path(source,
 ## Finalizing a normal response
 
 Rendering records `RsjsRenderArtifacts` in the response's `WebContext`.
-`proa_framework_axum` snapshots those artifacts after rendering and finalizes the
+`proa::axum` snapshots those artifacts after rendering and finalizes the
 page automatically across:
 
 - synchronous and asynchronous responses;
@@ -209,7 +209,7 @@ a successful boundary's query/SharedState seed deltas and runtime-plan delta
 immediately before its swap frame. That ordering ensures the metadata and
 modules exist before the frame dispatches its boundary-ready event.
 
-An adapter outside `proa_framework_axum` reproduces that ordering itself.
+An adapter outside `proa::axum` reproduces that ordering itself.
 
 ## Writing a custom adapter
 

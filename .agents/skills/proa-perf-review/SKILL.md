@@ -54,7 +54,7 @@ data, generated output, vendored code, tooling, and displayed examples.
 ## Managed head publication
 
 For each managed HTML document, verify that the selected Page's render impl
-declares `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;`,
+declares `const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;`,
 including Pages that only inherit metadata. Check local/Send/sync implementations
 and adapter forwarding. Ancestor head providers declare `ComponentRole::LAYOUT`;
 ordinary `COMPONENT` values skip head invocation entirely. Explicit async

@@ -3,8 +3,8 @@
 
 use std::fmt::Write as _;
 
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{rsjs, signal};
 
 use crate::model::RESOLVED;
@@ -245,7 +245,7 @@ impl<L: DataLoader> WebRenderSync<L> for SparkBars<'_> {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         for style in self.styles {
             html_sync! {
-                <div style={proa_core::style_ok(style.as_str())}></div>
+                <div style={proa::style_ok(style.as_str())}></div>
             }
             .render(cx)?;
         }

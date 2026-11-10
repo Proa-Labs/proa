@@ -8,10 +8,10 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
-use proa_core::{
+use proa::html_sync;
+use proa::{
     DataLoader, NoLoader, RenderBuffer, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_macros::html_sync;
 
 mod assets;
 pub mod components;

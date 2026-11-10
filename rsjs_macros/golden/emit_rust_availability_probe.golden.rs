@@ -5,7 +5,7 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
 for AvailabilityProbe {
     fn render(
         self,
-        cx: &mut proa_core::WebContext<L, B>,
+        cx: &mut ::proa_core::WebContext<L, B>,
     ) -> ::proa_core::RenderOutcome<
         impl ::core::future::Future<
             Output = ::core::result::Result<(), ::proa_core::WriteError>,

@@ -127,6 +127,8 @@ struct AuthoringMethods {
 // proa-perf-ok(scope): proc-macro host code folds compile-time-known tag and
 // attribute fragments; it never assembles response HTML at render time
 pub fn derive_proa_component(input: TokenStream) -> TokenStream {
+    let serde_json = proa_dsl::paths::runtime("serde_json");
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let input = parse_macro_input!(input as DeriveInput);
 
     let name = &input.ident;
@@ -432,9 +434,9 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
         let prefix = LitStr::new(&format!(" {}=\"", name.value()), name.span());
         quote! {
             if let Some(value) = { #expr } {
-                proa_core::WebRenderSync::render(UnsafeRaw(#prefix), cx)?;
-                proa_core::shared::escape::escape_attr_value(&mut cx.out, value)?;
-                proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw(#prefix), cx)?;
+                #proa_core::shared::escape::escape_attr_value(&mut cx.out, value)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
             }
         }
     });
@@ -449,7 +451,7 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
         let attribute = LitStr::new(&format!(" {}", name.value()), name.span());
         quote! {
             if { #expr } {
-                proa_core::WebRenderSync::render(UnsafeRaw(#attribute), cx)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw(#attribute), cx)?;
             }
         }
     });
@@ -460,34 +462,34 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
             let class_slice = &classes[..class_count];
             let custom_class = { #expr };
             if !class_slice.is_empty() || custom_class.is_some() {
-                proa_core::WebRenderSync::render(UnsafeRaw(" class=\""), cx)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw(" class=\""), cx)?;
                 for (idx, class) in class_slice.iter().enumerate() {
                     if idx > 0 {
-                        proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
+                        #proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
                     }
-                    proa_core::WebRenderSync::render(UnsafeRaw(class), cx)?;
+                    #proa_core::WebRenderSync::render(UnsafeRaw(class), cx)?;
                 }
                 if let Some(custom) = custom_class {
                     if !class_slice.is_empty() {
-                        proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
+                        #proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
                     }
-                    proa_core::WebRenderSync::render(UnsafeRaw(custom), cx)?;
+                    #proa_core::WebRenderSync::render(UnsafeRaw(custom), cx)?;
                 }
-                proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
             }
         }
     } else {
         quote! {
             let class_slice = &classes[..class_count];
             if !class_slice.is_empty() {
-                proa_core::WebRenderSync::render(UnsafeRaw(" class=\""), cx)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw(" class=\""), cx)?;
                 for (idx, class) in class_slice.iter().enumerate() {
                     if idx > 0 {
-                        proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
+                        #proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
                     }
-                    proa_core::WebRenderSync::render(UnsafeRaw(class), cx)?;
+                    #proa_core::WebRenderSync::render(UnsafeRaw(class), cx)?;
                 }
-                proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
             }
         }
     };
@@ -502,9 +504,9 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
         let prefix = LitStr::new(&format!(" {}=\"", attr_name.value()), attr_name.span());
         quote! {
             if let Some(action_data) = { #expr } {
-                proa_core::WebRenderSync::render(UnsafeRaw(#prefix), cx)?;
-                proa_core::shared::escape::escape_attr_value(&mut cx.out, action_data.action)?;
-                proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw(#prefix), cx)?;
+                #proa_core::shared::escape::escape_attr_value(&mut cx.out, action_data.action)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
 
                 // Parse params JSON string and render data-param-* attributes
                 let params_value = action_data.params_value();
@@ -521,29 +523,29 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
                         {
                             continue;
                         }
-                        proa_core::WebRenderSync::render(UnsafeRaw(" data-param-"), cx)?;
-                        proa_core::WebRenderSync::render(UnsafeRaw(key.as_str()), cx)?;
-                        proa_core::WebRenderSync::render(UnsafeRaw("=\""), cx)?;
+                        #proa_core::WebRenderSync::render(UnsafeRaw(" data-param-"), cx)?;
+                        #proa_core::WebRenderSync::render(UnsafeRaw(key.as_str()), cx)?;
+                        #proa_core::WebRenderSync::render(UnsafeRaw("=\""), cx)?;
                         match value {
-                            ::serde_json::Value::String(s) => {
-                                proa_core::shared::escape::escape_attr_value(&mut cx.out, s.as_str())?;
+                            #serde_json::Value::String(s) => {
+                                #proa_core::shared::escape::escape_attr_value(&mut cx.out, s.as_str())?;
                             }
-                            ::serde_json::Value::Number(n) => {
+                            #serde_json::Value::Number(n) => {
                                 let s = n.to_string();
-                                proa_core::shared::escape::escape_attr_value(&mut cx.out, &s)?;
+                                #proa_core::shared::escape::escape_attr_value(&mut cx.out, &s)?;
                             }
-                            ::serde_json::Value::Bool(b) => {
-                                proa_core::WebRenderSync::render(
+                            #serde_json::Value::Bool(b) => {
+                                #proa_core::WebRenderSync::render(
                                     UnsafeRaw(if *b { "true" } else { "false" }),
                                     cx,
                                 )?;
                             }
                             v => {
                                 let s = v.to_string();
-                                proa_core::shared::escape::escape_attr_value(&mut cx.out, &s)?;
+                                #proa_core::shared::escape::escape_attr_value(&mut cx.out, &s)?;
                             }
                         }
-                        proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
+                        #proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
                     }
                 }
             }
@@ -555,7 +557,7 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
         .map(|(field, accessor, _)| {
             let expr = accessor.to_expr(field, AccessTarget::Children);
             quote! {
-                proa_core::head_dispatch::sync(#expr, cx)?;
+                #proa_core::head_dispatch::sync(#expr, cx)?;
             }
         })
         .unwrap_or_else(|| quote! {});
@@ -569,17 +571,17 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
     let mut render_generics = input.generics.clone();
     render_generics
         .params
-        .push(parse_quote!(__ProaLoader: proa_core::DataLoader));
+        .push(parse_quote!(__ProaLoader: #proa_core::DataLoader));
     render_generics
         .params
-        .push(parse_quote!(__ProaBuffer: proa_core::WriteBuf));
+        .push(parse_quote!(__ProaBuffer: #proa_core::WriteBuf));
 
     if let Some((_, Accessor::Field, child_ty)) = &children_field {
         render_generics
             .make_where_clause()
             .predicates
             .push(parse_quote!(
-                #child_ty: proa_core::WebRenderSync<__ProaLoader, __ProaBuffer>
+                #child_ty: #proa_core::WebRenderSync<__ProaLoader, __ProaBuffer>
             ));
     }
 
@@ -587,24 +589,24 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
 
     let async_render_impl = config.async_render.then(|| {
         quote! {
-            impl #render_impl_generics proa_core::WebRender<__ProaLoader, __ProaBuffer>
+            impl #render_impl_generics #proa_core::WebRender<__ProaLoader, __ProaBuffer>
                 for #name #ty_generics
                 #render_where_clause
             {
                 fn render(
                     self,
-                    cx: &mut proa_core::web::WebContext<__ProaLoader, __ProaBuffer>,
-                ) -> proa_core::RenderOutcome<
+                    cx: &mut #proa_core::web::WebContext<__ProaLoader, __ProaBuffer>,
+                ) -> #proa_core::RenderOutcome<
                     impl ::core::future::Future<
-                        Output = Result<(), proa_core::shared::write_buf::WriteError>,
+                        Output = Result<(), #proa_core::shared::write_buf::WriteError>,
                     >,
                 >
                 {
-                    proa_core::RenderOutcome::<
+                    #proa_core::RenderOutcome::<
                         ::core::future::Ready<
-                            Result<(), proa_core::shared::write_buf::WriteError>,
+                            Result<(), #proa_core::shared::write_buf::WriteError>,
                         >,
-                    >::Done(proa_core::WebRenderSync::render(self, cx))
+                    >::Done(#proa_core::WebRenderSync::render(self, cx))
                 }
             }
         }
@@ -617,18 +619,18 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
 
             #[inline(always)]
             pub fn render_opening<
-                __ProaBuffer: proa_core::WriteBuf,
-                __ProaLoader: proa_core::DataLoader,
+                __ProaBuffer: #proa_core::WriteBuf,
+                __ProaLoader: #proa_core::DataLoader,
             >(
                 &self,
-                cx: &mut proa_core::web::WebContext<__ProaLoader, __ProaBuffer>,
-            ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+                cx: &mut #proa_core::web::WebContext<__ProaLoader, __ProaBuffer>,
+            ) -> Result<(), #proa_core::shared::write_buf::WriteError> {
                 #[allow(unused_imports)]
-                use proa_core::text::UnsafeRaw;
+                use #proa_core::text::UnsafeRaw;
                 #[allow(unused_imports)]
-                use proa_core::WebRenderSync;
+                use #proa_core::WebRenderSync;
 
-                proa_core::WebRenderSync::render(UnsafeRaw(#opening_tag), cx)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw(#opening_tag), cx)?;
 
                 let (classes, class_count) = self.classes();
                 #class_render_block
@@ -637,46 +639,46 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
                 #(#bool_attr_render_block)*
                 #(#action_render_block)*
 
-                proa_core::WebRenderSync::render(UnsafeRaw(">"), cx)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw(">"), cx)?;
                 Ok(())
             }
 
             #[inline(always)]
             pub fn render_closing<
-                __ProaBuffer: proa_core::WriteBuf,
-                __ProaLoader: proa_core::DataLoader,
+                __ProaBuffer: #proa_core::WriteBuf,
+                __ProaLoader: #proa_core::DataLoader,
             >(
                 &self,
-                cx: &mut proa_core::web::WebContext<__ProaLoader, __ProaBuffer>,
-            ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+                cx: &mut #proa_core::web::WebContext<__ProaLoader, __ProaBuffer>,
+            ) -> Result<(), #proa_core::shared::write_buf::WriteError> {
                 Self::__proa_render_closing(cx)
             }
 
             #[doc(hidden)]
             #[inline(always)]
             fn __proa_render_closing<
-                __ProaBuffer: proa_core::WriteBuf,
-                __ProaLoader: proa_core::DataLoader,
+                __ProaBuffer: #proa_core::WriteBuf,
+                __ProaLoader: #proa_core::DataLoader,
             >(
-                cx: &mut proa_core::web::WebContext<__ProaLoader, __ProaBuffer>,
-            ) -> Result<(), proa_core::shared::write_buf::WriteError> {
-                use proa_core::text::UnsafeRaw;
-                use proa_core::WebRenderSync;
+                cx: &mut #proa_core::web::WebContext<__ProaLoader, __ProaBuffer>,
+            ) -> Result<(), #proa_core::shared::write_buf::WriteError> {
+                use #proa_core::text::UnsafeRaw;
+                use #proa_core::WebRenderSync;
 
-                proa_core::WebRenderSync::render(UnsafeRaw(#closing_tag), cx)?;
+                #proa_core::WebRenderSync::render(UnsafeRaw(#closing_tag), cx)?;
                 Ok(())
             }
         }
 
-        impl #render_impl_generics proa_core::WebRenderSync<__ProaLoader, __ProaBuffer>
+        impl #render_impl_generics #proa_core::WebRenderSync<__ProaLoader, __ProaBuffer>
             for #name #ty_generics
             #render_where_clause
         {
             #[inline(always)]
             fn render(
                 self,
-                cx: &mut proa_core::web::WebContext<__ProaLoader, __ProaBuffer>,
-            ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+                cx: &mut #proa_core::web::WebContext<__ProaLoader, __ProaBuffer>,
+            ) -> Result<(), #proa_core::shared::write_buf::WriteError> {
                 self.render_opening(cx)?;
                 #children_render_block
                 Self::__proa_render_closing(cx)?;

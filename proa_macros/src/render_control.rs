@@ -142,7 +142,7 @@ fn loop_can_break(expr: &syn::ExprLoop) -> bool {
             // are opaque and may contain a break targeting it.
             let proa_path = mac.path.leading_colon.is_some()
                 && mac.path.segments.len() == 2
-                && mac.path.segments[0].ident == "proa_macros";
+                && proa_dsl::paths::is_macro_namespace(&mac.path.segments[0].ident);
             let render_macro = proa_path
                 && mac.path.segments.last().is_some_and(|segment| {
                     matches!(

@@ -76,7 +76,7 @@ configure the public prefix at startup. Keep your incoming routes at `/`,
 `/docs/start`, `/static/...`, and so on:
 
 ```rust filename="src/main.rs"
-use proa_framework_axum::{BasePath, FrameworkBuilder};
+use proa::axum::{BasePath, FrameworkBuilder};
 
 let base_path = BasePath::new(
     &std::env::var("PROA_BASE_PATH").unwrap_or_default(),
@@ -110,7 +110,7 @@ For a custom Axum router, merge `rsjs_assets_router(&base_path)` and apply
 asset pipelines can retain their handlers and call
 `rsjs::rewrite_runtime_import_specifiers` with the two public runtime URLs.
 Non-Axum adapters can use
-`proa_framework_core::response::append_rsjs_runtime_plan_with_base_path` and
+`proa::framework::response::append_rsjs_runtime_plan_with_base_path` and
 `append_rsjs_runtime_plan_delta_with_base_path` to emit prefixed asset tags.
 
 Application-authored links, forms, images, and redirects opt into URL composition:
@@ -129,7 +129,7 @@ html_sync! {
 
 ```rust filename="src/endpoints/redirect.rs"
 use axum::response::Redirect;
-use proa_framework_axum::app_url;
+use proa::axum::app_url;
 
 async fn go_home() -> Redirect {
     Redirect::to(&app_url("/").to_string())
@@ -216,7 +216,7 @@ The recognized syntax is the contract. URLs in custom-library arguments,
 inline scripts/styles, data files, or external third-party output need explicit
 composition or their own pipeline. Subresource integrity hashes must match the
 served, transformed bytes. Application templates use `cx.url(...)`;
-trusted compiled raw HTML can use `proa_core::BasePathHtml`. Compiled docs
+trusted compiled raw HTML can use `proa::BasePathHtml`. Compiled docs
 articles use it automatically for links, images/srcsets, forms, and other URL
 attributes, while text and script/style contents remain unchanged.
 

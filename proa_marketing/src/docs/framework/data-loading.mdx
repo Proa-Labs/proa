@@ -20,7 +20,7 @@ The complete server path fits into four files. Use the file tabs to follow one p
 use std::future::Future;
 
 use bytes::Bytes;
-use proa_core::{DataLoader, LoadError, LoadRequest, LoadValue};
+use proa::{DataLoader, LoadError, LoadRequest, LoadValue};
 
 #[derive(Clone)]
 pub struct AppLoader {
@@ -53,7 +53,7 @@ impl DataLoader for AppLoader {
 <CodeFile name="src/data/product.rs">
 
 ```rust
-use proa_core::LoadKey;
+use proa::LoadKey;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -78,10 +78,10 @@ pub fn recommendations_key(id: &str) -> LoadKey {
 ```rust
 use std::future::Future;
 
-use proa_core::{
+use proa::{
     DataLoader, RenderOutcome, WebContext, WebRender, WriteError,
 };
-use proa_macros::html;
+use proa::html;
 
 use crate::data::product::{product_key, Product};
 
@@ -100,7 +100,7 @@ impl<L: DataLoader> WebRender<L> for ProductPage {
             html! {
                 <main>
                     <h1>{product.title.as_str()}</h1>
-                    <p>{proa_macros::text!("{} cents", product.price_cents)}</p>
+                    <p>{proa::text!("{} cents", product.price_cents)}</p>
                 </main>
             }
             .render(cx)
@@ -118,8 +118,8 @@ impl<L: DataLoader> WebRender<L> for ProductPage {
 ```rust
 use std::sync::Arc;
 
-use proa_framework_axum::RouteResponse;
-use proa_stream::DataResolver;
+use proa::axum::RouteResponse;
+use proa::stream::DataResolver;
 
 use crate::{
     components::product_page::ProductPage,
@@ -177,7 +177,7 @@ Keep the same logical namespace and id on both sides—for example, `product` pl
 ```rust
 use std::future::Future;
 
-use proa_core::{
+use proa::{
     DataLoader, RenderOutcome, WebContext, WebRender, WriteError,
 };
 
@@ -209,7 +209,7 @@ impl<L: DataLoader> WebRender<L> for ProductPrice {
                 },
             );
 
-            proa_macros::html! {
+            proa::html! {
                 <article aria-live="polite">
                     <h2>{product.data().title}</h2>
                     <p>{product.data().price_cents}" cents"</p>
@@ -237,7 +237,7 @@ impl<L: DataLoader> WebRender<L> for ProductPrice {
 ```rust
 use std::future::Future;
 
-use proa_core::{
+use proa::{
     DataLoader, RenderOutcome, WebContext, WebRender, WriteError,
 };
 
@@ -265,7 +265,7 @@ impl<L: DataLoader> WebRender<L> for ProductEditor {
                 &[rsjs::QueryKey::new(("product", "sku_1"))],
             );
 
-            proa_macros::html! {
+            proa::html! {
                 <button
                     type="button"
                     disabled={restock.is_pending()}
@@ -319,7 +319,7 @@ Typed values return `Arc<T>`, so multiple components can share the same material
 ```rust
 use std::time::Duration;
 
-use proa_core::{CacheHint, CacheMode, LoadHints, LoadKey};
+use proa::{CacheHint, CacheMode, LoadHints, LoadKey};
 
 let product = cx
     .load_json_with::<Product>(
@@ -341,7 +341,7 @@ For a simple in-process cache, wrap an upstream loader with `StandardDataLoader`
 use std::sync::Arc;
 use std::time::Duration;
 
-use proa_core::StandardDataLoader;
+use proa::StandardDataLoader;
 
 let upstream = AppLoader {};
 let cached = Arc::new(StandardDataLoader::new(upstream, Duration::from_secs(30)));
@@ -356,8 +356,8 @@ Use a process-local cache only when that matches your deployment model. For hori
 Use `RouteResponse::ssr_stream_with_loader` and `Suspense` when a page has a fast shell plus independent slow sections:
 
 ```rust
-use proa_macros::{html, html_sync};
-use proa_stream::Suspense;
+use proa::{html, html_sync};
+use proa::stream::Suspense;
 
 pub async fn product_handler() -> impl axum::response::IntoResponse {
     let loader = DataResolver::request_scope(Arc::new(AppLoader {}));
@@ -384,7 +384,7 @@ Out-of-order boundaries can opt into scheduling metadata:
 ```rust
 use std::time::Duration;
 
-use proa_core::Priority;
+use proa::Priority;
 
 let recommendations = Suspense {
     child: Recommendations { product_id: "sku_1" },
@@ -396,7 +396,7 @@ let recommendations = Suspense {
 
 All boundary futures start concurrently. Priority is a deterministic tie-break when multiple boundaries are ready in the same driver turn: `Critical`, then `Optional`, then `Defer`, with boundary id breaking equal-priority ties. It does not delay lower-priority work.
 
-The timeout starts when the driver admits the boundary after rendering the shell. If it expires, Proa cancels that future, emits `<!--proa:timeout:N-->` for observability, preserves the shell fallback, and continues closing the response. The default framework adapter uses Tokio time. Runtime-independent hosts can drive `proa_stream::driver::out_of_order::OutOfOrderBoundaryDriver::next_deadline()` and `expire(now)` with their own clock; the clockless convenience adapter expires configured timeouts at admission rather than silently allowing an unbounded wait.
+The timeout starts when the driver admits the boundary after rendering the shell. If it expires, Proa cancels that future, emits `<!--proa:timeout:N-->` for observability, preserves the shell fallback, and continues closing the response. The default framework adapter uses Tokio time. Runtime-independent hosts can drive `proa::stream::driver::out_of_order::OutOfOrderBoundaryDriver::next_deadline()` and `expire(now)` with their own clock; the clockless convenience adapter expires configured timeouts at admission rather than silently allowing an unbounded wait.
 
 Buffered/static HTML, in-order HTML, and Markdown preserve source order and intentionally ignore both options. Cancelling an in-order child after it flushes could otherwise leave partial markup on the wire.
 
@@ -409,8 +409,8 @@ The low-level driver lives in `proa_stream`:
 ```rust
 use std::{rc::Rc, sync::Arc};
 
-use proa_core::{DataLoader, MdRender, StreamChunkFlusher, WriteError};
-use proa_stream::render_md_in_order_to_flusher_with_loader;
+use proa::{DataLoader, MdRender, StreamChunkFlusher, WriteError};
+use proa::stream::render_md_in_order_to_flusher_with_loader;
 
 pub async fn render_markdown<L: DataLoader, R: MdRender<L>>(
     page: R,
@@ -434,8 +434,8 @@ On the typed path, wrap the loader explicitly:
 ```rust
 use std::sync::Arc;
 
-use proa_core::LoadKey;
-use proa_stream::{DataResolver, PreparedLoader};
+use proa::LoadKey;
+use proa::stream::{DataResolver, PreparedLoader};
 
 let app_loader = Arc::new(AppLoader {});
 let resolver = DataResolver::request_scope(app_loader);
@@ -547,7 +547,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 
-use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
+use proa::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
 
 use super::crypto_pipeline::CryptoPipeline;
 
@@ -603,8 +603,8 @@ impl DataLoader for AppLoader {
 use std::future::Future;
 use std::sync::Arc;
 
-use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
-use proa_macros::html;
+use proa::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa::html;
 
 use crate::data::crypto_pipeline::Verification;
 use crate::data::loader::verification_key;
@@ -644,8 +644,8 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use proa_framework_axum::RouteResponse;
-use proa_stream::DataResolver;
+use proa::axum::RouteResponse;
+use proa::stream::DataResolver;
 
 use crate::components::verification_panel::VerificationPanel;
 use crate::data::loader::AppLoader;

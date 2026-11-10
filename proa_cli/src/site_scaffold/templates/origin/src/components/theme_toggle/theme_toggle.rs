@@ -14,8 +14,8 @@
 //! (Feather-derived icons, ISC AND MIT).
 use super::recipe::{ThemeToggleRecipeProps, THEME_TOGGLE_RECIPE};
 use super::THEME_TOGGLE_ANATOMY;
-use proa_core::{WebContext, WebRenderSync, WriteBuf, WriteError};
-use proa_macros::html_sync;
+use proa::{WebContext, WebRenderSync, WriteBuf, WriteError};
+use proa::html_sync;
 
 /// ThemeToggle - a button that switches the document between light and dark.
 ///
@@ -23,7 +23,7 @@ use proa_macros::html_sync;
 ///
 /// ```ignore
 /// use crate::components::ThemeToggle;
-/// use proa_macros::html_sync;
+/// use proa::html_sync;
 ///
 /// html_sync! {
 ///     {ThemeToggle::new()}
@@ -51,7 +51,7 @@ impl Default for ThemeToggle {
     }
 }
 
-impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ThemeToggle {
+impl<L: proa::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ThemeToggle {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let style = THEME_TOGGLE_RECIPE.resolve(ThemeToggleRecipeProps);
         html_sync! {
@@ -63,7 +63,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ThemeToggle 
                 data-slot="theme-toggle"
                 aria-label={self.aria_label}
                 title={self.aria_label}
-                class={proa_macros::text!("{} {}", style, self.class)}
+                class={proa::text!("{} {}", style, self.class)}
             >
                 <svg
                     data-scope={THEME_TOGGLE_ANATOMY.scope()}

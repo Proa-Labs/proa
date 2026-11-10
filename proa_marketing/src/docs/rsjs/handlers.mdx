@@ -123,8 +123,8 @@ On local bindings these methods read the element the handler runs on; a callback
 Use `rsjs::Handler<T>` when a reusable child owns markup but notifies state its direct parent owns. The child declares the DOM handler, and the parent creates the typed callback edge.
 
 ```rust filename="src/components/search_input.rs"
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::rsjs;
 
 pub struct SearchInput {
