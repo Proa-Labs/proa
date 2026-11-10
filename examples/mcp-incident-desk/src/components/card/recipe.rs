@@ -4,8 +4,8 @@
 //! Card recipe — static named slots for a composable card surface.
 
 use crate::tw_join;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::AttrValue;
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 mod base {
     use super::*;

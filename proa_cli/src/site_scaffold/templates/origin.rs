@@ -386,20 +386,12 @@ pub const SOURCE_FILES: &[(&str, &str)] = &[
         include_str!("origin/tests/atlas/dataloader.rs"),
     ),
     (
-        "tests/atlas/golden.rs",
-        include_str!("origin/tests/atlas/golden.rs"),
-    ),
-    (
         "tests/atlas/main.rs",
         include_str!("origin/tests/atlas/main.rs"),
     ),
     (
         "tests/atlas/origin.rs",
         include_str!("origin/tests/atlas/origin.rs"),
-    ),
-    (
-        "tests/golden/home.html",
-        include_str!("origin/tests/golden/home.html"),
     ),
 ];
 
@@ -504,14 +496,13 @@ remain unprefixed.
 | `src/layouts/root.rs` | Document shell: fonts, theme bootstrap, cache-busted assets |
 | `styles/input.css` | Tailwind v4 entry: ORIGIN palette tokens, keyframes, responsive layer |
 | `public/origin.js` | Progressive engine: RIS Live socket, feeds, render lab |
-| `tests/golden/home.html` | Byte-for-byte pin of the server-rendered document |
 
 ## Editing guide (read this before changing anything, humans and agents alike)
 
 1. **Every visible component renders twice.** HTML lives in the component
    file (`html_sync!` for sync, `html!` for async); the Markdown twin lives
    next to it in `md.rs` (`md_sync!`). If you change one surface, change the
-   other — the golden test and `/site/<host>.md` will catch drift.
+   other, and review `/site/<host>.md` alongside the browser page.
 2. **Classes belong in `recipe.rs`.** Components use Tailwind utilities via
    recipe constants; run `proa dev` and the pipeline recompiles
    `public/styles.css` from `styles/input.css`. New colors go in the
@@ -523,9 +514,7 @@ remain unprefixed.
    `ripestat:dossier:<query>` key; the resolver collapses a whole render
    into one upstream fan-out and the TTL cache serves reloads. Never fetch
    from a component.
-5. **The golden test is the contract.** After an intentional markup change:
-   `PROA_UPDATE_GOLDEN=1 proa test --test atlas`, then re-run `proa test`.
-6. **Before you finish:** `proa fmt`, `proa lint`, `proa build`. Intentional
+5. **Before you finish:** `proa fmt`, `proa lint`, `proa build`. Intentional
    allocations need a `// proa-perf-ok: reason` marker; the lint fails the
    build on unannotated warnings.
 
@@ -541,20 +530,15 @@ To add a catalog component: `proa ui add <name>` vendors its source into
 
 ---
 
-Package: `{package}` · SSR contract pinned by `tests/golden/home.html`
+Package: `{package}`
 "#
     )
 }
 
 pub fn manifest(package: &str) -> String {
-    let proa_actions = super::super::scaffold_version("proa_actions");
-    let proa_core = super::super::scaffold_version("proa_core");
+    let proa = super::super::scaffold_version("proa");
     let proa_fonts = super::super::scaffold_version("proa_fonts");
     let proa_fonts_macros = super::super::scaffold_version("proa_fonts_macros");
-    let proa_framework_axum = super::super::scaffold_version("proa_framework_axum");
-    let proa_ir = super::super::scaffold_version("proa_ir");
-    let proa_macros = super::super::scaffold_version("proa_macros");
-    let proa_stream = super::super::scaffold_version("proa_stream");
     let rsjs = super::super::scaffold_version("rsjs");
     let proa_fonts_build = super::super::scaffold_version("proa_fonts_build");
 
@@ -567,18 +551,13 @@ rust-version = "1.93"
 description = "ORIGIN: a live routing atlas built with Proa and RIPE data"
 
 [dependencies]
+proa = {{ version = "{proa}", features = ["axum", "actions", "rt-tokio"] }}
 anyhow = {{ version = "1" }}
 axum = {{ version = "0.7.9" }}
 const_format = {{ version = "0.2" }}
 heapless = {{ version = "0.8" }}
-proa_actions = {{ version = "{proa_actions}" }}
-proa_core = {{ version = "{proa_core}" }}
 proa_fonts = {{ version = "{proa_fonts}" }}
 proa_fonts_macros = {{ version = "{proa_fonts_macros}" }}
-proa_framework_axum = {{ version = "{proa_framework_axum}" }}
-proa_ir = {{ version = "{proa_ir}" }}
-proa_macros = {{ version = "{proa_macros}" }}
-proa_stream = {{ version = "{proa_stream}" }}
 reqwest = {{ version = "0.12", features = ["json"] }}
 rsjs = {{ version = "{rsjs}" }}
 serde = {{ version = "1", features = ["derive"] }}

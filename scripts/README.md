@@ -295,31 +295,13 @@ archives and owns the GitHub Release page. Other package GitHub Releases remain
 owned by release-plz. The separate automatic `main` binary snapshots are
 unchanged and do not publish crates to crates.io.
 
-### Initial bootstrap and recovery
+### Recovery and standalone verification
 
-Before the first standalone crates.io release, review package-name ownership
-and release readiness in [`docs/registry.md`](../docs/registry.md). The legacy
-bootstrap publisher handles unpublished dependency chains in dependency order
-and keeps the CLI after the libraries referenced by its scaffolds:
+Use the same release-plz wrapper to retry a failed release. Review the failure
+and current source before retrying; packages already published at their prepared
+version are skipped. See [`docs/registry.md`](../docs/registry.md) for package
+ownership and distribution policy.
 
-```bash
-python3 scripts/check_publish_policy.py
-python3 scripts/check_crate_archives.py
-python3 scripts/publish.py --dry-run
-```
-
-The dry run runs policy/archive checks and prints dependency order without
-invoking `cargo publish`. It does not verify crates.io ownership or build
-unpublished dependent archives. Actual publication verifies each package and
-waits for its version to resolve before continuing with dependents:
-
-```bash
-# Run cargo login locally, or supply CARGO_REGISTRY_TOKEN through your secret manager.
-python3 scripts/publish.py --skip-published
-```
-
-The publisher honors crates.io's retry time when new-crate registration is
-rate limited. It stops on authentication, verification, or other upload errors.
 After publishing, check a credential-free registry installation and all five
 generated site templates, retaining artifacts for inspection:
 
@@ -335,12 +317,8 @@ an isolated Cargo home and leave generated dependency declarations unchanged.
 The work directory retains projects, logs, and target artifacts for inspection;
 each invocation creates a fresh Cargo home, including its registry download cache.
 
-`--only crate1,crate2` selects packages. `--skip-published` checks exact versions
-through the public crates.io API without sending a token. `--no-verify` skips
-Cargo's package rebuild; prefer the default verification.
-
-Both tools run policy and archive/license checks before publishing. They do
-not discover credentials in other repositories or infrastructure services.
+The release wrapper runs policy and archive/license checks before publishing.
+It does not discover credentials in other repositories or infrastructure services.
 Demos and tools remain `publish = false`; release libraries inherit the
 workspace's explicit crates.io destination policy.
 

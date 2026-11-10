@@ -18,12 +18,12 @@ constant in the selected Page's `WebRender` or `WebRenderSync` impl, and in any
 corresponding Send render impl:
 
 ```rust
-const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;
+const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;
 ```
 
 This is required even when the Page has no head hook and inherits all metadata.
 Ancestor layouts implementing `render_head` declare
-`const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;`.
+`const ROLE: proa::ComponentRole = proa::ComponentRole::LAYOUT;`.
 Only the Page seals metadata before its body; a head hook alone
 does not declare a Page. Ordinary `COMPONENT` values skip head invocation entirely.
 Manual documents without managed-head configuration do not require this role.
@@ -80,8 +80,8 @@ Use `WebRenderSync` and `html_sync!` unless rendering must await data. Author
 the render trait explicitly:
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 pub struct Notice<C = ()> {
     pub tone: NoticeTone,
@@ -115,7 +115,7 @@ writer generic off ordinary components; add `B: WriteBuf` and use
 `WebContext<L, B>` only for an integration that deliberately supports custom
 writers.
 
-Use `proa_core::to_async(component)` when this sync component must compose
+Use `proa::to_async(component)` when this sync component must compose
 inside an `html!` tree. Implement `WebRender` with its real
 `RenderOutcome<impl Future>` signature only when the component itself needs
 `.await`.
@@ -170,7 +170,7 @@ catalog registration step.
 Keep class selection outside the HTML tree and allocation-free:
 
 ```rust
-use proa_core::ClassList;
+use proa::ClassList;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum NoticeTone {
@@ -276,40 +276,14 @@ utility classes.
 
 ## Testing
 
-Render the component through the normal buffer and assert public invariants:
+Add a test when the component introduces behavior that can fail independently
+of an intended UI change. Prefer application state transitions, authorization,
+validation, or an integration boundary over assertions that repeat the template.
 
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_core::text::text;
-    use proa_core::{WebContext, WebRenderSync};
-
-    #[test]
-    fn notice_renders_variant_children_and_custom_class() {
-        let mut cx = WebContext::new();
-
-        Notice {
-            tone: NoticeTone::Positive,
-            class: Some("mt-4"),
-            children: Some(text("<saved>")),
-        }
-        .render(&mut cx)
-        .unwrap();
-
-        let html = cx.into_output().into_string();
-        assert!(html.contains(r#"data-component="notice""#));
-        assert!(html.contains(r#"data-variant="positive""#));
-        assert!(html.contains("mt-4"));
-        assert!(html.contains("&lt;saved&gt;"));
-        assert!(!html.contains("<saved>"));
-    }
-}
-```
-
-Test every variant mapping, optional field in both states, user-controlled text
-escaping, and stable ARIA/id relationships. Snapshot whole pages only when
-structural diffs are useful and deterministic.
+Do not add a render test for every component, enumerate static classes or icons,
+or pin whole-page markup. Generic escaping and renderer guarantees belong in
+the framework's tests. See the [testing guide](../../proa_marketing/src/docs/guides/testing.mdx)
+for choosing a useful test and running linked application targets.
 
 ## Verification
 

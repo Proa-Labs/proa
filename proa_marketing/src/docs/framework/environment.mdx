@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     tracing::info!("listening on http://{}", listener.local_addr()?);
-    proa_framework_axum::serve(
+    proa::axum::serve(
         listener, app, std::time::Duration::from_secs(30),
     ).await?;
 
@@ -110,7 +110,7 @@ Use runtime config where you build the router:
 
 ```rust filename="src/app.rs"
 use axum::Router;
-use proa_framework_axum::FrameworkBuilder;
+use proa::axum::FrameworkBuilder;
 use tower_http::services::ServeDir;
 
 pub fn build_app(config: RuntimeConfig) -> anyhow::Result<Router> {
@@ -133,8 +133,8 @@ pub fn build_app(config: RuntimeConfig) -> anyhow::Result<Router> {
 Configure discovery endpoints from these typed startup values:
 
 ```rust filename="src/main.rs" {13-14}
-use proa_core::BasePath;
-use proa_framework_axum::{FrameworkBuilder, RobotsTxt, SitemapUrl};
+use proa::BasePath;
+use proa::axum::{FrameworkBuilder, RobotsTxt, SitemapUrl};
 
 let config = RuntimeConfig::from_env()?;
 let origin = config.public_base_url.as_deref().unwrap_or("http://localhost:3000");

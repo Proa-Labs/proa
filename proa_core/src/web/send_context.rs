@@ -402,16 +402,6 @@ impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
         self.escape_dialect
     }
 
-    #[deprecated(
-        note = "use load_json for JSON bytes, load_bytes for raw bytes, or load_typed for typed values"
-    )]
-    pub async fn load<T>(&self, key: LoadKey) -> Result<T, LoadError>
-    where
-        T: DeserializeOwned,
-    {
-        self.load_json(key).await
-    }
-
     pub async fn load_bytes(&self, key: LoadKey) -> Result<Bytes, LoadError> {
         self.load_bytes_request(LoadRequest::new(key)).await
     }

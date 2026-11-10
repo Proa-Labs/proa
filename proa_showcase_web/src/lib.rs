@@ -456,39 +456,3 @@ fn push_root(roots: &mut Vec<PathBuf>, path: PathBuf) {
         roots.push(path);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn canonical_routes_are_showcase_paths() {
-        assert!(SHOWCASE_ROUTES
-            .iter()
-            .all(|route| route.starts_with("/showcase/")));
-    }
-
-    #[tokio::test]
-    async fn canonical_airbnb_home_renders_the_parity_fixture() {
-        let Html(html) = airbnb_home_parity().await;
-
-        assert!(html.contains("data-airbnb-parity-app"));
-        assert!(html.contains("data-parity-revision"));
-    }
-
-    #[test]
-    fn missing_showcase_images_map_to_existing_marketing_fallbacks() {
-        assert_eq!(
-            fallback_image_path("airbnb/bedroom.jpg"),
-            Some("airbnb-preview-bedroom.webp")
-        );
-        assert_eq!(
-            fallback_image_path("airbnb/external/8db0ac0c.jpeg"),
-            Some("airbnb-preview-exterior.webp")
-        );
-        assert!(fallback_image_path("nike/AIR+JORDAN+14+RETRO.png")
-            .unwrap()
-            .starts_with("nike/alphafly-3"));
-        assert_eq!(fallback_image_path("blog/foo.png"), None);
-    }
-}

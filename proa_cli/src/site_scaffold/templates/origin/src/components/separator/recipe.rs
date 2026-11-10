@@ -6,8 +6,8 @@
 //! Provides orientation-based styling for the Separator component.
 
 use crate::tw_join;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::AttrValue;
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Base styles for the separator
 mod base {
@@ -26,7 +26,7 @@ mod orientations {
 }
 
 /// Orientation options for the separator
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
 #[variant(name = "orientation", path = "crate::components::_proa::variant_spec")]
 pub enum SeparatorOrientation {
     /// Horizontal separator (default)

@@ -12,7 +12,7 @@ Use ordinary Axum responses for JSON APIs, form handlers, early status codes, re
 Use `RouteResponse::ssr` for ordinary `WebRenderSync` components.
 
 ```rust
-use proa_framework_axum::RouteResponse;
+use proa::axum::RouteResponse;
 
 pub async fn handler() -> RouteResponse {
     RouteResponse::ssr(HomePage)
@@ -62,7 +62,7 @@ Streaming responses default to out-of-order chunked rendering. Use `with_render_
 
 Use [Data loading and streaming](/docs/framework/data-loading) for `Suspense` boundaries, `PreparedLoader`, and streamed data patterns.
 
-`RouteResponse::ssr_stream*` is the HTML response surface. For generated `text/markdown` responses, use `proa_stream::render_md_in_order_to_flusher` or `InOrderMarkdownDriver` from a custom handler/adapter and set the response content type yourself. See [Streaming Markdown Output](/docs/framework/data-loading#streaming-markdown-output).
+`RouteResponse::ssr_stream*` is the HTML response surface. For generated `text/markdown` responses, use `proa::stream::render_md_in_order_to_flusher` or `InOrderMarkdownDriver` from a custom handler/adapter and set the response content type yourself. See [Streaming Markdown Output](/docs/framework/data-loading#streaming-markdown-output).
 
 ## Responses outside the render pipeline
 
@@ -79,18 +79,18 @@ pub async fn handler() -> Html<&'static str> {
 If a compile-time HTML fragment must participate in Proa finalization or browser navigation, treat it as a renderable node instead of a response kind:
 
 ```rust
-RouteResponse::ssr(proa_core::static_html(b"<main>Static fragment</main>"))
+RouteResponse::ssr(proa::static_html(b"<main>Static fragment</main>"))
 ```
 
-Mount a browser-rendered application with `ExternalApp::csr_app`, which owns SPA fallback and asset routing. Keeping these cases out of `RouteResponse` makes the type describe one job: deferred server rendering.
+Serve browser-rendered applications through Axum file services and configure their fallback routing explicitly. `RouteResponse` handles deferred server rendering.
 
 ## Rendering without a server
 
 `RouteResponse::render_to_bytes` finalizes a response into one HTML document with no HTTP server, no island manifest, and no async runtime. It applies the same managed head and RSJS runtime tags the Axum adapter would, so static exports, snapshot tests, and plain `fn main` programs render the exact bytes a route serves.
 
 ```rust filename="src/main.rs"
-use proa_core::HeadConfig;
-use proa_framework_core::RouteResponse;
+use proa::HeadConfig;
+use proa::framework::RouteResponse;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let html = RouteResponse::ssr(RootDocument { children: HomePage })
@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`render_to_string` returns the same document as a `String`, and the `proa_framework_axum::RouteResponse` wrapper exposes both methods. What differs from a served request:
+`render_to_string` returns the same document as a `String`, and the `proa::axum::RouteResponse` wrapper exposes both methods. What differs from a served request:
 
 - Async plans render buffered. `Suspense` content appears inline rather than as a fallback plus a later swap, and the streaming driver is never involved.
 - There is no request. The base path is the origin root, route parameters are absent, and `render_metadata_head` resolves to nothing. Pages that read those should go through the built router with `tower::ServiceExt::oneshot`.

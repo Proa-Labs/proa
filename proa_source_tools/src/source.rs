@@ -388,7 +388,7 @@ pub fn find_macros(source: &str) -> Vec<MacroInvocation> {
                 {
                     if let Some(dialect) = macro_dialect(name) {
                         let foreign = qualified_macro_owner(source, name_start)
-                            .is_some_and(|owner| owner != "proa_macros")
+                            .is_some_and(|owner| !matches!(owner, "proa_macros" | "proa"))
                             || (name == "html"
                                 && qualified_macro_owner(source, name_start).is_none()
                                 && bare_html_is_foreign);
@@ -475,7 +475,8 @@ fn bare_html_is_imported_from_yew(source: &str) -> bool {
     let mut proa_html = false;
     for statement in compact.split(';') {
         yew_html |= use_statement_imports(statement, "yew", "html");
-        proa_html |= use_statement_imports(statement, "proa_macros", "html");
+        proa_html |= use_statement_imports(statement, "proa_macros", "html")
+            || use_statement_imports(statement, "proa", "html");
     }
     yew_html && !proa_html
 }
@@ -1023,5 +1024,16 @@ mod tests {
         let root = temp.path().canonicalize().unwrap();
         let error = find_changed_rust_files_in(&root, None, false).unwrap_err();
         assert!(error.to_string().contains("git"), "{error}");
+    }
+}
+
+#[cfg(test)]
+mod facade_tests {
+    #[test]
+    fn qualified_facade_templates_are_discovered() {
+        let macros = super::find_macros(
+            "proa::html_sync! { <p>{name}</p> }; proa::md_sync! { r#\"{name}\"# };",
+        );
+        assert_eq!(macros.len(), 2);
     }
 }

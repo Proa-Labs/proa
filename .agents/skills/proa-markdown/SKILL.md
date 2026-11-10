@@ -17,7 +17,7 @@ HTML/XML-only crates may disable it to omit Markdown parser build dependencies.
 ## Choose the rendering boundary
 
 When the same Page also renders a managed-head HTML document, declare
-`const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;` on its
+`const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;` on its
 HTML render-trait impl, even if it inherits all metadata. Ancestor HTML head
 providers declare `ComponentRole::LAYOUT`. Run `cargo proa lint <changed-paths>
 --deny warnings` to reject hooks with missing or explicit `COMPONENT` roles.
@@ -30,7 +30,7 @@ for HTML lifecycle and route verification.
 
 Use `MdRenderSync` with `md_sync!` for synchronous content. Use `MdRender` and
 `md!` only when rendering awaits data. Lift a synchronous child into an async
-tree with `proa_core::to_md_async(...)`.
+tree with `proa::to_md_async(...)`.
 
 Keep the Markdown implementation with the owning page or component. Share
 titles, prose, links, and collections with its HTML implementation before

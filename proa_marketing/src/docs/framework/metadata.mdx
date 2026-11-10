@@ -13,7 +13,7 @@ This guide covers setup, request-loaded metadata, layout defaults, and sharing i
 Put the hook in the selected Page's `WebRender<L>` implementation. Keep its existing `render(self, cx)` body.
 
 ```rust filename="ProductPage"
-use proa_core::{ComponentRole, DataLoader, WebContext, WebRender, WriteError};
+use proa::{ComponentRole, DataLoader, WebContext, WebRender, WriteError};
 
 impl<L: DataLoader> WebRender<L> for ProductPage {
     const ROLE: ComponentRole = ComponentRole::PAGE;
@@ -42,8 +42,8 @@ For a struct with several fields, use [`cx.head_mut().metadata(HeadMetadata { ..
 Configure a trusted public origin before rendering the document:
 
 ```rust filename="Route configuration"
-use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::RouteResponse;
+use proa::{HeadConfig, HeadUrlPolicy};
+use proa::axum::RouteResponse;
 
 let head = HeadConfig::default()
     .with_urls(HeadUrlPolicy::new("https://shop.example", "/")?);
@@ -56,7 +56,7 @@ Use your configured production or staging origin in place of `https://shop.examp
 To enable metadata for every rendered route, pass the same configuration to the framework builder:
 
 ```rust filename="App configuration"
-use proa_framework_axum::FrameworkBuilder;
+use proa::axum::FrameworkBuilder;
 
 let app = FrameworkBuilder::new()
     .with_head(head)
@@ -171,8 +171,8 @@ A Page that only inherits metadata can omit its hook, but it still declares `ROL
 Use `with_defaults` for values shared by your routes, then install the configuration using `with_head(...)` on [FrameworkBuilder](/docs/framework/configuration). Here, `routes` is your application's existing Axum router:
 
 ```rust filename="App configuration"
-use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::FrameworkBuilder;
+use proa::{HeadConfig, HeadUrlPolicy};
+use proa::axum::FrameworkBuilder;
 
 let head = HeadConfig::default()
     .with_urls(HeadUrlPolicy::new("https://shop.example", "/")?)
@@ -195,7 +195,7 @@ Page and layout hooks can override these defaults. Call `with_urls` before `with
 Point to an existing image and describe it with `HeadMedia`:
 
 ```rust filename="render_head"
-use proa_core::{HeadMedia, OpenGraph};
+use proa::{HeadMedia, OpenGraph};
 
 cx.head_mut().open_graph(
     OpenGraph::new().images([

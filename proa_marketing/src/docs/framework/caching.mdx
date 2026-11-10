@@ -25,7 +25,7 @@ Wrap your loader with `DataResolver` when multiple components can ask for the sa
 ```rust
 use std::sync::Arc;
 
-use proa_stream::DataResolver;
+use proa::stream::DataResolver;
 
 pub async fn product_handler() -> impl axum::response::IntoResponse {
     let app_loader = Arc::new(AppLoader::new());
@@ -45,7 +45,7 @@ For a process-local cache, wrap an upstream loader with `StandardDataLoader`:
 use std::sync::Arc;
 use std::time::Duration;
 
-use proa_core::StandardDataLoader;
+use proa::StandardDataLoader;
 
 let cached_loader = Arc::new(StandardDataLoader::new(
     AppLoader::new(),
@@ -56,7 +56,7 @@ let cached_loader = Arc::new(StandardDataLoader::new(
 `StandardDataLoader` stores `LoadValue` by `LoadKey`, expires entries by TTL, and exposes manual invalidation:
 
 ```rust
-use proa_core::LoadKey;
+use proa::LoadKey;
 
 cached_loader.invalidate(&LoadKey::named("product", "sku_1"));
 cached_loader.clear();
@@ -71,7 +71,7 @@ Use a process-local cache only when each instance can safely have its own copy. 
 ```rust
 use std::time::Duration;
 
-use proa_core::{CacheHint, CacheMode, LoadHints, LoadKey};
+use proa::{CacheHint, CacheMode, LoadHints, LoadKey};
 
 let product = cx
     .load_json_with::<Product>(

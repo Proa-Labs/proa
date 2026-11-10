@@ -85,7 +85,7 @@ An opaque helper or different presence condition can leave a contribution
 
 Content coverage follows values into the rendered body. It does not require
 matching `cx` accesses, loader queries, cache operations, or metadata setup.
-Known `proa_core::WebContext` preparation APIs and supported metadata aliases do
+Known `proa::WebContext` preparation APIs and supported metadata aliases do
 not create content obligations or unchecked-body diagnostics on their own.
 An unused fetch does not cover missing content.
 
@@ -110,8 +110,8 @@ If the views live in separate files, edit the file containing the Markdown impl.
 This complete `src/components/product.rs` deliberately keeps the image in HTML:
 
 ```rust
-use proa_core::{MdRenderSync, WebContext, WebRenderSync, WriteError};
-use proa_macros::{html_sync, md_sync, omit};
+use proa::{MdRenderSync, WebContext, WebRenderSync, WriteError};
+use proa::{html_sync, md_sync, omit};
 
 struct Product<'a> {
     title: &'a str,
@@ -161,8 +161,8 @@ in `src/views/product_markdown.rs`, with the types imported from `crate::product
 That module must expose the product's `title` and the notice type:
 
 ```rust
-use proa_core::{MdRenderSync, WebContext, WriteError};
-use proa_macros::{md_sync, omit};
+use proa::{MdRenderSync, WebContext, WriteError};
+use proa::{md_sync, omit};
 use crate::product::{Product, RestockNotice};
 
 impl MdRenderSync for Product<'_> {
@@ -190,10 +190,10 @@ To intentionally exclude a whole view, including future additions, put the
 attribute **above its impl**:
 
 ```rust
-#[proa_macros::content(skip, reason = "This view is a brief summary")]
+#[proa::content(skip, reason = "This view is a brief summary")]
 impl MdRenderSync for Product<'_> {
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        proa_macros::md_sync! { r###"# {self.title}"### }.render_md(cx)
+        proa::md_sync! { r###"# {self.title}"### }.render_md(cx)
     }
 }
 ```
@@ -202,9 +202,9 @@ Alternatively, put the attribute **above the render method inside the impl**:
 
 ```rust
 impl MdRenderSync for Product<'_> {
-    #[proa_macros::content(skip)]
+    #[proa::content(skip)]
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        proa_macros::md_sync! { r###"# {self.title}"### }.render_md(cx)
+        proa::md_sync! { r###"# {self.title}"### }.render_md(cx)
     }
 }
 ```
@@ -216,7 +216,7 @@ paired views.
 HTML-only and Markdown-only components need no exceptions. Content is compared
 when both views exist; the linter does not require another render implementation.
 Separate representation types can pair explicitly with
-`#[proa_macros::content(source = HtmlProduct, from = "html")]` above the Markdown
+`#[proa::content(source = HtmlProduct, from = "html")]` above the Markdown
 impl. This explicitly pairs their rendered field names and shared inputs; the
 author is responsible for those fields having corresponding meanings.
 
@@ -248,7 +248,7 @@ error[render/content-coverage]: `Product<'_>`'s Markdown view does not render `s
     |
    = help: render `self.image` in the Markdown view
    = help: to omit it intentionally, add this inside the render method before its template
-           proa_macros::omit!(self.image);
+           proa::omit!(self.image);
 ```
 
 | Diagnostic | Meaning and repair |

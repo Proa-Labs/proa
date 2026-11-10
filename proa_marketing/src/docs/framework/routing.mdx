@@ -18,7 +18,7 @@ let routes = Router::new()
 The handler composes the document, shared shop layout, and selected Page:
 
 ```rust filename="Product handler"
-use proa_framework_axum::RouteResponse;
+use proa::axum::RouteResponse;
 use crate::{layouts::{RootDocument, ShopLayout}, pages::ProductPage};
 
 async fn product() -> RouteResponse {
@@ -39,8 +39,8 @@ async fn product() -> RouteResponse {
 Pass the router to `FrameworkBuilder`. Enable managed metadata with `with_head`:
 
 ```rust filename="App configuration"
-use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::FrameworkBuilder;
+use proa::{HeadConfig, HeadUrlPolicy};
+use proa::axum::FrameworkBuilder;
 
 let head = HeadConfig::default()
     .with_urls(HeadUrlPolicy::new("https://acme.example", "/")?);
@@ -67,11 +67,11 @@ These are URL patterns, registered explicitly; Rust filenames organize the sourc
 Here is the `ProductPage` used above. It reads the same `id` in its head and body:
 
 ```rust filename="src/pages/product.rs"
-use proa_core::{
+use proa::{
     ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync,
     WriteError,
 };
-use proa_macros::html_sync;
+use proa::html_sync;
 
 pub struct ProductPage;
 
@@ -143,7 +143,7 @@ This registers `/about`, `/shop`, and `/shop/products/:id`; Axum maps the nested
 Use Proa's `Route::endpoint` when you also need route modes, static-path declarations, or route-specification metadata. It produces an Axum router you can merge with the rest of the app:
 
 ```rust filename="Route specification"
-use proa_framework_axum::{Route, RouteMode};
+use proa::axum::{Route, RouteMode};
 
 let routes = Router::new().merge(
     Route::endpoint("/shop/products/:id", get(product))

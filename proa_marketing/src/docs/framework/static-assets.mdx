@@ -1,6 +1,6 @@
 ---
 title: Static assets
-description: Serve static files, embedded assets, and external apps safely.
+description: Serve static files and embedded assets safely.
 ---
 
 `FrameworkBuilder` nests your static router at `/static`, and you supply that router, so the service, cache headers, and deployment rules stay yours. This page covers [disk-backed assets](#serving-assets-from-disk), [embedded assets](#embedding-assets-in-the-binary), [linked island assets](#serving-linked-island-assets), [the CSS manifest](#linking-the-css-manifest), and [external apps](#mounting-external-apps).
@@ -50,7 +50,7 @@ import `app_url` from the linked runtime. See
 For routers built without `FrameworkBuilder`, wrap the static router explicitly:
 
 ```rust
-use proa_framework_axum::{base_path_assets, BasePath};
+use proa::axum::{base_path_assets, BasePath};
 
 let static_router = base_path_assets(static_router, BasePath::new("/apps/demo")?);
 ```
@@ -68,7 +68,7 @@ Use `EmbeddedStaticService` when `include_dir` compiles assets into the binary.
 ```rust filename="src/app.rs"
 use axum::Router;
 use include_dir::{include_dir, Dir};
-use proa_framework_axum::EmbeddedStaticService;
+use proa::axum::EmbeddedStaticService;
 
 static PUBLIC: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/public");
 
@@ -90,7 +90,7 @@ RSJS embeds its runtimes and generated module sources in the linked binary.
 Enable their HTTP routes with `with_rsjs_assets()`:
 
 ```rust filename="src/app.rs"
-use proa_framework_axum::FrameworkBuilder;
+use proa::axum::FrameworkBuilder;
 
 let app = FrameworkBuilder::new()
     .with_rsjs_assets()
@@ -110,7 +110,7 @@ continues to serve application files under `/static` independently.
 
 Use these routes in place of custom handlers at the same paths to avoid route
 collisions. For a custom Axum router, merge
-`proa_framework_axum::rsjs_assets_router(&base_path)` and apply
+`proa::axum::rsjs_assets_router(&base_path)` and apply
 `RouteContextLayer::with_base_path` with the same setting.
 
 `with_rsjs_assets()` works with the default root or with
@@ -132,25 +132,11 @@ html_sync! {
 }
 ```
 
-Whole applications mount the same way a stylesheet does, through the builder.
-
 ## Mounting external apps
 
-Use `with_external_app` to mount another app under a path. This supports static apps and SSR apps that live beside the Proa server.
-
-```rust filename="src/app.rs"
-use proa_framework_axum::{ExternalApp, FrameworkBuilder};
-
-let app = FrameworkBuilder::new()
-    .with_external_app(ExternalApp::static_app("/docs", "./apps/docs/out"))
-    .with_external_app(ExternalApp::ssr_app(
-        "/admin",
-        "http://localhost:4000".to_string(),
-    ))
-    .build();
-```
-
-Mount external apps before deciding on cache and security headers. They share the same outer router and production hardening layers.
+Compose additional static applications with Axum's router APIs. For example,
+nest a file service at `/docs`. Configure any SPA fallback explicitly on that
+service. Proa does not start other dev servers or provide a reverse proxy.
 
 Every path above serves files straight to the browser, which makes what you put in those directories a security decision.
 
@@ -171,4 +157,4 @@ Every path above serves files straight to the browser, which makes what you put 
 - [Fonts](/docs/framework/fonts)
   - Self-host web fonts with metric-matched fallbacks and zero runtime requests.
 - [Configuration](/docs/framework/configuration)
-  - Configure FrameworkBuilder, security defaults, static mounts, and external apps.
+  - Configure FrameworkBuilder, security defaults, static mounts, and response behavior.

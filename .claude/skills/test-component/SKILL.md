@@ -16,8 +16,8 @@ Full guide:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proa_core::text::text;
-    use proa_core::WebContext;
+    use proa::text::text;
+    use proa::WebContext;
 
     #[test]
     fn component_renders() {

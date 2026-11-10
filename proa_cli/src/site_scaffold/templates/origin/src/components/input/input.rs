@@ -5,9 +5,9 @@
 use super::recipe::{InputRecipeProps, InputSize, InputType, INPUT_RECIPE};
 use crate::components::_proa::free_web::binding_to_js_attr;
 
-use proa_core::{WebContext, WebRenderSync, WriteBuf};
-use proa_ir::ReactiveAttr;
-use proa_macros::html_sync;
+use proa::{WebContext, WebRenderSync, WriteBuf};
+use proa::ir::ReactiveAttr;
+use proa::html_sync;
 /// Type-safe Input component.
 ///
 /// A form input field with support for various input types, sizes, and states.
@@ -17,7 +17,7 @@ use proa_macros::html_sync;
 ///
 /// ```ignore
 /// use crate::components::{Input, InputType, InputSize};
-/// use proa_macros::html_sync;
+/// use proa::html_sync;
 ///
 /// // Basic usage
 /// html_sync! {
@@ -87,12 +87,12 @@ impl Default for Input {
         Self::new()
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Input {
+impl<L: ::proa::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Input {
     #[inline(always)]
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = INPUT_RECIPE.resolve(InputRecipeProps { size: self.size });
         let is_disabled = self.disabled.default;
         let is_aria_invalid = self.aria_invalid.default;
@@ -103,7 +103,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Input {
         html_sync! {
             <input
                 type={self.input_type.as_str()}
-                class={proa_macros::text!("{} {}", style, self.class)}
+                class={proa::text!("{} {}", style, self.class)}
                 id={self.id}
                 name={self.name}
                 value={self.value}

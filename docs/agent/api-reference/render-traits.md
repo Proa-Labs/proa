@@ -105,9 +105,9 @@ execution by itself.
 | Calls `query_with_initial(...)` with an already-available initial value | `WebRenderSync` |
 | Must `.await` to produce a query's initial value | `WebRender` |
 | Calls `mutation(...)` inside an analyzed component | `WebRender` (mutation declarations remain on the async surface) |
-| Composes a child that is async | `WebRender`, OR keep sync and use `proa_core::to_async(child)` if you can isolate the async leaf |
+| Composes a child that is async | `WebRender`, OR keep sync and use `proa::to_async(child)` if you can isolate the async leaf |
 | Complete async tree is `Send` and should stream directly through a multithreaded adapter | `WebRenderSend` + `html_send!` |
-| Send tree contains a send-safe synchronous child | `WebRenderSendSync`, then `proa_core::to_send(child)` |
+| Send tree contains a send-safe synchronous child | `WebRenderSendSync`, then `proa::to_send(child)` |
 
 ## Default: `WebRenderSync`
 
@@ -165,7 +165,7 @@ In an `html!` (async) tree, all children must be `WebRender`. To embed a
 `WebRenderSync` child:
 
 ```rust
-use proa_core::to_async;
+use proa::to_async;
 
 html! {
     <div>
@@ -182,7 +182,7 @@ For single-element components generated with `#[derive(ProaComponent)]`, add
 `async_render` to the component attribute:
 
 ```rust
-#[derive(proa_macros::ProaComponent)]
+#[derive(proa::ProaComponent)]
 #[component(tag = "aside", async_render)]
 struct Notice<C = ()> {
     #[component(children)]
@@ -245,7 +245,7 @@ branch truly needs to select between unrelated concrete component types, use
 the explicitly boxed escape hatches:
 
 ```rust
-use proa_core::{boxed_render, boxed_sync_render};
+use proa::{boxed_render, boxed_sync_render};
 
 let sync_child = if use_card {
     boxed_sync_render(CardView { /* ... */ })
@@ -328,7 +328,7 @@ impl<L: DataLoader> MdRender<L> for Article {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>>
     {
         RenderOutcome::Pending(async move {
-            proa_core::render_md_child(
+            proa::render_md_child(
                 cx,
                 md! { r###"
                     # {self.title}
@@ -348,7 +348,7 @@ sync-only child placed inside `md!` must be lifted explicitly:
 
 ```rust
 md! { r###"
-Result: {proa_core::to_md_async(sync_child)}
+Result: {proa::to_md_async(sync_child)}
 "###
 }
 ```
@@ -390,7 +390,7 @@ without authored Markdown through a tuple, which adds no boundaries. See
 Enable the optional converter on the core dependency:
 
 ```toml
-proa_core = { version = "0.4.0", features = ["html-to-markdown"] }
+proa = { version = "0.4", features = ["html-to-markdown"] }
 ```
 
 A synchronous HTML component can delegate its Markdown implementation without
@@ -399,7 +399,7 @@ maintaining a second template:
 ```rust
 impl<L: DataLoader> MdRenderSync<L> for Article {
     fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        proa_core::to_markdown(self).render_md(cx)
+        proa::to_markdown(self).render_md(cx)
     }
 }
 ```
@@ -415,7 +415,7 @@ You can also wrap an HTML fragment directly, without defining a component:
 md_sync! { r###"
     # Overview
 
-    {proa_core::to_markdown(html_sync! {
+    {proa::to_markdown(html_sync! {
         <p>"Compiled templates with " <strong>"fast rendering"</strong> "."</p>
     })}
 
@@ -526,7 +526,7 @@ and keep a code-generation role assertion (run `cargo build` too). Send hooks us
 + Send`, and implementations may use `async fn` returning `Result`.
 
 Use `cx.head_mut().title(value)?` and related checked setters inside the hook.
-For several fields, pass `proa_core::HeadMetadata { title: value.into(),
+For several fields, pass `proa::HeadMetadata { title: value.into(),
 description: summary.into(), ..Default::default() }` to
 `cx.head_mut().metadata(...)`. This is an atomic patch: omitted fields inherit,
 and invalid fields leave the whole patch unapplied. `title_template`,

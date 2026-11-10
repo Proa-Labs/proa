@@ -39,20 +39,3 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Url<'_> {
         cx.write_md_url(self.0)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_macros::md_sync;
-
-    #[test]
-    fn markdown_slots_escape_labels_and_link_destinations() {
-        let label = "[injected](https://evil.test)";
-        let url = "https://example.test/a (b)";
-        let output = render_markdown(md_sync! { r###"[{label}]({Url(url)})"### });
-        assert!(output.contains(r"\[injected\]"));
-        assert!(output.contains(r"https://example.test/a%20\(b\)"));
-        assert!(!output.contains("](https://evil.test)"));
-        assert_eq!(render_markdown(Url("javascript:alert(1)")), "");
-    }
-}

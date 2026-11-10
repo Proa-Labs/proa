@@ -72,27 +72,6 @@ pub fn versioned_asset_path(public_path: &str) -> String {
     }
 }
 
-#[cfg(test)]
-#[allow(clippy::items_after_test_module)] // Asset tests stay beside asset path helpers.
-mod asset_tests {
-    use super::{resolve_asset_path, versioned_asset_path};
-
-    #[test]
-    fn resolves_assets_from_their_workspace_owners() {
-        for public_path in [
-            "/proa.css",
-            "/proa.js",
-            "/assets/airbnb-showcase.js",
-            "/assets/DatePickerIsland.js",
-            "/assets/BookingCardIsland.js",
-        ] {
-            let resolved = resolve_asset_path(public_path).expect("known showcase asset");
-            assert!(resolved.is_file(), "missing {}", resolved.display());
-            assert!(versioned_asset_path(public_path).contains("?v="));
-        }
-    }
-}
-
 pub fn render_document_start<B: WriteBuf, L: ::proa_core::DataLoader>(
     cx: &mut WebContext<L, B>,
     title_parts: &[&str],

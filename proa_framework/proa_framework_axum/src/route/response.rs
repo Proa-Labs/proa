@@ -47,7 +47,7 @@ impl RouteResponse<NoLoader> {
     ///
     /// Rendering completes before Axum emits the response, so root errors and
     /// response metadata are known before body delivery begins. Use this when
-    /// the component never calls `cx.load(...)`. For routes
+    /// the component never calls `cx.load_json(...)`. For routes
     /// that install a loader, use
     /// [`ssr_async_with_loader`](RouteResponse::<L>::ssr_async_with_loader)
     /// (which fixes `L` to the supplied loader's concrete type) or the
@@ -62,7 +62,7 @@ impl RouteResponse<NoLoader> {
 
     /// Construct a streamed async route response with `L = NoLoader`.
     ///
-    /// Use this when the component never calls `cx.load(...)`. For routes
+    /// Use this when the component never calls `cx.load_json(...)`. For routes
     /// that install a loader, see
     /// [`ssr_stream_with_loader`](RouteResponse::<L>::ssr_stream_with_loader).
     pub fn ssr_stream<T>(component: T) -> Self
@@ -93,7 +93,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// Construct a typed-loader buffered async route response.
     ///
     /// `L` is inferred from `loader`'s type. The component must implement
-    /// `WebRender<L>`; `cx.load(...)` calls inside it become
+    /// `WebRender<L>`; `cx.load_json(...)` calls inside it become
     /// direct, monomorphized calls on `L`.
     pub fn ssr_async_with_loader<T>(component: T, loader: Arc<L>) -> Self
     where
@@ -140,7 +140,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
 
     /// Install a typed loader on the response.
     ///
-    /// `L` is the loader's concrete type. `cx.load(...)` calls inside the
+    /// `L` is the loader's concrete type. `cx.load_json(...)` calls inside the
     /// component become direct, monomorphized calls on `L` rather than going
     /// through a `Box::pin` at the dyn boundary.
     pub fn with_loader(self, loader: Arc<L>) -> Self {
@@ -183,7 +183,7 @@ impl RouteResponse<DynLoaderHandle> {
     /// Construct an async route response with a type-erased loader.
     ///
     /// This is the dyn-boundary escape hatch constructor: `L` is fixed to
-    /// `DynLoaderHandle`, so `cx.load(...)` calls inside the component pay
+    /// `DynLoaderHandle`, so `cx.load_json(...)` calls inside the component pay
     /// one `Box::pin` at the dyn boundary. Use only when the loader's
     /// concrete type is genuinely not statically known at the route's
     /// construction site; prefer
@@ -229,7 +229,7 @@ impl RouteResponse<DynLoaderHandle> {
     /// Replace the loader on an existing type-erased response.
     ///
     /// The response must already use `L = DynLoaderHandle`; this method does
-    /// not change its loader type. Every `cx.load(...)` inside the component
+    /// not change its loader type. Every `cx.load_json(...)` inside the component
     /// pays one `Box::pin` at the dyn boundary.
     ///
     /// Use [`with_loader`](Self::with_loader) on a typed `L` for the

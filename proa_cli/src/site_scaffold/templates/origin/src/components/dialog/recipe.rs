@@ -8,8 +8,8 @@
 //! variant. Every remaining public part reads one static named slot.
 
 use crate::tw_join;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::AttrValue;
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 pub(crate) const DIALOG_ROOT: &str = "group/dialog";
 
@@ -147,7 +147,7 @@ const DIALOG_SIZE_XL: &str = "max-w-4xl";
 const DIALOG_SIZE_FULL: &str = "max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)]";
 
 /// Dialog content size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
 #[variant(name = "size", path = "crate::components::_proa::variant_spec")]
 pub enum DialogSize {
     Sm,

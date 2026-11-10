@@ -11,7 +11,7 @@ Proa keeps server mutations explicit: the browser submits a native HTML form, an
 Use real form controls whenever a browser submit is enough:
 
 ```rust filename="src/pages/contact.rs"
-use proa_macros::html_sync;
+use proa::html_sync;
 
 html_sync! {
     <form method="post" action="/contact" class="grid gap-4">
@@ -117,7 +117,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Redirect, Response},
 };
-use proa_framework_axum::RouteResponse;
+use proa::axum::RouteResponse;
 
 use crate::{forms::contact, pages::contact::ContactPage};
 
@@ -221,7 +221,7 @@ The lower-level `proa_actions` interface below is useful when an existing TypeSc
 Use `#[derive(Action)]` when client-side code needs stable, typed action names:
 
 ```rust filename="src/actions/product.rs"
-use proa_actions::{Action, ActionHandler};
+use proa::actions::{Action, ActionHandler};
 
 #[derive(Debug, Clone, Action)]
 #[action(scope = "product_card")]
@@ -279,7 +279,7 @@ Parameter names **must** be safe attribute-name suffixes: ASCII letters, digits,
 
 ### Generating the client runtime
 
-`proa_actions::codegen` can generate three TypeScript artifacts from action metadata:
+`proa::actions::codegen` can generate three TypeScript artifacts from action metadata:
 
 | Artifact | Purpose |
 |----------|---------|

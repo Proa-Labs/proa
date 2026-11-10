@@ -228,10 +228,10 @@ Use queries and mutations for browser fetch work. A query can stay synchronous w
 ```rust filename="src/components/cart_updater.rs"
 use std::future::Future;
 
-use proa_core::{
+use proa::{
     DataLoader, RenderOutcome, WebContext, WebRender, WriteError,
 };
-use proa_macros::html;
+use proa::html;
 use rsjs::rsjs;
 
 pub struct CartUpdater;

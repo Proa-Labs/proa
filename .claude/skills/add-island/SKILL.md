@@ -46,17 +46,17 @@ JavaScript bridge; follow the [RSJS-first policy](../../../docs/agent/rsjs-islan
 ## Minimal island
 
 ```rust
-use proa_macros::html_sync;
+use proa::html_sync;
 use rsjs::{rsjs, signal};
 
 pub struct Counter { pub initial: i64 }
 
 #[rsjs(component, client)]
-impl<L: proa_core::DataLoader>
-    proa_core::WebRenderSync<L> for Counter
+impl<L: proa::DataLoader>
+    proa::WebRenderSync<L> for Counter
 {
-    fn render(self, cx: &mut proa_core::WebContext<L>)
-        -> Result<(), proa_core::WriteError>
+    fn render(self, cx: &mut proa::WebContext<L>)
+        -> Result<(), proa::WriteError>
     {
         let count = signal(self.initial);
         html_sync! {
@@ -153,7 +153,7 @@ inline tiny islands).
 
 ## Common mistakes
 
-- **Forgetting to bring `proa_core::WebContext` / `WebRenderSync` into scope**
+- **Forgetting to bring `proa::WebContext` / `WebRenderSync` into scope**
   at the impl site. The macro needs them.
 - **Using `let mut` in render for state.** Use `signal(...)` instead;
   `let mut` only mutates server-side and won't survive the hydrate.

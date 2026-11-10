@@ -342,6 +342,39 @@ fn local_marker_range(view: &ViewSummary, name: &str) -> Option<SourceRange> {
     }
 }
 
+// Keep editable suggestions on the namespace used by the source.
+fn omission_macro_namespace(source: &str) -> &'static str {
+    fn facade_import(tree: &syn::UseTree) -> bool {
+        match tree {
+            syn::UseTree::Path(path) => path.ident == "proa",
+            syn::UseTree::Name(name) => name.ident == "proa",
+            syn::UseTree::Rename(rename) => rename.ident == "proa",
+            syn::UseTree::Group(group) => group.items.iter().any(facade_import),
+            _ => false,
+        }
+    }
+    #[derive(Default)]
+    struct FacadeUse(bool);
+    impl<'ast> syn::visit::Visit<'ast> for FacadeUse {
+        fn visit_path(&mut self, path: &'ast syn::Path) {
+            self.0 |= path.segments.first().is_some_and(|s| s.ident == "proa");
+            syn::visit::visit_path(self, path);
+        }
+        fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
+            self.0 |= facade_import(&item.tree);
+        }
+    }
+    let mut usage = FacadeUse::default();
+    if let Ok(file) = syn::parse_file(source) {
+        syn::visit::Visit::visit_file(&mut usage, &file);
+    }
+    if usage.0 {
+        "proa"
+    } else {
+        "proa_macros"
+    }
+}
+
 /// Compare summaries without depending on their parsers. Absence is confirmed
 /// only inside the supported subset; any opaque output prevents that assertion.
 pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnostic> {
@@ -349,6 +382,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
         return Vec::new();
     }
     let mut diagnostics = Vec::new();
+    let mut omission_namespace = None;
     let mut waived = BTreeSet::new();
     for marker in &target.omissions {
         if marker
@@ -593,15 +627,17 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                 .then(|| local_marker_range(target, name).map(|range| (name, range)))
                 .flatten()
         });
+        let macro_namespace =
+            *omission_namespace.get_or_insert_with(|| omission_macro_namespace(&target.source));
         let omit = if let Some((name, _)) = &local {
-            Some(format!("proa_macros::omit!(&{name});"))
+            Some(format!("{macro_namespace}::omit!(&{name});"))
         } else {
             match &part.key {
                 ContentKey::Child { ty, .. } => source
                     .child_selectors
                     .get(ty)
-                    .map(|ty| format!("proa_macros::omit!({ty});")),
-                ContentKey::Literal(role) => Some(format!("proa_macros::omit!({role:?});")),
+                    .map(|ty| format!("{macro_namespace}::omit!({ty});")),
+                ContentKey::Literal(role) => Some(format!("{macro_namespace}::omit!({role:?});")),
                 ContentKey::Value(value)
                     if value.starts_with("self.")
                         && syn::parse_str::<proa_dsl::content::OmitContent>(value).is_ok()
@@ -610,7 +646,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                                 keys.iter().any(|key| key.inputs().contains(value))
                             })) =>
                 {
-                    Some(format!("proa_macros::omit!({value});"))
+                    Some(format!("{macro_namespace}::omit!({value});"))
                 }
                 _ => None,
             }

@@ -52,7 +52,7 @@ Variant enums normally implement `Default`, `Copy`, `Eq`, and `Hash`.
 variant mapping:
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
 #[variant(name = "variant")]
 pub enum ButtonVariant {
     #[default]
@@ -205,7 +205,7 @@ provides incoming request metadata; construct outgoing URLs with `cx.url(...)`.
 Only clone `cx.request().base_path()` when a loop or closure needs independent
 access while rendering; explain that shared, allocation-free clone with a
 `proa-perf-ok` comment. In Axum handlers, compose redirects with
-`proa_framework_axum::app_url("/")`.
+`proa::axum::app_url("/")`.
 
 The prefix affects outgoing URLs, not incoming routing. `Font::head(cx)`,
 compiled docs article URL attributes, shell navigation, and search artifacts

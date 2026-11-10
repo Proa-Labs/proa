@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
 use rsjs::{rsjs, signal};
 
 use super::recipe::base;
@@ -12,13 +12,13 @@ pub struct SiteHeader {
     pub query: String,
 }
 
-impl<L: DataLoader + 'static> proa_core::WebRender<L> for SiteHeader {
+impl<L: DataLoader + 'static> proa::WebRender<L> for SiteHeader {
     fn render(
         self,
         cx: &mut WebContext<L>,
-    ) -> proa_core::RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>> {
-        proa_core::RenderOutcome::pending(async move {
-            proa_macros::html! {
+    ) -> proa::RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>> {
+        proa::RenderOutcome::pending(async move {
+            proa::html! {
                 <header data-site-header class={base::HEADER}>
                     <a
                         href="#top"
@@ -39,7 +39,7 @@ impl<L: DataLoader + 'static> proa_core::WebRender<L> for SiteHeader {
                         </span>
                     </div>
                     <div class="mr-auto"></div>
-                    {proa_stream::Suspense::new(
+                    {proa::stream::Suspense::new(
                         HeaderToolsBoundary {
                             query: self.query.clone(), // proa-perf-ok: one short clone per request for the fallback chrome.
                         },
@@ -63,12 +63,12 @@ struct HeaderToolsBoundary {
     query: String,
 }
 
-impl<L: DataLoader> proa_core::WebRender<L> for HeaderToolsBoundary {
+impl<L: DataLoader> proa::WebRender<L> for HeaderToolsBoundary {
     fn render(
         self,
         cx: &mut WebContext<L>,
-    ) -> proa_core::RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>> {
-        proa_core::RenderOutcome::pending(async move {
+    ) -> proa::RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>> {
+        proa::RenderOutcome::pending(async move {
             let dossier = cx
                 .load_typed::<crate::model::Dossier>(crate::loader::dossier_key(&self.query))
                 .await
@@ -86,7 +86,7 @@ impl<L: DataLoader> proa_core::WebRender<L> for HeaderToolsBoundary {
             // proa-perf-ok: guided demo page; small per-request strings.
             let md_bytes = format!("{:.1} KB", md_text.len() as f64 / 1024.0);
             let md_route = format!("{}/site/{host}.md", cx.request().base_path().as_str()); // proa-perf-ok: guided demo page; small per-request strings.
-            proa_core::WebRenderSync::render(
+            proa::WebRenderSync::render(
                 HeaderTools {
                     md_route,
                     document: Some((md_text, md_bytes)),
@@ -112,7 +112,7 @@ struct HeaderTools {
 impl<L: DataLoader> WebRenderSync<L> for HeaderTools {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         WebRenderSync::render(
-            proa_macros::html_sync! {
+            proa::html_sync! {
                 <div data-header-tools class="flex items-center gap-[20px]">
                     {crate::components::Dialog {
                         default_open: false,
@@ -156,7 +156,7 @@ impl<L: DataLoader> WebRenderSync<L> for MarkdownOverlayBody {
             None => (None, "…"),
         };
         WebRenderSync::render(
-            proa_macros::html_sync! {
+            proa::html_sync! {
                 <div>
                     <div class="flex items-center justify-between gap-[20px] py-[13px] px-[18px] border-b border-line">
                         <div class="flex items-baseline gap-[16px]">
@@ -187,7 +187,7 @@ impl<L: DataLoader> WebRenderSync<L> for MarkdownOverlayBody {
                     </div>
                     <div class="overflow-y-auto max-h-[calc(100vh_-_240px)] pt-[24px] px-[26px] pb-[40px]">
                         {match md_text {
-                            Some(text) => proa_macros::html_sync! {
+                            Some(text) => proa::html_sync! {
                                 <pre
                                     data-md-text
                                     class="m-0 font-mono text-[12px] leading-[1.75] text-ink2 whitespace-pre-wrap text-pretty"
@@ -195,7 +195,7 @@ impl<L: DataLoader> WebRenderSync<L> for MarkdownOverlayBody {
                                     {text}
                                 </pre>
                             },
-                            None => proa_macros::html_sync! {
+                            None => proa::html_sync! {
                                 <pre
                                     data-md-text
                                     class="m-0 font-mono text-[12px] leading-[1.75] text-ink4 whitespace-pre-wrap animate-[org-pulse_1.6s_ease-in-out_infinite]"
@@ -229,16 +229,16 @@ impl<L: DataLoader> WebRenderSync<L> for CopyMarkdown {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let md = signal(self.md_text.clone());
         let copied = signal(false);
-        proa_macros::html_sync! {
+        proa::html_sync! {
             <button
                 type="button"
                 class="hv-cyan border border-line-strong bg-transparent [font-family:inherit] py-[5px] px-[12px] cursor-pointer text-ink text-[10px] tracking-[0.14em] uppercase"
                 data-md-copy
                 on_click={|_| { rsjs::clipboard::write_text(md.get()); copied.set(true); }}
             >
-                {if copied.get() { proa_macros::html_sync! {
+                {if copied.get() { proa::html_sync! {
                     <span>"Copied"</span>
-                } } else { proa_macros::html_sync! {
+                } } else { proa::html_sync! {
                     <span>"Copy"</span>
                 } }}
             </button>

@@ -20,7 +20,6 @@ pub mod ops_dashboard;
 #[cfg(feature = "server")]
 #[allow(dead_code)]
 pub mod playground;
-pub mod rsjs_query_ide_probe;
 pub mod settings_console;
 pub mod showcase_index;
 pub mod streaming_airbnb_home;

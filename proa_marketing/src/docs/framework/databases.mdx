@@ -17,8 +17,8 @@ A component asks for what it needs by key. It never learns which library answers
 use std::future::Future;
 use std::sync::Arc;
 
-use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
-use proa_macros::{html, text};
+use proa::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa::{html, text};
 
 use crate::data::loader::{product_key, Product};
 
@@ -65,7 +65,7 @@ Application-wide handles are shared the same way regardless of library. `Framewo
 use std::sync::Arc;
 
 use axum::{extract::Extension, routing::get, Router};
-use proa_framework_axum::FrameworkBuilder;
+use proa::axum::FrameworkBuilder;
 
 use crate::{data::loader::AppLoader, db::connect_database};
 
@@ -120,7 +120,7 @@ pub async fn connect_database() -> anyhow::Result<SqlitePool> {
 ```rust
 use std::future::Future;
 
-use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
+use proa::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
 use sqlx::{FromRow, SqlitePool};
 
 #[derive(Debug, FromRow)]
@@ -176,8 +176,8 @@ use std::sync::Arc;
 
 use axum::extract::{Extension, Path};
 use axum::response::IntoResponse;
-use proa_framework_axum::RouteResponse;
-use proa_stream::DataResolver;
+use proa::axum::RouteResponse;
+use proa::stream::DataResolver;
 
 use crate::{components::product_page::ProductPage, data::loader::AppLoader};
 
@@ -277,7 +277,7 @@ use std::future::Future;
 
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
+use proa::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
 
 use crate::data::schema::products;
 pub use crate::data::schema::Product;
@@ -412,7 +412,7 @@ pub async fn connect_database() -> toasty::Result<toasty::Db> {
 ```rust
 use std::future::Future;
 
-use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
+use proa::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
 
 pub use crate::data::model::Product;
 

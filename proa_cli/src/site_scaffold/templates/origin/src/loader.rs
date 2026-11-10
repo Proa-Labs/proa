@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
+use proa::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
 
 use crate::api::{RipeClient, RipeError};
 use crate::model::Dossier;
@@ -176,7 +176,7 @@ impl DataLoader for AtlasLoader {
     }
 }
 
-/// A canned loader for tests and the golden fixture: serves one fixed dossier
+/// A canned loader for tests: serves one fixed dossier
 /// for every dossier key and counts how often it is asked to reach origin.
 pub struct FixtureLoader {
     dossier: Dossier,

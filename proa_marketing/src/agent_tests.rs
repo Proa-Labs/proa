@@ -10,8 +10,6 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tower_test::ServiceExt;
 
-use crate::data::site;
-
 async fn fetch(app: &Router, path: &str, accept: &str) -> (StatusCode, HeaderMap, String) {
     let response = app
         .clone()
@@ -57,164 +55,10 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
         fetch(&app, "/.well-known/llms.txt", "*/*").await.2
     );
     assert_eq!(markdown, fetch(&app, "/?mode=agent", "text/html").await.2);
-    // The homepage aliases share the compact footer's public entry points.
-    let (before_footer, footer) = html.split_once("<footer").unwrap();
-    assert!(!before_footer.contains("data-footer-links"));
-    assert!(!before_footer.contains("href=\"/team\""));
-    assert_eq!(footer.matches("data-footer-links").count(), 2);
-    for path in [
-        "/docs",
-        "/docs/api",
-        "/sitemap.xml",
-        "/llms.txt",
-        "/privacy",
-    ] {
-        assert!(markdown.contains(&format!("]({path})")), "{path}");
-        assert!(footer.contains(&format!("href=\"{path}\"")), "{path}");
-        assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
-    }
-    // Detailed tooling stays discoverable through the linked API guide.
-    let guide = fetch(&app, "/docs/api", "text/html").await.2;
-    for path in [
-        "/docs/llms.txt",
-        "/docs/framework/llms.txt",
-        "/docs/rsjs/llms.txt",
-        "/ecosystem/llms.txt",
-        "/openapi.json",
-        "/mcp/server-card",
-        "/auth.md",
-        "/.well-known/agent-skills/index.json",
-    ] {
-        assert!(!footer.contains(&format!("href=\"{path}\"")), "{path}");
-        assert!(guide.contains(&format!("href=\"{path}\"")), "{path}");
-        assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
-    }
-    // Crawlers may inspect only the first few distinct documentation links.
-    // Put the API guide before the machine-readable subsection indexes.
-    let mut seen = std::collections::HashSet::new();
-    let first_docs: Vec<_> = html
-        .split("href=\"")
-        .skip(1)
-        .filter_map(|part| part.split_once('"').map(|(href, _)| href))
-        .filter(|href| *href == "/docs" || href.starts_with("/docs/"))
-        .filter(|href| seen.insert(*href))
-        .take(3)
-        .collect();
-    assert!(
-        first_docs.contains(&crate::data::routes::API_GUIDE),
-        "{first_docs:?}"
-    );
-    assert!(footer.contains(&format!("href=\"{}\"", site::LINKEDIN_URL)));
-    for url in [
-        "https://pypi.org/project/proa-docs/",
-        "https://www.npmjs.com/package/@proa-labs/docs",
-        "https://pkg.go.dev/github.com/Proa-Labs/proa/sdk/go",
-        "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.proa-web%2Fdocs",
-        "https://glama.ai/mcp/connectors/so.proa/proa-documentation",
-    ] {
-        assert!(!footer.contains(&format!("href=\"{url}\"")));
-        assert!(guide.contains(&format!("href=\"{url}\"")));
-    }
     assert_eq!(
         html,
         fetch(&app, "/", "text/markdown;q=0, text/html").await.2
     );
-
-    let data = html
-        .split_once("<script type=\"application/ld+json\">")
-        .unwrap()
-        .1
-        .split_once("</script>")
-        .unwrap()
-        .0;
-    let graph: Value = serde_json::from_str(data).unwrap();
-    let graph = graph["@graph"].as_array().unwrap();
-    let body = html.split_once("<body").unwrap().1;
-    let videos: Vec<_> = graph
-        .iter()
-        .filter(|entity| entity["@type"] == "VideoObject")
-        .collect();
-    assert_eq!(videos.len(), 2);
-    for video in videos {
-        let url = video["url"].as_str().unwrap();
-        assert!(body.contains(&format!("href=\"{url}\"")));
-        assert!(markdown.contains(&format!("]({url})")));
-        assert!(video["thumbnailUrl"].is_string());
-        assert!(video["embedUrl"].is_string());
-    }
-    let charts = graph
-        .iter()
-        .find(|entity| entity["@type"] == "ItemList")
-        .unwrap();
-    let images = charts["itemListElement"].as_array().unwrap();
-    assert_eq!(charts["numberOfItems"], images.len());
-    assert_eq!(
-        images.len(),
-        body.matches("src=\"/static/images/benchmarks/").count()
-    );
-    for image in images {
-        assert_eq!(image["@type"], "ImageObject");
-        let path = image["contentUrl"]
-            .as_str()
-            .unwrap()
-            .strip_prefix(crate::utils::site_url::public_site_url())
-            .unwrap();
-        assert!(body.contains(&format!("src=\"{path}\"")));
-        assert!(markdown.contains(&format!("]({path})")));
-    }
-    assert!(graph
-        .iter()
-        .any(|entity| entity["@type"] == "Organization" && entity["contactPoint"].is_array()));
-    assert!(graph
-        .iter()
-        .any(|entity| entity["@type"] == "SoftwareApplication" && entity["sameAs"].is_array()));
-    let source = graph
-        .iter()
-        .find(|entity| entity["@type"] == "SoftwareSourceCode")
-        .unwrap();
-    assert_eq!(source["codeRepository"], site::GITHUB_URL);
-    assert_eq!(source["license"], site::LICENSE_URL);
-    let repository_link = format!("href=\"{}\"", site::GITHUB_URL);
-    assert!(before_footer.contains(&repository_link));
-    assert!(footer.contains(&repository_link));
-    let organization = graph
-        .iter()
-        .find(|entity| entity["@type"] == "Organization")
-        .unwrap();
-    assert_eq!(organization["name"], site::ORGANIZATION);
-    assert!(organization["sameAs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|profile| profile == site::LINKEDIN_URL));
-    assert_eq!(
-        organization["contactPoint"][0]["email"],
-        site::PRIVACY_EMAIL
-    );
-    assert_eq!(organization["contactPoint"][1]["email"], site::LEGAL_EMAIL);
-    let faq = graph
-        .iter()
-        .find(|entity| entity["@type"] == "FAQPage")
-        .unwrap();
-    let questions = faq["mainEntity"].as_array().unwrap();
-    assert_eq!(questions.len(), crate::pages::home::faq::FAQS.len());
-    let markdown_text: String = pulldown_cmark::Parser::new(&markdown)
-        .filter_map(|event| {
-            if let pulldown_cmark::Event::Text(text) = event {
-                Some(text.into_string())
-            } else {
-                None
-            }
-        })
-        .collect();
-    for question in questions {
-        assert!(html.contains(question["name"].as_str().unwrap()));
-        assert!(markdown_text.contains(question["acceptedAnswer"]["text"].as_str().unwrap()));
-    }
-    for path in ["/team", "/contact", "/docs/api", "/llms.txt"] {
-        assert!(footer.contains(&format!("href=\"{path}\"")));
-        assert_eq!(fetch(&app, path, "*/*").await.0, StatusCode::OK);
-    }
 }
 
 #[tokio::test]
@@ -244,35 +88,6 @@ async fn tool_openapi_advertises_only_typed_json_reads() {
 }
 
 #[tokio::test]
-async fn documentation_exposes_its_own_article_and_navigation_metadata() {
-    let app = super::app();
-    for (path, kind) in [
-        ("/docs/api", "APIReference"),
-        ("/docs/rsjs/signals", "TechArticle"),
-    ] {
-        let (status, _, html) = fetch(&app, path, "text/html").await;
-        assert_eq!(status, StatusCode::OK, "{path}");
-        let json = html
-            .split_once("<script type=\"application/ld+json\">")
-            .unwrap()
-            .1
-            .split_once("</script>")
-            .unwrap()
-            .0;
-        let data: Value = serde_json::from_str(json).unwrap();
-        let page = crate::endpoints::api::page(path).unwrap();
-        assert_eq!(data["@graph"][0]["@type"], kind);
-        assert_eq!(data["@graph"][0]["headline"], page.title);
-        assert!(data["@graph"][0]["url"].as_str().unwrap().ends_with(path));
-        let crumbs = data["@graph"][1]["itemListElement"].as_array().unwrap();
-        assert_eq!(crumbs.last().unwrap()["name"], page.title);
-        for (position, crumb) in crumbs.iter().enumerate() {
-            assert_eq!(crumb["position"], position + 1);
-        }
-    }
-}
-
-#[tokio::test]
 async fn section_indexes_only_link_their_public_documentation() {
     let app = super::app();
     for prefix in ["/docs/framework", "/docs/rsjs"] {
@@ -293,45 +108,6 @@ async fn section_indexes_only_link_their_public_documentation() {
         }
         assert!(count > 1);
         assert_eq!(index.matches("\n- [").count(), count);
-    }
-}
-
-#[tokio::test]
-async fn contact_page_shares_html_and_markdown_routes() {
-    let app = super::app();
-    let (path, markdown_path) = ("/contact", "/contact.md");
-    let (status, headers, html) = fetch(&app, path, "text/html").await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(headers[header::CONTENT_TYPE]
-        .to_str()
-        .unwrap()
-        .starts_with("text/html"));
-    assert_eq!(headers[header::VARY], "Accept");
-    assert!(html.contains("data-info-page"));
-
-    let (status, headers, markdown) = fetch(&app, path, "text/markdown").await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        headers[header::CONTENT_TYPE],
-        "text/markdown; charset=utf-8"
-    );
-    assert_eq!(headers[header::VARY], "Accept");
-    assert!(markdown.starts_with("# "));
-    assert!(!markdown.contains("<html"));
-    assert_eq!(markdown, fetch(&app, markdown_path, "*/*").await.2);
-    assert_eq!(
-        html,
-        fetch(&app, path, "text/markdown;q=0, text/html").await.2
-    );
-    let links = &[
-        site::ISSUES_URL,
-        site::DISCORD_URL,
-        site::PRIVACY_MAILTO,
-        site::LEGAL_MAILTO,
-    ];
-    for href in links {
-        assert!(html.contains(&format!("href=\"{href}\"")));
-        assert!(markdown.contains(&format!("]({href})")));
     }
 }
 

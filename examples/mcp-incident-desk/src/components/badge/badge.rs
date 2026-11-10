@@ -5,8 +5,8 @@
 //!
 //! Renders a small status indicator or label with variant styling.
 use super::recipe::{BadgeRecipeProps, BadgeVariant, BADGE_RECIPE};
-use proa_core::{WebContext, WebRenderSync, WriteBuf};
-use proa_macros::html_sync;
+use proa::html_sync;
+use proa::{WebContext, WebRenderSync, WriteBuf};
 /// Badge component - displays a small status indicator or label
 pub struct Badge<C = ()> {
     /// Style variant
@@ -34,13 +34,8 @@ impl<C> Default for Badge<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
-    for Badge<C>
-{
-    fn render(
-        self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B> for Badge<C> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = BADGE_RECIPE.resolve(BadgeRecipeProps {
             variant: Some(self.variant),
         });
@@ -49,7 +44,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-badge
                 data-slot="badge"
                 data-variant={style.variant().as_str()}
-                class={proa_macros::text!("{} {}", style, self.class)}
+                class={proa::text!("{} {}", style, self.class)}
             >
                 {self.children}
             </span>

@@ -21,6 +21,8 @@ class RegistryMetadataTests(unittest.TestCase):
 
     def test_missing_proa_versions_retry_only_dependency_resolution(self):
         for message in (
+            'error: failed to select a version for the requirement `proa = "^0.4.0"`',
+            'error: no matching package named `proa` found',
             'error: failed to select a version for the requirement `proa_core = "^0.4.0"`',
             'error: no matching package named `proa_html_policy` found',
             'error: no matching package named `rsjs` found',
@@ -50,6 +52,7 @@ class RegistryMetadataTests(unittest.TestCase):
         for message in (
             'error: failed to select a version for `proa_core`: feature does not exist',
             'error: no matching package named `unrelated_dependency` found',
+            'error: no matching package named `proactive` found',
             'error: failed to download from the registry',
         ):
             with self.subTest(message=message):

@@ -139,6 +139,7 @@ fn is_children_element(name: &str) -> bool {
 
 /// Generate TokenStream that constructs a ComponentTree
 pub fn generate_tree(root: &HtmlRoot) -> TokenStream {
+    let proa_ir = proa_dsl::paths::runtime("proa_ir");
     let nodes: Vec<TokenStream> = root.nodes.iter().map(generate_node).collect();
 
     // If there's only one node, use it directly; otherwise wrap in Fragment
@@ -146,29 +147,30 @@ pub fn generate_tree(root: &HtmlRoot) -> TokenStream {
         nodes.into_iter().next().unwrap()
     } else {
         quote! {
-            ::proa_ir::component_tree::TreeNode::Fragment(vec![#(#nodes),*])
+            #proa_ir::component_tree::TreeNode::Fragment(vec![#(#nodes),*])
         }
     };
 
     quote! {
-        ::proa_ir::component_tree::ComponentTree::new(#root_node)
+        #proa_ir::component_tree::ComponentTree::new(#root_node)
     }
 }
 
 fn generate_node(node: &Node) -> TokenStream {
+    let proa_ir = proa_dsl::paths::runtime("proa_ir");
     match node {
         Node::Element(elem) => generate_element(elem),
         Node::Fragment(nodes) => {
             let child_nodes: Vec<TokenStream> = nodes.iter().map(generate_node).collect();
             quote! {
-                ::proa_ir::component_tree::TreeNode::Fragment(vec![#(#child_nodes),*])
+                #proa_ir::component_tree::TreeNode::Fragment(vec![#(#child_nodes),*])
             }
         }
         Node::Text(lit) => {
             let text = lit.value();
             quote! {
-                ::proa_ir::component_tree::TreeNode::Text(
-                    ::proa_ir::component_tree::TextNode {
+                #proa_ir::component_tree::TreeNode::Text(
+                    #proa_ir::component_tree::TextNode {
                         content: #text,
                     }
                 )
@@ -178,8 +180,8 @@ fn generate_node(node: &Node) -> TokenStream {
         Node::Doctype(_) | Node::XmlDeclaration(_) => {
             // Document declarations are not part of the component tree for TS generation.
             quote! {
-                ::proa_ir::component_tree::TreeNode::Text(
-                    ::proa_ir::component_tree::TextNode {
+                #proa_ir::component_tree::TreeNode::Text(
+                    #proa_ir::component_tree::TextNode {
                         content: "",
                     }
                 )
@@ -189,6 +191,7 @@ fn generate_node(node: &Node) -> TokenStream {
 }
 
 fn generate_element(elem: &Element) -> TokenStream {
+    let proa_ir = proa_dsl::paths::runtime("proa_ir");
     // `tag_str()` recovers the hyphenated source form (e.g. `rsjs-island`)
     // for tags the parser stored with `-` flattened to `_`. Plain tags and
     // component references (`Button`, `MyComponent`) round-trip unchanged.
@@ -200,15 +203,15 @@ fn generate_element(elem: &Element) -> TokenStream {
     // Check for children slot: <children /> or <slot />
     if is_children_element(&tag_name) {
         return quote! {
-            ::proa_ir::component_tree::TreeNode::ChildrenSlot
+            #proa_ir::component_tree::TreeNode::ChildrenSlot
         };
     }
 
     if is_html_element(&tag_name) {
         // HTML element
         quote! {
-            ::proa_ir::component_tree::TreeNode::Element(
-                ::proa_ir::component_tree::ElementNode {
+            #proa_ir::component_tree::TreeNode::Element(
+                #proa_ir::component_tree::ElementNode {
                     tag: #tag_name,
                     attrs: vec![#(#attrs),*],
                     children: vec![#(#children),*],
@@ -219,8 +222,8 @@ fn generate_element(elem: &Element) -> TokenStream {
     } else {
         // Component reference
         quote! {
-            ::proa_ir::component_tree::TreeNode::Component(
-                ::proa_ir::component_tree::ComponentNode {
+            #proa_ir::component_tree::TreeNode::Component(
+                #proa_ir::component_tree::ComponentNode {
                     name: #tag_name,
                     props: vec![#(#attrs),*],
                     children: vec![#(#children),*],
@@ -231,12 +234,13 @@ fn generate_element(elem: &Element) -> TokenStream {
 }
 
 fn generate_attr(attr: &Attribute) -> TokenStream {
+    let proa_ir = proa_dsl::paths::runtime("proa_ir");
     match attr {
         Attribute::Static { name, value } => {
             let name_str = name.to_string().replace('_', "-");
             let val = value.value();
             quote! {
-                ::proa_ir::component_tree::TreeAttr::Static {
+                #proa_ir::component_tree::TreeAttr::Static {
                     name: #name_str,
                     value: #val,
                 }
@@ -246,7 +250,7 @@ fn generate_attr(attr: &Attribute) -> TokenStream {
             let name_str = name.to_string().replace('_', "-");
             let expr_str = quote!(#value).to_string();
             quote! {
-                ::proa_ir::component_tree::TreeAttr::Dynamic {
+                #proa_ir::component_tree::TreeAttr::Dynamic {
                     name: #name_str,
                     expr: #expr_str,
                 }
@@ -255,7 +259,7 @@ fn generate_attr(attr: &Attribute) -> TokenStream {
         Attribute::Bool { name } => {
             let name_str = name.to_string().replace('_', "-");
             quote! {
-                ::proa_ir::component_tree::TreeAttr::Bool {
+                #proa_ir::component_tree::TreeAttr::Bool {
                     name: #name_str,
                 }
             }
@@ -264,6 +268,7 @@ fn generate_attr(attr: &Attribute) -> TokenStream {
 }
 
 fn generate_block_node(expr: &syn::Expr) -> TokenStream {
+    let proa_ir = proa_dsl::paths::runtime("proa_ir");
     let expr_str = quote!(#expr).to_string();
 
     // Check for common patterns:
@@ -274,7 +279,7 @@ fn generate_block_node(expr: &syn::Expr) -> TokenStream {
     // Simple heuristic: check if expression string contains common patterns
     if is_children_slot(&expr_str) {
         return quote! {
-            ::proa_ir::component_tree::TreeNode::ChildrenSlot
+            #proa_ir::component_tree::TreeNode::ChildrenSlot
         };
     }
 
@@ -284,8 +289,8 @@ fn generate_block_node(expr: &syn::Expr) -> TokenStream {
         let then_node = generate_then_content(then_content);
 
         return quote! {
-            ::proa_ir::component_tree::TreeNode::Conditional(
-                ::proa_ir::component_tree::ConditionalNode {
+            #proa_ir::component_tree::TreeNode::Conditional(
+                #proa_ir::component_tree::ConditionalNode {
                     condition: #cond_str,
                     then_node: Box::new(#then_node),
                     else_node: None,
@@ -296,8 +301,8 @@ fn generate_block_node(expr: &syn::Expr) -> TokenStream {
 
     // Default: treat as a generic expression
     quote! {
-        ::proa_ir::component_tree::TreeNode::Expression(
-            ::proa_ir::component_tree::ExpressionNode {
+        #proa_ir::component_tree::TreeNode::Expression(
+            #proa_ir::component_tree::ExpressionNode {
                 expr: #expr_str,
             }
         )
@@ -327,6 +332,7 @@ fn parse_then_pattern(expr: &syn::Expr) -> Option<(&syn::Expr, &syn::Expr)> {
 
 /// Generate the node for the content inside .then(|| ...)
 fn generate_then_content(expr: &syn::Expr) -> TokenStream {
+    let proa_ir = proa_dsl::paths::runtime("proa_ir");
     // Check if it's a html_tree!{} or html!{} call - we can parse the content
     if let syn::Expr::Macro(macro_expr) = expr {
         let macro_name = macro_expr
@@ -343,7 +349,7 @@ fn generate_then_content(expr: &syn::Expr) -> TokenStream {
                     return nodes.into_iter().next().unwrap();
                 } else {
                     return quote! {
-                        ::proa_ir::component_tree::TreeNode::Fragment(vec![#(#nodes),*])
+                        #proa_ir::component_tree::TreeNode::Fragment(vec![#(#nodes),*])
                     };
                 }
             }
@@ -353,8 +359,8 @@ fn generate_then_content(expr: &syn::Expr) -> TokenStream {
     // Fallback: treat as an expression
     let expr_str = quote!(#expr).to_string();
     quote! {
-        ::proa_ir::component_tree::TreeNode::Expression(
-            ::proa_ir::component_tree::ExpressionNode {
+        #proa_ir::component_tree::TreeNode::Expression(
+            #proa_ir::component_tree::ExpressionNode {
                 expr: #expr_str,
             }
         )

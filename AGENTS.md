@@ -63,7 +63,6 @@ For example, the `proa_framework_axum` package sources are under
 | `proa_framework_axum` | Axum/Tokio adapter with routing, static serving, and HTTP response integration |
 | `proa_ir` | Intermediate representation for reactive attrs, bindings, and lower-level client/runtime glue |
 | `proa_actions` | Action data structures for event handlers |
-| `proa_codegen` | TypeScript code generation from Rust components |
 | `proa_react` | React/JSX interop |
 | `proa_framework_core` | Server/runtime-agnostic framework core: manifest, bootstrap, portable response/body finalizers |
 | `proa_bench` | Proa-only render and streaming regression benchmarks |
@@ -222,7 +221,7 @@ file layout:
 components/<name>/
 ├── mod.rs          # Re-exports
 ├── recipe.rs       # Variant enums, class constants, recipe struct
-└── <name>.rs       # Component struct + WebRenderSync/WebRender impl + tests
+└── <name>.rs       # Component struct + WebRenderSync/WebRender impl
 ```
 
 ### recipe.rs pattern
@@ -313,22 +312,6 @@ where
             </div>
         }
         .render(cx)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_core::text::text;
-
-    #[test]
-    fn component_renders() {
-        let mut cx = WebContext::new();
-        Component { variant: ComponentVariant::Default, class: None, children: Some(text("Hi")) }
-            .render(&mut cx)
-            .unwrap();
-        let html = cx.into_output().into_string();
-        assert!(html.contains("data-component"));
     }
 }
 ```

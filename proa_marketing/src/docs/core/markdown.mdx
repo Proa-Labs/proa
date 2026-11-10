@@ -10,8 +10,8 @@ Proa makes rendering a trait rather than a fixed output format. A Rust component
 For an agent consuming content, direct Markdown rendering also avoids extracting text from browser markup. The Markdown implementation chooses which content and structure to include, using the same component data as the HTML implementation.
 
 ```rust filename="src/components/product_summary.rs"
-use proa_core::{DataLoader, MdRenderSync, WebContext, WriteError};
-use proa_macros::md_sync;
+use proa::{DataLoader, MdRenderSync, WebContext, WriteError};
+use proa::md_sync;
 
 pub struct ProductSummary {
     pub title: &'static str,
@@ -64,7 +64,7 @@ implemented over that writer type.
 Use `md_sync!` by default:
 
 ```rust filename="src/pages/summary.rs"
-use proa_macros::md_sync;
+use proa::md_sync;
 
 let summary = md_sync! { r###"
     # {title}
@@ -77,14 +77,14 @@ let summary = md_sync! { r###"
 Use `md!` when an interpolated child awaits:
 
 ```rust filename="src/pages/report.rs"
-use proa_core::render_md_to_string_async;
-use proa_macros::md;
+use proa::render_md_to_string_async;
+use proa::md;
 
 let output = render_md_to_string_async(
     md! { r###"
         # Report
 
-        {proa_core::await_md_component(load_report_body())}
+        {proa::await_md_component(load_report_body())}
         "###
     },
 )
@@ -101,7 +101,7 @@ The body is always one string literal. Token composition such as `md_sync! { "# 
 
 An async child cannot appear inside `md_sync!`. Move the boundary to `MdRender` and `md!`.
 
-The Markdown macros use the default-enabled `markdown` feature of `proa_macros`.
+The Markdown macros use the default-enabled `markdown` feature of `proa`.
 An HTML/XML-only application can disable default features to omit the Markdown
 parser dependencies. If defaults are disabled, opt in with `features = ["markdown"]`
 when using `md!` or `md_sync!`. Cargo enables a feature if any dependency requests it.
@@ -295,7 +295,7 @@ Inline/block scopes restore rendering mode only. Do not restore a full `MdState`
 Markdown permits inline HTML, but keep it on the typed HTML path instead of mixing an HTML parser into the Markdown macro:
 
 ```rust filename="src/components/callout.rs"
-use proa_macros::html_sync;
+use proa::html_sync;
 
 cx.render_html_in_md(html_sync! {
     <aside data-callout>
@@ -329,8 +329,8 @@ Async Markdown roots can use the in-order stream driver from `proa_stream`:
 ```rust filename="src/pages/report.rs"
 use std::rc::Rc;
 
-use proa_core::StreamChunkFlusher;
-use proa_stream::render_md_in_order_to_flusher;
+use proa::StreamChunkFlusher;
+use proa::stream::render_md_in_order_to_flusher;
 
 let flusher: Rc<dyn StreamChunkFlusher> = Rc::new(MyMarkdownFlusher::new());
 
@@ -350,6 +350,6 @@ Use it for `text/markdown` responses where a generated document should stream to
 - [Streaming SSR](/docs/core/streaming-ssr)
   - Flush the page shell first and stream slow sections as they resolve.
 - [Sink](/docs/core/sink)
-  - Render streamed output into recycled pages instead of fresh allocations.
+  - Migrate deprecated page-pool writers to RenderBuffer.
 - [Content negotiation](/docs/framework/content-negotiation)
   - Serve HTML and Markdown representations of one resource through HTTP content negotiation.

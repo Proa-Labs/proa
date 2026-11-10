@@ -78,7 +78,7 @@ The external script can parse the DOM attribute as JSON. Attribute escaping keep
 **`StaticRaw`** takes a compile-time constant. No user data can reach it at runtime, so it is inherently safe:
 
 ```rust filename="src/components/icon.rs"
-use proa_core::StaticRaw;
+use proa::StaticRaw;
 
 StaticRaw("<svg viewBox='0 0 24 24'>...</svg>")
 ```
@@ -86,7 +86,7 @@ StaticRaw("<svg viewBox='0 0 24 24'>...</svg>")
 **`UnsafeRaw`** takes a dynamic string and escapes nothing. Use it only with content you have already sanitized:
 
 ```rust filename="src/pages/article.rs"
-use proa_core::UnsafeRaw;
+use proa::UnsafeRaw;
 
 let sanitized = ammonia::clean(&user_html);
 UnsafeRaw(&sanitized)

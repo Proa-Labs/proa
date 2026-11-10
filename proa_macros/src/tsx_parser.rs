@@ -44,6 +44,8 @@ pub enum RustType {
 impl RustType {
     /// Return the token representation for codegen.
     pub fn to_tokens(&self) -> proc_macro2::TokenStream {
+        let serde_json = proa_dsl::paths::runtime("serde_json");
+        let proa_react = proa_dsl::paths::runtime("proa_react");
         use quote::quote;
         match self {
             RustType::F64 => quote! { f64 },
@@ -62,8 +64,8 @@ impl RustType {
                 let v = v.to_tokens();
                 quote! { std::collections::HashMap<#k, #v> }
             }
-            RustType::Children => quote! { proa_react::Children },
-            RustType::JsonValue => quote! { serde_json::Value },
+            RustType::Children => quote! { #proa_react::Children },
+            RustType::JsonValue => quote! { #serde_json::Value },
             RustType::Named(name) => {
                 let ident = proc_macro2::Ident::new(name, proc_macro2::Span::call_site());
                 quote! { #ident }

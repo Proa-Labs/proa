@@ -1,8 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{rsjs, signal};
 
 use super::recipe::base;
@@ -33,8 +33,7 @@ const TOOLS: &[(&str, &str)] = &[
 /// same document.
 pub struct AgentSurface {
     pub query: String,
-    /// The request's Host header when known; the golden path renders
-    /// without one and keeps a placeholder.
+    /// The request's Host header when known; otherwise display a placeholder.
     pub host: Option<String>,
 }
 

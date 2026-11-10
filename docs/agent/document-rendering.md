@@ -286,7 +286,7 @@ iterators, and nested templates.
 
 An unbounded `loop` can stream nested Proa templates and exit through `return`
 or `?`, including on Rust 2024. Use absolute paths such as
-`::proa_macros::md_sync!` for nested templates in these loops. Unqualified names
+`::proa::md_sync!` for nested templates in these loops. Unqualified names
 can refer to user macros, so their expansions remain opaque to loop-exit
 analysis. A divergent loop containing an opaque macro may need a concrete
 result type. Write control-flow exits directly in Rust when possible.
@@ -388,8 +388,8 @@ status/content negotiation. Do not pin prose copied from the implementation.
 
 ### Markdown compiler dependencies
 
-The `markdown` feature on `proa_macros` and `proa_dsl` is enabled by default.
-HTML/XML-only consumers can set `proa_macros = { version = "0.3", default-features = false }`
+The `markdown` feature on `proa` is enabled by default.
+HTML/XML-only consumers can set `proa = { version = "0.4", default-features = false }`
 to omit the Markdown parsers. Enable `features = ["markdown"]` explicitly when
 using `md!` or `md_sync!` with default features disabled. Cargo unifies features:
 if another dependency enables Markdown, its parser dependencies are still built.

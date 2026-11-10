@@ -7,7 +7,7 @@ keywords: [CSP, Content-Security-Policy, nonce, HSTS]
 Framework responses get baseline hardening headers automatically, including a `DENY` frame policy. HSTS and CSP are configured here but off by default, because each deployment needs its own.
 
 ```rust filename="src/main.rs"
-use proa_framework_axum::{FrameOptions, SecurityHeadersConfig};
+use proa::axum::{FrameOptions, SecurityHeadersConfig};
 
 let security = SecurityHeadersConfig::new()
     .with_frame_options(FrameOptions::SameOrigin)
@@ -57,7 +57,7 @@ Managed module tags registered with `cx.head_mut().module(...)` also receive the
 Customize with `CspPolicy`:
 
 ```rust filename="src/main.rs"
-use proa_framework_axum::CspPolicy;
+use proa::axum::CspPolicy;
 
 let app = FrameworkBuilder::new()
     .with_csp_policy(
@@ -89,6 +89,6 @@ Two combinations produce a startup warning:
 - [Cross-origin and CSRF](/docs/framework/cross-origin)
   - Reject forged cross-origin writes, and add the CSRF defense Proa does not.
 - [App configuration](/docs/framework/configuration)
-  - Configure FrameworkBuilder, security defaults, static mounts, external apps, and response behavior.
+  - Configure FrameworkBuilder, security defaults, static mounts, and response behavior.
 - [Escaping and raw HTML](/docs/core/escaping)
   - How Proa encodes dynamic values, and the two ways to opt out.

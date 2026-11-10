@@ -31,7 +31,9 @@ from the repository root; use authenticated `gh` for GitHub operations.
 
 ## Include the CLI and generated projects
 
-`proa_cli/Cargo.toml` declares scaffold libraries as dev-dependencies.
+`proa` belongs to the coordinated SSR version group. Generated applications use
+its facade; RSJS and font build tools keep their independent package versions.
+`proa_cli/Cargo.toml` declares the facade and scaffold libraries as dev-dependencies.
 Release-plz updates those requirements and bumps the CLI when a scaffold library
 changes. `proa_cli/build.rs` derives the embedded scaffold catalog from those
 Cargo declarations, resolving workspace inheritance during local builds and
@@ -40,8 +42,9 @@ catalog; there must be no separately maintained version list or manual template
 pin update.
 
 The shared `check` preflight runs `scripts/check_release_scaffold.py` with the
-pinned release-plz. It changes only a library in temporary fixtures and checks
-that both patch and minor releases bump the CLI, update its requirement, and
+pinned release-plz. It changes only a core library in temporary fixtures and checks
+that both patch and minor releases propagate through the facade, bump the CLI,
+update its requirement, and
 reach the catalog produced by the real CLI build script. When changing scaffold
 libraries or manifests, also run the existing scaffold tests.
 

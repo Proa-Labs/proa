@@ -6,8 +6,8 @@
 //! Renders a container for grouped content with header, body, and footer sections.
 use super::recipe::{CardRecipeProps, CARD_RECIPE};
 use super::CARD_ANATOMY;
-use proa_core::{WebContext, WebRenderSync, WriteBuf};
-use proa_macros::html_sync;
+use proa::{WebContext, WebRenderSync, WriteBuf};
+use proa::html_sync;
 /// Card component - a container for grouped content
 pub struct Card<C = ()> {
     /// Additional CSS classes
@@ -31,13 +31,13 @@ impl<C> Default for Card<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for Card<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = CARD_RECIPE.resolve(CardRecipeProps);
         html_sync! {
             <div
@@ -45,7 +45,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-scope={CARD_ANATOMY.scope()}
                 data-part="root"
                 data-slot="card"
-                class={proa_macros::text!("{} {}", style, self.class)}
+                class={proa::text!("{} {}", style, self.class)}
             >
                 {self.children}
             </div>
@@ -68,20 +68,20 @@ impl<C> Default for CardHeader<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for CardHeader<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <div
                 data-card-header
                 data-scope={CARD_ANATOMY.scope()}
                 data-part="header"
                 data-slot="card-header"
-                class={proa_macros::text!("{} {}", CARD_RECIPE.header, self.class)}
+                class={proa::text!("{} {}", CARD_RECIPE.header, self.class)}
             >
                 {self.children}
             </div>
@@ -104,20 +104,20 @@ impl<C> Default for CardTitle<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for CardTitle<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <h3
                 data-card-title
                 data-scope={CARD_ANATOMY.scope()}
                 data-part="title"
                 data-slot="card-title"
-                class={proa_macros::text!("{} {}", CARD_RECIPE.title, self.class)}
+                class={proa::text!("{} {}", CARD_RECIPE.title, self.class)}
             >
                 {self.children}
             </h3>
@@ -140,20 +140,20 @@ impl<C> Default for CardDescription<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for CardDescription<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <p
                 data-card-description
                 data-scope={CARD_ANATOMY.scope()}
                 data-part="description"
                 data-slot="card-description"
-                class={proa_macros::text!("{} {}", CARD_RECIPE.description, self.class)}
+                class={proa::text!("{} {}", CARD_RECIPE.description, self.class)}
             >
                 {self.children}
             </p>
@@ -176,20 +176,20 @@ impl<C> Default for CardContent<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for CardContent<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <div
                 data-card-content
                 data-scope={CARD_ANATOMY.scope()}
                 data-part="content"
                 data-slot="card-content"
-                class={proa_macros::text!("{} {}", CARD_RECIPE.content, self.class)}
+                class={proa::text!("{} {}", CARD_RECIPE.content, self.class)}
             >
                 {self.children}
             </div>
@@ -212,20 +212,20 @@ impl<C> Default for CardFooter<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for CardFooter<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <div
                 data-card-footer
                 data-scope={CARD_ANATOMY.scope()}
                 data-part="footer"
                 data-slot="card-footer"
-                class={proa_macros::text!("{} {}", CARD_RECIPE.footer, self.class)}
+                class={proa::text!("{} {}", CARD_RECIPE.footer, self.class)}
             >
                 {self.children}
             </div>

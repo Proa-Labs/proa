@@ -40,13 +40,6 @@ Compatibility keys are sourced from
 [MDN browser-compat-data](https://github.com/mdn/browser-compat-data), which is
 made available under CC0 1.0 Universal.
 
-## Marko
-
-The checked-in lean-page hydration bundle includes portions of the Marko
-browser runtime, distributed under the MIT License. The required copyright and
-license notice is included in
-[`proa_demo/bench/lean-page/marko-server/UPSTREAM_LICENSE.md`](proa_demo/bench/lean-page/marko-server/UPSTREAM_LICENSE.md).
-
 ## Octicons
 
 The GitHub pull-request comparison demos include icons from

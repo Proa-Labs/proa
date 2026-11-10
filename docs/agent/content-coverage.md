@@ -16,7 +16,7 @@ Rust continues to check field and child render types.
 
 The check compares contributions that reach the rendered body. It does not
 require matching `cx` accesses, queries, cache lookups, or loader calls between
-views. Known `proa_core::WebContext` loader operations and request, response,
+views. Known `proa::WebContext` loader operations and request, response,
 head, telemetry, and local-state setup do not create content obligations or
 unchecked-body diagnostics by themselves. This also applies to supported aliases
 of those context and metadata handles.
@@ -61,8 +61,8 @@ For example, this complete `src/components/product.rs` keeps the image in HTML
 and deliberately excludes it from Markdown:
 
 ```rust
-use proa_core::{MdRenderSync, WebContext, WebRenderSync, WriteError};
-use proa_macros::{html_sync, md_sync, omit};
+use proa::{MdRenderSync, WebContext, WebRenderSync, WriteError};
+use proa::{html_sync, md_sync, omit};
 
 struct Product<'a> {
     title: &'a str,
@@ -102,7 +102,7 @@ When the HTML view renders a child that has no local in Markdown, import its
 type at file scope and select it directly inside `render_md`:
 
 ```rust
-use proa_macros::omit;
+use proa::omit;
 use crate::product::RestockNotice;
 
 impl MdRenderSync for Product<'_> {
@@ -126,13 +126,13 @@ conditional marker must match the source condition.
 To exempt the entire representation, put this on either its impl or render method:
 
 ```rust
-#[proa_macros::content(skip)]
+#[proa::content(skip)]
 impl MdRenderSync for Product {
     // ...
 }
 ```
 
-`#[proa_macros::content(skip, reason = "Browser controls only")]` also works.
+`#[proa::content(skip, reason = "Browser controls only")]` also works.
 Reasons are optional. Whole-view exemptions deliberately include future
 additions. `proa lint --content-summary --min-severity info` reports them as
 **exempt**, along with paired and unpaired discovery status. “Paired” means the
@@ -176,7 +176,7 @@ in `ContentOptions`.
 If HTML and Markdown use separate types, explicitly select the source:
 
 ```rust
-#[proa_macros::content(source = HtmlProduct, from = "html")]
+#[proa::content(source = HtmlProduct, from = "html")]
 impl MdRenderSync for MdProduct { /* ... */ }
 ```
 

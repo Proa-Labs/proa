@@ -1,5 +1,9 @@
 # rsjs optimization queue
 
+Historical optimization ideas and measurements. The standalone browser and lean-page
+harnesses referenced here were retired; their source remains in the linked revision.
+The active native regression benchmarks live in `proa_bench/benches/`.
+
 Forward-looking optimization ideas, ranked by impact-per-effort. Distinct from
 [`STATUS.md`](./STATUS.md) (current implementation coverage) and
 [`KNOWN_LIMITATIONS.md`](./KNOWN_LIMITATIONS.md) (current user-visible gaps):
@@ -15,7 +19,7 @@ impact**, **dependencies** on other entries.
 Snapshot of the headline numbers as of the most recent measured run.
 Pinned here so the queue stays grounded in reality and the result is
 not folklore. The long-form methodology + reproduction recipe lives in
-[`proa_demo/bench/RESULTS.md`](../proa_demo/bench/RESULTS.md).
+[the historical comparison methodology](https://github.com/Proa-Labs/proa/blob/beb1084c074fdb6c3746ccd204ab39f3a2e26d77/proa_demo/bench/RESULTS.md).
 
 ### What shipped in Round 2
 
@@ -138,7 +142,7 @@ production deployment still ships ~3-5× more bytes than necessary.
    - Startup cost: ~56 ms total for 5 assets (esbuild spawn dominated
      by Node startup, not minify work).
    - Follow-up: the three lean-page servers in
-     `proa_demo/bench/lean-page/` don't share this path yet; small
+     [the retired lean-page harness](https://github.com/Proa-Labs/proa/tree/beb1084c074fdb6c3746ccd204ab39f3a2e26d77/proa_demo/bench/lean-page) don't share this path yet; small
      to add when needed.
 5. ✅ Manifest entries return the hashed URL, not the canonical name;
    the route asset graph (entry 1) consumes them. **Done.**
@@ -154,11 +158,11 @@ is meaningful in production.
 ### 0b. Measurement / benchmark harness
 
 **Status**: **DONE.** `proa_demo/bundle_size.mjs` (wire-size),
-`proa_demo/bench/{run.mjs, measure.mjs, format.mjs}` (timing harness
+[the retired browser timing harness](https://github.com/Proa-Labs/proa/tree/beb1084c074fdb6c3746ccd204ab39f3a2e26d77/proa_demo/bench) (timing harness
 with CDP-sourced scriptCPU + network throttling + 6× CPU profile),
 plus a separate "framework-isolation" lean benchmark at
-`proa_demo/bench/lean-page/` (3 servers, no third-party shell noise).
-Methodology limitations are recorded in `proa_demo/bench/RESULTS.md`.
+[the retired lean-page harness](https://github.com/Proa-Labs/proa/tree/beb1084c074fdb6c3746ccd204ab39f3a2e26d77/proa_demo/bench/lean-page) (3 servers, no third-party shell noise).
+Methodology limitations are recorded in [the historical comparison methodology](https://github.com/Proa-Labs/proa/blob/beb1084c074fdb6c3746ccd204ab39f3a2e26d77/proa_demo/bench/RESULTS.md).
 **Target workload**: this queue itself.
 
 **Problem**: most "expected impact" claims in this doc are educated
@@ -725,7 +729,7 @@ dropped, so it sits behind the more broadly useful product features.
 
 ### Methodology checklist for the public-facing comparison
 
-The numbers in `proa_demo/bench/RESULTS.md` are honest but should not
+The numbers in [the historical comparison methodology](https://github.com/Proa-Labs/proa/blob/beb1084c074fdb6c3746ccd204ab39f3a2e26d77/proa_demo/bench/RESULTS.md) are honest but should not
 be cited externally until:
 
 - [ ] n=30 runs per cell (currently 3)

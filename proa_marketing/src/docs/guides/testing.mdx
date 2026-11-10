@@ -1,419 +1,90 @@
 ---
 title: Testing
-description: Test Proa components with unit, snapshot, accessibility, and benchmark suites.
+description: Test application behavior and framework regressions without pinning page markup.
 ---
 
-A Proa component is a plain Rust struct that implements `WebRenderSync` or `WebRender`. This page covers [unit tests](#writing-unit-tests), [snapshot tests](#writing-snapshot-tests), [browser checks with axe-core](#testing-in-a-browser), [benchmarks](#catching-performance-regressions), and [where the files live](#organizing-tests-and-ci).
+Write a test when it protects a behavior that can break independently of an
+intentional design or copy change. A component does not need a test merely
+because it renders HTML or Markdown.
 
 ## Writing unit tests
 
-Render the component into a buffer, turn the buffer into a string, and assert on the HTML.
+Keep focused tests for calculations, validation, state transitions, authorization,
+and error handling. Exercise different inputs and failure paths. A useful test
+should explain what unintended consequence it prevents.
 
-```rust filename="src/components/badge/badge.rs"
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_core::text::text;
-    use proa_core::WebContext;
+Avoid assertions that repeat the template: headings, footer links, CSS classes,
+icon counts, section order, or the presence of a component's own `data-*` marker.
+Changing those intentionally should not require editing another copy of the page
+inside a test.
 
-    #[test]
-    fn badge_renders_label() {
-        let mut cx = WebContext::new();
+Proa's compiler, linter, and renderer tests cover generic template behavior,
+escaping, and composition. Application components using those APIs do not need
+their own copies of the same tests. Test application-specific handling of
+untrusted input when it adds behavior beyond the renderer's guarantees.
 
-        Badge {
-            variant: BadgeVariant::Default,
-            class: None,
-            children: Some(text("New")),
-        }
-        .render(&mut cx)
-        .unwrap();
+## Integration tests
 
-        let html = cx.into_output().into_string();
-        assert!(html.contains("data-badge"));
-        assert!(html.contains("data-variant=\"default\""));
-        assert!(html.contains("New"));
-    }
-}
+Test boundaries that combine independently changing systems: authentication and
+data access, request-scoped loader deduplication, cache invalidation, content
+negotiation, HTTP errors, or serving linked browser assets. Prefer a few tests
+that exercise complete behavior over a separate render test for every route.
+
+For ordinary library unit tests:
+
+```bash filename="Terminal"
+cargo test --lib
 ```
 
-`RenderBuffer` matches the standard production buffered writer pattern and still keeps unit tests small.
+Application binaries and integration tests that link RSJS islands need the
+linked pipeline. Name the relevant target:
 
-### Testing variants
-
-Iterate over all variants to ensure each one renders:
-
-```rust filename="src/components/badge/badge.rs"
-#[test]
-fn badge_renders_all_variants() {
-    for variant in [
-        BadgeVariant::Default,
-        BadgeVariant::Secondary,
-        BadgeVariant::Destructive,
-        BadgeVariant::Outline,
-    ] {
-        let mut cx = WebContext::new();
-
-        Badge {
-            variant,
-            class: None,
-            children: Some(text("Test")),
-        }
-        .render(&mut cx)
-        .unwrap();
-
-        let html = cx.into_output().into_string();
-        assert!(html.contains("data-badge"));
-        assert!(
-            html.contains(&format!("data-variant=\"{}\"", variant.as_str())),
-            "variant {:?} did not render data-variant attribute",
-            variant,
-        );
-    }
-}
+```bash filename="Terminal"
+proa test -p my_app --test integration
 ```
 
-### Testing dynamic content
-
-Assert that Proa escapes dynamic values:
-
-```rust filename="src/components/badge/badge.rs"
-#[test]
-fn badge_escapes_xss_in_label() {
-    let mut cx = WebContext::new();
-
-    Badge {
-        variant: BadgeVariant::Default,
-        class: None,
-        children: Some(text("<script>alert('xss')</script>")),
-    }
-    .render(&mut cx)
-    .unwrap();
-
-    let html = cx.into_output().into_string();
-    // Must be escaped, not raw script tag
-    assert!(html.contains("&lt;script&gt;"));
-    assert!(!html.contains("<script>alert"));
-}
-```
-
-### Testing optional fields
-
-Cover both the present and the absent case for every `Option` field:
-
-```rust filename="src/components/card/card.rs"
-#[test]
-fn card_without_optional_class() {
-    let mut cx = WebContext::new();
-
-    Card {
-        class: None,
-        children: Some(text("Test")),
-    }
-    .render(&mut cx)
-    .unwrap();
-
-    let html = cx.into_output().into_string();
-    assert!(html.contains("data-card"));
-}
-
-#[test]
-fn card_with_custom_class() {
-    let mut cx = WebContext::new();
-
-    Card {
-        class: Some("my-custom-class"),
-        children: Some(text("Test")),
-    }
-    .render(&mut cx)
-    .unwrap();
-
-    let html = cx.into_output().into_string();
-    assert!(html.contains("my-custom-class"));
-}
-```
-
-One `assert!` per attribute stops scaling once a component renders a full page. Snapshots take over there.
+A plain `cargo test` integration binary that links RSJS islands fails at link
+time because it lacks the compiled JavaScript modules. Library unit tests under
+`#[cfg(test)]` are unaffected.
 
 ## Writing snapshot tests
 
-For larger components or full pages, snapshot the HTML output to catch unexpected changes.
-
-### With insta
-
-[insta](https://crates.io/crates/insta) is the standard Rust snapshot testing library:
-
-```toml filename="Cargo.toml"
-# Cargo.toml
-[dev-dependencies]
-insta = "1"
-```
-
-```rust filename="src/components/listing_card/listing_card.rs"
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_core::WebContext;
-
-    #[test]
-    fn listing_card_snapshot() {
-        let mut cx = WebContext::new();
-
-        ListingCard {
-            title: "Cozy Mountain Cabin",
-            location: "Lake Tahoe, CA",
-            price: 185,
-            image_url: "/images/cabin.jpg",
-        }
-        .render(&mut cx)
-        .unwrap();
-
-        let html = cx.into_output().into_string();
-        insta::assert_snapshot!(html);
-    }
-}
-```
-
-Run `proa test` for application targets that link RSJS islands, or `cargo test --lib` for ordinary library unit tests. On the first run, insta writes a `.snap` file into a `snapshots/` directory next to the test file. On later runs, it compares against that snapshot and fails when the output changes.
-
-Review and update snapshots with:
-
-```bash filename="Terminal"
-cargo install cargo-insta
-cargo insta review   # interactive review of changed snapshots
-```
-
-### Full page snapshots
-
-Snapshot a body component directly to catch layout regressions. For a managed
-document, render the complete document through a configured framework response
-and snapshot its body; calling `.render()` directly bypasses role and head-hook
-dispatch. The following example tests body markup only:
-
-```rust filename="tests/pages.rs"
-#[test]
-fn home_page_snapshot() {
-    let mut cx = WebContext::new();
-
-    HomePage {
-        user: &test_user(),
-        listings: &test_listings(),
-        filters: &default_filters(),
-    }
-    .render(&mut cx)
-    .unwrap();
-
-    let html = cx.into_output().into_string();
-    insta::assert_snapshot!(html);
-}
-```
-
-Snapshots pin the bytes you emit. They say nothing about how a browser treats them.
+Full-page HTML snapshots change whenever the page changes. Do not add them by
+default, or build normalization machinery just to keep a changing page snapshot
+passing. Use exact-output assertions when the bytes themselves are a stable
+contract, such as a serializer or protocol encoder.
 
 ## Testing in a browser
 
-For end-to-end accessibility and rendering verification, use [Playwright](https://playwright.dev/) with [axe-core](https://github.com/dequelabs/axe-core).
-
-### Setup
-
-```bash filename="Terminal"
-pnpm add -D @playwright/test @axe-core/playwright
-pnpm exec playwright install
-```
-
-Commit `package.json` and `pnpm-lock.yaml` so CI can install the same dependencies
-with `pnpm install --frozen-lockfile`.
-
-### Accessibility checks
-
-```typescript filename="tests/a11y.spec.ts"
-// tests/a11y.spec.ts
-import { test, expect } from "@playwright/test";
-import AxeBuilder from "@axe-core/playwright";
-
-test("home page has no accessibility violations", async ({ page }) => {
-  await page.goto("http://localhost:3000/");
-
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa"])  // WCAG 2 Level A + AA
-    .analyze();
-
-  expect(results.violations).toEqual([]);
-});
-
-test("listing page has no accessibility violations", async ({ page }) => {
-  await page.goto("http://localhost:3000/rooms/12345");
-
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa"])
-    .analyze();
-
-  expect(results.violations).toEqual([]);
-});
-```
-
-### Visual regression
-
-```typescript filename="tests/visual.spec.ts"
-// tests/visual.spec.ts
-import { test, expect } from "@playwright/test";
-
-test("listing card matches screenshot", async ({ page }) => {
-  await page.goto("http://localhost:3000/rooms/12345");
-
-  const card = page.locator("[data-listing-card]").first();
-  await expect(card).toHaveScreenshot("listing-card.png");
-});
-```
-
-### Running the browser suite
-
-```bash filename="Terminal"
-pnpm exec playwright test
-```
-
-Let Playwright start the server and wait for readiness:
-
-```typescript filename="playwright.config.ts"
-import { defineConfig } from "@playwright/test";
-
-export default defineConfig({
-  testDir: "./playwright/tests",
-  use: { baseURL: "http://127.0.0.1:3000" },
-  webServer: {
-    command: "proa run",
-    env: { PORT: "3000", PROA_HOST: "127.0.0.1" },
-    url: "http://127.0.0.1:3000/healthz",
-    reuseExistingServer: !process.env.CI,
-    timeout: 300_000,
-  },
-});
-```
-
-Place the browser examples above in `playwright/tests/` and use relative URLs
-such as `page.goto("/")` so they share this `baseURL`.
-
-Correct output is one half of the contract. Render cost is the other half.
+Review presentation changes in a browser at the relevant screen sizes. Use
+browser automation when it protects a specific workflow, keyboard interaction,
+or accessibility behavior that simpler checks cannot exercise. A screenshot or
+DOM assertion for every component adds maintenance without necessarily catching
+an unintended consequence.
 
 ## Catching performance regressions
 
-Use `cargo bench` with [criterion](https://crates.io/crates/criterion) to catch render performance regressions.
-
-```toml filename="Cargo.toml"
-# Cargo.toml
-[dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "render_bench"
-harness = false
-```
-
-```rust filename="benches/render_bench.rs"
-// benches/render_bench.rs
-use criterion::{criterion_group, criterion_main, Criterion};
-use proa_core::RenderBuffer;
-
-fn bench_listing_card(c: &mut Criterion) {
-    let mut buf = RenderBuffer::new();
-    c.bench_function("listing_card", |b| {
-        b.iter(|| {
-            buf.render_into(ListingCard {
-                title: "Cozy Mountain Cabin",
-                location: "Lake Tahoe, CA",
-                price: 185,
-                image_url: "/images/cabin.jpg",
-            });
-        });
-    });
-}
-
-fn bench_full_page(c: &mut Criterion) {
-    let listings = generate_test_listings(20);
-    let mut buf = RenderBuffer::new();
-
-    c.bench_function("home_page_20_listings", |b| {
-        b.iter(|| {
-            buf.render_into(HomePage {
-                listings: &listings,
-                ..Default::default()
-            });
-        });
-    });
-}
-
-criterion_group!(benches, bench_listing_card, bench_full_page);
-criterion_main!(benches);
-```
-
-Run benchmarks:
+Measure render and streaming performance with the relevant benchmark on stable
+hardware. Keep inputs and workload sizes comparable across runs. A successful
+benchmark compilation does not establish that performance stayed the same.
 
 ```bash filename="Terminal"
-cargo bench                    # run all benchmarks
-cargo bench -- listing_card    # run one benchmark
+cargo bench -p proa_bench
 ```
-
-Criterion generates HTML reports in `target/criterion/` with charts showing performance over time. Use these in CI to catch regressions:
-
-```bash filename="Terminal"
-# In CI: record benchmark output to compare against a stored baseline
-cargo bench -- --output-format bencher | tee bench_results.txt
-```
-
-Four suites need four homes in the repository.
 
 ## Organizing tests and CI
 
-Use this structure:
+Keep unit tests beside the logic they exercise and integration tests under
+`tests/`. Add test targets as needed; there is no required suite per component or
+page. Group related integration cases when separate linked test binaries would
+repeat expensive builds.
 
-```text filename="my_app/"
-my_app/
-├── src/
-│   └── components/
-│       └── listing_card/
-│           ├── mod.rs
-│           ├── listing_card.rs    # component + #[cfg(test)] mod tests
-│           └── recipe.rs
-├── benches/
-│   └── render_bench.rs            # criterion benchmarks
-├── tests/
-│   └── pages.rs                   # full page render tests
-└── playwright/
-    └── tests/
-        ├── a11y.spec.ts           # axe-core accessibility
-        └── visual.spec.ts         # screenshot comparison
-```
-
-Unit tests live next to the component, in the same file under `#[cfg(test)]`. Integration tests live in `tests/`. Playwright tests live in their own directory.
-
-On a crate that contains RSJS islands, run integration-test targets through the linked pipeline, `proa test -p my_app --test pages`: a plain `cargo test` integration binary links the island code without its compiled JavaScript modules and fails at link time by design. Lib tests under `#[cfg(test)]` are unaffected.
-
-### CI pipeline
-
-Use the pinned Rust and Proa CLI installation from [CI / GitHub Actions](/docs/guides/ci).
-For browser tests, also install the project's pinned Node and pnpm versions,
-then run:
+Run formatting and Proa's source checks alongside the relevant behavior tests:
 
 ```bash filename="Terminal"
-pnpm install --frozen-lockfile
-pnpm exec playwright install --with-deps
-proa test
-pnpm exec playwright test
+cargo fmt --all -- --check
+proa check
 ```
 
-Playwright's `webServer` configuration starts and stops the application and
-waits for its health endpoint. Keep benchmark execution in a separate job with
-stable hardware; compiling a benchmark alone does not detect regressions.
-RSJS benchmark executables also need the linked pipeline, so benchmark plain
-render-only fixtures with `cargo bench` or follow your application's linked
-benchmark setup.
-
-## Next steps
-
-- [CI / GitHub Actions](/docs/guides/ci)
-  - Wire the full check, lint, and test pipeline into GitHub Actions.
-- [Accessibility](/docs/guides/accessibility)
-  - Fix the violations axe-core reports.
-- [Writing performant pages](/docs/guides/performance)
-  - Measure render cost and avoid unnecessary allocations.
-- [HTML rendering](/docs/core/html-rendering)
-  - Review the render traits these tests call.
+See [CI / GitHub Actions](/docs/guides/ci) for the pinned CLI setup and linked
+application build commands.

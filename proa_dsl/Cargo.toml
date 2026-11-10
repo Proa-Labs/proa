@@ -20,6 +20,7 @@ markdown = ["dep:comrak", "dep:pulldown-cmark"]
 no-perf-hints = []
 
 [dependencies]
+proc-macro-crate = { workspace = true }
 proa_ir = { workspace = true }
 proa_html_policy = { workspace = true }
 proc-macro2 = { workspace = true, features = ["span-locations"] }

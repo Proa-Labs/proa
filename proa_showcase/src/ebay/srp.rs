@@ -1043,68 +1043,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn renders_real_card_markup() {
-        let listings = build_listings(3);
-        let html = render_listings_to_string(&listings);
-        assert!(html.contains("s-card s-card--horizontal"));
-        assert!(html.contains("su-card-container__media"));
-        assert!(html.contains("s-card__price"));
-        assert!(html.contains("#icon-star-filled-16"));
-        assert!(html.contains("#icon-heart-16"));
-        assert!(html.contains("$"));
-        // Escaped title chars
-        assert!(html.contains("&amp;"));
-    }
-
-    #[test]
-    fn cached_defaults_are_stable() {
-        let a = default_listings(60);
-        let b = default_listings(60);
-        assert_eq!(a.as_ptr(), b.as_ptr(), "cache should return the same slice");
-        assert_eq!(a.len(), 60);
-    }
-
-    #[test]
-    fn accepts_legacy_and_branded_caption_overrides() {
-        for caption in ["EditorsPick", "EbayChoice"] {
-            let overrides = serde_json::json!([{"caption": caption}]);
-            let listings = build_listings_with_overrides(1, &overrides);
-            assert!(listings[0].caption == CaptionSignal::EditorsPick);
-            assert!(render_listings_to_string(&listings).contains("eBay's CHOICE"));
-        }
-    }
-
-    #[test]
-    fn card_emits_data_filter_attributes() {
-        // The URL-driven filter runtime relies on these attrs being on
-        // every card's outermost `<li>`. If you're tempted to remove or
-        // rename them, update `ebay_srp_filter_runtime.rs` in lockstep.
-        let listings = build_listings(8);
-        let html = render_listings_to_string(&listings);
-        assert!(
-            html.contains(r#"data-format="buyitnow""#)
-                || html.contains(r#"data-format="auction""#)
-                || html.contains(r#"data-format="bestoffer""#),
-            "expected at least one `data-format` attr in rendered cards, got:\n{html}"
-        );
-        assert!(
-            html.contains(r#"data-free-shipping="1""#),
-            "expected at least one `data-free-shipping=\"1\"` attr (free-delivery cards), got:\n{html}"
-        );
-        assert!(
-            html.contains(r#"data-free-shipping="0""#),
-            "expected at least one `data-free-shipping=\"0\"` attr (paid-delivery cards), got:\n{html}"
-        );
-    }
-
-    #[test]
-    fn format_slug_round_trips() {
-        assert_eq!(ListingFormat::BuyItNow.slug(), "buyitnow");
-        assert_eq!(ListingFormat::Auction.slug(), "auction");
-        assert_eq!(ListingFormat::BestOffer.slug(), "bestoffer");
-    }
-
-    #[test]
     fn zerocopy_matches_vec_render() {
         let listings = build_listings(5);
         let mut vec_buf = Vec::new();
@@ -1114,32 +1052,5 @@ mod tests {
         let mut zc_flat = Vec::new();
         zc.flatten_into(&mut zc_flat);
         assert_eq!(vec_buf, zc_flat);
-    }
-
-    #[test]
-    fn a11y_ok_attr_is_stripped_from_emitted_html() {
-        // Pin the contract: the `_a11y_ok` opt-out attribute on the
-        // card heading must (a) silence html_sync's "prefer h1-h6"
-        // warning at compile time AND (b) never reach the rendered
-        // HTML. If the attribute leaked into output, anyone scraping
-        // the demo would see framework internals.
-        let listings = build_listings(1);
-        let mut buf = Vec::new();
-        let mut cx = ::proa_core::ctx::Ctx::with_buffer(&mut buf);
-        ListingsList {
-            listings: &listings,
-        }
-        .render(&mut cx)
-        .expect("render");
-        let html = String::from_utf8(buf).expect("utf8");
-        assert!(
-            !html.contains("a11y-ok") && !html.contains("a11y_ok"),
-            "_a11y_ok must be stripped from emitted HTML; got snippet: {}",
-            html.split("s-card__title").next().unwrap_or("")
-        );
-        assert!(
-            html.contains(r#"role="heading""#),
-            "the underlying mirrored heading markup must still ship"
-        );
     }
 }

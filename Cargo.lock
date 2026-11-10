@@ -2343,14 +2343,8 @@ dependencies = [
  "dotenvy",
  "heapless",
  "http",
- "http-body-util",
  "jsonwebtoken",
- "proa_actions",
- "proa_core",
- "proa_framework_axum",
- "proa_ir",
- "proa_macros",
- "proa_stream",
+ "proa",
  "pulldown-cmark",
  "rand 0.8.8",
  "regex",
@@ -2368,7 +2362,6 @@ dependencies = [
  "thiserror",
  "tiktoken-rs",
  "tokio",
- "tower 0.5.2",
  "tower-http 0.6.11",
  "tracing",
  "tracing-subscriber",
@@ -3234,6 +3227,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "proa"
+version = "0.4.0"
+dependencies = [
+ "proa_actions",
+ "proa_core",
+ "proa_framework_axum",
+ "proa_framework_core",
+ "proa_ir",
+ "proa_macros",
+ "proa_react",
+ "proa_stream",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "proa-cli"
 version = "0.2.0"
 dependencies = [
@@ -3245,11 +3254,10 @@ dependencies = [
  "glob",
  "libc",
  "object",
+ "proa",
  "proa_actions",
  "proa_build",
  "proa_core",
- "proa_docs",
- "proa_docs_build",
  "proa_dsl",
  "proa_fonts",
  "proa_fonts_build",
@@ -3276,27 +3284,15 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml 0.8.23",
- "toml_edit",
+ "toml_edit 0.22.27",
  "walkdir",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "proa-lean-server"
-version = "0.1.0"
-dependencies = [
- "axum",
- "proa_core",
- "proa_demo",
- "rsjs",
- "tokio",
 ]
 
 [[package]]
 name = "proa_actions"
 version = "0.4.0"
 dependencies = [
- "proa_core",
  "proa_macros",
  "serde",
  "serde_json",
@@ -3340,16 +3336,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "proa_codegen"
-version = "0.2.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "proa_const_json"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "proa_const_json_macros",
  "serde_json",
@@ -3357,7 +3345,7 @@ dependencies = [
 
 [[package]]
 name = "proa_const_json_macros"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3457,12 +3445,21 @@ dependencies = [
  "comrak",
  "proa_html_policy",
  "proa_ir",
+ "proc-macro-crate",
  "proc-macro2",
  "proptest",
  "pulldown-cmark",
  "quote",
  "serde_json",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "proa_facade_example"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "proa",
 ]
 
 [[package]]
@@ -3626,7 +3623,6 @@ dependencies = [
  "proa_macros",
  "proa_showcase_web",
  "proa_third_party",
- "pulldown-cmark",
  "reqwest 0.12.24",
  "rmcp",
  "rsjs",
@@ -3647,7 +3643,7 @@ dependencies = [
 
 [[package]]
 name = "proa_og"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "bindgen",
  "libc",
@@ -3764,8 +3760,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "proa_core",
- "proa_macros",
+ "proa",
  "rsjs",
  "rsjs_macros",
  "serde",
@@ -3776,6 +3771,15 @@ dependencies = [
  "tracing-subscriber",
  "wellformed",
  "wellformed-macros",
+]
+
+[[package]]
+name = "proc-macro-crate"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
+dependencies = [
+ "toml_edit 0.25.19+spec-1.1.0",
 ]
 
 [[package]]
@@ -4328,7 +4332,7 @@ dependencies = [
 
 [[package]]
 name = "rsjs_transport"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "object",
  "rsjs_ir",
@@ -5421,7 +5425,7 @@ dependencies = [
  "serde",
  "serde_spanned 0.6.9",
  "toml_datetime 0.6.11",
- "toml_edit",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]
@@ -5458,6 +5462,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml_datetime"
+version = "1.1.3+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "173f25c883cd2176a2d8212155638c0a60d484a9d84546d270866f40f56b6e49"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "toml_edit"
 version = "0.22.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5472,10 +5485,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml_parser"
-version = "1.1.2+spec-1.1.0"
+name = "toml_edit"
+version = "0.25.19+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
+checksum = "dd43688c4858d7264ae1cf9a9f874a67c3feb74a883b1cd7bebd6a4ea8307218"
+dependencies = [
+ "indexmap",
+ "toml_datetime 1.1.3+spec-1.1.0",
+ "toml_parser",
+ "winnow 1.0.4",
+]
+
+[[package]]
+name = "toml_parser"
+version = "1.1.5+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow 1.0.4",
 ]
@@ -6430,6 +6455,9 @@ name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "wit-bindgen"

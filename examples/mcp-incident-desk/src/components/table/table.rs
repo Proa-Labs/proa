@@ -6,8 +6,8 @@
 //! Renders a responsive data table with header, body, footer, and caption sections.
 use super::recipe::{TableRecipeProps, TABLE_RECIPE};
 use super::TABLE_ANATOMY;
-use proa_core::{WebContext, WebRenderSync, WriteBuf};
-use proa_macros::html_sync;
+use proa::html_sync;
+use proa::{WebContext, WebRenderSync, WriteBuf};
 /// Table component - a responsive data table wrapped in an overflow container
 pub struct Table<C = ()> {
     /// Additional CSS classes
@@ -31,13 +31,8 @@ impl<C> Default for Table<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
-    for Table<C>
-{
-    fn render(
-        self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B> for Table<C> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = TABLE_RECIPE.resolve(TableRecipeProps);
         html_sync! {
             <div
@@ -51,7 +46,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                     data-scope={TABLE_ANATOMY.scope()}
                     data-part="root"
                     data-slot="table"
-                    class={proa_macros::text!("{} {}", style, self.class)}
+                    class={proa::text!("{} {}", style, self.class)}
                 >
                     {self.children}
                 </table>
@@ -75,20 +70,17 @@ impl<C> Default for TableHeader<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableHeader<C>
 {
-    fn render(
-        self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <thead
                 data-table-header
                 data-scope={TABLE_ANATOMY.scope()}
                 data-part="header"
                 data-slot="table-header"
-                class={proa_macros::text!("{} {}", TABLE_RECIPE.header, self.class)}
+                class={proa::text!("{} {}", TABLE_RECIPE.header, self.class)}
             >
                 {self.children}
             </thead>
@@ -111,20 +103,17 @@ impl<C> Default for TableBody<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableBody<C>
 {
-    fn render(
-        self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <tbody
                 data-table-body
                 data-scope={TABLE_ANATOMY.scope()}
                 data-part="body"
                 data-slot="table-body"
-                class={proa_macros::text!("{} {}", TABLE_RECIPE.body, self.class)}
+                class={proa::text!("{} {}", TABLE_RECIPE.body, self.class)}
             >
                 {self.children}
             </tbody>
@@ -147,20 +136,17 @@ impl<C> Default for TableFooter<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableFooter<C>
 {
-    fn render(
-        self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <tfoot
                 data-table-footer
                 data-scope={TABLE_ANATOMY.scope()}
                 data-part="footer"
                 data-slot="table-footer"
-                class={proa_macros::text!("{} {}", TABLE_RECIPE.footer, self.class)}
+                class={proa::text!("{} {}", TABLE_RECIPE.footer, self.class)}
             >
                 {self.children}
             </tfoot>
@@ -183,20 +169,17 @@ impl<C> Default for TableRow<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableRow<C>
 {
-    fn render(
-        self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <tr
                 data-table-row
                 data-scope={TABLE_ANATOMY.scope()}
                 data-part="row"
                 data-slot="table-row"
-                class={proa_macros::text!("{} {}", TABLE_RECIPE.row, self.class)}
+                class={proa::text!("{} {}", TABLE_RECIPE.row, self.class)}
             >
                 {self.children}
             </tr>
@@ -219,20 +202,17 @@ impl<C> Default for TableHead<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableHead<C>
 {
-    fn render(
-        self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <th
                 data-table-head
                 data-scope={TABLE_ANATOMY.scope()}
                 data-part="head"
                 data-slot="table-head"
-                class={proa_macros::text!("{} {}", TABLE_RECIPE.head, self.class)}
+                class={proa::text!("{} {}", TABLE_RECIPE.head, self.class)}
             >
                 {self.children}
             </th>
@@ -255,20 +235,17 @@ impl<C> Default for TableCell<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableCell<C>
 {
-    fn render(
-        self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <td
                 data-table-cell
                 data-scope={TABLE_ANATOMY.scope()}
                 data-part="cell"
                 data-slot="table-cell"
-                class={proa_macros::text!("{} {}", TABLE_RECIPE.cell, self.class)}
+                class={proa::text!("{} {}", TABLE_RECIPE.cell, self.class)}
             >
                 {self.children}
             </td>
@@ -291,20 +268,17 @@ impl<C> Default for TableCaption<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TableCaption<C>
 {
-    fn render(
-        self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <caption
                 data-table-caption
                 data-scope={TABLE_ANATOMY.scope()}
                 data-part="caption"
                 data-slot="table-caption"
-                class={proa_macros::text!("{} {}", TABLE_RECIPE.caption, self.class)}
+                class={proa::text!("{} {}", TABLE_RECIPE.caption, self.class)}
             >
                 {self.children}
             </caption>

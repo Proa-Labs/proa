@@ -7,8 +7,8 @@
 //! Keeping those values in one place prevents the static renderer, delegated
 //! runtime, and rsjs islands from drifting apart.
 
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::AttrValue;
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Open/closed state for disclosures and overlays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

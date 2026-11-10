@@ -104,17 +104,57 @@ impl Resolver {
         } else {
             format!("{}::{first}", self.module)
         };
-        if rest.is_empty() {
+        let resolved = if rest.is_empty() {
             base
         } else {
             format!("{base}::{rest}")
-        }
+        };
+        canonical_facade_path(resolved)
     }
     pub fn known_type(&self, path: &SynPath) -> Option<String> {
         let full = self.path(path);
         self.symbols.contains(&full).then_some(full)
     }
 }
+// Facade exports retain the same implementation identities for coverage.
+fn canonical_facade_path(path: String) -> String {
+    let Some(rest) = path.strip_prefix("proa::") else {
+        return path;
+    };
+    for (module, package) in [
+        ("core", "proa_core"),
+        ("ir", "proa_ir"),
+        ("stream", "proa_stream"),
+        ("axum", "proa_framework_axum"),
+        ("framework", "proa_framework_core"),
+        ("actions", "proa_actions"),
+        ("react", "proa_react"),
+    ] {
+        if let Some(suffix) = rest.strip_prefix(&format!("{module}::")) {
+            return format!("{package}::{suffix}");
+        }
+    }
+    let first = rest.split("::").next().unwrap_or("");
+    let package = if matches!(
+        first,
+        "html"
+            | "html_sync"
+            | "html_send"
+            | "html_hot_sync"
+            | "xml"
+            | "xml_sync"
+            | "md"
+            | "md_sync"
+            | "omit"
+            | "content"
+    ) {
+        "proa_macros"
+    } else {
+        "proa_core"
+    };
+    format!("{package}::{rest}")
+}
+
 #[derive(Clone)]
 struct Context {
     path: PathBuf,
@@ -687,6 +727,7 @@ pub(super) fn lint_sources(
             generic_children: BTreeSet::new(),
             glob: context.glob,
             extern_roots: [
+                "proa".into(),
                 "proa_core".into(),
                 "proa_macros".into(),
                 "std".into(),
@@ -1018,6 +1059,7 @@ pub(super) fn lint_sources(
                 .cloned()
                 .unwrap_or_default(),
             extern_roots: [
+                "proa".to_owned(),
                 "proa_core".to_owned(),
                 "proa_macros".to_owned(),
                 "std".to_owned(),

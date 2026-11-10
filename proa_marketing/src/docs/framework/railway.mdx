@@ -33,7 +33,7 @@ let port: u16 = std::env::var("PORT")
 // IPv6-only.
 let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
 let listener = tokio::net::TcpListener::bind(addr).await?;
-proa_framework_axum::serve(
+proa::axum::serve(
         listener, app, std::time::Duration::from_secs(30),
     ).await?;
 ```
@@ -175,7 +175,7 @@ async fn healthz() -> &'static str {
 }
 ```
 
-Checking your database here means a slow database fails your deploy. Put dependency checks on a separate `/readyz` route with `proa_framework_axum::Readiness`, which probes fresh on every request and recovers without a restart.
+Checking your database here means a slow database fails your deploy. Put dependency checks on a separate `/readyz` route with `proa::axum::Readiness`, which probes fresh on every request and recovers without a restart.
 
 Railway sends the `Host` header `healthcheck.railway.app`. If you add host filtering later, allowlist it.
 

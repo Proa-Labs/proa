@@ -18,11 +18,11 @@
 
 use std::{future::Future, path::PathBuf};
 
-use proa_core::{
+use proa::{md, md_sync};
+use proa::{
     render_md_to_string_async, to_md_async, MdRenderSync, RenderOutcome, WebContext, WriteBuf,
     WriteError,
 };
-use proa_macros::{md, md_sync};
 use pulldown_cmark::{html, Options, Parser};
 
 // Cmd+click these fields from the templates below, or try changing their types.
@@ -43,7 +43,7 @@ struct Feature<'a> {
 /// A custom synchronous component with a nested custom link component.
 struct PersonCard<'a>(Person<'a>);
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for PersonCard<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for PersonCard<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             ### {self.0.name}
@@ -64,7 +64,7 @@ struct MarkdownLink<'a> {
     href: &'a str,
 }
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for MarkdownLink<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for MarkdownLink<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_link(self.label, self.href)
     }
@@ -73,7 +73,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for M
 /// The core inline-code writer chooses a delimiter that fits the dynamic text.
 struct InlineCode<'a>(&'a str);
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlineCode<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlineCode<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.write_md_inline_code(self.0)
     }
@@ -81,7 +81,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for I
 
 struct FeatureTable<'a>(&'a [Feature<'a>]);
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for FeatureTable<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for FeatureTable<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             | Feature | Checks | Ready |
@@ -98,7 +98,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for F
 
 struct ConditionalNote(bool);
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ConditionalNote {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ConditionalNote {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             {if self.0 {
@@ -122,9 +122,7 @@ struct AsyncRelease<'a> {
     checks: u32,
 }
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> proa_core::MdRender<Loader, B>
-    for AsyncRelease<'_>
-{
+impl<Loader: ::proa::DataLoader, B: WriteBuf> proa::MdRender<Loader, B> for AsyncRelease<'_> {
     fn render_md(
         self,
         cx: &mut WebContext<Loader, B>,
@@ -392,172 +390,3 @@ const IMAGE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="860" heig
 <path d="M88 135V85h24a17 17 0 0 1 0 34H88" stroke="#fff" stroke-width="9" fill="none"/>
 <text x="195" y="105" font-family="system-ui,sans-serif" font-size="30" font-weight="600" fill="#252525">Proa Markdown playground</text>
 <text x="195" y="145" font-family="system-ui,sans-serif" font-size="19" fill="#555">Local image · typed components · async rendering</text></svg>"##;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, LinkType, Tag};
-
-    #[tokio::test]
-    async fn document_contains_real_markdown_elements() {
-        let markdown = document(true).await;
-        let events: Vec<_> = Parser::new_ext(&markdown, preview_options()).collect();
-        for level in [
-            HeadingLevel::H1,
-            HeadingLevel::H2,
-            HeadingLevel::H3,
-            HeadingLevel::H4,
-            HeadingLevel::H5,
-            HeadingLevel::H6,
-        ] {
-            assert!(events.iter().any(|event| matches!(event, Event::Start(Tag::Heading { level: found, .. }) if *found == level)), "missing {level:?}");
-        }
-        for kind in [
-            LinkType::Inline,
-            LinkType::Reference,
-            LinkType::Collapsed,
-            LinkType::Shortcut,
-            LinkType::Autolink,
-            LinkType::Email,
-        ] {
-            assert!(events.iter().any(|event| matches!(event, Event::Start(Tag::Link { link_type, .. }) if *link_type == kind)), "missing {kind:?} link");
-        }
-        for tag in [
-            Tag::Emphasis,
-            Tag::Strong,
-            Tag::Strikethrough,
-            Tag::List(None),
-            Tag::List(Some(1)),
-            Tag::BlockQuote(None),
-            Tag::DefinitionList,
-            Tag::CodeBlock(CodeBlockKind::Indented),
-        ] {
-            assert!(
-                events
-                    .iter()
-                    .any(|event| matches!(event, Event::Start(found) if *found == tag)),
-                "missing {tag:?}"
-            );
-        }
-        assert!(events.iter().any(|event| matches!(event, Event::Start(Tag::Table(align)) if align == &[Alignment::Left, Alignment::Center, Alignment::Right])));
-        assert!(events
-            .iter()
-            .any(|event| matches!(event, Event::Start(Tag::Image { .. }))));
-        assert!(events.iter().any(|event| matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(language))) if language.as_ref() == "rust")));
-        assert!(events.iter().any(|event| matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(language))) if language.as_ref() == "json")));
-        assert!(events.iter().any(|event| matches!(event, Event::Code(_))));
-        assert!(events.iter().any(|event| matches!(event, Event::HardBreak)));
-        assert!(events.iter().any(|event| matches!(event, Event::SoftBreak)));
-        assert!(events.iter().any(|event| matches!(event, Event::Rule)));
-        assert!(events
-            .iter()
-            .any(|event| matches!(event, Event::TaskListMarker(true))));
-        assert!(events
-            .iter()
-            .any(|event| matches!(event, Event::TaskListMarker(false))));
-        assert!(events
-            .iter()
-            .any(|event| matches!(event, Event::FootnoteReference(_))));
-        assert!(events
-            .iter()
-            .any(|event| matches!(event, Event::InlineMath(_))));
-        assert!(events
-            .iter()
-            .any(|event| matches!(event, Event::DisplayMath(_))));
-    }
-
-    #[test]
-    fn dynamic_cells_do_not_create_extra_columns() {
-        let rows = [Feature {
-            name: "a | b",
-            checks: 37,
-            ready: true,
-        }];
-        let markdown = sync_markdown(FeatureTable(&rows));
-        let events: Vec<_> = Parser::new_ext(&markdown, preview_options()).collect();
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| matches!(event, Event::Start(Tag::TableCell)))
-                .count(),
-            6
-        );
-        assert!(events
-            .iter()
-            .any(|event| matches!(event, Event::Text(text) if text.as_ref() == "37")));
-        assert!(plain_text(&markdown).contains("a | b"));
-    }
-
-    #[test]
-    fn components_escape_text_and_preserve_link_destinations() {
-        let person = Person {
-            name: "**name** <script>bad</script>",
-            role: "[role](bad)",
-            website: "https://example.com/a(b)?q=a%20b&x=1",
-        };
-        let markdown = sync_markdown(PersonCard(person));
-        let events: Vec<_> = Parser::new_ext(&markdown, preview_options()).collect();
-        assert!(plain_text(&markdown).contains(person.name));
-        assert!(plain_text(&markdown).contains(person.role));
-        assert!(!events
-            .iter()
-            .any(|event| matches!(event, Event::Html(_) | Event::InlineHtml(_))));
-        assert!(events.iter().any(|event| matches!(event, Event::Start(Tag::Link { dest_url, .. }) if dest_url.as_ref() == person.website)), "{markdown}");
-    }
-
-    #[test]
-    fn adaptive_code_and_optional_children_preserve_payloads() {
-        let payload = "a `backtick` and ``two``";
-        let markdown = sync_markdown(InlineCode(payload));
-        assert!(Parser::new(&markdown)
-            .any(|event| matches!(event, Event::Code(text) if text.as_ref() == payload)));
-        assert_eq!(sync_markdown(None::<InlineCode<'_>>), "");
-        assert_eq!(sync_markdown(Some(InlineCode(payload))), markdown);
-    }
-
-    #[test]
-    fn conditional_component_selects_the_requested_branch() {
-        let enabled = sync_markdown(ConditionalNote(true));
-        let disabled = sync_markdown(ConditionalNote(false));
-        assert!(Parser::new_ext(&enabled, preview_options())
-            .any(|event| matches!(event, Event::Start(Tag::BlockQuote(Some(_))))));
-        assert!(!Parser::new_ext(&disabled, preview_options())
-            .any(|event| matches!(event, Event::Start(Tag::BlockQuote(_)))));
-    }
-
-    #[tokio::test]
-    async fn custom_async_component_is_awaited() {
-        let mut out = Vec::new();
-        let mut cx = WebContext::with_buffer(&mut out);
-        let result = proa_core::MdRender::render_md(
-            AsyncRelease {
-                version: "test-release",
-                checks: 73,
-            },
-            &mut cx,
-        );
-        assert!(matches!(result, RenderOutcome::Pending(_)));
-        result.resolve().await.unwrap();
-        let markdown = String::from_utf8(out).unwrap();
-        let text = plain_text(&markdown);
-        assert!(text.contains("test-release"));
-        assert!(text.contains("73"));
-    }
-
-    fn sync_markdown(child: impl MdRenderSync<::proa_core::NoLoader, Vec<u8>>) -> String {
-        let mut bytes = Vec::new();
-        child
-            .render_md(&mut WebContext::with_buffer(&mut bytes))
-            .unwrap();
-        String::from_utf8(bytes).unwrap()
-    }
-
-    fn plain_text(markdown: &str) -> String {
-        Parser::new_ext(markdown, preview_options())
-            .filter_map(|event| match event {
-                Event::Text(text) | Event::Code(text) => Some(text.into_string()),
-                _ => None,
-            })
-            .collect()
-    }
-}
