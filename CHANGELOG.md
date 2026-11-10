@@ -2,6 +2,8 @@
 
 All notable public changes are tracked here.
 
+For release highlights and upgrade steps, see the [Proa 0.4.0 overview](docs/releases/0.4.0.md).
+
 ## Unreleased
 
 - Generated applications now select the 0.4 framework APIs used by their
