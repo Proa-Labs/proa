@@ -3,7 +3,7 @@
 
 //! A consumer with a single Proa dependency: no direct implementation crates.
 
-use proa::{html_sync, md_sync, DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteError};
+use proa::{DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteError, html_sync, md_sync};
 
 pub struct Greeting<'a> {
     pub name: &'a str,
@@ -11,7 +11,10 @@ pub struct Greeting<'a> {
 
 impl<L: DataLoader> WebRenderSync<L> for Greeting<'_> {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        html_sync! { <p>{proa::text!("Hello, {}", self.name)}</p> }.render(cx)
+        html_sync! {
+            <p>{proa::text!("Hello, {}", self.name)}</p>
+        }
+        .render(cx)
     }
 }
 
@@ -54,7 +57,9 @@ mod tests {
         let markdown = cx.into_output().into_string();
         assert!(markdown.contains("\\*Ada\\*"));
         let name = "<&>";
-        let xml = proa::render_to_string(proa::xml_sync! { <name>{name}</name> });
+        let xml = proa::render_to_string(proa::xml_sync! {
+            <name>{name}</name>
+        });
         assert_eq!(xml, "<name>&lt;&amp;&gt;</name>");
     }
 
@@ -67,9 +72,11 @@ mod tests {
     #[test]
     fn facade_async_templates_finalize_without_http() {
         let name = "<Ada>";
-        let html = RouteResponse::ssr_async(proa::html! { <p>{name}</p> })
-            .render_to_string()
-            .unwrap();
+        let html = RouteResponse::ssr_async(proa::html! {
+            <p>{name}</p>
+        })
+        .render_to_string()
+        .unwrap();
         assert_eq!(html, "<p>&lt;Ada&gt;</p>");
     }
 
@@ -101,5 +108,67 @@ mod tests {
         let data = action.to_action_data();
         let MessageAction::Send { recipient } = MessageAction::from_action_data(data).unwrap();
         assert_eq!(recipient, "Ada");
+    }
+}
+
+#[cfg(test)]
+mod divergent_loops {
+    use proa::{MdRenderSync, NoLoader, WebContext, WriteError};
+
+    fn next_row(count: &mut usize) -> Result<(), WriteError> {
+        *count += 1;
+        if *count > 1 {
+            Err(WriteError::OutOfCapacity)
+        } else {
+            Ok(())
+        }
+    }
+
+    #[test]
+    #[allow(unreachable_code)]
+    fn nested_facade_templates_preserve_partial_output_on_loop_error() {
+        let mut cx = WebContext::<NoLoader>::new();
+        let result = MdRenderSync::render_md(
+            proa::md_sync! { r#"{ {
+            let mut count = 0;
+            loop { next_row(&mut count)?; ::proa::md_sync! { "row" } }
+        } }"# },
+            &mut cx,
+        );
+        assert_eq!(result, Err(WriteError::OutOfCapacity));
+        assert_eq!(cx.into_output().into_string(), "row");
+
+        let mut cx = WebContext::<NoLoader>::new();
+        let result = MdRenderSync::render_md(
+            proa::md_sync! { r#"{ {
+            let mut count = 0;
+            loop {
+                if count == 1 { return Err(WriteError::OutOfCapacity); }
+                count += 1;
+                ::proa::md_sync! { "row" }
+            }
+        } }"# },
+            &mut cx,
+        );
+        assert_eq!(result, Err(WriteError::OutOfCapacity));
+        assert_eq!(cx.into_output().into_string(), "row");
+    }
+
+    #[test]
+    #[allow(unreachable_code)]
+    fn nested_async_facade_templates_preserve_partial_output_on_loop_error() {
+        let mut cx = WebContext::<NoLoader>::new();
+        let result = futures::executor::block_on(
+            proa::MdRender::render_md(
+                proa::md! { r#"{ {
+            let mut count = 0;
+            loop { next_row(&mut count)?; ::proa::md! { "row" } }
+        } }"# },
+                &mut cx,
+            )
+            .resolve(),
+        );
+        assert_eq!(result, Err(WriteError::OutOfCapacity));
+        assert_eq!(cx.into_output().into_string(), "row");
     }
 }

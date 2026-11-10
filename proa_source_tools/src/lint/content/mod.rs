@@ -344,6 +344,15 @@ fn local_marker_range(view: &ViewSummary, name: &str) -> Option<SourceRange> {
 
 // Keep editable suggestions on the namespace used by the source.
 fn omission_macro_namespace(source: &str) -> &'static str {
+    fn facade_import(tree: &syn::UseTree) -> bool {
+        match tree {
+            syn::UseTree::Path(path) => path.ident == "proa",
+            syn::UseTree::Name(name) => name.ident == "proa",
+            syn::UseTree::Rename(rename) => rename.ident == "proa",
+            syn::UseTree::Group(group) => group.items.iter().any(facade_import),
+            _ => false,
+        }
+    }
     #[derive(Default)]
     struct FacadeUse(bool);
     impl<'ast> syn::visit::Visit<'ast> for FacadeUse {
@@ -352,12 +361,7 @@ fn omission_macro_namespace(source: &str) -> &'static str {
             syn::visit::visit_path(self, path);
         }
         fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
-            self.0 |= match &item.tree {
-                syn::UseTree::Path(path) => path.ident == "proa",
-                syn::UseTree::Name(name) => name.ident == "proa",
-                syn::UseTree::Rename(rename) => rename.ident == "proa",
-                _ => false,
-            };
+            self.0 |= facade_import(&item.tree);
         }
     }
     let mut usage = FacadeUse::default();

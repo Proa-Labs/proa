@@ -1611,6 +1611,20 @@ fn facade_imports_preserve_coverage_and_detect_omitted_inputs() {
         diagnostics[0].suggestions[0].replacement,
         "proa::omit!(self.title);"
     );
+    let facade_imports = IMPORTS
+        .replace("proa_core::", "proa::")
+        .replace("proa_macros::", "proa::");
+    let grouped_imports = format!(
+        "use {{ {} }};",
+        facade_imports.replace("use ", "").replace(';', ",")
+    );
+    let grouped = changed.replace(&facade_imports, &grouped_imports);
+    let grouped_diagnostics = missing(&grouped);
+    assert_eq!(grouped_diagnostics.len(), 1);
+    assert_eq!(
+        grouped_diagnostics[0].suggestions[0].replacement,
+        "proa::omit!(self.title);"
+    );
     let qualified = changed
         .replace("html_sync!", "proa::html_sync!")
         .replace("md_sync!", "proa::md_sync!");
