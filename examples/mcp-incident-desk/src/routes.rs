@@ -10,7 +10,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use proa_framework_axum::{router_from_spec, Route, RouteContextLayer};
+use proa::axum::{router_from_spec, Route, RouteContextLayer};
 pub fn router(state: AppState) -> Router {
     let (router, metadata) = router_from_spec(vec![
         // proa:route-specs:start

@@ -6,8 +6,8 @@
 //! Provides variant styles and base styling for the Badge component.
 
 use crate::tw_join;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::AttrValue;
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Base styles for the badge
 mod base {
@@ -77,7 +77,7 @@ mod variants {
 }
 
 /// Variant options for the badge
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
 #[variant(name = "variant", path = "crate::components::_proa::variant_spec")]
 pub enum BadgeVariant {
     /// Primary badge style (default)

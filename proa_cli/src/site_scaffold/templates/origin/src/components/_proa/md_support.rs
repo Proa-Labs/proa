@@ -14,8 +14,8 @@
 //! is independent of buffer contiguity and survives zero-copy writes and flushes.
 //! Do not use a boundary shim to choose a template's mode or restore formatting.
 
-use proa_core::WebContext;
-use proa_core::{WriteBuf, WriteError};
+use proa::WebContext;
+use proa::{WriteBuf, WriteError};
 
 /// Ensure the output sits at a block boundary (start of output or after a
 /// blank line), writing the missing newlines if not.
@@ -23,7 +23,7 @@ use proa_core::{WriteBuf, WriteError};
 /// This low-level helper is a no-op in inline mode; it does not validate or
 /// flatten its caller's content. Block templates reject active inline scopes,
 /// including link labels and table cells. Supply an inline representation there.
-pub(crate) fn block_boundary<L: proa_core::DataLoader, B: WriteBuf>(
+pub(crate) fn block_boundary<L: proa::DataLoader, B: WriteBuf>(
     cx: &mut WebContext<L, B>,
 ) -> Result<(), WriteError> {
     cx.md_block_boundary()
@@ -37,7 +37,7 @@ pub(crate) fn block_boundary<L: proa_core::DataLoader, B: WriteBuf>(
 /// list), so item emitters (checkbox, toggle, radio items) need a fresh
 /// LINE, not a full blank-line boundary. Like [`block_boundary`], it is
 /// buffer-accurate and a no-op in inline context.
-pub(crate) fn line_boundary<L: proa_core::DataLoader, B: WriteBuf>(
+pub(crate) fn line_boundary<L: proa::DataLoader, B: WriteBuf>(
     cx: &mut WebContext<L, B>,
 ) -> Result<(), WriteError> {
     cx.md_line_boundary()

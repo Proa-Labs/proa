@@ -26,6 +26,7 @@ LIB_EXCLUDE = {
 }
 INTEGRATION_EXCLUDE = LIB_EXCLUDE | {"proa_showcase", "proa-cli"}
 LINT_PACKAGES = {
+    "proa_facade_example",
     "proa_core",
     "proa_stream",
     "proa_framework_core",
@@ -35,6 +36,8 @@ LINT_PACKAGES = {
     "proa_webmcp_pizza",
 }
 FEATURE_CHECKS = [
+    (["proa"], ["--no-default-features"]),
+    (["proa"], ["--all-features"]),
     (["proa_stream"], []),
     (["proa_framework_axum"], []),
     (["proa_framework_core"], ["--no-default-features"]),

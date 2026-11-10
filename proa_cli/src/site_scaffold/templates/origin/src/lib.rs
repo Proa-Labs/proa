@@ -21,11 +21,11 @@ use axum::{
     routing::get,
     Router,
 };
-use proa_framework_axum::{
+use proa::axum::{
     explicit_markdown, negotiate, router_from_spec, rsjs_assets_router, BasePath,
     MarkdownAlternate, Route, RouteContextLayer, RouteResponse,
 };
-use proa_stream::DataResolver;
+use proa::stream::DataResolver;
 use serde::Deserialize;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
@@ -42,7 +42,7 @@ pub use components::markdown_string;
 /// as the `/` route serves it.
 pub async fn render_atlas_page<L>(raw_query: Option<&str>, loader: Arc<L>) -> String
 where
-    L: proa_core::DataLoader + Send + Sync + 'static,
+    L: proa::DataLoader + Send + Sync + 'static,
 {
     render_atlas_page_with_base_path(raw_query, loader, BasePath::default()).await
 }
@@ -55,15 +55,15 @@ pub async fn render_atlas_page_with_base_path<L>(
     base_path: BasePath,
 ) -> String
 where
-    L: proa_core::DataLoader + Send + Sync + 'static,
+    L: proa::DataLoader + Send + Sync + 'static,
 {
     let resolver = DataResolver::request_scope(loader);
-    let mut cx = proa_core::WebContext::with_loader(resolver);
+    let mut cx = proa::WebContext::with_loader(resolver);
     cx.request_mut().set_base_path(base_path);
     let published = Arc::new(Mutex::new(Vec::new()));
     let prefix = published.clone();
     cx.configure_head(
-        proa_core::HeadConfig::default(),
+        proa::HeadConfig::default(),
         Arc::new(move |_, chunks| {
             let mut bytes = prefix.lock().unwrap();
             for chunk in chunks {
@@ -73,7 +73,7 @@ where
         }),
     )
     .expect("configure managed document");
-    proa_core::render_child(
+    proa::render_child(
         &mut cx,
         RootDocument {
             content: AtlasPage::resolve(raw_query),
@@ -137,7 +137,7 @@ pub fn app_with_base_path(base_path: BasePath) -> Router {
         .route("/readyz", get(ready))
         .nest_service(
             "/static",
-            proa_framework_axum::base_path_assets(
+            proa::axum::base_path_assets(
                 Router::new().fallback_service(ServeDir::new(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/public"
@@ -154,7 +154,7 @@ pub fn app_with_base_path(base_path: BasePath) -> Router {
         .layer(
             RouteContextLayer::new(metadata)
                 .with_base_path(base_path)
-                .with_head(proa_core::HeadConfig::default()),
+                .with_head(proa::HeadConfig::default()),
         )
         .layer(TraceLayer::new_for_http())
 }
@@ -256,8 +256,8 @@ struct LabRowCount {
 async fn lab_rows(Query(query): Query<LabRowCount>) -> Json<serde_json::Value> {
     let count = query.n.unwrap_or(1_000).clamp(1, 200_000);
     let started = std::time::Instant::now();
-    let mut cx = proa_core::WebContext::new();
-    proa_core::WebRenderSync::render(components::LabRows { count }, &mut cx)
+    let mut cx = proa::WebContext::new();
+    proa::WebRenderSync::render(components::LabRows { count }, &mut cx)
         .expect("render lab rows");
     // The clock stops before the buffer-to-String copy: the tile claims
     // render time, so only rendering is inside the window. The profile

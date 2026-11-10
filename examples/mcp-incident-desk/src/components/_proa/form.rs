@@ -4,8 +4,8 @@
 //! Shared form-control state and deterministic accessibility identifiers.
 
 use crate::components::_proa::PartId;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::AttrValue;
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// State axes owned by a form-control root.
 ///
@@ -166,7 +166,7 @@ fn write_part_id<B: WriteBuf, L: DataLoader>(
     part: &str,
 ) -> Result<(), WriteError> {
     let dialect = cx.__proa_current_escape_dialect();
-    proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, root, dialect)?;
+    proa::shared::escape::escape_attr_value_for_dialect(&mut cx.out, root, dialect)?;
     cx.out.extend_static(b"--")?;
-    proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, part, dialect)
+    proa::shared::escape::escape_attr_value_for_dialect(&mut cx.out, part, dialect)
 }

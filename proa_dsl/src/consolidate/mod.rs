@@ -65,11 +65,12 @@ impl MarkupDialect {
     }
 
     pub fn runtime_escape_tokens(self) -> TokenStream {
+        let proa_core = crate::paths::runtime("proa_core");
         match self {
             MarkupDialect::Html => quote! {},
             MarkupDialect::Xml => quote! {
                 let __proa_prev_escape_dialect =
-                    cx.__proa_enter_escape_dialect(::proa_core::shared::escape::EscapeDialect::Xml);
+                    cx.__proa_enter_escape_dialect(#proa_core::shared::escape::EscapeDialect::Xml);
             },
         }
     }

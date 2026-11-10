@@ -89,6 +89,15 @@ exist, and `proa dev --open` shows the atlas.
 
 </Tabs>
 
+Generated sites use the `proa` crate for their application API. Common types and
+macros come from `proa::`; the Axum integration is `proa::axum` and loaders live
+under `proa::stream`. To add Proa to an existing application:
+
+```toml
+[dependencies]
+proa = { version = "0.4", features = ["axum"] }
+```
+
 You do not have to build the common UI yourself: [proa-ui](https://ui.proa.so) is a shadcn-style catalog of ready-made Proa components, and `proa ui add button` vendors the source into `src/components/` where you own and edit it like any other file. Worth knowing before you write your first card, dialog, or form by hand.
 
 The Basic app starter writes its document title directly in `RootDocument` and uses manual head rendering. Its pages keep the default component role. To adopt managed metadata, follow [Layouts and Pages](/docs/framework/layouts-and-pages) and add an explicit Page boundary and head outlet together. ORIGIN already uses that managed document pattern.
@@ -186,9 +195,9 @@ Create `src/pages/about.rs`:
 
 ```rust
 use axum::response::IntoResponse;
-use proa_core::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_framework_axum::RouteResponse;
-use proa_macros::html_sync;
+use proa::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::axum::RouteResponse;
+use proa::html_sync;
 
 use crate::layouts::RootDocument;
 

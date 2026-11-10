@@ -62,8 +62,8 @@ There is no separate props type to keep in sync. The literal is constructed on t
 The impl decides which trait the component supports. Use `WebRenderSync` unless its body or metadata hook needs to await work:
 
 ```rust filename="src/components/button/button.rs"
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use super::recipe::button_classes;
 
 impl<L, C> WebRenderSync<L> for Button<C>
@@ -120,7 +120,7 @@ Proa is opinionated about where classes live. A component does not build a class
 `recipe.rs` owns the styling. Each variant axis is an enum whose `classes()` maps a semantic name to a class fragment:
 
 ```rust filename="src/components/button/recipe.rs"
-use proa_core::ClassList;
+use proa::ClassList;
 
 mod base {
     pub const BUTTON_BASE: &str =
@@ -218,13 +218,13 @@ The following example gives a button a Markdown implementation alongside its HTM
 Most interactive chrome has no Markdown equivalent, so the Markdown impl usually renders the meaning rather than the widget. A button is its label:
 
 ```rust filename="src/components/button/md.rs"
-use proa_core::{DataLoader, MdRenderSync, WebContext, WriteError};
+use proa::{DataLoader, MdRenderSync, WebContext, WriteError};
 use super::Button;
 
 /// Button renders as just its label text; the visual chrome is meaningless in Markdown.
 impl<L: DataLoader, C: MdRenderSync<L>> MdRenderSync<L> for Button<C> {
     fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        proa_macros::md_sync! { "{self.children}" }.render_md(cx)
+        proa::md_sync! { "{self.children}" }.render_md(cx)
     }
 }
 ```
@@ -241,7 +241,7 @@ A sync-only component composes into an async tree through `to_async(...)`:
 
 ```rust filename="src/pages/dashboard.rs"
 html! {
-    <main>{proa_core::to_async(Button { children: Some("Save"), ..Button::default() })}</main>
+    <main>{proa::to_async(Button { children: Some("Save"), ..Button::default() })}</main>
 }
 ```
 

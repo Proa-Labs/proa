@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
+use proa::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
 
 use crate::api::{RipeClient, RipeError};
 use crate::model::Dossier;

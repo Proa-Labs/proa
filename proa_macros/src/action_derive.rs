@@ -6,6 +6,10 @@ use quote::quote;
 use syn::{Data, DeriveInput, Fields};
 
 pub fn derive_action(input: DeriveInput) -> TokenStream {
+    let serde = proa_dsl::paths::runtime("serde");
+    let serde_path = serde.to_string().replace(' ', "");
+    let serde_json = proa_dsl::paths::runtime("serde_json");
+    let proa_actions = proa_dsl::paths::runtime("proa_actions");
     let name = &input.ident;
     let variants = match &input.data {
         Data::Enum(data) => &data.variants,
@@ -61,7 +65,8 @@ pub fn derive_action(input: DeriveInput) -> TokenStream {
                     syn::Ident::new(&format!("{}Params", variant_name), variant_name.span());
 
                 action_params.push(quote! {
-                    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+                    #[derive(Debug, Clone, #serde::Serialize, #serde::Deserialize)]
+                    #[serde(crate = #serde_path)]
                     pub struct #params_struct_name {
                         #(pub #field_names: Option<#field_types>),*
                     }
@@ -69,9 +74,9 @@ pub fn derive_action(input: DeriveInput) -> TokenStream {
 
                 to_data_match_arms.push(quote! {
                     #name::#variant_name { #(#field_names),* } => {
-                        proa_actions::ActionData {
+                        #proa_actions::ActionData {
                             action: #action_string.to_string(),
-                            params: serde_json::to_value(
+                            params: #serde_json::to_value(
                                 #params_struct_name {
                                     #(#field_names: Some(#field_names.clone())),*
                                 }
@@ -82,10 +87,10 @@ pub fn derive_action(input: DeriveInput) -> TokenStream {
 
                 from_data_match_arms.push(quote! {
                     #action_string => {
-                        let params: #params_struct_name = serde_json::from_value(data.params)?;
+                        let params: #params_struct_name = #serde_json::from_value(data.params)?;
                         Ok(#name::#variant_name {
                             #(#field_names: params.#field_names.ok_or_else(|| {
-                                serde_json::Error::custom(format!("Missing field: {}", stringify!(#field_names)))
+                                #serde_json::Error::custom(format!("Missing field: {}", stringify!(#field_names)))
                             })?),*
                         })
                     }
@@ -94,9 +99,9 @@ pub fn derive_action(input: DeriveInput) -> TokenStream {
             Fields::Unit => {
                 to_data_match_arms.push(quote! {
                     #name::#variant_name => {
-                        proa_actions::ActionData {
+                        #proa_actions::ActionData {
                             action: #action_string.to_string(),
-                            params: serde_json::json!({}),
+                            params: #serde_json::json!({}),
                         }
                     }
                 });
@@ -124,22 +129,22 @@ pub fn derive_action(input: DeriveInput) -> TokenStream {
 
         #(#action_params)*
 
-        impl proa_actions::ActionHandler for #name {
-            fn to_action_data(&self) -> proa_actions::ActionData {
+        impl #proa_actions::ActionHandler for #name {
+            fn to_action_data(&self) -> #proa_actions::ActionData {
                 match self {
                     #(#to_data_match_arms)*
                 }
             }
 
-            fn from_action_data(data: proa_actions::ActionData) -> Result<Self, serde_json::Error>
+            fn from_action_data(data: #proa_actions::ActionData) -> Result<Self, #serde_json::Error>
             where
                 Self: Sized
             {
-                use serde::de::Error as _;
+                use #serde::de::Error as _;
 
                 match data.action.as_str() {
                     #(#from_data_match_arms)*
-                    _ => Err(serde_json::Error::custom(format!("Unknown action: {}", data.action))),
+                    _ => Err(#serde_json::Error::custom(format!("Unknown action: {}", data.action))),
                 }
             }
         }

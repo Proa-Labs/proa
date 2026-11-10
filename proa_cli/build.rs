@@ -21,7 +21,7 @@ fn main() {
         .as_table()
         .expect("scaffold dependencies")
     {
-        if !name.starts_with("proa_") && name != "rsjs" {
+        if !name.starts_with("proa_") && name != "proa" && name != "rsjs" {
             continue;
         }
         let dependency = if dependency.get("workspace").and_then(toml::Value::as_bool) == Some(true)

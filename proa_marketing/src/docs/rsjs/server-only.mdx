@@ -25,8 +25,8 @@ Raw HTML is the clearest case of output RSJS never inspects.
 You must still trust raw HTML and sanitize it before rendering. That safety boundary is separate from client reachability.
 
 ```rust filename="src/components/icon_button.rs"
-use proa_core::{DataLoader, UnsafeRaw, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, UnsafeRaw, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{rsjs, signal};
 
 pub struct IconButton;

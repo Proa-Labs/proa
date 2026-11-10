@@ -1,6 +1,6 @@
 # HTML-to-Markdown coverage
 
-Use `proa_core::to_markdown(value)` with the `html-to-markdown` feature to
+Use `proa::to_markdown(value)` with the `html-to-markdown` feature to
 reuse a synchronous HTML renderer. See [the usage examples](render-traits.md#convert-existing-html-components-to-markdown).
 
 This is a content conversion, not a browser or a lossless HTML round trip.

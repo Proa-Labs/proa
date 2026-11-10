@@ -39,9 +39,9 @@ macro_rules! render_html {
         $(,)?
     ) => {{
         #[allow(unused_imports)]
-        use proa_core::text::UnsafeRaw;
+        use proa::text::UnsafeRaw;
         #[allow(unused_imports)]
-        use proa_core::Render;
+        use proa::Render;
 
         // Opening tag
         UnsafeRaw("<").render($cx);

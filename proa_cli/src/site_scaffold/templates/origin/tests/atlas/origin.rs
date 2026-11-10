@@ -13,7 +13,7 @@ use __CRATE_IDENT__ as atlas;
 #[tokio::test]
 async fn mounted_documents_and_assets_keep_their_public_prefix() {
     for mount in ["/apps/demo", "/user/a%40b/proxy/3000"] {
-        let base_path = proa_core::BasePath::new(mount).unwrap();
+        let base_path = proa::BasePath::new(mount).unwrap();
         let html = atlas::render_atlas_page_with_base_path(
             None,
             std::sync::Arc::new(atlas::loader::FixtureLoader::github()),

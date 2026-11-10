@@ -11,7 +11,7 @@ Add a cache policy to a public route. `PageCache::new()` requires no provider cr
 
 ```rust filename="src/pages/promo.rs" highlight={10}
 use axum::routing::get;
-use proa_framework_axum::{PageCache, Route, RouteResponse};
+use proa::axum::{PageCache, Route, RouteResponse};
 use crate::pages::PromoPage;
 
 pub fn route() -> Route<()> {
@@ -68,7 +68,7 @@ Let's say you want to re-render the page and cache it on an interval, like every
 ```rust filename="src/pages/promo.rs" highlight={11}
 use std::time::Duration;
 use axum::routing::get;
-use proa_framework_axum::{PageCache, Route, RouteResponse};
+use proa::axum::{PageCache, Route, RouteResponse};
 use crate::pages::PromoPage;
 
 pub fn route() -> Route<()> {

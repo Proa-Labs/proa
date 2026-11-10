@@ -55,8 +55,8 @@ library still follows the rule above.
 ## Anatomy of a working island
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{rsjs, signal};
 
 pub struct Counter;
@@ -636,7 +636,7 @@ impl<L: DataLoader> WebRenderSync<L> for IconButton {
         html_sync! {
             <button on_click={|_| pressed.set(!pressed.get())}>
                 <span class="icon">
-                    {proa_core::UnsafeRaw("<svg>...</svg>")}
+                    {proa::UnsafeRaw("<svg>...</svg>")}
                 </span>
             </button>
         }
@@ -1489,7 +1489,7 @@ it is too late.
 cargo test -p <your-crate> --lib
 
 # Inspect the generated SSR HTML byte-for-byte
-let html = proa_core::render_to_string(MyIsland);
+let html = proa::render_to_string(MyIsland);
 # Expected shape:
 #   <rsjs-island data-rsjs-island-root="myisland_<hash>">
 #     ...with data-rsjs-handler="N", data-rsjs-bind="N", data-rsjs-cond-then="N:0" markers...

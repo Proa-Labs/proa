@@ -10,7 +10,7 @@ use mcp_incident_desk::{
     loader::RequestScope,
     security::random,
 };
-use proa_core::{WebContext, WebRenderSync};
+use proa::{WebContext, WebRenderSync};
 use rmcp::model::CallToolRequestParams;
 #[test]
 fn oauth_repeated_resource_preserves_audience_and_parameter_binding() {

@@ -536,14 +536,9 @@ Package: `{package}`
 }
 
 pub fn manifest(package: &str) -> String {
-    let proa_actions = super::super::scaffold_version("proa_actions");
-    let proa_core = super::super::scaffold_version("proa_core");
+    let proa = super::super::scaffold_version("proa");
     let proa_fonts = super::super::scaffold_version("proa_fonts");
     let proa_fonts_macros = super::super::scaffold_version("proa_fonts_macros");
-    let proa_framework_axum = super::super::scaffold_version("proa_framework_axum");
-    let proa_ir = super::super::scaffold_version("proa_ir");
-    let proa_macros = super::super::scaffold_version("proa_macros");
-    let proa_stream = super::super::scaffold_version("proa_stream");
     let rsjs = super::super::scaffold_version("rsjs");
     let proa_fonts_build = super::super::scaffold_version("proa_fonts_build");
 
@@ -556,18 +551,13 @@ rust-version = "1.93"
 description = "ORIGIN: a live routing atlas built with Proa and RIPE data"
 
 [dependencies]
+proa = {{ version = "{proa}", features = ["axum", "actions", "rt-tokio"] }}
 anyhow = {{ version = "1" }}
 axum = {{ version = "0.7.9" }}
 const_format = {{ version = "0.2" }}
 heapless = {{ version = "0.8" }}
-proa_actions = {{ version = "{proa_actions}" }}
-proa_core = {{ version = "{proa_core}" }}
 proa_fonts = {{ version = "{proa_fonts}" }}
 proa_fonts_macros = {{ version = "{proa_fonts_macros}" }}
-proa_framework_axum = {{ version = "{proa_framework_axum}" }}
-proa_ir = {{ version = "{proa_ir}" }}
-proa_macros = {{ version = "{proa_macros}" }}
-proa_stream = {{ version = "{proa_stream}" }}
 reqwest = {{ version = "0.12", features = ["json"] }}
 rsjs = {{ version = "{rsjs}" }}
 serde = {{ version = "1", features = ["derive"] }}

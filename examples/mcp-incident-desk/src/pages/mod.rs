@@ -22,9 +22,9 @@ use axum::{
     response::{Html, IntoResponse, Response},
     Json,
 };
-use proa_core::{WebContext, WebRenderSync};
-use proa_framework_axum::explicit_markdown;
-use proa_macros::html_sync;
+use proa::axum::explicit_markdown;
+use proa::html_sync;
+use proa::{WebContext, WebRenderSync};
 
 pub fn page<C: WebRenderSync>(
     title: &'static str,
@@ -38,7 +38,7 @@ pub fn page<C: WebRenderSync>(
             <head>
                 <meta charset="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
-                <title>{proa_core::raw_text_ok(title)}" · Incident Desk"</title>
+                <title>{proa::raw_text_ok(title)}" · Incident Desk"</title>
                 <meta name="color-scheme" content="light" />
                 <link rel="icon" href="/static/favicon.svg" />
                 <link rel="stylesheet" href="/static/styles.css" />

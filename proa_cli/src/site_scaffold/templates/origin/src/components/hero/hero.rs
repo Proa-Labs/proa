@@ -1,8 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 use crate::components::{Button, ButtonType};
 use crate::model::SITES;
@@ -108,7 +108,7 @@ impl<L: DataLoader> WebRenderSync<L> for Chips {
             } else {
                 base::CHIP
             };
-            let classes = proa_core::ClassList::<2>::new().add("hv-cyan").add(chip);
+            let classes = proa::ClassList::<2>::new().add("hv-cyan").add(chip);
             // proa-perf-ok: four short hrefs per request on a demo page.
             let href = format!("/?q={}", site.host);
             html_sync! {

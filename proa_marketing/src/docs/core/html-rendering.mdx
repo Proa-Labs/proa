@@ -197,7 +197,7 @@ Rust comments inside `html!` are stripped by the compiler and never reach the ou
 There is no `<!-- -->` syntax. HTML comments in SSR output are almost always wasted bytes, so including one is deliberate:
 
 ```rust filename="src/layouts/root.rs"
-use proa_core::StaticRaw;
+use proa::StaticRaw;
 
 html_sync! {
     {StaticRaw("<!-- page boundary -->")}
@@ -229,8 +229,8 @@ bodies, layouts, and UI components stay synchronous.
 you will write.
 
 ```rust filename="src/components/price.rs"
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 pub struct Price {
     pub amount: u32,
@@ -258,10 +258,10 @@ body is synchronous. See [Metadata](/docs/framework/metadata).
 ```rust filename="src/components/async_price.rs"
 use std::future::Future;
 
-use proa_core::{
+use proa::{
     DataLoader, LoadKey, RenderOutcome, WebContext, WebRender, WriteError,
 };
-use proa_macros::{html, text};
+use proa::{html, text};
 
 pub struct AsyncPrice;
 
@@ -308,7 +308,7 @@ parameter is reserved for lower-level custom-writer integrations.
 `Done(result)` on the sync path or `Pending(future)` on the async path, and a
 driver at the route or adapter boundary resolves it.
 
-For framework routes, use `RouteResponse::ssr_async(...)`, `ssr_async_with_loader(...)`, or the `ssr_stream*` constructors. For custom adapters and tests, `proa_core` ships drivers:
+For framework routes, use `RouteResponse::ssr_async(...)`, `ssr_async_with_loader(...)`, or the `ssr_stream*` constructors. For custom adapters and tests, `proa` exports drivers:
 
 | Driver | Use it when |
 |--------|-------------|
@@ -321,7 +321,7 @@ For framework routes, use `RouteResponse::ssr_async(...)`, `ssr_async_with_loade
 ```rust filename="src/adapter.rs"
 use std::sync::Arc;
 
-use proa_core::{render_in_context_async, WebContext};
+use proa::{render_in_context_async, WebContext};
 
 let mut out = Vec::new();
 let mut cx = WebContext::with_loader_buffer(

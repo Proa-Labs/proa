@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::{Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle};
-use proa_core::WebContext;
-use proa_core::{MdRenderSync, WriteBuf, WriteError};
+use proa::WebContext;
+use proa::{MdRenderSync, WriteBuf, WriteError};
 
 /// Card is a block wrapper: a boundary before and after its children.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for Card<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for Card<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_block_boundary()?;
@@ -18,8 +18,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// CardHeader is a passthrough — its children (title, description) handle formatting.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for CardHeader<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for CardHeader<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         self.children.render_md(cx)?;
@@ -28,8 +28,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// CardTitle renders as a `##` heading.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for CardTitle<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for CardTitle<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_block_boundary()?;
@@ -40,8 +40,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// CardDescription renders as paragraph text.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for CardDescription<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for CardDescription<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         self.children.render_md(cx)?;
@@ -51,8 +51,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// CardContent is a passthrough.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for CardContent<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for CardContent<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         self.children.render_md(cx)?;
@@ -62,8 +62,8 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
 }
 
 /// CardFooter is a passthrough.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for CardFooter<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for CardFooter<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         self.children.render_md(cx)?;
@@ -78,8 +78,8 @@ mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     struct Stops(bool);
-    impl<B: WriteBuf> MdRenderSync<proa_core::NoLoader, B> for Stops {
-        fn render_md(self, cx: &mut WebContext<proa_core::NoLoader, B>) -> Result<(), WriteError> {
+    impl<B: WriteBuf> MdRenderSync<proa::NoLoader, B> for Stops {
+        fn render_md(self, cx: &mut WebContext<proa::NoLoader, B>) -> Result<(), WriteError> {
             cx.write_md_prepared_static(b"Partial")?;
             if self.0 {
                 panic!("injected Card child panic");

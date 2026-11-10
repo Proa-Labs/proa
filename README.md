@@ -54,11 +54,18 @@ create a site, edit its first route, and run Proa's checks.
 
 ## Your first page is a typed Rust component
 
+Add the application-facing crate:
+
+```toml
+[dependencies]
+proa = "0.4"
+```
+
 Use `WebRenderSync` and `html_sync!` for the normal fast path:
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 struct Greeting {
     name: String,
@@ -91,8 +98,8 @@ handlers, and Proa emits the server-rendered HTML plus the JavaScript required
 for that island:
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{rsjs, signal};
 
 struct Counter {
@@ -129,8 +136,8 @@ A component can expose both an HTML page and a Markdown document from the
 same data. Give the `Greeting` component above a Markdown implementation:
 
 ```rust
-use proa_core::{DataLoader, WebContext, MdRenderSync};
-use proa_macros::md_sync;
+use proa::{DataLoader, WebContext, MdRenderSync};
+use proa::md_sync;
 
 impl<L: DataLoader> MdRenderSync<L> for Greeting {
     fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -152,7 +159,7 @@ use the same component data and define their own output.
 
 For an existing synchronous HTML component, enable the core crate's
 `html-to-markdown` feature and delegate with
-`proa_core::to_markdown(self).render_md(cx)`. The adapter captures its HTML and
+`proa::to_markdown(self).render_md(cx)`. The adapter captures its HTML and
 converts semantic elements to Markdown. It allocates during conversion;
 handwritten Markdown remains the fast path and controls custom representations.
 See the [HTML-to-Markdown example](proa_core/examples/html_to_markdown.rs).

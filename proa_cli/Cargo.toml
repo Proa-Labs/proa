@@ -62,6 +62,7 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32
 toml = { workspace = true }
 
 [dev-dependencies]
+proa = { workspace = true, features = ["axum", "actions", "rt-tokio"] }
 object = { workspace = true }
 # These declarations version the generated manifests without adding framework
 # libraries to the CLI executable. release-plz updates them with the workspace.

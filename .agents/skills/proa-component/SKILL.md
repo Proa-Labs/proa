@@ -49,7 +49,7 @@ resort for a verified, documented RSJS gap; follow the [RSJS-first policy](../..
    browser origins.
 3. Author an explicit `WebRenderSync<L>` implementation with
    `html_sync!` by default. Add render bounds only to generic values that
-   actually appear as children. Use `proa_core::to_async(...)` when a sync
+   actually appear as children. Use `proa::to_async(...)` when a sync
    child must compose inside `html!`. Author the real `WebRender<L>`
    signature only when rendering genuinely awaits.
    `WebContext<L>` owns the default `RenderBuffer`; keep `B: WriteBuf` for an
@@ -74,7 +74,7 @@ python3 scripts/proa_perf_lint.py
 
 - For a managed-head HTML document, declare the selected Page explicitly in
   its render-trait impl, even when it has no `render_head` hook:
-  `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;`.
+  `const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;`.
   Keep the same role on any local/Send/sync implementations of that Page.
   Ancestor layouts with head hooks must declare `ComponentRole::LAYOUT`.
   Author async hooks as native `async fn render_head(...) -> Result<(), WriteError>`;
@@ -103,10 +103,10 @@ python3 scripts/proa_perf_lint.py
 ## Minimal shape
 
 ```rust
-use proa_core::{
+use proa::{
     ClassList, DataLoader, WebContext, WebRenderSync, WriteError,
 };
-use proa_macros::html_sync;
+use proa::html_sync;
 
 pub struct Component<C = ()> {
     pub class: Option<&'static str>,

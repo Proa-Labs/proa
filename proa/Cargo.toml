@@ -1,0 +1,44 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa"
+version = "0.4.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Compiled HTML and Markdown templates, streaming SSR, and web application tools."
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = ["markdown", "stream"]
+markdown = ["proa_macros/markdown"]
+no-perf-hints = ["proa_macros/no-perf-hints"]
+stream = ["dep:proa_stream"]
+framework = ["dep:proa_framework_core"]
+axum = ["dep:proa_framework_axum", "framework", "stream"]
+actions = ["dep:proa_actions", "dep:serde", "dep:serde_json"]
+react = ["dep:proa_react", "dep:serde", "dep:serde_json"]
+html-to-markdown = ["proa_core/html-to-markdown"]
+rt-tokio = ["stream", "proa_stream/rt-tokio", "proa_framework_core?/rt-tokio"]
+
+[dependencies]
+proa_core = { workspace = true }
+proa_macros = { path = "../proa_macros", version = "0.4.0", default-features = false }
+proa_ir = { workspace = true }
+proa_stream = { workspace = true, optional = true }
+proa_framework_core = { path = "../proa_framework/proa_framework_core", version = "0.4.0", default-features = false, optional = true }
+proa_framework_axum = { workspace = true, optional = true }
+proa_actions = { workspace = true, optional = true }
+proa_react = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[lints]
+workspace = true

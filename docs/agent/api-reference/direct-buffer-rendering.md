@@ -10,8 +10,8 @@ original decision was made or rule out a different ownership model in a future
 API.
 
 ```rust
-use proa_core::{WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 fn render_label(
     cx: &mut WebContext,
@@ -73,8 +73,8 @@ Each dynamic `html_sync!` invocation creates a distinct closure type, so this
 ordinary Rust branch fails with `E0308`:
 
 ```rust,compile_fail
-use proa_core::WebRenderSync;
-use proa_macros::html_sync;
+use proa::WebRenderSync;
+use proa::html_sync;
 
 fn label(title: &str, compact: bool) -> impl WebRenderSync + '_ {
     if compact {

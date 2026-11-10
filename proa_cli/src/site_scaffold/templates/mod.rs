@@ -191,10 +191,7 @@ fn rust_string_literal(value: &str) -> String {
 }
 
 fn cargo_toml(package: &str, has_database: bool) -> String {
-    let proa_core = super::scaffold_version("proa_core");
-    let proa_framework_axum = super::scaffold_version("proa_framework_axum");
-    let proa_macros = super::scaffold_version("proa_macros");
-    let proa_stream = super::scaffold_version("proa_stream");
+    let proa = super::scaffold_version("proa");
 
     let database = if has_database {
         "sqlx = { version = \"0.8\", features = [\"runtime-tokio\", \"sqlite\", \"migrate\"] }\n"
@@ -209,13 +206,10 @@ edition = "2021"
 rust-version = "1.93"
 
 [dependencies]
+proa = {{ version = "{proa}", features = ["axum", "rt-tokio"] }}
 anyhow = "1"
 axum = "0.7.9"
 dotenvy = "0.15"
-proa_core = {{ version = "{proa_core}" }}
-proa_framework_axum = {{ version = "{proa_framework_axum}" }}
-proa_macros = {{ version = "{proa_macros}" }}
-proa_stream = {{ version = "{proa_stream}" }}
 serde = {{ version = "1", features = ["derive"] }}
 {database}thiserror = "2"
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "signal"] }}
@@ -529,8 +523,8 @@ fn dataloader_test() -> &'static str {
 
 use std::{future::Future, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
 
-use proa_core::{DataLoader, LoadError, LoadRequest, LoadValue, MdRender, WebContext, WebRender};
-use proa_stream::DataResolver;
+use proa::{DataLoader, LoadError, LoadRequest, LoadValue, MdRender, WebContext, WebRender};
+use proa::stream::DataResolver;
 
 #[path = "../src/app.rs"] mod app;
 #[path = "../src/components/mod.rs"] mod components;
@@ -618,9 +612,9 @@ fn representation_test(has_database: bool, starter: StarterChoice) -> String {
         r#"let database_url = std::env::var("DATABASE_URL").expect("proa test supplies DATABASE_URL");
     let pool = db::connect(&database_url).await.unwrap();
     let loader = Arc::new(loader::AppLoader::new(pool.clone()));
-    let app = routes::router(app::AppState { db: pool.clone(), loader }, proa_core::BasePath::new("/apps/demo").unwrap());"#
+    let app = routes::router(app::AppState { db: pool.clone(), loader }, proa::BasePath::new("/apps/demo").unwrap());"#
     } else {
-        "let app = routes::router(app::AppState, proa_core::BasePath::new(\"/apps/demo\").unwrap());"
+        "let app = routes::router(app::AppState, proa::BasePath::new(\"/apps/demo\").unwrap());"
     };
     let close = if has_database {
         "pool.close().await;"
@@ -850,7 +844,7 @@ mod tests {
             for section in ["dependencies", "build-dependencies"] {
                 if let Some(dependencies) = manifest.get(section).and_then(toml::Value::as_table) {
                     for (name, dependency) in dependencies {
-                        if name.starts_with("proa_") || name == "rsjs" {
+                        if name.starts_with("proa_") || name == "proa" || name == "rsjs" {
                             assert_eq!(
                                 dependency.get("version").and_then(toml::Value::as_str),
                                 Some(super::super::scaffold_version(name).as_str()),

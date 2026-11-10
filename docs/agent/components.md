@@ -18,12 +18,12 @@ constant in the selected Page's `WebRender` or `WebRenderSync` impl, and in any
 corresponding Send render impl:
 
 ```rust
-const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;
+const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;
 ```
 
 This is required even when the Page has no head hook and inherits all metadata.
 Ancestor layouts implementing `render_head` declare
-`const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;`.
+`const ROLE: proa::ComponentRole = proa::ComponentRole::LAYOUT;`.
 Only the Page seals metadata before its body; a head hook alone
 does not declare a Page. Ordinary `COMPONENT` values skip head invocation entirely.
 Manual documents without managed-head configuration do not require this role.
@@ -80,8 +80,8 @@ Use `WebRenderSync` and `html_sync!` unless rendering must await data. Author
 the render trait explicitly:
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 pub struct Notice<C = ()> {
     pub tone: NoticeTone,
@@ -115,7 +115,7 @@ writer generic off ordinary components; add `B: WriteBuf` and use
 `WebContext<L, B>` only for an integration that deliberately supports custom
 writers.
 
-Use `proa_core::to_async(component)` when this sync component must compose
+Use `proa::to_async(component)` when this sync component must compose
 inside an `html!` tree. Implement `WebRender` with its real
 `RenderOutcome<impl Future>` signature only when the component itself needs
 `.await`.
@@ -170,7 +170,7 @@ catalog registration step.
 Keep class selection outside the HTML tree and allocation-free:
 
 ```rust
-use proa_core::ClassList;
+use proa::ClassList;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum NoticeTone {

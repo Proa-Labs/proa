@@ -3,15 +3,15 @@
 
 use super::Button;
 use crate::components::spinner::Spinner;
-use proa_core::WebContext;
-use proa_core::{MdRenderSync, WriteBuf, WriteError};
+use proa::WebContext;
+use proa::{MdRenderSync, WriteBuf, WriteError};
 
 /// Button renders as just its label text — the visual chrome is meaningless in markdown.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
     MdRenderSync<Loader, B> for Button<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        proa_macros::omit!(Spinner, "Loading spinners are visual interaction chrome.");
-        proa_macros::md_sync! { "{self.children}" }.render_md(cx)
+        proa::omit!(Spinner, "Loading spinners are visual interaction chrome.");
+        proa::md_sync! { "{self.children}" }.render_md(cx)
     }
 }

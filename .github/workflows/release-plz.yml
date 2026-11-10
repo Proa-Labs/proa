@@ -15,6 +15,7 @@ on:
       - scripts/check_release_scaffold.py
       - proa_cli/build.rs
       - proa_cli/Cargo.toml
+      - proa/Cargo.toml
       - Cargo.toml
       - scripts/check_crate_archives.py
       - scripts/check_registry_install.py

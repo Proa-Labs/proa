@@ -8,8 +8,8 @@
 //! styles. Components should expose the same scope and part names on every
 //! render target.
 
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::AttrValue;
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// The public DOM anatomy for a multipart component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,13 +95,9 @@ impl AttrValue for PartId<'_> {
     ) -> Result<(), WriteError> {
         if let Some(root) = self.root {
             let dialect = cx.__proa_current_escape_dialect();
-            proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, root, dialect)?;
+            proa::shared::escape::escape_attr_value_for_dialect(&mut cx.out, root, dialect)?;
             cx.out.extend_static(b"--")?;
-            proa_core::shared::escape::escape_attr_value_for_dialect(
-                &mut cx.out,
-                self.part,
-                dialect,
-            )?;
+            proa::shared::escape::escape_attr_value_for_dialect(&mut cx.out, self.part, dialect)?;
         }
         Ok(())
     }

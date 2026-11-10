@@ -9,7 +9,7 @@ All web rendering writes into a `WriteBuf`. The buffer controls allocation behav
 Use `RenderBuffer` unless you have a reason not to.
 
 ```rust filename="src/pages/about.rs"
-use proa_core::{WebContext, WebRenderSync};
+use proa::{WebContext, WebRenderSync};
 
 let mut cx = WebContext::new();
 page.render(&mut cx)?;
@@ -33,14 +33,14 @@ For framework-managed streaming, see [Streaming SSR](/docs/core/streaming-ssr).
 For a long-lived service, keep the writer request-local or worker-local and clear it between renders:
 
 ```rust filename="src/render_worker.rs"
-use proa_core::{RenderBuffer, WebContext, WebRenderSync, WriteBuf};
+use proa::{RenderBuffer, WebContext, WebRenderSync, WriteBuf};
 
 pub struct RenderWorker {
     out: RenderBuffer,
 }
 
 impl RenderWorker {
-    pub fn render_page<P>(&mut self, page: P) -> Result<&RenderBuffer, proa_core::WriteError>
+    pub fn render_page<P>(&mut self, page: P) -> Result<&RenderBuffer, proa::WriteError>
     where
         P: WebRenderSync,
     {
@@ -70,7 +70,7 @@ When the render tree needs request-scoped data loading:
 
 ```rust filename="src/pages/blog.rs"
 use std::sync::Arc;
-use proa_core::WebContext;
+use proa::WebContext;
 
 let mut cx = WebContext::with_loader(Arc::new(loader));
 ```
@@ -80,7 +80,7 @@ let mut cx = WebContext::with_loader(Arc::new(loader));
 `ZeroCopyBuf` stores large static template slices as static parts and dynamic bytes in an owned buffer. Reach for it only when a custom transport preserves scatter-gather response structure instead of flattening immediately:
 
 ```rust filename="src/pages/home.rs"
-use proa_core::{WebContext, WebRenderSync, ZeroCopyBuf};
+use proa::{WebContext, WebRenderSync, ZeroCopyBuf};
 
 let mut cx = WebContext::with_buffer(ZeroCopyBuf::with_capacity(128, 16 * 1024));
 page.render(&mut cx)?;
@@ -91,7 +91,7 @@ This is the advanced custom-writer path: the page tree must explicitly support
 `WebRenderSync<L, ZeroCopyBuf>`. If you flatten the result right away,
 `RenderBuffer` and the default `WebRenderSync<L>` form are simpler.
 
-Using `proa_framework_axum` directly? Return `RouteResponse::ssr(Page)` from the handler to use the standard `RenderBuffer` path. See [Route responses](/docs/framework/responses).
+Using `proa::axum` directly? Return `RouteResponse::ssr(Page)` from the handler to use the standard `RenderBuffer` path. See [Route responses](/docs/framework/responses).
 
 Before you ship: use `RenderBuffer` for app routes and tests, call `render_static` first for docs routes, keep response finalization at the route boundary, and reach for zero-copy buffers only when the transport path actually uses them.
 

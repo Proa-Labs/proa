@@ -30,6 +30,7 @@ fn expand_inner(input: TextMacroInput) -> TokenStream2 {
 }
 
 fn generate_text_value(segments: Vec<Segment>, args: Vec<Expr>, span: Span) -> TokenStream2 {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let type_idents: Vec<_> = (0..args.len())
         .map(|i| format_ident!("__ProaTextArg{}", i, span = span))
         .collect();
@@ -86,37 +87,37 @@ fn generate_text_value(segments: Vec<Segment>, args: Vec<Expr>, span: Span) -> T
             #(#field_defs),*
         }
 
-        impl<#impl_generics> ::proa_core::WebRenderSync<L, B> for #struct_ident #struct_generics
+        impl<#impl_generics> #proa_core::WebRenderSync<L, B> for #struct_ident #struct_generics
         where
-            B: ::proa_core::WriteBuf,
-            L: ::proa_core::DataLoader,
+            B: #proa_core::WriteBuf,
+            L: #proa_core::DataLoader,
             #(#sync_bounds,)*
         {
             #[inline(always)]
-            fn render(self, cx: &mut ::proa_core::WebContext<L, B>) -> Result<(), ::proa_core::WriteError> {
+            fn render(self, cx: &mut #proa_core::WebContext<L, B>) -> Result<(), #proa_core::WriteError> {
                 #(#text_statements)*
                 Ok(())
             }
         }
 
-        impl<#impl_generics> ::proa_core::WebRender<L, B> for #struct_ident #struct_generics
+        impl<#impl_generics> #proa_core::WebRender<L, B> for #struct_ident #struct_generics
         where
-            B: ::proa_core::WriteBuf,
-            L: ::proa_core::DataLoader,
-            Self: ::proa_core::WebRenderSync<L, B>,
+            B: #proa_core::WriteBuf,
+            L: #proa_core::DataLoader,
+            Self: #proa_core::WebRenderSync<L, B>,
         {
             fn render(
                 self,
-                cx: &mut ::proa_core::WebContext<L, B>,
-            ) -> ::proa_core::RenderOutcome<impl ::core::future::Future<Output = Result<(), ::proa_core::WriteError>>>
+                cx: &mut #proa_core::WebContext<L, B>,
+            ) -> #proa_core::RenderOutcome<impl ::core::future::Future<Output = Result<(), #proa_core::WriteError>>>
             {
-                ::proa_core::RenderOutcome::<::std::future::Ready<Result<(), ::proa_core::WriteError>>>::Done(
-                    ::proa_core::WebRenderSync::render(self, cx),
+                #proa_core::RenderOutcome::<::std::future::Ready<Result<(), #proa_core::WriteError>>>::Done(
+                    #proa_core::WebRenderSync::render(self, cx),
                 )
             }
         }
 
-        impl #attr_impl_generics ::proa_core::shared::attr_value::AttrValue for #struct_ident #struct_generics
+        impl #attr_impl_generics #proa_core::shared::attr_value::AttrValue for #struct_ident #struct_generics
         #attr_where
         {
             #[inline(always)]
@@ -130,21 +131,21 @@ fn generate_text_value(segments: Vec<Segment>, args: Vec<Expr>, span: Span) -> T
             }
 
             #[inline(always)]
-            fn render_attr_value<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader>(
+            fn render_attr_value<B: #proa_core::WriteBuf, L: #proa_core::DataLoader>(
                 &self,
-                cx: &mut ::proa_core::WebContext<L, B>,
-            ) -> Result<(), ::proa_core::WriteError> {
+                cx: &mut #proa_core::WebContext<L, B>,
+            ) -> Result<(), #proa_core::WriteError> {
                 #(#attr_statements)*
                 Ok(())
             }
 
             #[inline(always)]
-            fn render_url_attr<B: ::proa_core::WriteBuf, L: ::proa_core::DataLoader>(
+            fn render_url_attr<B: #proa_core::WriteBuf, L: #proa_core::DataLoader>(
                 &self,
                 name_prefix: &'static [u8],
                 _name_bool: &'static [u8],
-                cx: &mut ::proa_core::WebContext<L, B>,
-            ) -> Result<(), ::proa_core::WriteError> {
+                cx: &mut #proa_core::WebContext<L, B>,
+            ) -> Result<(), #proa_core::WriteError> {
                 // A stored text! value uses one streaming type and does not
                 // expose a complete raw value through `url_str()`. Direct,
                 // placeholder-free use inside html! is validated and folded
@@ -155,8 +156,8 @@ fn generate_text_value(segments: Vec<Segment>, args: Vec<Expr>, span: Span) -> T
                     false,
                     "a stored text!(...) value cannot be rendered as a URL attribute because its complete value cannot be validated; keep a placeholder-free literal directly inline in html!, build a validated URL value, or use a typed URL helper"
                 );
-                ::proa_core::WriteBuf::extend_static(&mut cx.out, name_prefix)?;
-                ::proa_core::WriteBuf::extend_static(&mut cx.out, b"\"")
+                #proa_core::WriteBuf::extend_static(&mut cx.out, name_prefix)?;
+                #proa_core::WriteBuf::extend_static(&mut cx.out, b"\"")
             }
         }
 
@@ -176,6 +177,7 @@ fn segment_bounds(
     type_idents: &[proc_macro2::Ident],
     context: RenderContext,
 ) -> Vec<TokenStream2> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     segments
         .iter()
         .filter_map(|segment| match segment {
@@ -183,9 +185,9 @@ fn segment_bounds(
             Segment::Bare { index } => {
                 let ty = &type_idents[*index];
                 match context {
-                    RenderContext::Text => Some(quote! { #ty: ::proa_core::WebRenderSync<L, B> }),
+                    RenderContext::Text => Some(quote! { #ty: #proa_core::WebRenderSync<L, B> }),
                     RenderContext::Attr => {
-                        Some(quote! { #ty: ::proa_core::shared::attr_value::AttrValue })
+                        Some(quote! { #ty: #proa_core::shared::attr_value::AttrValue })
                     }
                 }
             }
@@ -196,7 +198,7 @@ fn segment_bounds(
             } => {
                 let ty = &type_idents[*index];
                 Some(quote! {
-                    #ty: ::proa_core::shared::numeric::__ProaFixedFormatValue<#precision>
+                    #ty: #proa_core::shared::numeric::__ProaFixedFormatValue<#precision>
                 })
             }
             Segment::Formatted {
@@ -206,7 +208,7 @@ fn segment_bounds(
             } => {
                 let ty = &type_idents[*index];
                 Some(quote! {
-                    #ty: ::proa_core::shared::numeric::__ProaIntegerFormatValue
+                    #ty: #proa_core::shared::numeric::__ProaIntegerFormatValue
                 })
             }
             Segment::Formatted { index, bound, .. } => {
@@ -223,6 +225,7 @@ fn render_text_segment(
     field_idents: &[proc_macro2::Ident],
     span: Span,
 ) -> TokenStream2 {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     match segment {
         Segment::Static(chunk) => {
             let mut escaped = String::new();
@@ -232,7 +235,7 @@ fn render_text_segment(
         Segment::Bare { index } => {
             let field = &field_idents[*index];
             quote! {
-                ::proa_core::head_dispatch::sync(self.#field, cx)?;
+                #proa_core::head_dispatch::sync(self.#field, cx)?;
             }
         }
         Segment::Formatted {
@@ -242,7 +245,7 @@ fn render_text_segment(
         } => {
             let field = &field_idents[*index];
             quote! {
-                ::proa_core::shared::numeric::__ProaFixedFormatValue::<#precision>::__proa_render_fixed_text(
+                #proa_core::shared::numeric::__ProaFixedFormatValue::<#precision>::__proa_render_fixed_text(
                     self.#field,
                     cx,
                 )?;
@@ -255,7 +258,7 @@ fn render_text_segment(
         } => {
             let field = &field_idents[*index];
             quote! {
-                ::proa_core::shared::numeric::__ProaIntegerFormatValue::__proa_render_integer_text(
+                #proa_core::shared::numeric::__ProaIntegerFormatValue::__proa_render_integer_text(
                     self.#field,
                     cx,
                 )?;
@@ -265,7 +268,7 @@ fn render_text_segment(
             let field = &field_idents[*index];
             let format = LitStr::new(format, span);
             quote! {
-                ::proa_core::shared::text::__proa_render_fmt_text(::core::format_args!(#format, self.#field), cx)?;
+                #proa_core::shared::text::__proa_render_fmt_text(::core::format_args!(#format, self.#field), cx)?;
             }
         }
     }
@@ -276,6 +279,7 @@ fn render_attr_segment(
     field_idents: &[proc_macro2::Ident],
     span: Span,
 ) -> TokenStream2 {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     match segment {
         Segment::Static(chunk) => {
             let mut escaped = String::new();
@@ -285,7 +289,7 @@ fn render_attr_segment(
         Segment::Bare { index } => {
             let field = &field_idents[*index];
             quote! {
-                ::proa_core::shared::attr_value::AttrValue::render_attr_value(&self.#field, cx)?;
+                #proa_core::shared::attr_value::AttrValue::render_attr_value(&self.#field, cx)?;
             }
         }
         Segment::Formatted {
@@ -295,7 +299,7 @@ fn render_attr_segment(
         } => {
             let field = &field_idents[*index];
             quote! {
-                ::proa_core::shared::numeric::__ProaFixedFormatValue::<#precision>::__proa_render_fixed_attr(
+                #proa_core::shared::numeric::__ProaFixedFormatValue::<#precision>::__proa_render_fixed_attr(
                     &self.#field,
                     cx,
                 )?;
@@ -308,7 +312,7 @@ fn render_attr_segment(
         } => {
             let field = &field_idents[*index];
             quote! {
-                ::proa_core::shared::numeric::__ProaIntegerFormatValue::__proa_render_integer_attr(
+                #proa_core::shared::numeric::__ProaIntegerFormatValue::__proa_render_integer_attr(
                     &self.#field,
                     cx,
                 )?;
@@ -318,7 +322,7 @@ fn render_attr_segment(
             let field = &field_idents[*index];
             let format = LitStr::new(format, span);
             quote! {
-                ::proa_core::shared::attr_value::__proa_render_fmt_attr(::core::format_args!(#format, self.#field), cx)?;
+                #proa_core::shared::attr_value::__proa_render_fmt_attr(::core::format_args!(#format, self.#field), cx)?;
             }
         }
     }
@@ -329,6 +333,7 @@ pub(crate) fn wrap_format_args(
     args: &[Expr],
     span: Span,
 ) -> Vec<TokenStream2> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     enum Strategy<'a> {
         Bare,
         Fixed(usize),
@@ -357,7 +362,7 @@ pub(crate) fn wrap_format_args(
         .zip(strategies)
         .map(|(expr, strategy)| match strategy {
             Strategy::Fixed(precision) => quote! {{
-                use ::proa_core::shared::numeric::__ProaWrapFixed as _;
+                use #proa_core::shared::numeric::__ProaWrapFixed as _;
                 let mut __proa_fixed_arg = ::core::option::Option::Some(#expr);
                 (&mut __proa_fixed_arg).__proa_wrap_fixed::<#precision>()
             }},
@@ -365,7 +370,7 @@ pub(crate) fn wrap_format_args(
                 let plan = plan.tokens();
                 let format = LitStr::new(format, span);
                 quote! {{
-                    use ::proa_core::shared::numeric::__ProaWrapInteger as _;
+                    use #proa_core::shared::numeric::__ProaWrapInteger as _;
                     let mut __proa_integer_arg = ::core::option::Option::Some(#expr);
                     (&mut __proa_integer_arg).__proa_wrap_integer(
                         #plan,
@@ -384,12 +389,13 @@ pub(crate) fn wrap_format_args(
 }
 
 fn static_write(escaped: &str) -> TokenStream2 {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     if escaped.is_empty() {
         return quote! {};
     }
 
     let bytes = Literal::byte_string(escaped.as_bytes());
     quote! {
-        ::proa_core::WriteBuf::extend_static(&mut cx.out, #bytes)?;
+        #proa_core::WriteBuf::extend_static(&mut cx.out, #bytes)?;
     }
 }

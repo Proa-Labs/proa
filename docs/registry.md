@@ -11,6 +11,37 @@ cargo install proa-cli --locked
 Cargo installs both `proa` and `cargo-proa`. Generated projects use compatible
 crates.io versions and commit their `Cargo.lock` for reproducible builds.
 
+## Application dependencies
+
+Most applications start with `proa`:
+
+```toml
+[dependencies]
+proa = { version = "0.4", features = ["axum"] }
+```
+
+Rendering traits, buffers, metadata, and macros are exported from `proa::`.
+Streaming components and loaders live under `proa::stream`; the Axum adapter is
+`proa::axum`, and the portable framework API is `proa::framework`.
+
+| Feature | Provides |
+| --- | --- |
+| `markdown` (default) | `md!` and `md_sync!` compilation |
+| `stream` (default) | Runtime-independent loaders and streaming components |
+| `axum` | Axum adapter, portable framework API, and streaming |
+| `framework` | Portable framework API without the HTTP adapter |
+| `rt-tokio` | Eager Tokio loader execution |
+| `actions` | Action data and the `Action` derive |
+| `react` | React interoperability and the `island` attribute |
+| `html-to-markdown` | Explicit HTML-to-Markdown conversion |
+| `no-perf-hints` | Disable compiler performance hints |
+
+RSJS remains a separately versioned browser-language dependency. Font collectors
+remain build dependencies. Advanced integrations may continue to depend directly
+on implementation crates; the facade re-exports the same types and introduces
+no additional rendering layer. Renamed facade dependencies are supported by the
+macro compiler too.
+
 ## crates.io publication
 
 Reusable libraries and `proa-cli` restrict publication to `crates-io`. The

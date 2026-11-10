@@ -191,9 +191,9 @@ the `proa dev` terminal, and the overlay says so.
 
 Nothing needs to be added to your source. `proa dev` runs the event stream in
 its own process, so it outlives every server restart, and
-`proa_framework_axum::serve` injects the matching client into HTML responses.
-Applications that do not serve through `proa_framework_axum::serve` can add
-`proa_framework_axum::DevReloadLayer` themselves.
+`proa::axum::serve` injects the matching client into HTML responses.
+Applications that do not serve through `proa::axum::serve` can add
+`proa::axum::DevReloadLayer` themselves.
 
 Injection is switched on by two variables that `proa dev` sets on the server
 process it spawns: `PROA_DEV_RELOAD_PORT` and `PROA_DEV_RELOAD_TOKEN`. The

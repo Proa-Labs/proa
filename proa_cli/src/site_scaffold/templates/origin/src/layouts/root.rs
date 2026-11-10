@@ -4,13 +4,13 @@
 use std::future::Future;
 use std::sync::OnceLock;
 
-use proa_core::{
+use proa::{
     ClassList, ComponentRole, DataLoader, HeadMetadata, RenderOutcome, StaticRaw, WebContext,
     WebRender, WebRenderSync, WriteError,
 };
 use proa_fonts::Font;
 use proa_fonts_macros::google_font;
-use proa_macros::html;
+use proa::html;
 
 static SANS: Font = google_font!(
     "Instrument Sans",
@@ -114,7 +114,7 @@ where
                         <link rel="preconnect" href="https://ris-live.ripe.net" />
                         <link rel="icon" href={favicon} />
                         {StaticRaw(THEME_BOOTSTRAP)}
-                        {proa_core::to_async(FontsHead)}
+                        {proa::to_async(FontsHead)}
                         <link rel="stylesheet" href={stylesheet} />
                         <link rel="stylesheet" href={ui_stylesheet} />
                         <script type="module" src={ui_script}></script>

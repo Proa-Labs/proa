@@ -131,6 +131,8 @@ pub fn emit_rust_with_prelude_and_asset_id(
     asset_id: &str,
     extra_prelude_lets: &[syn::Local],
 ) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
+    let proa_macros = proa_dsl::paths::runtime("proa_macros");
     let strategy_analysis = rsjs_ir::classify_render_strategy(island);
     let strategy = strategy_analysis.strategy;
     let reachable_signal_ids = strategy_analysis.reachable_signal_ids();
@@ -211,26 +213,26 @@ pub fn emit_rust_with_prelude_and_asset_id(
         emit_init_mutations_json(island, mutation_initializers, &reachable_mutation_ids);
     let query_blob_attrs = quote! {
         type="application/json"
-        data-rsjs-island-queries={::proa_core::perf_ok(#asset_id_lit)}
+        data-rsjs-island-queries={#proa_core::perf_ok(#asset_id_lit)}
     };
     let query_blob = if reachable_query_ids.is_empty() {
         quote! {}
     } else {
         quote! {
-            <script #query_blob_attrs nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+            <script #query_blob_attrs nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
                 {UnsafeRaw(__rsjs_init_query_state_json.as_ref())}
             </script>
         }
     };
     let mutations_blob_attrs = quote! {
         type="application/json"
-        data-rsjs-island-mutations={::proa_core::perf_ok(#asset_id_lit)}
+        data-rsjs-island-mutations={#proa_core::perf_ok(#asset_id_lit)}
     };
     let mutations_blob = if reachable_mutation_ids.is_empty() {
         quote! {}
     } else {
         quote! {
-            <script #mutations_blob_attrs nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+            <script #mutations_blob_attrs nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
                 {UnsafeRaw(__rsjs_init_mutations_json.as_ref())}
             </script>
         }
@@ -284,27 +286,27 @@ pub fn emit_rust_with_prelude_and_asset_id(
         if island.is_async {
             return quote! {
                 #[automatically_derived]
-                impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf>
-                    ::proa_core::WebRender<L, B> for #struct_path
+                impl<L: #proa_core::DataLoader, B: #proa_core::WriteBuf>
+                    #proa_core::WebRender<L, B> for #struct_path
                 {
                     fn render(
                         self,
-                        cx: &mut proa_core::WebContext<L, B>,
-                    ) -> ::proa_core::RenderOutcome<
+                        cx: &mut #proa_core::WebContext<L, B>,
+                    ) -> #proa_core::RenderOutcome<
                         impl ::core::future::Future<
-                            Output = ::core::result::Result<(), ::proa_core::WriteError>,
+                            Output = ::core::result::Result<(), #proa_core::WriteError>,
                         >,
                     >
                     {
-                        ::proa_core::RenderOutcome::pending(async move {
-                            use ::proa_core::UnsafeRaw;
+                        #proa_core::RenderOutcome::pending(async move {
+                            use #proa_core::UnsafeRaw;
 
                             #shared_state_lets
                             #prelude_lets_tokens
                             #signal_lets
 
-                            ::proa_core::WebRender::render(
-                                ::proa_macros::html! {
+                            #proa_core::WebRender::render(
+                                #proa_macros::html! {
                                     #view_tokens
                                 },
                                 cx,
@@ -319,21 +321,21 @@ pub fn emit_rust_with_prelude_and_asset_id(
 
         return quote! {
             #[automatically_derived]
-            impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf>
-                ::proa_core::WebRenderSync<L, B> for #struct_path
+            impl<L: #proa_core::DataLoader, B: #proa_core::WriteBuf>
+                #proa_core::WebRenderSync<L, B> for #struct_path
             {
                 fn render(
                     self,
-                    cx: &mut ::proa_core::WebContext<L, B>,
-                ) -> ::core::result::Result<(), ::proa_core::WriteError> {
-                    use ::proa_core::UnsafeRaw;
+                    cx: &mut #proa_core::WebContext<L, B>,
+                ) -> ::core::result::Result<(), #proa_core::WriteError> {
+                    use #proa_core::UnsafeRaw;
 
                     #shared_state_lets
                     #prelude_lets_tokens
                     #signal_lets
 
-                    ::proa_core::WebRenderSync::render(
-                        ::proa_macros::html_sync! {
+                    #proa_core::WebRenderSync::render(
+                        #proa_macros::html_sync! {
                             #view_tokens
                         },
                         cx,
@@ -352,19 +354,19 @@ pub fn emit_rust_with_prelude_and_asset_id(
         // contains an `.await`.
         quote! {
             #[automatically_derived]
-            impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf>
-                ::proa_core::WebRender<L, B> for #struct_path
+            impl<L: #proa_core::DataLoader, B: #proa_core::WriteBuf>
+                #proa_core::WebRender<L, B> for #struct_path
             {
                 fn render(
                     self,
-                    cx: &mut proa_core::WebContext<L, B>,
-                ) -> ::proa_core::RenderOutcome<
+                    cx: &mut #proa_core::WebContext<L, B>,
+                ) -> #proa_core::RenderOutcome<
                     impl ::core::future::Future<
-                        Output = ::core::result::Result<(), ::proa_core::WriteError>,
+                        Output = ::core::result::Result<(), #proa_core::WriteError>,
                     >,
                 >
                 {
-                    use ::proa_core::UnsafeRaw;
+                    use #proa_core::UnsafeRaw;
 
                     // Route asset graph (rsjs/OPTIMIZATIONS.md § 1):
                     // record this island's asset_id on the WebContext.
@@ -378,13 +380,13 @@ pub fn emit_rust_with_prelude_and_asset_id(
                     #init_query_state_json_let
                     #init_mutations_json_let
 
-                    ::proa_core::RenderOutcome::pending(async move {
-                        ::proa_core::WebRender::render(
-                            ::proa_macros::html! {
+                    #proa_core::RenderOutcome::pending(async move {
+                        #proa_core::WebRender::render(
+                            #proa_macros::html! {
                                 < #wrapper_open #island_root_attr_name=#asset_id_lit >
                                     #view_tokens
                                 </ #wrapper_close >
-                                <script type="application/json" #island_attr_name=#asset_id_lit nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+                                <script type="application/json" #island_attr_name=#asset_id_lit nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
                                     {UnsafeRaw(#init_state_json_raw)}
                                 </script>
                                 #query_blob
@@ -401,19 +403,19 @@ pub fn emit_rust_with_prelude_and_asset_id(
     } else {
         quote! {
             #[automatically_derived]
-            impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf>
-                ::proa_core::WebRenderSync<L, B> for #struct_path
+            impl<L: #proa_core::DataLoader, B: #proa_core::WriteBuf>
+                #proa_core::WebRenderSync<L, B> for #struct_path
             {
                 fn render(
                     self,
-                    cx: &mut ::proa_core::WebContext<L, B>,
-                ) -> ::core::result::Result<(), ::proa_core::WriteError> {
+                    cx: &mut #proa_core::WebContext<L, B>,
+                ) -> ::core::result::Result<(), #proa_core::WriteError> {
                     // Bring `UnsafeRaw` into scope by its bare name so
                     // the OWASP-XSS-in-script-or-style lint in
                     // `proa_macros::html_sync!` recognises the raw-content
                     // wrapper (the lint matches on the textual form
                     // `UnsafeRaw(...)`).
-                    use ::proa_core::UnsafeRaw;
+                    use #proa_core::UnsafeRaw;
 
                     // Route asset graph (rsjs/OPTIMIZATIONS.md § 1):
                     // record this island's asset_id on the WebContext.
@@ -427,12 +429,12 @@ pub fn emit_rust_with_prelude_and_asset_id(
                     #init_query_state_json_let
                     #init_mutations_json_let
 
-                    ::proa_core::WebRenderSync::render(
-                        ::proa_macros::html_sync! {
+                    #proa_core::WebRenderSync::render(
+                        #proa_macros::html_sync! {
                             < #wrapper_open #island_root_attr_name=#asset_id_lit >
                                 #view_tokens
                             </ #wrapper_close >
-                            <script type="application/json" #island_attr_name=#asset_id_lit nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+                            <script type="application/json" #island_attr_name=#asset_id_lit nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
                                 {UnsafeRaw(#init_state_json_raw)}
                             </script>
                             #query_blob
@@ -510,6 +512,8 @@ fn emit_render_body(
     trait_path: &syn::Path,
     context_ident: &syn::Ident,
 ) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
+    let proa_macros = proa_dsl::paths::runtime("proa_macros");
     let strategy_analysis = rsjs_ir::classify_render_strategy(island);
     let strategy = strategy_analysis.strategy;
     let reachable_signal_ids = strategy_analysis.reachable_signal_ids();
@@ -519,12 +523,12 @@ fn emit_render_body(
     let asset_id_lit = asset_id;
     let trait_witness = if island.is_async {
         quote! {
-            let _: &::proa_core::render::web_render::__private::AsyncRenderTraitWitness =
+            let _: &#proa_core::render::web_render::__private::AsyncRenderTraitWitness =
                 &<Self as #trait_path>::__PROA_RENDER_TRAIT_WITNESS;
         }
     } else {
         quote! {
-            let _: &::proa_core::render::web_render::__private::SyncRenderTraitWitness =
+            let _: &#proa_core::render::web_render::__private::SyncRenderTraitWitness =
                 &<Self as #trait_path>::__PROA_RENDER_TRAIT_WITNESS;
         }
     };
@@ -566,26 +570,26 @@ fn emit_render_body(
         emit_init_mutations_json(island, mutation_initializers, &reachable_mutation_ids);
     let query_blob_attrs = quote! {
         type="application/json"
-        data-rsjs-island-queries={::proa_core::perf_ok(#asset_id_lit)}
+        data-rsjs-island-queries={#proa_core::perf_ok(#asset_id_lit)}
     };
     let query_blob = if reachable_query_ids.is_empty() {
         quote! {}
     } else {
         quote! {
-            <script #query_blob_attrs nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+            <script #query_blob_attrs nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
                 {UnsafeRaw(__rsjs_init_query_state_json.as_ref())}
             </script>
         }
     };
     let mutations_blob_attrs = quote! {
         type="application/json"
-        data-rsjs-island-mutations={::proa_core::perf_ok(#asset_id_lit)}
+        data-rsjs-island-mutations={#proa_core::perf_ok(#asset_id_lit)}
     };
     let mutations_blob = if reachable_mutation_ids.is_empty() {
         quote! {}
     } else {
         quote! {
-            <script #mutations_blob_attrs nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+            <script #mutations_blob_attrs nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
                 {UnsafeRaw(__rsjs_init_mutations_json.as_ref())}
             </script>
         }
@@ -626,8 +630,8 @@ fn emit_render_body(
             return quote! {
                 {
                         #trait_witness
-                        ::proa_core::RenderOutcome::pending(async move {
-                            use ::proa_core::UnsafeRaw;
+                        #proa_core::RenderOutcome::pending(async move {
+                            use #proa_core::UnsafeRaw;
 
                             #ide_helper_hints
                             // Shared-state handles are declared before the
@@ -639,8 +643,8 @@ fn emit_render_body(
                             #ide_source_hints
                             #signal_lets
 
-                            ::proa_core::WebRender::render(
-                                ::proa_macros::html! {
+                            #proa_core::WebRender::render(
+                                #proa_macros::html! {
                                 #view_tokens
                             },
                             #context_ident,
@@ -655,7 +659,7 @@ fn emit_render_body(
         return quote! {
             {
                     #trait_witness
-                    use ::proa_core::UnsafeRaw;
+                    use #proa_core::UnsafeRaw;
 
                     #ide_helper_hints
                     // See the async branch above: shared-state handles bind
@@ -665,8 +669,8 @@ fn emit_render_body(
                     #ide_source_hints
                     #signal_lets
 
-                    ::proa_core::WebRenderSync::render(
-                        ::proa_macros::html_sync! {
+                    #proa_core::WebRenderSync::render(
+                        #proa_macros::html_sync! {
                         #view_tokens
                     },
                     #context_ident,
@@ -686,8 +690,8 @@ fn emit_render_body(
                 // duplicates dedupe in the underlying HashSet.
                 #context_ident.rsjs_island_used(#asset_id_lit);
                 let __rsjs_csp_nonce = #context_ident.csp_nonce_cloned();
-                ::proa_core::RenderOutcome::pending(async move {
-                    use ::proa_core::UnsafeRaw;
+                #proa_core::RenderOutcome::pending(async move {
+                    use #proa_core::UnsafeRaw;
 
                     #ide_helper_hints
                     // See `emit_render_body`'s server-only branch: shared-state
@@ -701,12 +705,12 @@ fn emit_render_body(
                     #init_query_state_json_let
                     #init_mutations_json_let
 
-                    ::proa_core::WebRender::render(
-                        ::proa_macros::html! {
+                    #proa_core::WebRender::render(
+                        #proa_macros::html! {
                             < #wrapper_open #island_root_attr_name=#asset_id_lit >
                                 #view_tokens
                             </ #wrapper_close >
-                            <script type="application/json" #island_attr_name=#asset_id_lit nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+                            <script type="application/json" #island_attr_name=#asset_id_lit nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
                                 {UnsafeRaw(#init_state_json_raw)}
                             </script>
                             #query_blob
@@ -728,7 +732,7 @@ fn emit_render_body(
                 // `proa_macros::html_sync!` recognises the raw-content
                 // wrapper (the lint matches on the textual form
                 // `UnsafeRaw(...)`).
-                use ::proa_core::UnsafeRaw;
+                use #proa_core::UnsafeRaw;
 
                 // Route asset graph (rsjs/OPTIMIZATIONS.md § 1):
                 // record this island's asset_id on the WebContext so
@@ -751,12 +755,12 @@ fn emit_render_body(
                 #init_query_state_json_let
                 #init_mutations_json_let
 
-                ::proa_core::WebRenderSync::render(
-                    ::proa_macros::html_sync! {
+                #proa_core::WebRenderSync::render(
+                    #proa_macros::html_sync! {
                         < #wrapper_open #island_root_attr_name=#asset_id_lit >
                             #view_tokens
                         </ #wrapper_close >
-                        <script type="application/json" #island_attr_name=#asset_id_lit nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+                        <script type="application/json" #island_attr_name=#asset_id_lit nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
                             {UnsafeRaw(#init_state_json_raw)}
                         </script>
                         #query_blob
@@ -809,6 +813,8 @@ pub(crate) fn emit_lossless_render_site(
     direct_component_site_nodes: &HashMap<NodeId, u32>,
     linked_site_ident: Option<&syn::Ident>,
 ) -> LosslessRenderSite {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
+    let proa_macros = proa_dsl::paths::runtime("proa_macros");
     let strategy_analysis = rsjs_ir::classify_render_strategy(island);
     let strategy = strategy_analysis.strategy;
     let reachable_signal_ids = strategy_analysis.reachable_signal_ids();
@@ -880,26 +886,26 @@ pub(crate) fn emit_lossless_render_site(
 
     let query_blob_attrs = quote! {
         type="application/json"
-        data-rsjs-island-queries={::proa_core::perf_ok(#asset_id_lit)}
+        data-rsjs-island-queries={#proa_core::perf_ok(#asset_id_lit)}
     };
     let query_blob = if reachable_query_ids.is_empty() {
         quote! {}
     } else {
         quote! {
-            <script #query_blob_attrs nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+            <script #query_blob_attrs nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
                 {UnsafeRaw(__rsjs_init_query_state_json.as_ref())}
             </script>
         }
     };
     let mutations_blob_attrs = quote! {
         type="application/json"
-        data-rsjs-island-mutations={::proa_core::perf_ok(#asset_id_lit)}
+        data-rsjs-island-mutations={#proa_core::perf_ok(#asset_id_lit)}
     };
     let mutations_blob = if reachable_mutation_ids.is_empty() {
         quote! {}
     } else {
         quote! {
-            <script #mutations_blob_attrs nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+            <script #mutations_blob_attrs nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
                 {UnsafeRaw(__rsjs_init_mutations_json.as_ref())}
             </script>
         }
@@ -937,7 +943,7 @@ pub(crate) fn emit_lossless_render_site(
                     #linked_site_ident,
                     || {
                         #init_state_json_let
-                        ::core::result::Result::<_, ::proa_core::WriteError>::Ok(
+                        ::core::result::Result::<_, #proa_core::WriteError>::Ok(
                             __rsjs_init_state_json
                         )
                     },
@@ -953,7 +959,7 @@ pub(crate) fn emit_lossless_render_site(
                             #linked_site_ident,
                             || {
                                 #init_query_state_json_let
-                                ::core::result::Result::<_, ::proa_core::WriteError>::Ok(
+                                ::core::result::Result::<_, #proa_core::WriteError>::Ok(
                                     __rsjs_init_query_state_json
                                 )
                             },
@@ -975,7 +981,7 @@ pub(crate) fn emit_lossless_render_site(
                             #linked_site_ident,
                             || {
                                 #init_mutations_json_let
-                                ::core::result::Result::<_, ::proa_core::WriteError>::Ok(
+                                ::core::result::Result::<_, #proa_core::WriteError>::Ok(
                                     __rsjs_init_mutations_json
                                 )
                             },
@@ -992,7 +998,7 @@ pub(crate) fn emit_lossless_render_site(
         let boundary = if island.is_async {
             quote! {
                 ::rsjs::__private::LinkedRenderBoundary::new(
-                    ::proa_macros::html! { #view_tokens },
+                    #proa_macros::html! { #view_tokens },
                     #linked_site_ident,
                     #signal_state,
                     #query_state,
@@ -1002,7 +1008,7 @@ pub(crate) fn emit_lossless_render_site(
         } else {
             quote! {
                 ::rsjs::__private::LinkedRenderBoundary::new(
-                    ::proa_macros::html_sync! { #view_tokens },
+                    #proa_macros::html_sync! { #view_tokens },
                     #linked_site_ident,
                     #signal_state,
                     #query_state,
@@ -1011,13 +1017,13 @@ pub(crate) fn emit_lossless_render_site(
             }
         };
         let template = if island.is_async {
-            quote! { ::proa_macros::html! { { #boundary } } }
+            quote! { #proa_macros::html! { { #boundary } } }
         } else {
-            quote! { ::proa_macros::html_sync! { { #boundary } } }
+            quote! { #proa_macros::html_sync! { { #boundary } } }
         };
         return LosslessRenderSite {
             setup: quote! {
-                use ::proa_core::UnsafeRaw;
+                use #proa_core::UnsafeRaw;
                 #ide_helper_hints
                 #shared_state_lets
                 #signal_lets
@@ -1033,13 +1039,13 @@ pub(crate) fn emit_lossless_render_site(
 
     if strategy == rsjs_ir::RenderStrategy::ServerOnly {
         let template = if island.is_async {
-            quote! { ::proa_macros::html! { #view_tokens } }
+            quote! { #proa_macros::html! { #view_tokens } }
         } else {
-            quote! { ::proa_macros::html_sync! { #view_tokens } }
+            quote! { #proa_macros::html_sync! { #view_tokens } }
         };
         return LosslessRenderSite {
             setup: quote! {
-                use ::proa_core::UnsafeRaw;
+                use #proa_core::UnsafeRaw;
                 #ide_helper_hints
                 #shared_state_lets
                 #signal_lets
@@ -1058,21 +1064,21 @@ pub(crate) fn emit_lossless_render_site(
         < #wrapper_open #island_root_attr_name=#asset_id_lit >
             #view_tokens
         </ #wrapper_close >
-        <script type="application/json" #island_attr_name=#asset_id_lit nonce={::proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
+        <script type="application/json" #island_attr_name=#asset_id_lit nonce={#proa_core::csp_nonce_attr(__rsjs_csp_nonce.as_ref())}>
             {UnsafeRaw(#init_state_json_raw)}
         </script>
         #query_blob
         #mutations_blob
     };
     let template = if island.is_async {
-        quote! { ::proa_macros::html! { #template_body } }
+        quote! { #proa_macros::html! { #template_body } }
     } else {
-        quote! { ::proa_macros::html_sync! { #template_body } }
+        quote! { #proa_macros::html_sync! { #template_body } }
     };
 
     LosslessRenderSite {
         setup: quote! {
-            use ::proa_core::UnsafeRaw;
+            use #proa_core::UnsafeRaw;
             #context_ident.rsjs_island_used(#asset_id_lit);
             let __rsjs_csp_nonce = #context_ident.csp_nonce_cloned();
             #ide_helper_hints
@@ -1139,6 +1145,7 @@ pub(crate) fn emit_lossless_query_declaration(
     retain_typed_initial: bool,
     source_ide_hint: Option<&TokenStream>,
 ) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     if !reachable_query_ids.contains(&id) {
         return TokenStream::new();
     }
@@ -1150,7 +1157,7 @@ pub(crate) fn emit_lossless_query_declaration(
             let #key_json =
                 ::rsjs::__private::to_script_json(&(#key_expr))
                     .map_err(|err| {
-                        ::proa_core::WriteError::from(::proa_core::LoadError::from(err))
+                        #proa_core::WriteError::from(#proa_core::LoadError::from(err))
                     })?;
         }
     });
@@ -1164,7 +1171,7 @@ pub(crate) fn emit_lossless_query_declaration(
             let #local: ::rsjs::__private::serde_json::Value =
                 ::rsjs::__private::serde_json::to_value(&#typed_local)
                     .map_err(|err| {
-                        ::proa_core::WriteError::from(::proa_core::LoadError::from(err))
+                        #proa_core::WriteError::from(#proa_core::LoadError::from(err))
                     })?;
         }
     } else {
@@ -1174,7 +1181,7 @@ pub(crate) fn emit_lossless_query_declaration(
                 #source_ide_hint
                 ::rsjs::__private::serde_json::to_value(&#typed_local)
                     .map_err(|err| {
-                        ::proa_core::WriteError::from(::proa_core::LoadError::from(err))
+                        #proa_core::WriteError::from(#proa_core::LoadError::from(err))
                     })?
             };
         }
@@ -1247,6 +1254,7 @@ pub(crate) fn emit_lossless_mutation_declaration(
     id: MutationId,
     reachable_mutation_ids: &[MutationId],
 ) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     if !reachable_mutation_ids.contains(&id) {
         return TokenStream::new();
     }
@@ -1258,7 +1266,7 @@ pub(crate) fn emit_lossless_mutation_declaration(
             let #invalidates_json =
                 ::rsjs::__private::to_script_json(&(#expr))
                     .map_err(|err| {
-                        ::proa_core::WriteError::from(::proa_core::LoadError::from(err))
+                        #proa_core::WriteError::from(#proa_core::LoadError::from(err))
                     })?;
         }
     });
@@ -1266,7 +1274,7 @@ pub(crate) fn emit_lossless_mutation_declaration(
         let #key_json =
             ::rsjs::__private::to_script_json(&(#key_expr))
                 .map_err(|err| {
-                    ::proa_core::WriteError::from(::proa_core::LoadError::from(err))
+                    #proa_core::WriteError::from(#proa_core::LoadError::from(err))
                 })?;
         #invalidates
     }
@@ -1998,6 +2006,7 @@ fn emit_query_initial_value_locals(
     query_initializers: &[QueryInitializer],
     reachable_query_ids: &[QueryId],
 ) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let mut out = TokenStream::new();
     for init in query_initializers {
         if !reachable_query_ids.contains(&init.id) {
@@ -2012,7 +2021,7 @@ fn emit_query_initial_value_locals(
                 let #local: ::rsjs::__private::serde_json::Value =
                     ::rsjs::__private::serde_json::to_value(&#typed_local)
                     .map_err(|err| {
-                        ::proa_core::WriteError::from(::proa_core::LoadError::from(err))
+                        #proa_core::WriteError::from(#proa_core::LoadError::from(err))
                     })?;
             });
         } else {
@@ -2021,7 +2030,7 @@ fn emit_query_initial_value_locals(
                     let #typed_local = #expr;
                     ::rsjs::__private::serde_json::to_value(&#typed_local)
                         .map_err(|err| {
-                            ::proa_core::WriteError::from(::proa_core::LoadError::from(err))
+                            #proa_core::WriteError::from(#proa_core::LoadError::from(err))
                         })?
                 };
             });
@@ -2143,6 +2152,7 @@ fn emit_runtime_init_query_state_json(
     prepared_query_ids: &HashSet<QueryId>,
     context_ident: &syn::Ident,
 ) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let mut tokens = quote! {
         let mut __rsjs_init_query_state_json = ::std::string::String::new();
         __rsjs_init_query_state_json.push('{');
@@ -2176,8 +2186,8 @@ fn emit_runtime_init_query_state_json(
                         let __rsjs_query_key_json_owned =
                             ::rsjs::__private::to_script_json(&(#key_expr))
                                 .map_err(|err| {
-                                    ::proa_core::WriteError::from(
-                                        ::proa_core::LoadError::from(err),
+                                    #proa_core::WriteError::from(
+                                        #proa_core::LoadError::from(err),
                                     )
                                 })?;
                         let __rsjs_query_key_json =
@@ -2193,7 +2203,7 @@ fn emit_runtime_init_query_state_json(
                     let __rsjs_query_data_json =
                         ::rsjs::__private::to_script_json(&#local)
                             .map_err(|err| {
-                                ::proa_core::WriteError::from(::proa_core::LoadError::from(err))
+                                #proa_core::WriteError::from(#proa_core::LoadError::from(err))
                             })?;
 
                     let mut __rsjs_query_seed_state_json =
@@ -2213,7 +2223,7 @@ fn emit_runtime_init_query_state_json(
                     let __rsjs_query_data_json =
                         ::rsjs::__private::to_script_json(&#local)
                             .map_err(|err| {
-                                ::proa_core::WriteError::from(::proa_core::LoadError::from(err))
+                                #proa_core::WriteError::from(#proa_core::LoadError::from(err))
                             })?;
                     __rsjs_init_query_state_json.push_str(&__rsjs_query_data_json);
                     __rsjs_init_query_state_json.push_str(#suffix);
@@ -2521,6 +2531,7 @@ fn push_runtime_mutation_json_field(
     expr: &syn::Expr,
     prepared_json: Option<&syn::Ident>,
 ) {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let prefix = if *field_count > 0 {
         format!(",\"{name}\":")
     } else {
@@ -2538,7 +2549,7 @@ fn push_runtime_mutation_json_field(
             let #json_local =
                 ::rsjs::__private::to_script_json(&(#expr))
                     .map_err(|err| {
-                        ::proa_core::WriteError::from(::proa_core::LoadError::from(err))
+                        #proa_core::WriteError::from(#proa_core::LoadError::from(err))
                     })?;
             __rsjs_init_mutations_json.push_str(&#json_local);
         });
@@ -2960,6 +2971,7 @@ fn conditional_style_attr(
     predicate_runtime: Option<&TokenStream>,
     then_branch: bool,
 ) -> Option<TokenStream> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     match predicate_initial {
         Some(value) => {
             let visible = if then_branch { value } else { !value };
@@ -2972,9 +2984,9 @@ fn conditional_style_attr(
         }
         None => predicate_runtime.map(|predicate| {
             if then_branch {
-                quote! { style={ ::proa_core::style_ok(if #predicate { "" } else { "display:none" }) } }
+                quote! { style={ #proa_core::style_ok(if #predicate { "" } else { "display:none" }) } }
             } else {
-                quote! { style={ ::proa_core::style_ok(if #predicate { "display:none" } else { "" }) } }
+                quote! { style={ #proa_core::style_ok(if #predicate { "display:none" } else { "" }) } }
             }
         }),
     }
@@ -3148,6 +3160,7 @@ fn emit_server_expr(
     expr: &ClientExpr,
     query_initializers: &[QueryInitializer],
 ) -> Option<ServerExpr> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     match expr {
         ClientExpr::Literal(value) => {
             let (_, lit) = render_value_as_rust(value);
@@ -3284,7 +3297,7 @@ fn emit_server_expr(
                 // required by that ownership boundary, so mark it as reviewed
                 // when the generated expression re-enters `html_sync!`.
                 StringTransformOp::Trim => {
-                    quote! { ::proa_core::perf_ok((#target).trim().to_string()) }
+                    quote! { #proa_core::perf_ok((#target).trim().to_string()) }
                 }
                 _ => return None,
             };
@@ -3502,8 +3515,9 @@ fn signal_read_as_json_value(expr: &ClientExpr) -> Option<TokenStream> {
 }
 
 fn emit_mutation_read_as_server_expr(accessor: MutationAccessor) -> Option<ServerExpr> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let expr = match accessor {
-        MutationAccessor::Status => quote! { ::proa_core::perf_ok("idle") },
+        MutationAccessor::Status => quote! { #proa_core::perf_ok("idle") },
         MutationAccessor::IsIdle => quote! { true },
         MutationAccessor::IsPending => quote! { false },
         MutationAccessor::IsSuccess => quote! { false },
@@ -3523,13 +3537,14 @@ fn emit_query_read_as_server_expr(
     accessor: QueryAccessor,
     query_initializers: &[QueryInitializer],
 ) -> Option<ServerExpr> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     query_initializer_for(query_initializers, id)?;
     let local = query_initial_value_local_ident(id);
     let expr = match accessor {
         QueryAccessor::Data => {
             return Some(ServerExpr::Json(quote! { #local.clone() }));
         }
-        QueryAccessor::Status => quote! { ::proa_core::perf_ok("success") },
+        QueryAccessor::Status => quote! { #proa_core::perf_ok("success") },
         QueryAccessor::IsLoading => quote! { false },
         QueryAccessor::IsSuccess => quote! { true },
         QueryAccessor::IsError => quote! { false },
@@ -3886,6 +3901,8 @@ fn emit_view_node(
     direct_component_site_nodes: Option<&HashMap<NodeId, u32>>,
     linked_site_ident: Option<&syn::Ident>,
 ) -> TokenStream {
+    let proa_macros = proa_dsl::paths::runtime("proa_macros");
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     match island.view_tree.get(node_id) {
         ViewNode::Element {
             tag,
@@ -4123,7 +4140,7 @@ fn emit_view_node(
                     );
                     let attr_name = attr_name_tokens(MARKER_LIST_KEY);
                     let value = quote! {
-                        ::proa_core::shared::attr_value::display_attr(
+                        #proa_core::shared::attr_value::display_attr(
                             ::core::format_args!("{}", #key_expr)
                         )
                     };
@@ -4242,7 +4259,7 @@ fn emit_view_node(
                     #attrs
                     #label for #pat in #expr {
                         #body_prefix
-                        ::proa_macros::html_sync! {
+                        #proa_macros::html_sync! {
                             #(#child_tokens)*
                         }
                     }
@@ -4296,6 +4313,7 @@ fn parse_tokens_or_compile_error(tokens: &str, context: &str) -> TokenStream {
 }
 
 fn emit_server_attr_value(attr_name: &str, tokens: &str) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let token_stream = match tokens.parse::<TokenStream>() {
         Ok(token_stream) => token_stream,
         Err(err) => {
@@ -4331,7 +4349,7 @@ fn emit_server_attr_value(attr_name: &str, tokens: &str) -> TokenStream {
     if attr_name == "style" {
         return quote! { #inner };
     }
-    quote! { ::proa_core::perf_ok(#inner) }
+    quote! { #proa_core::perf_ok(#inner) }
 }
 
 fn emit_payload_attr_value(tokens: &str) -> TokenStream {
@@ -4357,6 +4375,7 @@ fn emit_attr_initial_attrs(
     _signal_initializers: &[SignalInitializer],
     query_initializers: &[QueryInitializer],
 ) -> Vec<TokenStream> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let mut bindings: Vec<_> = island
         .bindings
         .attr_bindings
@@ -4382,7 +4401,7 @@ fn emit_attr_initial_attrs(
                     }
                     quote! {
                         #attr_name={
-                            ::proa_core::shared::attr_value::display_attr(
+                            #proa_core::shared::attr_value::display_attr(
                                 ::core::format_args!("{}", #rust_expr)
                             )
                         }
@@ -4454,18 +4473,20 @@ fn emit_text_binding_initial_value(
 }
 
 fn text_binding_value_tokens(value: TokenStream, is_async: bool) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     if is_async {
-        quote! { { ::proa_core::to_async(#value) } }
+        quote! { { #proa_core::to_async(#value) } }
     } else {
         quote! { { #value } }
     }
 }
 
 fn emit_text_binding_default(expr: &ClientExpr) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     // M4+ extends this. For now, fall back to a typed default
     // so the code at least compiles.
     let _ = expr;
-    quote! { { ::proa_core::perf_ok("") } }
+    quote! { { #proa_core::perf_ok("") } }
 }
 
 /// Lower a client-helper [`ClientExpr::Call`] to a Rust call expression.
@@ -4477,6 +4498,7 @@ fn emit_client_call_as_rust(
     expr: &ClientExpr,
     query_initializers: &[QueryInitializer],
 ) -> TokenStream {
+    let proa_macros = proa_dsl::paths::runtime("proa_macros");
     let ClientExpr::Call { function, args } = expr else {
         return quote! { Default::default() };
     };
@@ -4507,7 +4529,7 @@ fn emit_client_call_as_rust(
             .enumerate()
             .map(|(index, arg)| emit_text_arg_as_rust(arg, string_args[index], query_initializers))
             .collect();
-        return quote! { ::proa_macros::text!(#template, #(#values),*) };
+        return quote! { #proa_macros::text!(#template, #(#values),*) };
     }
     let callee = match function {
         ClientFunctionRef::Import { module, name } => {
@@ -4695,6 +4717,7 @@ fn emit_input_initial_attr(
     island: &Island,
     signal_initializers: &[SignalInitializer],
 ) -> Option<TokenStream> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     if signal_initializer_for(signal_initializers, signal).is_some() {
         let local = signal_local_ident(signal);
         return match kind {
@@ -4727,7 +4750,7 @@ fn emit_input_initial_attr(
         return match kind {
             InputKind::Value | InputKind::Selected => Some(quote! {
                 value={
-                    ::proa_core::shared::attr_value::display_attr(
+                    #proa_core::shared::attr_value::display_attr(
                         ::core::format_args!("{}", #local)
                     )
                 }

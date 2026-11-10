@@ -40,7 +40,7 @@ queries, and fragments pass through the helper unchanged. Pass an unprefixed
 application path so the base path is applied once.
 
 This also works in streamed components. In an Axum handler, use
-`Redirect::to(&proa_framework_axum::app_url("/").to_string())` for an
+`Redirect::to(&proa::axum::app_url("/").to_string())` for an
 application-root redirect. See [URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix)
 for startup configuration and island asset serving.
 

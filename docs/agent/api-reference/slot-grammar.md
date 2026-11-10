@@ -56,7 +56,7 @@ html_sync! {
 ```
 
 The arguments use the same supported reactive expression grammar as other
-slots. `text!`, `proa_macros::text!`, and `::proa_macros::text!` are recognized;
+slots. `text!`, `proa::text!`, and `::proa::text!` are recognized;
 other namespaces stay opaque. SSR retains Proa's streamed, escaped rendering.
 The browser updates text content or attribute values, preserving surrounding
 static markup. `{{` / `}}` still produce literal braces.
@@ -667,14 +667,14 @@ pub struct FocusInput {
 }
 
 #[rsjs::rsjs(component)]
-impl<L: proa_core::DataLoader>
-    proa_core::WebRenderSync<L> for FocusInput
+impl<L: proa::DataLoader>
+    proa::WebRenderSync<L> for FocusInput
 {
     fn render(
         self,
-        cx: &mut proa_core::WebContext<L>,
-    ) -> Result<(), proa_core::WriteError> {
-        proa_macros::html_sync! {
+        cx: &mut proa::WebContext<L>,
+    ) -> Result<(), proa::WriteError> {
+        proa::html_sync! {
             <input ref={self.input_ref}/>
         }
         .render(cx)
@@ -684,16 +684,16 @@ impl<L: proa_core::DataLoader>
 pub struct FocusPanel;
 
 #[rsjs::rsjs(component, client)]
-impl<L: proa_core::DataLoader>
-    proa_core::WebRenderSync<L> for FocusPanel
+impl<L: proa::DataLoader>
+    proa::WebRenderSync<L> for FocusPanel
 {
     fn render(
         self,
-        cx: &mut proa_core::WebContext<L>,
-    ) -> Result<(), proa_core::WriteError> {
+        cx: &mut proa::WebContext<L>,
+    ) -> Result<(), proa::WriteError> {
         let input_ref = rsjs::node_ref::<rsjs::HtmlInputElement>();
 
-        proa_macros::html_sync! {
+        proa::html_sync! {
             <section>
                 {FocusInput { input_ref }}
                 <button on_click={|_| input_ref.focus()}>"Focus"</button>
@@ -908,7 +908,7 @@ Ordinary SSR values and calls are allowed directly:
 {label}                               // ordinary server local, SSR once
 {self.title}                          // inbound LiveRead in an analyzed component
 {render_markdown(self.document)}      // opaque server call, SSR once
-{proa_core::UnsafeRaw(self.icon_svg)} // opaque server value, SSR once
+{proa::UnsafeRaw(self.icon_svg)} // opaque server value, SSR once
 ```
 
 The opaque calls above are valid only while no browser-reachable dependency

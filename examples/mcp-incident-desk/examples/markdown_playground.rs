@@ -18,11 +18,11 @@
 
 use std::{future::Future, path::PathBuf};
 
-use proa_core::{
+use proa::{md, md_sync};
+use proa::{
     render_md_to_string_async, to_md_async, MdRenderSync, RenderOutcome, WebContext, WriteBuf,
     WriteError,
 };
-use proa_macros::{md, md_sync};
 use pulldown_cmark::{html, Options, Parser};
 
 // Cmd+click these fields from the templates below, or try changing their types.
@@ -43,7 +43,7 @@ struct Feature<'a> {
 /// A custom synchronous component with a nested custom link component.
 struct PersonCard<'a>(Person<'a>);
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for PersonCard<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for PersonCard<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             ### {self.0.name}
@@ -64,7 +64,7 @@ struct MarkdownLink<'a> {
     href: &'a str,
 }
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for MarkdownLink<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for MarkdownLink<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_link(self.label, self.href)
     }
@@ -73,7 +73,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for M
 /// The core inline-code writer chooses a delimiter that fits the dynamic text.
 struct InlineCode<'a>(&'a str);
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlineCode<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlineCode<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.write_md_inline_code(self.0)
     }
@@ -81,7 +81,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for I
 
 struct FeatureTable<'a>(&'a [Feature<'a>]);
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for FeatureTable<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for FeatureTable<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             | Feature | Checks | Ready |
@@ -98,7 +98,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for F
 
 struct ConditionalNote(bool);
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ConditionalNote {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for ConditionalNote {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             {if self.0 {
@@ -122,9 +122,7 @@ struct AsyncRelease<'a> {
     checks: u32,
 }
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> proa_core::MdRender<Loader, B>
-    for AsyncRelease<'_>
-{
+impl<Loader: ::proa::DataLoader, B: WriteBuf> proa::MdRender<Loader, B> for AsyncRelease<'_> {
     fn render_md(
         self,
         cx: &mut WebContext<Loader, B>,

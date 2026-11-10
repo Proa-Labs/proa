@@ -23,7 +23,7 @@ pub enum AppError {
     #[error("database unavailable")]
     Database(#[from] sqlx::Error),
     #[error("render failed")]
-    Render(#[from] proa_core::WriteError),
+    Render(#[from] proa::WriteError),
     #[error("request failed")]
     Internal(#[from] anyhow::Error),
 }
