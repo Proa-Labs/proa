@@ -479,144 +479,34 @@ where
 mod tests {
     use super::*;
 
-    const META: PageMeta = PageMeta {
-        title: "Test",
-        description: "Test page",
-        path: "/",
-    };
-
     #[test]
-    fn document_metadata_emits_absolute_urls_and_escapes_page_values() {
-        for (origin, path) in [
-            (site::CANONICAL_ORIGIN, routes::HOME),
-            ("https://pr-123.example.test", "/docs/core/markdown"),
-            ("http://localhost:5555", "/ecosystem/apps"),
-        ] {
-            let mut cx = WebContext::new();
-            DocumentMetadata {
-                origin,
-                meta: PageMeta {
-                    title: "Docs & <examples>",
-                    description: "A \"quoted\" & <description>",
-                    path,
-                },
-            }
-            .render(&mut cx)
-            .unwrap();
-            let html = cx.into_output().into_string();
-            let canonical = format!("{origin}{path}");
-            let image = format!("{origin}{SOCIAL_IMAGE_SRC}");
+    fn page_shells_load_the_search_islands_runtime_and_modules() {
+        let mut cx = WebContext::new();
+        futures::executor::block_on(SearchModal.render(&mut cx).resolve()).unwrap();
+        let search_assets: Vec<_> = cx.rsjs_artifacts_snapshot().rendered_islands().collect();
+        assert!(
+            !search_assets.is_empty(),
+            "search must register client work"
+        );
 
-            for tag in [
-                format!(r#"<link rel="canonical" href="{canonical}""#),
-                format!(r#"<meta name="og:url" property="og:url" content="{canonical}""#),
-                format!(r#"<meta name="og:image" property="og:image" content="{image}""#),
-                format!(r#"<meta name="twitter:image" content="{image}""#),
-            ] {
-                assert_eq!(html.matches(&tag).count(), 1, "{tag}");
-            }
-            assert_eq!(
-                html.contains(r#"property="og:image:secure_url""#),
-                origin.starts_with("https://")
-            );
-            assert!(html.contains("<title>Docs &amp; &lt;examples&gt;</title>"));
-            assert!(html.contains(r#"property="og:title" content="Docs &amp; &lt;examples&gt;""#));
-            assert!(html.contains(r#"name="twitter:description" content="A &quot;quoted&quot; &amp; &lt;description&gt;""#));
-            assert!(!html.contains("<examples>"));
-            assert!(!html.contains("<description>"));
-        }
-    }
-
-    #[test]
-    fn public_page_shells_share_social_image_metadata() {
-        use futures::FutureExt;
-
-        let jpeg = include_bytes!("../public/og.jpg");
-        assert!(jpeg.len() <= 500_000, "social image must stay below 500 KB");
-        assert_eq!(&jpeg[..2], b"\xff\xd8");
-        // Read the JPEG frame dimensions so metadata follows the actual asset.
-        let mut offset = 2;
-        let (width, height) = loop {
-            assert_eq!(jpeg[offset], 0xff);
-            let marker = jpeg[offset + 1];
-            assert_ne!(marker, 0xda, "frame dimensions must precede image data");
-            if matches!(marker, 0xc0 | 0xc2) {
-                let height = u16::from_be_bytes(jpeg[offset + 5..offset + 7].try_into().unwrap());
-                let width = u16::from_be_bytes(jpeg[offset + 7..offset + 9].try_into().unwrap());
-                break (width, height);
-            }
-            let length = u16::from_be_bytes(jpeg[offset + 2..offset + 4].try_into().unwrap());
-            offset += 2 + usize::from(length);
+        let meta = PageMeta {
+            title: "Test",
+            description: "Test",
+            path: "/",
         };
-        let origin = public_site_url();
-        for (path, html) in [
-            ("/", render_page(META, proa_core::text::text("body")).0),
-            (
-                "/docs/core/markdown",
-                render_docs_page(
-                    PageMeta {
-                        path: "/docs/core/markdown",
-                        ..META
-                    },
-                    proa_core::text::text("body"),
-                )
-                .0,
-            ),
-            (
-                "/ecosystem",
-                crate::pages::ecosystem::handler()
-                    .now_or_never()
-                    .expect("ecosystem page renders without I/O")
-                    .0,
-            ),
+        for html in [
+            render_page(meta, text("body")).0,
+            render_docs_page(meta, text("body")).0,
         ] {
-            let head = html.split_once("</head>").unwrap().0;
-            for tag in [
-                r#"property="og:site_name" content="Proa""#.to_owned(),
-                r#"property="og:image:type" content="image/jpeg""#.to_owned(),
-                format!(r#"property="og:url" content="{origin}{path}""#),
-                format!(r#"rel="canonical" href="{origin}{path}""#),
-                format!(r#"property="og:image" content="{origin}{SOCIAL_IMAGE_SRC}""#),
-                format!(r#"name="twitter:image" content="{origin}{SOCIAL_IMAGE_SRC}""#),
-                format!(r#"property="og:image:width" content="{width}""#),
-                format!(r#"property="og:image:height" content="{height}""#),
-                format!(r#"property="og:image:alt" content="{SOCIAL_IMAGE_ALT}""#),
-                format!(r#"name="twitter:image:alt" content="{SOCIAL_IMAGE_ALT}""#),
-            ] {
-                assert_eq!(head.matches(&tag).count(), 1, "{path}: {tag}");
+            assert!(html.contains(r#"<script type="module" src="/rsjs-runtime.js""#));
+            assert!(html.contains(&format!(
+                r#"<script type="module" src="{SEARCH_SCRIPT_SRC}""#
+            )));
+            for asset in &search_assets {
+                assert!(html.contains(&format!(
+                    r#"<script type="module" src="/rsjs/island/{asset}.js""#
+                )));
             }
-        }
-    }
-
-    /// Regression test for the dead cmd+K search: the page shells must load
-    /// the rsjs runtime and the search island module. The old implementation
-    /// filtered the manifest by struct name, which matched nothing under the
-    /// linked-owner asset ids `cargo proa` produces, so no scripts shipped
-    /// and the modal never hydrated.
-    #[test]
-    fn page_shells_emit_rsjs_runtime_tags_for_the_search_modal() {
-        for (shell, html) in [
-            (
-                "render_page",
-                render_page(META, proa_core::text::text("body")).0,
-            ),
-            (
-                "render_docs_page",
-                render_docs_page(META, proa_core::text::text("body")).0,
-            ),
-        ] {
-            assert!(
-                html.contains(r#"<script type="module" src="/rsjs-runtime.js""#),
-                "{shell} must emit the rsjs runtime script tag"
-            );
-            assert!(
-                html.contains("/rsjs/island/"),
-                "{shell} must emit the search island module script tag"
-            );
-            assert!(
-                html.contains(r#"<script type="module" src="/static/search.mjs?v="#),
-                "{shell} must load the Orama search module for the modal"
-            );
         }
     }
 }

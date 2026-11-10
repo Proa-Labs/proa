@@ -22,7 +22,6 @@ pub mod priority;
 pub mod request_location;
 pub mod route_params;
 pub mod send_web_render;
-pub mod sink;
 pub mod standard_loader;
 pub mod stream;
 pub mod web_render;
@@ -58,11 +57,6 @@ pub use send_web_render::{
     drive_dyn_send_render, render_in_send_context, render_send_child, AwaitSendComponent,
     DynSendRenderOutcome, DynWebRenderSend, SendSyncToAsync, StatelessSyncToSend, WebRenderSend,
     WebRenderSendSync,
-};
-#[allow(deprecated)]
-pub use sink::{
-    InOrderPagePool, InOrderSinkWriter, MemorySink, PagePool, SinkCheckpoint, SinkPage, SinkWriter,
-    IN_ORDER_SINK_PAGE_SIZE,
 };
 pub use standard_loader::StandardDataLoader;
 pub use stream::{

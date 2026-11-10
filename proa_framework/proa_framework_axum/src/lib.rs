@@ -4,31 +4,22 @@
 #![forbid(unsafe_code)]
 
 mod asset_urls;
-pub mod config;
 pub mod csp;
 pub mod csrf;
 pub mod dev_reload;
 pub mod discovery;
-pub mod external;
-pub mod process_manager;
-pub mod proxy;
 pub mod readiness;
 pub mod route;
-#[cfg(feature = "route-export")]
-pub mod route_export;
 pub mod rsjs_assets;
 pub mod security_headers;
 pub mod server;
-pub mod shard;
 pub mod static_service;
 pub use asset_urls::base_path_assets;
 
-pub use config::{CodegenConfig, PathsConfig, ProaConfig, ServerConfig};
 pub use csp::{CspNonceLayer, CspPolicy};
 pub use csrf::CrossOriginProtectionLayer;
 pub use dev_reload::{DevReloadLayer, RELOAD_PORT_ENV, RELOAD_TOKEN_ENV};
 pub use discovery::{robots_txt, sitemap_index_xml, sitemap_xml};
-pub use external::{ExternalApp, ExternalAppStrategy};
 pub use proa_core::{
     AppUrl, ArticleMetadata, BasePath, ComponentRole, CspNonce, HeadAlternate, HeadAuthor,
     HeadConfig, HeadDefaults, HeadIcon, HeadMedia, HeadMetadata, HeadTitle, HeadUrlPolicy,
@@ -55,7 +46,6 @@ pub use route::{
 pub use rsjs_assets::rsjs_assets_router;
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};
 pub use server::{serve, serve_with_shutdown, ShutdownOutcome, DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT};
-pub use shard::{ShardCache, ShardCacheConfig};
 pub use static_service::EmbeddedStaticService;
 
 use std::collections::HashMap;
@@ -119,12 +109,9 @@ pub struct FrameworkBuilder {
     sitemaps: Option<discovery::SitemapConfig>,
     robots: Option<RobotsTxt>,
     rsjs_assets: bool,
-    config: ProaConfig,
     static_router: Option<Router>,
     dynamic_router: Option<Router>,
     computed_metadata: Option<Arc<HashMap<String, ComputedRouteMeta>>>,
-    external_apps: Vec<ExternalApp>,
-    process_manager: process_manager::ProcessManager,
     /// Global request-body size limit applied via `DefaultBodyLimit`
     /// in `build`. `None` means use `DEFAULT_BODY_LIMIT_BYTES`. Set to
     /// `Some(usize::MAX)` only when a specific deployment knows it
@@ -167,12 +154,9 @@ impl FrameworkBuilder {
             sitemaps: None,
             robots: None,
             rsjs_assets: false,
-            config: ProaConfig::default(),
             static_router: None,
             dynamic_router: None,
             computed_metadata: None,
-            external_apps: Vec::new(),
-            process_manager: process_manager::ProcessManager::new(),
             body_limit: None,
             cross_origin_protection: true,
             trusted_origins: Vec::new(),
@@ -478,11 +462,6 @@ impl FrameworkBuilder {
         self
     }
 
-    pub fn with_config(mut self, config: ProaConfig) -> Self {
-        self.config = config;
-        self
-    }
-
     /// Serve application assets under `/static`. A configured base path also
     /// composes URL tokens in CSS and native URL operations in JS/MJS assets.
     /// Install compression outside this service so transformations see source bytes.
@@ -506,29 +485,6 @@ impl FrameworkBuilder {
         self
     }
 
-    /// Mount an external application (static site, SSR app, or CSR SPA)
-    ///
-    /// # Example
-    /// ```rust
-    /// use proa_framework_axum::{
-    ///     ExternalApp, ExternalAppStrategy, FrameworkBuilder,
-    /// };
-    ///
-    ///
-    /// let app = FrameworkBuilder::new()
-    ///     .with_external_app(ExternalApp::static_app("/docs", "./apps/docs/out"))
-    ///     .with_external_app(ExternalApp::ssr_app("/admin", "http://localhost:4000".to_string()))
-    ///     .build();
-    /// ```
-    pub fn with_external_app(mut self, external_app: ExternalApp) -> Self {
-        self.external_apps.push(external_app);
-        self
-    }
-
-    pub fn config(&self) -> &ProaConfig {
-        &self.config
-    }
-
     pub fn build(self) -> Router {
         self.try_build()
             .expect("invalid framework discovery configuration")
@@ -547,12 +503,9 @@ impl FrameworkBuilder {
             sitemaps,
             robots,
             rsjs_assets,
-            config,
             static_router,
             dynamic_router,
             computed_metadata,
-            external_apps,
-            process_manager,
             body_limit,
             cross_origin_protection,
             trusted_origins,
@@ -570,17 +523,6 @@ impl FrameworkBuilder {
             discovery::discovery_routes(public_origin.as_deref(), &base_path, sitemaps, robots)?;
         if rsjs_assets {
             app = app.merge(rsjs_assets_router(&base_path));
-        }
-
-        // Mount external apps first (before /static and dynamic routes)
-        for external_app in external_apps {
-            app = mount_external_app(
-                app,
-                external_app,
-                &config,
-                &process_manager,
-                body_limit_bytes,
-            );
         }
 
         if let Some(static_router) = static_router {
@@ -695,112 +637,6 @@ fn hardened_serve_dir(
         HeaderValue::from_static("nosniff"),
     )
     .layer(ServeDir::new(source_dir))
-}
-
-/// Mount an external application into the router
-fn mount_external_app(
-    router: Router,
-    external_app: ExternalApp,
-    _config: &ProaConfig,
-    process_manager: &process_manager::ProcessManager,
-    body_limit_bytes: usize,
-) -> Router {
-    use external::ExternalAppStrategy;
-
-    let mount_path = external_app.mount_path;
-    let is_dev = cfg!(debug_assertions);
-
-    match external_app.strategy {
-        ExternalAppStrategy::Static {
-            source_dir,
-            spa_fallback,
-        } => {
-            // Serve static files from directory
-            if spa_fallback {
-                // CSR app: fallback to index.html for 404s (History API support)
-                // TODO: Implement proper index.html fallback
-                tracing::warn!("SPA fallback for {} not yet fully implemented", mount_path);
-            }
-
-            // For now, just serve the directory (see `hardened_serve_dir`
-            // for the symlink and MIME-sniffing notes)
-            let service = hardened_serve_dir(source_dir);
-            router.nest_service(&mount_path, service)
-        }
-
-        ExternalAppStrategy::Csr {
-            source_dir,
-            dev_upstream,
-        } => {
-            if is_dev && dev_upstream.is_some() {
-                // In dev mode: proxy to Vite/webpack dev server for HMR
-                // TODO: Implement reverse proxy
-                tracing::warn!(
-                    "Dev proxy for CSR app at {} not yet implemented, serving from {}",
-                    mount_path,
-                    source_dir.display()
-                );
-            }
-
-            // Serve built SPA (fallback to index.html handled by ServeDir)
-            // TODO: Implement proper History API fallback
-            let service = hardened_serve_dir(source_dir);
-            router.nest_service(&mount_path, service)
-        }
-
-        ExternalAppStrategy::Ssr {
-            upstream,
-            dev_command,
-            health_check,
-            strip_prefix,
-        } => {
-            tracing::info!(
-                "Mounting SSR app at {} → {} (strip_prefix: {})",
-                mount_path,
-                upstream,
-                strip_prefix
-            );
-
-            // Spawn dev server if in development mode and dev_command is configured
-            if is_dev {
-                if let Some(cmd) = dev_command {
-                    tracing::info!("Spawning dev server for {}: {}", mount_path, cmd);
-                    if let Err(e) = process_manager.spawn(mount_path.clone(), cmd) {
-                        tracing::error!("Failed to spawn dev server for {}: {}", mount_path, e);
-                        tracing::warn!(
-                            "Continuing without dev server - make sure upstream {} is running",
-                            upstream
-                        );
-                    }
-
-                    // Wait for health check if configured
-                    if let Some(health_url) = health_check {
-                        tracing::info!("Waiting for dev server at {} to be ready...", health_url);
-                        // Note: This is blocking, but happens during app startup
-                        // In a real implementation, we'd want to make this async
-                        // For now, we'll just log a warning
-                        tracing::warn!("Health check synchronization not yet implemented - continuing without wait");
-                    }
-                }
-            }
-
-            // Create proxy config. The proxy buffers request bodies, so
-            // align its request cap with the framework-wide body limit
-            // (axum's `DefaultBodyLimit` does not constrain the raw
-            // `Request` extractor the proxy handler uses).
-            let proxy_config = std::sync::Arc::new(
-                crate::proxy::ProxyConfig::new(upstream.clone(), strip_prefix, mount_path.clone())
-                    .with_max_request_body_bytes(body_limit_bytes),
-            );
-
-            // Create a catch-all route for the proxy
-            let proxy_router = axum::Router::new()
-                .fallback(crate::proxy::proxy_handler)
-                .with_state(proxy_config);
-
-            router.nest(&mount_path, proxy_router)
-        }
-    }
 }
 
 pub fn standalone_static_router(dir: &str) -> Router {

@@ -2395,7 +2395,7 @@ pub struct WebContext<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     /// snapshots copy it through `RsjsSharedStateContext::current_transaction`.
     rsjs_shared_state_transaction: Option<u64>,
 
-    /// Request-scoped data loader for `cx.load(...)`. Owned via `Arc` so it
+    /// Request-scoped data loader for `cx.load_json(...)`. Owned via `Arc` so it
     /// can be shared with futures that outlive the borrow on `WebContext`.
     loader: Arc<L>,
 
@@ -3346,40 +3346,6 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     ) -> Self {
         self.set_boundary_error_fallback_stack(stack);
         self
-    }
-
-    /// Load JSON request-scoped data through the configured [`DataLoader`].
-    #[deprecated(
-        note = "use load_json for JSON bytes, load_bytes for raw bytes, or load_typed for typed values"
-    )]
-    pub async fn load<T>(&self, key: LoadKey) -> Result<T, LoadError>
-    where
-        T: DeserializeOwned,
-    {
-        self.load_json(key).await
-    }
-
-    /// Load JSON request-scoped data with advisory policy hints.
-    #[deprecated(
-        note = "use load_json_with for JSON bytes, load_bytes_request for raw bytes, or load_typed_request for typed values"
-    )]
-    pub async fn load_with<T>(&self, key: LoadKey, hints: LoadHints) -> Result<T, LoadError>
-    where
-        T: DeserializeOwned,
-    {
-        self.load_json_request(LoadRequest::with_hints(key, hints))
-            .await
-    }
-
-    /// Load JSON request-scoped data from a full [`LoadRequest`].
-    #[deprecated(
-        note = "use load_json_request for JSON bytes, load_bytes_request for raw bytes, or load_typed_request for typed values"
-    )]
-    pub async fn load_request<T>(&self, request: LoadRequest) -> Result<T, LoadError>
-    where
-        T: DeserializeOwned,
-    {
-        self.load_json_request(request).await
     }
 
     /// Load raw bytes by key.

@@ -94,7 +94,7 @@ pub fn emit_rust(island: &Island, struct_path: &syn::Path) -> TokenStream {
 /// signal locals.
 ///
 /// Used by the proc-macro path so that non-`signal(...)` prelude
-/// bindings (e.g. `let user = cx.load::<User>(id).await?;`) are not
+/// bindings (e.g. `let user = cx.load_json::<User>(id).await?;`) are not
 /// silently dropped: they are emitted exactly as the user wrote them
 /// so the analyser-recognised `signal(...)` initializers AND the
 /// async data-loading prelude both run during render.

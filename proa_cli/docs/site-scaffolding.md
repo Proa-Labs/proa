@@ -25,7 +25,7 @@ The product presets are:
 | `marketing` | Content-oriented site without a database |
 | `docs` | Documentation content and HTML/Markdown representations |
 | `minimal` | Small CSS-based application with optional blank starter content |
-| `origin` | The complete ORIGIN routing atlas: guided dossiers for four networks, a neighbourhood graph, narrated live feeds, the flood-the-table rsjs island lab, self-hosted fonts, and a golden SSR byte-equality test |
+| `origin` | The complete ORIGIN routing atlas: guided dossiers for four networks, a neighbourhood graph, narrated live feeds, the flood-the-table rsjs island lab, self-hosted fonts |
 
 Capabilities are orthogonal. Override a preset with `--database sqlite|none`,
 `--ui proa|none`, `--styling tailwind|css`, `--starter guided|blank`, and
@@ -33,9 +33,7 @@ Capabilities are orthogonal. Override a preset with `--database sqlite|none`,
 application content, so only `--deploy` can be overridden there;
 `proa_cli/src/site_scaffold/templates/origin/` is the canonical template
 which CI uses to generate and test an app against workspace dependencies.
-The generated site pins its server-rendered `/` document with
-`proa test --test atlas` (refresh after intentional markup changes with
-`PROA_UPDATE_GOLDEN=1 proa test --test atlas`). `--dry-run --json` resolves the complete
+`--dry-run --json` resolves the complete
 plan without touching the filesystem. `--offline` forbids network-dependent
 steps. Git initialization, verification, starting, and opening the browser are
 explicit operations; `--yes` never opts into them.

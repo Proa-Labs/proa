@@ -23,7 +23,6 @@ pub fn derive_action(input: DeriveInput) -> TokenStream {
         Err(e) => return TokenStream::from(e.to_compile_error()),
     };
 
-    let mut action_names = Vec::new();
     let mut action_constants = Vec::new();
     let mut action_params = Vec::new();
     let mut to_data_match_arms = Vec::new();
@@ -49,7 +48,6 @@ pub fn derive_action(input: DeriveInput) -> TokenStream {
             .to_uppercase();
         let const_name = syn::Ident::new(&const_name_str, variant_name.span());
 
-        action_names.push(variant_name.clone());
         action_constants.push(quote! {
             pub const #const_name: &'static str = #action_string;
         });

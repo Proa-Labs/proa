@@ -92,14 +92,12 @@ pub fn migration(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn page(
     raw_path: String,
     root: Option<PathBuf>,
     _layout: Option<String>,
     force_markdown: bool,
     no_markdown: bool,
-    no_test: bool,
     dry_run: bool,
     json: bool,
 ) -> Result<()> {
@@ -140,7 +138,7 @@ pub fn page(
             ),
         )?;
     }
-    let mut files = vec![
+    let files = vec![
         (
             PathBuf::from(format!("src/pages/{}.rs", route.module)),
             page_source(&route, markdown),
@@ -148,25 +146,15 @@ pub fn page(
         (PathBuf::from("src/pages/mod.rs"), modules),
         (PathBuf::from("src/routes.rs"), routes),
     ];
-    if !no_test {
-        files.push((
-            PathBuf::from(format!("tests/pages/{}.rs", route.module)),
-            format!(
-                "#[test]\nfn route_contract() {{\n    let source = include_str!(\"../../src/pages/{}.rs\");\n    assert!(source.contains(\"data-page-{}\"));\n}}\n",
-                route.module, route.module
-            ),
-        ));
-    }
+
     finish_generated(&root, "generate.page", files, dry_run, json)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn endpoint(
     raw_path: String,
     root: Option<PathBuf>,
     method: &'static str,
     response: &'static str,
-    no_test: bool,
     dry_run: bool,
     json: bool,
 ) -> Result<()> {
@@ -190,7 +178,7 @@ pub fn endpoint(
         bail!("route path is already registered: {}", route.canonical);
     }
     add_route_spec(&mut routes, &registration)?;
-    let mut files = vec![
+    let files = vec![
         (
             PathBuf::from(format!("src/endpoints/{}.rs", route.module)),
             endpoint_source(response),
@@ -198,15 +186,7 @@ pub fn endpoint(
         (PathBuf::from("src/endpoints/mod.rs"), modules),
         (PathBuf::from("src/routes.rs"), routes),
     ];
-    if !no_test {
-        files.push((
-            PathBuf::from(format!("tests/endpoints/{}.rs", route.module)),
-            format!(
-                "#[test]\nfn endpoint_contract() {{\n    let source = include_str!(\"../../src/endpoints/{}.rs\");\n    assert!(source.contains(\"pub async fn handler\"));\n}}\n",
-                route.module
-            ),
-        ));
-    }
+
     finish_generated(&root, "generate.endpoint", files, dry_run, json)
 }
 
@@ -236,7 +216,7 @@ pub fn model(
     let table = format!("{name}s");
     let mut modules = fs::read_to_string(root.join("src/models/mod.rs")).unwrap_or_default();
     add_module(&mut modules, &name);
-    let mut files = vec![
+    let files = vec![
         (
             PathBuf::from(format!("src/models/{name}.rs")),
             model_source(&struct_name, &fields),
@@ -251,12 +231,7 @@ pub fn model(
             format!("DROP TABLE {table};\n"),
         ),
     ];
-    files.push((
-        PathBuf::from(format!("tests/models/{name}.rs")),
-        format!(
-            "#[test]\nfn model_is_an_ordinary_sqlx_row() {{\n    let source = include_str!(\"../../src/models/{name}.rs\");\n    assert!(source.contains(\"sqlx::FromRow\"));\n}}\n"
-        ),
-    ));
+
     finish_generated(&root, "generate.model", files, dry_run, json)
 }
 

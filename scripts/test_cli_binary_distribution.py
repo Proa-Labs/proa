@@ -217,6 +217,25 @@ class ReleaseAssetVerificationTests(unittest.TestCase):
 
 
 class InstallerContractTests(unittest.TestCase):
+    def test_unix_partial_download_does_not_start_installation(self) -> None:
+        lines = (ROOT / "scripts/install.sh").read_text().rstrip().splitlines()
+        self.assertEqual(lines[-1], 'main "$@"')
+        shell = shutil.which("sh")
+        self.assertIsNotNone(shell)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = subprocess.run(
+                [shell, "-s", "--", "--help"],
+                input="\n".join(lines[:-1]),
+                cwd=root,
+                env={"HOME": directory, "PATH": str(root / "no-commands")},
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+            self.assertEqual(result.stderr, "")
+            self.assertEqual(list(root.iterdir()), [])
+
     def test_unix_help_documents_fail_closed_ci_mode(self) -> None:
         result = subprocess.run(
             ["sh", str(ROOT / "scripts/install.sh"), "--help"],

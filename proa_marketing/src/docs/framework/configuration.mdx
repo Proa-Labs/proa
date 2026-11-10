@@ -1,9 +1,9 @@
 ---
 title: FrameworkBuilder configuration
-description: Configure FrameworkBuilder, security defaults, static mounts, external apps, and response behavior.
+description: Configure FrameworkBuilder, security defaults, static mounts, and response behavior.
 ---
 
-`FrameworkBuilder` turns routes, static services, external apps, and hardening layers into the Axum router you run in production.
+`FrameworkBuilder` turns routes, static services, and hardening layers into the Axum router you run in production.
 
 Use this page when you need the complete setup surface in one place. Use [Routing](/docs/framework/routing), [Responses](/docs/framework/responses), [Static assets](/docs/framework/static-assets), and [Deployment](/docs/framework/deployment) for deeper workflow examples.
 
@@ -40,7 +40,6 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa_f
 | Method | Use it for |
 |--------|------------|
 | `FrameworkBuilder::new()` | Create the builder with secure defaults. No manifest or configuration is required. |
-| `.with_config(config)` | Override project paths, codegen flags, and server defaults. |
 | `.with_head(head)` | Install app-wide [managed head configuration and defaults](/docs/framework/metadata#configure-app-wide-defaults) for rendered routes. |
 | [`.with_base_path(base_path)`](#frameworkbuilder-base-paths-and-rsjs-assets) | Set the public URL prefix for a mounted application. |
 | [`.with_public_origin(origin)?`](/docs/framework/sitemaps) | Set the public HTTP(S) origin used by discovery endpoints. |
@@ -51,7 +50,6 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa_f
 | `.with_static_service(router)` | Mount a router under `/static`. |
 | `.with_dynamic_routes(router)` | Merge an Axum router without a metadata map. |
 | `.with_dynamic_routes_and_metadata(router, metadata)` | Merge Proa route specs plus computed route metadata. |
-| `.with_external_app(app)` | Mount static, SSR, or CSR external applications. |
 | `.with_body_limit(bytes)` | Override the global request body cap. |
 | `.with_cross_origin_protection(bool)` | Toggle browser cross-origin unsafe request protection. |
 | `.with_trusted_origin(origin)` | Add an exact trusted origin such as `https://admin.example.com`. |
@@ -60,7 +58,6 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa_f
 | `.without_request_timeout()` | Disable the timeout layer. Prefer raising the timeout first. |
 | `.with_concurrency_limit(max)` | Add a global in-flight request cap. |
 | `.with_catch_panic(bool)` | Convert panics into plain 500 responses instead of resetting the connection. |
-| `.config()` | Inspect the current `ProaConfig`. |
 | `.build()` | Produce the final Axum `Router`. |
 | `.try_build()?` | Build the router while returning invalid discovery configuration as an error. |
 
@@ -123,62 +120,6 @@ Security defaults live on their own pages, because they are policy decisions rat
 
 Cross-origin protection, the 1 MiB body limit, and the 30-second request timeout are applied by `build()` without configuration. See [Security](/docs/guides/security) for what Proa hardens and what stays yours.
 
-## ProaConfig
-
-`ProaConfig` contains path, codegen, and server defaults:
-
-```rust
-use proa_framework_axum::{CodegenConfig, PathsConfig, ProaConfig, ServerConfig};
-
-let config = ProaConfig {
-    paths: PathsConfig {
-        frontend_root: "./apps/web".into(),
-        public_dir: "./apps/web/public".into(),
-        build_output: "./apps/web/dist".into(),
-        ..Default::default()
-    },
-    codegen: CodegenConfig {
-        routes: true,
-        components: true,
-        islands: true,
-        watch: cfg!(debug_assertions),
-    },
-    server: ServerConfig {
-        host: "0.0.0.0".to_string(),
-        port: 3000,
-        auto_reload: cfg!(debug_assertions),
-    },
-};
-```
-
-### PathsConfig
-
-| Field | Default |
-|-------|---------|
-| `crates_root` | `./crates` |
-| `server_crate` | `./crates/server` |
-| `frontend_root` | `./apps/web` |
-| `codegen_output` | `./apps/web/src/.generated` |
-| `public_dir` | `./apps/web/public` |
-| `build_output` | `./apps/web/dist` |
-
-### CodegenConfig
-
-| Field | Default |
-|-------|---------|
-| `routes` | `true` |
-| `components` | `true` |
-| `islands` | `true` |
-| `watch` | `true` in debug, `false` in release |
-
-### ServerConfig
-
-| Field | Default |
-|-------|---------|
-| `port` | `3000` |
-| `host` | `127.0.0.1` |
-| `auto_reload` | `true` in debug |
-
 ## FrameworkBuilder Static Services
 
 Mount generated assets under `/static`:
@@ -194,48 +135,6 @@ let app = FrameworkBuilder::new()
 ```
 
 For public directories, keep untrusted writers out of the served tree. `ServeDir` rejects `..` traversal, but deployments should still treat symlinks and generated files deliberately.
-
-## FrameworkBuilder External Apps
-
-Use external app mounts when one path is owned by a different frontend or service:
-
-```rust
-use proa_framework_axum::ExternalApp;
-
-let app = FrameworkBuilder::new()
-    .with_external_app(ExternalApp::static_app("/docs", "./apps/docs/out"))
-    .with_external_app(ExternalApp::ssr_app(
-        "/admin",
-        "http://127.0.0.1:4000".to_string(),
-    ))
-    .with_external_app(ExternalApp::csr_app(
-        "/console",
-        "./apps/console/dist",
-        Some("http://127.0.0.1:5173".to_string()),
-    ))
-    .build();
-```
-
-| Strategy | Constructor | Behavior |
-|----------|-------------|----------|
-| Static | `ExternalApp::static_app` | Serves prebuilt files from disk. |
-| SSR | `ExternalApp::ssr_app` | Reverse proxies to an upstream server. |
-| CSR | `ExternalApp::csr_app` | Serves a built SPA directory; a dev upstream is accepted, but dev proxying is not implemented yet. |
-
-SSR proxy mounts strip hop-by-hop headers, rebuild `X-Forwarded-*` metadata, reuse a shared HTTP client, and buffer bodies with bounded request and response limits.
-
-## ProxyConfig Limits
-
-If you build a `ProxyConfig` directly, defaults are:
-
-| Setting | Default |
-|---------|---------|
-| Connect timeout | `5s` |
-| Upstream request timeout | `30s` |
-| Request body cap | `10 MiB` |
-| Upstream response body cap | `16 MiB` |
-
-When `FrameworkBuilder` mounts SSR external apps, it aligns the proxy request cap with the framework body limit.
 
 ## RouteResponse Quick Reference
 

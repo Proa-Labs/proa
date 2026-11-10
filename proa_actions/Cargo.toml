@@ -16,7 +16,3 @@ homepage.workspace = true
 proa_macros = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-[dev-dependencies]
-proa_core = { workspace = true }
-proa_macros = { workspace = true }

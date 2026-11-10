@@ -33,8 +33,7 @@ const TOOLS: &[(&str, &str)] = &[
 /// same document.
 pub struct AgentSurface {
     pub query: String,
-    /// The request's Host header when known; the golden path renders
-    /// without one and keeps a placeholder.
+    /// The request's Host header when known; otherwise display a placeholder.
     pub host: Option<String>,
 }
 

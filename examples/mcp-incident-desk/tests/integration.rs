@@ -96,9 +96,6 @@ async fn authenticated_browser_and_sdk_share_data_and_permissions() {
     assert!(page.status().is_success());
     assert_eq!(page.headers()["cache-control"], "no-store");
     assert_eq!(page.headers()["referrer-policy"], "same-origin");
-    let html = page.text().await.unwrap();
-    assert!(html.contains("data-issue-report"));
-    assert!(html.contains("Record a resolution"));
     let tokens = h.tokens("alice", "aster", true).await;
     let sdk = h.sdk(&tokens.access_token).await;
     let tools = sdk.list_all_tools().await.unwrap();

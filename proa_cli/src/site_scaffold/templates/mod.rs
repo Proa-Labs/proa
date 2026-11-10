@@ -139,7 +139,6 @@ pub fn populate(
     )?;
     plan.write("proa.lock.json", lock_file(selection, component_sources)?)?;
 
-    plan.write("tests/smoke.rs", smoke_test())?;
     if has_database {
         plan.write("tests/dataloader.rs", dataloader_test())?;
     }
@@ -523,16 +522,6 @@ jobs:
 
 fn tailwind_input() -> &'static str {
     "@layer theme, base, proa-compat, components, utilities;\n@import \"tailwindcss\";\n@import \"./starter.css\" layer(components);\n@source \"../src/**/*.rs\";\n"
-}
-
-fn smoke_test() -> &'static str {
-    r##"#[test]
-fn generated_project_has_no_client_root() {
-    let home = include_str!("../src/pages/home.rs");
-    assert!(!home.contains("#[rsjs(component, client)]"));
-    assert!(!home.contains("with_islands"));
-}
-"##
 }
 
 fn dataloader_test() -> &'static str {

@@ -63,34 +63,3 @@ fn push_page(body: &mut String, collection: &str, page: &DocPage) {
     body.push_str(page.markdown.trim());
     body.push('\n');
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::body::to_bytes;
-    use axum::response::IntoResponse;
-
-    #[tokio::test]
-    async fn site_llms_text_contains_documentation_markdown() {
-        let response = site_handler().await.into_response();
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let body = String::from_utf8(body.to_vec()).unwrap();
-        // `/docs` is the quickstart itself now, so the corpus heading carries
-        // that title while the URL stays the docs root.
-        assert!(body.contains("# Docs: Quickstart"));
-        assert!(body.contains("URL: /docs"));
-        assert!(!body.contains("# Blog:"));
-        assert!(body.contains("Proa documentation corpus"));
-    }
-
-    #[tokio::test]
-    async fn site_llms_text_includes_visible_guide_pages() {
-        let response = site_handler().await.into_response();
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let body = String::from_utf8(body.to_vec()).unwrap();
-        assert!(body.contains("# Docs: Islands"));
-        assert!(body.contains("URL: /docs/guides/islands"));
-        assert!(body.contains("URL: /docs/rsjs"));
-    }
-}

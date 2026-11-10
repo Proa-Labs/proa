@@ -90,7 +90,6 @@ impl<'a> Default for ReactBootstrapConfig<'a> {
             auto_run: true,
             expose_global: Some("__proaHydrateIslands"),
             // Use external runtime by default for cross-page caching
-            // URLs are auto-generated from package.json by build.rs
             use_external_runtime: true,
             react_module_url: DEFAULT_REACT_URL,
             react_dom_module_url: DEFAULT_REACT_DOM_URL,

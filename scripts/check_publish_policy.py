@@ -23,7 +23,6 @@ STANDALONE_BOOTSTRAP_BASELINES = {
     "proa_const_json_macros": "0.1.2",
     "itoa_lut": "0.1.2",
     "proa_actions": "0.3.0",
-    "proa_codegen": "0.2.0",
     "proa_core": "0.3.0",
     "proa_docs": "0.2.0",
     "proa_docs_build": "0.2.0",

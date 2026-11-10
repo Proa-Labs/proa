@@ -775,13 +775,6 @@ pub const DEFAULT_CHAINED_BUMP_PAGE_SIZE: usize = 4096;
 /// deliberate choice rather than the path of least resistance.
 pub type RenderBuffer = ChainedBumpWriter<DEFAULT_CHAINED_BUMP_PAGE_SIZE>;
 
-/// Compatibility alias for [`RenderBuffer`].
-///
-/// New code should use [`RenderBuffer`]. Use [`ChainedBumpWriter<N>`] when a
-/// non-standard page size is required.
-#[deprecated(since = "0.3.0", note = "use RenderBuffer")]
-pub type DefaultChainedBumpWriter = RenderBuffer;
-
 /// Chained fixed-size bump writers for unbounded output.
 ///
 /// Uses [`BumpWriter<N>`] pages internally. When the current page fills up,

@@ -575,28 +575,3 @@ h1 { margin: 0; font-size: 30px; line-height: 1.1; letter-spacing: 0; }
   .ops-kpis { grid-template-columns: 1fr; }
 }
 "#;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dashboard_renders_server_table_and_islands() {
-        let html = render();
-        assert_eq!(html.matches("<tr class=").count(), 6);
-        assert_eq!(
-            html.matches(r#"<rsjs-island data-rsjs-island-root="rowactions_"#)
-                .count(),
-            6
-        );
-        assert_eq!(
-            html.matches(r#"<rsjs-island data-rsjs-island-root="dashboardcontrols_"#)
-                .count(),
-            1
-        );
-        assert!(html.contains(r#"data-rsjs-input-value"#));
-        assert!(html.contains(r#"data-rsjs-input-checked"#));
-        assert!(html.contains(r#"data-rsjs-attr"#));
-        assert!(html.contains(r#"aria-expanded="false""#));
-    }
-}

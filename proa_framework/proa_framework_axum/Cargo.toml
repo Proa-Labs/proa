@@ -12,9 +12,6 @@ license-file.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
-[features]
-route-export = []
-
 [dependencies]
 base16ct = { workspace = true }
 anyhow = { workspace = true }

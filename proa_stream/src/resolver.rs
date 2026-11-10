@@ -22,7 +22,7 @@ type SharedLoad = Shared<BoxFuture<'static, Result<LoadValue, LoadError>>>;
 ///
 /// Generic over the wrapped loader type `L`. Use [`DataResolver::new_typed`]
 /// to wrap a concrete `Arc<L>` (which keeps the inner loader's
-/// `cx.load(...)` calls monomorphized), or [`DataResolver::new_dyn`] /
+/// `cx.load_json(...)` calls monomorphized), or [`DataResolver::new_dyn`] /
 /// [`DataResolver::new`] to wrap a `dyn DynDataLoader` (the type-erased
 /// path used when the framework only has a runtime-erased loader).
 pub struct DataResolver<L: ?Sized = dyn DynDataLoader> {

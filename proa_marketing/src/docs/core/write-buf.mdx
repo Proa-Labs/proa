@@ -23,11 +23,10 @@ let html = cx.into_output().into_string();
 | `RenderBuffer` | Routes, tests, and adapters. The default. |
 | `ZeroCopyBuf` | A custom transport experiment preserves large static byte slices. |
 | `StreamingZeroCopyBuf` | You are building a manual checkpoint-based streaming response. |
-| `SinkWriter<N>` | A legacy adapter explicitly selected the deprecated page-pool writer. See [Sink](/docs/core/sink). |
 
 `RenderBuffer` grows by chaining reusable 4 KB pages, never relocates bytes it has already written, and recycles pages after `clear()`.
 
-The last two rows belong to the streaming path. [Sink](/docs/core/sink) covers them.
+For framework-managed streaming, see [Streaming SSR](/docs/core/streaming-ssr).
 
 ## Reusing a buffer
 
@@ -94,12 +93,12 @@ This is the advanced custom-writer path: the page tree must explicitly support
 
 Using `proa_framework_axum` directly? Return `RouteResponse::ssr(Page)` from the handler to use the standard `RenderBuffer` path. See [Route responses](/docs/framework/responses).
 
-Before you ship: use `RenderBuffer` for app routes and tests, call `render_static` first for docs routes, keep response finalization at the route boundary, and reach for zero-copy or sink-backed buffers only when the transport path actually uses them.
+Before you ship: use `RenderBuffer` for app routes and tests, call `render_static` first for docs routes, keep response finalization at the route boundary, and reach for zero-copy buffers only when the transport path actually uses them.
 
 ## Next steps
 
 - [Sink](/docs/core/sink)
-  - Render streamed output into recycled pages instead of fresh allocations.
+  - Migrate deprecated page-pool writers to RenderBuffer.
 - [Route responses](/docs/framework/responses)
   - Return synchronous, buffered async, or streaming SSR with islands.
 - [Streaming SSR](/docs/core/streaming-ssr)

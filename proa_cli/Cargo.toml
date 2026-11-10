@@ -67,8 +67,6 @@ object = { workspace = true }
 # libraries to the CLI executable. release-plz updates them with the workspace.
 proa_actions = { workspace = true }
 proa_core = { workspace = true }
-proa_docs = { workspace = true }
-proa_docs_build = { workspace = true }
 proa_fonts = { workspace = true }
 proa_fonts_build = { workspace = true }
 proa_fonts_macros = { workspace = true }

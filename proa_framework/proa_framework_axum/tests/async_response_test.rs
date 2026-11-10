@@ -449,7 +449,7 @@ async fn ssr_async_dedupes_duplicate_loader_keys_within_request() {
                 async move {
                     // Wrap the typed loader in a typed `DataResolver<L>` so
                     // dedupe still works without going through the dyn
-                    // `DynLoaderHandle` path. `cx.load(...)` calls inside the
+                    // `DynLoaderHandle` path. `cx.load_json(...)` calls inside the
                     // page monomorphize on `DataResolver<CountingLoader>`,
                     // not on `DynLoaderHandle`.
                     let typed_loader =

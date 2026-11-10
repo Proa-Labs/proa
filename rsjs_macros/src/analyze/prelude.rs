@@ -1469,7 +1469,7 @@ pub(super) fn collect_condition_pattern_bindings(expr: &Expr, names: &mut Vec<St
 /// bindings into "the analyser already lowered this into the IR"
 /// (signal declarations) and "needs to be replayed verbatim into the
 /// generated render body" (everything else, e.g.
-/// `let user = cx.load(...).await?;`). See round-3 review #1 for the
+/// `let user = cx.load_json(...).await?;`). See round-3 review #1 for the
 /// motivation.
 pub(crate) fn is_signal_local(local: &Local) -> bool {
     let init = match &local.init {
@@ -2574,7 +2574,7 @@ pub(super) fn handler_payload_param_name(
 /// Parse one prelude `let` binding as a `signal(...)` declaration.
 ///
 /// Returns `Ok(None)` when the local is not a signal declaration
-/// (e.g. `memo(...)`, `cx.load(...).await?`); only signal
+/// (e.g. `memo(...)`, `cx.load_json(...).await?`); only signal
 /// declarations contribute entries.
 pub(super) fn signal_local_decl(local: &Local) -> syn::Result<Option<SignalLocal>> {
     // Pattern: must be a plain ident (no destructuring).
@@ -2593,7 +2593,7 @@ pub(super) fn signal_local_decl(local: &Local) -> syn::Result<Option<SignalLocal
     };
 
     // Recognise `signal(...)`. Anything else (e.g.
-    // `cx.load(...).await?`) is left alone; only signal
+    // `cx.load_json(...).await?`) is left alone; only signal
     // declarations contribute IR.
     let call = match init.expr.as_ref() {
         Expr::Call(c) => c,

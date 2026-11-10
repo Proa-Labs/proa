@@ -123,11 +123,6 @@ class GitScope(unittest.TestCase):
             subprocess.run(["git", "init", "--quiet", str(root)], check=True)
             pairs = (
                 (
-                    "scripts/watch-lock.sh",
-                    "proa_cli/templates/watch-lock.sh",
-                    b"#!/usr/bin/env bash\necho ok\n",
-                ),
-                (
                     "examples/demo/src/main.rs",
                     "proa_cli/src/site_scaffold/templates/origin/src/main.rs",
                     b"fn main() {}\n",

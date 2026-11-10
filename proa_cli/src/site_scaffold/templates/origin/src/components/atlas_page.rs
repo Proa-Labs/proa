@@ -30,7 +30,7 @@ use proa_stream::Suspense;
 
 pub struct AtlasPage {
     pub query: String,
-    /// The request's Host header when known (goldens render without one).
+    /// The request's Host header when known.
     pub host: Option<String>,
 }
 
