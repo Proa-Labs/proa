@@ -2384,7 +2384,7 @@ fn move_appended_response_tail_before_body(buffer: &mut [u8], tail_start: usize)
 /// Cost: `std::str::from_utf8` is `O(n)` over the response body. For a
 /// 16 KB shell this is sub-microsecond and dwarfed by the cost of
 /// rendering, so the check is always-on for non-streaming responses.
-/// Streaming paths that ship per-page (e.g., a sink-backed shell) can't
+/// Streaming paths that ship per-page can't
 /// run this exact check because UTF-8 multi-byte sequences may straddle
 /// page boundaries; those paths must rely on macro guarantees instead.
 fn validate_html_utf8(bytes: &[u8]) -> Result<(), FrameworkError> {

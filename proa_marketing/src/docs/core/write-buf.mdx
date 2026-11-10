@@ -93,12 +93,12 @@ This is the advanced custom-writer path: the page tree must explicitly support
 
 Using `proa_framework_axum` directly? Return `RouteResponse::ssr(Page)` from the handler to use the standard `RenderBuffer` path. See [Route responses](/docs/framework/responses).
 
-Before you ship: use `RenderBuffer` for app routes and tests, call `render_static` first for docs routes, keep response finalization at the route boundary, and reach for zero-copy or sink-backed buffers only when the transport path actually uses them.
+Before you ship: use `RenderBuffer` for app routes and tests, call `render_static` first for docs routes, keep response finalization at the route boundary, and reach for zero-copy buffers only when the transport path actually uses them.
 
 ## Next steps
 
 - [Sink](/docs/core/sink)
-  - Render streamed output into recycled pages instead of fresh allocations.
+  - Migrate deprecated page-pool writers to RenderBuffer.
 - [Route responses](/docs/framework/responses)
   - Return synchronous, buffered async, or streaming SSR with islands.
 - [Streaming SSR](/docs/core/streaming-ssr)
