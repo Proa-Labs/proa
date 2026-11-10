@@ -14,6 +14,8 @@ import subprocess
 import tempfile
 import tomllib
 
+from check_registry_install import generate_additions
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -79,9 +81,21 @@ def main():
         # Keep the workspace's dependency versions: CI fetches this exact lock
         # before running acceptance, including on runners with an empty cache.
         (project / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
+        generate_additions(cli, project, environment, "origin")
         run(["cargo", "tree", "--offline", "--depth", "0"], project, environment)
         run(["cargo", "test", "--locked", "--lib"], project, environment)
         run([cli, "test", "--root", project, "--locked", "--test", "atlas"], project, environment)
+
+        # The regular starter owns route-generating pages; ORIGIN does not.
+        run([cli, "new", "site", "generated-site", "--template", "marketing", "--no-git"], work, environment)
+        project = work / "generated-site"
+        (project / "rust-toolchain.toml").write_bytes((ROOT / "rust-toolchain.toml").read_bytes())
+        manifest = project / "Cargo.toml"
+        manifest.write_text(workspace_manifest(manifest.read_text(), packages, workspace_dependencies))
+        (project / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
+        generate_additions(cli, project, environment, "marketing")
+        run(["cargo", "tree", "--offline", "--depth", "0"], project, environment)
+        run(["cargo", "check", "--locked", "--all-targets"], project, environment)
 
 
 if __name__ == "__main__":

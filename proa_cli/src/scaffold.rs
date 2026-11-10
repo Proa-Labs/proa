@@ -999,8 +999,8 @@ fn component_source(
     };
     let template = match (children, asynchronous) {
         (true, false) => {
-            r#"use proa_core::{ClassList, DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+            r#"use proa::{ClassList, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 __BASE__
 pub struct __STRUCT__<C = ()> {
@@ -1035,8 +1035,8 @@ where
 "#
         }
         (false, false) => {
-            r#"use proa_core::{ClassList, DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+            r#"use proa::{ClassList, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 __BASE__
 #[derive(Debug, Clone, Copy, Default)]
@@ -1069,8 +1069,8 @@ impl<L: DataLoader> WebRenderSync<L> for __STRUCT__ {
         (true, true) => {
             r#"use std::future::Future;
 
-use proa_core::{ClassList, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
-use proa_macros::html;
+use proa::{ClassList, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa::html;
 
 __BASE__
 pub struct __STRUCT__<C = ()> {
@@ -1111,8 +1111,8 @@ where
         (false, true) => {
             r#"use std::future::Future;
 
-use proa_core::{ClassList, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
-use proa_macros::html;
+use proa::{ClassList, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa::html;
 
 __BASE__
 #[derive(Debug, Clone, Copy, Default)]
@@ -1135,7 +1135,7 @@ impl<L: DataLoader> WebRender<L> for __STRUCT__ {
     fn render(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let classes = ClassList::<2>::new().add(BASE_CLASS).add_opt(self.class);
-            let content = proa_core::await_component(async { proa_core::text::text("__STRUCT__") });
+            let content = proa::await_component(async { proa::text::text("__STRUCT__") });
             html! {
                 <div __DATA__ class={classes}>{content}</div>
             }
@@ -1152,10 +1152,10 @@ impl<L: DataLoader> WebRender<L> for __STRUCT__ {
     let markdown_source = if markdown {
         if children {
             r####"
-use proa_core::{MdRenderSync, WriteBuf};
-use proa_macros::md_sync;
+use proa::{MdRenderSync, WriteBuf};
+use proa::md_sync;
 
-impl<L: proa_core::DataLoader, B, C> MdRenderSync<L, B> for __STRUCT__<C>
+impl<L: proa::DataLoader, B, C> MdRenderSync<L, B> for __STRUCT__<C>
 where
     B: WriteBuf,
     C: MdRenderSync<L, B>,
@@ -1173,10 +1173,10 @@ where
 "####
         } else {
             r####"
-use proa_core::{MdRenderSync, WriteBuf};
-use proa_macros::md_sync;
+use proa::{MdRenderSync, WriteBuf};
+use proa::md_sync;
 
-impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for __STRUCT__ {
+impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for __STRUCT__ {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         md_sync! { r###"__STRUCT__"### }.render_md(cx)
     }
@@ -1218,8 +1218,8 @@ impl Default for __STRUCT__Recipe {
 
 fn section_layout_source(struct_name: &str) -> String {
     fill(
-        r#"use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+        r#"use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 pub struct __STRUCT__<C> {
     pub content: C,
@@ -1254,8 +1254,8 @@ where
 fn document_layout_source(struct_name: &str) -> String {
     fill(
         r#"// proa:document-root
-use proa_core::{raw_text_ok, DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{raw_text_ok, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 pub struct __STRUCT__<C> {
     pub title: &'static str,
@@ -1374,9 +1374,8 @@ mod tests {
 
         let source =
             fs::read_to_string(temp.path().join("src/components/marketing_card.rs")).unwrap();
-        assert!(source.contains(
-            "use proa_core::{ClassList, DataLoader, WebContext, WebRenderSync, WriteError};"
-        ));
+        assert!(source
+            .contains("use proa::{ClassList, DataLoader, WebContext, WebRenderSync, WriteError};"));
         assert!(source.contains("impl<L: DataLoader> WebRenderSync<L> for MarketingCard"));
         assert!(source.contains("fn render(self, cx: &mut WebContext<L>)"));
         syn::parse_file(&source).expect("generated component must be valid Rust syntax");
