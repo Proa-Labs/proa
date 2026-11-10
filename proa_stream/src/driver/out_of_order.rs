@@ -723,46 +723,6 @@ pub async fn drain_pending_boundaries_with_nonce_and_artifacts<F, Fut>(
     }
 }
 
-/// Drain pending boundaries and emit transport bytes only.
-///
-/// This compatibility helper discards every successful boundary's rendered
-/// island ids, query seeds, and SharedState seeds. It is incorrect for
-/// responses where deferred boundaries may render client work; use
-/// [`drain_pending_boundaries_with_artifacts`] instead.
-#[deprecated(
-    since = "0.3.0",
-    note = "drops committed RSJS island ids, query seeds, and SharedState seeds; use drain_pending_boundaries_with_artifacts"
-)]
-pub async fn drain_pending_boundaries<F, Fut>(stream: &StreamContext, mut emit: F)
-where
-    F: FnMut(Vec<u8>) -> Fut,
-    Fut: Future<Output = bool>,
-{
-    drain_pending_boundaries_with_artifacts(stream, |chunk| emit(chunk.bytes)).await;
-}
-
-/// Drain pending boundaries with a nonce and emit transport bytes only.
-///
-/// This compatibility helper applies the nonce but discards every successful
-/// boundary's rendered island ids, query seeds, and SharedState seeds. Use
-/// [`drain_pending_boundaries_with_nonce_and_artifacts`] for response
-/// finalization.
-#[deprecated(
-    since = "0.3.0",
-    note = "drops committed RSJS island ids, query seeds, and SharedState seeds; use drain_pending_boundaries_with_nonce_and_artifacts"
-)]
-pub async fn drain_pending_boundaries_with_nonce<F, Fut>(
-    stream: &StreamContext,
-    nonce: Option<&CspNonce>,
-    mut emit: F,
-) where
-    F: FnMut(Vec<u8>) -> Fut,
-    Fut: Future<Output = bool>,
-{
-    drain_pending_boundaries_with_nonce_and_artifacts(stream, nonce, |chunk| emit(chunk.bytes))
-        .await;
-}
-
 pub fn format_boundary_chunk(id: u64, html: &[u8]) -> Vec<u8> {
     format_boundary_chunk_with_nonce(id, html, None)
 }

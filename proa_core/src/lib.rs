@@ -65,26 +65,24 @@ pub mod text {
 #[cfg(feature = "html-to-markdown")]
 pub use md::{to_markdown, ToMarkdown};
 pub use md::{AsyncMd, AsyncMdFuture, MdCodeContent, OptimizedMd, TrustedMarkdown};
-#[allow(deprecated)]
 pub use render::{
     boxed_render, boxed_sync_render, drive_dyn_render, drive_dyn_send_render,
     render_in_send_context, render_send_child, AwaitComponent, AwaitMdComponent,
     AwaitSendComponent, BoxedWebRender, BoxedWebRenderSync, CacheDependency, CacheHint, CacheMode,
     CacheTrace, DataLoader, DynDataLoader, DynLoaderHandle, DynRenderOutcome, DynSendRenderOutcome,
     DynWebRender, DynWebRenderSend, DynWebRenderSync, ErrorBoundary, HeadContext, HeadEntry,
-    InOrderPagePool, InOrderSinkWriter, LoadError, LoadFuture, LoadHints, LoadKey, LoadKeyKind,
-    LoadRequest, LoadValue, Locals, MdRender, MdRenderAsyncExt, MdRenderSync, MdRenderSyncExt,
-    MdSyncToAsync, MemorySink, NoLoader, PagePool, PendingBoundary, Priority, RenderArtifacts,
-    RenderMode, RenderOutcome, RenderTelemetry, RenderedBoundary, RequestContext, RequestLocation,
-    ResponseContext, RouteParam, RouteParams, RsjsArtifactBranch, RsjsArtifactCheckpoint,
-    RsjsLinkedProviderOccurrenceKey, RsjsLinkedProviderTagGuard, RsjsQuerySeedArtifact,
-    RsjsRenderArtifacts, RsjsSharedStateScopeGuard, RsjsSharedStateSeedArtifact,
-    SendPendingBoundary, SendPendingBoundaryFuture, SendRenderedBoundary,
-    SendStreamBoundaryRecorder, SendStreamChunkFlusher, SendSyncToAsync, SinkCheckpoint, SinkPage,
-    SinkWriter, StandardDataLoader, StatelessSyncToSend, StreamBoundaryRecorder,
-    StreamChunkFlusher, StreamChunkView, SyncToAsync, TelemetryEvent, TwoSync, WebContext,
-    WebContextParts, WebRender, WebRenderSend, WebRenderSendSync, WebRenderSync,
-    IN_ORDER_SINK_PAGE_SIZE,
+    LoadError, LoadFuture, LoadHints, LoadKey, LoadKeyKind, LoadRequest, LoadValue, Locals,
+    MdRender, MdRenderAsyncExt, MdRenderSync, MdRenderSyncExt, MdSyncToAsync, NoLoader,
+    PendingBoundary, Priority, RenderArtifacts, RenderMode, RenderOutcome, RenderTelemetry,
+    RenderedBoundary, RequestContext, RequestLocation, ResponseContext, RouteParam, RouteParams,
+    RsjsArtifactBranch, RsjsArtifactCheckpoint, RsjsLinkedProviderOccurrenceKey,
+    RsjsLinkedProviderTagGuard, RsjsQuerySeedArtifact, RsjsRenderArtifacts,
+    RsjsSharedStateScopeGuard, RsjsSharedStateSeedArtifact, SendPendingBoundary,
+    SendPendingBoundaryFuture, SendRenderedBoundary, SendStreamBoundaryRecorder,
+    SendStreamChunkFlusher, SendSyncToAsync, StandardDataLoader, StatelessSyncToSend,
+    StreamBoundaryRecorder, StreamChunkFlusher, StreamChunkView, SyncToAsync, TelemetryEvent,
+    TwoSync, WebContext, WebContextParts, WebRender, WebRenderSend, WebRenderSendSync,
+    WebRenderSync,
 };
 pub use shared::attr::{Attr, AttrKey};
 pub use shared::attr_value::SafeAttr;
@@ -104,8 +102,6 @@ pub use shared::text::{
     foreign_content_ok, perf_ok, raw_text_ok, style_ok, text, SafeText, StaticRaw, Text, UnsafeRaw,
 };
 pub use shared::variant::Variant;
-#[allow(deprecated)]
-pub use shared::write_buf::DefaultChainedBumpWriter;
 pub use shared::write_buf::{
     render_growable, BumpWriter, ChainedBumpCheckpoint, ChainedBumpWriter, CheckpointWriteBuf,
     FlushMark, Part, RenderBuffer, SizeHint, SmallBuf, SmallBufCheckpoint, StagedBuf,

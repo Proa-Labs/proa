@@ -39,8 +39,7 @@ use model::Dossier;
 pub use components::markdown_string;
 
 /// Render the atlas document for one lookup through the given loader, exactly
-/// as the `/` route serves it. The golden SSR test injects a fixture loader
-/// here so the output is deterministic.
+/// as the `/` route serves it.
 pub async fn render_atlas_page<L>(raw_query: Option<&str>, loader: Arc<L>) -> String
 where
     L: proa_core::DataLoader + Send + Sync + 'static,

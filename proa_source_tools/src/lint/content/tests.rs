@@ -262,7 +262,7 @@ fn borrowed_callbacks_remain_unchecked_instead_of_confirmed_missing() {
 fn familiar_method_names_do_not_exempt_custom_or_shadowed_contexts() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        r####"cx.load(query); md_sync! {r###""###}.render_md(cx)"####,
+        r####"cx.load_json(query); md_sync! {r###""###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
     let local = format!("mod proa_core {{ pub struct WebContext; }} {src}")
@@ -277,7 +277,7 @@ fn familiar_method_names_do_not_exempt_custom_or_shadowed_contexts() {
     );
     let shadowed = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        r####"let cx = custom_context(); cx.load(query); md_sync! {r###""###}.render_md(cx)"####,
+        r####"let cx = custom_context(); cx.load_json(query); md_sync! {r###""###}.render_md(cx)"####,
     )
     .replace("&mut Cx", "&mut proa_core::WebContext");
     assert_eq!(

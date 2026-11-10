@@ -23,11 +23,10 @@ let html = cx.into_output().into_string();
 | `RenderBuffer` | Routes, tests, and adapters. The default. |
 | `ZeroCopyBuf` | A custom transport experiment preserves large static byte slices. |
 | `StreamingZeroCopyBuf` | You are building a manual checkpoint-based streaming response. |
-| `SinkWriter<N>` | A legacy adapter explicitly selected the deprecated page-pool writer. See [Sink](/docs/core/sink). |
 
 `RenderBuffer` grows by chaining reusable 4 KB pages, never relocates bytes it has already written, and recycles pages after `clear()`.
 
-The last two rows belong to the streaming path. [Sink](/docs/core/sink) covers them.
+For framework-managed streaming, see [Streaming SSR](/docs/core/streaming-ssr).
 
 ## Reusing a buffer
 

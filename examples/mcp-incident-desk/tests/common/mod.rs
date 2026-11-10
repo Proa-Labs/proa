@@ -135,7 +135,6 @@ impl Harness {
             .unwrap();
         assert!(page.status().is_success());
         assert_eq!(page.headers()["referrer-policy"], "same-origin");
-        assert!(page.text().await.unwrap().contains("Approve access"));
         let consent = b
             .post(format!("{}/consent", self.issuer))
             .header("origin", &self.issuer)

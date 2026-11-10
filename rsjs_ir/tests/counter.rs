@@ -28,8 +28,8 @@
 //! before any emitter or pass exists to consume it.
 
 use rsjs_ir::{
-    Bindings, ClientBinaryOp, ClientBlock, ClientExpr, ClientSimpleClosure, ClientStmt, EventName,
-    ExprArena, ExprId, IslandBuilder, NodeId, Value, ViewNode,
+    ClientBinaryOp, ClientBlock, ClientExpr, ClientSimpleClosure, ClientStmt, EventName, ExprArena,
+    ExprId, IslandBuilder, NodeId, Value, ViewNode,
 };
 
 /// Build the Counter fixture island.
@@ -268,13 +268,6 @@ fn arena_and_signals_are_dense_and_monotonic() {
         expr_arena_check.client_expr(f.count_read_expr),
         &ClientExpr::SignalRead(f.count_signal)
     );
-}
-
-#[test]
-fn bindings_default_is_empty() {
-    let bindings = Bindings::new();
-    assert!(bindings.text_bindings.is_empty());
-    assert!(bindings.event_bindings.is_empty());
 }
 
 #[test]

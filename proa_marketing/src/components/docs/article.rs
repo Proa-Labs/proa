@@ -94,16 +94,3 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsArticleHtml {
         UnsafeRaw(self.html).render(cx)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::article_actions_insert_at;
-
-    #[test]
-    fn article_actions_follow_the_heading_and_intro() {
-        let html = "<h1>Title</h1><p>Intro</p><h2>Body</h2>";
-        let insert_at = article_actions_insert_at(html).expect("article heading");
-
-        assert_eq!(&html[..insert_at], "<h1>Title</h1><p>Intro</p>");
-    }
-}

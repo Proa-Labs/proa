@@ -11,14 +11,13 @@ The generator commands write files into an existing Proa project. By default, th
 proa generate component pricing/feature-row --children --recipe
 ```
 
-This creates module entries under `src/components` and writes either a single component file or a component folder.
+This creates module entries under `src/components` and writes either a single component file or a component folder. Generators do not add placeholder tests; add a test when the component has behavior worth protecting.
 
 | Flag | Behavior |
 |------|----------|
 | `--folder` | Use `components/<name>/mod.rs` plus a sibling implementation file. |
 | `--recipe` | Generate `recipe.rs` and a folder layout. |
 | `--children` | Add generic `children` support. |
-| `--no-test` | Omit the generated render test. |
 | `--root <DIR>` | Use an explicit project root. |
 | `--dry-run [text\|json]` | Print the plan without writing. |
 | `--force` | Overwrite generated files. |

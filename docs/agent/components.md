@@ -276,40 +276,14 @@ utility classes.
 
 ## Testing
 
-Render the component through the normal buffer and assert public invariants:
+Add a test when the component introduces behavior that can fail independently
+of an intended UI change. Prefer application state transitions, authorization,
+validation, or an integration boundary over assertions that repeat the template.
 
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_core::text::text;
-    use proa_core::{WebContext, WebRenderSync};
-
-    #[test]
-    fn notice_renders_variant_children_and_custom_class() {
-        let mut cx = WebContext::new();
-
-        Notice {
-            tone: NoticeTone::Positive,
-            class: Some("mt-4"),
-            children: Some(text("<saved>")),
-        }
-        .render(&mut cx)
-        .unwrap();
-
-        let html = cx.into_output().into_string();
-        assert!(html.contains(r#"data-component="notice""#));
-        assert!(html.contains(r#"data-variant="positive""#));
-        assert!(html.contains("mt-4"));
-        assert!(html.contains("&lt;saved&gt;"));
-        assert!(!html.contains("<saved>"));
-    }
-}
-```
-
-Test every variant mapping, optional field in both states, user-controlled text
-escaping, and stable ARIA/id relationships. Snapshot whole pages only when
-structural diffs are useful and deterministic.
+Do not add a render test for every component, enumerate static classes or icons,
+or pin whole-page markup. Generic escaping and renderer guarantees belong in
+the framework's tests. See the [testing guide](../../proa_marketing/src/docs/guides/testing.mdx)
+for choosing a useful test and running linked application targets.
 
 ## Verification
 

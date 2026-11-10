@@ -10,15 +10,10 @@
 /release-plz.toml @hariria
 /deploy/ @hariria
 /scripts/perf/ @hariria
-/scripts/perf_alert.py @hariria
-/scripts/perf_report.py @hariria
-/scripts/test_perf_alert.py @hariria
-/scripts/test_perf_report.py @hariria
 /proa_bench/benches/render_memcpy_floor.rs @hariria
 /proa_marketing/Dockerfile @hariria
 /scripts/install.sh @hariria
 /scripts/install.ps1 @hariria
-/scripts/publish.py @hariria
 /scripts/release-plz.sh @hariria
 /scripts/verify_cli_release_assets.py @hariria
 /scripts/check_publish_policy.py @hariria

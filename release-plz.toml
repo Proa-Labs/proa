@@ -94,10 +94,6 @@ name = "proa_ir"
 release = true
 
 [[package]]
-name = "proa_codegen"
-release = true
-
-[[package]]
 name = "proa_og"
 release = true
 

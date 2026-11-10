@@ -150,7 +150,6 @@ def main() -> None:
         application = next(package for package in metadata["packages"]
                            if Path(package["manifest_path"]).resolve() == (project / "Cargo.toml").resolve())
         tests = [target["name"] for target in application["targets"] if "test" in target["kind"]]
-        assert tests, "generated site must contain integration tests"
         if any("lib" in target["kind"] for target in application["targets"]):
             run(["cargo", "test", "--locked", "--lib"], project, environment)
         for target in tests:

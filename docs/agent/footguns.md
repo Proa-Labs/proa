@@ -258,7 +258,7 @@ impl<L: DataLoader> WebRender<L> for AsyncIsland {
         cx: &mut WebContext<L>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            let data = cx.load::<Data>(self.key).await?;
+            let data = cx.load_json::<Data>(self.key).await?;
             html! { <output>{data}</output> }.render(cx).resolve().await
         })
     }

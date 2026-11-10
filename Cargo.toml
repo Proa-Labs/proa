@@ -17,7 +17,6 @@ members = [
     "proa_framework/proa_framework_core",
     "proa_framework/proa_framework_axum",
     "proa_marketing",
-    "proa_codegen",
     "proa_ir",
     "proa_fonts/proa_fonts",
     "proa_fonts/proa_fonts_build",
@@ -40,7 +39,6 @@ members = [
     "rsjs_macros",
     "rsjs_transport",
     "rsjs_web",
-    "proa_demo/bench/lean-page/proa-server",
     "examples/webmcp-pizza",
     "examples/mcp-incident-desk",
 ]
@@ -57,7 +55,6 @@ default-members = [
     "proa_framework/proa_framework_axum",
     "proa_ir",
     "proa_actions",
-    "proa_codegen",
     "rsjs",
     "rsjs_ir",
     "rsjs_macros",

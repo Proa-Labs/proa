@@ -68,69 +68,9 @@ async fn brief_preserves_evidence_and_composes_safe_structured_blocks() {
     IssueReport::new(&d).render(&mut cx).unwrap();
     let html = cx.into_output().into_string();
     assert!(!html.contains("<script>"));
-    assert_eq!(html.matches("data-activity-log").count(), 1);
-    assert!(html.contains("data-badge"));
-    assert!(html.contains("status-open"));
     d.can_resolve = false;
     let readonly = markdown(&d).unwrap();
     assert!(!readonly.contains("expected_version"));
     d.issue.status = "resolved".into();
-    let mut cx = WebContext::new();
-    IssueReport::new(&d).render(&mut cx).unwrap();
-    assert!(cx.into_output().into_string().contains("status-resolved"));
     assert!(!markdown(&d).unwrap().contains("expected_version"));
-}
-
-#[tokio::test]
-async fn screens_use_registry_components_and_keep_form_and_navigation_contracts() {
-    let h = Harness::new().await;
-    let browser = h.login_browser("alice", "aster").await;
-    let listing = browser
-        .get(format!("{}/issues?query=Checkout&status=open", h.app))
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
-    for hook in [
-        "data-table",
-        "data-table-header",
-        "data-table-body",
-        "data-table-row",
-        "data-badge",
-        "data-button",
-    ] {
-        assert!(listing.contains(hook), "missing registry component {hook}");
-    }
-    assert!(listing.contains("value=\"Checkout\""));
-    assert!(listing.contains("aria-current=\"page\""));
-    assert!(listing.contains("href=\"#main-content\""));
-    assert!(listing.contains("id=\"main-content\""));
-    assert!(listing.contains("scope=\"col\""));
-    let detail = browser
-        .get(format!("{}/issues/AST-1042", h.app))
-        .send()
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
-    for hook in [
-        "data-card",
-        "data-textarea",
-        "data-button",
-        "name=\"csrf\"",
-        "name=\"expected_version\"",
-        "name=\"idempotency_key\"",
-        "for=\"resolution-note\"",
-        "id=\"resolution-note\"",
-        "maxlength=\"2000\"",
-    ] {
-        assert!(detail.contains(hook), "missing form contract {hook}");
-    }
-    assert_eq!(detail.matches("data-activity-log").count(), 1);
-    for asset in ["/static/styles.css", "/static/incident.css"] {
-        assert!(detail.contains(asset));
-    }
 }

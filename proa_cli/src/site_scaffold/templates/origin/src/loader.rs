@@ -176,7 +176,7 @@ impl DataLoader for AtlasLoader {
     }
 }
 
-/// A canned loader for tests and the golden fixture: serves one fixed dossier
+/// A canned loader for tests: serves one fixed dossier
 /// for every dossier key and counts how often it is asked to reach origin.
 pub struct FixtureLoader {
     dossier: Dossier,

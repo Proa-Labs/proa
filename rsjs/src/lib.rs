@@ -115,7 +115,7 @@
 //!   errors (best-effort).
 //! - `cx` is in scope inside the render method as it is in any Proa component;
 //!   async code can load values with a real `LoadKey`, such as
-//!   `cx.load::<User>(LoadKey::typed("user", id)).await`.
+//!   `cx.load_json::<User>(LoadKey::typed("user", id)).await`.
 //!
 //! # Status
 //!

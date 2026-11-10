@@ -234,10 +234,9 @@ Everything else in the grammar is evaluable. The evaluator enforces the
 same boundary at runtime (`ClientOnly`/`Unsupported` errors), so an
 unvalidated expression still cannot reach client-only state.
 
-`Stmt` is not reachable from `Expr` (expressions are pure and contain no
-statements), so no statement-level validation is needed for expression
-slots. A future `Stmt`-level server dialect is a separate concern for a
-runtime-template program layer.
+Expressions are pure and contain no statement blocks. The server dialect
+gate covers expression slots; browser effects and event handling use the
+compiled RSJS pipeline.
 
 ## Budgets
 

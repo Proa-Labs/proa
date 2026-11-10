@@ -82,7 +82,7 @@ If a compile-time HTML fragment must participate in Proa finalization or browser
 RouteResponse::ssr(proa_core::static_html(b"<main>Static fragment</main>"))
 ```
 
-Mount a browser-rendered application with `ExternalApp::csr_app`, which owns SPA fallback and asset routing. Keeping these cases out of `RouteResponse` makes the type describe one job: deferred server rendering.
+Serve browser-rendered applications through Axum file services and configure their fallback routing explicitly. `RouteResponse` handles deferred server rendering.
 
 ## Rendering without a server
 

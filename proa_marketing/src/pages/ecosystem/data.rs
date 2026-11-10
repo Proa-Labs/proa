@@ -317,21 +317,6 @@ const ECOSYSTEM_TOOLS: &[EcosystemTool<'static>] = &[
         visual: ToolVisual::Markdown,
     },
     EcosystemTool {
-        category: "tooling",
-        href: routes::FRAMEWORK_DOCS,
-        name: "proa_codegen",
-        version: "v0.2.0",
-        version_tone: ToolVersionTone::Default,
-        description: "Product-neutral TypeScript generation from an explicit component metadata manifest.",
-        kind: "crate + binary",
-        detail: "metadata to TypeScript",
-        cta_label: "Docs",
-        visual: ToolVisual::Crate {
-            initial: "TS",
-            command: "metadata -> TypeScript",
-        },
-    },
-    EcosystemTool {
         category: "interop",
         href: routes::FRAMEWORK_DOCS,
         name: "proa_react",

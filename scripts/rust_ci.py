@@ -22,7 +22,6 @@ LIB_EXCLUDE = {
     "proa_demo",
     "proa_marketing",
     "proa_showcase_web",
-    "proa-lean-server",
     "proa_webmcp_pizza",
 }
 INTEGRATION_EXCLUDE = LIB_EXCLUDE | {"proa_showcase", "proa-cli"}

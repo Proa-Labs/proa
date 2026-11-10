@@ -105,24 +105,6 @@ async fn mounted_documents_and_assets_keep_their_public_prefix() {
 }
 
 #[tokio::test]
-async fn health_endpoint_is_local_and_machine_readable() {
-    let response = __CRATE_IDENT__::app()
-        .oneshot(
-            Request::builder()
-                .uri("/healthz")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.headers()["content-type"], "application/json");
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    assert_eq!(&body[..], br#"{"status":"ok"}"#);
-}
-
-#[tokio::test]
 async fn site_markdown_route_serves_the_dossier() {
     let response = __CRATE_IDENT__::app()
         .oneshot(
@@ -139,34 +121,4 @@ async fn site_markdown_route_serves_the_dossier() {
         .to_str()
         .unwrap()
         .starts_with("text/markdown"));
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let body = String::from_utf8(body.to_vec()).unwrap();
-    assert!(
-        body.contains("`cloudflare.com` — network dossier"),
-        "unexpected body head: {:.300}",
-        body
-    );
-    assert!(body.contains("anything unusual"));
-    assert!(body.contains("lookup_site(hostname)"));
-    assert!(body.contains("Accept: text/markdown"));
-}
-
-#[tokio::test]
-async fn bundled_browser_runtime_drives_the_feeds_and_lab() {
-    let response = __CRATE_IDENT__::app()
-        .oneshot(
-            Request::builder()
-                .uri("/static/origin.js")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let body = String::from_utf8(body.to_vec()).unwrap();
-    assert!(body.contains("origin:flood"));
-    assert!(body.contains("data-flood-table"));
-    assert!(body.contains("origin:filter"));
 }

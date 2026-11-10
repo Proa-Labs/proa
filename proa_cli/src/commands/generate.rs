@@ -47,8 +47,6 @@ struct GeneratePageArgs {
     #[arg(long)]
     no_markdown: bool,
     #[arg(long)]
-    no_test: bool,
-    #[arg(long)]
     dry_run: bool,
     #[arg(long)]
     json: bool,
@@ -63,8 +61,6 @@ struct GenerateEndpointArgs {
     method: EndpointMethod,
     #[arg(long, value_enum)]
     response: EndpointResponse,
-    #[arg(long)]
-    no_test: bool,
     #[arg(long)]
     dry_run: bool,
     #[arg(long)]
@@ -141,9 +137,6 @@ struct GenerateComponentArgs {
     /// Add a semantic MdRenderSync implementation.
     #[arg(long)]
     markdown: bool,
-    /// Do not generate a render test.
-    #[arg(long = "no-test")]
-    no_test: bool,
     /// Print planned changes without writing.
     #[arg(long, value_name = "FORMAT", num_args = 0..=1, default_missing_value = "text")]
     dry_run: Option<scaffold::DryRunFormat>,
@@ -216,7 +209,6 @@ pub(crate) fn run(args: GenerateArgs) -> Result<()> {
             args.layout,
             args.markdown,
             args.no_markdown,
-            args.no_test,
             args.dry_run,
             args.json,
         ),
@@ -236,7 +228,6 @@ pub(crate) fn run(args: GenerateArgs) -> Result<()> {
                 EndpointResponse::Empty => "empty",
                 EndpointResponse::Html => "html",
             },
-            args.no_test,
             args.dry_run,
             args.json,
         ),
@@ -252,7 +243,6 @@ pub(crate) fn run(args: GenerateArgs) -> Result<()> {
                 children: args.children,
                 asynchronous: args.asynchronous,
                 markdown: args.markdown,
-                no_test: args.no_test,
                 dry_run: json_dry_run(args.dry_run, args.json),
                 force: args.force,
             })

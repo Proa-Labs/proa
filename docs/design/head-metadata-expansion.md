@@ -109,7 +109,7 @@ throughput. The earlier canonical benchmark review remains separate.
 See [all request samples and provenance](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-metadata-expansion-requests.json)
 for binary/source/lockfile hashes, allocation results, output hashes, paired
 intervals, and the direct object control. The harness is
-[`managed_requests`](../../proa_bench/probes/managed_requests/README.md); the direct
+[`managed_requests`](https://github.com/Proa-Labs/proa/tree/beb1084c074fdb6c3746ccd204ab39f3a2e26d77/proa_bench/probes/managed_requests); the direct
 old-object control compiles `request.rs` from `c6ac23e5` with its `bulk` feature.
 
 ## Validation

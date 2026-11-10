@@ -9,7 +9,7 @@ raw/dynamic requests retain about 20–53 ns of additional routing work.
 [Raw evidence](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-local-benchmarks-performance.json) includes every
 process sample, paired bootstrap intervals, compiler/checkout/source/binary
 hashes, output parity hashes, and HTTP resource and generator diagnostics.
-[Reproduction](../../proa_bench/probes/managed_requests/README.md) uses the actual
+[Reproduction](https://github.com/Proa-Labs/proa/tree/beb1084c074fdb6c3746ccd204ab39f3a2e26d77/proa_bench/probes/managed_requests) uses the actual
 local `proa-benchmarks` fixtures with temporary Cargo patches.
 
 ## Scope and controls

@@ -132,11 +132,11 @@ enum RoutePlan<L: DataLoader> {
 /// Portable, opaque route render plan.
 ///
 /// Generic over `L: DataLoader` so the loader's concrete type is preserved
-/// end-to-end through the route pipeline. `cx.load(...)` calls inside the
+/// end-to-end through the route pipeline. `cx.load_json(...)` calls inside the
 /// component become direct, monomorphized calls on `L` rather than going
 /// through a `Box::pin` at the dyn boundary.
 ///
-/// Defaults to `NoLoader` so handlers that don't use `cx.load(...)` keep
+/// Defaults to `NoLoader` so handlers that don't use `cx.load_json(...)` keep
 /// writing `-> RouteResponse` unchanged. Handlers that do install a loader
 /// should declare their return type as `-> impl IntoResponse`, which lets
 /// axum infer the concrete `L` without the caller having to spell it out.
@@ -187,7 +187,7 @@ impl RouteResponse<DynLoaderHandle> {
     /// Replace the loader on an existing type-erased response.
     ///
     /// The response must already use `L = DynLoaderHandle`; this method does
-    /// not change its loader type. Every `cx.load(...)` inside the component
+    /// not change its loader type. Every `cx.load_json(...)` inside the component
     /// pays one `Box::pin` at the dyn boundary.
     ///
     /// Use [`with_loader`](Self::with_loader) on a typed `L` for the
@@ -279,7 +279,7 @@ impl RouteResponse<NoLoader> {
     ///
     /// Rendering completes before the response is emitted, so root errors and
     /// response metadata are known before body delivery begins. Use this when
-    /// the component never calls `cx.load(...)`. To install a
+    /// the component never calls `cx.load_json(...)`. To install a
     /// typed loader, use [`ssr_async_with_loader`](RouteResponse::<L>::ssr_async_with_loader)
     /// or the type-changing builder [`with_loader`](RouteResponse::<L>::with_loader).
     pub fn ssr_async<T>(component: T) -> Self
@@ -350,7 +350,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// Construct a buffered async-rendered route response with a typed loader.
     ///
     /// `L` is inferred from `loader`'s type. The component must implement
-    /// `WebRender<L, RenderBuffer>`; `cx.load(...)` calls inside it become
+    /// `WebRender<L, RenderBuffer>`; `cx.load_json(...)` calls inside it become
     /// direct, monomorphized calls on `L`.
     pub fn ssr_async_with_loader<T>(component: T, loader: Arc<L>) -> Self
     where
@@ -429,7 +429,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
 
     /// Install a typed loader on the response.
     ///
-    /// `L` is the loader's concrete type, which lets `cx.load(...)` calls
+    /// `L` is the loader's concrete type, which lets `cx.load_json(...)` calls
     /// monomorphize to a direct call on the loader rather than going through
     /// a `Box::pin` at the dyn boundary.
     pub fn with_loader(mut self, loader: Arc<L>) -> Self {

@@ -75,7 +75,7 @@ fn main() {
         report("Vec<u8> (reused)", &mut samples, bytes, "");
     }
 
-    // Path B — DefaultChainedBumpWriter (4 KiB pages)
+    // Path B — RenderBuffer (4 KiB pages)
     {
         let mut buf = RenderBuffer::new();
         for _ in 0..WARMUP {

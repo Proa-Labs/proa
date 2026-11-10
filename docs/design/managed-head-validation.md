@@ -110,7 +110,7 @@ quickstart scaffold.
 ## Native-path performance
 
 [Raw results](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/design/evidence/head-layout-page-performance.json) include every sample, compiler
-identity and probe/library hashes. [Reproduction instructions](../../proa_bench/probes/README.md).
+identity and probe/library hashes. [Reproduction instructions](https://github.com/Proa-Labs/proa/tree/beb1084c074fdb6c3746ccd204ab39f3a2e26d77/proa_bench/probes).
 These are identical-source optimized probes against both checkouts, not theoretical
 claims about what LLVM should eliminate.
 

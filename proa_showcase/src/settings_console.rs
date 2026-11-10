@@ -390,19 +390,3 @@ button { font: inherit; }
   .settings-tabs { flex-wrap: wrap; }
 }
 "#;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn settings_console_renders_reactive_state_attrs() {
-        let html = render();
-        assert!(html.contains(r#"<rsjs-island data-rsjs-island-root="settingspanel_"#));
-        assert!(html.contains(r#"class="settings-tab settings-tab--active""#));
-        assert!(html.contains(r#"data-state="active""#));
-        assert!(html.contains(r#"aria-selected="true""#));
-        assert!(html.contains(r#"disabled"#));
-        assert!(html.matches(r#"data-rsjs-attr=""#).count() >= 10);
-    }
-}

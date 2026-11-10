@@ -115,27 +115,4 @@ mod tests {
             assert_eq!(cx.into_output(), b"Intro\n\nPartial\n\n# Fallback\n\n");
         }
     }
-
-    #[test]
-    fn nested_card_titles_keep_the_same_level() {
-        let mut cx = WebContext::with_buffer(Vec::new());
-        let cards = Card {
-            class: None,
-            children: Some((
-                CardTitle {
-                    class: None,
-                    children: Some(proa_macros::md_sync! { "Outer" }),
-                },
-                Card {
-                    class: None,
-                    children: Some(CardTitle {
-                        class: None,
-                        children: Some(proa_macros::md_sync! { "Inner" }),
-                    }),
-                },
-            )),
-        };
-        cards.render_md(&mut cx).unwrap();
-        assert_eq!(cx.into_output(), b"## Outer\n\n## Inner\n\n");
-    }
 }

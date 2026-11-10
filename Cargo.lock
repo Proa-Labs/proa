@@ -2343,7 +2343,6 @@ dependencies = [
  "dotenvy",
  "heapless",
  "http",
- "http-body-util",
  "jsonwebtoken",
  "proa_actions",
  "proa_core",
@@ -2368,7 +2367,6 @@ dependencies = [
  "thiserror",
  "tiktoken-rs",
  "tokio",
- "tower 0.5.2",
  "tower-http 0.6.11",
  "tracing",
  "tracing-subscriber",
@@ -3248,8 +3246,6 @@ dependencies = [
  "proa_actions",
  "proa_build",
  "proa_core",
- "proa_docs",
- "proa_docs_build",
  "proa_dsl",
  "proa_fonts",
  "proa_fonts_build",
@@ -3282,21 +3278,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "proa-lean-server"
-version = "0.1.0"
-dependencies = [
- "axum",
- "proa_core",
- "proa_demo",
- "rsjs",
- "tokio",
-]
-
-[[package]]
 name = "proa_actions"
 version = "0.4.0"
 dependencies = [
- "proa_core",
  "proa_macros",
  "serde",
  "serde_json",
@@ -3337,14 +3321,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "proa_codegen"
-version = "0.2.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -3626,7 +3602,6 @@ dependencies = [
  "proa_macros",
  "proa_showcase_web",
  "proa_third_party",
- "pulldown-cmark",
  "reqwest 0.12.24",
  "rmcp",
  "rsjs",

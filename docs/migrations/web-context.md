@@ -295,11 +295,11 @@ cargo fmt --all --check
 cargo check --workspace --all-targets --locked
 cargo test --workspace --lib --no-fail-fast --locked \
   --exclude proa_demo --exclude proa_marketing \
-  --exclude proa_showcase_web --exclude proa-lean-server \
+  --exclude proa_showcase_web \
   --exclude proa_webmcp_pizza
 cargo test --workspace --tests --no-fail-fast --locked \
   --exclude proa_demo --exclude proa_marketing \
-  --exclude proa_showcase_web --exclude proa-lean-server --exclude proa_showcase \
+  --exclude proa_showcase_web --exclude proa_showcase \
   --exclude proa_webmcp_pizza
 python3 scripts/proa_perf_lint.py --changed --base 1166812
 ```

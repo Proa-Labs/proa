@@ -46,57 +46,16 @@
 //! - `32768` (32KB): Complex pages (consider heap at this point)
 #[cfg(test)]
 use crate::render::DataLoader;
-#[allow(deprecated)]
-pub use crate::shared::write_buf::DefaultChainedBumpWriter;
 pub use crate::shared::write_buf::{
     render_growable, BumpWriter, ChainedBumpWriter, FlushMark, Part, RenderBuffer, SmallBuf,
     StagedBuf, StreamingChunk, StreamingChunkPart, StreamingZeroCopyBuf, WriteBuf, WriteCursor,
     WriteError, ZeroCopyBuf, DEFAULT_CHAINED_BUMP_PAGE_SIZE,
 };
-use crate::{WebContext, WebRenderSync};
-/// Render to a `Vec<u8>` with a capacity hint.
-///
-/// This is a convenience function that pre-allocates the buffer with the given hint.
-///
-/// # Example
-///
-/// ```rust
-/// use proa_core::stack::{render_into_vec_with_hint, WriteBuf};
-/// use proa_core::{DataLoader, WebRenderSync, WebContext};
-///
-/// struct MyComponent;
-/// impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MyComponent {
-///     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
-///         cx.out.extend(b"Hello")
-///     }
-/// }
-///
-/// let result = render_into_vec_with_hint(MyComponent, 64);
-/// assert_eq!(&result, b"Hello");
-/// ```
-pub fn render_into_vec_with_hint<R: WebRenderSync<::proa_core::NoLoader, Vec<u8>>>(
-    root: R,
-    hint: usize,
-) -> Vec<u8> {
-    let mut cx = WebContext::with_buffer(Vec::with_capacity(hint));
-    root.render(&mut cx).unwrap();
-    cx.into_output()
-}
-/// Type aliases for common stack buffer sizes (for `WriteCursor`)
-pub type StackBuffer1K = [u8; 1024];
-pub type StackBuffer4K = [u8; 4096];
-pub type StackBuffer8K = [u8; 8192];
-pub type StackBuffer16K = [u8; 16384];
-pub type StackBuffer32K = [u8; 32768];
-/// Type aliases for common `SmallBuf` sizes (inline + heap spill)
-pub type SmallBuf4K = SmallBuf<4096>;
-pub type SmallBuf8K = SmallBuf<8192>;
-pub type SmallBuf16K = SmallBuf<16384>;
-pub type SmallBuf32K = SmallBuf<32768>;
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::text;
+    use crate::{WebContext, WebRenderSync};
     struct SmallComponent;
     impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SmallComponent {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
@@ -105,7 +64,7 @@ mod tests {
     }
     #[test]
     fn test_write_cursor_basic() {
-        let mut backing: StackBuffer1K = [0u8; 1024];
+        let mut backing = [0u8; 1024];
         let mut cursor = WriteCursor::new(&mut backing);
         cursor.extend(b"<div>").unwrap();
         cursor.extend(b"Hello").unwrap();
@@ -121,13 +80,8 @@ mod tests {
         assert!(result.is_err());
     }
     #[test]
-    fn test_render_to_vec_with_hint() {
-        let result = render_into_vec_with_hint(SmallComponent, 64);
-        assert_eq!(&result, b"Hello, stack!");
-    }
-    #[test]
     fn test_render_to_cursor() {
-        let mut backing: StackBuffer1K = [0u8; 1024];
+        let mut backing = [0u8; 1024];
         let mut cursor = WriteCursor::new(&mut backing);
         {
             let mut cx = WebContext::with_buffer(&mut cursor);

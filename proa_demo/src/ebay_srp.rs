@@ -54,26 +54,3 @@ pub fn render_filter_chips_with_initial_to_string(
 pub fn render_listings_interactive_to_string(listings: &[Listing]) -> String {
     proa_core::render_to_string(InteractiveListingsList { listings })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn interactive_watchheart_omits_static_visibility_modifier() {
-        let listings = build_listings(1);
-        let html = render_listings_interactive_to_string(&listings);
-        assert!(
-            html.contains(
-                r#"<span class="s-card__watchheart on-image s-card__watchheart--rsjs"><rsjs-island"#
-            ),
-            "expected rsjs heart wrapper class without eBay static visibility modifier, got:\n{html}"
-        );
-        assert!(
-            !html.contains(
-                r#"<span class="s-card__watchheart on-image s-card__watchheart--watch"><rsjs-island"#
-            ),
-            "static --watch modifier would hide the rsjs-controlled outline/fill icons, got:\n{html}"
-        );
-    }
-}

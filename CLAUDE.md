@@ -75,7 +75,6 @@ complete page, loader, and layout in context.
 | `proa_framework_axum` | Axum/Tokio adapter with routing, static serving, and HTTP response integration |
 | `proa_ir` | Intermediate representation for reactive attrs, bindings, and lower-level client/runtime glue |
 | `proa_actions` | Action data structures for event handlers |
-| `proa_codegen` | TypeScript code generation from Rust components |
 | `proa_react` | React/JSX interop |
 | `proa_fonts` | Runtime for self-hosted, metric-matched web fonts: `Font`/`FontFace`, zero-alloc `Font::head` |
 | `proa_fonts_build` | Build-time font pipeline: parse metrics, compute fallbacks, content-hash, generate `proa_fonts::Font` modules (drives `cargo proa font`) |
@@ -217,7 +216,7 @@ file layout:
 components/<name>/
 ├── mod.rs          # Re-exports
 ├── recipe.rs       # Variant enums, class constants, recipe struct
-└── <name>.rs       # Component struct + WebRenderSync/WebRender impl + tests
+└── <name>.rs       # Component struct + WebRenderSync/WebRender impl
 ```
 
 ### recipe.rs pattern
@@ -310,22 +309,6 @@ where
         .render(cx)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_core::text::text;
-
-    #[test]
-    fn component_renders() {
-        let mut cx = WebContext::new();
-        Component { variant: ComponentVariant::Default, class: None, children: Some(text("Hi")) }
-            .render(&mut cx)
-            .unwrap();
-        let html = cx.into_output().into_string();
-        assert!(html.contains("data-component"));
-    }
-}
 ```
 
 For async components, use `WebRender` plus `html!`. Wrap sync children with `proa_core::to_async(...)` when they need to participate in async composition. Use `proa_core::await_component(...)` when a future resolves to a renderable child.
@@ -355,8 +338,8 @@ cargo check --workspace --all-targets
 # binary that links island rlibs from a *dependency* fail at link time
 # (same-crate lib tests are fine: the guard is cfg'd out under test). The
 # island demo crates are exercised through `cargo proa test` instead.
-cargo test --workspace --lib --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa-lean-server
-cargo test --workspace --tests --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa-lean-server --exclude proa_showcase
+cargo test --workspace --lib --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web
+cargo test --workspace --tests --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa_showcase
 
 # Perf lint changed Rust render paths (regex-based, fast)
 python3 scripts/proa_perf_lint.py
