@@ -903,9 +903,9 @@ pub fn format_boundary_timeout_chunk(id: u64) -> Vec<u8> {
 pub fn append_boundary_timeout_chunk(out: &mut Vec<u8>, id: u64) {
     {
         let mut cx = WebContext::with_stateless_buffer(&mut *out);
-        let _ = WriteBuf::extend_static(&mut cx.out, b"<!--proa:timeout:");
+        let _ = WriteBuf::extend_static_str(&mut cx.out, "<!--proa:timeout:");
         let _ = WebRenderSync::render(id, &mut cx);
-        let _ = WriteBuf::extend_static(&mut cx.out, b"-->");
+        let _ = WriteBuf::extend_static_str(&mut cx.out, "-->");
     }
 }
 
@@ -960,7 +960,7 @@ mod tests {
         let stream = StreamContext::new(RenderMode::ChunkedOutOfOrder);
         let artifacts = artifacts_with_island("deferred_counter_12345678");
         let mut boundary_html = RenderBuffer::new();
-        boundary_html.extend(b"<button>ready</button>").unwrap();
+        boundary_html.extend_str("<button>ready</button>").unwrap();
         stream.push_boundary(PendingBoundary::new(
             11,
             Box::pin(future::ready(Ok(RenderedBoundary::new(
@@ -1043,9 +1043,9 @@ mod tests {
     fn same_ready_templates_share_one_nonced_application_script() {
         let nonce = CspNonce::new("YmF0Y2gtbm9uY2U=").unwrap();
         let mut first = RenderBuffer::new();
-        first.extend(b"first").unwrap();
+        first.extend_str("first").unwrap();
         let mut second = RenderBuffer::new();
-        second.extend(b"second").unwrap();
+        second.extend_str("second").unwrap();
         let mut batch = Vec::new();
         append_boundary_buffer_template(&mut batch, 7, &first);
         append_boundary_buffer_template(&mut batch, 3, &second);
@@ -1058,8 +1058,9 @@ mod tests {
 
     #[test]
     fn paged_boundary_encoding_does_not_flatten_or_corrupt_page_edges() {
+        // Printable ASCII: raw byte writes must be valid UTF-8 on their own.
         let expected = (0..(proa_core::STANDARD_PAGE_SIZE * 3 + 17))
-            .map(|index| (index % 251) as u8)
+            .map(|index| b' ' + (index % 95) as u8)
             .collect::<Vec<_>>();
         let mut html = RenderBuffer::new();
         html.extend(&expected).unwrap();

@@ -311,16 +311,17 @@ fn insert_before_marker(source: &mut String, marker: &str, line: &str) -> Result
     Ok(())
 }
 
+// proa-perf-ok(scope): CLI generator assembles trusted Rust source, not response HTML
 fn page_source(route: &RouteName, markdown: bool) -> String {
     let imports = if markdown {
-        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa_core::{WebContext, DataLoader, MdRenderSync, WebRenderSync, WriteBuf, WriteError};\nuse proa_framework_axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};\nuse proa_macros::{html_sync, md_sync};"
+        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa::{WebContext, DataLoader, MdRenderSync, WebRenderSync, WriteBuf, WriteError};\nuse proa::axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};\nuse proa::{html_sync, md_sync};"
     } else {
-        "use axum::response::IntoResponse;\nuse proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};\nuse proa_framework_axum::RouteResponse;\nuse proa_macros::html_sync;"
+        "use axum::response::IntoResponse;\nuse proa::{DataLoader, WebContext, WebRenderSync, WriteError};\nuse proa::axum::RouteResponse;\nuse proa::html_sync;"
     };
     let markdown_impl = if markdown {
         format!(
             r####"
-impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
+impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {{
         md_sync! {{ r###"
             # {ty}
@@ -332,7 +333,7 @@ impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
 }}
 
 pub async fn handler(headers: HeaderMap) -> Result<impl IntoResponse, AppError> {{
-    let html = RouteResponse::ssr_async(RootDocument {{ title: "{ty}", content: proa_core::to_async({ty}) }});
+    let html = RouteResponse::ssr_async(RootDocument {{ title: "{ty}", content: proa::to_async({ty}) }});
     Ok(negotiate(&headers, html, {ty}, MarkdownAlternate::new("{alias}"))?)
 }}
 
@@ -346,7 +347,7 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {{
         )
     } else {
         format!(
-            "\npub async fn handler() -> Result<impl IntoResponse, AppError> {{\n    Ok(RouteResponse::ssr_async(RootDocument {{ title: \"{ty}\", content: proa_core::to_async({ty}) }}))\n}}\n",
+            "\npub async fn handler() -> Result<impl IntoResponse, AppError> {{\n    Ok(RouteResponse::ssr_async(RootDocument {{ title: \"{ty}\", content: proa::to_async({ty}) }}))\n}}\n",
             ty = route.rust_type
         )
     };

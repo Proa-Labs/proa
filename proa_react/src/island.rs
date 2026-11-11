@@ -158,13 +158,13 @@ where
     tag_html.push('>');
 
     // Write opening tag
-    proa_core::WriteBuf::extend(&mut cx.out, tag_html.as_bytes())?;
+    proa_core::WriteBuf::extend_str(&mut cx.out, &tag_html)?;
 
     // Render inner content
     inner_html(cx)?;
 
     // Close div tag
-    proa_core::WriteBuf::extend(&mut cx.out, b"</div>")?;
+    proa_core::WriteBuf::extend_str(&mut cx.out, "</div>")?;
 
     // `props_json` is already valid JSON from `serde_json::to_string`. Do NOT
     // HTML-escape it — `<script type="application/json">` content is raw text,

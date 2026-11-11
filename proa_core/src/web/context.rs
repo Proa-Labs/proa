@@ -4628,7 +4628,7 @@ mod tests {
                 .active
                 .get()
                 .is_none());
-            child.out.extend_static(b"child")?;
+            child.out.extend_static_str("child")?;
             Ok::<_, crate::WriteError>(())
         })
         .unwrap();
@@ -4706,7 +4706,7 @@ mod tests {
                 child.set_render_mode(RenderMode::Agent);
                 child.head_mut().set_title("after");
                 child.rsjs_island_used("metered");
-                child.out.extend_static(b"metered")?;
+                child.out.extend_static_str("metered")?;
                 Ok::<_, WriteError>(17)
             })
             .unwrap();
@@ -4731,7 +4731,7 @@ mod tests {
         let error = cx
             .with_metered_output(meter.borrow(), |child| {
                 child.enter_mode(ContentMode::Script);
-                child.out.extend_static(b"three")
+                child.out.extend_static_str("three")
             })
             .unwrap_err();
         assert_eq!(
@@ -4769,7 +4769,7 @@ mod tests {
                 tokio::task::yield_now().await;
                 child.__proa_enter_escape_dialect(EscapeDialect::Xml);
                 child.rsjs_island_used("async-metered");
-                child.out.extend_static(b"async")?;
+                child.out.extend_static_str("async")?;
                 Ok::<_, WriteError>(29)
             })
             .await
@@ -4819,7 +4819,7 @@ mod tests {
             .with_reserved_output(reservation, |child| {
                 child.enter_mode(ContentMode::Style);
                 child.head_mut().set_title("reserved");
-                child.out.extend_static(b"hello")?;
+                child.out.extend_static_str("hello")?;
                 Ok(23)
             })
             .unwrap();
@@ -4844,7 +4844,7 @@ mod tests {
         let incomplete = cx.out.reserve_exact(4).unwrap();
         let error = cx
             .with_reserved_output(incomplete, |child| {
-                child.out.extend_static(b"ok")?;
+                child.out.extend_static_str("ok")?;
                 Ok(())
             })
             .unwrap_err();
@@ -4860,7 +4860,7 @@ mod tests {
         let exceeded = cx.out.reserve_exact(1).unwrap();
         let error = cx
             .with_reserved_output(exceeded, |child| {
-                child.out.extend_static(b"no")?;
+                child.out.extend_static_str("no")?;
                 Ok(())
             })
             .unwrap_err();

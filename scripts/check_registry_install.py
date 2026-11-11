@@ -48,6 +48,26 @@ def registry_metadata(project: Path, environment: dict[str, str]) -> dict:
         time.sleep(delay)
 
 
+def generate_additions(proa: Path, project: Path, environment: dict[str, str], template: str) -> None:
+    # Compile generated modules in the same facade-only application as the starter.
+    # Exercise both render traits, Markdown, children, recipes, and layout shapes.
+    commands = [
+        ["component", "generated-notice", "--markdown"],
+        ["component", "generated-async-notice", "--async", "--markdown"],
+        ["component", "generated-panel", "--children", "--recipe", "--markdown"],
+        ["component", "generated-async-panel", "--async", "--children", "--markdown"],
+        ["layout", "generated-section", "--section"],
+        ["layout", "generated-document", "--document", "--replace-root"],
+    ]
+    # ORIGIN uses its own Atlas page composition rather than src/pages routes.
+    if template != "origin":
+        commands.append(["page", "/generated"])
+        if template != "minimal":
+            commands.append(["page", "/generated-html", "--no-markdown"])
+    for command in commands:
+        run([str(proa), "generate", *command, "--root", str(project)], project, environment)
+
+
 def smoke_http(binary: Path, project: Path, environment: dict[str, str], template: str) -> None:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -71,6 +91,10 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
                         raise
                     time.sleep(0.1)
             paths = ["/", "/healthz", "/readyz", "/static/styles.css"]
+            if template != "origin":
+                paths += ["/generated"]
+                if template != "minimal":
+                    paths += ["/generated.md", "/generated-html"]
             if template != "minimal":
                 paths += ["/index.md"]
             if template == "origin":
@@ -139,6 +163,7 @@ def main() -> None:
         project = work / f"registry-smoke-{template}"
         run([str(proa), "new", "site", str(project), "--template", template,
              "--yes", "--no-git", "--offline"], work, environment)
+        generate_additions(proa, project, environment, template)
         metadata = registry_metadata(project, environment)
         proa_packages = [package for package in metadata["packages"]
                          if package["name"].startswith(("proa_", "rsjs"))

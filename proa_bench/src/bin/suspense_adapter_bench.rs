@@ -131,7 +131,7 @@ struct TinyChild;
 // proa-perf-ok(scope): benchmark fixture intentionally writes fixed protocol bytes directly
 impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TinyChild {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        WriteBuf::extend_static(&mut cx.out, b"<span>x</span>")
+        WriteBuf::extend_static_str(&mut cx.out, "<span>x</span>")
     }
 }
 
@@ -152,10 +152,9 @@ impl<L: proa_core::DataLoader, B: WriteBuf + Send> WebRenderSend<L, B> for SendT
         self,
         cx: &mut SendWebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
-        RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(WriteBuf::extend_static(
-            &mut cx.out,
-            b"<span>x</span>",
-        ))
+        RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
+            WriteBuf::extend_static_str(&mut cx.out, "<span>x</span>"),
+        )
     }
 }
 
@@ -180,11 +179,11 @@ impl WebRender<NoLoader, RenderBuffer> for BenchmarkPage {
         cx: &mut WebContext<NoLoader, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            WriteBuf::extend_static(&mut cx.out, b"<!DOCTYPE html><main>")?;
+            WriteBuf::extend_static_str(&mut cx.out, "<!DOCTYPE html><main>")?;
             for _ in 0..self.boundaries {
                 render_child(cx, Suspense::new(SyncToAsync(TinyChild), EmptyFallback)).await?;
             }
-            WriteBuf::extend_static(&mut cx.out, b"</main>")
+            WriteBuf::extend_static_str(&mut cx.out, "</main>")
         })
     }
 }
@@ -195,11 +194,11 @@ impl WebRenderSend<NoLoader, RenderBuffer> for BenchmarkPage {
         cx: &mut SendWebContext<NoLoader, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
-            WriteBuf::extend_static(&mut cx.out, b"<!DOCTYPE html><main>")?;
+            WriteBuf::extend_static_str(&mut cx.out, "<!DOCTYPE html><main>")?;
             for _ in 0..self.boundaries {
                 render_send_child(cx, Suspense::new(SendTinyChild, SendEmptyFallback)).await?;
             }
-            WriteBuf::extend_static(&mut cx.out, b"</main>")
+            WriteBuf::extend_static_str(&mut cx.out, "</main>")
         })
     }
 }

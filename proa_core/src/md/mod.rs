@@ -161,7 +161,7 @@ impl<B: WriteBuf> core::fmt::Write for FmtBuf<'_, B> {
             return Err(core::fmt::Error);
         }
 
-        match self.out.extend(s.as_bytes()) {
+        match self.out.extend_str(s) {
             Ok(()) => Ok(()),
             Err(error) => {
                 self.error = Some(error);

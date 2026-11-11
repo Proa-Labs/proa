@@ -35,7 +35,7 @@ impl<L: DataLoader> WebRenderSync<L> for ProviderThenError {
             "DoomedPanelState",
             "DoomedPanel",
         )?;
-        WriteBuf::extend_static(&mut cx.out, b"<p>doomed</p>")?;
+        WriteBuf::extend_static_str(&mut cx.out, "<p>doomed</p>")?;
         Err(WriteError::render("panel body failed"))
     }
 }
@@ -45,7 +45,7 @@ fn error_boundary_rewind_drops_the_dead_scopes_seed() {
     let mut cx = WebContext::new();
 
     WebRenderSync::render(
-        ErrorBoundary::new(ProviderThenError, static_html(b"<p>fallback</p>")),
+        ErrorBoundary::new(ProviderThenError, static_html("<p>fallback</p>")),
         &mut cx,
     )
     .unwrap();
@@ -79,7 +79,7 @@ fn error_boundary_rewind_keeps_seeds_registered_outside_the_boundary() {
     .unwrap();
 
     WebRenderSync::render(
-        ErrorBoundary::new(ProviderThenError, static_html(b"<p>fallback</p>")),
+        ErrorBoundary::new(ProviderThenError, static_html("<p>fallback</p>")),
         &mut cx,
     )
     .unwrap();
@@ -120,7 +120,7 @@ impl<L: DataLoader> WebRender<L> for AsyncProviderThenError {
                 "AsyncDoomedPanel",
             )?;
             tokio::task::yield_now().await;
-            WriteBuf::extend_static(&mut cx.out, b"<p>doomed</p>")?;
+            WriteBuf::extend_static_str(&mut cx.out, "<p>doomed</p>")?;
             Err(WriteError::render("async panel body failed"))
         })
     }
@@ -132,7 +132,7 @@ struct Fallback;
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Fallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        WriteBuf::extend_static(&mut cx.out, b"<p>fallback</p>")
+        WriteBuf::extend_static_str(&mut cx.out, "<p>fallback</p>")
     }
 }
 
@@ -190,9 +190,9 @@ impl<L: DataLoader> WebRenderSync<L> for ProviderFlushThenError {
             "ShippedPanelState",
             "ShippedPanel",
         )?;
-        WriteBuf::extend_static(&mut cx.out, b"<span data-scope=\"0\">shipped</span>")?;
+        WriteBuf::extend_static_str(&mut cx.out, "<span data-scope=\"0\">shipped</span>")?;
         cx.flush_stream_chunk()?;
-        WriteBuf::extend_static(&mut cx.out, b"<p>tail</p>")?;
+        WriteBuf::extend_static_str(&mut cx.out, "<p>tail</p>")?;
         Err(WriteError::render("panel tail failed"))
     }
 }
@@ -204,7 +204,7 @@ fn error_boundary_keeps_seeds_whose_markup_was_already_flushed() {
     cx.set_stream_chunk_flusher(Rc::clone(&sink) as Rc<dyn StreamChunkFlusher>);
 
     WebRenderSync::render(
-        ErrorBoundary::new(ProviderFlushThenError, static_html(b"<p>fallback</p>")),
+        ErrorBoundary::new(ProviderFlushThenError, static_html("<p>fallback</p>")),
         &mut cx,
     )
     .unwrap();

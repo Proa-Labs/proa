@@ -315,23 +315,23 @@ impl HeadFields {
         nonce: Option<&CspNonce>,
     ) -> Result<(), WriteError> {
         if let Some(title) = &self.title {
-            out.extend_static(b"<title>")?;
+            out.extend_static_str("<title>")?;
             self.write_title(out, title, false)?;
-            out.extend_static(b"</title>")?;
+            out.extend_static_str("</title>")?;
         }
         for (name, value) in &self.meta {
             if let Some(value) = value {
-                out.extend_static(b"<meta name=\"")?;
+                out.extend_static_str("<meta name=\"")?;
                 escape_attr_value(out, name)?;
-                out.extend_static(b"\" content=\"")?;
+                out.extend_static_str("\" content=\"")?;
                 escape_attr_value(out, value)?;
-                out.extend_static(b"\">")?;
+                out.extend_static_str("\">")?;
             }
         }
         if let Some(url) = &self.canonical {
-            out.extend_static(b"<link rel=\"canonical\" href=\"")?;
+            out.extend_static_str("<link rel=\"canonical\" href=\"")?;
             escape_attr_value(out, url)?;
-            out.extend_static(b"\">")?;
+            out.extend_static_str("\">")?;
         }
         self.write_graph(out)?;
         self.write_extended(out)?;
@@ -339,20 +339,20 @@ impl HeadFields {
             if let Some(href) = &entry.href {
                 match entry.family {
                     ResourceFamily::Module => {
-                        out.extend_static(b"<script type=\"module\" src=\"")?
+                        out.extend_static_str("<script type=\"module\" src=\"")?
                     }
                     ResourceFamily::Stylesheet => {
-                        out.extend_static(b"<link rel=\"stylesheet\" href=\"")?
+                        out.extend_static_str("<link rel=\"stylesheet\" href=\"")?
                     }
                 }
                 escape_attr_value(out, href)?;
-                out.extend_static(b"\"")?;
+                out.extend_static_str("\"")?;
                 if let Some(nonce) = nonce {
                     nonce.write_html_attr(out)?;
                 }
                 match entry.family {
-                    ResourceFamily::Module => out.extend_static(b"></script>")?,
-                    ResourceFamily::Stylesheet => out.extend_static(b">")?,
+                    ResourceFamily::Module => out.extend_static_str("></script>")?,
+                    ResourceFamily::Stylesheet => out.extend_static_str(">")?,
                 }
             }
         }
@@ -722,9 +722,9 @@ impl HeadFields {
             };
             if let Some(selected) = selected {
                 if i == 0 && value.is_none() {
-                    out.extend_static(b"<meta property=\"og:title\" content=\"")?;
+                    out.extend_static_str("<meta property=\"og:title\" content=\"")?;
                     self.write_title(out, selected, true)?;
-                    out.extend_static(b"\">")?;
+                    out.extend_static_str("\">")?;
                 } else {
                     property(out, name, selected)?;
                 }
@@ -774,10 +774,10 @@ fn property_parts<B: WriteBuf>(
     suffix: &str,
     value: &str,
 ) -> Result<(), WriteError> {
-    out.extend_static(b"<meta property=\"")?;
+    out.extend_static_str("<meta property=\"")?;
     escape_attr_value(out, name)?;
     escape_attr_value(out, suffix)?;
-    out.extend_static(b"\" content=\"")?;
+    out.extend_static_str("\" content=\"")?;
     escape_attr_value(out, value)?;
-    out.extend_static(b"\">")
+    out.extend_static_str("\">")
 }

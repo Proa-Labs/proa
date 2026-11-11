@@ -184,7 +184,7 @@ struct ServerOnly;
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ServerOnly {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        cx.out.extend_static(b"<main data-server-only></main>")
+        cx.out.extend_static_str("<main data-server-only></main>")
     }
 }
 
@@ -195,7 +195,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BasicIsland {
         // Repeated component instances must still produce one page asset graph.
         cx.rsjs_island_used(BASIC_ISLAND_ID);
         cx.rsjs_island_used(BASIC_ISLAND_ID);
-        cx.out.extend_static(b"<main data-basic-island></main>")
+        cx.out.extend_static_str("<main data-basic-island></main>")
     }
 }
 
@@ -204,8 +204,8 @@ struct BasicDocument;
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BasicDocument {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.rsjs_island_used(BASIC_ISLAND_ID);
-        cx.out.extend_static(
-            b"<!DOCTYPE html><html><body><main data-basic-document></main></body></html>",
+        cx.out.extend_static_str(
+            "<!DOCTYPE html><html><body><main data-basic-document></main></body></html>",
         )
     }
 }
@@ -219,7 +219,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for QueryIsland {
             r#"["framework","query"]"#,
             r#"{"key":["framework","query"],"data":{"ready":true},"data_updated_at":0}"#,
         );
-        cx.out.extend_static(b"<main data-query-island></main>")
+        cx.out.extend_static_str("<main data-query-island></main>")
     }
 }
 
@@ -233,7 +233,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for AsyncIsland {
         RenderOutcome::pending(async move {
             std::future::ready(()).await;
             cx.rsjs_island_used(BASIC_ISLAND_ID);
-            cx.out.extend_static(b"<main data-async-island></main>")
+            cx.out.extend_static_str("<main data-async-island></main>")
         })
     }
 }
@@ -267,7 +267,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for SuccessfulDeferredChild {
             cx.rsjs_island_used(CHILD_ISLAND_ID);
             cx.rsjs_island_used(CHILD_ISLAND_ID);
             cx.out
-                .extend_static(b"<section data-deferred-child></section>")
+                .extend_static_str("<section data-deferred-child></section>")
         })
     }
 }
@@ -287,7 +287,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for QueryDeferredChild {
                 r#"{"key":["framework","streamed-query"],"data":"ready","data_updated_at":0}"#,
             );
             cx.out
-                .extend_static(b"<section data-streamed-query></section>")
+                .extend_static_str("<section data-streamed-query></section>")
         })
     }
 }
@@ -298,7 +298,7 @@ struct LoadingFallback;
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for LoadingFallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.out
-            .extend_static(b"<section data-loading-fallback></section>")
+            .extend_static_str("<section data-loading-fallback></section>")
     }
 }
 
@@ -309,7 +309,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RecoveryFallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.rsjs_island_used(RECOVERY_ISLAND_ID);
         cx.out
-            .extend_static(b"<section data-recovery-fallback></section>")
+            .extend_static_str("<section data-recovery-fallback></section>")
     }
 }
 
@@ -323,7 +323,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for LeakingFailedChild {
         RenderOutcome::pending(async move {
             cx.rsjs_island_used(LEAK_ISLAND_ID);
             cx.out
-                .extend_static(b"<section data-discarded></section>")?;
+                .extend_static_str("<section data-discarded></section>")?;
             yield_once().await;
             Err(WriteError::render("deferred child failed"))
         })
@@ -340,7 +340,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for TimedOutChild {
         RenderOutcome::pending(async move {
             cx.rsjs_island_used(LEAK_ISLAND_ID);
             cx.out
-                .extend_static(b"<section data-never-published></section>")?;
+                .extend_static_str("<section data-never-published></section>")?;
             std::future::pending::<()>().await;
             Ok(())
         })
@@ -357,11 +357,11 @@ impl WebRender<NoLoader, RenderBuffer> for SuccessfulStreamingPage {
         RenderOutcome::pending(async move {
             cx.rsjs_island_used(BASIC_ISLAND_ID);
             cx.rsjs_island_used(BASIC_ISLAND_ID);
-            cx.out.extend_static(b"<main data-stream-page>")?;
+            cx.out.extend_static_str("<main data-stream-page>")?;
             WebRender::render(Suspense::new(SuccessfulDeferredChild, LoadingFallback), cx)
                 .resolve()
                 .await?;
-            cx.out.extend_static(b"</main>")
+            cx.out.extend_static_str("</main>")
         })
     }
 }
@@ -375,7 +375,8 @@ impl WebRender<NoLoader, RenderBuffer> for RecoveredStreamingPage {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             cx.rsjs_island_used(BASIC_ISLAND_ID);
-            cx.out.extend_static(b"<main data-recovered-stream-page>")?;
+            cx.out
+                .extend_static_str("<main data-recovered-stream-page>")?;
             WebRender::render(
                 ErrorBoundary::new(
                     Suspense::new(LeakingFailedChild, LoadingFallback),
@@ -385,7 +386,7 @@ impl WebRender<NoLoader, RenderBuffer> for RecoveredStreamingPage {
             )
             .resolve()
             .await?;
-            cx.out.extend_static(b"</main>")
+            cx.out.extend_static_str("</main>")
         })
     }
 }
@@ -399,11 +400,11 @@ impl WebRender<NoLoader, RenderBuffer> for QueryStreamingPage {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             cx.rsjs_island_used(BASIC_ISLAND_ID);
-            cx.out.extend_static(b"<main data-query-stream-page>")?;
+            cx.out.extend_static_str("<main data-query-stream-page>")?;
             WebRender::render(Suspense::new(QueryDeferredChild, LoadingFallback), cx)
                 .resolve()
                 .await?;
-            cx.out.extend_static(b"</main>")
+            cx.out.extend_static_str("</main>")
         })
     }
 }
@@ -417,7 +418,8 @@ impl WebRender<NoLoader, RenderBuffer> for TimedOutStreamingPage {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             cx.rsjs_island_used(BASIC_ISLAND_ID);
-            cx.out.extend_static(b"<main data-timeout-stream-page>")?;
+            cx.out
+                .extend_static_str("<main data-timeout-stream-page>")?;
             WebRender::render(
                 Suspense {
                     child: TimedOutChild,
@@ -429,7 +431,7 @@ impl WebRender<NoLoader, RenderBuffer> for TimedOutStreamingPage {
             )
             .resolve()
             .await?;
-            cx.out.extend_static(b"</main>")
+            cx.out.extend_static_str("</main>")
         })
     }
 }

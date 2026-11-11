@@ -1131,7 +1131,6 @@ pub fn render_sync_html_response(
         request.request.base_path(),
     )?;
     move_appended_response_tail_before_body(&mut buffer, response_tail_start);
-    validate_html_utf8(&buffer)?;
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
     merge_response_context(&mut response, &response_context);
     if request.head.is_some() {
@@ -1191,7 +1190,6 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
         request.request.base_path(),
     )?;
     move_appended_response_tail_before_body(&mut buffer, response_tail_start);
-    validate_html_utf8(&buffer)?;
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
     merge_response_context(&mut response, &response_context);
     if request.head.is_some() {
@@ -1247,7 +1245,6 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
         request.request.base_path(),
     )?;
     move_appended_response_tail_before_body(&mut buffer, response_tail_start);
-    validate_html_utf8(&buffer)?;
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
     merge_response_context(&mut response, &response_context);
     if request.head.is_some() {
@@ -1605,7 +1602,6 @@ where
                 write_inline_runtime_tag(&mut shell, request.csp_nonce.as_ref())?;
             }
             move_appended_response_tail_before_body(&mut shell, response_tail_start);
-            validate_html_utf8(&shell)?;
             yield Bytes::from(shell);
 
             let mut boundary_driver = RuntimeOutOfOrderBoundaryDriver::new();
@@ -1756,7 +1752,6 @@ where
                 write_inline_runtime_tag(&mut shell, request.csp_nonce.as_ref())?;
             }
             move_appended_response_tail_before_body(&mut shell, response_tail_start);
-            validate_html_utf8(&shell)?;
             yield Bytes::from(shell);
 
             let mut boundary_driver = RuntimeSendOutOfOrderBoundaryDriver::new();
@@ -1925,7 +1920,6 @@ where
                 )?;
                 move_appended_response_tail_before_body(&mut shell, response_tail_start);
                 if !shell.is_empty() {
-                    validate_html_utf8(&shell)?;
                     tx.unbounded_send(Ok(Bytes::from(shell)))
                         .map_err(|_| FrameworkError::Render(WriteError::StreamClosed))?;
                 }
@@ -2029,7 +2023,6 @@ where
                 )?;
                 move_appended_response_tail_before_body(&mut shell, response_tail_start);
                 if !shell.is_empty() {
-                    validate_html_utf8(&shell)?;
                     tx.unbounded_send(Ok(Bytes::from(shell)))
                         .map_err(|_| FrameworkError::Render(WriteError::StreamClosed))?;
                 }
@@ -2186,11 +2179,11 @@ fn append_rsjs_query_seed_table_with_scope<B: proa_core::WriteBuf>(
             .write_html_attr(buffer)
             .map_err(FrameworkError::Render)?;
     }
-    proa_core::shared::write_buf::WriteBuf::extend_static(buffer, b">")
+    proa_core::shared::write_buf::WriteBuf::extend_static_str(buffer, ">")
         .map_err(FrameworkError::Render)?;
-    proa_core::shared::write_buf::WriteBuf::extend(buffer, seed_table_json.as_bytes())
+    proa_core::shared::write_buf::WriteBuf::extend_str(buffer, seed_table_json)
         .map_err(FrameworkError::Render)?;
-    proa_core::shared::write_buf::WriteBuf::extend_static(buffer, b"</script>")
+    proa_core::shared::write_buf::WriteBuf::extend_static_str(buffer, "</script>")
         .map_err(FrameworkError::Render)?;
     Ok(())
 }
@@ -2238,11 +2231,11 @@ fn append_rsjs_shared_state_seed_table_with_scope<B: proa_core::WriteBuf>(
             .write_html_attr(buffer)
             .map_err(FrameworkError::Render)?;
     }
-    proa_core::shared::write_buf::WriteBuf::extend_static(buffer, b">")
+    proa_core::shared::write_buf::WriteBuf::extend_static_str(buffer, ">")
         .map_err(FrameworkError::Render)?;
-    proa_core::shared::write_buf::WriteBuf::extend(buffer, seed_table_json.as_bytes())
+    proa_core::shared::write_buf::WriteBuf::extend_str(buffer, seed_table_json)
         .map_err(FrameworkError::Render)?;
-    proa_core::shared::write_buf::WriteBuf::extend_static(buffer, b"</script>")
+    proa_core::shared::write_buf::WriteBuf::extend_static_str(buffer, "</script>")
         .map_err(FrameworkError::Render)?;
     Ok(())
 }
@@ -2369,29 +2362,6 @@ fn move_appended_response_tail_before_body(buffer: &mut [u8], tail_start: usize)
     buffer[body_close_start..].rotate_right(tail_len);
 }
 
-/// Defensive check that the bytes about to leave the framework are valid
-/// UTF-8. Run on every assembled response body before it is shipped.
-///
-/// In practice this should never fail: the macros (`html!`, `html_sync!`)
-/// HTML-escape user input via `SafeText` / `SafeAttr`, and all literal
-/// byte slices written via `WriteBuf::extend_static` come from `&'static
-/// str` (which is UTF-8 by construction in Rust). The only realistic way
-/// to produce invalid UTF-8 is a custom component that calls
-/// `WriteBuf::extend(&[non_utf8_bytes])` directly. This validation
-/// catches that bug class at the response boundary instead of letting
-/// invalid bytes reach the client.
-///
-/// Cost: `std::str::from_utf8` is `O(n)` over the response body. For a
-/// 16 KB shell this is sub-microsecond and dwarfed by the cost of
-/// rendering, so the check is always-on for non-streaming responses.
-/// Streaming paths that ship per-page can't
-/// run this exact check because UTF-8 multi-byte sequences may straddle
-/// page boundaries; those paths must rely on macro guarantees instead.
-fn validate_html_utf8(bytes: &[u8]) -> Result<(), FrameworkError> {
-    std::str::from_utf8(bytes)?;
-    Ok(())
-}
-
 /// Build the typed `Arc<L>` that the framework installs on the request
 /// `WebContext`.
 ///
@@ -2460,7 +2430,7 @@ mod tests {
                     .original_pathname()
                     .expect("request path must survive the detached fork")
                     .to_owned();
-                cx.out.extend(path.as_bytes())
+                cx.out.extend_str(&path)
             })
         }
     }
@@ -2476,12 +2446,12 @@ mod tests {
                     .original_pathname()
                     .expect("request path must be installed")
                     .to_owned();
-                cx.out.extend(path.as_bytes())?;
+                cx.out.extend_str(&path)?;
                 proa_core::render_send_child(
                     cx,
                     proa_stream::Suspense::new(
                         MigratingRequestChild,
-                        proa_core::static_html(b"fallback"),
+                        proa_core::static_html("fallback"),
                     ),
                 )
                 .await
@@ -2689,7 +2659,10 @@ mod tests {
                 r#"["stock","AAPL"]"#,
                 r#"{"key":["stock","AAPL"],"data":{"value":172.5},"data_updated_at":0}"#,
             );
-            proa_core::shared::write_buf::WriteBuf::extend_static(&mut cx.out, b"<main>ok</main>")
+            proa_core::shared::write_buf::WriteBuf::extend_static_str(
+                &mut cx.out,
+                "<main>ok</main>",
+            )
         }
     }
 
@@ -2851,7 +2824,7 @@ mod tests {
 
     impl<L: DataLoader, B: proa_core::WriteBuf> proa_core::WebRenderSync<L, B> for StreamFallback {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-            proa_core::shared::write_buf::WriteBuf::extend_static(&mut cx.out, b"<p>loading</p>")
+            proa_core::shared::write_buf::WriteBuf::extend_static_str(&mut cx.out, "<p>loading</p>")
         }
     }
 
@@ -2885,9 +2858,9 @@ mod tests {
                             .lock()
                             .unwrap()
                             .replace("late provider unexpectedly succeeded".to_owned());
-                        proa_core::shared::write_buf::WriteBuf::extend_static(
+                        proa_core::shared::write_buf::WriteBuf::extend_static_str(
                             &mut cx.out,
-                            b"<p>late</p>",
+                            "<p>late</p>",
                         )
                     }
                     Err(err) => {
@@ -2926,9 +2899,9 @@ mod tests {
                     "ShellThemeState",
                     "ShellThemeConsumer",
                 )?;
-                proa_core::shared::write_buf::WriteBuf::extend_static(
+                proa_core::shared::write_buf::WriteBuf::extend_static_str(
                     &mut cx.out,
-                    b"<main>shell</main>",
+                    "<main>shell</main>",
                 )?;
                 let suspense = proa_stream::Suspense::new(
                     LateProviderBoundaryChild {
@@ -3024,9 +2997,9 @@ mod tests {
                     "DeferredSharedConsumer",
                 )?;
                 assert_eq!(scope_id, 0);
-                proa_core::shared::write_buf::WriteBuf::extend_static(
+                proa_core::shared::write_buf::WriteBuf::extend_static_str(
                     &mut cx.out,
-                    b"<p data-deferred-shared-consumer>ready</p>",
+                    "<p data-deferred-shared-consumer>ready</p>",
                 )
             })
         }
@@ -3076,9 +3049,9 @@ mod tests {
                     "DeferredConsumerState",
                     "DeferredFailingSharedConsumer",
                 )?;
-                proa_core::shared::write_buf::WriteBuf::extend_static(
+                proa_core::shared::write_buf::WriteBuf::extend_static_str(
                     &mut cx.out,
-                    b"<p>must be discarded</p>",
+                    "<p>must be discarded</p>",
                 )?;
                 Err(WriteError::render("deferred consumer failed"))
             })

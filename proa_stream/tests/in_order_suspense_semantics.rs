@@ -212,7 +212,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FailingFallback {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         self.calls.set(self.calls.get() + 1);
         cx.rsjs_island_used("failing-fallback-island");
-        cx.out.extend_static(b"<broken-fallback>")?;
+        cx.out.extend_static_str("<broken-fallback>")?;
         Err(WriteError::render("fallback failed"))
     }
 }
@@ -247,9 +247,9 @@ impl<L: DataLoader> WebRender<L, RenderBuffer> for StatefulSuccess {
             )?;
             cx.rsjs_island_used("success-island");
             cx.rsjs_query_seed_json(r#"["success"]"#, r#"{"value":7}"#);
-            cx.out.extend_static(b"<success>")?;
+            cx.out.extend_static_str("<success>")?;
             tokio::task::yield_now().await;
-            cx.out.extend_static(b"</success>")
+            cx.out.extend_static_str("</success>")
         })
     }
 }
@@ -278,7 +278,7 @@ impl<L: DataLoader> WebRender<L, RenderBuffer> for StatefulFailure {
             )?;
             cx.rsjs_island_used("doomed-island");
             cx.rsjs_query_seed_json(r#"["doomed"]"#, r#"{"secret":9}"#);
-            cx.out.extend_static(b"<doomed>")?;
+            cx.out.extend_static_str("<doomed>")?;
             tokio::task::yield_now().await;
             Err(WriteError::render("child failed"))
         })
@@ -293,7 +293,7 @@ impl<L: DataLoader> WebRender<L, RenderBuffer> for PlainFailure {
         cx: &mut WebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.out.extend_static(b"<plain-doomed>")?;
+            cx.out.extend_static_str("<plain-doomed>")?;
             tokio::task::yield_now().await;
             Err(WriteError::render("plain child failed"))
         })
@@ -309,7 +309,7 @@ impl<L: DataLoader> WebRender<L, RenderBuffer> for StreamClosedFailure {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             cx.rsjs_island_used("uncatchable-doomed-island");
-            cx.out.extend_static(b"<uncatchable-doomed>")?;
+            cx.out.extend_static_str("<uncatchable-doomed>")?;
             tokio::task::yield_now().await;
             Err(WriteError::StreamClosed)
         })
@@ -330,7 +330,7 @@ impl<L: DataLoader> WebRender<L, RenderBuffer> for EarlyMetadataChild {
                 HeaderValue::from_static("early-enough")
             ));
             cx.head_mut().set_title("early child title");
-            cx.out.extend_static(b"<early-metadata>")
+            cx.out.extend_static_str("<early-metadata>")
         })
     }
 }
@@ -350,9 +350,9 @@ impl<L: DataLoader> WebRender<L, RenderBuffer> for NestedPanel {
                 "NestedIsland",
             )?;
             cx.rsjs_island_used("nested-island");
-            cx.out.extend_static(b"<nested>")?;
+            cx.out.extend_static_str("<nested>")?;
             tokio::task::yield_now().await;
-            cx.out.extend_static(b"</nested>")
+            cx.out.extend_static_str("</nested>")
         })
     }
 }
@@ -380,11 +380,11 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for NestedThenFail {
                 "OuterShippedIsland",
             )?;
             cx.rsjs_island_used("outer-shipped-island");
-            cx.out.extend_static(b"<outer-shipped>")?;
+            cx.out.extend_static_str("<outer-shipped>")?;
             proa_core::render_child(cx, Suspense::new(NestedPanel, Marker::plain(b"<loading>")))
                 .await?;
             cx.rsjs_island_used("discarded-tail-island");
-            cx.out.extend_static(b"<discarded-tail>")?;
+            cx.out.extend_static_str("<discarded-tail>")?;
             Err(WriteError::render("outer tail failed"))
         })
     }
@@ -398,13 +398,13 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for SuccessRoot {
         cx: &mut WebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.out.extend_static(b"<shell>")?;
+            cx.out.extend_static_str("<shell>")?;
             proa_core::render_child(
                 cx,
                 Suspense::new(StatefulSuccess, Marker::plain(b"<loading>")),
             )
             .await?;
-            cx.out.extend_static(b"</shell>")
+            cx.out.extend_static_str("</shell>")
         })
     }
 }
@@ -423,7 +423,7 @@ where
         cx: &mut WebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.out.extend_static(b"<shell>")?;
+            cx.out.extend_static_str("<shell>")?;
             proa_core::render_child(
                 cx,
                 ErrorBoundary::new(
@@ -432,7 +432,7 @@ where
                 ),
             )
             .await?;
-            cx.out.extend_static(b"</shell>")
+            cx.out.extend_static_str("</shell>")
         })
     }
 }
@@ -445,7 +445,7 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for NestedRoot {
         cx: &mut WebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.out.extend_static(b"<shell>")?;
+            cx.out.extend_static_str("<shell>")?;
             proa_core::render_child(
                 cx,
                 ErrorBoundary::new(
@@ -454,7 +454,7 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for NestedRoot {
                 ),
             )
             .await?;
-            cx.out.extend_static(b"</shell>")
+            cx.out.extend_static_str("</shell>")
         })
     }
 }
@@ -509,7 +509,7 @@ impl<L: DataLoader> WebRender<L, RenderBuffer> for PanickingChild {
                 "UnwoundIsland",
             )?;
             cx.rsjs_island_used("unwound-island");
-            cx.out.extend_static(b"<unwound-partial>")?;
+            cx.out.extend_static_str("<unwound-partial>")?;
             tokio::task::yield_now().await;
             panic!("injected render panic")
         })
@@ -538,7 +538,7 @@ impl<L: DataLoader> WebRender<L, RenderBuffer> for PendingChild {
             )?;
             cx.rsjs_island_used("cancelled-island");
             cx.rsjs_query_seed_json(r#"["cancelled"]"#, r#"{"value":13}"#);
-            cx.out.extend_static(b"<cancelled-partial>")?;
+            cx.out.extend_static_str("<cancelled-partial>")?;
             self.started.set(true);
             pending::<()>().await;
             Ok(())
@@ -556,7 +556,7 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for CancellationRoot {
         cx: &mut WebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.out.extend_static(b"<shell>")?;
+            cx.out.extend_static_str("<shell>")?;
             proa_core::render_child(
                 cx,
                 ErrorBoundary::new(
@@ -582,7 +582,7 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for UnwindRoot {
         cx: &mut WebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.out.extend_static(b"<shell>")?;
+            cx.out.extend_static_str("<shell>")?;
             proa_core::render_child(
                 cx,
                 ErrorBoundary::new(
@@ -608,7 +608,7 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for EarlyMetadataRoot {
                 Suspense::new(EarlyMetadataChild, Marker::plain(b"<loading>")),
             )
             .await?;
-            cx.out.extend_static(b"<tail>")
+            cx.out.extend_static_str("<tail>")
         })
     }
 }
@@ -621,7 +621,7 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for UnhandledRoot {
         cx: &mut WebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.out.extend_static(b"<shell>")?;
+            cx.out.extend_static_str("<shell>")?;
             proa_core::render_child(cx, Suspense::new(PlainFailure, Marker::plain(b"<loading>")))
                 .await
         })
@@ -636,7 +636,7 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for UncatchableRoot {
         cx: &mut WebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.out.extend_static(b"<shell>")?;
+            cx.out.extend_static_str("<shell>")?;
             proa_core::render_child(
                 cx,
                 ErrorBoundary::new(

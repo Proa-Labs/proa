@@ -22,7 +22,7 @@ mod tests {
     }
     struct InheritedPage(Finish);
     async fn body(out: &mut RenderBuffer, finish: Finish) -> Result<(), WriteError> {
-        out.extend(b"partial body")?;
+        out.extend_str("partial body")?;
         match finish {
             Finish::Pending => std::future::pending().await,
             Finish::Ready => Ok(()),

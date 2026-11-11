@@ -443,11 +443,11 @@ fn write_boundary_comment<B: WriteBuf, L: DataLoader>(
     marker: &'static [u8],
     boundary_id: u64,
 ) -> Result<(), WriteError> {
-    WriteBuf::extend_static(&mut cx.out, b"<!--proa:")?;
+    WriteBuf::extend_static_str(&mut cx.out, "<!--proa:")?;
     WriteBuf::extend_static(&mut cx.out, marker)?;
-    WriteBuf::extend_static(&mut cx.out, b":")?;
+    WriteBuf::extend_static_str(&mut cx.out, ":")?;
     WebRenderSync::render(boundary_id, cx)?;
-    WriteBuf::extend_static(&mut cx.out, b"-->")
+    WriteBuf::extend_static_str(&mut cx.out, "-->")
 }
 
 fn write_send_boundary_comment<B: WriteBuf + Send, L: DataLoader>(
@@ -455,9 +455,9 @@ fn write_send_boundary_comment<B: WriteBuf + Send, L: DataLoader>(
     marker: &'static [u8],
     boundary_id: u64,
 ) -> Result<(), WriteError> {
-    WriteBuf::extend_static(&mut cx.out, b"<!--proa:")?;
+    WriteBuf::extend_static_str(&mut cx.out, "<!--proa:")?;
     WriteBuf::extend_static(&mut cx.out, marker)?;
-    WriteBuf::extend_static(&mut cx.out, b":")?;
+    WriteBuf::extend_static_str(&mut cx.out, ":")?;
     cx.__proa_with_stateless_context(|local| WebRenderSync::render(boundary_id, local))?;
-    WriteBuf::extend_static(&mut cx.out, b"-->")
+    WriteBuf::extend_static_str(&mut cx.out, "-->")
 }

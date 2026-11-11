@@ -329,17 +329,17 @@ impl Font {
                     break;
                 };
                 let url = &rest[split..split + end];
-                cx.output_mut().extend(rest[..split].as_bytes())?;
+                cx.output_mut().extend_str(&rest[..split])?;
                 if url.starts_with('/')
                     && !url.starts_with("//")
                     && self.faces.iter().any(|face| face.url == url)
                 {
                     write_css_url_prefix(cx.output_mut(), base_path.as_str())?;
                 }
-                cx.output_mut().extend(url.as_bytes())?;
+                cx.output_mut().extend_str(url)?;
                 rest = &rest[split + end..];
             }
-            cx.output_mut().extend(rest.as_bytes())?;
+            cx.output_mut().extend_str(rest)?;
         }
         StaticRaw("</style>").render(cx)
     }
@@ -380,11 +380,11 @@ fn write_css_url_prefix<B: WriteBuf>(out: &mut B, prefix: &str) -> Result<(), Wr
             b'\\' => "\\5c ",
             _ => continue,
         };
-        out.extend(prefix[start..index].as_bytes())?;
-        out.extend(escaped.as_bytes())?;
+        out.extend_str(&prefix[start..index])?;
+        out.extend_str(escaped)?;
         start = index + 1;
     }
-    out.extend(prefix[start..].as_bytes())
+    out.extend_str(&prefix[start..])
 }
 
 #[cfg(all(test, feature = "render"))]

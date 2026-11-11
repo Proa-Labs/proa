@@ -62,12 +62,15 @@ struct StackOnlyComponent;
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StackOnlyComponent {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        cx.out.extend_static(b"abc")?;
+        cx.out.extend_static_str("abc")?;
         cx.out.push(b'd')?;
-        cx.out.extend_with(4, |spare| {
-            spare[..2].copy_from_slice(b"ef");
-            2
-        })
+        // SAFETY: the closure writes ASCII.
+        unsafe {
+            cx.out.extend_with(4, |spare| {
+                spare[..2].copy_from_slice(b"ef");
+                2
+            })
+        }
     }
 }
 

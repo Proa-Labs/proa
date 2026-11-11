@@ -518,7 +518,7 @@ fn invalid_utf8_is_an_error_without_panicking_or_writing_markdown() {
     let mut cx = WebContext::new();
     assert!(matches!(
         to_markdown(Invalid).render_md(&mut cx),
-        Err(WriteError::Render(_))
+        Err(WriteError::InvalidUtf8)
     ));
     assert!(cx.out.is_empty());
 }

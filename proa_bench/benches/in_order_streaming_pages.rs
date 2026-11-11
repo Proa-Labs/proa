@@ -30,10 +30,8 @@ use proa_core::{
     LoadValue, NoLoader, RenderBuffer, RenderMode, RenderOutcome, StreamChunkFlusher,
     StreamChunkView, SyncToAsync, WebContext, WebRender, WebRenderSync, WriteBuf, WriteError,
 };
+use proa_macros::{html, html_sync};
 use proa_stream::Suspense;
-
-const SHELL_OPEN: &[u8] = b"<main data-in-order-streaming-bench>";
-const SHELL_CLOSE: &[u8] = b"</main>";
 
 struct ThreadCountingAllocator;
 
@@ -126,9 +124,12 @@ impl<C> SyncEnvelope<C> {
 
 impl<C: PageCase, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SyncEnvelope<C> {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        cx.out.extend_static(SHELL_OPEN)?;
-        C::render(cx)?;
-        cx.out.extend_static(SHELL_CLOSE)
+        WebRenderSync::render(
+            html_sync! {
+                <main data-in-order-streaming-bench>{CaseRender::<C>::new()}</main>
+            },
+            cx,
+        )
     }
 }
 
@@ -149,15 +150,14 @@ where
         self,
         cx: &mut WebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
-        RenderOutcome::pending(async move {
-            cx.out.extend_static(SHELL_OPEN)?;
-            proa_core::render_child(
-                cx,
-                Suspense::new(SyncToAsync(CaseRender::<C>::new()), EmptyFallback),
-            )
-            .await?;
-            cx.out.extend_static(SHELL_CLOSE)
-        })
+        WebRender::render(
+            html! {
+                <main data-in-order-streaming-bench>
+                    {Suspense::new(SyncToAsync(CaseRender::<C>::new()), EmptyFallback)}
+                </main>
+            },
+            cx,
+        )
     }
 }
 

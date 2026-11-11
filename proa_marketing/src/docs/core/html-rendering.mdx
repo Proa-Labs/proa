@@ -313,8 +313,7 @@ For framework routes, use `RouteResponse::ssr_async(...)`, `ssr_async_with_loade
 | Driver | Use it when |
 |--------|-------------|
 | `render_to_vec_async(root)` | You want an owned contiguous byte buffer. |
-| `render_to_string_async(root)` | You want a UTF-8 string and accept a panic on invalid UTF-8. |
-| `try_render_to_string_async(root)` | You want a UTF-8 string with explicit error handling. |
+| `render_to_string_async(root)` | You want a UTF-8 string. The output is not scanned: text writes are UTF-8 by type and raw byte writes are validated where they are written. |
 | `render_into_async(&mut buf, root)` | You want to reuse a caller-owned `RenderBuffer`. |
 | `render_in_context_async(&mut cx, root)` | You need to customize `WebContext` first. |
 

@@ -91,7 +91,7 @@ pub fn escape_md<B: WriteBuf>(buf: &mut B, value: &str) -> Result<(), WriteError
         }
 
         if chunk_start < index {
-            buf.extend(&bytes[chunk_start..index])?;
+            buf.extend_str(&value[chunk_start..index])?;
         }
 
         if is_break {
@@ -109,7 +109,7 @@ pub fn escape_md<B: WriteBuf>(buf: &mut B, value: &str) -> Result<(), WriteError
     }
 
     if chunk_start < bytes.len() {
-        buf.extend(&bytes[chunk_start..])?;
+        buf.extend_str(&value[chunk_start..])?;
     }
     Ok(())
 }
@@ -210,7 +210,7 @@ fn write_code_span_content<B: WriteBuf>(buf: &mut B, value: &str) -> Result<(), 
         }
 
         if chunk_start < index {
-            buf.extend(&bytes[chunk_start..index])?;
+            buf.extend_str(&value[chunk_start..index])?;
         }
         buf.push(b' ')?;
         if byte == b'\r' && bytes.get(index + 1) == Some(&b'\n') {
@@ -221,7 +221,7 @@ fn write_code_span_content<B: WriteBuf>(buf: &mut B, value: &str) -> Result<(), 
     }
 
     if chunk_start < bytes.len() {
-        buf.extend(&bytes[chunk_start..])?;
+        buf.extend_str(&value[chunk_start..])?;
     }
     Ok(())
 }
@@ -237,7 +237,7 @@ pub fn write_inline_code<B: WriteBuf>(buf: &mut B, value: &str) -> Result<(), Wr
     // delimiter run rather than an opening/closing pair. A fixed trusted HTML
     // code element is the only lossless, inert representation of empty code.
     if value.is_empty() {
-        return buf.extend_static(b"<code></code>");
+        return buf.extend_static_str("<code></code>");
     }
     let analysis = analyze_code_span(value);
     write_backticks(buf, analysis.delimiter_len)?;
@@ -301,10 +301,10 @@ fn measured_char_len(ch: char, encoding: CharacterEncoding) -> Option<usize> {
 fn write_fence_info<B: WriteBuf>(buf: &mut B, info: &str) -> Result<(), WriteError> {
     for ch in info.chars() {
         let mut encoded = [0u8; 4];
-        let bytes = ch.encode_utf8(&mut encoded).as_bytes();
+        let text: &str = ch.encode_utf8(&mut encoded);
         match fence_info_encoding(ch) {
-            CharacterEncoding::Copy => buf.extend(bytes)?,
-            CharacterEncoding::PercentEncode => write_percent_encoded(buf, bytes)?,
+            CharacterEncoding::Copy => buf.extend_str(text)?,
+            CharacterEncoding::PercentEncode => write_percent_encoded(buf, text.as_bytes())?,
             CharacterEncoding::BackslashEscape => unreachable!(),
         }
     }
@@ -333,12 +333,12 @@ pub fn write_fenced_code<B: WriteBuf>(
     write_backticks(buf, fence_len)?;
     write_fence_info(buf, info)?;
     buf.push(b'\n')?;
-    buf.extend(value.as_bytes())?;
+    buf.extend_str(value)?;
     if !matches!(value.as_bytes().last(), Some(b'\r' | b'\n')) {
         buf.push(b'\n')?;
     }
     write_backticks(buf, fence_len)?;
-    buf.extend(b"\n\n")
+    buf.extend_str("\n\n")
 }
 
 /// Exact encoded length of [`write_fenced_code`].
@@ -393,13 +393,13 @@ pub fn write_link_destination<B: WriteBuf>(buf: &mut B, value: &str) -> Result<b
         }
 
         if chunk_start < index {
-            buf.extend(&bytes[chunk_start..index])?;
+            buf.extend_str(&value[chunk_start..index])?;
         }
         match encoding {
             CharacterEncoding::Copy => unreachable!(),
             CharacterEncoding::BackslashEscape => {
                 buf.push(b'\\')?;
-                buf.extend(&bytes[index..index + char_len])?;
+                buf.extend_str(&value[index..index + char_len])?;
             }
             CharacterEncoding::PercentEncode => {
                 write_percent_encoded(buf, &bytes[index..index + char_len])?;
@@ -409,7 +409,7 @@ pub fn write_link_destination<B: WriteBuf>(buf: &mut B, value: &str) -> Result<b
     }
 
     if chunk_start < bytes.len() {
-        buf.extend(&bytes[chunk_start..])?;
+        buf.extend_str(&value[chunk_start..])?;
     }
     Ok(true)
 }
