@@ -155,6 +155,7 @@ impl<'a, B: WriteBuf> ObservedMdWriteBuf<'a, B> {
     }
 }
 
+#[allow(unsafe_code)]
 impl<B: WriteBuf> WriteBuf for ObservedMdWriteBuf<'_, B> {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -177,23 +178,23 @@ impl<B: WriteBuf> WriteBuf for ObservedMdWriteBuf<'_, B> {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
-        self.inner.extend(bytes)?;
-        self.observe(bytes);
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        self.inner.extend_str(text)?;
+        self.observe(text.as_bytes());
         Ok(())
     }
 
     #[inline(always)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
-        self.inner.push(byte)?;
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
+        unsafe { self.inner.push_unchecked(byte) }?;
         self.observe(core::slice::from_ref(&byte));
         Ok(())
     }
 
     #[inline(always)]
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
-        self.inner.extend_static(bytes)?;
-        self.observe(bytes);
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        self.inner.extend_static_str(text)?;
+        self.observe(text.as_bytes());
         Ok(())
     }
 
@@ -205,22 +206,25 @@ impl<B: WriteBuf> WriteBuf for ObservedMdWriteBuf<'_, B> {
     }
 
     #[inline(always)]
-    fn extend_with<F>(&mut self, max_len: usize, write: F) -> Result<(), WriteError>
+    unsafe fn extend_with<F>(&mut self, max_len: usize, write: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
         let previous = self.trailing_line;
         let previous_pending_cr = self.pending_cr;
         let mut next = None;
-        self.inner.extend_with(max_len, |buffer| {
-            let len = write(buffer);
-            next = Some(state_after_write(
-                previous,
-                previous_pending_cr,
-                &buffer[..len],
-            ));
-            len
-        })?;
+        // SAFETY: forwarded contract; the observer only reads what was written.
+        unsafe {
+            self.inner.extend_with(max_len, |buffer| {
+                let len = write(buffer);
+                next = Some(state_after_write(
+                    previous,
+                    previous_pending_cr,
+                    &buffer[..len],
+                ));
+                len
+            })?;
+        }
         if let Some((trailing_line, pending_cr)) = next {
             self.trailing_line = trailing_line;
             self.pending_cr = pending_cr;
@@ -341,6 +345,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         if bytes.is_empty() {
             return Ok(());
         }
+        // Raw bytes are validated as UTF-8 at this write.
         self.out.extend(bytes)?;
         self.observe_written(bytes);
         Ok(())
@@ -349,11 +354,17 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     /// Write a trusted, target-prepared Markdown string.
     #[inline(always)]
     pub fn write_md_prepared_str(&mut self, value: &str) -> Result<(), WriteError> {
-        self.write_md_prepared(value.as_bytes())
+        if value.is_empty() {
+            return Ok(());
+        }
+        self.out.extend_str(value)?;
+        self.observe_written(value.as_bytes());
+        Ok(())
     }
 
-    /// Write trusted static Markdown while preserving the buffer's static
-    /// zero-copy fast path.
+    /// Write trusted static Markdown bytes while preserving the buffer's
+    /// static zero-copy fast path. The bytes are validated as UTF-8 at this
+    /// write; prefer [`Self::write_md_prepared_static_str`] for literals.
     #[inline(always)]
     pub fn write_md_prepared_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
         if bytes.is_empty() {
@@ -361,6 +372,18 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         }
         self.out.extend_static(bytes)?;
         self.observe_written(bytes);
+        Ok(())
+    }
+
+    /// Write trusted static Markdown text while preserving the buffer's static
+    /// zero-copy fast path.
+    #[inline(always)]
+    pub fn write_md_prepared_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        if text.is_empty() {
+            return Ok(());
+        }
+        self.out.extend_static_str(text)?;
+        self.observe_written(text.as_bytes());
         Ok(())
     }
 
@@ -482,6 +505,7 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
     /// Write generated numeric ASCII directly into spare output capacity while
     /// keeping Markdown suffix state accurate.
     #[inline(always)]
+    #[allow(unsafe_code)]
     pub(crate) fn write_md_numeric_with<F>(
         &mut self,
         max_len: usize,
@@ -493,15 +517,18 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         let previous = self.md_state.trailing_line;
         let previous_pending_cr = self.md_state.pending_cr;
         let mut next = None;
-        self.out.extend_with(max_len, |buf| {
-            let len = write(buf);
-            next = Some(state_after_write(
-                previous,
-                previous_pending_cr,
-                &buf[..len],
-            ));
-            len
-        })?;
+        // SAFETY: numeric formatters write ASCII digits, signs, and points.
+        unsafe {
+            self.out.extend_with(max_len, |buf| {
+                let len = write(buf);
+                next = Some(state_after_write(
+                    previous,
+                    previous_pending_cr,
+                    &buf[..len],
+                ));
+                len
+            })?;
+        }
         if let Some((trailing_line, pending_cr)) = next {
             self.md_state.trailing_line = trailing_line;
             self.md_state.pending_cr = pending_cr;
@@ -790,6 +817,7 @@ mod tests {
         extend_with_calls: usize,
     }
 
+    #[allow(unsafe_code)]
     impl WriteBuf for SpyBuf {
         fn capacity(&self) -> usize {
             usize::MAX
@@ -799,15 +827,15 @@ mod tests {
             self.bytes.len()
         }
 
-        fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+        fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
             self.borrowed_calls += 1;
-            self.bytes.extend_from_slice(bytes);
+            self.bytes.extend_from_slice(text.as_bytes());
             Ok(())
         }
 
-        fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
+        fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
             self.static_calls += 1;
-            self.bytes.extend_from_slice(bytes);
+            self.bytes.extend_from_slice(text.as_bytes());
             Ok(())
         }
 
@@ -817,7 +845,7 @@ mod tests {
             Ok(())
         }
 
-        fn extend_with<F>(&mut self, max_len: usize, write: F) -> Result<(), WriteError>
+        unsafe fn extend_with<F>(&mut self, max_len: usize, write: F) -> Result<(), WriteError>
         where
             F: FnOnce(&mut [u8]) -> usize,
         {
@@ -844,6 +872,7 @@ mod tests {
     #[derive(Default)]
     struct RejectingBuf;
 
+    #[allow(unsafe_code)]
     impl WriteBuf for RejectingBuf {
         fn capacity(&self) -> usize {
             usize::MAX
@@ -853,7 +882,7 @@ mod tests {
             0
         }
 
-        fn extend(&mut self, _bytes: &[u8]) -> Result<(), WriteError> {
+        fn extend_str(&mut self, _text: &str) -> Result<(), WriteError> {
             Err(WriteError::OutOfCapacity)
         }
 

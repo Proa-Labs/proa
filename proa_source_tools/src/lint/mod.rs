@@ -1039,7 +1039,12 @@ impl<'ast> Visit<'ast> for MarkdownRenderVisitor<'_> {
                 method.is_some_and(|method| {
                     matches!(
                         method.as_str(),
-                        "extend" | "extend_static" | "extend_shared" | "extend_with"
+                        "extend"
+                            | "extend_str"
+                            | "extend_static"
+                            | "extend_static_str"
+                            | "extend_shared"
+                            | "extend_with"
                     )
                 }) && node.args.first().is_some_and(expr_is_markdown_output)
             }
@@ -1064,7 +1069,12 @@ impl<'ast> Visit<'ast> for MarkdownRenderVisitor<'_> {
             && expr_is_markdown_context(&node.receiver));
         let is_raw_output_write = matches!(
             method.as_str(),
-            "extend" | "extend_static" | "extend_shared" | "extend_with"
+            "extend"
+                | "extend_str"
+                | "extend_static"
+                | "extend_static_str"
+                | "extend_shared"
+                | "extend_with"
         ) && expr_is_markdown_output(&node.receiver);
 
         if is_raw_context_write || is_raw_output_write {
@@ -1204,11 +1214,9 @@ fn call_is_render_to_buffer(call: &ExprCall) -> bool {
     let Some(seg) = call_last_segment(call) else {
         return false;
     };
-    matches!(
-        seg.as_str(),
-        "render_to_string" | "try_render_to_string" | "render_to_vec"
-    ) || (seg.starts_with("render")
-        && (seg.contains("to_string") || seg.contains("to_vec") || seg.contains("capturing")))
+    matches!(seg.as_str(), "render_to_string" | "render_to_vec")
+        || (seg.starts_with("render")
+            && (seg.contains("to_string") || seg.contains("to_vec") || seg.contains("capturing")))
 }
 
 fn call_last_segment(call: &ExprCall) -> Option<String> {
@@ -5618,7 +5626,10 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
             );
         }
         if self.html
-            && matches!(node.method.to_string().as_str(), "extend" | "extend_static")
+            && matches!(
+                node.method.to_string().as_str(),
+                "extend" | "extend_str" | "extend_static" | "extend_static_str"
+            )
             && node.args.iter().any(expr_is_html_literal)
         {
             push_expr_diag(

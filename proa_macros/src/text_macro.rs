@@ -142,8 +142,8 @@ fn generate_text_value(segments: Vec<Segment>, args: Vec<Expr>, span: Span) -> T
             #[inline(always)]
             fn render_url_attr<B: #proa_core::WriteBuf, L: #proa_core::DataLoader>(
                 &self,
-                name_prefix: &'static [u8],
-                _name_bool: &'static [u8],
+                name_prefix: &'static str,
+                _name_bool: &'static str,
                 cx: &mut #proa_core::WebContext<L, B>,
             ) -> Result<(), #proa_core::WriteError> {
                 // A stored text! value uses one streaming type and does not
@@ -156,8 +156,8 @@ fn generate_text_value(segments: Vec<Segment>, args: Vec<Expr>, span: Span) -> T
                     false,
                     "a stored text!(...) value cannot be rendered as a URL attribute because its complete value cannot be validated; keep a placeholder-free literal directly inline in html!, build a validated URL value, or use a typed URL helper"
                 );
-                #proa_core::WriteBuf::extend_static(&mut cx.out, name_prefix)?;
-                #proa_core::WriteBuf::extend_static(&mut cx.out, b"\"")
+                #proa_core::WriteBuf::extend_static_str(&mut cx.out, name_prefix)?;
+                #proa_core::WriteBuf::extend_static_str(&mut cx.out, "\"")
             }
         }
 
@@ -394,8 +394,8 @@ fn static_write(escaped: &str) -> TokenStream2 {
         return quote! {};
     }
 
-    let bytes = Literal::byte_string(escaped.as_bytes());
+    let text = Literal::string(escaped);
     quote! {
-        #proa_core::WriteBuf::extend_static(&mut cx.out, #bytes)?;
+        #proa_core::WriteBuf::extend_static_str(&mut cx.out, #text)?;
     }
 }

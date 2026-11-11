@@ -301,7 +301,7 @@ impl<B: WriteBuf> WebRenderSync<TestLoader, B> for NestedHtml {
         );
         cx.request_mut().set_original_pathname("/nested");
         cx.rsjs_island_used("nested-artifact");
-        cx.out.extend_static(b"html\r")?;
+        cx.out.extend_static_str("html\r")?;
         WebRenderSync::render(
             OptimizedMd::new(|inner: &mut WebContext<TestLoader, B>| {
                 assert_eq!(inner.md_state(), proa_core::md::MdState::default());

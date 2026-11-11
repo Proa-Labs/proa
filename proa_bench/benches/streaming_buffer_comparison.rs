@@ -9,23 +9,23 @@ use proa_core::{
 
 #[derive(Clone, Copy)]
 enum Op {
-    Static(&'static [u8]),
-    Dynamic(&'static [u8]),
+    Static(&'static str),
+    Dynamic(&'static str),
 }
 
 const MICRO_OPS: &[Op] = &[
-    Op::Static(b"<div class=\""),
-    Op::Dynamic(b"card-container"),
-    Op::Static(b"\" data-kind=\""),
-    Op::Dynamic(b"benchmark"),
-    Op::Static(b"\">"),
-    Op::Static(b"<h1>"),
-    Op::Dynamic(b"Hello &amp; World"),
-    Op::Static(b"</h1><p class=\""),
-    Op::Dynamic(b"description"),
-    Op::Static(b"\">"),
-    Op::Dynamic(b"Lorem ipsum dolor sit amet, consectetur adipiscing elit."),
-    Op::Static(b"</p></div>"),
+    Op::Static("<div class=\""),
+    Op::Dynamic("card-container"),
+    Op::Static("\" data-kind=\""),
+    Op::Dynamic("benchmark"),
+    Op::Static("\">"),
+    Op::Static("<h1>"),
+    Op::Dynamic("Hello &amp; World"),
+    Op::Static("</h1><p class=\""),
+    Op::Dynamic("description"),
+    Op::Static("\">"),
+    Op::Dynamic("Lorem ipsum dolor sit amet, consectetur adipiscing elit."),
+    Op::Static("</p></div>"),
 ];
 
 fn bench_realistic_page_render(c: &mut Criterion) {
@@ -96,7 +96,7 @@ fn bench_mixed_buffer_ops(c: &mut Criterion) {
     let total_size: usize = MICRO_OPS
         .iter()
         .map(|op| match op {
-            Op::Static(bytes) | Op::Dynamic(bytes) => bytes.len(),
+            Op::Static(text) | Op::Dynamic(text) => text.len(),
         })
         .sum::<usize>()
         * ITERATIONS;
@@ -111,8 +111,8 @@ fn bench_mixed_buffer_ops(c: &mut Criterion) {
             for _ in 0..ITERATIONS {
                 for op in MICRO_OPS {
                     match op {
-                        Op::Static(bytes) | Op::Dynamic(bytes) => {
-                            buf.extend(bytes).unwrap();
+                        Op::Static(text) | Op::Dynamic(text) => {
+                            buf.extend_str(text).unwrap();
                         }
                     }
                 }
@@ -128,8 +128,8 @@ fn bench_mixed_buffer_ops(c: &mut Criterion) {
             for _ in 0..ITERATIONS {
                 for op in MICRO_OPS {
                     match op {
-                        Op::Static(bytes) => buf.extend_static(bytes).unwrap(),
-                        Op::Dynamic(bytes) => buf.extend(bytes).unwrap(),
+                        Op::Static(text) => buf.extend_static_str(text).unwrap(),
+                        Op::Dynamic(text) => buf.extend_str(text).unwrap(),
                     }
                 }
             }
@@ -144,8 +144,8 @@ fn bench_mixed_buffer_ops(c: &mut Criterion) {
             for _ in 0..ITERATIONS {
                 for op in MICRO_OPS {
                     match op {
-                        Op::Static(bytes) => buf.extend_static(bytes).unwrap(),
-                        Op::Dynamic(bytes) => buf.extend(bytes).unwrap(),
+                        Op::Static(text) => buf.extend_static_str(text).unwrap(),
+                        Op::Dynamic(text) => buf.extend_str(text).unwrap(),
                     }
                 }
             }
@@ -161,8 +161,8 @@ fn bench_mixed_buffer_ops(c: &mut Criterion) {
             for _ in 0..ITERATIONS {
                 for op in MICRO_OPS {
                     match op {
-                        Op::Static(bytes) => buf.extend_static(bytes).unwrap(),
-                        Op::Dynamic(bytes) => buf.extend(bytes).unwrap(),
+                        Op::Static(text) => buf.extend_static_str(text).unwrap(),
+                        Op::Dynamic(text) => buf.extend_str(text).unwrap(),
                     }
                 }
                 let mark = buf.mark();

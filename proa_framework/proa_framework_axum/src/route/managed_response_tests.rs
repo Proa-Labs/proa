@@ -59,7 +59,7 @@ impl WebRender for ProductPage {
                 return Err(WriteError::render("late body failure"));
             }
             assert!(!cx.response_mut().set_status(StatusCode::ACCEPTED));
-            cx.output_mut().extend(b"PRODUCT_BODY")
+            cx.output_mut().extend_str("PRODUCT_BODY")
         })
     }
 }
@@ -90,7 +90,7 @@ impl WebRenderSend for ProductPage {
                 return Err(WriteError::render("late body failure"));
             }
             assert!(!cx.response_mut().set_status(StatusCode::ACCEPTED));
-            cx.output_mut().extend(b"PRODUCT_BODY")
+            cx.output_mut().extend_str("PRODUCT_BODY")
         })
     }
 }
@@ -585,7 +585,7 @@ impl WebRender for ImmediatePage {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.output_mut().extend(b"immediate body"),
+            cx.output_mut().extend_str("immediate body"),
         )
     }
 }
@@ -600,7 +600,7 @@ impl WebRenderSend for ImmediatePage {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.output_mut().extend(b"immediate body"),
+            cx.output_mut().extend_str("immediate body"),
         )
     }
 }
@@ -766,7 +766,7 @@ impl WebRender for BodyWork {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.output_mut().extend(b"body"),
+            cx.output_mut().extend_str("body"),
         )
     }
 }
@@ -777,7 +777,7 @@ impl WebRenderSend for BodyWork {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.output_mut().extend(b"body"),
+            cx.output_mut().extend_str("body"),
         )
     }
 }
@@ -859,7 +859,7 @@ impl WebRender for EmptyHeadPage {
         RenderOutcome::pending(async move {
             proa_core::WebRenderSync::render(cx.head(), cx)?;
             let _ = self.0.await;
-            cx.output_mut().extend(b"body")
+            cx.output_mut().extend_str("body")
         })
     }
 }
@@ -872,7 +872,7 @@ impl WebRenderSend for EmptyHeadPage {
         RenderOutcome::pending(async move {
             proa_core::WebRenderSendSync::render_send_sync(cx.head(), cx)?;
             let _ = self.0.await;
-            cx.output_mut().extend(b"body")
+            cx.output_mut().extend_str("body")
         })
     }
 }
@@ -918,7 +918,7 @@ impl WebRender for BadDeferred {
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         let _ignored = cx.head_mut().title("too late");
-        RenderOutcome::<std::future::Ready<_>>::Done(cx.output_mut().extend(b"must not publish"))
+        RenderOutcome::<std::future::Ready<_>>::Done(cx.output_mut().extend_str("must not publish"))
     }
 }
 struct DeferredPage;
@@ -1167,7 +1167,7 @@ impl WebRender for SeedChild {
         RenderOutcome::pending(async move {
             tokio::task::yield_now().await;
             cx.rsjs_query_seed_json(r#"["managed-stock"]"#, r#"{"data":42}"#);
-            cx.output_mut().extend(b"deferred-result")
+            cx.output_mut().extend_str("deferred-result")
         })
     }
 }

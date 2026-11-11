@@ -55,7 +55,7 @@ struct Marker(&'static str);
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Marker {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        WriteBuf::extend(&mut cx.out, self.0.as_bytes())
+        WriteBuf::extend_str(&mut cx.out, self.0)
     }
 }
 
@@ -69,7 +69,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for SlowPanel {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             tokio::task::yield_now().await;
-            WriteBuf::extend_static(&mut cx.out, b"<section>slow</section>")
+            WriteBuf::extend_static_str(&mut cx.out, "<section>slow</section>")
         })
     }
 }
@@ -99,12 +99,12 @@ impl<L: DataLoader + 'static> WebRender<L, RenderBuffer> for ProviderIslandThenS
                 "CartState",
                 "CartBadge",
             )?;
-            WriteBuf::extend_static(
+            WriteBuf::extend_static_str(
                 &mut cx.out,
-                b"<span data-rsjs-island=\"CartBadge\" data-scope=\"0\"></span>",
+                "<span data-rsjs-island=\"CartBadge\" data-scope=\"0\"></span>",
             )?;
             proa_core::render_child(cx, Suspense::new(SlowPanel, Marker("<p>loading</p>"))).await?;
-            WriteBuf::extend_static(&mut cx.out, b"<div>tail</div>")?;
+            WriteBuf::extend_static_str(&mut cx.out, "<div>tail</div>")?;
             Err(WriteError::render("tail section failed"))
         })
     }
@@ -135,7 +135,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for ProviderThenFail {
                 "CheckoutState",
                 "CheckoutPanel",
             )?;
-            WriteBuf::extend_static(&mut cx.out, b"<div>doomed subtree</div>")?;
+            WriteBuf::extend_static_str(&mut cx.out, "<div>doomed subtree</div>")?;
             tokio::task::yield_now().await;
             Err(WriteError::render("checkout load failed"))
         })
@@ -205,7 +205,7 @@ async fn error_boundary_keeps_seeds_streamed_by_a_suspense_childs_own_flush() {
                     Suspense::new(ProviderIslandPanel, Marker("<p>loading</p>")),
                 )
                 .await?;
-                WriteBuf::extend_static(&mut cx.out, b"<div>tail</div>")?;
+                WriteBuf::extend_static_str(&mut cx.out, "<div>tail</div>")?;
                 Err(WriteError::render("tail section failed"))
             })
         }
@@ -234,9 +234,9 @@ async fn error_boundary_keeps_seeds_streamed_by_a_suspense_childs_own_flush() {
                     "CartBadge",
                 )?;
                 tokio::task::yield_now().await;
-                WriteBuf::extend_static(
+                WriteBuf::extend_static_str(
                     &mut cx.out,
-                    b"<span data-rsjs-island=\"CartBadge\" data-scope=\"0\"></span>",
+                    "<span data-rsjs-island=\"CartBadge\" data-scope=\"0\"></span>",
                 )
             })
         }
@@ -269,7 +269,7 @@ async fn streamed_suspense_recovery_drops_the_discarded_subtrees_seeds() {
     let sink = Rc::new(CollectingSink::default());
     let mut cx = in_order_context(&sink);
 
-    WriteBuf::extend_static(&mut cx.out, b"<main>").unwrap();
+    WriteBuf::extend_static_str(&mut cx.out, "<main>").unwrap();
     WebRender::render(
         ErrorBoundary::new(
             Suspense::new(ProviderThenFail, Marker("<p>loading</p>")),
@@ -323,7 +323,7 @@ async fn streamed_suspense_success_keeps_the_childs_seeds() {
                     "CheckoutPanel",
                 )?;
                 tokio::task::yield_now().await;
-                WriteBuf::extend_static(&mut cx.out, b"<div>checkout</div>")
+                WriteBuf::extend_static_str(&mut cx.out, "<div>checkout</div>")
             })
         }
     }
@@ -331,7 +331,7 @@ async fn streamed_suspense_success_keeps_the_childs_seeds() {
     let sink = Rc::new(CollectingSink::default());
     let mut cx = in_order_context(&sink);
 
-    WriteBuf::extend_static(&mut cx.out, b"<main>").unwrap();
+    WriteBuf::extend_static_str(&mut cx.out, "<main>").unwrap();
     WebRender::render(
         ErrorBoundary::new(
             Suspense::new(ProviderThenOk, Marker("<p>loading</p>")),

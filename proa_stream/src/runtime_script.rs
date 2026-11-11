@@ -23,14 +23,14 @@ pub fn write_inline_runtime_tag<B: WriteBuf>(
     nonce: Option<&CspNonce>,
 ) -> Result<(), WriteError> {
     let Some(nonce) = nonce else {
-        return out.extend_static(RUNTIME.as_bytes());
+        return out.extend_static_str(RUNTIME);
     };
 
-    out.extend_static(b"<script")?;
+    out.extend_static_str("<script")?;
     nonce.write_html_attr(out)?;
-    out.extend_static(b">")?;
-    out.extend_static(RUNTIME_BODY.as_bytes())?;
-    out.extend_static(b"</script>")
+    out.extend_static_str(">")?;
+    out.extend_static_str(RUNTIME_BODY)?;
+    out.extend_static_str("</script>")
 }
 
 #[cfg(test)]

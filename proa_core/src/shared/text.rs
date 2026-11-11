@@ -168,7 +168,7 @@ pub struct UnsafeRaw<'a>(pub &'a str);
 impl<'a, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for UnsafeRaw<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
-        cx.out.extend(self.0.as_bytes())
+        cx.out.extend_str(self.0)
     }
 }
 // proa-perf-ok(scope): intentional immediate sync-to-async bridge for trusted raw output
@@ -224,7 +224,7 @@ pub struct StaticRaw(pub &'static str);
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticRaw {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
-        cx.out.extend_static(self.0.as_bytes())
+        cx.out.extend_static_str(self.0)
     }
 }
 // proa-perf-ok(scope): intentional immediate sync-to-async bridge for static raw output
@@ -363,7 +363,7 @@ impl<'a> SafeText<'a> {
 impl<'a, L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SafeText<'a> {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
-        cx.out.extend(self.0.as_bytes())
+        cx.out.extend_str(self.0)
     }
 }
 // proa-perf-ok(scope): intentional immediate sync-to-async composition bridge

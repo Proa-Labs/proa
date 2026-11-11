@@ -100,13 +100,16 @@ impl TokenStreamSink {
             return;
         }
 
-        let html_bytes = proc_macro2::Literal::byte_string(self.pending_static.as_bytes());
         let statement = if self.hot {
+            // Hot reload swaps this slot for bytes read at run time, which the
+            // writer validates; the fallback stays a byte literal to match.
+            let html_bytes = proc_macro2::Literal::byte_string(self.pending_static.as_bytes());
             let slot = syn::Index::from(self.hot_slot);
             self.hot_slot += 1;
             quote! { #proa_core::dev_hot::write_slot(&mut cx.out, __proa_dev_static.as_ref(), #slot, #html_bytes)?; }
         } else {
-            quote! { #proa_core::WriteBuf::extend_static(&mut cx.out, #html_bytes)?; }
+            let html_text = proc_macro2::Literal::string(&self.pending_static);
+            quote! { #proa_core::WriteBuf::extend_static_str(&mut cx.out, #html_text)?; }
         };
         self.statements.push(statement);
         self.pending_static.clear();
@@ -195,7 +198,7 @@ fn generate_inline_text(
 
     let prefix = attr_name_prefix.map(|prefix| {
         quote! {
-            #proa_core::WriteBuf::extend_static(&mut cx.out, #prefix)?;
+            #proa_core::WriteBuf::extend_static_str(&mut cx.out, #prefix)?;
         }
     });
 
@@ -287,7 +290,7 @@ fn generate_inline_text(
 
     let suffix = matches!(context, InlineTextContext::Attr).then(|| {
         quote! {
-            #proa_core::WriteBuf::extend_static(&mut cx.out, b"\"")?;
+            #proa_core::WriteBuf::extend_static_str(&mut cx.out, "\"")?;
         }
     });
 
@@ -320,9 +323,9 @@ fn static_write_statement(escaped: &str) -> TokenStream {
         return quote! {};
     }
 
-    let bytes = proc_macro2::Literal::byte_string(escaped.as_bytes());
+    let text = proc_macro2::Literal::string(escaped);
     quote! {
-        #proa_core::WriteBuf::extend_static(&mut cx.out, #bytes)?;
+        #proa_core::WriteBuf::extend_static_str(&mut cx.out, #text)?;
     }
 }
 
@@ -420,8 +423,7 @@ impl ConsolidationSink for TokenStreamSink {
                     );
                     self.pending_static.push('"');
                 } else {
-                    let name_prefix =
-                        proc_macro2::Literal::byte_string(attr.name_prefix.as_bytes());
+                    let name_prefix = proc_macro2::Literal::string(attr.name_prefix);
                     self.push_statement(generate_inline_text(
                         parsed,
                         InlineTextContext::Attr,
@@ -433,8 +435,8 @@ impl ConsolidationSink for TokenStreamSink {
             }
         }
 
-        let name_with_eq_lit = proc_macro2::Literal::byte_string(attr.name_prefix.as_bytes());
-        let name_bool_lit = proc_macro2::Literal::byte_string(attr.bool_form.as_bytes());
+        let name_with_eq_lit = proc_macro2::Literal::string(attr.name_prefix);
+        let name_bool_lit = proc_macro2::Literal::string(attr.bool_form);
         let value = attr.value;
 
         // URL-bearing attributes route through `render_url_attr`, which
@@ -453,8 +455,8 @@ impl ConsolidationSink for TokenStreamSink {
         let statement = quote! {
             {
                 use #proa_core::shared::attr_value::AttrValue;
-                static NAME_PREFIX: &[u8] = #name_with_eq_lit;
-                static NAME_BOOL: &[u8] = #name_bool_lit;
+                static NAME_PREFIX: &str = #name_with_eq_lit;
+                static NAME_BOOL: &str = #name_bool_lit;
                 AttrValue::#render_method(&(#value), NAME_PREFIX, NAME_BOOL, cx)?;
             }
         };
@@ -695,9 +697,9 @@ fn fully_static_tokens(root: &HtmlRoot, dialect: MarkupDialect) -> Option<TokenS
 
 fn static_html_tokens(html: &str) -> TokenStream {
     let proa_core = proa_dsl::paths::runtime("proa_core");
-    let html_bytes = proc_macro2::Literal::byte_string(html.as_bytes());
+    let html_text = proc_macro2::Literal::string(html);
     quote! {
-        #proa_core::shared::html_node::static_html(#html_bytes)
+        #proa_core::shared::html_node::static_html(#html_text)
     }
 }
 

@@ -504,6 +504,8 @@ impl ScatteredBuf {
     }
 }
 
+#[allow(unsafe_code)]
+
 impl WriteBuf for ScatteredBuf {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -523,7 +525,8 @@ impl WriteBuf for ScatteredBuf {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), proa_core::shared::write_buf::WriteError> {
+        let bytes = text.as_bytes();
         self.write(bytes);
         Ok(())
     }

@@ -55,7 +55,7 @@
 //! });
 //! ```
 
-use proa::shared::attr_value::AttrValue;
+use proa::shared::attr_value::{AttrValue, SafeAttr};
 use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Base styles module - core button styling (shadcn style)
@@ -478,13 +478,14 @@ impl AttrValue for ButtonStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.base.as_bytes())?;
-        cx.out.extend_static(b" ")?;
-        cx.out.extend_static(self.size.classes().as_bytes())?;
-        cx.out.extend_static(b" ")?;
-        cx.out.extend_static(self.radius.classes().as_bytes())?;
-        cx.out.extend_static(b" ")?;
-        cx.out.extend_static(self.appearance.as_bytes())
+        proa::text!(
+            "{} {} {} {}",
+            SafeAttr(self.base),
+            SafeAttr(self.size.classes()),
+            SafeAttr(self.radius.classes()),
+            SafeAttr(self.appearance),
+        )
+        .render_attr_value(cx)
     }
 }
 

@@ -103,7 +103,7 @@ impl WebRenderSend for SendDelayedSection {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
             tokio::task::yield_now().await;
-            cx.out.extend_static(b"<section>send ready</section>")
+            cx.out.extend_static_str("<section>send ready</section>")
         })
     }
 }
@@ -133,7 +133,8 @@ impl WebRenderSend for SendNestedReady {
         cx: &mut SendWebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.out.extend_static(b"<strong>nested send ready</strong>"),
+            cx.out
+                .extend_static_str("<strong>nested send ready</strong>"),
         )
     }
 }
@@ -214,7 +215,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for FailingSection
         cx: &mut WebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            WriteBuf::extend(&mut cx.out, b"<section class=\"partial\">partial</section>")?;
+            WriteBuf::extend_str(&mut cx.out, "<section class=\"partial\">partial</section>")?;
             Err(WriteError::render("section failed"))
         })
     }
@@ -985,7 +986,7 @@ async fn ssr_stream_out_of_order_error_boundary_replaces_failed_boundary() {
                             FailingSection,
                             html_sync! { <p class="fallback">"loading failed section"</p> },
                         ),
-                        static_html(b"<section class=\"error\">error fallback</section>"),
+                        static_html("<section class=\"error\">error fallback</section>"),
                     )}
                 </main>
             })
@@ -1030,7 +1031,7 @@ async fn ssr_stream_in_order_error_boundary_emits_fallback_and_continues() {
                             FailingSection,
                             html_sync! { <p class="fallback">"loading failed section"</p> },
                         ),
-                        static_html(b"<section class=\"error\">error fallback</section>"),
+                        static_html("<section class=\"error\">error fallback</section>"),
                     )}
                     <p>"after"</p>
                 </main>

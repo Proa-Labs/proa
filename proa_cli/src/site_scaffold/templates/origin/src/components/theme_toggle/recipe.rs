@@ -5,7 +5,7 @@
 
 use crate::components::_proa::theme::rounded;
 use crate::tw_join;
-use proa::shared::attr_value::AttrValue;
+use proa::shared::attr_value::{AttrValue, SafeAttr};
 use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -42,7 +42,7 @@ impl AttrValue for ThemeToggleStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.recipe.root.as_bytes())
+        SafeAttr(self.recipe.root).render_attr_value(cx)
     }
 }
 

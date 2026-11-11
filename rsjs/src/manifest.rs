@@ -1070,7 +1070,7 @@ impl PageRuntimePlan {
                 &pending_interaction_islands,
                 nonce,
             );
-            out.extend(tag.as_bytes())?;
+            out.extend_str(&tag)?;
             state
                 .emitted_eager_module_urls
                 .extend(pending_interaction_urls);
@@ -1102,7 +1102,7 @@ impl PageRuntimePlan {
                     &pending_islands,
                     nonce,
                 );
-                out.extend(tag.as_bytes())?;
+                out.extend_str(&tag)?;
                 state.emitted_deferred_islands.extend(pending_keys);
             }
         }
@@ -1115,22 +1115,22 @@ fn write_module_script_tag<B: proa_core::WriteBuf>(
     url: &str,
     nonce: Option<&proa_core::CspNonce>,
 ) -> Result<(), proa_core::WriteError> {
-    out.extend_static(br#"<script type="module" src=""#)?;
+    out.extend_static_str(r#"<script type="module" src=""#)?;
     proa_core::shared::escape::escape_attr_value(out, url)?;
-    out.extend_static(b"\"")?;
+    out.extend_static_str("\"")?;
     if let Some(nonce) = nonce {
         nonce.write_html_attr(out)?;
     }
-    out.extend_static(b"></script>")
+    out.extend_static_str("></script>")
 }
 
 fn write_module_preload_tag<B: proa_core::WriteBuf>(
     out: &mut B,
     url: &str,
 ) -> Result<(), proa_core::WriteError> {
-    out.extend_static(br#"<link rel="modulepreload" href=""#)?;
+    out.extend_static_str(r#"<link rel="modulepreload" href=""#)?;
     proa_core::shared::escape::escape_attr_value(out, url)?;
-    out.extend_static(b"\">")
+    out.extend_static_str("\">")
 }
 
 /// A rendered island id was not present in the linked rsjs manifest.

@@ -79,9 +79,7 @@ where
     T: WebRenderSync<L>,
 {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        let output = cx.capture_html_for_markdown(self.0)?;
-        let html = String::from_utf8(output.into_vec())
-            .map_err(|_| WriteError::render("HTML-to-Markdown input is not valid UTF-8"))?;
+        let html = cx.capture_html_for_markdown(self.0)?.into_string();
         let converter = &*CONVERTER;
         let tree = converter
             .html_to_tree(&html)

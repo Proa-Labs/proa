@@ -28,8 +28,8 @@ use std::future::Future;
 use proa_core::render::RenderOutcome;
 use proa_core::{
     await_component, render_into, render_into_async, render_to_string_async, render_to_vec,
-    render_to_vec_async, to_async, try_render_to_string_async, RenderBuffer, WebContext, WebRender,
-    WebRenderSync, WriteBuf, WriteError,
+    render_to_vec_async, to_async, RenderBuffer, WebContext, WebRender, WebRenderSync, WriteBuf,
+    WriteError,
 };
 use proa_macros::html_sync;
 
@@ -44,9 +44,9 @@ struct SyncGreeting {
 
 impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SyncGreeting {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        cx.out.extend(b"<p>hello ")?;
-        cx.out.extend(self.name.as_bytes())?;
-        cx.out.extend(b"</p>")?;
+        cx.out.extend_str("<p>hello ")?;
+        cx.out.extend_str(self.name)?;
+        cx.out.extend_str("</p>")?;
         Ok(())
     }
 }
@@ -74,11 +74,11 @@ impl<L: ::proa_core::DataLoader> WebRender<L> for AsyncGreeting {
             // impl (returns `Result<(), WriteError>`). We want the latter.
             // `cx.out` is already a `&mut Vec<u8>`, so passing it directly
             // gives `WriteBuf::extend` the `&mut self` it needs.
-            WriteBuf::extend(&mut cx.out, b"<p>async hello ")?;
+            WriteBuf::extend_str(&mut cx.out, "<p>async hello ")?;
             // Real yield point: the runtime must poll us again after this.
             tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-            WriteBuf::extend(&mut cx.out, self.name.as_bytes())?;
-            WriteBuf::extend(&mut cx.out, b"</p>")?;
+            WriteBuf::extend_str(&mut cx.out, self.name)?;
+            WriteBuf::extend_str(&mut cx.out, "</p>")?;
             Ok(())
         })
     }
@@ -109,7 +109,7 @@ struct FailingSyncAfterWrite;
 
 impl WebRenderSync for FailingSyncAfterWrite {
     fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        cx.out.extend_static(b"partial")?;
+        cx.out.extend_static_str("partial")?;
         Err(WriteError::OutOfCapacity)
     }
 }
@@ -122,7 +122,7 @@ impl WebRender for PendingAfterWrite {
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.out.extend_static(b"partial")?;
+            cx.out.extend_static_str("partial")?;
             std::future::pending::<()>().await;
             Ok(())
         })
@@ -193,7 +193,7 @@ async fn await_component_renders_future_produced_child() {
 #[tokio::test]
 async fn render_into_async_reuses_buffer() {
     let mut buf = RenderBuffer::new();
-    WriteBuf::extend_static(&mut buf, b"leftover that must be cleared").unwrap();
+    WriteBuf::extend_static_str(&mut buf, "leftover that must be cleared").unwrap();
     render_into_async(&mut buf, AsyncGreeting { name: "reuse" }).await;
     assert_eq!(
         std::str::from_utf8(&buf.to_vec()).unwrap(),
@@ -211,7 +211,7 @@ fn render_into_restores_the_owned_buffer_when_render_panics() {
     assert!(panic.is_err());
     assert_eq!(buf.to_vec(), b"partial");
     buf.clear();
-    buf.extend_static(b"reused").unwrap();
+    buf.extend_static_str("reused").unwrap();
     assert_eq!(buf.to_vec(), b"reused");
 }
 
@@ -225,14 +225,8 @@ async fn cancelling_render_into_async_restores_the_owned_buffer() {
 
     assert_eq!(buf.to_vec(), b"partial");
     buf.clear();
-    buf.extend_static(b"reused").unwrap();
+    buf.extend_static_str("reused").unwrap();
     assert_eq!(buf.to_vec(), b"reused");
-}
-
-#[tokio::test]
-async fn try_render_to_string_async_succeeds_on_valid_utf8() {
-    let result = try_render_to_string_async(AsyncGreeting { name: "ok" }).await;
-    assert_eq!(result.unwrap(), "<p>async hello ok</p>");
 }
 
 #[tokio::test]

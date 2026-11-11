@@ -147,11 +147,11 @@ fn render_context() -> syn::Ident {
 fn flush(stmts: &mut Vec<TokenStream>, run: &mut String) {
     if !run.is_empty() {
         let cx = render_context();
-        let bytes = proc_macro2::Literal::byte_string(run.as_bytes());
+        let text = proc_macro2::Literal::string(run);
         stmts.push(quote! {
             {
-                static BYTES: &[u8] = #bytes;
-                #cx.write_md_prepared_static(BYTES)?;
+                static TEXT: &str = #text;
+                #cx.write_md_prepared_static_str(TEXT)?;
             }
         });
         run.clear();
@@ -198,14 +198,14 @@ fn wrap_render(stmts: &[TokenStream], mode: EmitMode) -> TokenStream {
     }
 }
 
-fn static_fragment(bytes: proc_macro2::Literal) -> TokenStream {
+fn static_fragment(text: proc_macro2::Literal) -> TokenStream {
     let proa_core = proa_dsl::paths::runtime("proa_core");
     let cx = render_context();
     quote! {
         #proa_core::OptimizedMd::new(
             |#cx: &mut #proa_core::WebContext<_, _>| {
-                static BYTES: &[u8] = #bytes;
-                #cx.write_md_prepared_static(BYTES)?;
+                static TEXT: &str = #text;
+                #cx.write_md_prepared_static_str(TEXT)?;
                 ::core::result::Result::Ok(())
             }
         )
@@ -413,8 +413,7 @@ fn codegen_tpl(
                 s.push_str(t);
             }
         }
-        let bytes = proc_macro2::Literal::byte_string(s.as_bytes());
-        return static_fragment(bytes);
+        return static_fragment(proc_macro2::Literal::string(&s));
     }
 
     let mut stmts = Vec::new();
@@ -511,8 +510,7 @@ pub fn generate_tokens(root: &MdRoot, mode: EmitMode) -> TokenStream {
                 text.push_str(&text_value(value, *dedent));
             }
         }
-        let bytes = proc_macro2::Literal::byte_string(text.as_bytes());
-        return static_fragment(bytes);
+        return static_fragment(proc_macro2::Literal::string(&text));
     }
 
     let mut stmts = Vec::new();

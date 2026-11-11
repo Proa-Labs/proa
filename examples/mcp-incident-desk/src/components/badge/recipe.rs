@@ -6,7 +6,7 @@
 //! Provides variant styles and base styling for the Badge component.
 
 use crate::tw_join;
-use proa::shared::attr_value::AttrValue;
+use proa::shared::attr_value::{AttrValue, SafeAttr};
 use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Base styles for the badge
@@ -179,9 +179,12 @@ impl AttrValue for BadgeStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.recipe.base.as_bytes())?;
-        cx.out.extend_static(b" ")?;
-        cx.out.extend_static(self.variant.classes().as_bytes())
+        proa::text!(
+            "{} {}",
+            SafeAttr(self.recipe.base),
+            SafeAttr(self.variant.classes()),
+        )
+        .render_attr_value(cx)
     }
 }
 

@@ -4,7 +4,7 @@
 //! Table recipe — static named slots for responsive table parts.
 
 use crate::tw_join;
-use proa::shared::attr_value::AttrValue;
+use proa::shared::attr_value::{AttrValue, SafeAttr};
 use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 mod base {
@@ -87,7 +87,7 @@ impl AttrValue for TableStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.recipe.root.as_bytes())
+        SafeAttr(self.recipe.root).render_attr_value(cx)
     }
 }
 

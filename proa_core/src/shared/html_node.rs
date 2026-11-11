@@ -36,25 +36,25 @@ impl WebRender<NoLoader, Vec<u8>> for ConstHtml {
     }
 }
 
-/// Fully static HTML byte sequence.
+/// Fully static HTML text.
 ///
 /// This is the smallest wrapper the `html!` / `html_sync!` macros can emit for
-/// a completely static tree: one byte-string literal plus this shared render
+/// a completely static tree: one string literal plus this shared render
 /// implementation.
 #[derive(Debug, Clone, Copy)]
 pub struct StaticHtml {
-    pub bytes: &'static [u8],
+    pub text: &'static str,
 }
 
 #[inline(always)]
-pub const fn static_html(bytes: &'static [u8]) -> StaticHtml {
-    StaticHtml { bytes }
+pub const fn static_html(text: &'static str) -> StaticHtml {
+    StaticHtml { text }
 }
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StaticHtml {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        cx.out.extend_static(self.bytes)
+        cx.out.extend_static_str(self.text)
     }
 }
 
@@ -72,7 +72,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for StaticHtml {
 impl<L: DataLoader, B: WriteBuf + Send> WebRenderSendSync<L, B> for StaticHtml {
     #[inline(always)]
     fn render_send_sync(self, cx: &mut SendWebContext<L, B>) -> Result<(), WriteError> {
-        cx.out.extend_static(self.bytes)
+        cx.out.extend_static_str(self.text)
     }
 }
 

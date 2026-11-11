@@ -534,7 +534,8 @@ mod shared_context_tests {
         ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
             self.0.fetch_add(1, Ordering::Relaxed);
             // proa-perf-ok: fixed trusted markup probes representation selection in this test
-            RenderOutcome::<std::future::Ready<_>>::Done(cx.out.extend_static(b"<p>selected</p>"))
+            let written = cx.out.extend_static_str("<p>selected</p>");
+            RenderOutcome::<std::future::Ready<_>>::Done(written)
         }
     }
 

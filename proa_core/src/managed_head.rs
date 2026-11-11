@@ -590,15 +590,9 @@ impl ManagedHead {
         if chunks.iter().map(Bytes::len).sum::<usize>() > limit {
             return self.fail(HeadError::RetainedLimit);
         }
-        let mut utf8 = Utf8::default();
-        for part in &chunks {
-            if utf8.push(part).is_err() {
-                return self.fail(HeadError::InvalidOutput);
-            }
-        }
-        if utf8.finish().is_err() {
-            return self.fail(HeadError::InvalidOutput);
-        }
+        // No UTF-8 scan here: every write into the buffer is text by type or
+        // was validated where it was written, and the head is spliced in at
+        // the outlet position, which is a write boundary.
         if let Err(cause) = publisher(response, chunks) {
             return self
                 .0
@@ -787,49 +781,6 @@ impl<L: crate::DataLoader, B: crate::WriteBuf + Send> crate::WebRenderSend<L, B>
             })
         } else {
             crate::RenderOutcome::Done(result)
-        }
-    }
-}
-
-#[derive(Default)]
-struct Utf8 {
-    pending: [u8; 4],
-    len: usize,
-}
-impl Utf8 {
-    fn push(&mut self, mut bytes: &[u8]) -> Result<(), HeadError> {
-        while self.len > 0 && !bytes.is_empty() {
-            if self.len == 4 {
-                return Err(HeadError::InvalidOutput);
-            }
-            self.pending[self.len] = bytes[0];
-            self.len += 1;
-            bytes = &bytes[1..];
-            match std::str::from_utf8(&self.pending[..self.len]) {
-                Ok(_) => self.len = 0,
-                Err(e) if e.error_len().is_none() => {}
-                Err(_) => return Err(HeadError::InvalidOutput),
-            }
-        }
-        if self.len > 0 {
-            return Ok(());
-        }
-        match std::str::from_utf8(bytes) {
-            Ok(_) => Ok(()),
-            Err(e) if e.error_len().is_none() => {
-                let tail = &bytes[e.valid_up_to()..];
-                self.pending[..tail.len()].copy_from_slice(tail);
-                self.len = tail.len();
-                Ok(())
-            }
-            Err(_) => Err(HeadError::InvalidOutput),
-        }
-    }
-    fn finish(self) -> Result<(), HeadError> {
-        if self.len == 0 {
-            Ok(())
-        } else {
-            Err(HeadError::InvalidOutput)
         }
     }
 }

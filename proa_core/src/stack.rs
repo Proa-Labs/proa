@@ -66,9 +66,9 @@ mod tests {
     fn test_write_cursor_basic() {
         let mut backing = [0u8; 1024];
         let mut cursor = WriteCursor::new(&mut backing);
-        cursor.extend(b"<div>").unwrap();
-        cursor.extend(b"Hello").unwrap();
-        cursor.extend(b"</div>").unwrap();
+        cursor.extend_str("<div>").unwrap();
+        cursor.extend_str("Hello").unwrap();
+        cursor.extend_str("</div>").unwrap();
         assert_eq!(cursor.as_slice(), b"<div>Hello</div>");
         assert_eq!(cursor.len(), 16);
     }
@@ -76,7 +76,7 @@ mod tests {
     fn test_write_cursor_overflow() {
         let mut backing = [0u8; 8];
         let mut cursor = WriteCursor::new(&mut backing);
-        let result = cursor.extend(b"0123456789");
+        let result = cursor.extend_str("0123456789");
         assert!(result.is_err());
     }
     #[test]

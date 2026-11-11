@@ -59,7 +59,7 @@ struct HtmlBridge;
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HtmlBridge {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         // proa-perf-ok: fixed trusted markup isolates the context bridge cost in this benchmark
-        cx.out.extend_static(b"<span>bridge</span>\n")
+        cx.out.extend_static_str("<span>bridge</span>\n")
     }
 }
 

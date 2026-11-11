@@ -9,8 +9,7 @@
 use super::calendar::AirbnbCalendar;
 use super::image::{AirImage, AirImageFetchPriority, AirImageLoading};
 use super::shared;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{RenderBuffer, StaticRaw, UnsafeRaw, WebContext, WebRenderSync, WriteBuf};
+use proa_core::{RenderBuffer, StaticRaw, UnsafeRaw, WebContext, WebRenderSync};
 use proa_macros::{html_sync, md_sync};
 
 /// Pre-rendered React island HTML strings for interactive sections.
@@ -21,25 +20,6 @@ pub struct ListingIslands {
     pub booking_card: String,
     /// React bootstrap script (import + hydration)
     pub bootstrap: String,
-}
-
-/// Zero-allocation style attribute for `width:NN%;min-width:2px`.
-struct WidthPct(u8);
-
-impl AttrValue for WidthPct {
-    #[inline(always)]
-    fn should_render(&self) -> bool {
-        true
-    }
-    #[inline(always)]
-    fn render_attr_value<B: WriteBuf, L: proa_core::DataLoader>(
-        &self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::WriteError> {
-        cx.out.extend(b"width:")?;
-        self.0.render_attr_value(cx)?;
-        cx.out.extend_static(b"%;min-width:2px")
-    }
 }
 
 const STAR_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="#FF385C"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>"##;
@@ -1048,7 +1028,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                     <div class="airbnb-rating-bar">
                                         <div class="airbnb-rating-bar-label">{*label}</div>
                                         <div class="airbnb-rating-bar-track">
-                                            <div class="airbnb-rating-bar-fill" style={proa_core::style_ok(WidthPct(*value))}></div>
+                                            <div class="airbnb-rating-bar-fill" style={proa_core::style_ok(proa_macros::text!("width:{}%;min-width:2px", *value))}></div>
                                         </div>
                                     </div>
                                 }
