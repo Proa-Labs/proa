@@ -5,7 +5,7 @@
 
 use crate::components::_proa::theme::rounded;
 use crate::tw_join;
-use proa::shared::attr_value::AttrValue;
+use proa::shared::attr_value::{AttrValue, SafeAttr};
 use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Tooltip placement options.
@@ -121,7 +121,7 @@ impl AttrValue for TooltipStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static_str(self.recipe.root)
+        SafeAttr(self.recipe.root).render_attr_value(cx)
     }
 }
 

@@ -8,7 +8,6 @@
 //! libraries while retaining the data attributes consumed by the browser
 //! runtime and the showcase CSS.
 
-use proa_core::shared::attr_value::AttrValue;
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::html_sync;
 
@@ -196,7 +195,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AirbnbCalendar {
                                 data-scope="calendar"
                                 data-part="day"
                                 data-slot="calendar-day"
-                                data-date={CalendarDate::new(cell.year, cell.month, cell.day)}
+                                data-date={text!("{:04}-{:02}-{:02}", cell.year % 10_000, cell.month, cell.day)}
                                 data-outside={outside}
                                 data-state={state}
                                 data-range-start={range_start}
@@ -304,40 +303,4 @@ fn first_weekday_sunday(year: u16, month: u8) -> u8 {
         + MONTH_OFFSETS[(month - 1) as usize]
         + 1)
         % 7) as u8
-}
-
-/// Stack-formatted `YYYY-MM-DD` attribute value.
-struct CalendarDate([u8; 10]);
-
-impl CalendarDate {
-    fn new(year: u16, month: u8, day: u8) -> Self {
-        let year = year % 10_000;
-        Self([
-            b'0' + (year / 1_000) as u8,
-            b'0' + ((year / 100) % 10) as u8,
-            b'0' + ((year / 10) % 10) as u8,
-            b'0' + (year % 10) as u8,
-            b'-',
-            b'0' + month / 10,
-            b'0' + month % 10,
-            b'-',
-            b'0' + day / 10,
-            b'0' + day % 10,
-        ])
-    }
-}
-
-impl AttrValue for CalendarDate {
-    #[inline(always)]
-    fn should_render(&self) -> bool {
-        true
-    }
-
-    #[inline(always)]
-    fn render_attr_value<B: WriteBuf, L: DataLoader>(
-        &self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), WriteError> {
-        cx.out.extend(&self.0)
-    }
 }

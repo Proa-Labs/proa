@@ -341,7 +341,8 @@ pub fn build_listings_with_overrides(n: usize, overrides: &serde_json::Value) ->
 }
 
 // ---------------------------------------------------------------------------
-// Zero-allocation formatters (write decimals/dates straight into the buffer)
+// Zero-allocation formatters. `text!` writes integers straight into the
+// buffer; only thousands grouping needs a hand-written helper.
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy)]
@@ -349,26 +350,9 @@ struct Currency(i64);
 impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Currency {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
-        let cents = self.0;
-        if cents < 0 {
-            cx.out.extend_str("-")?;
-        }
-        let abs = cents.unsigned_abs();
-        cx.out.extend_str("$")?;
-        write_with_commas(cx, abs / 100)?;
-        cx.out.extend_str(".")?;
-        write_two_digits(cx, (abs % 100) as u32)
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct Uint(pub(crate) u64);
-impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Uint {
-    #[inline]
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
-        let mut buf = [0u8; 20];
-        let s = format_u64(&mut buf, self.0);
-        cx.out.extend_str(s)
+        let abs = self.0.unsigned_abs();
+        let sign = SafeText::from_trusted(if self.0 < 0 { "-" } else { "" });
+        proa_macros::text!("{}${}.{:02}", sign, Commas(abs / 100), abs % 100).render(cx)
     }
 }
 
@@ -387,15 +371,7 @@ struct FeedbackPct(u16);
 impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FeedbackPct {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
-        let v = self.0;
-        let whole = (v / 10) as u64;
-        let tenth = (v % 10) as u8;
-        let mut buf = [0u8; 20];
-        let s = format_u64(&mut buf, whole);
-        cx.out.extend_str(s)?;
-        cx.out.extend_str(".")?;
-        cx.out.extend(&[b'0' + tenth])?;
-        cx.out.extend_str("%")
+        proa_macros::text!("{}.{}%", self.0 / 10, self.0 % 10).render(cx)
     }
 }
 
@@ -406,31 +382,21 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for AbbrevCoun
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let n = self.0;
-        let mut buf = [0u8; 20];
         if n < 1_000 {
-            let s = format_u64(&mut buf, n as u64);
-            return cx.out.extend_str(s);
+            return n.render(cx);
         }
-        if n < 1_000_000 {
-            let whole = n / 1_000;
-            let tenth = (n % 1_000) / 100;
-            let s = format_u64(&mut buf, whole as u64);
-            cx.out.extend_str(s)?;
-            if tenth > 0 {
-                cx.out.extend_str(".")?;
-                cx.out.extend(&[b'0' + tenth as u8])?;
-            }
-            return cx.out.extend_str("K");
-        }
-        let whole = n / 1_000_000;
-        let tenth = (n % 1_000_000) / 100_000;
-        let s = format_u64(&mut buf, whole as u64);
-        cx.out.extend_str(s)?;
+        let (unit, suffix) = if n < 1_000_000 {
+            (1_000, "K")
+        } else {
+            (1_000_000, "M")
+        };
+        let (whole, tenth) = (n / unit, n % unit / (unit / 10));
+        let suffix = SafeText::from_trusted(suffix);
         if tenth > 0 {
-            cx.out.extend_str(".")?;
-            cx.out.extend(&[b'0' + tenth as u8])?;
+            proa_macros::text!("{}.{}{}", whole, tenth, suffix).render(cx)
+        } else {
+            proa_macros::text!("{}{}", whole, suffix).render(cx)
         }
-        cx.out.extend_str("M")
     }
 }
 
@@ -450,61 +416,28 @@ fn format_u64(buf: &mut [u8; 20], mut v: u64) -> &str {
 }
 
 #[inline]
-fn write_two_digits<B: WriteBuf, L: ::proa_core::DataLoader>(
-    cx: &mut WebContext<L, B>,
-    v: u32,
-) -> Result<(), CoreWriteError> {
-    let bytes = [b'0' + ((v / 10) % 10) as u8, b'0' + (v % 10) as u8];
-    cx.out.extend(&bytes)
-}
-
-#[inline]
 fn write_with_commas<B: WriteBuf, L: ::proa_core::DataLoader>(
     cx: &mut WebContext<L, B>,
     v: u64,
 ) -> Result<(), CoreWriteError> {
-    if v == 0 {
-        return cx.out.extend_str("0");
-    }
     let mut digits = [0u8; 20];
     let s = format_u64(&mut digits, v);
-    let bytes = s.as_bytes();
-    let len = bytes.len();
-    let first = ((len - 1) % 3) + 1;
-    cx.out.extend(&bytes[..first])?;
+    let first = ((s.len() - 1) % 3) + 1;
+    cx.out.extend_str(&s[..first])?;
     let mut i = first;
-    while i < len {
+    while i < s.len() {
         cx.out.extend_str(",")?;
-        cx.out.extend(&bytes[i..i + 3])?;
+        cx.out.extend_str(&s[i..i + 3])?;
         i += 3;
     }
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Custom AttrValue impls — emit URLs / item-ids straight into the attribute
-// writer without ever allocating an intermediate `String`.
+// Typed URL attribute values. A URL attribute takes a typed value rather than
+// an inline `text!`, because a URL assembled from placeholders cannot be
+// checked as a whole. Neither allocates an intermediate `String`.
 // ---------------------------------------------------------------------------
-
-/// `id="item123456"` — eBay's per-card DOM id format.
-#[derive(Clone, Copy)]
-struct ItemId(u64);
-impl AttrValue for ItemId {
-    #[inline(always)]
-    fn should_render(&self) -> bool {
-        true
-    }
-    #[inline]
-    fn render_attr_value<B: WriteBuf, L: ::proa_core::DataLoader>(
-        &self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), CoreWriteError> {
-        cx.out.extend_str("item")?;
-        let mut buf = [0u8; 20];
-        let s = format_u64(&mut buf, self.0);
-        cx.out.extend_str(s)
-    }
-}
 
 /// `href="https://www.ebay.com/itm/123456"`
 #[derive(Clone, Copy)]
@@ -519,14 +452,14 @@ impl AttrValue for ItemUrl {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), CoreWriteError> {
-        cx.out.extend_str("https://www.ebay.com/itm/")?;
-        let mut buf = [0u8; 20];
-        let s = format_u64(&mut buf, self.0);
-        cx.out.extend_str(s)
+        proa_macros::text!("https://www.ebay.com/itm/{}", self.0).render_attr_value(cx)
     }
 }
 
 /// `src="https://i.ebayimg.com/images/g/HASH/s-l500.webp"`
+///
+/// Written by hand because the hash is trusted fixture data that skips the
+/// attribute escape; a `text!` placeholder would escape it.
 struct ImgUrl<'a>(&'a str);
 impl<'a> AttrValue for ImgUrl<'a> {
     #[inline(always)]
@@ -544,26 +477,8 @@ impl<'a> AttrValue for ImgUrl<'a> {
     }
 }
 
-/// `aria-label="watch <escaped title>"`
-struct WatchLabel<'a>(&'a str);
-impl<'a> AttrValue for WatchLabel<'a> {
-    #[inline(always)]
-    fn should_render(&self) -> bool {
-        true
-    }
-    #[inline]
-    fn render_attr_value<B: WriteBuf, L: ::proa_core::DataLoader>(
-        &self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), CoreWriteError> {
-        cx.out.extend_str("watch ")?;
-        proa_core::shared::escape::escape_attr_value(&mut cx.out, self.0)
-    }
-}
-
 // ---------------------------------------------------------------------------
-// Card sub-components (variable-length / conditional sections that need
-// their own helpers because html_sync! doesn't support inline `for`).
+// Card sub-components (variable-length / conditional sections).
 // ---------------------------------------------------------------------------
 
 struct SubtitleRow<'a> {
@@ -573,17 +488,15 @@ struct SubtitleRow<'a> {
 impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for SubtitleRow<'a> {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
-        let last = self.parts.len().saturating_sub(1);
-        for (idx, part) in self.parts.iter().enumerate() {
-            html_sync! {
-                <span class="su-styled-text secondary default">{ text(part) }</span>
-            }
-            .render(cx)?;
-            if idx != last {
-                cx.out.extend_str(" \u{00b7} ")?;
-            }
+        html_sync! {
+            {for (idx, part) in self.parts.iter().enumerate() {
+                html_sync! {
+                    {if idx != 0 { html_sync! { " \u{00b7} " } }}
+                    <span class="su-styled-text secondary default">{ text(part) }</span>
+                }
+            }}
         }
-        Ok(())
+        .render(cx)
     }
 }
 
@@ -595,17 +508,31 @@ struct StarRow {
 impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for StarRow {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
-        for _ in 0..self.full {
-            cx.out.extend_str("<svg class=\"icon icon--16\" focusable=\"false\" aria-hidden=\"true\"><use href=\"#icon-star-filled-16\"></use></svg>")?;
-        }
-        if self.half {
-            cx.out.extend_str("<svg class=\"icon icon--16-colored\" focusable=\"false\" aria-hidden=\"true\"><use href=\"#icon-star-half-16-colored\"></use></svg>")?;
-        }
         let empty = 5u8.saturating_sub(self.full + self.half as u8);
-        for _ in 0..empty {
-            cx.out.extend_str("<svg class=\"icon icon--16\" focusable=\"false\" aria-hidden=\"true\"><use href=\"#icon-star-empty-16\"></use></svg>")?;
+        html_sync! {
+            {for _ in 0..self.full {
+                html_sync! {
+                    <svg class="icon icon--16" focusable="false" aria-hidden="true">
+                        <use href="#icon-star-filled-16"></use>
+                    </svg>
+                }
+            }}
+            {if self.half {
+                html_sync! {
+                    <svg class="icon icon--16-colored" focusable="false" aria-hidden="true">
+                        <use href="#icon-star-half-16-colored"></use>
+                    </svg>
+                }
+            }}
+            {for _ in 0..empty {
+                html_sync! {
+                    <svg class="icon icon--16" focusable="false" aria-hidden="true">
+                        <use href="#icon-star-empty-16"></use>
+                    </svg>
+                }
+            }}
         }
-        Ok(())
+        .render(cx)
     }
 }
 
@@ -650,13 +577,14 @@ struct DeliveryCell(i64);
 impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DeliveryCell {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
-        if self.0 == 0 {
-            cx.out.extend_str("Free delivery")
-        } else {
-            cx.out.extend_str("+")?;
-            Currency(self.0).render(cx)?;
-            cx.out.extend_str(" delivery")
+        html_sync! {
+            {if self.0 == 0 {
+                html_sync! { "Free delivery" }
+            } else {
+                html_sync! { "+"{ Currency(self.0) }" delivery" }
+            }}
         }
+        .render(cx)
     }
 }
 
@@ -674,7 +602,7 @@ impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeartI
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let label = self.aria_label;
         html_sync! {
-            <a aria-label={WatchLabel(label)}
+            <a aria-label={text!("watch {}", label)}
                class="s-card__watchheart-click"
                href="#">
                 <span class="s-card__watchheart-icon">
@@ -699,7 +627,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CouponRow 
             html_sync! {
                 <div class="s-card__attribute-row">
                     <span class="su-styled-text negative bold large">
-                        "Extra "{ Uint(pct as u64) }"% off with coupon"
+                        "Extra "{ pct }"% off with coupon"
                     </span>
                 </div>
             }
@@ -766,7 +694,7 @@ where
         // `:has(> [data-format="..."])` to compensate.
         html_sync! {
             <li class="s-card s-card--horizontal">
-                <div id={ItemId(l.item_id)} data-listingid={l.item_id}
+                <div id={text!("item{}", l.item_id)} data-listingid={l.item_id}
                      data-format={format_slug}
                      data-free-shipping={free_shipping_flag}
                      class="su-card-container su-card-container--horizontal">
@@ -902,19 +830,20 @@ pub struct ListingsList<'a> {
 impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for ListingsList<'a> {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
-        cx.out
-            .extend_str("<ul class=\"srp-results srp-list clearfix\">")?;
-        for listing in self.listings {
-            Card {
-                listing,
-                heart_outer_class: STATIC_WATCH_HEART_CLASS,
-                heart: HeartIcons {
-                    aria_label: listing.title.as_ref(),
-                },
-            }
-            .render(cx)?;
+        html_sync! {
+            <ul class="srp-results srp-list clearfix">
+                {for listing in self.listings {
+                    Card {
+                        listing,
+                        heart_outer_class: STATIC_WATCH_HEART_CLASS,
+                        heart: HeartIcons {
+                            aria_label: listing.title.as_ref(),
+                        },
+                    }
+                }}
+            </ul>
         }
-        cx.out.extend_str("</ul>")
+        .render(cx)
     }
 }
 

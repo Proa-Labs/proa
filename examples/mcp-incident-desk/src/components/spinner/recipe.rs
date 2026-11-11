@@ -6,7 +6,7 @@
 //! Inspired by Panda CSS and Ark UI patterns, this module provides a fully
 //! typed recipe system for generating Tailwind classes with compile-time safety.
 
-use proa::shared::attr_value::AttrValue;
+use proa::shared::attr_value::{AttrValue, SafeAttr};
 use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Base styles module - core spinner styling
@@ -121,9 +121,12 @@ impl AttrValue for SpinnerStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static_str(self.recipe.base)?;
-        cx.out.extend_static_str(" ")?;
-        cx.out.extend_static_str(self.size.classes())
+        proa::text!(
+            "{} {}",
+            SafeAttr(self.recipe.base),
+            SafeAttr(self.size.classes()),
+        )
+        .render_attr_value(cx)
     }
 }
 

@@ -7,7 +7,7 @@
 //! Keeping those values in one place prevents the static renderer, delegated
 //! runtime, and rsjs islands from drifting apart.
 
-use proa::shared::attr_value::AttrValue;
+use proa::shared::attr_value::{AttrValue, SafeAttr};
 use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Open/closed state for disclosures and overlays.
@@ -77,7 +77,7 @@ impl AttrValue for DisclosureState {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static_str(self.as_str())
+        SafeAttr(self.as_str()).render_attr_value(cx)
     }
 }
 
@@ -129,7 +129,7 @@ impl AttrValue for SelectionState {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static_str(self.as_str())
+        SafeAttr(self.as_str()).render_attr_value(cx)
     }
 }
 
@@ -194,6 +194,6 @@ impl AttrValue for CheckedState {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static_str(self.as_str())
+        SafeAttr(self.as_str()).render_attr_value(cx)
     }
 }

@@ -6,7 +6,7 @@
 //! Provides orientation-based styling for the Separator component.
 
 use crate::tw_join;
-use proa::shared::attr_value::AttrValue;
+use proa::shared::attr_value::{AttrValue, SafeAttr};
 use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Base styles for the separator
@@ -106,9 +106,12 @@ impl AttrValue for SeparatorStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static_str(self.recipe.root)?;
-        cx.out.extend_static_str(" ")?;
-        cx.out.extend_static_str(self.orientation.classes())
+        proa::text!(
+            "{} {}",
+            SafeAttr(self.recipe.root),
+            SafeAttr(self.orientation.classes()),
+        )
+        .render_attr_value(cx)
     }
 }
 

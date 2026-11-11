@@ -19,17 +19,18 @@ impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
 {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
-        cx.out
-            .extend_str("<ul class=\"srp-results srp-list clearfix\">")?;
-        for listing in self.listings {
-            Card {
-                listing,
-                heart_outer_class: INTERACTIVE_WATCH_HEART_CLASS,
-                heart: crate::ebay_srp_islands::WatchHeart,
-            }
-            .render(cx)?;
+        proa_macros::html_sync! {
+            <ul class="srp-results srp-list clearfix">
+                {for listing in self.listings {
+                    Card {
+                        listing,
+                        heart_outer_class: INTERACTIVE_WATCH_HEART_CLASS,
+                        heart: crate::ebay_srp_islands::WatchHeart,
+                    }
+                }}
+            </ul>
         }
-        cx.out.extend_str("</ul>")
+        .render(cx)
     }
 }
 

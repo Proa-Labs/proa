@@ -93,12 +93,9 @@ impl AttrValue for PartId<'_> {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        if let Some(root) = self.root {
-            let dialect = cx.__proa_current_escape_dialect();
-            proa::shared::escape::escape_attr_value_for_dialect(&mut cx.out, root, dialect)?;
-            cx.out.extend_static_str("--")?;
-            proa::shared::escape::escape_attr_value_for_dialect(&mut cx.out, self.part, dialect)?;
+        match self.root {
+            Some(root) => proa::text!("{}--{}", root, self.part).render_attr_value(cx),
+            None => Ok(()),
         }
-        Ok(())
     }
 }
