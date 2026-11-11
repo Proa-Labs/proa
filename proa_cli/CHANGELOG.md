@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0](https://github.com/Proa-Labs/proa/compare/proa-cli-v0.1.3...proa-cli-v0.2.0) - 2026-11-10
+## [0.2.0](https://github.com/Proa-Labs/proa/compare/proa-cli-v0.1.3...proa-cli-v0.2.0) - 2026-11-11
 
 ### Added
 
@@ -15,10 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- generate application modules through the Proa facade ([#82](https://github.com/Proa-Labs/proa/pull/82))
 - *(cli)* wait for dev readiness before opening browser ([#28](https://github.com/Proa-Labs/proa/pull/28))
 
 ### Other
 
+- Validate UTF-8 at the write and stop zero-filling render pages ([#83](https://github.com/Proa-Labs/proa/pull/83))
 - Add the proa facade and migrate application entrypoints ([#79](https://github.com/Proa-Labs/proa/pull/79))
 - Retire unused framework features and redundant tests ([#77](https://github.com/Proa-Labs/proa/pull/77))
 - Cache Rust validation and standardize crates.io releases ([#68](https://github.com/Proa-Labs/proa/pull/68))

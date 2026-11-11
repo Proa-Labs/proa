@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0](https://github.com/Proa-Labs/proa/compare/proa_fonts-v0.1.0...proa_fonts-v0.2.0) - 2026-11-10
+## [0.2.0](https://github.com/Proa-Labs/proa/compare/proa_fonts-v0.1.0...proa_fonts-v0.2.0) - 2026-11-11
 
 ### Other
 
+- Validate UTF-8 at the write and stop zero-filling render pages ([#83](https://github.com/Proa-Labs/proa/pull/83))
 - Remove obsolete code and repair standalone site scaffolds ([#67](https://github.com/Proa-Labs/proa/pull/67))
 - Brand New Metadata API Design ([#60](https://github.com/Proa-Labs/proa/pull/60))
 - Reduce workspace compile times and isolate tooling engines ([#33](https://github.com/Proa-Labs/proa/pull/33))

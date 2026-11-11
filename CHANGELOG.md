@@ -6,6 +6,14 @@ For release highlights and upgrade steps, see the [Proa 0.4.0 overview](docs/rel
 
 ## Unreleased
 
+- Rendering performance: validate raw bytes as UTF-8 at the write, use trusted
+  `&str` writes for template text, remove final output scans, and allocate
+  `RenderBuffer` pages without zero-filling. See [the performance results and
+  migration notes](docs/releases/0.4.0.md#rendering-performance) from
+  [#83](https://github.com/Proa-Labs/proa/pull/83). Breaking for custom writers:
+  implement `WriteBuf::extend_str`; `extend_with` is now unsafe; text-related
+  signatures take `&str`; and the `try_render_to_string` helpers are removed.
+
 - Generated applications now select the 0.4 framework APIs used by their
   templates, with scaffold dependency versions derived from Cargo declarations.
   Library publication and standalone scaffold verification now precede CLI

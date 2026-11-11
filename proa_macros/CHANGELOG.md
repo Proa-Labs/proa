@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0](https://github.com/Proa-Labs/proa/compare/proa_macros-v0.3.0...proa_macros-v0.4.0) - 2026-11-10
+## [0.4.0](https://github.com/Proa-Labs/proa/compare/proa_macros-v0.3.0...proa_macros-v0.4.0) - 2026-11-11
 
 ### Other
 
+- Validate UTF-8 at the write and stop zero-filling render pages ([#83](https://github.com/Proa-Labs/proa/pull/83))
 - Add the proa facade and migrate application entrypoints ([#79](https://github.com/Proa-Labs/proa/pull/79))
 - Retire unused framework features and redundant tests ([#77](https://github.com/Proa-Labs/proa/pull/77))
 - Remove content_part and infer content coverage from inputs ([#66](https://github.com/Proa-Labs/proa/pull/66))
