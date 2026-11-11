@@ -286,8 +286,9 @@ pub trait WriteBuf {
     }
 
     /// Write generated text directly into spare capacity via a closure. The
-    /// closure receives a zeroed `&mut [u8]` of `max_len` bytes and returns the
-    /// number of bytes it wrote.
+    /// closure receives a `&mut [u8]` of `max_len` bytes and returns the number
+    /// of bytes it wrote. The window's prior contents are unspecified and
+    /// differ between writers, so the closure must not read before it writes.
     ///
     /// Implementations with contiguous spare capacity (Vec, WriteCursor, etc.)
     /// override this to write in-place with zero intermediate copy. The default
@@ -1058,11 +1059,9 @@ impl<const N: usize> ChainedBumpWriter<N> {
     #[inline(never)]
     fn push_slow(&mut self, byte: u8) {
         self.rotate();
-        // SAFETY: a page holds at least one byte.
-        #[allow(unsafe_code)]
-        unsafe {
-            *self.current.ptr() = byte;
-        }
+        // Checked on purpose: a zero-sized page panics here. For any real page
+        // size the bound is a constant and the check compiles away.
+        self.current.buf[0].write(byte);
         self.current.len = 1;
     }
 
@@ -2512,6 +2511,12 @@ mod tests {
         buf.extend_str("9abc").unwrap(); // triggers rotation
         assert_eq!(buf.page_count(), 2);
         assert_eq!(buf.to_vec(), b"123456789abc");
+    }
+
+    #[test]
+    #[should_panic]
+    fn chained_zero_sized_page_panics_on_push() {
+        let _ = ChainedBumpWriter::<0>::new().push(b'x');
     }
 
     #[test]
