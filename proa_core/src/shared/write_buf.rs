@@ -371,17 +371,32 @@ fn checked_utf8_slow(bytes: &[u8]) -> Result<&str, WriteError> {
 ///
 /// # Why
 ///
-/// A copy whose length is only known at run time compiles to a call into the
-/// C library's `memcpy`. For a short string that call costs more than the
-/// copy itself: the jump through the dynamic linker's stub, `memcpy` working
-/// out which size class it was handed, and the registers the caller loses
-/// across the call add up to about 1.3 ns on an Apple M4. Moving 25 bytes
-/// takes a fraction of that.
+/// `core::ptr::copy_nonoverlapping` is `memcpy`, and the compiler handles it
+/// in one of two ways depending on whether it knows the length:
+///
+/// ```text
+/// copy_nonoverlapping(src, dst, 25);   // constant: a few direct moves, no call
+/// copy_nonoverlapping(src, dst, len);  // run time: a call to the C library
+/// ```
+///
+/// For a short string the call costs more than the copy itself. Three things
+/// add up to about 1.3 ns on an Apple M4, where moving 25 bytes takes a
+/// fraction of that:
+///
+/// - the call goes through the dynamic linker's stub (the PLT on Linux) and
+///   back;
+/// - a general `memcpy` handles one byte to gigabytes, so it first branches
+///   on the length to pick a path;
+/// - the caller gives up its scratch registers across the call, so the loop
+///   around it has to reload its state.
 ///
 /// Fixed text never paid this. A template literal reaches the writer with a
 /// constant length, and the compiler already turns that into a few direct
 /// loads and stores. Dynamic text always paid it: a name, a price, a label or
 /// an escaped run has a run-time length, and most of them are short.
+///
+/// This function does by hand, for run-time lengths, what the compiler
+/// already does for constants.
 ///
 /// # How
 ///
