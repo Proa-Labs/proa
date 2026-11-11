@@ -226,6 +226,14 @@ pub trait WriteBuf {
     /// Append static text. Implementations that support scatter-gather may
     /// store the pointer directly (zero-copy) instead of copying bytes.
     /// Default delegates to `extend_str()`.
+    ///
+    /// Always inlined. Every template literal reaches the writer through this
+    /// method, and its length is a compile-time constant only while the call
+    /// is inlined. Left to the optimizer, this wrapper was emitted as a real
+    /// function once `extend_str` grew, the literal's length became a runtime
+    /// argument, and the standard benchmark page rendered 28% slower (12.9 to
+    /// 16.6 µs for ten fresh renders).
+    #[inline(always)]
     fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
         self.extend_str(text)
     }
@@ -357,6 +365,149 @@ fn checked_utf8(bytes: &[u8]) -> Result<&str, WriteError> {
 #[inline(never)]
 fn checked_utf8_slow(bytes: &[u8]) -> Result<&str, WriteError> {
     core::str::from_utf8(bytes).map_err(|_| WriteError::InvalidUtf8)
+}
+
+/// Copy `len` bytes, without calling `memcpy` when `len` is at most 64.
+///
+/// # Why
+///
+/// `core::ptr::copy_nonoverlapping` is `memcpy`, and the compiler handles it
+/// in one of two ways depending on whether it knows the length:
+///
+/// ```text
+/// copy_nonoverlapping(src, dst, 25);   // constant: a few direct moves, no call
+/// copy_nonoverlapping(src, dst, len);  // run time: a call to the C library
+/// ```
+///
+/// These are the instructions rustc 1.95 emits for those two lines:
+///
+/// ```text
+///                  aarch64                  x86-64
+/// constant 25      ldr  q0, [x1]            movups (%rsi), %xmm0
+///                  ldur q1, [x1, #9]        movups 9(%rsi), %xmm1
+///                  stur q1, [x0, #9]        movups %xmm1, 9(%rdi)
+///                  str  q0, [x0]            movups %xmm0, (%rdi)
+///
+/// run-time length  b    _memcpy             jmp    _memcpy
+/// ```
+///
+/// The constant case is two 16-byte moves that overlap: bytes 0..16 and bytes
+/// 9..25. The run-time case is a jump into the library.
+///
+/// For a short string the call costs more than the copy itself. Three things
+/// add up to about 1.3 ns on an Apple M4, where moving 25 bytes takes a
+/// fraction of that:
+///
+/// - the call goes through the dynamic linker's stub (the PLT on Linux) and
+///   back;
+/// - a general `memcpy` handles one byte to gigabytes, so it first branches
+///   on the length to pick a path;
+/// - the caller gives up its scratch registers across the call, so the loop
+///   around it has to reload its state.
+///
+/// Fixed text never paid this. A template literal reaches the writer with a
+/// constant length, and the compiler already turns that into a few direct
+/// loads and stores. Dynamic text always paid it: a name, a price, a label or
+/// an escaped run has a run-time length, and most of them are short.
+///
+/// This function does by hand, for run-time lengths, what the compiler
+/// already does for constants.
+///
+/// # How
+///
+/// A length from 2 to 64 is copied with two unaligned loads and two unaligned
+/// stores of one fixed width, overlapping in the middle. A 25-byte string
+/// moves as bytes 0..16 and bytes 9..25. The width is 32, 16, 8, 4 or 2 bytes,
+/// chosen by `len`. Anything longer goes to `memcpy`, where the call is a
+/// small part of the work and the library can pick wider vector registers
+/// than this build is allowed to assume.
+///
+/// For a run-time length of 16 to 31 bytes this function compiles to the same
+/// shape the compiler picks for a constant, with the second offset worked out
+/// from `len` (aarch64):
+///
+/// ```text
+/// ldp  x8, x9, [x1]        ; first 16 bytes
+/// sub  x10, x2, #16        ; len - 16
+/// add  x11, x1, x10
+/// ldp  x12, x11, [x11]     ; last 16 bytes
+/// stp  x8, x9, [x0]
+/// add  x8, x0, x10
+/// stp  x12, x11, [x8]
+/// ```
+///
+/// When `len` is a compile-time constant the branches fold away, so fixed
+/// text compiles to the same code as a plain copy.
+///
+/// # What was measured
+///
+/// The workload is the `large_page` fixture from the framework benchmarks:
+/// 16 sections of 16 cards, each card with 8 list items. One render writes
+/// 269,751 bytes of HTML in about 7,800 appends, and 2,048 of those appends
+/// are item labels of 20 to 35 bytes.
+///
+/// Rendering it into a reused `RenderBuffer` on an Apple M4 Max:
+///
+/// | Label lengths | Plain copy | This function |
+/// |---|---|---|
+/// | Known only at run time | 10.5 µs | 7.8 µs |
+/// | Hidden from the optimizer, as real data is | 13.0 µs | 9.2 µs |
+/// | Folded to constants by the optimizer | 7.8 µs | 7.8 µs |
+///
+/// The first row is the 2,048 `memcpy` calls going away, about 1.3 ns each.
+/// The last row is the benchmark's own best case, where the optimizer unrolls
+/// the item loop and works out every label's length ahead of time. Real data
+/// cannot be folded like that, so the first two rows are the ones that
+/// describe real pages.
+///
+/// The 64-byte limit comes from reasoning, not from a sweep: at about that
+/// size the call and the copy cost the same, and most dynamic HTML values are
+/// far shorter.
+///
+/// # Safety
+///
+/// `src` must be valid for reads of `len` bytes, `dst` must be valid for
+/// writes of `len` bytes, and the two ranges must not overlap.
+#[inline(always)]
+#[allow(unsafe_code)]
+unsafe fn copy_short(src: *const u8, dst: *mut u8, len: usize) {
+    // SAFETY: each branch runs only when `len` is at least the width it moves,
+    // so both the read at the start and the read ending at `len` stay inside
+    // `[src, src + len)`, and the matching writes stay inside
+    // `[dst, dst + len)`. The caller guarantees those ranges are valid and
+    // disjoint.
+    unsafe {
+        if len > 64 {
+            core::ptr::copy_nonoverlapping(src, dst, len);
+        } else if len >= 32 {
+            let head = src.cast::<[u8; 32]>().read_unaligned();
+            let tail = src.add(len - 32).cast::<[u8; 32]>().read_unaligned();
+            dst.cast::<[u8; 32]>().write_unaligned(head);
+            dst.add(len - 32).cast::<[u8; 32]>().write_unaligned(tail);
+        } else if len >= 16 {
+            let head = src.cast::<u128>().read_unaligned();
+            let tail = src.add(len - 16).cast::<u128>().read_unaligned();
+            dst.cast::<u128>().write_unaligned(head);
+            dst.add(len - 16).cast::<u128>().write_unaligned(tail);
+        } else if len >= 8 {
+            let head = src.cast::<u64>().read_unaligned();
+            let tail = src.add(len - 8).cast::<u64>().read_unaligned();
+            dst.cast::<u64>().write_unaligned(head);
+            dst.add(len - 8).cast::<u64>().write_unaligned(tail);
+        } else if len >= 4 {
+            let head = src.cast::<u32>().read_unaligned();
+            let tail = src.add(len - 4).cast::<u32>().read_unaligned();
+            dst.cast::<u32>().write_unaligned(head);
+            dst.add(len - 4).cast::<u32>().write_unaligned(tail);
+        } else if len >= 2 {
+            let head = src.cast::<u16>().read_unaligned();
+            let tail = src.add(len - 2).cast::<u16>().read_unaligned();
+            dst.cast::<u16>().write_unaligned(head);
+            dst.add(len - 2).cast::<u16>().write_unaligned(tail);
+        } else if len == 1 {
+            *dst = *src;
+        }
+    }
 }
 
 /// Buffer types that can rewind bytes written since a local checkpoint.
@@ -1157,9 +1308,11 @@ impl<const N: usize> WriteBuf for ChainedBumpWriter<N> {
         let bytes = text.as_bytes();
         let new_len = self.current.len + bytes.len();
         if new_len <= N {
-            // SAFETY: bounds check above guarantees new_len <= N = buf capacity.
+            // SAFETY: the bounds check above keeps the destination inside the
+            // page, and `text` cannot alias a page this writer borrows mutably.
+            // Short run-time lengths are copied inline; see `copy_short`.
             unsafe {
-                core::ptr::copy_nonoverlapping(
+                copy_short(
                     bytes.as_ptr(),
                     self.current.ptr().add(self.current.len),
                     bytes.len(),
@@ -2511,6 +2664,23 @@ mod tests {
         buf.extend_str("9abc").unwrap(); // triggers rotation
         assert_eq!(buf.page_count(), 2);
         assert_eq!(buf.to_vec(), b"123456789abc");
+    }
+
+    #[test]
+    fn chained_short_copies_match_a_plain_copy_at_every_length() {
+        // 0..=130 crosses every width class and its edges (1, 2, 4, 8, 16, 32,
+        // 64, 65). `black_box` keeps each length a run-time value so the
+        // branches in `copy_short` run instead of folding away.
+        let source: String = (0..130u8).map(|i| char::from(b'!' + i % 90)).collect();
+        for len in 0..=source.len() {
+            let mut buffer = RenderBuffer::new();
+            buffer.extend_str("xyz").unwrap();
+            buffer
+                .extend_str(std::hint::black_box(&source[..len]))
+                .unwrap();
+            buffer.extend_str("|").unwrap();
+            assert_eq!(buffer.into_string(), format!("xyz{}|", &source[..len]));
+        }
     }
 
     #[test]
