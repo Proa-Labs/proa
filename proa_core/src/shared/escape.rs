@@ -15,8 +15,8 @@ mod sealed {
 
 #[cfg(debug_assertions)]
 trait EscapeSink {
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError>;
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError>;
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError>;
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError>;
 }
 
 #[cfg(debug_assertions)]
@@ -25,96 +25,134 @@ struct WriteBufEscapeSink<'a, B: WriteBuf>(&'a mut B);
 #[cfg(debug_assertions)]
 impl<B: WriteBuf> EscapeSink for WriteBufEscapeSink<'_, B> {
     #[inline]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
-        self.0.extend(bytes)
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        self.0.extend_str(text)
     }
 
     #[inline]
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
-        self.0.extend_static(bytes)
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        self.0.extend_static_str(text)
     }
 }
 
-/// Write a byte segment to `buf`, applying the active dialect policy for NBSP
-/// and NULL bytes.
+/// Write a segment of source text to `buf`, applying the active dialect
+/// policy for NBSP and NULL bytes.
+///
+/// `segment` must start and end on character boundaries of the source text.
+/// Runs are only cut at a NUL byte or around a complete U+00A0, so every run
+/// handed to the buffer is valid UTF-8 on its own.
 #[inline(always)]
+#[allow(unsafe_code)]
 fn emit_with_policy<S, P>(buf: &mut S, segment: &[u8]) -> Result<(), WriteError>
 where
     S: ?Sized + EscapeSinkLike,
     P: EscapePolicy,
 {
+    // `start` is the first byte not yet written; `scan` is where the search
+    // for the next special byte resumes.
     let mut start = 0;
-    while start < segment.len() {
+    let mut scan = 0;
+    while scan < segment.len() {
         let needle_hit = if P::ESCAPE_NBSP {
-            memchr2(0x00, 0xC2, &segment[start..])
+            memchr2(0x00, 0xC2, &segment[scan..])
         } else {
-            memchr(0x00, &segment[start..])
+            memchr(0x00, &segment[scan..])
         };
 
         let Some(pos) = needle_hit else {
-            buf.extend(&segment[start..])?;
             break;
         };
 
-        let abs = start + pos;
+        let abs = scan + pos;
         if segment[abs] == 0x00 {
             if abs > start {
-                buf.extend(&segment[start..abs])?;
+                // SAFETY: cut before an ASCII NUL.
+                unsafe { emit_source_run(buf, &segment[start..abs]) }?;
             }
             match P::NULL_BYTE {
                 NullBytePolicy::ReplaceWithReplacementChar => {
-                    buf.extend_static("\u{FFFD}".as_bytes())?;
+                    buf.extend_static_str("\u{FFFD}")?;
                 }
                 NullBytePolicy::Reject => {
                     return Err(WriteError::InvalidCharForDialect);
                 }
             }
             start = abs + 1;
+            scan = start;
         } else {
             debug_assert!(P::ESCAPE_NBSP);
             if abs + 1 < segment.len() && segment[abs + 1] == 0xA0 {
                 if abs > start {
-                    buf.extend(&segment[start..abs])?;
+                    // SAFETY: cut before the lead byte of U+00A0.
+                    unsafe { emit_source_run(buf, &segment[start..abs]) }?;
                 }
-                buf.extend_static(b"&nbsp;")?;
+                buf.extend_static_str("&nbsp;")?;
                 start = abs + 2;
+                scan = start;
             } else {
-                buf.extend(&segment[start..abs + 1])?;
-                start = abs + 1;
+                // Some other U+0080..U+00BF character. Leave it in the pending
+                // run instead of ending a write on its lone lead byte.
+                scan = abs + 1;
             }
         }
+    }
+    if start < segment.len() {
+        // SAFETY: `start` is 0 or just past a complete character, and the
+        // segment ends on a character boundary.
+        unsafe { emit_source_run(buf, &segment[start..]) }?;
     }
     Ok(())
 }
 
 trait EscapeSinkLike {
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError>;
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError>;
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError>;
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError>;
 }
 
 impl<B: WriteBuf> EscapeSinkLike for B {
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
-        WriteBuf::extend(self, bytes)
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        WriteBuf::extend_str(self, text)
     }
 
     #[inline(always)]
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
-        WriteBuf::extend_static(self, bytes)
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        WriteBuf::extend_static_str(self, text)
     }
 }
 
 #[cfg(debug_assertions)]
 impl EscapeSinkLike for dyn EscapeSink + '_ {
     #[inline]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
-        EscapeSink::extend(self, bytes)
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        EscapeSink::extend_str(self, text)
     }
 
     #[inline]
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
-        EscapeSink::extend_static(self, bytes)
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        EscapeSink::extend_static_str(self, text)
     }
+}
+
+/// Pass a run of the source text through unchanged.
+///
+/// The escaper scans bytes, so its runs are byte slices of the `&str` being
+/// escaped. Every cut point is either an ASCII byte or the end of a complete
+/// character, so each run is valid UTF-8 on its own and needs no validation.
+///
+/// # Safety
+///
+/// `run` must be a sub-slice of a `&str` that starts and ends on character
+/// boundaries.
+#[inline(always)]
+#[allow(unsafe_code)]
+unsafe fn emit_source_run<S>(buf: &mut S, run: &[u8]) -> Result<(), WriteError>
+where
+    S: ?Sized + EscapeSinkLike,
+{
+    debug_assert!(core::str::from_utf8(run).is_ok());
+    // SAFETY: guaranteed by the caller.
+    buf.extend_str(unsafe { core::str::from_utf8_unchecked(run) })
 }
 
 #[cfg_attr(not(debug_assertions), inline(always))]
@@ -250,11 +288,11 @@ where
         }
 
         match bytes[i] {
-            b'&' => buf.extend_static(b"&amp;")?,
-            b'<' => buf.extend_static(b"&lt;")?,
-            b'>' => buf.extend_static(b"&gt;")?,
-            b'"' => buf.extend_static(b"&quot;")?,
-            b'\'' => buf.extend_static(b"&#39;")?,
+            b'&' => buf.extend_static_str("&amp;")?,
+            b'<' => buf.extend_static_str("&lt;")?,
+            b'>' => buf.extend_static_str("&gt;")?,
+            b'"' => buf.extend_static_str("&quot;")?,
+            b'\'' => buf.extend_static_str("&#39;")?,
             _ => unreachable!(),
         }
         i += 1;
@@ -318,9 +356,9 @@ where
         }
 
         match bytes[i] {
-            b'&' => buf.extend_static(b"&amp;")?,
-            b'<' => buf.extend_static(b"&lt;")?,
-            b'>' => buf.extend_static(b"&gt;")?,
+            b'&' => buf.extend_static_str("&amp;")?,
+            b'<' => buf.extend_static_str("&lt;")?,
+            b'>' => buf.extend_static_str("&gt;")?,
             _ => unreachable!(),
         }
         i += 1;
@@ -390,6 +428,7 @@ fn escape_text_with_sentinel_dyn<P: EscapePolicy>(
 }
 
 #[inline(always)]
+#[allow(unsafe_code)]
 fn escape_text_with_sentinel_inner<S, P>(buf: &mut S, s: &str, tag: &[u8]) -> Result<(), WriteError>
 where
     S: ?Sized + EscapeSinkLike,
@@ -417,9 +456,10 @@ where
             // `</tag` closing tag (case-insensitive), with tag-end lookahead.
             if starts_with_close_tag(&bytes[i..], tag) {
                 flush_impl::<_, P>(buf, bytes, flush_start, i)?;
-                buf.extend_static(b"<\\/")?;
+                buf.extend_static_str("<\\/")?;
                 let tag_end = i + 2 + tag.len();
-                buf.extend(&bytes[i + 2..tag_end])?;
+                // SAFETY: the matched tag name is ASCII.
+                unsafe { emit_source_run(buf, &bytes[i + 2..tag_end]) }?;
                 i = tag_end;
                 flush_start = i;
                 continue;
@@ -427,9 +467,10 @@ where
             // `<tag` opening tag (case-insensitive), with tag-end lookahead.
             if starts_with_open_tag(&bytes[i..], tag) {
                 flush_impl::<_, P>(buf, bytes, flush_start, i)?;
-                buf.extend_static(b"<\\")?;
+                buf.extend_static_str("<\\")?;
                 let tag_end = i + 1 + tag.len();
-                buf.extend(&bytes[i + 1..tag_end])?;
+                // SAFETY: the matched tag name is ASCII.
+                unsafe { emit_source_run(buf, &bytes[i + 1..tag_end]) }?;
                 i = tag_end;
                 flush_start = i;
                 continue;
@@ -437,7 +478,7 @@ where
             // `<!--` HTML comment start.
             if bytes[i..].starts_with(b"<!--") {
                 flush_impl::<_, P>(buf, bytes, flush_start, i)?;
-                buf.extend_static(b"<\\!--")?;
+                buf.extend_static_str("<\\!--")?;
                 i += 4;
                 flush_start = i;
                 continue;
@@ -448,15 +489,15 @@ where
         match bytes[i] {
             b'&' => {
                 flush_impl::<_, P>(buf, bytes, flush_start, i)?;
-                buf.extend_static(b"&amp;")?;
+                buf.extend_static_str("&amp;")?;
             }
             b'<' => {
                 flush_impl::<_, P>(buf, bytes, flush_start, i)?;
-                buf.extend_static(b"&lt;")?;
+                buf.extend_static_str("&lt;")?;
             }
             b'>' => {
                 flush_impl::<_, P>(buf, bytes, flush_start, i)?;
-                buf.extend_static(b"&gt;")?;
+                buf.extend_static_str("&gt;")?;
             }
             _ => unreachable!(),
         }

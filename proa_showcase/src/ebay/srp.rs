@@ -351,12 +351,12 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Currency {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let cents = self.0;
         if cents < 0 {
-            cx.out.extend(b"-")?;
+            cx.out.extend_str("-")?;
         }
         let abs = cents.unsigned_abs();
-        cx.out.extend(b"$")?;
+        cx.out.extend_str("$")?;
         write_with_commas(cx, abs / 100)?;
-        cx.out.extend(b".")?;
+        cx.out.extend_str(".")?;
         write_two_digits(cx, (abs % 100) as u32)
     }
 }
@@ -368,7 +368,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Uint {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         let mut buf = [0u8; 20];
         let s = format_u64(&mut buf, self.0);
-        cx.out.extend(s.as_bytes())
+        cx.out.extend_str(s)
     }
 }
 
@@ -392,10 +392,10 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for FeedbackPc
         let tenth = (v % 10) as u8;
         let mut buf = [0u8; 20];
         let s = format_u64(&mut buf, whole);
-        cx.out.extend(s.as_bytes())?;
-        cx.out.extend(b".")?;
+        cx.out.extend_str(s)?;
+        cx.out.extend_str(".")?;
         cx.out.extend(&[b'0' + tenth])?;
-        cx.out.extend(b"%")
+        cx.out.extend_str("%")
     }
 }
 
@@ -409,28 +409,28 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for AbbrevCoun
         let mut buf = [0u8; 20];
         if n < 1_000 {
             let s = format_u64(&mut buf, n as u64);
-            return cx.out.extend(s.as_bytes());
+            return cx.out.extend_str(s);
         }
         if n < 1_000_000 {
             let whole = n / 1_000;
             let tenth = (n % 1_000) / 100;
             let s = format_u64(&mut buf, whole as u64);
-            cx.out.extend(s.as_bytes())?;
+            cx.out.extend_str(s)?;
             if tenth > 0 {
-                cx.out.extend(b".")?;
+                cx.out.extend_str(".")?;
                 cx.out.extend(&[b'0' + tenth as u8])?;
             }
-            return cx.out.extend(b"K");
+            return cx.out.extend_str("K");
         }
         let whole = n / 1_000_000;
         let tenth = (n % 1_000_000) / 100_000;
         let s = format_u64(&mut buf, whole as u64);
-        cx.out.extend(s.as_bytes())?;
+        cx.out.extend_str(s)?;
         if tenth > 0 {
-            cx.out.extend(b".")?;
+            cx.out.extend_str(".")?;
             cx.out.extend(&[b'0' + tenth as u8])?;
         }
-        cx.out.extend(b"M")
+        cx.out.extend_str("M")
     }
 }
 
@@ -464,7 +464,7 @@ fn write_with_commas<B: WriteBuf, L: ::proa_core::DataLoader>(
     v: u64,
 ) -> Result<(), CoreWriteError> {
     if v == 0 {
-        return cx.out.extend(b"0");
+        return cx.out.extend_str("0");
     }
     let mut digits = [0u8; 20];
     let s = format_u64(&mut digits, v);
@@ -474,7 +474,7 @@ fn write_with_commas<B: WriteBuf, L: ::proa_core::DataLoader>(
     cx.out.extend(&bytes[..first])?;
     let mut i = first;
     while i < len {
-        cx.out.extend(b",")?;
+        cx.out.extend_str(",")?;
         cx.out.extend(&bytes[i..i + 3])?;
         i += 3;
     }
@@ -499,10 +499,10 @@ impl AttrValue for ItemId {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), CoreWriteError> {
-        cx.out.extend(b"item")?;
+        cx.out.extend_str("item")?;
         let mut buf = [0u8; 20];
         let s = format_u64(&mut buf, self.0);
-        cx.out.extend(s.as_bytes())
+        cx.out.extend_str(s)
     }
 }
 
@@ -519,10 +519,10 @@ impl AttrValue for ItemUrl {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), CoreWriteError> {
-        cx.out.extend(b"https://www.ebay.com/itm/")?;
+        cx.out.extend_str("https://www.ebay.com/itm/")?;
         let mut buf = [0u8; 20];
         let s = format_u64(&mut buf, self.0);
-        cx.out.extend(s.as_bytes())
+        cx.out.extend_str(s)
     }
 }
 
@@ -538,9 +538,9 @@ impl<'a> AttrValue for ImgUrl<'a> {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), CoreWriteError> {
-        cx.out.extend(b"https://i.ebayimg.com/images/g/")?;
-        cx.out.extend(self.0.as_bytes())?;
-        cx.out.extend(b"/s-l500.webp")
+        cx.out.extend_str("https://i.ebayimg.com/images/g/")?;
+        cx.out.extend_str(self.0)?;
+        cx.out.extend_str("/s-l500.webp")
     }
 }
 
@@ -556,7 +556,7 @@ impl<'a> AttrValue for WatchLabel<'a> {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), CoreWriteError> {
-        cx.out.extend(b"watch ")?;
+        cx.out.extend_str("watch ")?;
         proa_core::shared::escape::escape_attr_value(&mut cx.out, self.0)
     }
 }
@@ -580,7 +580,7 @@ impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Subtit
             }
             .render(cx)?;
             if idx != last {
-                cx.out.extend(" \u{00b7} ".as_bytes())?;
+                cx.out.extend_str(" \u{00b7} ")?;
             }
         }
         Ok(())
@@ -596,20 +596,14 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for StarRow {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         for _ in 0..self.full {
-            cx.out.extend(
-                b"<svg class=\"icon icon--16\" focusable=\"false\" aria-hidden=\"true\"><use href=\"#icon-star-filled-16\"></use></svg>",
-            )?;
+            cx.out.extend_str("<svg class=\"icon icon--16\" focusable=\"false\" aria-hidden=\"true\"><use href=\"#icon-star-filled-16\"></use></svg>")?;
         }
         if self.half {
-            cx.out.extend(
-                b"<svg class=\"icon icon--16-colored\" focusable=\"false\" aria-hidden=\"true\"><use href=\"#icon-star-half-16-colored\"></use></svg>",
-            )?;
+            cx.out.extend_str("<svg class=\"icon icon--16-colored\" focusable=\"false\" aria-hidden=\"true\"><use href=\"#icon-star-half-16-colored\"></use></svg>")?;
         }
         let empty = 5u8.saturating_sub(self.full + self.half as u8);
         for _ in 0..empty {
-            cx.out.extend(
-                b"<svg class=\"icon icon--16\" focusable=\"false\" aria-hidden=\"true\"><use href=\"#icon-star-empty-16\"></use></svg>",
-            )?;
+            cx.out.extend_str("<svg class=\"icon icon--16\" focusable=\"false\" aria-hidden=\"true\"><use href=\"#icon-star-empty-16\"></use></svg>")?;
         }
         Ok(())
     }
@@ -657,11 +651,11 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DeliveryCe
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         if self.0 == 0 {
-            cx.out.extend(b"Free delivery")
+            cx.out.extend_str("Free delivery")
         } else {
-            cx.out.extend(b"+")?;
+            cx.out.extend_str("+")?;
             Currency(self.0).render(cx)?;
-            cx.out.extend(b" delivery")
+            cx.out.extend_str(" delivery")
         }
     }
 }
@@ -717,7 +711,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for CouponRow 
 
 // ---------------------------------------------------------------------------
 // Card — html_sync! consolidates ~80 static byte sequences into one fused
-// write per static run. Compare to the previous hand-rolled `cx.out.extend(b"...")`
+// write per static run. Compare to the previous hand-rolled `cx.out.extend_str("...")`
 // chain (80+ separate `extend` calls per card).
 // ---------------------------------------------------------------------------
 
@@ -909,7 +903,7 @@ impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Listin
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         cx.out
-            .extend(b"<ul class=\"srp-results srp-list clearfix\">")?;
+            .extend_str("<ul class=\"srp-results srp-list clearfix\">")?;
         for listing in self.listings {
             Card {
                 listing,
@@ -920,7 +914,7 @@ impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Listin
             }
             .render(cx)?;
         }
-        cx.out.extend(b"</ul>")
+        cx.out.extend_str("</ul>")
     }
 }
 
@@ -942,7 +936,7 @@ pub struct HeartSentinelMarker;
 impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeartSentinelMarker {
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
-        cx.out.extend(HEART_SENTINEL.as_bytes())
+        cx.out.extend_str(HEART_SENTINEL)
     }
 }
 

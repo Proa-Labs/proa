@@ -342,7 +342,7 @@ mod tests {
         ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
             RenderOutcome::pending(async move {
                 std::future::ready(()).await;
-                cx.out.extend_static(b"send")
+                cx.out.extend_static_str("send")
             })
         }
     }

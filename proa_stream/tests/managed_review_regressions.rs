@@ -76,9 +76,9 @@ fn lifecycle(error: WriteError) -> HeadError {
 #[test]
 fn captures_cannot_publish_the_document() {
     let (mut cx, doc, wire) = setup(4096);
-    cx.output_mut().extend(b"OUTER_PREFIX").unwrap();
+    cx.output_mut().extend_str("OUTER_PREFIX").unwrap();
     let result = cx.with_output(RenderBuffer::new(), |capture| {
-        capture.output_mut().extend(b"CAPTURED_FRAGMENT")?;
+        capture.output_mut().extend_str("CAPTURED_FRAGMENT")?;
         WebRenderSync::render(doc.outlet(), capture)?;
         head_dispatch::sync(Page, capture)
     });
@@ -90,9 +90,9 @@ fn captures_cannot_publish_the_document() {
 #[test]
 fn capture_outlet_offset_cannot_reach_root_buffer() {
     let (mut cx, doc, wire) = setup(4096);
-    cx.output_mut().extend(b"ROOT_PREFIX").unwrap();
+    cx.output_mut().extend_str("ROOT_PREFIX").unwrap();
     let result = cx.with_output(RenderBuffer::new(), |capture| {
-        capture.output_mut().extend(b"xx")?;
+        capture.output_mut().extend_str("xx")?;
         WebRenderSync::render(doc.outlet(), capture)
     });
     assert_eq!(lifecycle(result.unwrap_err()), HeadError::Excluded);
@@ -102,7 +102,7 @@ fn capture_outlet_offset_cannot_reach_root_buffer() {
 #[test]
 fn legacy_state_replacement_is_rejected_and_sticky() {
     let (mut cx, doc, wire) = setup(4096);
-    cx.output_mut().extend(b"PREFIX").unwrap();
+    cx.output_mut().extend_str("PREFIX").unwrap();
     WebRenderSync::render(doc.outlet(), &mut cx).unwrap();
     head_dispatch::sync(Page, &mut cx).unwrap();
     cx.set_head(HeadContext::new());
@@ -160,7 +160,7 @@ fn body_only_capture_is_allowed_and_restores_permission() {
     let hook = doc.begin_hook().unwrap();
     let scope = hook.finish(Ok(())).unwrap();
     cx.with_output(RenderBuffer::new(), |capture| {
-        capture.output_mut().extend(b"BODY")
+        capture.output_mut().extend_str("BODY")
     })
     .unwrap();
     WebRenderSync::render(doc.outlet(), &mut cx).unwrap();
@@ -186,7 +186,7 @@ impl WebRender for InheritedAsyncPage {
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        RenderOutcome::<Ready<Result<(), WriteError>>>::Done(cx.output_mut().extend(b"BODY"))
+        RenderOutcome::<Ready<Result<(), WriteError>>>::Done(cx.output_mut().extend_str("BODY"))
     }
 }
 
@@ -200,7 +200,7 @@ fn render_child_with_inherited_head_yields_only_for_streaming_publication() {
     ] {
         let (mut cx, doc, wire) = setup(4096);
         cx.set_render_mode(mode);
-        cx.output_mut().extend(b"PREFIX").unwrap();
+        cx.output_mut().extend_str("PREFIX").unwrap();
         WebRenderSync::render(doc.outlet(), &mut cx).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         {
@@ -239,7 +239,7 @@ impl WebRender for SlowBeforePage {
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.output_mut().extend(b"BODY_BEFORE_PAGE")?;
+            cx.output_mut().extend_str("BODY_BEFORE_PAGE")?;
             std::future::pending::<()>().await;
             head_dispatch::sync(Page, cx)
         })
@@ -248,7 +248,7 @@ impl WebRender for SlowBeforePage {
 #[test]
 fn boundary_body_only_work_before_page_still_delays_managed_head() {
     let (mut cx, doc, wire) = setup(4096);
-    cx.output_mut().extend(b"<head>").unwrap();
+    cx.output_mut().extend_str("<head>").unwrap();
     WebRenderSync::render(doc.outlet(), &mut cx).unwrap();
     let mut render = std::pin::pin!(proa_core::render_child(&mut cx, SlowBeforePage));
     assert!(render

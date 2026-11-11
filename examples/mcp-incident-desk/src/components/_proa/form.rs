@@ -151,7 +151,7 @@ impl AttrValue for DescribedBy<'_> {
             write_part_id(cx, root, "description")?;
         }
         if self.has_description && self.has_error {
-            cx.out.extend_static(b" ")?;
+            cx.out.extend_static_str(" ")?;
         }
         if self.has_error {
             write_part_id(cx, root, "error")?;
@@ -167,6 +167,6 @@ fn write_part_id<B: WriteBuf, L: DataLoader>(
 ) -> Result<(), WriteError> {
     let dialect = cx.__proa_current_escape_dialect();
     proa::shared::escape::escape_attr_value_for_dialect(&mut cx.out, root, dialect)?;
-    cx.out.extend_static(b"--")?;
+    cx.out.extend_static_str("--")?;
     proa::shared::escape::escape_attr_value_for_dialect(&mut cx.out, part, dialect)
 }

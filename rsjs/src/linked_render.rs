@@ -210,7 +210,7 @@ where
 
         write_text_binding_prefix(marker, cx)?;
         child.render(cx)?;
-        cx.out.extend_static(b"</span>")
+        cx.out.extend_static_str("</span>")
     }
 }
 
@@ -237,7 +237,7 @@ where
 
             write_text_binding_prefix(marker, cx)?;
             child.render(cx).resolve().await?;
-            cx.out.extend_static(b"</span>")
+            cx.out.extend_static_str("</span>")
         })
     }
 }
@@ -388,11 +388,12 @@ fn write_prefix<B: WriteBuf, L: DataLoader>(
         "active RSJS linked site is missing its seed key",
     ))?;
     cx.out
-        .extend_static(b"<rsjs-island data-rsjs-island-root=\"")?;
-    cx.out.extend(seed_key.as_bytes())?;
-    cx.out.extend_static(b"\" data-rsjs-linked-candidate=\"")?;
+        .extend_static_str("<rsjs-island data-rsjs-island-root=\"")?;
+    cx.out.extend_str(seed_key)?;
+    cx.out
+        .extend_static_str("\" data-rsjs-linked-candidate=\"")?;
     write_u64(&mut cx.out, site.candidate_id)?;
-    cx.out.extend_static(b"\">")?;
+    cx.out.extend_static_str("\">")?;
     Ok(cx.csp_nonce_cloned())
 }
 
@@ -409,13 +410,13 @@ fn write_suffix<B: WriteBuf, L: DataLoader>(
         "active RSJS linked site is missing its seed key",
     ))?;
     cx.out
-        .extend_static(b"</rsjs-island><script type=\"application/json\" data-rsjs-island=\"")?;
-    cx.out.extend(seed_key.as_bytes())?;
-    cx.out.extend_static(b"\"")?;
+        .extend_static_str("</rsjs-island><script type=\"application/json\" data-rsjs-island=\"")?;
+    cx.out.extend_str(seed_key)?;
+    cx.out.extend_static_str("\"")?;
     write_nonce(cx, nonce)?;
-    cx.out.extend_static(b">")?;
-    cx.out.extend(signal_state.as_bytes())?;
-    cx.out.extend_static(b"</script>")?;
+    cx.out.extend_static_str(">")?;
+    cx.out.extend_str(signal_state)?;
+    cx.out.extend_static_str("</script>")?;
 
     if let Some(query_state) = query_state {
         write_state_script(
@@ -450,9 +451,9 @@ fn write_text_binding_prefix<B: WriteBuf, L: DataLoader>(
     marker: &str,
     cx: &mut WebContext<L, B>,
 ) -> Result<(), WriteError> {
-    cx.out.extend_static(b"<span data-rsjs-bind=\"")?;
-    cx.out.extend(marker.as_bytes())?;
-    cx.out.extend_static(b"\">")
+    cx.out.extend_static_str("<span data-rsjs-bind=\"")?;
+    cx.out.extend_str(marker)?;
+    cx.out.extend_static_str("\">")
 }
 
 #[inline]
@@ -474,14 +475,15 @@ fn write_state_script<B: WriteBuf, L: DataLoader>(
     state: &str,
     nonce: Option<&CspNonce>,
 ) -> Result<(), WriteError> {
-    cx.out.extend_static(b"<script type=\"application/json\"")?;
+    cx.out
+        .extend_static_str("<script type=\"application/json\"")?;
     cx.out.extend_static(attribute)?;
-    cx.out.extend(fragment_asset_id.as_bytes())?;
-    cx.out.extend_static(b"\"")?;
+    cx.out.extend_str(fragment_asset_id)?;
+    cx.out.extend_static_str("\"")?;
     write_nonce(cx, nonce)?;
-    cx.out.extend_static(b">")?;
-    cx.out.extend(state.as_bytes())?;
-    cx.out.extend_static(b"</script>")
+    cx.out.extend_static_str(">")?;
+    cx.out.extend_str(state)?;
+    cx.out.extend_static_str("</script>")
 }
 
 #[inline]
@@ -705,8 +707,8 @@ mod tests {
         );
         server_attr
             .render_attr(
-                b" data-rsjs-handler=\"",
-                b" data-rsjs-handler",
+                " data-rsjs-handler=\"",
+                " data-rsjs-handler",
                 &mut server_cx,
             )
             .unwrap();
@@ -728,11 +730,7 @@ mod tests {
             calls.set(calls.get() + 1);
             "4"
         })
-        .render_attr(
-            b" data-rsjs-handler=\"",
-            b" data-rsjs-handler",
-            &mut owner_cx,
-        )
+        .render_attr(" data-rsjs-handler=\"", " data-rsjs-handler", &mut owner_cx)
         .unwrap();
         drop(owner_cx);
         assert_eq!(owner_output, b" data-rsjs-handler=\"4\"");

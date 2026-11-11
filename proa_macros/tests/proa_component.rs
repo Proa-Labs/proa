@@ -138,6 +138,8 @@ struct RecordingBuf {
     writes: Vec<Vec<u8>>,
 }
 
+#[allow(unsafe_code)]
+
 impl WriteBuf for RecordingBuf {
     fn capacity(&self) -> usize {
         usize::MAX
@@ -147,7 +149,8 @@ impl WriteBuf for RecordingBuf {
         self.bytes.len()
     }
 
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         self.writes.push(bytes.to_vec());
         self.bytes.extend_from_slice(bytes);
         Ok(())

@@ -77,7 +77,7 @@ impl AttrValue for DisclosureState {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.as_str().as_bytes())
+        cx.out.extend_static_str(self.as_str())
     }
 }
 
@@ -129,7 +129,7 @@ impl AttrValue for SelectionState {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.as_str().as_bytes())
+        cx.out.extend_static_str(self.as_str())
     }
 }
 
@@ -194,6 +194,6 @@ impl AttrValue for CheckedState {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.as_str().as_bytes())
+        cx.out.extend_static_str(self.as_str())
     }
 }

@@ -20,7 +20,7 @@ impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
     #[inline]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), CoreWriteError> {
         cx.out
-            .extend(b"<ul class=\"srp-results srp-list clearfix\">")?;
+            .extend_str("<ul class=\"srp-results srp-list clearfix\">")?;
         for listing in self.listings {
             Card {
                 listing,
@@ -29,7 +29,7 @@ impl<'a, L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B>
             }
             .render(cx)?;
         }
-        cx.out.extend(b"</ul>")
+        cx.out.extend_str("</ul>")
     }
 }
 

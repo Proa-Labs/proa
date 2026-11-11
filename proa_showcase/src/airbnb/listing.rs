@@ -36,9 +36,9 @@ impl AttrValue for WidthPct {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), proa_core::WriteError> {
-        cx.out.extend(b"width:")?;
+        cx.out.extend_str("width:")?;
         self.0.render_attr_value(cx)?;
-        cx.out.extend_static(b"%;min-width:2px")
+        cx.out.extend_static_str("%;min-width:2px")
     }
 }
 

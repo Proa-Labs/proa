@@ -392,6 +392,7 @@ impl<B> ReservedWriteBuf<B> {
     }
 }
 
+#[allow(unsafe_code)]
 impl<B: WriteBuf> WriteBuf for ReservedWriteBuf<B> {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -414,21 +415,21 @@ impl<B: WriteBuf> WriteBuf for ReservedWriteBuf<B> {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
-        self.reservation.consume(byte_count(bytes.len()))?;
-        self.inner.extend(bytes)
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        self.reservation.consume(byte_count(text.len()))?;
+        self.inner.extend_str(text)
     }
 
     #[inline(always)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
         self.reservation.consume(1)?;
-        self.inner.push(byte)
+        unsafe { self.inner.push_unchecked(byte) }
     }
 
     #[inline(always)]
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
-        self.reservation.consume(byte_count(bytes.len()))?;
-        self.inner.extend_static(bytes)
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        self.reservation.consume(byte_count(text.len()))?;
+        self.inner.extend_static_str(text)
     }
 
     #[inline(always)]
@@ -549,6 +550,7 @@ impl<B, H: OutputMeterHandle> MeteredWriteBuf<B, H> {
     }
 }
 
+#[allow(unsafe_code)]
 impl<B: WriteBuf, H: OutputMeterHandle> WriteBuf for MeteredWriteBuf<B, H> {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -571,21 +573,21 @@ impl<B: WriteBuf, H: OutputMeterHandle> WriteBuf for MeteredWriteBuf<B, H> {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
-        let _reservation = self.debit(bytes.len())?;
-        self.inner.extend(bytes)
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let _reservation = self.debit(text.len())?;
+        self.inner.extend_str(text)
     }
 
     #[inline(always)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
         let _reservation = self.debit(1)?;
-        self.inner.push(byte)
+        unsafe { self.inner.push_unchecked(byte) }
     }
 
     #[inline(always)]
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
-        let _reservation = self.debit(bytes.len())?;
-        self.inner.extend_static(bytes)
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        let _reservation = self.debit(text.len())?;
+        self.inner.extend_static_str(text)
     }
 
     #[inline(always)]
@@ -701,6 +703,7 @@ mod tests {
         shared_calls: usize,
     }
 
+    #[allow(unsafe_code)]
     impl WriteBuf for DelegationSpy {
         fn capacity(&self) -> usize {
             usize::MAX
@@ -710,21 +713,21 @@ mod tests {
             self.bytes.len()
         }
 
-        fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+        fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
             self.extend_calls += 1;
-            self.bytes.extend_from_slice(bytes);
+            self.bytes.extend_from_slice(text.as_bytes());
             Ok(())
         }
 
-        fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+        unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
             self.push_calls += 1;
             self.bytes.push(byte);
             Ok(())
         }
 
-        fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
+        fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
             self.static_calls += 1;
-            self.bytes.extend_from_slice(bytes);
+            self.bytes.extend_from_slice(text.as_bytes());
             Ok(())
         }
 
@@ -824,7 +827,7 @@ mod tests {
         let meter = OutputMeter::new(32);
         let mut out = MeteredWriteBuf::new(DelegationSpy::default(), meter.borrow());
 
-        out.extend(b"plain").unwrap();
+        out.extend_str("plain").unwrap();
         out.push(b'!').unwrap();
         out.extend_static(STATIC).unwrap();
         out.extend_shared(&shared).unwrap();
@@ -843,7 +846,7 @@ mod tests {
         let meter = OutputMeter::new(2);
         let mut out = MeteredWriteBuf::new(DelegationSpy::default(), meter.borrow());
 
-        let err = out.extend_static(b"three").unwrap_err();
+        let err = out.extend_static_str("three").unwrap_err();
         assert_eq!(
             err,
             WriteError::OutputLimitExceeded {
@@ -863,22 +866,29 @@ mod tests {
         let cursor = WriteCursor::new(&mut backing);
         let mut out = MeteredWriteBuf::new(cursor, meter.borrow());
 
-        assert_eq!(out.extend(b"four").unwrap_err(), WriteError::OutOfCapacity);
+        assert_eq!(
+            out.extend_str("four").unwrap_err(),
+            WriteError::OutOfCapacity
+        );
         assert_eq!(meter.remaining(), 6);
         assert_eq!(out.len(), 0);
     }
 
     #[test]
+    #[allow(unsafe_code)]
     fn reserve_and_extend_with_charge_only_attempted_output() {
         let meter = OutputMeter::new(10);
         let mut out = MeteredWriteBuf::new(Vec::new(), meter.borrow());
 
         out.reserve(100).unwrap();
         assert_eq!(meter.remaining(), 10);
-        out.extend_with(8, |spare| {
-            spare[..3].copy_from_slice(b"abc");
-            3
-        })
+        // SAFETY: the closure writes ASCII.
+        unsafe {
+            out.extend_with(8, |spare| {
+                spare[..3].copy_from_slice(b"abc");
+                3
+            })
+        }
         .unwrap();
 
         assert_eq!(out.as_slice(), b"abc");
@@ -889,7 +899,7 @@ mod tests {
     fn owned_and_scoped_borrowed_buffers_both_work() {
         let owned_meter = OutputMeter::new(3);
         let mut owned = MeteredWriteBuf::new(Vec::new(), owned_meter.borrow());
-        owned.extend(b"abc").unwrap();
+        owned.extend_str("abc").unwrap();
         assert_eq!(owned.into_inner(), b"abc");
 
         let borrowed_meter = OutputMeter::new(4);
@@ -897,7 +907,7 @@ mod tests {
         let mut cursor = WriteCursor::new(&mut backing);
         {
             let mut borrowed = MeteredWriteBuf::new(&mut cursor, borrowed_meter.borrow());
-            borrowed.extend_static(b"test").unwrap();
+            borrowed.extend_static_str("test").unwrap();
         }
         assert_eq!(cursor.as_slice(), b"test");
         assert_eq!(borrowed_meter.remaining(), 0);
@@ -907,9 +917,9 @@ mod tests {
     fn clear_and_rewind_never_refund_meter_credit() {
         let meter = OutputMeter::new(10);
         let mut out = MeteredWriteBuf::new(DelegationSpy::default(), meter.borrow());
-        out.extend(b"abc").unwrap();
+        out.extend_str("abc").unwrap();
         let checkpoint = out.checkpoint();
-        out.extend(b"de").unwrap();
+        out.extend_str("de").unwrap();
         assert!(out.rewind_to(checkpoint));
         assert_eq!(out.as_slice(), b"abc");
         assert_eq!(meter.remaining(), 5);
@@ -917,7 +927,7 @@ mod tests {
         out.clear();
         assert!(out.is_empty());
         assert_eq!(meter.remaining(), 5);
-        out.extend(b"12345").unwrap();
+        out.extend_str("12345").unwrap();
         assert_eq!(meter.remaining(), 0);
     }
 
@@ -925,13 +935,13 @@ mod tests {
     fn streaming_flush_never_refunds_meter_credit() {
         let meter = OutputMeter::new(10);
         let mut out = MeteredWriteBuf::new(StreamingZeroCopyBuf::new(), meter.borrow());
-        out.extend_static(b"abc").unwrap();
+        out.extend_static_str("abc").unwrap();
         let mark = out.mark();
         let chunk = out.flush_through(mark).unwrap();
         assert_eq!(chunk.to_vec(), b"abc");
         assert_eq!(meter.remaining(), 7);
 
-        out.extend(b"1234567").unwrap();
+        out.extend_str("1234567").unwrap();
         assert_eq!(meter.remaining(), 0);
         let chunk = out.flush_all().unwrap();
         assert_eq!(chunk.to_vec(), b"1234567");
@@ -965,7 +975,7 @@ mod tests {
         let meter = OutputMeter::new(8);
         let reservation = meter.reserve_exact(6).unwrap();
         let mut out = ReservedWriteBuf::new(Vec::new(), reservation);
-        out.extend(b"ab").unwrap();
+        out.extend_str("ab").unwrap();
 
         let err = out.validate_complete().unwrap_err();
         assert_eq!(
@@ -985,9 +995,9 @@ mod tests {
         let meter = OutputMeter::new(8);
         let reservation = meter.reserve_exact(3).unwrap();
         let mut out = ReservedWriteBuf::new(DelegationSpy::default(), reservation);
-        out.extend(b"ab").unwrap();
+        out.extend_str("ab").unwrap();
 
-        let err = out.extend_static(b"cd").unwrap_err();
+        let err = out.extend_static_str("cd").unwrap_err();
         assert_eq!(
             err,
             WriteError::OutputReservationExceeded {
@@ -1015,7 +1025,10 @@ mod tests {
         let mut out = ReservedWriteBuf::new(cursor, reservation);
         let checkpoint = out.checkpoint();
 
-        assert_eq!(out.extend(b"four").unwrap_err(), WriteError::OutOfCapacity);
+        assert_eq!(
+            out.extend_str("four").unwrap_err(),
+            WriteError::OutOfCapacity
+        );
         assert!(out.reservation().is_complete());
         assert!(out.rewind_to(checkpoint));
         assert!(out.reservation().is_complete());

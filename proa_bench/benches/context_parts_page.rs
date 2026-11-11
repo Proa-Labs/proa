@@ -307,9 +307,7 @@ where
                 .await?;
             }
 
-            cx.out.extend_static(
-                b"</main><footer class=\"footer\"><p>Rendered by the SSR benchmark fixture</p></footer></body></html>",
-            )
+            cx.out.extend_static_str("</main><footer class=\"footer\"><p>Rendered by the SSR benchmark fixture</p></footer></body></html>")
         })
     }
 }

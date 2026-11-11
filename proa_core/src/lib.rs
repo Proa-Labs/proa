@@ -200,19 +200,13 @@ pub fn render_to_vec<R: Render>(root: R) -> Vec<u8> {
 
 /// Render to a UTF-8 `String`.
 ///
-/// # Panics
-///
-/// Panics if the rendered output contains invalid UTF-8, which should
-/// not happen unless `UnsafeRaw` is used with non-UTF-8 content.
+/// The output is not scanned: text writes are UTF-8 by type and raw byte
+/// writes are validated where they are written, so the buffer is always valid
+/// UTF-8.
 pub fn render_to_string<R: Render>(root: R) -> String {
-    let bytes = render_to_vec(root);
-    String::from_utf8(bytes).expect("render produced invalid UTF-8 — check UnsafeRaw usage")
-}
-
-/// Render to a UTF-8 `String`, returning an error on invalid UTF-8.
-pub fn try_render_to_string<R: Render>(root: R) -> Result<String, std::string::FromUtf8Error> {
-    let bytes = render_to_vec(root);
-    String::from_utf8(bytes)
+    let mut cx = WebContext::new();
+    root.render(&mut cx).unwrap();
+    cx.into_output().into_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -267,16 +261,14 @@ where
 
 /// Render a component asynchronously to a UTF-8 `String`.
 ///
-/// # Panics
-///
-/// Panics if the rendered output contains invalid UTF-8, which should
-/// not happen unless `UnsafeRaw` is used with non-UTF-8 content.
+/// The output is not scanned; see [`render_to_string`].
 pub async fn render_to_string_async<R>(root: R) -> String
 where
     R: WebRender,
 {
-    let bytes = render_to_vec_async(root).await;
-    String::from_utf8(bytes).expect("render produced invalid UTF-8 — check UnsafeRaw usage")
+    let mut cx = WebContext::new();
+    render_in_context_async(&mut cx, root).await.unwrap();
+    cx.into_output().into_string()
 }
 
 /// Render a component asynchronously into a caller-provided reusable buffer.
@@ -291,16 +283,6 @@ where
     render_in_context_async(reusable.context(), root)
         .await
         .unwrap();
-}
-
-/// Render a component asynchronously to a UTF-8 `String`, returning an
-/// error on invalid UTF-8 instead of panicking.
-pub async fn try_render_to_string_async<R>(root: R) -> Result<String, std::string::FromUtf8Error>
-where
-    R: WebRender,
-{
-    let bytes = render_to_vec_async(root).await;
-    String::from_utf8(bytes)
 }
 
 /// Explicitly adapt a sync component to the async-capable [`WebRender`] trait.

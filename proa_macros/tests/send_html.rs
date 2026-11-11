@@ -17,7 +17,7 @@ impl WebRenderSend for PendingChild {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
             tokio::task::yield_now().await;
-            cx.out.extend(self.0.as_bytes())
+            cx.out.extend_str(self.0)
         })
     }
 }

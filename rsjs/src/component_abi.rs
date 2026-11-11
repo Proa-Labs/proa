@@ -904,7 +904,7 @@ mod tests {
             plan: &'static LinkedRenderSitePlan,
         ) -> Result<(), WriteError> {
             assert!(core::ptr::eq(plan, &SITE));
-            cx.out.extend(self.0.as_bytes())
+            cx.out.extend_str(self.0)
         }
     }
 

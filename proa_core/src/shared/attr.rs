@@ -571,17 +571,17 @@ macro_rules! attr_static_bytes {
         impl AttrKey {
             /// Returns `b" attr=\""` — space + attr name + `="`.
             #[inline(always)]
-            pub fn attr_open_bytes(self) -> &'static [u8] {
+            pub fn attr_open_str(self) -> &'static str {
                 match self {
-                    $(AttrKey::$variant => concat!(" ", $name, "=\"").as_bytes(),)*
+                    $(AttrKey::$variant => concat!(" ", $name, "=\""),)*
                 }
             }
 
             /// Returns `b" attr"` — space + attr name (for boolean attrs).
             #[inline(always)]
-            pub fn attr_bare_bytes(self) -> &'static [u8] {
+            pub fn attr_bare_str(self) -> &'static str {
                 match self {
-                    $(AttrKey::$variant => concat!(" ", $name).as_bytes(),)*
+                    $(AttrKey::$variant => concat!(" ", $name),)*
                 }
             }
         }

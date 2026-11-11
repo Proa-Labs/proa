@@ -51,13 +51,20 @@ pub(crate) fn call_path_is_manual_escape(call: &ExprCall) -> bool {
         || path_ends(&path.path, &["encode_double_quoted_attribute"])
 }
 
+/// `WriteBuf` methods that append caller-provided markup without escaping.
+/// The `_str` forms take text and skip validation; the byte forms validate
+/// UTF-8 at the write. Neither escapes, so the same lints apply to both.
+const WRITE_BUF_TEXT_AND_BYTE_WRITES: [&str; 4] =
+    ["extend", "extend_str", "extend_static", "extend_static_str"];
+
 pub(crate) fn call_path_is_raw_write(call: &ExprCall) -> bool {
     let Expr::Path(path) = call.func.as_ref() else {
         return false;
     };
 
-    path_ends(&path.path, &["WriteBuf", "extend"])
-        || path_ends(&path.path, &["WriteBuf", "extend_static"])
+    WRITE_BUF_TEXT_AND_BYTE_WRITES
+        .iter()
+        .any(|method| path_ends(&path.path, &["WriteBuf", method]))
 }
 
 pub(crate) fn call_is_attr_stream_op(call: &ExprCall) -> bool {
@@ -65,32 +72,45 @@ pub(crate) fn call_is_attr_stream_op(call: &ExprCall) -> bool {
         return false;
     };
 
-    path_ends(&path.path, &["WriteBuf", "extend"])
-        || path_ends(&path.path, &["WriteBuf", "extend_static"])
+    WRITE_BUF_TEXT_AND_BYTE_WRITES
+        .iter()
+        .any(|method| path_ends(&path.path, &["WriteBuf", method]))
 }
 
 pub(crate) fn method_is_attr_stream_op(method: &ExprMethodCall) -> bool {
     if method.method == "render_attr_value" {
         return true;
     }
-    matches!(
-        method.method.to_string().as_str(),
-        "extend" | "extend_static"
-    ) && expr_is_output_buffer(&method.receiver)
+    WRITE_BUF_TEXT_AND_BYTE_WRITES.contains(&method.method.to_string().as_str())
+        && expr_is_output_buffer(&method.receiver)
 }
 
 pub(crate) fn attr_value_raw_segment_in_call(call: &ExprCall) -> bool {
     let Expr::Path(path) = call.func.as_ref() else {
         return false;
     };
-    path_ends(&path.path, &["WriteBuf", "extend"])
-        && call.args.iter().any(expr_contains_as_bytes_call)
+    (path_ends(&path.path, &["WriteBuf", "extend"])
+        && call.args.iter().any(expr_contains_as_bytes_call))
+        // `WriteBuf::extend_str(out, value)`: the first argument is the buffer.
+        || (path_ends(&path.path, &["WriteBuf", "extend_str"])
+            && call.args.iter().skip(1).any(expr_is_runtime_text))
 }
 
 pub(crate) fn attr_value_raw_segment_in_method_call(method: &ExprMethodCall) -> bool {
-    method.method == "extend"
-        && expr_is_output_buffer(&method.receiver)
-        && method.args.iter().any(expr_contains_as_bytes_call)
+    expr_is_output_buffer(&method.receiver)
+        && ((method.method == "extend" && method.args.iter().any(expr_contains_as_bytes_call))
+            || (method.method == "extend_str" && method.args.iter().any(expr_is_runtime_text)))
+}
+
+/// Text that is not a string literal: the `extend_str(value)` counterpart of
+/// `extend(value.as_bytes())`, which writes runtime text without escaping it.
+fn expr_is_runtime_text(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lit(_) => false,
+        Expr::Reference(reference) => expr_is_runtime_text(&reference.expr),
+        Expr::Paren(paren) => expr_is_runtime_text(&paren.expr),
+        _ => true,
+    }
 }
 
 pub(crate) fn path_ends(path: &SynPath, expected: &[&str]) -> bool {

@@ -259,13 +259,13 @@ buf.render_into(component);  // Clears first, then recycles pages as it renders
 
 ## Attribute rendering
 
-Proa fuses attribute names and delimiters into single static byte slices at compile time.
+Proa fuses attribute names and delimiters into single static string slices at compile time.
 
 ```rust
 // The macro generates:
-cx.out.extend_static(b" class=\"")?;  // single pointer, not 3 separate writes
+cx.out.extend_static_str(" class=\"")?;  // single pointer, not 3 separate writes
 value.render_attr_value(cx)?;
-cx.out.extend_static(b"\"")?;
+cx.out.extend_static_str("\"")?;
 ```
 
 For attribute values you control, use `SafeAttr` to skip escape scanning:

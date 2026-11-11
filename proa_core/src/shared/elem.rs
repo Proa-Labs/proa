@@ -128,7 +128,7 @@ pub(crate) fn write_element_open<B: WriteBuf, L: DataLoader>(
     tag: Tag,
     attrs: &[Attr<'_>],
 ) -> Result<(), WriteError> {
-    cx.out.extend_static(tag.open_bytes())?;
+    cx.out.extend_static_str(tag.open_str())?;
     let mut has_target_blank = false;
     let mut existing_rel: Option<&str> = None;
     let mut rel_has_noopener = false;
@@ -171,16 +171,16 @@ pub(crate) fn write_element_open<B: WriteBuf, L: DataLoader>(
     if needs_merge {
         match existing_rel {
             None => {
-                cx.out.extend_static(b" rel=\"noopener noreferrer\"")?;
+                cx.out.extend_static_str(" rel=\"noopener noreferrer\"")?;
             }
             Some(existing) => {
-                cx.out.extend_static(b" rel=\"")?;
-                cx.out.extend(existing.as_bytes())?;
-                cx.out.extend_static(b" noopener noreferrer\"")?;
+                cx.out.extend_static_str(" rel=\"")?;
+                cx.out.extend_str(existing)?;
+                cx.out.extend_static_str(" noopener noreferrer\"")?;
             }
         }
     }
-    cx.out.extend_static(b">")
+    cx.out.extend_static_str(">")
 }
 
 #[inline(always)]
@@ -189,7 +189,7 @@ pub(crate) fn write_element_close<B: WriteBuf, L: DataLoader>(
     tag: Tag,
 ) -> Result<(), WriteError> {
     debug_assert!(!tag.is_void(), "void tag should not emit a close element");
-    cx.out.extend_static(tag.close_bytes())
+    cx.out.extend_static_str(tag.close_str())
 }
 
 #[inline(always)]
@@ -210,27 +210,27 @@ fn write_attr<B: WriteBuf, L: DataLoader>(
                      Use a safe scheme (https:, /, #) or pass data via data-* attributes.",
                     k.as_str()
                 );
-                cx.out.extend_static(k.attr_open_bytes())?;
-                cx.out.extend_static(b"\"")?;
+                cx.out.extend_static_str(k.attr_open_str())?;
+                cx.out.extend_static_str("\"")?;
                 return Ok(());
             }
-            cx.out.extend_static(k.attr_open_bytes())?;
+            cx.out.extend_static_str(k.attr_open_str())?;
             let dialect = cx.__proa_current_escape_dialect();
             escape_attr_value_for_dialect(&mut cx.out, v, dialect)?;
-            cx.out.extend_static(b"\"")?;
+            cx.out.extend_static_str("\"")?;
         }
         Attr::Bool { k, present } => {
             if *present {
-                cx.out.extend_static(k.attr_bare_bytes())?;
+                cx.out.extend_static_str(k.attr_bare_str())?;
             }
         }
         Attr::Data { name, v } => {
-            cx.out.extend_static(b" ")?;
-            cx.out.extend(name.as_bytes())?;
-            cx.out.extend_static(b"=\"")?;
+            cx.out.extend_static_str(" ")?;
+            cx.out.extend_str(name)?;
+            cx.out.extend_static_str("=\"")?;
             let dialect = cx.__proa_current_escape_dialect();
             escape_attr_value_for_dialect(&mut cx.out, v, dialect)?;
-            cx.out.extend_static(b"\"")?;
+            cx.out.extend_static_str("\"")?;
         }
     }
     Ok(())

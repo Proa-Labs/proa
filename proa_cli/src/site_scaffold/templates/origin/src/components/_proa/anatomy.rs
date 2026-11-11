@@ -96,7 +96,7 @@ impl AttrValue for PartId<'_> {
         if let Some(root) = self.root {
             let dialect = cx.__proa_current_escape_dialect();
             proa::shared::escape::escape_attr_value_for_dialect(&mut cx.out, root, dialect)?;
-            cx.out.extend_static(b"--")?;
+            cx.out.extend_static_str("--")?;
             proa::shared::escape::escape_attr_value_for_dialect(
                 &mut cx.out,
                 self.part,

@@ -121,7 +121,7 @@ impl AttrValue for TooltipStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.recipe.root.as_bytes())
+        cx.out.extend_static_str(self.recipe.root)
     }
 }
 

@@ -346,28 +346,29 @@ pub struct RawBenchmarkPage;
 impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for RawBenchmarkPage {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
-        cx.out.extend(b"<html lang=\"en\">")?;
-        cx.out.extend(b"<head>")?;
-        cx.out.extend(b"<title>SSR Benchmark Page</title>")?;
+        cx.out.extend_str("<html lang=\"en\">")?;
+        cx.out.extend_str("<head>")?;
+        cx.out.extend_str("<title>SSR Benchmark Page</title>")?;
+        cx.out.extend_str(
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+        )?;
+        cx.out.extend_str("</head>")?;
+        cx.out.extend_str("<body>")?;
+        cx.out.extend_str("<header class=\"hero-section\">")?;
         cx.out
-            .extend(b"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")?;
-        cx.out.extend(b"</head>")?;
-        cx.out.extend(b"<body>")?;
-        cx.out.extend(b"<header class=\"hero-section\">")?;
+            .extend_str("<h1 class=\"title\">SSR Framework Benchmark</h1>")?;
         cx.out
-            .extend(b"<h1 class=\"title\">SSR Framework Benchmark</h1>")?;
-        cx.out
-            .extend(b"<p class=\"subtitle\">Comparing Proa, Leptos, Dioxus, and Yew</p>")?;
-        cx.out.extend(b"</header>")?;
-        cx.out.extend(b"<main class=\"main-content\">")?;
+            .extend_str("<p class=\"subtitle\">Comparing Proa, Leptos, Dioxus, and Yew</p>")?;
+        cx.out.extend_str("</header>")?;
+        cx.out.extend_str("<main class=\"main-content\">")?;
         for section_idx in 0..NUM_SECTIONS {
             render_section_raw(cx, section_idx)?;
         }
-        cx.out.extend(b"</main>")?;
-        cx.out.extend(
-            b"<footer class=\"footer\"><p>Rendered by the SSR benchmark fixture</p></footer>",
+        cx.out.extend_str("</main>")?;
+        cx.out.extend_str(
+            "<footer class=\"footer\"><p>Rendered by the SSR benchmark fixture</p></footer>",
         )?;
-        cx.out.extend(b"</body></html>")
+        cx.out.extend_str("</body></html>")
     }
 }
 #[inline(always)]
@@ -376,82 +377,79 @@ fn render_section_raw<B: WriteBuf, L: ::proa_core::DataLoader>(
     section_idx: usize,
 ) -> Result<(), proa_core::WriteError> {
     cx.out
-        .extend(b"<section class=\"card-section\" data-section=\"")?;
+        .extend_str("<section class=\"card-section\" data-section=\"")?;
     if section_idx.is_multiple_of(2) {
-        cx.out.extend(b"even\">")?;
+        cx.out.extend_str("even\">")?;
     } else {
-        cx.out.extend(b"odd\">")?;
+        cx.out.extend_str("odd\">")?;
     }
     match section_idx {
         0 => {
             cx.out
-                .extend(b"<h2 class=\"section-title\">Performance Metrics</h2>")?;
+                .extend_str("<h2 class=\"section-title\">Performance Metrics</h2>")?;
         }
         1 => {
             cx.out
-                .extend(b"<h2 class=\"section-title\">Rendering Speed</h2>")?;
+                .extend_str("<h2 class=\"section-title\">Rendering Speed</h2>")?;
         }
         2 => {
             cx.out
-                .extend(b"<h2 class=\"section-title\">Memory Efficiency</h2>")?;
+                .extend_str("<h2 class=\"section-title\">Memory Efficiency</h2>")?;
         }
         _ => {
             cx.out
-                .extend(b"<h2 class=\"section-title\">Framework Comparison</h2>")?;
+                .extend_str("<h2 class=\"section-title\">Framework Comparison</h2>")?;
         }
     }
-    cx.out.extend(b"<div class=\"card-grid\">")?;
+    cx.out.extend_str("<div class=\"card-grid\">")?;
     for card_idx in 0..CARDS_PER_SECTION {
         render_card_raw(cx, card_idx)?;
     }
-    cx.out.extend(b"</div></section>")
+    cx.out.extend_str("</div></section>")
 }
 #[inline(always)]
 fn render_card_raw<B: WriteBuf, L: ::proa_core::DataLoader>(
     cx: &mut WebContext<L, B>,
     card_idx: usize,
 ) -> Result<(), proa_core::WriteError> {
-    cx.out.extend(b"<article class=\"card\" data-card-id=\"")?;
+    cx.out
+        .extend_str("<article class=\"card\" data-card-id=\"")?;
     if card_idx.is_multiple_of(2) {
-        cx.out.extend(b"even\">")?;
+        cx.out.extend_str("even\">")?;
     } else {
-        cx.out.extend(b"odd\">")?;
+        cx.out.extend_str("odd\">")?;
     }
     cx.out
-        .extend(
-            b"<div class=\"card-header\"><img src=\"/images/benchmark.png\" alt=\"Benchmark chart\" class=\"card-image\"></div>",
-        )?;
-    cx.out.extend(b"<div class=\"card-body\">")?;
+        .extend_str("<div class=\"card-header\"><img src=\"/images/benchmark.png\" alt=\"Benchmark chart\" class=\"card-image\"></div>")?;
+    cx.out.extend_str("<div class=\"card-body\">")?;
     match card_idx % 4 {
         0 => {
             cx.out
-                .extend(b"<h3 class=\"card-title\">Latency Analysis</h3>")?;
+                .extend_str("<h3 class=\"card-title\">Latency Analysis</h3>")?;
         }
         1 => {
             cx.out
-                .extend(b"<h3 class=\"card-title\">Throughput Metrics</h3>")?;
+                .extend_str("<h3 class=\"card-title\">Throughput Metrics</h3>")?;
         }
         2 => {
             cx.out
-                .extend(b"<h3 class=\"card-title\">Memory Usage</h3>")?;
+                .extend_str("<h3 class=\"card-title\">Memory Usage</h3>")?;
         }
         _ => {
             cx.out
-                .extend(b"<h3 class=\"card-title\">CPU Utilization</h3>")?;
+                .extend_str("<h3 class=\"card-title\">CPU Utilization</h3>")?;
         }
     }
     cx.out
-        .extend(
-            b"<p class=\"card-description\">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>",
-        )?;
-    cx.out.extend(b"<ul class=\"feature-list\">")?;
+        .extend_str("<p class=\"card-description\">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>")?;
+    cx.out.extend_str("<ul class=\"feature-list\">")?;
     for item_idx in 0..ITEMS_PER_CARD {
         render_feature_raw(cx, item_idx)?;
     }
-    cx.out.extend(b"</ul>")?;
+    cx.out.extend_str("</ul>")?;
     cx.out
-        .extend(b"<button class=\"btn-primary\" type=\"button\">View Details</button>")?;
-    cx.out.extend(b"</div></article>")
+        .extend_str("<button class=\"btn-primary\" type=\"button\">View Details</button>")?;
+    cx.out.extend_str("</div></article>")
 }
 #[inline(always)]
 fn render_feature_raw<B: WriteBuf, L: ::proa_core::DataLoader>(
@@ -461,23 +459,23 @@ fn render_feature_raw<B: WriteBuf, L: ::proa_core::DataLoader>(
     match item_idx {
         0 => {
             cx.out
-                .extend(b"<li class=\"feature-item\">Sub-millisecond response times</li>")?;
+                .extend_str("<li class=\"feature-item\">Sub-millisecond response times</li>")?;
         }
         1 => {
             cx.out
-                .extend(b"<li class=\"feature-item\">Zero-copy rendering pipeline</li>")?;
+                .extend_str("<li class=\"feature-item\">Zero-copy rendering pipeline</li>")?;
         }
         2 => {
             cx.out
-                .extend(b"<li class=\"feature-item\">SIMD-accelerated escaping</li>")?;
+                .extend_str("<li class=\"feature-item\">SIMD-accelerated escaping</li>")?;
         }
         3 => {
             cx.out
-                .extend(b"<li class=\"feature-item\">Pre-allocated buffers</li>")?;
+                .extend_str("<li class=\"feature-item\">Pre-allocated buffers</li>")?;
         }
         _ => {
             cx.out
-                .extend(b"<li class=\"feature-item\">Minimal heap allocations</li>")?;
+                .extend_str("<li class=\"feature-item\">Minimal heap allocations</li>")?;
         }
     }
     Ok(())

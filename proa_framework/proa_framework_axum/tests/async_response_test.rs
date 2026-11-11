@@ -50,10 +50,10 @@ impl<L: ::proa_core::DataLoader> WebRender<L, RenderBuffer> for AsyncGreeting {
         RenderOutcome::Pending(async move {
             // Disambiguate: Vec<u8> has both std's Extend (infallible) and
             // our WriteBuf::extend (fallible). Call the trait form explicitly.
-            WriteBuf::extend(&mut cx.out, b"<p>hello ")?;
+            WriteBuf::extend_str(&mut cx.out, "<p>hello ")?;
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            WriteBuf::extend(&mut cx.out, self.name.as_bytes())?;
-            WriteBuf::extend(&mut cx.out, b"</p>")?;
+            WriteBuf::extend_str(&mut cx.out, self.name)?;
+            WriteBuf::extend_str(&mut cx.out, "</p>")?;
             Ok(())
         })
     }
@@ -410,9 +410,9 @@ struct SyncGreeting {
 
 impl<L: ::proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for SyncGreeting {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        cx.out.extend(b"<p>sync ")?;
-        cx.out.extend(self.name.as_bytes())?;
-        cx.out.extend(b"</p>")?;
+        cx.out.extend_str("<p>sync ")?;
+        cx.out.extend_str(self.name)?;
+        cx.out.extend_str("</p>")?;
         Ok(())
     }
 }

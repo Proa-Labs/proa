@@ -570,6 +570,29 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for Card {
 }
 
 #[test]
+fn lint_flags_text_writer_methods_like_their_byte_forms() {
+    let source = r#"
+impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for Card {
+    fn render(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
+        WriteBuf::extend_str(&mut cx.out, "<span>")?;
+        cx.out.extend_static_str("<div class=\"card\">")
+    }
+}
+impl AttrValue for AuditHref<'_> {
+    fn render_attr_value<B: WriteBuf>(&self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
+        cx.out.extend_static_str("/audit/")?;
+        cx.out.extend_str(self.id)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    let codes: Vec<_> = diagnostics.iter().map(|diag| diag.code).collect();
+    assert!(codes.contains(&"perf/raw-write-html"));
+    assert!(codes.contains(&"perf/raw-attr-segment"));
+    assert!(codes.contains(&"render/manual-attr-stream"));
+}
+
+#[test]
 fn lint_reports_render_string_builder_attr_patterns() {
     let source = r#"
 impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for Chart {
