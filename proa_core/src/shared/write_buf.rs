@@ -379,6 +379,21 @@ fn checked_utf8_slow(bytes: &[u8]) -> Result<&str, WriteError> {
 /// copy_nonoverlapping(src, dst, len);  // run time: a call to the C library
 /// ```
 ///
+/// These are the instructions rustc 1.95 emits for those two lines:
+///
+/// ```text
+///                  aarch64                  x86-64
+/// constant 25      ldr  q0, [x1]            movups (%rsi), %xmm0
+///                  ldur q1, [x1, #9]        movups 9(%rsi), %xmm1
+///                  stur q1, [x0, #9]        movups %xmm1, 9(%rdi)
+///                  str  q0, [x0]            movups %xmm0, (%rdi)
+///
+/// run-time length  b    _memcpy             jmp    _memcpy
+/// ```
+///
+/// The constant case is two 16-byte moves that overlap: bytes 0..16 and bytes
+/// 9..25. The run-time case is a jump into the library.
+///
 /// For a short string the call costs more than the copy itself. Three things
 /// add up to about 1.3 ns on an Apple M4, where moving 25 bytes takes a
 /// fraction of that:
@@ -406,6 +421,20 @@ fn checked_utf8_slow(bytes: &[u8]) -> Result<&str, WriteError> {
 /// chosen by `len`. Anything longer goes to `memcpy`, where the call is a
 /// small part of the work and the library can pick wider vector registers
 /// than this build is allowed to assume.
+///
+/// For a run-time length of 16 to 31 bytes this function compiles to the same
+/// shape the compiler picks for a constant, with the second offset worked out
+/// from `len` (aarch64):
+///
+/// ```text
+/// ldp  x8, x9, [x1]        ; first 16 bytes
+/// sub  x10, x2, #16        ; len - 16
+/// add  x11, x1, x10
+/// ldp  x12, x11, [x11]     ; last 16 bytes
+/// stp  x8, x9, [x0]
+/// add  x8, x0, x10
+/// stp  x12, x11, [x8]
+/// ```
 ///
 /// When `len` is a compile-time constant the branches fold away, so fixed
 /// text compiles to the same code as a plain copy.
