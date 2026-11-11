@@ -392,7 +392,7 @@ fn write_prefix<B: WriteBuf, L: DataLoader>(
     cx.out.extend_str(seed_key)?;
     cx.out
         .extend_static_str("\" data-rsjs-linked-candidate=\"")?;
-    write_u64(&mut cx.out, site.candidate_id)?;
+    site.candidate_id.render(cx)?;
     cx.out.extend_static_str("\">")?;
     Ok(cx.csp_nonce_cloned())
 }
@@ -421,7 +421,7 @@ fn write_suffix<B: WriteBuf, L: DataLoader>(
     if let Some(query_state) = query_state {
         write_state_script(
             cx,
-            b" data-rsjs-island-queries=\"",
+            " data-rsjs-island-queries=\"",
             site.fragment_asset_id,
             query_state,
             nonce,
@@ -430,7 +430,7 @@ fn write_suffix<B: WriteBuf, L: DataLoader>(
     if let Some(mutation_state) = mutation_state {
         write_state_script(
             cx,
-            b" data-rsjs-island-mutations=\"",
+            " data-rsjs-island-mutations=\"",
             site.fragment_asset_id,
             mutation_state,
             nonce,
@@ -470,14 +470,14 @@ fn write_nonce<B: WriteBuf, L: DataLoader>(
 #[inline]
 fn write_state_script<B: WriteBuf, L: DataLoader>(
     cx: &mut WebContext<L, B>,
-    attribute: &'static [u8],
+    attribute: &'static str,
     fragment_asset_id: &'static str,
     state: &str,
     nonce: Option<&CspNonce>,
 ) -> Result<(), WriteError> {
     cx.out
         .extend_static_str("<script type=\"application/json\"")?;
-    cx.out.extend_static(attribute)?;
+    cx.out.extend_static_str(attribute)?;
     cx.out.extend_str(fragment_asset_id)?;
     cx.out.extend_static_str("\"")?;
     write_nonce(cx, nonce)?;
@@ -486,32 +486,9 @@ fn write_state_script<B: WriteBuf, L: DataLoader>(
     cx.out.extend_static_str("</script>")
 }
 
-#[inline]
-fn write_u64<B: WriteBuf>(out: &mut B, mut value: u64) -> Result<(), WriteError> {
-    let mut digits = [0_u8; 20];
-    let mut cursor = digits.len();
-    loop {
-        cursor -= 1;
-        digits[cursor] = b'0' + (value % 10) as u8;
-        value /= 10;
-        if value == 0 {
-            return out.extend(&digits[cursor..]);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn runtime_candidate_decimal_encoding_preserves_all_u64_bits() {
-        for value in [0, u64::from(u32::MAX) + 1, u64::MAX] {
-            let mut out = proa_core::RenderBuffer::new();
-            write_u64(&mut out, value).unwrap();
-            assert_eq!(out.into_string(), value.to_string());
-        }
-    }
 
     static SERVER_SITE: LinkedRenderSitePlan = LinkedRenderSitePlan::new(
         [1; 32],

@@ -1115,7 +1115,7 @@ fn write_module_script_tag<B: proa_core::WriteBuf>(
     url: &str,
     nonce: Option<&proa_core::CspNonce>,
 ) -> Result<(), proa_core::WriteError> {
-    out.extend_static(br#"<script type="module" src=""#)?;
+    out.extend_static_str(r#"<script type="module" src=""#)?;
     proa_core::shared::escape::escape_attr_value(out, url)?;
     out.extend_static_str("\"")?;
     if let Some(nonce) = nonce {
@@ -1128,7 +1128,7 @@ fn write_module_preload_tag<B: proa_core::WriteBuf>(
     out: &mut B,
     url: &str,
 ) -> Result<(), proa_core::WriteError> {
-    out.extend_static(br#"<link rel="modulepreload" href=""#)?;
+    out.extend_static_str(r#"<link rel="modulepreload" href=""#)?;
     proa_core::shared::escape::escape_attr_value(out, url)?;
     out.extend_static_str("\">")
 }
