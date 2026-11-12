@@ -91,16 +91,23 @@ performance guide against the raw captures as well as regenerating the SVGs.
 
 ### Landing-page paired comparisons
 
-The GitHub, Sentry, and Airbnb hero metrics use a separate [paired capture and
-methodology](https://github.com/Proa-Labs/framework-benchmarks/blob/e28e9a18113c792beb6b55db9e758b7038fcac27/showcase/README.md#landing-page-paired-comparisons),
-recorded November 12, 2026 UTC on Apple M4 Max with Proa `bbbc968` and production
-React 19.2.4 on Node 26.13.0. Each value is the median of five independent process
-P50s. Both engines return fresh complete Strings, including allocation and
-document assembly; UTF-8 Buffer encoding, output destruction, HTTP, and browser
-work are excluded. Full DOM parity and changed-output negative controls passed
-for all three fixtures. The capture retains every sample and process range and
-reports the shared host's starting load. These paired results have a different
-output boundary from the canonical scoreboard above; the figures are not mixed.
+The GitHub, Sentry, and Airbnb hero metrics use a separate [paired GCP CI capture
+and methodology](https://github.com/Proa-Labs/framework-benchmarks/blob/65474b57b5c02f1f5cd881c886ef4148f2b6959e/showcase/README.md#gcp-ci-capture-november-12-2026-utc),
+recorded November 12, 2026 UTC on `c4-standard-16-lssd` (Intel Xeon 6985P-C,
+Granite Rapids), the same machine type and image as Proa CI. Timed processes
+were pinned to CPU 0. The capture uses Proa `bbbc968`, Rust 1.95.0, and production
+React 19.2.4 on Node 26.13.0. Each figure is the median of five independent
+process P50s.
+
+The selected figures explicitly prime Proa's allocator before render warmups.
+Both engines return fresh complete Strings, including allocation and document
+assembly; UTF-8 Buffer encoding, output destruction, HTTP, and browser work
+are excluded. The same-host default-allocator comparison is retained alongside
+the selected capture because allocator state materially affects these timings.
+Full DOM parity and changed-output negative controls passed for every fixture.
+Raw samples, process ranges, the exact native priming source, and image/host
+provenance are retained. These paired results have a different host and output
+boundary from the canonical scoreboard above; the figures are not mixed.
 
 ## Historical performance diagrams
 
