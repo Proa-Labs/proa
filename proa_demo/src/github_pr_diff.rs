@@ -79,8 +79,6 @@ impl AttrValue for DemoUrl {
 #[path = "github_pr_diff_fixtures.rs"]
 mod github_pr_diff_fixtures;
 
-static FIXTURE_FILE_ROWS: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
-
 const FILE_PATHS: &[&str] = &[
     "src/install/PackageManager/PackageJSONEditor.zig",
     "src/js/node/events.ts",
@@ -1649,17 +1647,11 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FileSection<'_> {
                         <tbody>
                             {if let Some(lines) = custom_lines {
                                 if !lines.is_empty() {
-                                    if prop_lines_match_fixture(self.file_idx, lines) {
-                                        FixtureFileRows {
+                                    for line_idx in 0..lines.len() {
+                                        PropDiffLine {
                                             file_idx: self.file_idx,
-                                        }
-                                    } else {
-                                        for line_idx in 0..lines.len() {
-                                            PropDiffLine {
-                                                file_idx: self.file_idx,
-                                                line_idx,
-                                                line: &lines[line_idx],
-                                            }
+                                            line_idx,
+                                            line: &lines[line_idx],
                                         }
                                     }
                                 } else if fixture_lines.is_some() {
@@ -1833,14 +1825,20 @@ struct FixtureFileRows {
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FixtureFileRows {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        if let Some(rows) = fixture_file_rows(self.file_idx) {
-            html_sync! {
-                {StaticRaw(rows)}
+        if let Some(lines) = github_pr_diff_fixtures::default_diff_lines(self.file_idx) {
+            for (line_idx, line) in lines.iter().enumerate() {
+                RenderedDiffLine {
+                    file_idx: self.file_idx,
+                    line_idx,
+                    kind: line.kind,
+                    old_line: line.old_line,
+                    new_line: line.new_line,
+                    text: line.text,
+                }
+                .render(cx)?;
             }
-            .render(cx)
-        } else {
-            Ok(())
         }
+        Ok(())
     }
 }
 
@@ -1859,7 +1857,6 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PropDiffLine<'_> {
             old_line: self.line.old_line,
             new_line: self.line.new_line,
             text: self.line.text.as_str(),
-            highlighted_html: None,
         }
         .render(cx)
     }
@@ -1872,7 +1869,6 @@ struct RenderedDiffLine<'a> {
     old_line: Option<usize>,
     new_line: Option<usize>,
     text: &'a str,
-    highlighted_html: Option<&'static str>,
 }
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderedDiffLine<'_> {
@@ -1935,31 +1931,13 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderedDiffLine<'_> {
                     <code class={self.kind.code_class()}>
                         <span class="line-marker diff-text-marker">{self.kind.marker()}</span>
                         <span class="code-inner diff-text-inner">
-                            {HighlightedLine { text: self.text, html: self.highlighted_html }}
+                            {HighlightedCode { text: self.text }}
                         </span>
                     </code>
                 </td>
             </tr>
         }
         .render(cx)
-    }
-}
-
-struct HighlightedLine<'a> {
-    text: &'a str,
-    html: Option<&'static str>,
-}
-
-impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HighlightedLine<'_> {
-    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        if let Some(html) = self.html {
-            html_sync! {
-                {StaticRaw(html)}
-            }
-            .render(cx)
-        } else {
-            HighlightedCode { text: self.text }.render(cx)
-        }
     }
 }
 
@@ -2045,86 +2023,6 @@ fn render_code_span<B: WriteBuf, L: DataLoader>(
         .render(cx)?;
     }
     Ok(())
-}
-
-fn fixture_file_rows(file_idx: usize) -> Option<&'static str> {
-    FIXTURE_FILE_ROWS
-        .get_or_init(build_fixture_file_rows)
-        .get(file_idx)
-        .copied()
-}
-
-fn prop_lines_match_fixture(file_idx: usize, lines: &[GithubPrDiffLineProps]) -> bool {
-    let Some(fixtures) = github_pr_diff_fixtures::default_diff_lines(file_idx) else {
-        return false;
-    };
-    if lines.len() != fixtures.len() {
-        return false;
-    }
-
-    lines.iter().zip(fixtures).all(|(line, fixture)| {
-        DiffLineKind::from_label(line.kind.as_str()) == fixture.kind
-            && line.old_line == fixture.old_line
-            && line.new_line == fixture.new_line
-            && line.text == fixture.text
-    })
-}
-
-fn build_fixture_file_rows() -> Vec<&'static str> {
-    // proa-perf-ok: demo fixtures allocate once during process-lifetime pre-rendering
-    let mut files = Vec::with_capacity(DEFAULT_FILE_COUNT);
-    for file_idx in 0..DEFAULT_FILE_COUNT {
-        let Some(lines) = github_pr_diff_fixtures::default_diff_lines(file_idx) else {
-            files.push("");
-            continue;
-        };
-
-        files.push(render_fixture_file_rows(file_idx, lines));
-    }
-    files
-}
-
-fn render_fixture_file_rows(file_idx: usize, lines: &'static [DiffLineFixture]) -> &'static str {
-    // proa-perf-ok: demo fixtures allocate once during process-lifetime pre-rendering
-    let mut out = Vec::new();
-    let mut cx = WebContext::with_buffer(&mut out);
-    for (line_idx, line) in lines.iter().enumerate() {
-        let highlighted_html = if line.kind == DiffLineKind::Hunk {
-            None
-        } else {
-            Some(render_highlighted_fixture_line(line.text))
-        };
-        let _ = RenderedDiffLine {
-            file_idx,
-            line_idx,
-            kind: line.kind,
-            old_line: line.old_line,
-            new_line: line.new_line,
-            text: line.text,
-            highlighted_html,
-        }
-        .render(&mut cx);
-    }
-    let html = String::from_utf8(out).unwrap_or_default();
-    leak_fixture_html(html)
-}
-
-fn render_highlighted_fixture_line(text: &'static str) -> &'static str {
-    if text.is_empty() {
-        return "";
-    }
-
-    // proa-perf-ok: demo fixtures allocate once during process-lifetime pre-rendering
-    let mut out = Vec::new();
-    let mut cx = WebContext::with_buffer(&mut out);
-    let _ = HighlightedCode { text }.render(&mut cx);
-    let html = String::from_utf8(out).unwrap_or_default();
-    leak_fixture_html(html)
-}
-
-fn leak_fixture_html(html: String) -> &'static str {
-    // Static demo fixtures live for the process lifetime so hot renders can stream them as StaticRaw.
-    Box::leak(html.into_boxed_str())
 }
 
 const fn is_ascii_ident_start(b: u8) -> bool {
