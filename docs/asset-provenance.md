@@ -92,22 +92,30 @@ performance guide against the raw captures as well as regenerating the SVGs.
 ### Landing-page paired comparisons
 
 The GitHub, Sentry, and Airbnb hero metrics use a separate [paired GCP CI capture
-and methodology](https://github.com/Proa-Labs/framework-benchmarks/blob/65474b57b5c02f1f5cd881c886ef4148f2b6959e/showcase/README.md#gcp-ci-capture-november-12-2026-utc),
+and methodology](https://github.com/Proa-Labs/framework-benchmarks/blob/7f467940a0586997e571adf33416f99620c96731/showcase/README.md#fresh-owned-buffer-gcp-ci-capture-november-12-2026-utc),
 recorded November 12, 2026 UTC on `c4-standard-16-lssd` (Intel Xeon 6985P-C,
-Granite Rapids), the same machine type and image as Proa CI. Timed processes
-were pinned to CPU 0. The capture uses Proa `bbbc968`, Rust 1.95.0, and production
-React 19.2.4 on Node 26.13.0. Each figure is the median of five independent
-process P50s.
+Granite Rapids), using the Proa CI runner image `proa-runner:1.95.0-v6`.
+Timed processes were pinned to CPU 0. The capture uses Proa `2c9033f`, Rust
+1.95.0, and production React 19.2.4 on Node 26.13.0. That Proa revision adds a
+buffer entry point for the Sentry fixture; framework rendering code is unchanged
+from `bbbc968`. Each figure is the median of five independent process P50s.
 
-The selected figures explicitly prime Proa's allocator before render warmups.
-Both engines return fresh complete Strings, including allocation and document
-assembly; UTF-8 Buffer encoding, output destruction, HTTP, and browser work
-are excluded. The same-host default-allocator comparison is retained alongside
-the selected capture because allocator state materially affects these timings.
+Proa allocates and renders into a fresh owned `RenderBuffer` every iteration;
+React produces its native `renderToString` result. Allocation and rendering
+are timed. Proa's String conversion, UTF-8 Buffer encoding, output destruction,
+input preparation, parity checks, HTTP, and browser work are outside timing.
+Release optimization and disabled native debug assertions were verified.
+
+The selected figures preserve the preceding CI capture's explicit allocator
+seed before render warmups. This policy is disclosed in the hero caption. A
+complete same-host capture without the seed is retained alongside it because
+allocator state materially affects the larger Linux pages. Both policies also
+have independent M4 Max captures; no React baseline is reused between captures.
 Full DOM parity and changed-output negative controls passed for every fixture.
-Raw samples, process ranges, the exact native priming source, and image/host
-provenance are retained. These paired results have a different host and output
-boundary from the canonical scoreboard above; the figures are not mixed.
+The four captures retain 120 process records, every timing sample, process
+ranges, source/binary hashes, exact priming source, and image/host provenance.
+These paired results use different fixtures and a different host from the
+canonical scoreboard above; the figures are not mixed.
 
 ## Historical performance diagrams
 
