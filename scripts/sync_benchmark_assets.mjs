@@ -10,8 +10,8 @@ const destination = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const source = process.argv[2] && resolve(process.argv[2]);
 const check = process.argv.includes('--check');
 if (!source) throw new Error('Usage: node scripts/sync_benchmark_assets.mjs <benchmark-checkout> [--check]');
-const manifest = readFileSync(join(destination, 'assets/benchmarks/README.md'), 'utf8');
-const expected = /Source revision: `([a-f0-9]{40})`/.exec(manifest)?.[1];
+const manifest = readFileSync(join(destination, 'docs/asset-provenance.md'), 'utf8');
+const expected = /Benchmark source revision: `([a-f0-9]{40})`/.exec(manifest)?.[1];
 const actual = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim();
 if (!expected || actual !== expected) throw new Error('Source checkout must match the recorded benchmark revision');
 if (execFileSync('git', ['-C', source, 'status', '--porcelain', '--untracked-files=no'], {encoding: 'utf8'}).trim()) {

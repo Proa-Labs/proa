@@ -235,7 +235,7 @@ host, so rerun on an idle machine before using the absolute times for planning.
 [![P50, P95, and slowest time from process spawn to a complete product-grid response for five production servers, with RSS after the response](assets/benchmarks/22-cold-start.svg)](assets/benchmarks/22-cold-start.svg)
 
 [Cold-start method and capture conditions](https://github.com/Proa-Labs/framework-benchmarks/blob/main/http-capacity.md#cold-start-to-first-response).
-[Chart provenance and refresh instructions](assets/benchmarks/README.md).
+[Chart provenance and refresh instructions](docs/asset-provenance.md#benchmark-charts).
 
 ## Proa in production
 

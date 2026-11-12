@@ -27,8 +27,8 @@ new binary assets and captured-fixture-shaped files to match a row here.
 | `proa_marketing/public/og.jpg` | Compressed from the supplied Proa site artwork | Social preview |
 | `proa_marketing/public/images/team/andrew-hariri.jpg` | Andrew Hariri's public GitHub profile portrait, downloaded from `https://avatars.githubusercontent.com/u/31301117?v=4&s=512` for his requested team profile | Proa founder portrait |
 | `proa_marketing/public/images/blog/*.svg` | Proa-authored | Explanatory diagrams |
-| `assets/benchmarks/*.svg` | Derived from Proa Labs' Apache-2.0 framework-benchmarks captures; exact revision and derivation in [the chart manifest](../assets/benchmarks/README.md) | Dated README performance figures |
-| `proa_marketing/public/images/benchmarks/*.svg` | Byte-identical copies of the corresponding README figures, with the same [provenance](../assets/benchmarks/README.md) | Shared website HTML, Markdown, and chart metadata |
+| `assets/benchmarks/*.svg` | Derived from Proa Labs' Apache-2.0 framework-benchmarks captures; exact revision and derivation in [Benchmark charts](#benchmark-charts) | Dated README performance figures |
+| `proa_marketing/public/images/benchmarks/*.svg` | Byte-identical copies of the corresponding README figures, with the same [provenance](#benchmark-charts) | Shared website HTML, Markdown, and chart metadata |
 | `proa_marketing/public/images/synthetic/*.svg` | Proa-authored geometric illustrations | Demo, benchmark, and marketing fixture imagery |
 | `proa_cli/src/site_scaffold/templates/origin/public/fonts/*.woff2` | Vendored from Google Fonts by `proa_fonts_build`; Instrument Sans and Azeret Mono are SIL OFL-1.1, whose text sits beside the files | Scaffold reference-project self-hosted webfonts |
 | `proa_marketing/public/images/airbnb/**` | Captured from public Airbnb pages used by the retained home, search, and listing fixtures | Airbnb reference showcase imagery |
@@ -55,6 +55,39 @@ applicable.
 
 Run `python3 scripts/check_asset_provenance.py` before committing asset or
 fixture changes.
+
+## Benchmark charts
+
+Source: [Proa-Labs/framework-benchmarks](https://github.com/Proa-Labs/framework-benchmarks), Apache-2.0.
+Benchmark source revision: `04c702ba2f959ef711551604c3f83a3123d1b1e8`
+Measured Proa revision: `bbbc9684335109949257eea8b4c98bb7bc8572ae`.
+
+| Local filename under `assets/benchmarks/` | Upstream source | Treatment |
+| --- | --- | --- |
+| [01-canonical-scoreboard.svg](../assets/benchmarks/01-canonical-scoreboard.svg) | `charts/svg/01-canonical-scoreboard.svg` | Exact copy |
+| [21-canonical-pages-http.svg](../assets/benchmarks/21-canonical-pages-http.svg) | `charts/svg/08-canonical-pages-http.svg` | Exact copy |
+| [22-cold-start.svg](../assets/benchmarks/22-cold-start.svg) | `charts/svg/09-cold-start.svg` | Exact copy |
+| [20-suspense-load.svg](../assets/benchmarks/20-suspense-load.svg) | `charts/figures/suspense.mjs`, using `sveltekit.md` | Matched-host Proa/SvelteKit rows; two-column latency layout |
+
+Proa was refreshed November 11, 2026 on Apple M4 Max; peer rows retain October
+21 captures. The render-only lane includes fresh buffer allocation and excludes
+String conversion. Cold-start captures use warm filesystem caches on a shared
+host. The derived streaming chart excludes the upstream Xeon Marko/React rows,
+adjusts the legend and layout, and corrects the same-host caption. Retained
+measurements are unchanged. SvelteKit's response end delivers data; Proa's
+response end delivers resolved HTML. Browser completion is reported separately.
+
+Website copies under `proa_marketing/public/images/benchmarks/` match the render,
+HTTP, and streaming figures byte for byte. Local filenames preserve existing
+public URLs. To refresh from a clean checkout of the recorded source revision:
+
+```sh
+node scripts/sync_benchmark_assets.mjs /path/to/framework-benchmarks
+node scripts/sync_benchmark_assets.mjs /path/to/framework-benchmarks --check
+```
+
+When selecting a newer revision, review the README, website captions, and
+performance guide against the raw captures as well as regenerating the SVGs.
 
 ## Historical performance diagrams
 
