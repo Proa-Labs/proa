@@ -37,16 +37,24 @@ pub fn render_rows(row_count: usize) -> String {
 /// hydration transports are deliberately outside the SSR comparison.
 pub fn render_benchmark_rows(row_count: usize) -> String {
     let mut out = RenderBuffer::new();
-    let mut cx = WebContext::with_buffer(&mut out);
+    render_benchmark_rows_into(&mut WebContext::with_buffer(&mut out), row_count)
+        .expect("Sentry SSR benchmark page should render");
+    out.into_string()
+}
+
+/// Renders the hydration-independent benchmark document into a caller-owned
+/// buffer, leaving output conversion outside the rendering measurement.
+pub fn render_benchmark_rows_into<B: WriteBuf, L: DataLoader>(
+    cx: &mut WebContext<L, B>,
+    row_count: usize,
+) -> Result<(), WriteError> {
     SentrySsrBenchmarkPage {
         props: SentryPageProps {
             row_count,
             ..SentryPageProps::default()
         },
     }
-    .render(&mut cx)
-    .expect("Sentry SSR benchmark page should render");
-    out.into_string()
+    .render(cx)
 }
 
 #[cfg(feature = "rsjs-pages")]
@@ -810,7 +818,10 @@ mod benchmark_tests {
 
     #[test]
     fn benchmark_document_has_the_requested_rows_without_hydration_transport() {
-        let html = render_benchmark_rows(25);
+        let mut out = RenderBuffer::new();
+        render_benchmark_rows_into(&mut WebContext::with_buffer(&mut out), 25).unwrap();
+        let html = out.into_string();
+        assert_eq!(html, render_benchmark_rows(25));
 
         assert!(html.starts_with("<!DOCTYPE html>"));
         assert!(html.ends_with("</body></html>"));
