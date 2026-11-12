@@ -89,6 +89,19 @@ node scripts/sync_benchmark_assets.mjs /path/to/framework-benchmarks --check
 When selecting a newer revision, review the README, website captions, and
 performance guide against the raw captures as well as regenerating the SVGs.
 
+### Landing-page paired comparisons
+
+The GitHub, Sentry, and Airbnb hero metrics use a separate [paired capture and
+methodology](https://github.com/Proa-Labs/framework-benchmarks/blob/e28e9a18113c792beb6b55db9e758b7038fcac27/showcase/README.md#landing-page-paired-comparisons),
+recorded November 12, 2026 UTC on Apple M4 Max with Proa `bbbc968` and production
+React 19.2.4 on Node 26.13.0. Each value is the median of five independent process
+P50s. Both engines return fresh complete Strings, including allocation and
+document assembly; UTF-8 Buffer encoding, output destruction, HTTP, and browser
+work are excluded. Full DOM parity and changed-output negative controls passed
+for all three fixtures. The capture retains every sample and process range and
+reports the shared host's starting load. These paired results have a different
+output boundary from the canonical scoreboard above; the figures are not mixed.
+
 ## Historical performance diagrams
 
 | Path | Source / license | Purpose |

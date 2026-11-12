@@ -432,28 +432,32 @@ struct Direction18HeroPreview {
     peer_label: &'static str,
     multiplier_label: &'static str,
     note: &'static str,
+    methodology_url: &'static str,
+    methodology_label: &'static str,
 }
 
 impl Direction18HeroPreview {
     const fn new() -> Self {
         Self {
             tabs_label: "Benchmark page previews",
-            proa_travel: "11.5 us",
-            proa_repo: "23.5 us",
-            proa_sentry: "155 us",
-            peer_travel: "598 us",
-            peer_repo: "5.56 ms",
-            peer_sentry: "25.4 ms",
-            speedup_travel: "52x",
-            speedup_repo: "237x",
-            speedup_sentry: "163x",
+            proa_travel: "10.9 us",
+            proa_repo: "35.1 us",
+            proa_sentry: "97.5 us",
+            peer_travel: "315 us",
+            peer_repo: "1.79 ms",
+            peer_sentry: "6.69 ms",
+            speedup_travel: "29.0x",
+            speedup_repo: "50.8x",
+            speedup_sentry: "68.6x",
             repo_label: "GitHub",
             sentry_label: "Sentry",
             travel_label: "Airbnb",
             proa_label: "Proa render p50",
-            peer_label: "React renderToString p50",
+            peer_label: "React on Node p50",
             multiplier_label: "faster",
-            note: "Warm production p50s measured on an 8-vCPU AMD EPYC-Milan VPS.",
+            methodology_url: "https://github.com/Proa-Labs/framework-benchmarks/blob/e28e9a18113c792beb6b55db9e758b7038fcac27/showcase/README.md#landing-page-paired-comparisons",
+            methodology_label: "Methodology and samples",
+            note: "Production renders to fresh Strings on Apple M4 Max, Nov 12, 2026 UTC. Median of five process p50s; excludes HTTP and browser work.",
         }
     }
 }
@@ -1076,6 +1080,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
         let peer_label = self.peer_label;
         let multiplier_label = self.multiplier_label;
         let note = self.note;
+        let methodology_label = self.methodology_label;
         let value = signal("repo");
 
         let travel_tab = rsjs::node_ref::<rsjs::HtmlElement>();
@@ -1312,6 +1317,10 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
                 </div>
                 <p class="mt-2 font-mono text-[11px] leading-relaxed text-[#8f877e] dark:text-zinc-500">
                     {note}
+                    " "
+                    <a href={self.methodology_url} target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">
+                        {methodology_label}
+                    </a>
                 </p>
             </div>
         }
@@ -2513,6 +2522,8 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Direction18HeroPreview {
             | {self.travel_label} | {self.proa_travel} | {self.peer_travel} | {self.speedup_travel} |
 
             {self.note}
+
+            [{self.methodology_label}]({Url(self.methodology_url)})
             "###
         }.render_md(cx)
     }
