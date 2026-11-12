@@ -27,6 +27,8 @@ new binary assets and captured-fixture-shaped files to match a row here.
 | `proa_marketing/public/og.jpg` | Compressed from the supplied Proa site artwork | Social preview |
 | `proa_marketing/public/images/team/andrew-hariri.jpg` | Andrew Hariri's public GitHub profile portrait, downloaded from `https://avatars.githubusercontent.com/u/31301117?v=4&s=512` for his requested team profile | Proa founder portrait |
 | `proa_marketing/public/images/blog/*.svg` | Proa-authored | Explanatory diagrams |
+| `assets/benchmarks/*.svg` | Derived from Proa Labs' Apache-2.0 framework-benchmarks captures; exact revision and derivation in [the chart manifest](../assets/benchmarks/README.md) | Dated README performance figures |
+| `proa_marketing/public/images/benchmarks/*.svg` | Byte-identical copies of the corresponding README figures, with the same [provenance](../assets/benchmarks/README.md) | Shared website HTML, Markdown, and chart metadata |
 | `proa_marketing/public/images/synthetic/*.svg` | Proa-authored geometric illustrations | Demo, benchmark, and marketing fixture imagery |
 | `proa_cli/src/site_scaffold/templates/origin/public/fonts/*.woff2` | Vendored from Google Fonts by `proa_fonts_build`; Instrument Sans and Azeret Mono are SIL OFL-1.1, whose text sits beside the files | Scaffold reference-project self-hosted webfonts |
 | `proa_marketing/public/images/airbnb/**` | Captured from public Airbnb pages used by the retained home, search, and listing fixtures | Airbnb reference showcase imagery |

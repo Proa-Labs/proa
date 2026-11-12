@@ -1,6 +1,6 @@
 # Codex Instructions for the Proa workspace
 
-Proa is a Rust SSR template engine that compiles HTML templates into optimized byte sequences at compile time. It renders 10-20x faster than traditional templating engines through static consolidation and zero-allocation patterns.
+Proa is a Rust SSR template engine that compiles HTML templates into optimized byte sequences at compile time. It uses static consolidation and direct-buffer rendering; performance depends on the workload and output contract. See the dated measurements and methodology in [README.md](README.md#benchmarks).
 
 ## Agent reference
 

@@ -809,7 +809,7 @@ impl BenchmarkHighlights {
         Self {
             tabs_label: "Benchmark charts",
             title: "The numbers behind the speed.",
-            environment: "Apple M4 Max · September 2026",
+            environment: "Proa refreshed November 11, 2026 · Peers retain October 21 captures · Apple M4 Max",
             scroll_hint: "Scroll horizontally to explore each chart.",
             open_label: "Open full-size SVG",
             link_label: "View benchmarks",
@@ -817,20 +817,20 @@ impl BenchmarkHighlights {
             render: BenchmarkChart {
                 title: "Render speed",
                 url: "/static/images/benchmarks/01-canonical-scoreboard.svg",
-                description: "Server-render latency across 17 renderers and three workloads. Proa leads the component frameworks; React takes 13.2 to 35.4 times as long.",
+                description: "P50 render latency across 17 renderers and three workloads. Proa uses a fresh owned RenderBuffer, with allocation included and String conversion excluded. Proa was refreshed November 11; peers retain October 21 captures on the same Apple M4 Max.",
                 height: "480",
             },
             http: BenchmarkChart {
                 title: "HTTP capacity",
                 url: "/static/images/benchmarks/21-canonical-pages-http.svg",
-                description: "HTTP throughput, CPU per response, and peak memory for Proa, React, Marko, and Go. Proa serves 16,100 product-grid responses per second with 9.4 MiB peak memory.",
-                height: "615",
+                description: "HTTP throughput, CPU per response, and peak memory for Proa, React, Marko, Go, and SvelteKit. The dated product-grid capture measured Proa at 20,863 complete responses per second with 9.6 MiB peak memory.",
+                height: "678",
             },
             load: BenchmarkChart {
                 title: "Suspense under load",
                 url: "/static/images/benchmarks/20-suspense-load.svg",
-                description: "Suspense streaming under increasing load: throughput, memory, and response latency for Proa, Marko, and React. Proa sustains about 5,000 responses per second before queueing rises at 6,000 offered requests per second.",
-                height: "743",
+                description: "Proa and SvelteKit streaming under increasing load on Apple M4 Max, including throughput, memory, latency, and failures. SvelteKit response end delivers promised data; Proa delivers resolved HTML. See the methodology for completed-browser comparisons.",
+                height: "786",
             },
         }
     }
