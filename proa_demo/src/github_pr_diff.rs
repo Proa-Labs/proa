@@ -9,7 +9,7 @@
 //! and line selection.
 
 use core::fmt::Write as _;
-use proa_core::shared::attr_value::AttrValue;
+use proa_core::shared::attr_value::{AttrValue, SafeAttr};
 use proa_core::{DataLoader, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::{html_sync, text};
 use serde::{Deserialize, Serialize};
@@ -1756,7 +1756,7 @@ pub(crate) enum DiffLineKind {
 
 impl DiffLineKind {
     const fn for_line(line_idx: usize) -> Self {
-        match line_idx % 12 {
+        match line_idx % GENERATED_CYCLE {
             3 | 9 => Self::Deletion,
             4 | 5 | 6 | 10 => Self::Addition,
             _ => Self::Context,
@@ -1773,6 +1773,15 @@ pub(crate) struct DiffLineFixture {
 
 impl DiffLineKind {
     fn from_label(label: &str) -> Self {
+        // The fixtures and the React twin send exact lowercase labels, so
+        // resolve those before the case-insensitive comparisons below.
+        match label {
+            "context" => return Self::Context,
+            "addition" => return Self::Addition,
+            "deletion" => return Self::Deletion,
+            "hunk" => return Self::Hunk,
+            _ => {}
+        }
         if label.eq_ignore_ascii_case("hunk") {
             Self::Hunk
         } else if label.eq_ignore_ascii_case("addition") || label.eq_ignore_ascii_case("added") {
@@ -1898,19 +1907,25 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderedDiffLine<'_> {
         let old_class = line_number_class(self.kind, true, self.old_line.is_some());
         let new_class = line_number_class(self.kind, false, self.new_line.is_some());
         let (comment_side, comment_line) = comment_target(self.old_line, self.new_line);
+        // The class names, comment side and marker below are string constants
+        // from this file, chosen by `match`. `SafeAttr` and `StaticRaw` write
+        // them as they are. As plain `&str` slots each one was scanned for
+        // characters to escape on every row, about 17 scans per row for text
+        // that can never contain markup, and that was 29% of this page's
+        // render time (95.7 to 67.9 µs on an M4 Max).
         html_sync! {
             <tr
-                class={self.kind.row_class()}
+                class={SafeAttr(self.kind.row_class())}
                 data-line
                 data-file-index={self.file_idx}
                 data-line-index={self.line_idx}
             >
-                <td class={old_class}>
+                <td class={SafeAttr(old_class)}>
                     {if let Some(line) = self.old_line { html_sync! {
                         {line}
                     } }}
                 </td>
-                <td class={new_class}>
+                <td class={SafeAttr(new_class)}>
                     {if let Some(line) = self.new_line { html_sync! {
                         {line}
                     } }}
@@ -1923,13 +1938,15 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderedDiffLine<'_> {
                         data-pr-comment-button
                         data-file-index={self.file_idx}
                         data-line-index={self.line_idx}
-                        data-comment-side={comment_side}
+                        data-comment-side={SafeAttr(comment_side)}
                         data-comment-line={comment_line}
                     >
                         <span class="line-comment-plus" aria-hidden="true">"+"</span>
                     </button>
-                    <code class={self.kind.code_class()}>
-                        <span class="line-marker diff-text-marker">{self.kind.marker()}</span>
+                    <code class={SafeAttr(self.kind.code_class())}>
+                        <span class="line-marker diff-text-marker">
+                            {StaticRaw(self.kind.marker())}
+                        </span>
                         <span class="code-inner diff-text-inner">
                             {HighlightedCode { text: self.text }}
                         </span>
@@ -1952,45 +1969,50 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HighlightedCode<'_> {
         let mut plain_start = 0;
 
         while i < bytes.len() {
-            let b = bytes[i];
-            if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-                render_code_plain(&self.text[plain_start..i], cx)?;
-                render_code_span("pl-c comment", &self.text[i..], cx)?;
-                return Ok(());
-            } else if b == b'"' || b == b'\'' || b == b'`' {
-                let end = scan_string(bytes, i);
-                render_code_plain(&self.text[plain_start..i], cx)?;
-                render_code_span("pl-s", &self.text[i..end], cx)?;
-                i = end;
-                plain_start = i;
-            } else if is_ascii_ident_start(b) {
-                let start = i;
-                i += 1;
-                while i < bytes.len() && is_ascii_ident_part(bytes[i]) {
+            match TOKEN_START[bytes[i] as usize] {
+                TokenStart::Plain => i += 1,
+                TokenStart::Slash => {
+                    if bytes.get(i + 1) == Some(&b'/') {
+                        render_code_plain(&self.text[plain_start..i], cx)?;
+                        render_code_span(TokenClass::Comment, &self.text[i..], cx)?;
+                        return Ok(());
+                    }
                     i += 1;
                 }
-                let token = &self.text[start..i];
-                if let Some(class) = highlighted_identifier_class(token, bytes, i) {
-                    render_code_plain(&self.text[plain_start..start], cx)?;
-                    render_code_span(class, token, cx)?;
+                TokenStart::Quote => {
+                    let end = scan_string(bytes, i);
+                    render_code_plain(&self.text[plain_start..i], cx)?;
+                    render_code_span(TokenClass::String, &self.text[i..end], cx)?;
+                    i = end;
                     plain_start = i;
                 }
-            } else if b.is_ascii_digit() {
-                let start = i;
-                i += 1;
-                while i < bytes.len()
-                    && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'.')
-                {
+                TokenStart::Identifier => {
+                    let start = i;
                     i += 1;
+                    while i < bytes.len() && TOKEN_PART[bytes[i] as usize] & IDENTIFIER_PART != 0 {
+                        i += 1;
+                    }
+                    let token = &self.text[start..i];
+                    if let Some(class) = highlighted_identifier_class(token, bytes, i) {
+                        render_code_plain(&self.text[plain_start..start], cx)?;
+                        render_code_span(class, token, cx)?;
+                        plain_start = i;
+                    }
                 }
-                render_code_plain(&self.text[plain_start..start], cx)?;
-                render_code_span("pl-c1", &self.text[start..i], cx)?;
-                plain_start = i;
-            } else if b.is_ascii() {
-                i += 1;
-            } else {
-                let ch = self.text[i..].chars().next().unwrap_or('\0');
-                i += ch.len_utf8();
+                TokenStart::Digit => {
+                    let start = i;
+                    i += 1;
+                    while i < bytes.len() && TOKEN_PART[bytes[i] as usize] & NUMBER_PART != 0 {
+                        i += 1;
+                    }
+                    render_code_plain(&self.text[plain_start..start], cx)?;
+                    render_code_span(TokenClass::Constant, &self.text[start..i], cx)?;
+                    plain_start = i;
+                }
+                TokenStart::NonAscii => {
+                    let ch = self.text[i..].chars().next().unwrap_or('\0');
+                    i += ch.len_utf8();
+                }
             }
         }
 
@@ -2011,27 +2033,109 @@ fn render_code_plain<B: WriteBuf, L: DataLoader>(
     Ok(())
 }
 
+/// Syntax classes the highlighter emits. Each one renders through its own
+/// template so the whole `<span class="...">` tag is one static write.
+#[derive(Clone, Copy)]
+enum TokenClass {
+    Comment,
+    String,
+    Keyword,
+    Constant,
+    Function,
+}
+
 fn render_code_span<B: WriteBuf, L: DataLoader>(
-    class: &'static str,
+    class: TokenClass,
     fragment: &str,
     cx: &mut WebContext<L, B>,
 ) -> Result<(), WriteError> {
-    if !fragment.is_empty() {
-        html_sync! {
-            <span class={class}>{fragment}</span>
-        }
-        .render(cx)?;
+    if fragment.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    match class {
+        TokenClass::Comment => html_sync! {
+            <span class="pl-c comment">{fragment}</span>
+        }
+        .render(cx),
+        TokenClass::String => html_sync! {
+            <span class="pl-s">{fragment}</span>
+        }
+        .render(cx),
+        TokenClass::Keyword => html_sync! {
+            <span class="pl-k">{fragment}</span>
+        }
+        .render(cx),
+        TokenClass::Constant => html_sync! {
+            <span class="pl-c1">{fragment}</span>
+        }
+        .render(cx),
+        TokenClass::Function => html_sync! {
+            <span class="pl-en">{fragment}</span>
+        }
+        .render(cx),
+    }
 }
 
-const fn is_ascii_ident_start(b: u8) -> bool {
-    b == b'_' || b.is_ascii_alphabetic()
+/// What the highlighter does with a byte that is not inside a token.
+#[derive(Clone, Copy)]
+enum TokenStart {
+    Plain,
+    Slash,
+    Quote,
+    Identifier,
+    Digit,
+    NonAscii,
 }
 
-const fn is_ascii_ident_part(b: u8) -> bool {
-    b == b'_' || b.is_ascii_alphanumeric()
-}
+/// Byte classes for the highlighter, built once at compile time so the scan
+/// is one table load per byte instead of a chain of range comparisons.
+const TOKEN_START: [TokenStart; 256] = {
+    let mut table = [TokenStart::Plain; 256];
+    let mut byte = 0u8;
+    loop {
+        table[byte as usize] = if byte == b'/' {
+            TokenStart::Slash
+        } else if byte == b'"' || byte == b'\'' || byte == b'`' {
+            TokenStart::Quote
+        } else if byte == b'_' || byte.is_ascii_alphabetic() {
+            TokenStart::Identifier
+        } else if byte.is_ascii_digit() {
+            TokenStart::Digit
+        } else if byte.is_ascii() {
+            TokenStart::Plain
+        } else {
+            TokenStart::NonAscii
+        };
+        if byte == u8::MAX {
+            break;
+        }
+        byte += 1;
+    }
+    table
+};
+
+const IDENTIFIER_PART: u8 = 1;
+const NUMBER_PART: u8 = 2;
+
+/// Which token kinds a byte can continue.
+const TOKEN_PART: [u8; 256] = {
+    let mut table = [0u8; 256];
+    let mut byte = 0u8;
+    loop {
+        let word = byte == b'_' || byte.is_ascii_alphanumeric();
+        if word {
+            table[byte as usize] |= IDENTIFIER_PART;
+        }
+        if word || byte == b'.' {
+            table[byte as usize] |= NUMBER_PART;
+        }
+        if byte == u8::MAX {
+            break;
+        }
+        byte += 1;
+    }
+    table
+};
 
 fn scan_string(bytes: &[u8], start: usize) -> usize {
     let quote = bytes[start];
@@ -2048,13 +2152,13 @@ fn scan_string(bytes: &[u8], start: usize) -> usize {
     bytes.len()
 }
 
-fn highlighted_identifier_class(token: &str, bytes: &[u8], end: usize) -> Option<&'static str> {
+fn highlighted_identifier_class(token: &str, bytes: &[u8], end: usize) -> Option<TokenClass> {
     if is_keyword(token) {
-        Some("pl-k")
+        Some(TokenClass::Keyword)
     } else if is_literal(token) {
-        Some("pl-c1")
+        Some(TokenClass::Constant)
     } else if next_non_ws(bytes, end) == Some(b'(') {
-        Some("pl-en")
+        Some(TokenClass::Function)
     } else {
         None
     }
@@ -2144,7 +2248,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DiffLine {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let kind = DiffLineKind::for_line(self.line_idx);
         let (old_line, new_line) = generated_line_numbers(self.file_idx, self.line_idx);
-        match (kind, self.line_idx % 12) {
+        match (kind, self.line_idx % GENERATED_CYCLE) {
             (DiffLineKind::Hunk, _) => HunkRow {
                 file_idx: self.file_idx,
             }
@@ -2383,25 +2487,41 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DiffLine {
     }
 }
 
-fn generated_line_numbers(file_idx: usize, line_idx: usize) -> (usize, usize) {
-    let (mut old_line, mut new_line) = generated_hunk_starts(file_idx);
+/// Rows in one repetition of the generated diff pattern.
+const GENERATED_CYCLE: usize = 12;
+
+/// Old and new line numbers consumed by the first `n` rows of one pattern
+/// cycle, for `n` in `0..=GENERATED_CYCLE`. Derived from
+/// [`DiffLineKind::for_line`] so the two cannot drift.
+const GENERATED_CYCLE_OFFSETS: [(usize, usize); GENERATED_CYCLE + 1] = {
+    let mut offsets = [(0, 0); GENERATED_CYCLE + 1];
     let mut idx = 0;
-    while idx < line_idx {
-        match DiffLineKind::for_line(idx) {
-            DiffLineKind::Addition => {
-                new_line += 1;
-            }
-            DiffLineKind::Deletion => {
-                old_line += 1;
-            }
-            _ => {
-                old_line += 1;
-                new_line += 1;
-            }
-        }
+    while idx < GENERATED_CYCLE {
+        let (old, new) = offsets[idx];
+        offsets[idx + 1] = match DiffLineKind::for_line(idx) {
+            DiffLineKind::Addition => (old, new + 1),
+            DiffLineKind::Deletion => (old + 1, new),
+            _ => (old + 1, new + 1),
+        };
         idx += 1;
     }
-    (old_line, new_line)
+    offsets
+};
+
+/// Line numbers for a generated row, in constant time.
+///
+/// Every row calls this. Counting from the top of the file instead made a
+/// file quadratic in its line count: 48 files of 1,200 lines spent most of
+/// the render re-walking earlier rows.
+fn generated_line_numbers(file_idx: usize, line_idx: usize) -> (usize, usize) {
+    let (old_start, new_start) = generated_hunk_starts(file_idx);
+    let cycles = line_idx / GENERATED_CYCLE;
+    let (old_per_cycle, new_per_cycle) = GENERATED_CYCLE_OFFSETS[GENERATED_CYCLE];
+    let (old_offset, new_offset) = GENERATED_CYCLE_OFFSETS[line_idx % GENERATED_CYCLE];
+    (
+        old_start + cycles * old_per_cycle + old_offset,
+        new_start + cycles * new_per_cycle + new_offset,
+    )
 }
 
 const fn generated_hunk_starts(file_idx: usize) -> (usize, usize) {
@@ -3157,5 +3277,27 @@ mod tests {
         let invalid = DemoUrl::owner(&oversized);
         assert!(!invalid.should_render());
         assert_eq!(invalid.url_str(), None);
+    }
+
+    #[test]
+    fn generated_line_numbers_match_counting_from_the_top() {
+        for file_idx in 0..FILE_PATHS.len() {
+            let (mut old_line, mut new_line) = generated_hunk_starts(file_idx);
+            for line_idx in 0..3 * MAX_LINES_PER_FILE {
+                assert_eq!(
+                    generated_line_numbers(file_idx, line_idx),
+                    (old_line, new_line),
+                    "file {file_idx}, line {line_idx}"
+                );
+                match DiffLineKind::for_line(line_idx) {
+                    DiffLineKind::Addition => new_line += 1,
+                    DiffLineKind::Deletion => old_line += 1,
+                    _ => {
+                        old_line += 1;
+                        new_line += 1;
+                    }
+                }
+            }
+        }
     }
 }
