@@ -92,13 +92,17 @@ performance guide against the raw captures as well as regenerating the SVGs.
 ### Landing-page paired comparisons
 
 The GitHub, Sentry, and Airbnb hero metrics use a separate [paired GCP CI capture
-and methodology](https://github.com/Proa-Labs/framework-benchmarks/blob/7f467940a0586997e571adf33416f99620c96731/showcase/README.md#fresh-owned-buffer-gcp-ci-capture-november-12-2026-utc),
-recorded November 12, 2026 UTC on `c4-standard-16-lssd` (Intel Xeon 6985P-C,
-Granite Rapids), using the Proa CI runner image `proa-runner:1.95.0-v6`.
-Timed processes were pinned to CPU 0. The capture uses Proa `2c9033f`, Rust
-1.95.0, and production React 19.2.4 on Node 26.13.0. That Proa revision adds a
-buffer entry point for the Sentry fixture; framework rendering code is unchanged
-from `bbbc968`. Each figure is the median of five independent process P50s.
+and methodology](https://github.com/Proa-Labs/framework-benchmarks/blob/018efdc26e722abc9fce73abdf60050c877cc5eb/showcase/README.md#live-row-gcp-ci-capture-november-12-2026-utc), recorded November 12, 2026 UTC on
+`c4-standard-16-lssd` (Intel Xeon 6985P-C, Granite Rapids), using Proa CI runner
+image `proa-runner:1.95.0-v6`. Timed processes were pinned to CPU 0. The capture
+uses Proa `6952e336`, frozen harness `2a8f0cee`, Rust 1.95.0, and production React
+19.2.4 on Node 26.13.0. Each figure is the median of five independent process P50s.
+
+Both engines render and syntax-highlight GitHub diff rows every iteration.
+The Proa-only runtime cache, fixture-matching shortcut and leaked pre-rendered
+HTML have been removed, including the default-fixture fallback. React's worker
+and the sampling protocol are unchanged. Earlier captures with cached GitHub
+rows are retained as superseded evidence, not equivalent renderer comparisons.
 
 Proa allocates and renders into a fresh owned `RenderBuffer` every iteration;
 React produces its native `renderToString` result. Allocation and rendering
@@ -107,15 +111,15 @@ input preparation, parity checks, HTTP, and browser work are outside timing.
 Release optimization and disabled native debug assertions were verified.
 
 The selected figures preserve the preceding CI capture's explicit allocator
-seed before render warmups. This policy is disclosed in the hero caption. A
-complete same-host capture without the seed is retained alongside it because
-allocator state materially affects the larger Linux pages. Both policies also
-have independent M4 Max captures; no React baseline is reused between captures.
-Full DOM parity and changed-output negative controls passed for every fixture.
-The four captures retain 120 process records, every timing sample, process
-ranges, source/binary hashes, exact priming source, and image/host provenance.
-These paired results use different fixtures and a different host from the
-canonical scoreboard above; the figures are not mixed.
+seed before render warmups, disclosed in the hero caption. A separate complete
+same-host paired capture without the seed is retained; each condition reruns
+React independently. The two current C4 captures retain 60 process records,
+every timing sample, process ranges, source/binary hashes, exact priming source,
+and image/host provenance. Full DOM parity and changed-output negative controls
+passed for every fixture. All three Proa documents remain byte-identical to
+the preceding capture despite the changed GitHub computation. These paired
+results use different fixtures and a different host from the canonical
+scoreboard above; the figures are not mixed.
 
 ## Historical performance diagrams
 
