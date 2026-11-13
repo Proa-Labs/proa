@@ -43,10 +43,92 @@ pub enum MessageAction {
     Send { recipient: String },
 }
 
+// Exercise RSJS expansion with no direct RSJS or implementation-crate dependency.
+#[derive(proa::rsjs::ClientProps)]
+pub struct ClientGreeting {
+    pub name: String,
+}
+
+#[derive(proa::rsjs::SharedState)]
+#[rsjs(type_key = "facade.counter")]
+pub struct CounterState {
+    pub count: i64,
+}
+
+#[proa::rsjs::client]
+pub fn doubled(value: i64) -> i64 {
+    value * 2
+}
+
+#[proa::rsjs::client_module]
+pub mod helpers {
+    #[proa::rsjs::client]
+    pub fn increment(value: i64) -> i64 {
+        value + 1
+    }
+}
+
+pub struct StaticIsland;
+
+#[proa::rsjs::rsjs(component)]
+impl<L: DataLoader> WebRenderSync<L> for StaticIsland {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <span data-facade-island>"Ready"</span>
+        }
+        .render(cx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use proa::{actions::ActionHandler, axum::RouteResponse};
+
+    use proa::rsjs;
+
+    struct Counter {
+        initial: i64,
+    }
+
+    #[rsjs::rsjs(component, client)]
+    impl<L: DataLoader> WebRenderSync<L> for Counter {
+        fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+            let count = rsjs::signal::<i64>(self.initial);
+            let increment = rsjs::event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+                count.update(|value| value + 1)
+            });
+            html_sync! {
+                <button type="button" on_click={increment()}>{count.get()}</button>
+            }
+            .render(cx)
+        }
+    }
+
+    #[test]
+    fn facade_client_component_renders_initial_state() {
+        let output = proa::render_to_string(Counter { initial: 37 });
+        assert!(output.contains(">37</button>"));
+        assert!(output.contains("data-rsjs"));
+    }
+
+    #[test]
+    fn facade_rsjs_codecs_and_helpers_work() {
+        use proa::rsjs::{ClientDecode, ClientEncode};
+        let input = ClientGreeting {
+            name: "<Ada>".into(),
+        };
+        let mut encoded = String::new();
+        input.encode_into(&mut encoded);
+        let decoded = ClientGreeting::decode(&encoded).unwrap();
+        assert_eq!(decoded.name, input.name);
+        assert_eq!(doubled(21), 42);
+        assert_eq!(helpers::increment(41), 42);
+        assert_eq!(
+            proa::render_to_string(StaticIsland),
+            "<span data-facade-island>Ready</span>"
+        );
+    }
 
     #[test]
     fn facade_templates_escape_dynamic_values() {

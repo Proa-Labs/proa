@@ -61,6 +61,9 @@ Add the application-facing crate:
 proa = "0.4"
 ```
 
+Markdown, streaming, the portable framework API, and RSJS are enabled by default.
+Use `default-features = false` to select a smaller feature set.
+
 Use `WebRenderSync` and `html_sync!` for the normal fast path:
 
 ```rust
@@ -100,7 +103,7 @@ for that island:
 ```rust
 use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
 use proa::html_sync;
-use rsjs::{rsjs, signal};
+use proa::rsjs::{rsjs, signal};
 
 struct Counter {
     initial: i32,
