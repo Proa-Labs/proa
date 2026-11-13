@@ -256,8 +256,88 @@ fn escape_attr_value_dyn<P: EscapePolicy>(
     escape_attr_value_inner::<_, P>(buf, s)
 }
 
+/// The kinds of byte an escaper acts on.
+///
+/// Each kind is one bit, so a set of kinds is the OR of their values.
+#[repr(u8)]
+enum ByteClass {
+    /// `&`, `<`, `>` or NUL, which every escaper rewrites or rejects.
+    Markup = 1,
+    /// `"` or `'`, which attribute values escape.
+    Quote = 2,
+    /// 0xC2, the first byte of U+00A0, which HTML rewrites.
+    NbspLead = 4,
+}
+
+/// The [`ByteClass`] bit of every byte value. Zero means every escaper copies
+/// the byte through unchanged.
+///
+/// The entries are plain bytes, not `ByteClass` values, so that the lookup in
+/// [`short_and_unchanged`] compiles to the same instructions as a table of
+/// integer constants.
+const BYTE_CLASS: [u8; 256] = {
+    let mut table = [0; 256];
+    table[0x00] = ByteClass::Markup as u8;
+    table[b'&' as usize] = ByteClass::Markup as u8;
+    table[b'<' as usize] = ByteClass::Markup as u8;
+    table[b'>' as usize] = ByteClass::Markup as u8;
+    table[b'"' as usize] = ByteClass::Quote as u8;
+    table[b'\'' as usize] = ByteClass::Quote as u8;
+    table[0xC2] = ByteClass::NbspLead as u8;
+    table
+};
+
+/// Non-empty inputs shorter than this are checked one byte at a time before
+/// any scan.
+///
+/// Most dynamic values in a template are short: a class name, a number, a
+/// label. The scanning loops below make two or three `memchr` passes over a
+/// value, and for a short value the cost of those calls is larger than the
+/// work they do. Reading each byte's class once decides the common case, "copy
+/// it through unchanged", without calling `memchr` at all. From 16 bytes up
+/// `memchr` compares a vector at a time and wins; thresholds of 32 and 64
+/// measured slower.
+const SHORT_INPUT: usize = 16;
+
+/// Whether `bytes` is short and holds no byte whose class is in the set
+/// `classes`, so that escaping it would copy it through unchanged in a single
+/// write.
+///
+/// Empty input is excluded. The scanning loops write nothing for it, and a
+/// zero-length write is not free on every buffer: `ZeroCopyBuf` would record
+/// an empty part and `StreamingZeroCopyBuf` could allocate its first chunk.
+#[inline(always)]
+fn short_and_unchanged(bytes: &[u8], classes: u8) -> bool {
+    (1..SHORT_INPUT).contains(&bytes.len())
+        && bytes
+            .iter()
+            .all(|&byte| BYTE_CLASS[byte as usize] & classes == 0)
+}
+
+/// The set of byte classes that text escaping under `P` does anything with.
+#[inline(always)]
+const fn text_classes<P: EscapePolicy>() -> u8 {
+    if P::ESCAPE_NBSP {
+        ByteClass::Markup as u8 | ByteClass::NbspLead as u8
+    } else {
+        ByteClass::Markup as u8
+    }
+}
+
 #[inline(always)]
 fn escape_attr_value_inner<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
+where
+    S: ?Sized + EscapeSinkLike,
+    P: EscapePolicy,
+{
+    if short_and_unchanged(s.as_bytes(), text_classes::<P>() | ByteClass::Quote as u8) {
+        return buf.extend_str(s);
+    }
+    escape_attr_value_scan::<_, P>(buf, s)
+}
+
+#[inline(always)]
+fn escape_attr_value_scan<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
 where
     S: ?Sized + EscapeSinkLike,
     P: EscapePolicy,
@@ -335,6 +415,18 @@ fn escape_text_normal_dyn<P: EscapePolicy>(
 
 #[inline(always)]
 fn escape_text_normal_inner<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
+where
+    S: ?Sized + EscapeSinkLike,
+    P: EscapePolicy,
+{
+    if short_and_unchanged(s.as_bytes(), text_classes::<P>()) {
+        return buf.extend_str(s);
+    }
+    escape_text_normal_scan::<_, P>(buf, s)
+}
+
+#[inline(always)]
+fn escape_text_normal_scan<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
 where
     S: ?Sized + EscapeSinkLike,
     P: EscapePolicy,
@@ -1068,5 +1160,109 @@ mod tests {
         assert!(out.contains(r"<\!--"));
         // `-->` is unreachable because the trailing `>` is always escaped.
         assert!(out.contains("--&gt;"));
+    }
+
+    /// Records each write an escaper makes, so a test can tell one write from
+    /// two, and no write from an empty one.
+    #[derive(Debug, Default, PartialEq)]
+    struct RecordedWrites(Vec<String>);
+
+    impl EscapeSinkLike for RecordedWrites {
+        fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+            self.0.push(text.to_owned());
+            Ok(())
+        }
+
+        fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+            self.0.push(text.to_owned());
+            Ok(())
+        }
+    }
+
+    /// Escape `input` twice: through the entry point, which checks short
+    /// inputs first, and through the scanning loop on its own. Each result is
+    /// the sequence of writes made.
+    fn with_and_without_short_check<P: EscapePolicy>(
+        input: &str,
+        attr: bool,
+    ) -> [Result<RecordedWrites, WriteError>; 2] {
+        [true, false].map(|short_check| {
+            let mut writes = RecordedWrites::default();
+            match (attr, short_check) {
+                (true, true) => escape_attr_value_inner::<_, P>(&mut writes, input),
+                (true, false) => escape_attr_value_scan::<_, P>(&mut writes, input),
+                (false, true) => escape_text_normal_inner::<_, P>(&mut writes, input),
+                (false, false) => escape_text_normal_scan::<_, P>(&mut writes, input),
+            }
+            .map(|()| writes)
+        })
+    }
+
+    fn assert_short_check_changes_nothing(input: &str) {
+        for attr in [false, true] {
+            let [checked, scanned] = with_and_without_short_check::<HtmlPolicy>(input, attr);
+            assert_eq!(checked, scanned, "HTML, attr={attr}, input={input:?}");
+            let [checked, scanned] = with_and_without_short_check::<XmlPolicy>(input, attr);
+            assert_eq!(checked, scanned, "XML, attr={attr}, input={input:?}");
+        }
+    }
+
+    #[test]
+    fn empty_input_makes_no_write() {
+        for attr in [false, true] {
+            let [checked, _] = with_and_without_short_check::<HtmlPolicy>("", attr);
+            assert_eq!(checked, Ok(RecordedWrites::default()), "HTML, attr={attr}");
+            let [checked, _] = with_and_without_short_check::<XmlPolicy>("", attr);
+            assert_eq!(checked, Ok(RecordedWrites::default()), "XML, attr={attr}");
+        }
+    }
+
+    #[test]
+    fn short_inputs_escape_like_the_scanning_loops() {
+        assert_short_check_changes_nothing("");
+        // U+0000..=U+07FF holds every ASCII byte and every two-byte lead byte,
+        // so it covers each special character, U+00A0, and the other
+        // characters that start with 0xC2. The prefixes put the character on
+        // both sides of the length limit.
+        let characters =
+            (0..=0x7FF)
+                .filter_map(char::from_u32)
+                .chain(['\u{20AC}', '\u{FFFD}', '\u{1F600}']);
+        for character in characters {
+            for prefix in [
+                "",
+                "a",
+                "twelve-bytes",
+                "thirteen-byte",
+                "fourteen-bytes",
+                "fifteen-bytes-x",
+            ] {
+                for suffix in ["", "z"] {
+                    assert_short_check_changes_nothing(&format!("{prefix}{character}{suffix}"));
+                }
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn short_strings_escape_like_the_scanning_loops(
+            characters in proptest::collection::vec(any::<char>(), 0..12),
+            specials in proptest::collection::vec(
+                proptest::sample::select(vec!['&', '<', '>', '"', '\'', '\0', '\u{00A0}', '\u{00A9}']),
+                0..4,
+            ),
+        ) {
+            // Interleave so that several special characters land in one short
+            // string, which arbitrary characters alone almost never produce.
+            let mut input = String::new();
+            let mut specials = specials.into_iter();
+            for character in characters {
+                input.push(character);
+                input.extend(specials.next());
+            }
+            input.extend(specials);
+            assert_short_check_changes_nothing(&input);
+        }
     }
 }
