@@ -3238,6 +3238,7 @@ dependencies = [
  "proa_macros",
  "proa_react",
  "proa_stream",
+ "rsjs",
  "serde",
  "serde_json",
 ]

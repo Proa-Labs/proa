@@ -17,14 +17,18 @@ let html = render_to_string(html_sync! { <p>{name}</p> });
 assert_eq!(html, "<p>&lt;Ada&gt;</p>");
 ```
 
-Enable `axum` for `proa::axum`, `actions` for `proa::actions`, or `react` for
-`proa::react`. The default `markdown` and `stream` features provide Markdown
-macros and `proa::stream` loaders/components. `rt-tokio` enables eager Tokio
-loads; `framework` exposes the portable response API without Axum.
+The default features are `markdown`, `stream`, `framework`, and `rsjs`. They
+provide Markdown macros, `proa::stream` loaders/components, the portable
+`proa::framework` response API, and browser interactivity through `proa::rsjs`.
+For example, use `proa::rsjs::{rsjs, signal, event_handler}` without a separate
+RSJS dependency.
 
-Use `default-features = false` for HTML/XML templates without Markdown compiler
-or streaming dependencies. `html-to-markdown` enables the explicit conversion
-adapter. RSJS and build-time font collectors remain separate dependencies.
+Enable `axum` for `proa::axum`, `actions` for `proa::actions`, or `react` for
+`proa::react`. `rt-tokio` enables eager Tokio loads.
+
+Use `default-features = false` for minimal HTML/XML templates, then enable only
+the features you need. `html-to-markdown` enables the explicit conversion
+adapter. Build-time font collectors remain separate dependencies.
 
 The facade re-exports the implementation crates' existing types. It adds no
 rendering wrappers or runtime dispatch. Advanced integrations can continue to

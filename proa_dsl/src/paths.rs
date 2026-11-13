@@ -18,6 +18,7 @@ pub fn runtime(package: &str) -> TokenStream {
         let facade = found_path(found, "proa");
         return match package {
             "proa_core" | "proa_macros" => facade,
+            "rsjs" => quote!(#facade::rsjs),
             "proa_ir" => quote!(#facade::ir),
             "proa_actions" => quote!(#facade::actions),
             "proa_react" => quote!(#facade::react),
