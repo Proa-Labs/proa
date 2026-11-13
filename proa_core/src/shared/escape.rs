@@ -256,24 +256,34 @@ fn escape_attr_value_dyn<P: EscapePolicy>(
     escape_attr_value_inner::<_, P>(buf, s)
 }
 
-/// The byte is `&`, `<`, `>` or NUL, which every escaper rewrites or rejects.
-const MARKUP: u8 = 1;
-/// The byte is `"` or `'`, which attribute values escape.
-const QUOTE: u8 = 2;
-/// The byte is 0xC2, the first byte of U+00A0, which HTML rewrites.
-const NBSP_LEAD: u8 = 4;
+/// The kinds of byte an escaper acts on.
+///
+/// Each kind is one bit, so a set of kinds is the OR of their values.
+#[repr(u8)]
+enum ByteClass {
+    /// `&`, `<`, `>` or NUL, which every escaper rewrites or rejects.
+    Markup = 1,
+    /// `"` or `'`, which attribute values escape.
+    Quote = 2,
+    /// 0xC2, the first byte of U+00A0, which HTML rewrites.
+    NbspLead = 4,
+}
 
-/// The classes above for every byte value. Zero means the escaper copies the
-/// byte through unchanged.
+/// The [`ByteClass`] bit of every byte value. Zero means every escaper copies
+/// the byte through unchanged.
+///
+/// The entries are plain bytes, not `ByteClass` values, so that the lookup in
+/// [`short_and_unchanged`] compiles to the same instructions as a table of
+/// integer constants.
 const BYTE_CLASS: [u8; 256] = {
     let mut table = [0; 256];
-    table[0x00] = MARKUP;
-    table[b'&' as usize] = MARKUP;
-    table[b'<' as usize] = MARKUP;
-    table[b'>' as usize] = MARKUP;
-    table[b'"' as usize] = QUOTE;
-    table[b'\'' as usize] = QUOTE;
-    table[0xC2] = NBSP_LEAD;
+    table[0x00] = ByteClass::Markup as u8;
+    table[b'&' as usize] = ByteClass::Markup as u8;
+    table[b'<' as usize] = ByteClass::Markup as u8;
+    table[b'>' as usize] = ByteClass::Markup as u8;
+    table[b'"' as usize] = ByteClass::Quote as u8;
+    table[b'\'' as usize] = ByteClass::Quote as u8;
+    table[0xC2] = ByteClass::NbspLead as u8;
     table
 };
 
@@ -289,8 +299,9 @@ const BYTE_CLASS: [u8; 256] = {
 /// measured slower.
 const SHORT_INPUT: usize = 16;
 
-/// Whether `bytes` is short and holds no byte in `classes`, so that escaping
-/// it would copy it through unchanged in a single write.
+/// Whether `bytes` is short and holds no byte whose class is in the set
+/// `classes`, so that escaping it would copy it through unchanged in a single
+/// write.
 ///
 /// Empty input is excluded. The scanning loops write nothing for it, and a
 /// zero-length write is not free on every buffer: `ZeroCopyBuf` would record
@@ -303,13 +314,13 @@ fn short_and_unchanged(bytes: &[u8], classes: u8) -> bool {
             .all(|&byte| BYTE_CLASS[byte as usize] & classes == 0)
 }
 
-/// The byte classes that text escaping under `P` does anything with.
+/// The set of byte classes that text escaping under `P` does anything with.
 #[inline(always)]
 const fn text_classes<P: EscapePolicy>() -> u8 {
     if P::ESCAPE_NBSP {
-        MARKUP | NBSP_LEAD
+        ByteClass::Markup as u8 | ByteClass::NbspLead as u8
     } else {
-        MARKUP
+        ByteClass::Markup as u8
     }
 }
 
@@ -319,7 +330,7 @@ where
     S: ?Sized + EscapeSinkLike,
     P: EscapePolicy,
 {
-    if short_and_unchanged(s.as_bytes(), text_classes::<P>() | QUOTE) {
+    if short_and_unchanged(s.as_bytes(), text_classes::<P>() | ByteClass::Quote as u8) {
         return buf.extend_str(s);
     }
     escape_attr_value_scan::<_, P>(buf, s)
