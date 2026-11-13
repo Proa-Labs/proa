@@ -102,7 +102,7 @@ safe_text!("Hello world")
 SafeText::from_trusted(validated_label)
 ```
 
-`SafeText` renders with a single `memcpy` into the output buffer. Regular `&str` rendering scans every byte with `memchr3` looking for unsafe characters. For strings with a proven safe character set, `SafeText` eliminates that scan. A value is not trusted merely because it came from a database; keep ordinary escaped strings as the default.
+`SafeText` copies verified text directly into the output buffer. Regular `&str` rendering scans every byte with `memchr3` looking for unsafe characters. For strings with a proven safe character set, `SafeText` eliminates that scan. A value is not trusted merely because it came from a database; keep ordinary escaped strings as the default.
 
 **When NOT to use it:** Never wrap user input in `SafeText`. If the string could contain `<script>`, you've created an XSS vulnerability.
 
@@ -393,3 +393,22 @@ Remove the feature flag when you're ready to optimize.
 6. **Maximize static runs** by keeping dynamic values at the leaves of your template.
 7. **Never allocate in a loop.** Each iteration should write directly to the output buffer.
 8. **Use `perf_ok()`** to silence hints on intentional allocations, not to ignore them.
+
+## Reading the benchmark results
+
+The [current benchmark evidence](https://github.com/Proa-Labs/framework-benchmarks)
+separates renderer-only time, complete HTTP responses, streaming, and cold start.
+The November 11, 2026 Proa refresh measured commit `bbbc968` on Apple M4 Max;
+peer render, HTTP, and cold-start rows retain their October 21 captures.
+
+The renderer-only Proa lane allocates a fresh owned `RenderBuffer` for each
+response and keeps that buffer. It does not include flattening it into a
+`String`. HTTP captures add the server's request and response path. Streaming
+response-end timings need another distinction: Proa sends resolved HTML, while
+SvelteKit sends promised data that the browser still has to render. Consult the
+[browser-completion results](https://github.com/Proa-Labs/framework-benchmarks/blob/main/sveltekit.md#browser-completion)
+when comparing that end-to-end work.
+
+Choose the boundary your application uses and measure it with your own data,
+output ownership, host, and request load. The published timings describe the
+recorded captures rather than every Proa application.

@@ -29,8 +29,12 @@ pub const GITHUB_ORGANIZATION_URL: &str = concatcp!(
 pub const GITHUB_URL: &str = concatcp!(GITHUB_ORIGIN, "/", GITHUB_REPOSITORY_SLUG);
 pub const ISSUES_URL: &str = concatcp!(GITHUB_URL, "/issues");
 pub const LICENSE_URL: &str = concatcp!(GITHUB_URL, "/blob/main/LICENSING.md");
-pub const BENCHMARKS_URL: &str =
-    concatcp!(GITHUB_ORIGIN, "/", GITHUB_ORGANIZATION, "/proa-benchmarks");
+pub const BENCHMARKS_URL: &str = concatcp!(
+    GITHUB_ORIGIN,
+    "/",
+    GITHUB_ORGANIZATION,
+    "/framework-benchmarks"
+);
 
 // This community redirect stays on the canonical site, including in previews.
 pub const DISCORD_URL: &str = concatcp!(CANONICAL_ORIGIN, "/discord");
