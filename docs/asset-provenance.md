@@ -83,7 +83,9 @@ public URLs. The shared marketing `Image` component and `static_assets::image_ur
 helper append a build-time content hash to local image URLs, including responsive
 `srcset` candidates. The image manifest covers every image under `public/`, not
 just benchmark charts. HTML, Markdown, and structured chart metadata share the
-same versioned URLs. Static responses use `Cache-Control: public, no-cache` to
+same versioned URLs. The docs compiler receives the same image manifest and
+rewrites parsed Markdown/MDX destinations before emitting HTML and Markdown;
+code examples retain their authored URLs. Static responses use `Cache-Control: public, no-cache` to
 revalidate cached bodies; unversioned paths are not immutable. Versioned links
 also bypass copies cached under the former one-year policy.
 

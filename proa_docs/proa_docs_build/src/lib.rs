@@ -3,6 +3,7 @@
 
 #![forbid(unsafe_code)]
 
+mod asset_urls;
 mod code_fence;
 mod code_icon;
 mod compiler;

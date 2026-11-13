@@ -24,6 +24,7 @@ fn main() {
     println!("cargo:rustc-env=MARKETING_ASSET_VERSION={asset_version}");
 
     let markdown = proa_docs_build::MarkdownPipeline::default()
+        .asset_urls(image_assets::urls(&manifest_dir.join("public")).expect("docs image URLs"))
         .code_highlighting(proa_docs_build::CodeHighlight::new())
         .mdx(proa_docs_build::MdxConfig::proa());
 

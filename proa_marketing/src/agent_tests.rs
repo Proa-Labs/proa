@@ -31,6 +31,36 @@ async fn fetch(app: &Router, path: &str, accept: &str) -> (StatusCode, HeaderMap
 }
 
 #[tokio::test]
+async fn docs_diagrams_use_hashed_urls_in_html_and_markdown() {
+    let app = super::app();
+    for (route, image) in [
+        (
+            "/docs/framework/page-caching",
+            "/static/images/docs/page-cache-flow.svg",
+        ),
+        (
+            "/docs/framework/routing",
+            "/static/images/docs/nested-layouts.svg",
+        ),
+        (
+            "/docs/framework/layouts-and-pages",
+            "/static/images/docs/layout-and-page.svg",
+        ),
+    ] {
+        let expected = crate::static_assets::image_url(image);
+        assert_ne!(expected, image);
+        let (status, _, html) = fetch(&app, route, "text/html").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains(&format!("src=\"{expected}\"")), "{route}");
+        let (status, _, markdown) = fetch(&app, route, "text/markdown").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(markdown.contains(&format!("]({expected})")), "{route}");
+        assert!(!html.contains(&format!("src=\"{image}\"")));
+        assert!(!markdown.contains(&format!("]({image})")));
+    }
+}
+
+#[tokio::test]
 async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
     let app = super::app();
     let (_, headers, html) = fetch(&app, "/", "text/html").await;

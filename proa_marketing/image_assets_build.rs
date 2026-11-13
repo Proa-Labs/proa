@@ -7,7 +7,7 @@ use std::{
 };
 
 /// Generate borrowed URL literals at build time, with one content hash per image.
-pub fn generate(public: &Path) -> io::Result<String> {
+pub fn urls(public: &Path) -> io::Result<Vec<(String, String)>> {
     fn visit(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
         for entry in fs::read_dir(dir)? {
             let path = entry?.path();
@@ -28,7 +28,7 @@ pub fn generate(public: &Path) -> io::Result<String> {
     let mut files = Vec::new();
     visit(public, &mut files)?;
     files.sort();
-    let mut output = String::from("pub fn image_url(path: &str) -> &str { match path {\n");
+    let mut urls = Vec::new();
     for path in files {
         println!("cargo:rerun-if-changed={}", path.display());
         let rel = path
@@ -38,10 +38,15 @@ pub fn generate(public: &Path) -> io::Result<String> {
             .replace('\\', "/");
         let url = format!("/static/{rel}");
         let hash = fnv1a(0xcbf29ce484222325, &fs::read(&path)?);
-        output.push_str(&format!(
-            "{url:?} => {versioned:?},\n",
-            versioned = format!("{url}?v={hash:016x}")
-        ));
+        urls.push((url.clone(), format!("{url}?v={hash:016x}")));
+    }
+    Ok(urls)
+}
+
+pub fn generate(public: &Path) -> io::Result<String> {
+    let mut output = String::from("pub fn image_url(path: &str) -> &str { match path {\n");
+    for (url, versioned) in urls(public)? {
+        output.push_str(&format!("{url:?} => {versioned:?},\n"));
     }
     output.push_str("_ => path, } }\n");
     Ok(output)
