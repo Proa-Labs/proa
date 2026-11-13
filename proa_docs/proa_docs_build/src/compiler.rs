@@ -561,6 +561,12 @@ fn compile_page_rel(
                 message,
             }
         })?;
+    // Rewrite parsed destinations once, before producing either representation.
+    let versioned_markdown = crate::asset_urls::rewrite(markdown, &source.markdown.asset_urls);
+    let mut versioned_source = processed[..processed.len() - markdown.len()].to_owned();
+    versioned_source.push_str(&versioned_markdown);
+    let processed = versioned_source;
+    let markdown = versioned_markdown.as_str();
     frontmatter::validate_schema(&source.schema, &frontmatter).map_err(|message| {
         CompileError::Frontmatter {
             path: source_path.clone(),
@@ -848,6 +854,44 @@ fn print_link_diagnostics(diagnostics: &[LinkDiagnostic]) {
 mod tests {
     use super::*;
     use crate::config::{CodeHighlight, DocsSource, MarkdownPipeline, MdxConfig, MermaidConfig};
+
+    #[test]
+    fn asset_urls_are_shared_by_compiled_html_and_markdown() {
+        let source_dir = tempfile::tempdir().unwrap();
+        fs::write(source_dir.path().join("index.mdx"),
+            "---\ntitle: Diagrams\n---\n\n![Flow](/static/flow.svg?v=old#overview)\n\n<img src=\"/images/flow.svg\" alt=\"MDX flow\" />\n\n```md\n![Example](/static/flow.svg)\n```\n").unwrap();
+        let pipeline = MarkdownPipeline::default()
+            .mdx(MdxConfig::proa())
+            .asset_urls([
+                (
+                    "/static/flow.svg".into(),
+                    "/static/flow.svg?v=current".into(),
+                ),
+                (
+                    "/static/images/flow.svg".into(),
+                    "/static/images/flow.svg?v=current".into(),
+                ),
+            ]);
+        let compiled =
+            compile_source_model(&DocsSource::new(source_dir.path()).markdown(pipeline)).unwrap();
+        let page = &compiled.pages[0];
+        assert!(page
+            .article_html
+            .contains("src=\"/static/flow.svg?v=current#overview\""));
+        assert!(page
+            .markdown
+            .contains("![Flow](/static/flow.svg?v=current#overview)"));
+        assert!(page
+            .article_html
+            .contains("href=\"/static/images/flow.svg?v=current\""));
+        assert!(page
+            .markdown
+            .contains("[Image: MDX flow](/static/images/flow.svg?v=current)"));
+        assert!(page
+            .markdown
+            .contains("```md\n![Example](/static/flow.svg)\n```"));
+        assert!(page.markdown.starts_with("---\ntitle: Diagrams\n---"));
+    }
 
     #[test]
     fn renders_tabs_with_fenced_children_and_keeps_the_markdown_authorable() {

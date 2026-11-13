@@ -374,8 +374,8 @@ where
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />
             {self.metadata}
-            <link rel="icon" href="/static/favicon.ico" />
-            <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+            <link rel="icon" href={crate::static_assets::image_url("/static/favicon.ico")} />
+            <link rel="icon" type="image/svg+xml" href={crate::static_assets::image_url("/static/favicon.svg")} />
             <link rel="apple-touch-icon" sizes="180x180" href={APPLE_TOUCH_ICON_HREF} />
             <link rel="stylesheet" href={STYLESHEET_HREF} />
             <script type="module" src={SEARCH_SCRIPT_SRC}></script>

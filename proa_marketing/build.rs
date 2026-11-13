@@ -6,17 +6,25 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[path = "image_assets_build.rs"]
+mod image_assets;
+use image_assets::fnv1a;
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let docs_dir = manifest_dir.join("src/docs");
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=image_assets_build.rs");
     emit_rerun_for_dir(&docs_dir).expect("track docs content");
+
+    emit_image_urls(&manifest_dir).expect("build image URL manifest");
 
     let asset_version = static_asset_version(&manifest_dir).expect("compute static asset version");
     println!("cargo:rustc-env=MARKETING_ASSET_VERSION={asset_version}");
 
     let markdown = proa_docs_build::MarkdownPipeline::default()
+        .asset_urls(image_assets::urls(&manifest_dir.join("public")).expect("docs image URLs"))
         .code_highlighting(proa_docs_build::CodeHighlight::new())
         .mdx(proa_docs_build::MdxConfig::proa());
 
@@ -47,7 +55,10 @@ fn emit_rerun_for_dir(dir: &Path) -> io::Result<()> {
 
 fn static_asset_version(manifest_dir: &Path) -> io::Result<String> {
     let mut hash = 0xcbf29ce484222325u64;
+    emit_rerun_for_dir(&manifest_dir.join("public"))?;
     for rel in [
+        "public/favicon.ico",
+        "public/favicon.svg",
         "public/og.jpg",
         "public/apple-touch-icon.png",
         "public/styles.css",
@@ -66,10 +77,10 @@ fn static_asset_version(manifest_dir: &Path) -> io::Result<String> {
     Ok(format!("{hash:016x}"))
 }
 
-fn fnv1a(mut hash: u64, bytes: &[u8]) -> u64 {
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
+fn emit_image_urls(manifest_dir: &Path) -> io::Result<()> {
+    let output = image_assets::generate(&manifest_dir.join("public"))?;
+    fs::write(
+        PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR")).join("image_urls.rs"),
+        output,
+    )
 }

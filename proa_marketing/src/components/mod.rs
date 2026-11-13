@@ -11,3 +11,5 @@ pub mod landing_shell;
 pub mod search;
 pub mod search_trigger;
 pub mod theme_toggle;
+
+pub(crate) mod image;

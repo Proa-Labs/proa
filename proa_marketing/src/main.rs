@@ -168,7 +168,9 @@ fn static_service() -> Router {
         ServiceBuilder::new()
             .layer(SetResponseHeaderLayer::if_not_present(
                 CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=31536000, immutable"),
+                // Stable public paths can change between deployments. Keep cached
+                // bodies, but revalidate before reuse (ServeDir supports 304s).
+                HeaderValue::from_static("public, no-cache"),
             ))
             .layer(SetResponseHeaderLayer::if_not_present(
                 X_CONTENT_TYPE_OPTIONS,
@@ -195,6 +197,53 @@ mod tests {
             listen_addr("::", 5555).unwrap(),
             "[::]:5555".parse().unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn static_assets_revalidate_and_versioned_urls_serve_the_same_file() {
+        use axum::http::header::{IF_MODIFIED_SINCE, LAST_MODIFIED};
+
+        let path = "/images/benchmarks/01-canonical-scoreboard.svg";
+        let request = |uri: &str| Request::builder().uri(uri).body(Body::empty()).unwrap();
+        let response = static_service().oneshot(request(path)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[CACHE_CONTROL], "public, no-cache");
+        let modified = response.headers()[LAST_MODIFIED].clone();
+        let original = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+
+        let versioned = static_service()
+            .oneshot(request(&format!(
+                "{path}?v={}",
+                env!("MARKETING_ASSET_VERSION")
+            )))
+            .await
+            .unwrap();
+        assert_eq!(versioned.status(), StatusCode::OK);
+        assert_eq!(versioned.headers()[CACHE_CONTROL], "public, no-cache");
+        assert_eq!(
+            to_bytes(versioned.into_body(), usize::MAX).await.unwrap(),
+            original
+        );
+
+        let unchanged = static_service()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header(IF_MODIFIED_SINCE, modified)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(unchanged.headers()[CACHE_CONTROL], "public, no-cache");
+
+        let missing = static_service()
+            .oneshot(request("/missing-asset.svg"))
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+        assert_eq!(missing.headers()[CACHE_CONTROL], "public, no-cache");
     }
 
     #[tokio::test]

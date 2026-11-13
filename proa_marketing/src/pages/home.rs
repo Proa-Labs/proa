@@ -782,14 +782,15 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkChart {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="min-w-[800px]">
-                <img
-                    src={self.url}
-                    alt={self.description}
-                    width="980"
-                    height={self.height}
-                    loading="lazy"
-                    class="block h-auto w-full"
-                />
+                {crate::components::image::Image {
+                    src: self.url,
+                    alt: self.description,
+                    width: "980",
+                    height: self.height,
+                    loading: Some("lazy"),
+                    class: Some("block h-auto w-full"),
+                    ..Default::default()
+                }}
             </div>
         }
         .render(cx)
@@ -801,7 +802,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkChart {
         md_sync! { r###"
             ### {self.title}
 
-            ![{self.description}]({Url(self.url)})
+            {crate::components::image::Image { src: self.url, alt: self.description, ..Default::default() }}
             "###
         }
         .render_md(cx)
@@ -809,7 +810,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkChart {
 }
 
 impl BenchmarkHighlights {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             tabs_label: "Benchmark charts",
             title: "The numbers behind the speed.",
@@ -820,19 +821,19 @@ impl BenchmarkHighlights {
             benchmarks_url: site::BENCHMARKS_URL,
             render: BenchmarkChart {
                 title: "Render speed",
-                url: "/static/images/benchmarks/01-canonical-scoreboard.svg",
+                url: crate::static_assets::image_url("/static/images/benchmarks/01-canonical-scoreboard.svg"),
                 description: "P50 render latency across 17 renderers and three workloads. Proa uses a fresh owned RenderBuffer, with allocation included and String conversion excluded. Proa was refreshed November 11; peers retain October 21 captures on the same Apple M4 Max.",
                 height: "480",
             },
             http: BenchmarkChart {
                 title: "HTTP capacity",
-                url: "/static/images/benchmarks/21-canonical-pages-http.svg",
+                url: crate::static_assets::image_url("/static/images/benchmarks/21-canonical-pages-http.svg"),
                 description: "HTTP throughput, CPU per response, and peak memory for Proa, React, Marko, Go, and SvelteKit. The dated product-grid capture measured Proa at 20,863 complete responses per second with 9.6 MiB peak memory.",
                 height: "678",
             },
             load: BenchmarkChart {
                 title: "Suspense under load",
-                url: "/static/images/benchmarks/20-suspense-load.svg",
+                url: crate::static_assets::image_url("/static/images/benchmarks/20-suspense-load.svg"),
                 description: "Proa and SvelteKit streaming under increasing load on Apple M4 Max, including throughput, memory, latency, and failures. SvelteKit response end delivers promised data; Proa delivers resolved HTML. See the methodology for completed-browser comparisons.",
                 height: "786",
             },
@@ -1337,44 +1338,47 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroTravelPanel {
                     aria-label="Airbnb listing photos"
                 >
                     <div class="row-span-2 overflow-hidden rounded-[10px] bg-[#f3ede6]">
-                        <img
-                            src="/static/images/airbnb-preview-exterior-420.webp"
-                            srcset="/static/images/airbnb-preview-exterior-420.webp 420w, /static/images/airbnb-preview-exterior-720.webp 720w"
-                            sizes="(max-width: 640px) 58vw, 420px"
-                            alt="Beachfront home exterior below coastal hills"
-                            width="420"
-                            height="327"
-                            loading="eager"
-                            fetchpriority="high"
-                            decoding="async"
-                            class="h-full w-full object-cover"
-                        />
+                        {crate::components::image::Image {
+                            src: "/static/images/airbnb-preview-exterior-420.webp",
+                            srcset: Some("/static/images/airbnb-preview-exterior-420.webp 420w, /static/images/airbnb-preview-exterior-720.webp 720w"),
+                            sizes: Some("(max-width: 640px) 58vw, 420px"),
+                            alt: "Beachfront home exterior below coastal hills",
+                            width: "420",
+                            height: "327",
+                            loading: Some("eager"),
+                            fetchpriority: Some("high"),
+                            decoding: Some("async"),
+                            class: Some("h-full w-full object-cover"),
+                            ..Default::default()
+                        }}
                     </div>
                     <div class="overflow-hidden rounded-[10px] bg-[#eef0f2]">
-                        <img
-                            src="/static/images/airbnb-preview-deck-210.webp"
-                            srcset="/static/images/airbnb-preview-deck-210.webp 210w, /static/images/airbnb-preview-deck-420.webp 420w"
-                            sizes="(max-width: 640px) 29vw, 210px"
-                            alt="Oceanfront deck with outdoor fire feature"
-                            width="210"
-                            height="164"
-                            loading="eager"
-                            decoding="async"
-                            class="h-full w-full object-cover"
-                        />
+                        {crate::components::image::Image {
+                            src: "/static/images/airbnb-preview-deck-210.webp",
+                            srcset: Some("/static/images/airbnb-preview-deck-210.webp 210w, /static/images/airbnb-preview-deck-420.webp 420w"),
+                            sizes: Some("(max-width: 640px) 29vw, 210px"),
+                            alt: "Oceanfront deck with outdoor fire feature",
+                            width: "210",
+                            height: "164",
+                            loading: Some("eager"),
+                            decoding: Some("async"),
+                            class: Some("h-full w-full object-cover"),
+                            ..Default::default()
+                        }}
                     </div>
                     <div class="overflow-hidden rounded-[10px] bg-[#f1efe8]">
-                        <img
-                            src="/static/images/airbnb-preview-bedroom-210.webp"
-                            srcset="/static/images/airbnb-preview-bedroom-210.webp 210w, /static/images/airbnb-preview-bedroom-420.webp 420w"
-                            sizes="(max-width: 640px) 29vw, 210px"
-                            alt="Ocean-view living room with fireplace"
-                            width="210"
-                            height="164"
-                            loading="eager"
-                            decoding="async"
-                            class="h-full w-full object-cover"
-                        />
+                        {crate::components::image::Image {
+                            src: "/static/images/airbnb-preview-bedroom-210.webp",
+                            srcset: Some("/static/images/airbnb-preview-bedroom-210.webp 210w, /static/images/airbnb-preview-bedroom-420.webp 420w"),
+                            sizes: Some("(max-width: 640px) 29vw, 210px"),
+                            alt: "Ocean-view living room with fireplace",
+                            width: "210",
+                            height: "164",
+                            loading: Some("eager"),
+                            decoding: Some("async"),
+                            class: Some("h-full w-full object-cover"),
+                            ..Default::default()
+                        }}
                     </div>
                 </div>
                 <div class="mt-3 flex items-start justify-between gap-4">

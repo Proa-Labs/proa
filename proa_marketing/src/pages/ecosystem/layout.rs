@@ -158,8 +158,15 @@ where
                         <meta charset="utf-8" />
                         <meta name="viewport" content="width=device-width, initial-scale=1" />
                         {proa_core::to_async(DocumentMetadata::new(self.meta))}
-                        <link rel="icon" href="/static/favicon.ico" />
-                        <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+                        <link
+                            rel="icon"
+                            href={crate::static_assets::image_url("/static/favicon.ico")}
+                        />
+                        <link
+                            rel="icon"
+                            type="image/svg+xml"
+                            href={crate::static_assets::image_url("/static/favicon.svg")}
+                        />
                         <link
                             rel="apple-touch-icon"
                             sizes="180x180"

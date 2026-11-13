@@ -315,7 +315,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReferenceShowcases {
                                     playsinline="playsinline"
                                     controls="controls"
                                     preload="metadata"
-                                    poster="/static/images/synthetic/ecosystem-travel.svg"
+                                    poster={crate::static_assets::image_url("/static/images/synthetic/ecosystem-travel.svg")}
                                     class="aspect-video w-full bg-[#0b0b0d] object-cover"
                                 >
                                     <source src={REFERENCE_SHOWCASE_VIDEO_URL} type="video/mp4" />
@@ -411,15 +411,16 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AppVisualPreview<'_> {
         match self.visual {
             AppVisual::Screenshot { src, alt } => html_sync! {
                 <div class="h-[180px] overflow-hidden bg-[#f7f4ee] dark:bg-[#111215]">
-                    <img
-                        src={src}
-                        alt={alt}
-                        width="1440"
-                        height="900"
-                        loading="lazy"
-                        decoding="async"
-                        class="h-full w-full object-cover object-top"
-                    />
+                    {crate::components::image::Image {
+                        src: src,
+                        alt: alt,
+                        width: "1440",
+                        height: "900",
+                        loading: Some("lazy"),
+                        decoding: Some("async"),
+                        class: Some("h-full w-full object-cover object-top"),
+                        ..Default::default()
+                    }}
                 </div>
             }
             .render(cx),

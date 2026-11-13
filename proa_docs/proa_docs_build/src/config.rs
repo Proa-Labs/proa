@@ -260,6 +260,8 @@ impl Postprocess {
 
 #[derive(Debug, Clone, Default)]
 pub struct MarkdownPipeline {
+    /// Explicit local asset destinations and their versioned URLs.
+    pub asset_urls: std::collections::BTreeMap<String, String>,
     pub code_highlight: CodeHighlight,
     pub math: MathMode,
     pub component_indexing: ComponentIndexing,
@@ -269,6 +271,14 @@ pub struct MarkdownPipeline {
 }
 
 impl MarkdownPipeline {
+    /// Version mapped Markdown image/link destinations during compilation.
+    /// Existing query parameters are replaced; fragment identifiers are retained.
+    /// Code examples and unrelated destinations are unchanged.
+    pub fn asset_urls(mut self, urls: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.asset_urls = urls.into_iter().collect();
+        self
+    }
+
     pub fn code_highlighting(mut self, code_highlight: CodeHighlight) -> Self {
         self.code_highlight = code_highlight;
         self
