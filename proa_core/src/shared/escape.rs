@@ -277,7 +277,8 @@ const BYTE_CLASS: [u8; 256] = {
     table
 };
 
-/// Inputs shorter than this are checked one byte at a time before any scan.
+/// Non-empty inputs shorter than this are checked one byte at a time before
+/// any scan.
 ///
 /// Most dynamic values in a template are short: a class name, a number, a
 /// label. The scanning loops below make two or three `memchr` passes over a
@@ -289,10 +290,14 @@ const BYTE_CLASS: [u8; 256] = {
 const SHORT_INPUT: usize = 16;
 
 /// Whether `bytes` is short and holds no byte in `classes`, so that escaping
-/// it would copy it through unchanged.
+/// it would copy it through unchanged in a single write.
+///
+/// Empty input is excluded. The scanning loops write nothing for it, and a
+/// zero-length write is not free on every buffer: `ZeroCopyBuf` would record
+/// an empty part and `StreamingZeroCopyBuf` could allocate its first chunk.
 #[inline(always)]
 fn short_and_unchanged(bytes: &[u8], classes: u8) -> bool {
-    bytes.len() < SHORT_INPUT
+    (1..SHORT_INPUT).contains(&bytes.len())
         && bytes
             .iter()
             .all(|&byte| BYTE_CLASS[byte as usize] & classes == 0)
@@ -1146,21 +1151,39 @@ mod tests {
         assert!(out.contains("--&gt;"));
     }
 
+    /// Records each write an escaper makes, so a test can tell one write from
+    /// two, and no write from an empty one.
+    #[derive(Debug, Default, PartialEq)]
+    struct RecordedWrites(Vec<String>);
+
+    impl EscapeSinkLike for RecordedWrites {
+        fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+            self.0.push(text.to_owned());
+            Ok(())
+        }
+
+        fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+            self.0.push(text.to_owned());
+            Ok(())
+        }
+    }
+
     /// Escape `input` twice: through the entry point, which checks short
-    /// inputs first, and through the scanning loop on its own.
+    /// inputs first, and through the scanning loop on its own. Each result is
+    /// the sequence of writes made.
     fn with_and_without_short_check<P: EscapePolicy>(
         input: &str,
         attr: bool,
-    ) -> [Result<String, WriteError>; 2] {
+    ) -> [Result<RecordedWrites, WriteError>; 2] {
         [true, false].map(|short_check| {
-            let mut buf = Vec::new();
+            let mut writes = RecordedWrites::default();
             match (attr, short_check) {
-                (true, true) => escape_attr_value_inner::<_, P>(&mut buf, input),
-                (true, false) => escape_attr_value_scan::<_, P>(&mut buf, input),
-                (false, true) => escape_text_normal_inner::<_, P>(&mut buf, input),
-                (false, false) => escape_text_normal_scan::<_, P>(&mut buf, input),
+                (true, true) => escape_attr_value_inner::<_, P>(&mut writes, input),
+                (true, false) => escape_attr_value_scan::<_, P>(&mut writes, input),
+                (false, true) => escape_text_normal_inner::<_, P>(&mut writes, input),
+                (false, false) => escape_text_normal_scan::<_, P>(&mut writes, input),
             }
-            .map(|()| String::from_utf8(buf).unwrap())
+            .map(|()| writes)
         })
     }
 
@@ -1170,6 +1193,16 @@ mod tests {
             assert_eq!(checked, scanned, "HTML, attr={attr}, input={input:?}");
             let [checked, scanned] = with_and_without_short_check::<XmlPolicy>(input, attr);
             assert_eq!(checked, scanned, "XML, attr={attr}, input={input:?}");
+        }
+    }
+
+    #[test]
+    fn empty_input_makes_no_write() {
+        for attr in [false, true] {
+            let [checked, _] = with_and_without_short_check::<HtmlPolicy>("", attr);
+            assert_eq!(checked, Ok(RecordedWrites::default()), "HTML, attr={attr}");
+            let [checked, _] = with_and_without_short_check::<XmlPolicy>("", attr);
+            assert_eq!(checked, Ok(RecordedWrites::default()), "XML, attr={attr}");
         }
     }
 
