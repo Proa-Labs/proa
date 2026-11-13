@@ -146,15 +146,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Gallery {
                     <div class="demo-gallery-track">
                         {for (index, (src, alt)) in ATLAS_JACKET_SHOTS.iter().enumerate() {
                             html_sync! {
-                                <img
-                                    class="demo-gallery-shot"
-                                    src={*src}
-                                    alt={*alt}
-                                    width="600"
-                                    height="600"
-                                    loading={if index == 0 { "eager" } else { "lazy" }}
-                                    decoding="async"
-                                />
+                                {crate::components::image::Image { class: Some("demo-gallery-shot"), src: *src, alt: *alt, width: "600", height: "600", loading: Some(if index == 0 { "eager" } else { "lazy" }), decoding: Some("async"), ..Default::default() }}
                             }
                         }}
                     </div>
@@ -163,7 +155,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Gallery {
                     {for (index, (src, _)) in ATLAS_JACKET_SHOTS.iter().enumerate() {
                         html_sync! {
                             <label class="demo-gallery-thumb" for={gallery_input_id(index)}>
-                                <img src={*src} alt="" width="72" height="72" loading="lazy" />
+                                {crate::components::image::Image { src: *src, alt: "", width: "72", height: "72", loading: Some("lazy"), ..Default::default() }}
                             </label>
                         }
                     }}

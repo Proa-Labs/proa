@@ -48,6 +48,13 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
     assert_eq!(headers[header::VARY], "Accept");
     assert!(markdown.starts_with("# "));
     assert!(!markdown.contains("<html"));
+    // HTML, Markdown, and structured chart metadata share the versioned URL.
+    let (_, charts) = crate::pages::home::benchmark_charts();
+    for chart in charts {
+        assert!(chart.url.contains("?v="));
+        assert!(html.contains(chart.url));
+        assert!(markdown.contains(chart.url));
+    }
     assert_eq!(markdown, fetch(&app, "/index.md", "*/*").await.2);
     assert_eq!(markdown, fetch(&app, "/llms.txt", "*/*").await.2);
     assert_eq!(

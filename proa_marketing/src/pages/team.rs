@@ -127,13 +127,14 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
             .add_opt(self.class);
         html_sync! {
             <div data-team-member data-component="team-member" class={classes}>
-                <img
-                    src={self.portrait}
-                    alt={self.name}
-                    width="460"
-                    height="460"
-                    class="aspect-square w-48 rounded-2xl object-cover sm:w-full"
-                />
+                {crate::components::image::Image {
+                    src: self.portrait,
+                    alt: self.name,
+                    width: "460",
+                    height: "460",
+                    class: Some("aspect-square w-48 rounded-2xl object-cover sm:w-full"),
+                    ..Default::default()
+                }}
                 <div>
                     <h2 class="text-2xl font-semibold tracking-tight">{self.name}</h2>
                     <p class="mt-2 text-base font-medium">{self.role}", "{self.organization}</p>
@@ -195,7 +196,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamMember {
 
             {self.role}, {self.organization}
 
-            ![{self.name}]({Url(self.portrait)})
+            {crate::components::image::Image { src: self.portrait, alt: self.name, ..Default::default() }}
 
             {for link in self.links {
                 md_sync! { "- [{link.label()}]({Url(link.href())})\n" }
