@@ -72,26 +72,6 @@ pub fn has_dangerous_url_scheme(url: &str) -> bool {
 #[inline(never)]
 fn has_dangerous_url_scheme_walk(url: &str) -> bool {
     let bytes = url.as_bytes();
-    // Cheap early-out: the vast majority of URL values start with `h`
-    // (http/https), `/`, `#`, `.`, `?`, `m` (mailto), `t` (tel), etc. The
-    // slow path only needs to run when the first non-control byte could
-    // plausibly be the start of `javascript:`, `vbscript:`, or
-    // `data:text/html` — i.e. the ASCII letters j/J, v/V, d/D, OR an
-    // HTML entity reference `&#`. This skips the full scheme walk for
-    // ~99% of real-world attributes without changing the guarantee for
-    // adversarial inputs.
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b <= 0x20 {
-            i += 1;
-            continue;
-        }
-        if !matches!(b, b'j' | b'J' | b'v' | b'V' | b'd' | b'D' | b'&') {
-            return false;
-        }
-        break;
-    }
     prefix_matches_ignoring_controls(bytes, b"javascript:")
         || prefix_matches_ignoring_controls(bytes, b"vbscript:")
         || is_dangerous_data_url(bytes)
