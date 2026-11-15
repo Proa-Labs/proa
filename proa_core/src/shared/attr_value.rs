@@ -123,6 +123,17 @@ impl AttrValue for &str {
         let dialect = cx.__proa_current_escape_dialect();
         crate::shared::escape::escape_attr_value_for_dialect(&mut cx.out, self, dialect)
     }
+
+    #[inline(always)]
+    fn render_attr<B: WriteBuf, L: DataLoader>(
+        &self,
+        name_prefix: &'static str,
+        _name_bool: &'static str,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), crate::shared::write_buf::WriteError> {
+        let dialect = cx.__proa_current_escape_dialect();
+        crate::shared::escape::write_attr_for_dialect(&mut cx.out, name_prefix, self, dialect)
+    }
 }
 
 // Implementation for String - always renders, escapes the value.
@@ -144,6 +155,16 @@ impl AttrValue for String {
     ) -> Result<(), crate::shared::write_buf::WriteError> {
         let dialect = cx.__proa_current_escape_dialect();
         crate::shared::escape::escape_attr_value_for_dialect(&mut cx.out, self.as_str(), dialect)
+    }
+
+    #[inline(always)]
+    fn render_attr<B: WriteBuf, L: DataLoader>(
+        &self,
+        name_prefix: &'static str,
+        name_bool: &'static str,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), crate::shared::write_buf::WriteError> {
+        self.as_str().render_attr(name_prefix, name_bool, cx)
     }
 }
 
