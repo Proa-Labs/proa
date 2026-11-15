@@ -306,7 +306,7 @@ pub(crate) const CHUNK: usize = 16;
 /// Every set of classes the escapers use holds [`ByteClass::Markup`], so these
 /// functions look for the markup bytes unconditionally and for the other two
 /// classes on request.
-#[cfg(all(target_arch = "x86_64", target_feature = "sse2", not(miri)))]
+#[cfg(all(target_arch = "x86_64", target_feature = "sse2"))]
 pub(crate) mod chunk {
     use super::{ByteClass, CHUNK};
     use core::arch::x86_64::{
@@ -342,7 +342,7 @@ pub(crate) mod chunk {
     }
 }
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 pub(crate) mod chunk {
     use super::{ByteClass, CHUNK};
     use core::arch::aarch64::{uint8x16_t, vceqq_u8, vdupq_n_u8, vld1q_u8, vmaxvq_u8, vorrq_u8};
@@ -376,8 +376,8 @@ pub(crate) mod chunk {
 }
 
 #[cfg(not(any(
-    all(target_arch = "x86_64", target_feature = "sse2", not(miri)),
-    all(target_arch = "aarch64", target_feature = "neon", not(miri)),
+    all(target_arch = "x86_64", target_feature = "sse2"),
+    all(target_arch = "aarch64", target_feature = "neon"),
 )))]
 pub(crate) mod chunk {
     use super::{BYTE_CLASS, CHUNK};
