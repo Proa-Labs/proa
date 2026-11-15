@@ -244,7 +244,8 @@ pub trait WriteBuf {
     ///
     /// This is how the escapers write a dynamic value that needs no escaping,
     /// which is nearly every value. A buffer may also return `Ok(false)` for a
-    /// value it would rather not handle here, such as a long one.
+    /// value it would rather not handle here, such as a long one. `classes` is
+    /// a set of the escapers' byte classes and always holds the markup class.
     ///
     /// The default checks `text` and then writes the three pieces one after
     /// another, skipping empty ones. A zero-length write is not free on every
@@ -3009,10 +3010,17 @@ mod tests {
             Ok(false)
         );
         assert_eq!(buf.as_slice(), b"<a");
-        // Too long for the copying check.
+        // Too long for the copying check, in a page that has room for it, so
+        // the length limit is the only thing that turns it away.
+        let mut roomy = ChainedBumpWriter::<256>::new();
         let long = "x".repeat(65);
-        assert_eq!(buf.__append_if_clean("", &long, "", 0b111), Ok(false));
-        assert_eq!(buf.as_slice(), b"<a");
+        assert_eq!(roomy.__append_if_clean("", &long, "", 0b111), Ok(false));
+        assert!(roomy.is_empty());
+        assert_eq!(
+            roomy.__append_if_clean("", &long[..64], "", 0b111),
+            Ok(true)
+        );
+        assert_eq!(roomy.len(), 64);
         // Does not fit in what is left of the page: 2 + 7 + 55 + 1 > 64.
         let wide = "y".repeat(55);
         assert_eq!(

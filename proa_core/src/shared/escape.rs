@@ -1198,8 +1198,10 @@ mod tests {
     ///   checks the value and then writes or scans it;
     /// - through the scanning loop alone;
     /// - through the entry point into a page writer, which checks short values
-    ///   as it copies them. Its pages are 48 bytes and it starts `lead` bytes
-    ///   into one, for each of `leads`, so values land on the end of a page.
+    ///   as it copies them. With 48-byte pages it starts `lead` bytes into
+    ///   one, for each of `leads`, so values land on the end of a page. With a
+    ///   256-byte page every value up to the copying check's 64-byte limit
+    ///   fits, so the limit itself is what turns longer values away.
     fn assert_escapes_by_rule<P: EscapePolicy>(input: &str, attr: bool, leads: &[usize]) {
         let expected = escaped_by_rule::<P>(input, attr);
         let context = || format!("attr={attr}, input={input:?}");
@@ -1236,23 +1238,34 @@ mod tests {
         }
 
         for &lead in leads {
-            let mut pages = crate::shared::write_buf::ChainedBumpWriter::<48>::new();
-            WriteBuf::extend_str(&mut pages, &"-".repeat(lead)).unwrap();
-            let paged = if attr {
-                escape_attr_value_in::<P, _>(&mut pages, input)
-            } else {
-                escape_text_normal_in::<P, _>(&mut pages, input)
-            };
-            match &expected {
-                Ok(expected) => {
-                    assert_eq!(paged, Ok(()), "lead={lead}, {}", context());
-                    let written = String::from_utf8(pages.to_vec()).unwrap();
-                    assert_eq!(&written[lead..], expected, "lead={lead}, {}", context());
-                }
-                Err(error) => {
-                    assert_eq!(paged.as_ref(), Err(error), "lead={lead}, {}", context())
-                }
+            assert_paged_escape::<P, 48>(input, attr, lead, &expected);
+        }
+        assert_paged_escape::<P, 256>(input, attr, 0, &expected);
+    }
+
+    /// Escape `input` into a writer with `N`-byte pages that already holds
+    /// `lead` bytes, and check what it wrote against `expected`.
+    fn assert_paged_escape<P: EscapePolicy, const N: usize>(
+        input: &str,
+        attr: bool,
+        lead: usize,
+        expected: &Result<String, WriteError>,
+    ) {
+        let mut pages = crate::shared::write_buf::ChainedBumpWriter::<N>::new();
+        WriteBuf::extend_str(&mut pages, &"-".repeat(lead)).unwrap();
+        let paged = if attr {
+            escape_attr_value_in::<P, _>(&mut pages, input)
+        } else {
+            escape_text_normal_in::<P, _>(&mut pages, input)
+        };
+        let context = format!("page={N}, lead={lead}, attr={attr}, input={input:?}");
+        match expected {
+            Ok(expected) => {
+                assert_eq!(paged, Ok(()), "{context}");
+                let written = String::from_utf8(pages.to_vec()).unwrap();
+                assert_eq!(&written[lead..], expected, "{context}");
             }
+            Err(error) => assert_eq!(paged.as_ref(), Err(error), "{context}"),
         }
     }
 
